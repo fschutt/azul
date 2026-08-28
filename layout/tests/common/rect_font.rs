@@ -57,7 +57,7 @@ fn glyf_rect(xmin: i16, ymin: i16, xmax: i16, ymax: i16) -> Vec<u8> {
     pu16(&mut out, 3); // endPtsOfContours[0] = 3 (4 points)
     pu16(&mut out, 0); // instructionLength
     out.extend_from_slice(&[0x01, 0x01, 0x01, 0x01]); // on-curve flags
-    // x coords as int16 deltas
+                                                      // x coords as int16 deltas
     pi16(&mut out, xmin);
     pi16(&mut out, xmax - xmin);
     pi16(&mut out, 0);
@@ -93,12 +93,7 @@ pub fn build_rect_font(
     );
     assert!(hi <= 0xFFFF, "cmap format 4 is BMP-only");
 
-    let box_ = (
-        50i16,
-        0i16,
-        advance as i16 - 50,
-        700i16,
-    );
+    let box_ = (50i16, 0i16, advance as i16 - 50, 700i16);
     let n_glyphs = 1 + codepoints.len();
 
     // ---- glyf / loca ----
@@ -171,10 +166,7 @@ pub fn build_rect_font(
     // Build entries: (plat, enc, lang, name_id, data)
     let mut entries: Vec<(u16, u16, u16, u16, Vec<u8>)> = Vec::new();
     for (name_id, value) in &names {
-        let utf16be: Vec<u8> = value
-            .encode_utf16()
-            .flat_map(|u| u.to_be_bytes())
-            .collect();
+        let utf16be: Vec<u8> = value.encode_utf16().flat_map(|u| u.to_be_bytes()).collect();
         entries.push((3, 1, 0x409, *name_id, utf16be));
         // mac-roman: ASCII-only here, so bytes == ascii bytes.
         entries.push((1, 0, 0, *name_id, value.as_bytes().to_vec()));
@@ -330,7 +322,11 @@ pub fn build_rect_font(
         v
     };
     let num = tables.len() as u16;
-    let entry_selector: u16 = if num == 0 { 0 } else { 15 - num.leading_zeros() as u16 };
+    let entry_selector: u16 = if num == 0 {
+        0
+    } else {
+        15 - num.leading_zeros() as u16
+    };
     let search_range: u16 = (1u16 << entry_selector) * 16;
     let mut font = Vec::new();
     pu32(&mut font, 0x0001_0000); // sfnt version

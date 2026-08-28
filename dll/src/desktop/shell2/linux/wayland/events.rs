@@ -101,11 +101,7 @@ static XDG_WM_BASE_LISTENER: xdg_wm_base_listener = xdg_wm_base_listener {
 /// format's memory byte order matches the CPU renderer's RGBA output).
 /// Formats are a property of the compositor, not of a window, so a
 /// process-global flag is correct even with multiple windows.
-extern "C" fn wl_shm_format_handler(
-    _data: *mut c_void,
-    _shm: *mut defines::wl_shm,
-    format: u32,
-) {
+extern "C" fn wl_shm_format_handler(_data: *mut c_void, _shm: *mut defines::wl_shm, format: u32) {
     // Live-run 2026-08-12: the ABGR flag never flipped on KWin — log every
     // received format so "listener never fires" and "fires but AB24 absent"
     // are distinguishable in one run.
@@ -288,7 +284,9 @@ fn apply_os_dpi_change(window: &mut WaylandWindow, new_dpi: u32) {
             ws.size.dpi = new_dpi;
         },
     );
-    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+    window
+        .common
+        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     // Recreate the shm buffers at the new scale (physical = logical × scale) —
     // the old buffers are sized for the previous scale and the copy clamp would
     // truncate every frame.
@@ -551,9 +549,7 @@ pub(super) extern "C" fn registry_global_handler(
                 model: String::new(),
             });
 
-            unsafe {
-                (window.wayland.wl_output_add_listener)(output, &WL_OUTPUT_LISTENER, data)
-            };
+            unsafe { (window.wayland.wl_output_add_listener)(output, &WL_OUTPUT_LISTENER, data) };
             // Same defect class as `xdg_wm_base` above: outputs bound during the
             // initial roundtrip carry the stack pointer, and the old rebind array
             // had no entry for them — a monitor scale/geometry change would have
@@ -571,12 +567,8 @@ pub(super) extern "C" fn registry_global_handler(
             // `wl_registry_bind` which marshals the special "usun" bind signature
             // correctly (same fix as the KDE blur-manager bind).
             let manager = unsafe {
-                (window.wayland.wl_registry_bind)(
-                    registry,
-                    name,
-                    manager_interface,
-                    version.min(1),
-                ) as *mut zwp_text_input_manager_v3
+                (window.wayland.wl_registry_bind)(registry, name, manager_interface, version.min(1))
+                    as *mut zwp_text_input_manager_v3
             };
 
             if !manager.is_null() {
@@ -593,26 +585,48 @@ pub(super) extern "C" fn registry_global_handler(
                     // -> fatal wl_display error). Marshal via wl_proxy_marshal_flags with
                     // the interface + NULL new_id + seat (fallback to marshal_constructor).
                     let text_input = unsafe {
-                        let version = (window.wayland.wl_proxy_get_version)(manager as *mut wl_proxy);
+                        let version =
+                            (window.wayland.wl_proxy_get_version)(manager as *mut wl_proxy);
                         if !window.wayland.wl_proxy_marshal_flags.is_null() {
                             type GetFlags = unsafe extern "C" fn(
-                                *mut wl_proxy, u32, *const wl_interface, u32, u32,
-                                *mut std::ffi::c_void, *mut wl_seat,
-                            ) -> *mut wl_proxy;
-                            let f: GetFlags = std::mem::transmute(window.wayland.wl_proxy_marshal_flags);
-                            f(manager as *mut wl_proxy,
-                              defines::ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT,
-                              text_input_interface, version, 0,
-                              std::ptr::null_mut(), window.seat) as *mut zwp_text_input_v3
+                                *mut wl_proxy,
+                                u32,
+                                *const wl_interface,
+                                u32,
+                                u32,
+                                *mut std::ffi::c_void,
+                                *mut wl_seat,
+                            )
+                                -> *mut wl_proxy;
+                            let f: GetFlags =
+                                std::mem::transmute(window.wayland.wl_proxy_marshal_flags);
+                            f(
+                                manager as *mut wl_proxy,
+                                defines::ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT,
+                                text_input_interface,
+                                version,
+                                0,
+                                std::ptr::null_mut(),
+                                window.seat,
+                            ) as *mut zwp_text_input_v3
                         } else {
                             type GetCtor = unsafe extern "C" fn(
-                                *mut wl_proxy, u32, *const wl_interface,
-                                *mut std::ffi::c_void, *mut wl_seat,
-                            ) -> *mut wl_proxy;
-                            let f: GetCtor = std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
-                            f(manager as *mut wl_proxy,
-                              defines::ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT,
-                              text_input_interface, std::ptr::null_mut(), window.seat) as *mut zwp_text_input_v3
+                                *mut wl_proxy,
+                                u32,
+                                *const wl_interface,
+                                *mut std::ffi::c_void,
+                                *mut wl_seat,
+                            )
+                                -> *mut wl_proxy;
+                            let f: GetCtor =
+                                std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
+                            f(
+                                manager as *mut wl_proxy,
+                                defines::ZWP_TEXT_INPUT_MANAGER_V3_GET_TEXT_INPUT,
+                                text_input_interface,
+                                std::ptr::null_mut(),
+                                window.seat,
+                            ) as *mut zwp_text_input_v3
                         }
                     };
 
@@ -758,7 +772,9 @@ pub(super) extern "C" fn toplevel_decoration_configure_handler(
                 ws.flags.has_decorations = true;
             },
         );
-        window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         window.request_redraw();
     }
 }
@@ -929,7 +945,9 @@ extern "C" fn tablet_seat_tool_added(
     id: *mut zwp_tablet_tool_v2,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    unsafe { (window.wayland.zwp_tablet_tool_v2_add_listener)(id, &ZWP_TABLET_TOOL_LISTENER, data) };
+    unsafe {
+        (window.wayland.zwp_tablet_tool_v2_add_listener)(id, &ZWP_TABLET_TOOL_LISTENER, data)
+    };
     window.track_listener(id);
 }
 extern "C" fn tablet_seat_pad_added(
@@ -960,7 +978,11 @@ extern "C" fn pad_group(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     unsafe {
-        (window.wayland.zwp_tablet_pad_group_v2_add_listener)(id, &ZWP_TABLET_PAD_GROUP_LISTENER, data)
+        (window.wayland.zwp_tablet_pad_group_v2_add_listener)(
+            id,
+            &ZWP_TABLET_PAD_GROUP_LISTENER,
+            data,
+        )
     };
     window.track_listener(id);
 }
@@ -1037,7 +1059,11 @@ extern "C" fn pad_group_ring(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     unsafe {
-        (window.wayland.zwp_tablet_pad_ring_v2_add_listener)(id, &ZWP_TABLET_PAD_RING_LISTENER, data)
+        (window.wayland.zwp_tablet_pad_ring_v2_add_listener)(
+            id,
+            &ZWP_TABLET_PAD_RING_LISTENER,
+            data,
+        )
     };
     window.track_listener(id);
 }
@@ -1197,7 +1223,12 @@ extern "C" fn tool_rotation(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, degr
     window.tablet_pen.rotation = (degrees as f32 / 256.0) * core::f32::consts::PI / 180.0;
 }
 extern "C" fn tool_slider(_d: *mut c_void, _t: *mut zwp_tablet_tool_v2, _position: i32) {}
-extern "C" fn tool_wheel(_d: *mut c_void, _t: *mut zwp_tablet_tool_v2, _degrees: i32, _clicks: i32) {
+extern "C" fn tool_wheel(
+    _d: *mut c_void,
+    _t: *mut zwp_tablet_tool_v2,
+    _degrees: i32,
+    _clicks: i32,
+) {
 }
 extern "C" fn tool_button(
     _d: *mut c_void,
@@ -1339,8 +1370,7 @@ impl WaylandDragState {
     /// `has_uri_list` — and it promotes the advertisement of this offer, never
     /// of whatever clipboard offer happened to arrive last.
     pub(super) fn begin_drag(&mut self, id: *mut wl_data_offer) {
-        self.has_uri_list =
-            !id.is_null() && id == self.pending_offer && self.pending_has_uri_list;
+        self.has_uri_list = !id.is_null() && id == self.pending_offer && self.pending_has_uri_list;
     }
 }
 
@@ -1613,8 +1643,7 @@ const OFFER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3
 /// any peer that is actually alive (a real transfer is a few milliseconds),
 /// short enough that a dead one costs a hitch instead of a freeze. Same budget,
 /// same reasoning, as `x11/clipboard.rs::PASTE_UI_DEADLINE`.
-pub(super) const PASTE_UI_DEADLINE: std::time::Duration =
-    std::time::Duration::from_millis(400);
+pub(super) const PASTE_UI_DEADLINE: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// `wl_data_offer.receive` — opcode 1, signature "sh".
 const WL_DATA_OFFER_RECEIVE_OPCODE: u32 = 1;
@@ -1967,8 +1996,7 @@ static PRIMARY_SELECTION_OFFER_LISTENER: zwp_primary_selection_offer_v1_listener
         offer: primary_selection_offer_mime,
     };
 
-pub(super) static PRIMARY_SELECTION_SOURCE_LISTENER:
-    zwp_primary_selection_source_v1_listener =
+pub(super) static PRIMARY_SELECTION_SOURCE_LISTENER: zwp_primary_selection_source_v1_listener =
     zwp_primary_selection_source_v1_listener {
         send: primary_selection_source_send,
         cancelled: primary_selection_source_cancelled,
@@ -1977,10 +2005,7 @@ pub(super) static PRIMARY_SELECTION_SOURCE_LISTENER:
 /// Create the primary-selection device once both the manager and the seat are
 /// bound (idempotent; called from both registry arms in either order — mirrors
 /// `try_init_data_device`).
-pub(super) unsafe fn try_init_primary_selection(
-    window: &mut WaylandWindow,
-    data: *mut c_void,
-) {
+pub(super) unsafe fn try_init_primary_selection(window: &mut WaylandWindow, data: *mut c_void) {
     if window.primary_selection_initialized
         || window.primary_selection_manager.is_null()
         || window.seat.is_null()
@@ -1995,8 +2020,7 @@ pub(super) unsafe fn try_init_primary_selection(
         *mut c_void,
         *mut wl_seat,
     ) -> *mut wl_proxy;
-    let ctor: GetDeviceCtor =
-        std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
+    let ctor: GetDeviceCtor = std::mem::transmute(window.wayland.wl_proxy_marshal_constructor);
     let dev = ctor(
         window.primary_selection_manager as *mut wl_proxy,
         1,
@@ -2230,18 +2254,14 @@ pub(super) extern "C" fn seat_capabilities_handler(
     if capabilities & WL_SEAT_CAPABILITY_POINTER != 0 {
         let pointer = unsafe { (window.wayland.wl_seat_get_pointer)(seat) };
         window.pointer_state.pointer = pointer;
-        unsafe {
-            (window.wayland.wl_pointer_add_listener)(pointer, &WL_POINTER_LISTENER, data)
-        };
+        unsafe { (window.wayland.wl_pointer_add_listener)(pointer, &WL_POINTER_LISTENER, data) };
         window.track_listener(pointer);
     }
 
     if capabilities & WL_SEAT_CAPABILITY_KEYBOARD != 0 {
         let keyboard = unsafe { (window.wayland.wl_seat_get_keyboard)(seat) };
         window.keyboard = keyboard;
-        unsafe {
-            (window.wayland.wl_keyboard_add_listener)(keyboard, &WL_KEYBOARD_LISTENER, data)
-        };
+        unsafe { (window.wayland.wl_keyboard_add_listener)(keyboard, &WL_KEYBOARD_LISTENER, data) };
         window.track_listener(keyboard);
     }
 
@@ -2339,8 +2359,7 @@ pub(super) extern "C" fn keyboard_keymap_handler(
     // that replace the one above. Built once: a second keymap event must not
     // throw away a sequence in flight.
     if window.keyboard_state.compose.is_none() {
-        window.keyboard_state.compose =
-            window.xkb.compose_fns().and_then(ComposeSequencer::new);
+        window.keyboard_state.compose = window.xkb.compose_fns().and_then(ComposeSequencer::new);
     }
 }
 
@@ -2435,7 +2454,9 @@ pub(super) extern "C" fn xdg_surface_configure_handler(
     // (which chooses fast/full), and non-size configures (activation, tiling
     // states) change no layout input at all.
     if first_configure {
-        window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     }
     // request_redraw() raises needs_redraw so the frame that applies whatever
     // was decided actually happens.
@@ -2551,10 +2572,8 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
             window.configure_size_changed = true;
             // Store old context for breakpoint detection
             let old_context = window.dynamic_selector_context.clone();
-            let old_logical = azul_core::geom::LogicalSize::new(
-                current_width as f32,
-                current_height as f32,
-            );
+            let old_logical =
+                azul_core::geom::LogicalSize::new(current_width as f32, current_height as f32);
 
             window.common.update_window_state(
                 crate::desktop::shell2::common::event::WindowStateSource::Os,
@@ -2580,7 +2599,11 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
                 current_height,
                 width,
                 height,
-                if full { "FULL regeneration (boundary crossed)" } else { "fast relayout" },
+                if full {
+                    "FULL regeneration (boundary crossed)"
+                } else {
+                    "fast relayout"
+                },
             );
 
             // Update dynamic selector context with new viewport dimensions
@@ -2593,12 +2616,10 @@ pub(super) extern "C" fn xdg_toplevel_configure_handler(
             };
 
             // Check if any CSS breakpoints were crossed
-            if old_context
-                .viewport_breakpoint_changed(
-                    &window.dynamic_selector_context,
-                    super::super::super::common::CSS_BREAKPOINTS,
-                )
-            {
+            if old_context.viewport_breakpoint_changed(
+                &window.dynamic_selector_context,
+                super::super::super::common::CSS_BREAKPOINTS,
+            ) {
                 log_debug!(
                     LogCategory::Layout,
                     "[Wayland Resize] Breakpoint crossed: {}x{} -> {}x{}",
@@ -2831,7 +2852,11 @@ extern "C" fn keyboard_repeat_info_handler(
     // rate = characters per second (0 = repeat disabled), delay = ms before
     // the first repeat. Was an empty stub → no key repeat at all on Wayland.
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.key_repeat_rate_ms = if rate > 0 { (1000 / rate.max(1)) as u32 } else { 0 };
+    window.key_repeat_rate_ms = if rate > 0 {
+        (1000 / rate.max(1)) as u32
+    } else {
+        0
+    };
     window.key_repeat_delay_ms = delay.max(0) as u32;
 }
 
@@ -2930,7 +2955,10 @@ pub(super) extern "C" fn text_input_preedit_string_handler(
     let preedit = if text.is_null() {
         None
     } else {
-        unsafe { CStr::from_ptr(text) }.to_str().ok().map(|s| s.to_string())
+        unsafe { CStr::from_ptr(text) }
+            .to_str()
+            .ok()
+            .map(|s| s.to_string())
     };
     log_debug!(
         LogCategory::Platform,
@@ -2953,7 +2981,10 @@ pub(super) extern "C" fn text_input_commit_string_handler(
     let commit = if text.is_null() {
         None
     } else {
-        unsafe { CStr::from_ptr(text) }.to_str().ok().map(|s| s.to_string())
+        unsafe { CStr::from_ptr(text) }
+            .to_str()
+            .ok()
+            .map(|s| s.to_string())
     };
     log_debug!(
         LogCategory::Platform,
@@ -3056,7 +3087,8 @@ pub(super) extern "C" fn text_input_done_handler(
     // Step 3: Update preedit display + request redraw
     if let Some(ref mut lw) = window.common.layout_window {
         if let Some(ref preedit) = preedit_text {
-            lw.text_edit_manager.set_preedit(preedit.clone(), preedit_begin, preedit_end);
+            lw.text_edit_manager
+                .set_preedit(preedit.clone(), preedit_begin, preedit_end);
         } else {
             lw.text_edit_manager.clear_preedit();
         }
@@ -3082,8 +3114,7 @@ mod tests {
     // Recorded libwayland calls. A `wl_data_offer` must be disposed of with
     // BOTH the destroy request and `wl_proxy_destroy`; the bug this pins
     // sent only one of them, and which one differed per call site.
-    static MARSHAL_CALLS: std::sync::Mutex<Vec<(usize, u32)>> =
-        std::sync::Mutex::new(Vec::new());
+    static MARSHAL_CALLS: std::sync::Mutex<Vec<(usize, u32)>> = std::sync::Mutex::new(Vec::new());
     static DESTROY_CALLS: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
     /// Interleaved order: ("marshal"|"destroy", proxy).
     static ORDER: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
@@ -3112,8 +3143,14 @@ mod tests {
     #[must_use]
     fn reset() -> std::sync::MutexGuard<'static, ()> {
         let guard = RECORDER.lock().unwrap_or_else(|e| e.into_inner());
-        MARSHAL_CALLS.lock().unwrap_or_else(|e| e.into_inner()).clear();
-        DESTROY_CALLS.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        MARSHAL_CALLS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        DESTROY_CALLS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         ORDER.lock().unwrap_or_else(|e| e.into_inner()).clear();
         guard
     }
@@ -3322,7 +3359,10 @@ mod tests {
             assert_eq!(CStr::from_ptr(event.name).to_string_lossy(), "data_offer");
             assert!(!event.types.is_null());
             let referenced = *event.types;
-            assert!(!referenced.is_null(), "data_offer's new_id has no interface");
+            assert!(
+                !referenced.is_null(),
+                "data_offer's new_id has no interface"
+            );
             assert_eq!(
                 CStr::from_ptr((*referenced).name).to_string_lossy(),
                 "zwp_primary_selection_offer_v1"
@@ -3363,7 +3403,8 @@ mod tests {
             methods
                 .iter()
                 .position(|(n, _)| n == name)
-                .unwrap_or_else(|| panic!("{name} is not in the offer interface")) as u32
+                .unwrap_or_else(|| panic!("{name} is not in the offer interface"))
+                as u32
         };
         assert_eq!(PRIMARY_OFFER_RECEIVE_OPCODE, position("receive"));
         assert_eq!(PRIMARY_OFFER_DESTROY_OPCODE, position("destroy"));
@@ -3379,7 +3420,9 @@ mod tests {
     #[test]
     fn a_null_primary_offer_calls_nothing() {
         let _recorder = reset();
-        unsafe { destroy_primary_offer_raw(stub_marshal, stub_proxy_destroy, std::ptr::null_mut()) };
+        unsafe {
+            destroy_primary_offer_raw(stub_marshal, stub_proxy_destroy, std::ptr::null_mut())
+        };
         assert!(MARSHAL_CALLS.lock().unwrap().is_empty());
         assert!(DESTROY_CALLS.lock().unwrap().is_empty());
     }
@@ -3520,9 +3563,7 @@ mod tests {
     #[test]
     fn a_null_offer_calls_nothing() {
         let _recorder = reset();
-        unsafe {
-            destroy_data_offer_raw(stub_marshal, stub_proxy_destroy, std::ptr::null_mut())
-        };
+        unsafe { destroy_data_offer_raw(stub_marshal, stub_proxy_destroy, std::ptr::null_mut()) };
         assert!(MARSHAL_CALLS.lock().unwrap().is_empty());
         assert!(DESTROY_CALLS.lock().unwrap().is_empty());
     }
@@ -3644,10 +3685,10 @@ mod tests {
             alloc: 0,
             data: std::ptr::null_mut(),
         };
-        assert!(unsafe {
-            held_keycodes_from_wl_array(&mut empty as *mut wl_array as *mut c_void)
-        }
-        .is_empty());
+        assert!(
+            unsafe { held_keycodes_from_wl_array(&mut empty as *mut wl_array as *mut c_void) }
+                .is_empty()
+        );
     }
 
     /// A `wl_data_offer` pipe whose FOREIGN source never writes and never
@@ -3718,9 +3759,8 @@ mod tests {
             unsafe { libc::close(write_fd) };
         });
 
-        let got = unsafe {
-            drain_offer_pipe(read_fd, std::time::Duration::from_secs(5), "text/plain")
-        };
+        let got =
+            unsafe { drain_offer_pipe(read_fd, std::time::Duration::from_secs(5), "text/plain") };
         writer.join().unwrap();
         assert_eq!(got.len(), expected);
         assert!(got.iter().all(|b| *b == b'z'));

@@ -19,10 +19,10 @@ use hyphenation::Language;
 use azul_layout::font_traits::FontLoaderTrait;
 use azul_layout::text3::{
     cache::{
-        BidiLevel, BidiDirection, FontSelector, FontStack, Glyph, LineHeight,
-        GlyphOrientation, GlyphSource, LayoutError, LayoutFontMetrics, ParsedFontTrait, Point,
-        PositionedItem, ShapedItem, Spacing, StyleProperties, TextDecoration, TextOrientation,
-        TextTransform, VerticalMetrics, WritingMode,
+        BidiDirection, BidiLevel, FontSelector, FontStack, Glyph, GlyphOrientation, GlyphSource,
+        LayoutError, LayoutFontMetrics, LineHeight, ParsedFontTrait, Point, PositionedItem,
+        ShapedItem, Spacing, StyleProperties, TextDecoration, TextOrientation, TextTransform,
+        VerticalMetrics, WritingMode,
     },
     script::Script,
 };
@@ -85,7 +85,13 @@ pub fn perform_fragment_layout_compat(
     constraints: &azul_layout::text3::cache::UnifiedConstraints,
 ) -> Result<azul_layout::text3::cache::UnifiedLayout, LayoutError> {
     let loaded = mock_loaded_fonts();
-    azul_layout::text3::cache::perform_fragment_layout(cursor, logical, constraints, &mut None, &loaded)
+    azul_layout::text3::cache::perform_fragment_layout(
+        cursor,
+        logical,
+        constraints,
+        &mut None,
+        &loaded,
+    )
 }
 
 pub fn break_one_line_compat<'a>(
@@ -224,7 +230,11 @@ impl ParsedFontTrait for MockFont {
                         vertical_bearing: Point::default(),
                         orientation: GlyphOrientation::Horizontal,
                         script,
-                        bidi_level: BidiLevel::new(if direction == BidiDirection::Rtl { 1 } else { 0 }),
+                        bidi_level: BidiLevel::new(if direction == BidiDirection::Rtl {
+                            1
+                        } else {
+                            0
+                        }),
                     });
 
                     text_cursor += lig_str.chars().count();
@@ -258,7 +268,11 @@ impl ParsedFontTrait for MockFont {
                 vertical_bearing: Point::default(),
                 orientation: GlyphOrientation::Horizontal,
                 script, // Simplified for mock
-                bidi_level: BidiLevel::new(if direction == BidiDirection::Rtl { 1 } else { 0 }),
+                bidi_level: BidiLevel::new(if direction == BidiDirection::Rtl {
+                    1
+                } else {
+                    0
+                }),
             });
             text_cursor += 1;
         }
@@ -344,7 +358,6 @@ impl MockFontManager {
         }
     }
 }
-
 
 pub fn create_mock_font_manager() -> MockFontManager {
     let mut glyphs = HashMap::new();

@@ -41,7 +41,8 @@ use crate::{
 /// - `font_bytes` - The raw font file data
 /// - `font_index` - Index of the font in a font collection (0 for single fonts)
 /// - `parse_outlines` - Whether to parse glyph outlines (expensive, usually false for layout)
-#[must_use] pub fn font_ref_from_bytes(
+#[must_use]
+pub fn font_ref_from_bytes(
     font_bytes: &[u8],
     font_index: usize,
     parse_outlines: bool,
@@ -62,7 +63,8 @@ pub struct PathLoader;
 
 impl PathLoader {
     /// Creates a new `PathLoader`.
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self
     }
 
@@ -70,7 +72,11 @@ impl PathLoader {
     /// Convenience wrapper for callers that have a path but no
     /// `Arc<FontBytes>` yet — uses a heap read (`Owned`) since a
     /// loose path won't go through the fontconfig dedup cache.
-    pub(crate) fn load_from_path(self, path: &Path, font_index: usize) -> Result<FontRef, LayoutError> {
+    pub(crate) fn load_from_path(
+        self,
+        path: &Path,
+        font_index: usize,
+    ) -> Result<FontRef, LayoutError> {
         let font_bytes = std::fs::read(path).map_err(|_| {
             LayoutError::FontNotFound(FontSelector {
                 family: path.to_string_lossy().into_owned(),
@@ -126,7 +132,8 @@ impl FontManager<FontRef> {
     /// from a memory-pressure hook or on a timer; servo-shot
     /// exposes it via `--azul-evict-after-each` for measurement.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    #[must_use] pub fn evict_unused(&self, idle: std::time::Duration) -> usize {
+    #[must_use]
+    pub fn evict_unused(&self, idle: std::time::Duration) -> usize {
         use crate::font::parsed::ParsedFont;
         let Ok(parsed) = self.parsed_fonts.lock() else {
             return 0;
@@ -151,7 +158,6 @@ impl FontManager<FontRef> {
         evicted
     }
 }
-
 
 // ParsedFontTrait Implementation for FontRef
 
@@ -252,11 +258,11 @@ impl FontRefExt for FontRef {
             ul_code_page_range2: OptionU32::None,
 
             // OS/2 table (u32 fields)
-            ul_unicode_range1: 0,   // Not in PdfFontMetrics
-            ul_unicode_range2: 0,   // Not in PdfFontMetrics
-            ul_unicode_range3: 0,   // Not in PdfFontMetrics
-            ul_unicode_range4: 0,   // Not in PdfFontMetrics
-            ach_vend_id: 0,         // Not in PdfFontMetrics
+            ul_unicode_range1: 0, // Not in PdfFontMetrics
+            ul_unicode_range2: 0, // Not in PdfFontMetrics
+            ul_unicode_range3: 0, // Not in PdfFontMetrics
+            ul_unicode_range4: 0, // Not in PdfFontMetrics
+            ach_vend_id: 0,       // Not in PdfFontMetrics
 
             // OS/2 version 0 fields (optional)
             s_typo_ascender: OptionI16::None,
@@ -312,7 +318,7 @@ impl FontRefExt for FontRef {
             y_superscript_y_offset: 0, // Not in PdfFontMetrics
             y_strikeout_size: pdf.y_strikeout_size,
             y_strikeout_position: pdf.y_strikeout_position,
-            s_family_class: 0, // Not in PdfFontMetrics
+            s_family_class: 0,      // Not in PdfFontMetrics
             fs_selection: 0,        // Not in PdfFontMetrics
             us_first_char_index: 0, // Not in PdfFontMetrics
             us_last_char_index: 0,  // Not in PdfFontMetrics
@@ -413,7 +419,11 @@ const FALLBACK_SCALE: f32 = 0.01;
 /// are enabled rather than relying on allsorts' defaults which may change.
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 fn build_feature_mask_for_script(script: Script) -> FeatureMask {
-    use Script::{Arabic, Devanagari, Bengali, Gujarati, Gurmukhi, Kannada, Malayalam, Oriya, Tamil, Telugu, Myanmar, Khmer, Thai, Hebrew, Hangul, Ethiopic, Latin, Greek, Cyrillic, Georgian, Hiragana, Katakana, Mandarin, Sinhala};
+    use Script::{
+        Arabic, Bengali, Cyrillic, Devanagari, Ethiopic, Georgian, Greek, Gujarati, Gurmukhi,
+        Hangul, Hebrew, Hiragana, Kannada, Katakana, Khmer, Latin, Malayalam, Mandarin, Myanmar,
+        Oriya, Sinhala, Tamil, Telugu, Thai,
+    };
 
     // Start with common features that apply to most scripts
     let mut mask = FeatureMask::default_mask(); // Includes: CALT, CCMP, CLIG, LIGA, LOCL, RLIG
@@ -426,8 +436,8 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
             mask |= Feature::MEDI; // Medial forms (middle of word)
             mask |= Feature::FINA; // Final forms (end of word)
             mask |= Feature::ISOL; // Isolated forms (standalone)
-                                       // Note: RLIG (required ligatures) already in default for
-                                       // lam-alef ligatures
+                                   // Note: RLIG (required ligatures) already in default for
+                                   // lam-alef ligatures
         }
 
         // Indic scripts - require complex conjunct formation and reordering
@@ -521,7 +531,11 @@ fn build_feature_mask_for_script(script: Script) -> FeatureMask {
 /// Maps the layout engine's `Script` enum to an OpenType script tag `u32`.
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn to_opentype_script_tag(script: Script) -> u32 {
-    use Script::{Arabic, Bengali, Cyrillic, Devanagari, Ethiopic, Georgian, Greek, Gujarati, Gurmukhi, Hangul, Hebrew, Hiragana, Kannada, Katakana, Khmer, Latin, Malayalam, Mandarin, Myanmar, Oriya, Sinhala, Tamil, Telugu, Thai};
+    use Script::{
+        Arabic, Bengali, Cyrillic, Devanagari, Ethiopic, Georgian, Greek, Gujarati, Gurmukhi,
+        Hangul, Hebrew, Hiragana, Kannada, Katakana, Khmer, Latin, Malayalam, Mandarin, Myanmar,
+        Oriya, Sinhala, Tamil, Telugu, Thai,
+    };
     // Tags from https://docs.microsoft.com/en-us/typography/opentype/spec/scripttags
     match script {
         Arabic => u32::from_be_bytes(*b"arab"),
@@ -632,7 +646,18 @@ fn add_variant_features(style: &StyleProperties, features: &mut Vec<FeatureInfo>
 #[cfg(feature = "text_layout_hyphenation")]
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
-    use hyphenation::Language::{Afrikaans, Albanian, Armenian, Assamese, Basque, Belarusian, Bengali, Bulgarian, Catalan, Chinese, Coptic, Croatian, Czech, Danish, Dutch, EnglishGB, EnglishUS, Esperanto, Estonian, Ethiopic, Finnish, FinnishScholastic, French, Friulan, Galician, Georgian, German1901, German1996, GermanSwiss, GreekAncient, GreekMono, GreekPoly, Gujarati, Hindi, Hungarian, Icelandic, Indonesian, Interlingua, Irish, Italian, Kannada, Kurmanji, Latin, LatinClassic, LatinLiturgical, Latvian, Lithuanian, Macedonian, Malayalam, Marathi, Mongolian, NorwegianBokmal, NorwegianNynorsk, Occitan, Oriya, Pali, Panjabi, Piedmontese, Polish, Portuguese, Romanian, Romansh, Russian, Sanskrit, SerbianCyrillic, SerbocroatianCyrillic, SerbocroatianLatin, SlavonicChurch, Slovak, Slovenian, Spanish, Swedish, Tamil, Telugu, Thai, Turkish, Turkmen, Ukrainian, Uppersorbian, Welsh};
+    use hyphenation::Language::{
+        Afrikaans, Albanian, Armenian, Assamese, Basque, Belarusian, Bengali, Bulgarian, Catalan,
+        Chinese, Coptic, Croatian, Czech, Danish, Dutch, EnglishGB, EnglishUS, Esperanto, Estonian,
+        Ethiopic, Finnish, FinnishScholastic, French, Friulan, Galician, Georgian, German1901,
+        German1996, GermanSwiss, GreekAncient, GreekMono, GreekPoly, Gujarati, Hindi, Hungarian,
+        Icelandic, Indonesian, Interlingua, Irish, Italian, Kannada, Kurmanji, Latin, LatinClassic,
+        LatinLiturgical, Latvian, Lithuanian, Macedonian, Malayalam, Marathi, Mongolian,
+        NorwegianBokmal, NorwegianNynorsk, Occitan, Oriya, Pali, Panjabi, Piedmontese, Polish,
+        Portuguese, Romanian, Romansh, Russian, Sanskrit, SerbianCyrillic, SerbocroatianCyrillic,
+        SerbocroatianLatin, SlavonicChurch, Slovak, Slovenian, Spanish, Swedish, Tamil, Telugu,
+        Thai, Turkish, Turkmen, Ukrainian, Uppersorbian, Welsh,
+    };
     // A complete list of language tags can be found at:
     // https://docs.microsoft.com/en-us/typography/opentype/spec/languagetags
     let tag_bytes = match lang {
@@ -722,7 +747,11 @@ const fn to_opentype_lang_tag(lang: hyphenation::Language) -> u32 {
 
 /// Internal shaping implementation - the single source of truth for text shaping.
 /// Both `FontRef` and `ParsedFont` use this function.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)] // bounded layout/render numeric cast
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn shape_text_internal(
@@ -919,8 +948,8 @@ fn shape_text_internal(
         // cpurender-less build honest about AZ_HINT_LIGHT=0 being a
         // raster-side knob it cannot honor.
         #[cfg(feature = "cpurender")]
-        let hint_light = crate::glyph_cache::hint_light_enabled()
-            || !crate::glyph_cache::text_hinting_enabled();
+        let hint_light =
+            crate::glyph_cache::hint_light_enabled() || !crate::glyph_cache::text_hinting_enabled();
         #[cfg(not(feature = "cpurender"))]
         let hint_light = true;
         let advance = if hint_light {
@@ -965,8 +994,10 @@ fn shape_text_internal(
             },
             vertical_advance: vert.as_ref().map_or(0.0, |v| v.advance * font_size),
             vertical_origin_y: vert.as_ref().map_or(0.0, |v| v.origin_y * font_size),
-            vertical_bearing: vert
-                .map_or(Point { x: 0.0, y: 0.0 }, |v| Point { x: v.bearing_x * font_size, y: v.bearing_y * font_size }),
+            vertical_bearing: vert.map_or(Point { x: 0.0, y: 0.0 }, |v| Point {
+                x: v.bearing_x * font_size,
+                y: v.bearing_y * font_size,
+            }),
             orientation: GlyphOrientation::Horizontal,
             script,
             bidi_level,
@@ -1140,8 +1171,8 @@ mod autotest_generated {
 
     #[test]
     fn font_ref_from_bytes_valid_minimal_positive_control() {
-        let font_ref =
-            font_ref_from_bytes(MOCK_MONO, 0, false).expect("Azul Mock Mono must parse into a FontRef");
+        let font_ref = font_ref_from_bytes(MOCK_MONO, 0, false)
+            .expect("Azul Mock Mono must parse into a FontRef");
         assert!(font_ref.num_glyphs() > 0, "a real font has glyphs");
         assert_eq!(font_ref.get_hash(), mock().get_hash());
         assert!(font_ref.has_glyph('a' as u32));
@@ -1179,8 +1210,12 @@ mod autotest_generated {
         let a = PathLoader::new();
         let b = PathLoader;
         // both handles behave identically: no hidden per-instance state
-        assert!(a.load_from_path(Path::new("/nonexistent/azul/x.ttf"), 0).is_err());
-        assert!(b.load_from_path(Path::new("/nonexistent/azul/x.ttf"), 0).is_err());
+        assert!(a
+            .load_from_path(Path::new("/nonexistent/azul/x.ttf"), 0)
+            .is_err());
+        assert!(b
+            .load_from_path(Path::new("/nonexistent/azul/x.ttf"), 0)
+            .is_err());
     }
 
     #[test]
@@ -1391,7 +1426,8 @@ mod autotest_generated {
             "\u{FFFD}\u{FDD0}\u{F0000}",
             "a\u{200B}b\u{00AD}c",
         ] {
-            let glyphs = shape(&font, text).unwrap_or_else(|e| panic!("{text:?} must shape: {e:?}"));
+            let glyphs =
+                shape(&font, text).unwrap_or_else(|e| panic!("{text:?} must shape: {e:?}"));
             assert!(!glyphs.is_empty(), "{text:?} produced no glyphs");
             assert_spans_are_sane(&glyphs, text);
         }
@@ -1403,7 +1439,10 @@ mod autotest_generated {
         assert_eq!(glyphs.len(), 1);
         assert_eq!(glyphs[0].codepoint, '\u{1F600}');
         assert_eq!(glyphs[0].logical_byte_index, 0);
-        assert_eq!(glyphs[0].logical_byte_len, 4, "the whole 4-byte char is covered");
+        assert_eq!(
+            glyphs[0].logical_byte_len, 4,
+            "the whole 4-byte char is covered"
+        );
         assert_eq!(
             glyphs[0].glyph_id,
             font.lookup_glyph_index('\u{1F600}' as u32).unwrap_or(0)
@@ -1553,7 +1592,7 @@ mod autotest_generated {
                 "liga=-1".to_string(),
                 "liga=99999999999999999999".to_string(),
                 "\u{1F600}".to_string(),
-                "liga".to_string(),   // one good one, to prove the filter is per-item
+                "liga".to_string(), // one good one, to prove the filter is per-item
                 "ss01=2".to_string(),
             ],
             ..StyleProperties::default()
@@ -1609,7 +1648,10 @@ mod autotest_generated {
             .unwrap_or_else(|e| panic!("{script:?} must shape: {e:?}"));
             assert!(!glyphs.is_empty(), "{script:?} produced no glyphs");
             for g in &glyphs {
-                assert_eq!(g.script, script, "the requested script is stamped on the glyph");
+                assert_eq!(
+                    g.script, script,
+                    "the requested script is stamped on the glyph"
+                );
             }
         }
     }
@@ -1711,7 +1753,9 @@ mod autotest_generated {
         assert!(font.get_glyph_size(u16::MAX, 16.0).is_none());
         assert!(font.get_glyph_size(font.num_glyphs, 16.0).is_none());
         // an in-range gid still decodes (positive control)
-        let gid = font.lookup_glyph_index('a' as u32).expect("'a' must be mapped");
+        let gid = font
+            .lookup_glyph_index('a' as u32)
+            .expect("'a' must be mapped");
         assert!(gid < font.num_glyphs);
         assert!(font.get_glyph_size(gid, 16.0).is_some());
     }
@@ -1719,7 +1763,9 @@ mod autotest_generated {
     #[test]
     fn get_glyph_size_zero_negative_and_non_finite_font_sizes() {
         let font = mock();
-        let gid = font.lookup_glyph_index('a' as u32).expect("'a' must be mapped");
+        let gid = font
+            .lookup_glyph_index('a' as u32)
+            .expect("'a' must be mapped");
 
         let zero = font.get_glyph_size(gid, 0.0).expect("gid decodes");
         assert_eq!(zero.width, 0.0);
@@ -1735,7 +1781,13 @@ mod autotest_generated {
         let negative = font.get_glyph_size(gid, -16.0).expect("gid decodes");
         assert!(negative.width <= 0.0 && negative.width.is_finite());
 
-        for size in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN_POSITIVE] {
+        for size in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MAX,
+            f32::MIN_POSITIVE,
+        ] {
             let size_result = font
                 .get_glyph_size(gid, size)
                 .unwrap_or_else(|| panic!("gid must still decode at {size}"));
@@ -1750,14 +1802,19 @@ mod autotest_generated {
     fn get_glyph_size_zero_units_per_em_uses_the_constant_fallback_scale() {
         assert_eq!(FALLBACK_SCALE, 0.01);
         let mut font = mock();
-        let gid = font.lookup_glyph_index('a' as u32).expect("'a' must be mapped");
+        let gid = font
+            .lookup_glyph_index('a' as u32)
+            .expect("'a' must be mapped");
         font.font_metrics.units_per_em = 0; // corrupt/broken font
 
         // With upem == 0 the scale is the constant FALLBACK_SCALE, so the size no
         // longer depends on the requested font size at all.
         let small = font.get_glyph_size(gid, 16.0).expect("gid decodes");
         let huge = font.get_glyph_size(gid, 1000.0).expect("gid decodes");
-        assert!(small.width > 0.0 && small.height > 0.0, "no divide-by-zero NaN");
+        assert!(
+            small.width > 0.0 && small.height > 0.0,
+            "no divide-by-zero NaN"
+        );
         assert_eq!(small.width, huge.width);
         assert_eq!(small.height, huge.height);
     }
@@ -1773,16 +1830,27 @@ mod autotest_generated {
             .lookup_glyph_index('-' as u32)
             .expect("the positive control has a hyphen");
 
-        let (gid, zero_advance) = font.get_hyphen_glyph_and_advance(0.0).expect("hyphen at 0px");
+        let (gid, zero_advance) = font
+            .get_hyphen_glyph_and_advance(0.0)
+            .expect("hyphen at 0px");
         assert_eq!(gid, expected_gid);
         assert_eq!(zero_advance, 0.0, "a 0px font gives a 0px advance");
 
-        let (_, a16) = font.get_hyphen_glyph_and_advance(16.0).expect("hyphen at 16px");
-        let (_, a32) = font.get_hyphen_glyph_and_advance(32.0).expect("hyphen at 32px");
+        let (_, a16) = font
+            .get_hyphen_glyph_and_advance(16.0)
+            .expect("hyphen at 16px");
+        let (_, a32) = font
+            .get_hyphen_glyph_and_advance(32.0)
+            .expect("hyphen at 32px");
         assert!(a16 > 0.0 && a16.is_finite());
-        assert!((a32 - 2.0 * a16).abs() <= 1e-3 * a16, "advance is linear in font size");
+        assert!(
+            (a32 - 2.0 * a16).abs() <= 1e-3 * a16,
+            "advance is linear in font size"
+        );
 
-        let (_, negative) = font.get_hyphen_glyph_and_advance(-16.0).expect("hyphen at -16px");
+        let (_, negative) = font
+            .get_hyphen_glyph_and_advance(-16.0)
+            .expect("hyphen at -16px");
         assert!(negative.is_finite() && negative <= 0.0);
     }
 
@@ -1800,7 +1868,9 @@ mod autotest_generated {
         if let Some((gid, advance)) = result {
             assert_eq!(Some(gid), font.lookup_glyph_index(0x0640));
             assert!(advance.is_finite() && advance >= 0.0);
-            let (_, doubled) = font.get_kashida_glyph_and_advance(32.0).expect("still mapped");
+            let (_, doubled) = font
+                .get_kashida_glyph_and_advance(32.0)
+                .expect("still mapped");
             assert!((doubled - 2.0 * advance).abs() <= 1e-3 * advance.max(1.0));
         }
     }
@@ -1874,7 +1944,10 @@ mod autotest_generated {
         // Arabic needs positional forms, or cursive joining silently breaks.
         let arabic = build_feature_mask_for_script(Script::Arabic);
         for feature in [Feature::INIT, Feature::MEDI, Feature::FINA, Feature::ISOL] {
-            assert!(arabic.contains(feature), "Arabic is missing a positional form");
+            assert!(
+                arabic.contains(feature),
+                "Arabic is missing a positional form"
+            );
         }
 
         // Indic needs conjunct formation.
@@ -1891,7 +1964,10 @@ mod autotest_generated {
         ] {
             let mask = build_feature_mask_for_script(script);
             for feature in [Feature::CJCT, Feature::HALF, Feature::RPHF, Feature::NUKT] {
-                assert!(mask.contains(feature), "{script:?} is missing an Indic feature");
+                assert!(
+                    mask.contains(feature),
+                    "{script:?} is missing an Indic feature"
+                );
             }
         }
 
@@ -1905,7 +1981,12 @@ mod autotest_generated {
         assert!(build_feature_mask_for_script(Script::Khmer).contains(Feature::ABVF));
 
         // Simple scripts must be exactly the default mask — no accidental extras.
-        for script in [Script::Latin, Script::Greek, Script::Cyrillic, Script::Georgian] {
+        for script in [
+            Script::Latin,
+            Script::Greek,
+            Script::Cyrillic,
+            Script::Georgian,
+        ] {
             assert_eq!(
                 build_feature_mask_for_script(script).bits(),
                 FeatureMask::default_mask().bits(),
@@ -1936,20 +2017,38 @@ mod autotest_generated {
 
     #[test]
     fn script_tags_match_the_opentype_registry_and_alias_kana() {
-        assert_eq!(to_opentype_script_tag(Script::Latin), u32::from_be_bytes(*b"latn"));
-        assert_eq!(to_opentype_script_tag(Script::Arabic), u32::from_be_bytes(*b"arab"));
-        assert_eq!(to_opentype_script_tag(Script::Mandarin), u32::from_be_bytes(*b"hani"));
-        assert_eq!(to_opentype_script_tag(Script::Devanagari), u32::from_be_bytes(*b"deva"));
+        assert_eq!(
+            to_opentype_script_tag(Script::Latin),
+            u32::from_be_bytes(*b"latn")
+        );
+        assert_eq!(
+            to_opentype_script_tag(Script::Arabic),
+            u32::from_be_bytes(*b"arab")
+        );
+        assert_eq!(
+            to_opentype_script_tag(Script::Mandarin),
+            u32::from_be_bytes(*b"hani")
+        );
+        assert_eq!(
+            to_opentype_script_tag(Script::Devanagari),
+            u32::from_be_bytes(*b"deva")
+        );
 
         // Hiragana and Katakana intentionally share "kana" (documented).
         assert_eq!(
             to_opentype_script_tag(Script::Hiragana),
             to_opentype_script_tag(Script::Katakana)
         );
-        assert_eq!(to_opentype_script_tag(Script::Hiragana), u32::from_be_bytes(*b"kana"));
+        assert_eq!(
+            to_opentype_script_tag(Script::Hiragana),
+            u32::from_be_bytes(*b"kana")
+        );
 
         // Every other pair must be distinct: 24 scripts, 23 distinct tags.
-        let mut tags: Vec<u32> = ALL_SCRIPTS.iter().map(|s| to_opentype_script_tag(*s)).collect();
+        let mut tags: Vec<u32> = ALL_SCRIPTS
+            .iter()
+            .map(|s| to_opentype_script_tag(*s))
+            .collect();
         tags.sort_unstable();
         tags.dedup();
         assert_eq!(tags.len(), 23, "only the kana pair may collide");
@@ -1966,9 +2065,18 @@ mod autotest_generated {
             Some((u32::from_be_bytes(*b"liga"), 1)),
             "a bare tag defaults to value 1"
         );
-        assert_eq!(parse_font_feature("liga=0"), Some((u32::from_be_bytes(*b"liga"), 0)));
-        assert_eq!(parse_font_feature("ss01"), Some((u32::from_be_bytes(*b"ss01"), 1)));
-        assert_eq!(parse_font_feature("smcp=2"), Some((u32::from_be_bytes(*b"smcp"), 2)));
+        assert_eq!(
+            parse_font_feature("liga=0"),
+            Some((u32::from_be_bytes(*b"liga"), 0))
+        );
+        assert_eq!(
+            parse_font_feature("ss01"),
+            Some((u32::from_be_bytes(*b"ss01"), 1))
+        );
+        assert_eq!(
+            parse_font_feature("smcp=2"),
+            Some((u32::from_be_bytes(*b"smcp"), 2))
+        );
         // u32::MAX is the largest accepted value
         assert_eq!(
             parse_font_feature("ss01=4294967295"),
@@ -1978,15 +2086,30 @@ mod autotest_generated {
 
     #[test]
     fn parse_font_feature_pads_short_tags_with_spaces() {
-        assert_eq!(parse_font_feature("aa"), Some((u32::from_be_bytes(*b"aa  "), 1)));
-        assert_eq!(parse_font_feature("a"), Some((u32::from_be_bytes(*b"a   "), 1)));
-        assert_eq!(parse_font_feature("abc=3"), Some((u32::from_be_bytes(*b"abc "), 3)));
+        assert_eq!(
+            parse_font_feature("aa"),
+            Some((u32::from_be_bytes(*b"aa  "), 1))
+        );
+        assert_eq!(
+            parse_font_feature("a"),
+            Some((u32::from_be_bytes(*b"a   "), 1))
+        );
+        assert_eq!(
+            parse_font_feature("abc=3"),
+            Some((u32::from_be_bytes(*b"abc "), 3))
+        );
     }
 
     #[test]
     fn parse_font_feature_trims_surrounding_whitespace() {
-        assert_eq!(parse_font_feature("  liga  "), Some((u32::from_be_bytes(*b"liga"), 1)));
-        assert_eq!(parse_font_feature("\tliga\n=\t2 "), Some((u32::from_be_bytes(*b"liga"), 2)));
+        assert_eq!(
+            parse_font_feature("  liga  "),
+            Some((u32::from_be_bytes(*b"liga"), 1))
+        );
+        assert_eq!(
+            parse_font_feature("\tliga\n=\t2 "),
+            Some((u32::from_be_bytes(*b"liga"), 2))
+        );
     }
 
     #[test]
@@ -2011,7 +2134,10 @@ mod autotest_generated {
         assert_eq!(parse_font_feature("valid;garbage=1"), None);
         // a megabyte-long tag must be rejected by the length check, not parsed
         assert_eq!(parse_font_feature(&"x".repeat(1_000_000)), None);
-        assert_eq!(parse_font_feature(&format!("{}=1", "x".repeat(1_000_000))), None);
+        assert_eq!(
+            parse_font_feature(&format!("{}=1", "x".repeat(1_000_000))),
+            None
+        );
     }
 
     #[test]
@@ -2031,9 +2157,15 @@ mod autotest_generated {
             assert_eq!(parse_font_feature(bad), None, "{bad:?} must be rejected");
         }
         // `u32::from_str` accepts a leading '+', so this one is (surprisingly) valid
-        assert_eq!(parse_font_feature("liga=+1"), Some((u32::from_be_bytes(*b"liga"), 1)));
+        assert_eq!(
+            parse_font_feature("liga=+1"),
+            Some((u32::from_be_bytes(*b"liga"), 1))
+        );
         // a trailing extra '=' segment is ignored: only the first value is read
-        assert_eq!(parse_font_feature("liga=1=2"), Some((u32::from_be_bytes(*b"liga"), 1)));
+        assert_eq!(
+            parse_font_feature("liga=1=2"),
+            Some((u32::from_be_bytes(*b"liga"), 1))
+        );
     }
 
     #[test]
@@ -2042,12 +2174,12 @@ mod autotest_generated {
         // so every one of these must fall out as None rather than slicing a
         // char boundary or panicking on the array conversion.
         for input in [
-            "\u{1F600}",         // 4 bytes, 1 char
+            "\u{1F600}", // 4 bytes, 1 char
             "\u{1F600}\u{1F600}",
             "é",
             "ß=1",
-            "e\u{0301}",         // combining acute
-            "\u{202E}liga",      // RTL override
+            "e\u{0301}",    // combining acute
+            "\u{202E}liga", // RTL override
             "\u{0000}\u{0001}",
         ] {
             let _ = parse_font_feature(input); // must not panic
@@ -2161,7 +2293,10 @@ mod autotest_generated {
                     assert_eq!(features[0].feature_tag, sentinel.feature_tag);
                     assert_eq!(features[0].alternate, Some(7));
                     // at most 2 (caps) + 1 (ligature) + 1 (numeric) new tags
-                    assert!(features.len() <= 5, "{l:?}/{c:?}/{n:?} emitted too many features");
+                    assert!(
+                        features.len() <= 5,
+                        "{l:?}/{c:?}/{n:?} emitted too many features"
+                    );
                     for f in &features[1..] {
                         assert!(f.feature_tag.to_be_bytes().iter().all(u8::is_ascii_graphic));
                     }
@@ -2207,11 +2342,26 @@ mod autotest_generated {
             assert_ne!(tag, 0);
         }
 
-        assert_eq!(to_opentype_lang_tag(HL::EnglishUS), u32::from_be_bytes(*b"ENU "));
-        assert_eq!(to_opentype_lang_tag(HL::EnglishGB), u32::from_be_bytes(*b"ENG "));
-        assert_eq!(to_opentype_lang_tag(HL::German1996), u32::from_be_bytes(*b"DEU "));
-        assert_eq!(to_opentype_lang_tag(HL::French), u32::from_be_bytes(*b"FRA "));
-        assert_eq!(to_opentype_lang_tag(HL::Russian), u32::from_be_bytes(*b"RUS "));
+        assert_eq!(
+            to_opentype_lang_tag(HL::EnglishUS),
+            u32::from_be_bytes(*b"ENU ")
+        );
+        assert_eq!(
+            to_opentype_lang_tag(HL::EnglishGB),
+            u32::from_be_bytes(*b"ENG ")
+        );
+        assert_eq!(
+            to_opentype_lang_tag(HL::German1996),
+            u32::from_be_bytes(*b"DEU ")
+        );
+        assert_eq!(
+            to_opentype_lang_tag(HL::French),
+            u32::from_be_bytes(*b"FRA ")
+        );
+        assert_eq!(
+            to_opentype_lang_tag(HL::Russian),
+            u32::from_be_bytes(*b"RUS ")
+        );
         // documented aliases: both German orthographies and both Finnish variants
         assert_eq!(
             to_opentype_lang_tag(HL::German1901),
@@ -2234,11 +2384,19 @@ mod autotest_generated {
 
         assert_eq!(font_ref.num_glyphs(), parsed.num_glyphs);
         assert_eq!(font_ref.get_space_width(), parsed.get_space_width());
-        assert_eq!(font_ref.get_font_metrics().units_per_em, parsed.font_metrics.units_per_em);
+        assert_eq!(
+            font_ref.get_font_metrics().units_per_em,
+            parsed.font_metrics.units_per_em
+        );
         assert!(font_ref.has_glyph('a' as u32) == parsed.has_glyph('a' as u32));
-        assert!(!font_ref.has_glyph(0x0011_0000), "an invalid scalar value has no glyph");
+        assert!(
+            !font_ref.has_glyph(0x0011_0000),
+            "an invalid scalar value has no glyph"
+        );
 
-        let gid = parsed.lookup_glyph_index('a' as u32).expect("'a' must be mapped");
+        let gid = parsed
+            .lookup_glyph_index('a' as u32)
+            .expect("'a' must be mapped");
         let via_ref = font_ref.get_glyph_size(gid, 16.0).expect("gid decodes");
         let via_parsed = parsed.get_glyph_size(gid, 16.0).expect("gid decodes");
         assert_eq!(via_ref.width, via_parsed.width);

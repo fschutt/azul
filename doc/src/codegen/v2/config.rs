@@ -296,7 +296,7 @@ pub struct CodegenConfig {
     /// When true, generates #[test] functions that verify type sizes,
     /// layout compatibility, and basic API functionality
     pub generate_tests: bool,
-    
+
     /// Extra module declarations to add after the imports
     /// Used for including external modules like `pub mod desktop;`
     pub extra_module_declarations: Vec<String>,
@@ -663,7 +663,9 @@ impl CodegenConfig {
             // default link-static) would hit "symbol `Az..._...` is already defined".
             // Gate memtest's fns on a NEVER-enabled feature so they stay plain `pub`
             // (callable by the generated layout #[test]s) but not #[no_mangle].
-            cabi_functions: CAbiFunctionMode::InternalBindings { export_feature: "__memtest_no_export".into() },
+            cabi_functions: CAbiFunctionMode::InternalBindings {
+                export_feature: "__memtest_no_export".into(),
+            },
             struct_mode: StructMode::Prefixed,
             trait_impl_mode: TraitImplMode::UsingCAPI,
             type_prefix: "Az".into(),

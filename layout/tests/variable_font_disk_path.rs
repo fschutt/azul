@@ -62,8 +62,9 @@ fn variable_font_from_disk_yields_usable_glyphs() {
     let font_bytes = Arc::new(rust_fontconfig::FontBytes::Owned(bytes.into()));
 
     let mut warnings = Vec::new();
-    let parsed = azul_layout::font::parsed::ParsedFont::from_bytes_shared(font_bytes, 0, &mut warnings)
-        .expect("variable font must parse through the disk path");
+    let parsed =
+        azul_layout::font::parsed::ParsedFont::from_bytes_shared(font_bytes, 0, &mut warnings)
+            .expect("variable font must parse through the disk path");
 
     // cmap must map basic Latin — .notdef would be glyph 0.
     for ch in ['A', 'a', 'H', '0'] {

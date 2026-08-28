@@ -43,13 +43,16 @@ pub struct DragState {
 
 impl DragState {
     /// Create `DragState` from a `DragContext` (for backwards compatibility)
-    #[must_use] pub fn from_context(ctx: &DragContext) -> Option<Self> {
+    #[must_use]
+    pub fn from_context(ctx: &DragContext) -> Option<Self> {
         match &ctx.drag_type {
             ActiveDragType::Node(node_drag) => Some(Self {
                 drag_type: DragType::Node,
                 source_node: OptionDomNodeId::Some(DomNodeId {
                     dom: node_drag.dom_id,
-                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node_drag.node_id)),
+                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                        node_drag.node_id,
+                    )),
                 }),
                 current_drop_target: node_drag.current_drop_target,
                 file_path: OptionString::None,
@@ -250,13 +253,8 @@ mod autotest_generated {
             LogicalPosition::new(f32::MAX, f32::MIN),
             LogicalPosition::new(-0.0, f32::MIN_POSITIVE),
         ] {
-            let mut ctx = DragContext::node_drag(
-                DomId::ROOT_ID,
-                NodeId::new(1),
-                pos,
-                DragData::new(),
-                0,
-            );
+            let mut ctx =
+                DragContext::node_drag(DomId::ROOT_ID, NodeId::new(1), pos, DragData::new(), 0);
             {
                 let drag = node_drag_of(&mut ctx);
                 drag.current_position = pos;
@@ -489,11 +487,8 @@ mod autotest_generated {
 
     #[test]
     fn window_move_drag_maps_to_none() {
-        let ctx = DragContext::window_move(
-            LogicalPosition::zero(),
-            WindowPosition::Uninitialized,
-            0,
-        );
+        let ctx =
+            DragContext::window_move(LogicalPosition::zero(), WindowPosition::Uninitialized, 0);
         assert!(DragState::from_context(&ctx).is_none());
     }
 
@@ -586,7 +581,10 @@ mod autotest_generated {
 
         assert_ne!(node_state, file_state);
         assert_ne!(node_state.drag_type, file_state.drag_type);
-        assert_eq!(node_state.current_drop_target, file_state.current_drop_target);
+        assert_eq!(
+            node_state.current_drop_target,
+            file_state.current_drop_target
+        );
     }
 
     /// A `DragState` is exactly its four fields: cloning is value-identical and

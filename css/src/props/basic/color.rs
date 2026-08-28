@@ -4,10 +4,10 @@
 //! (concrete color or runtime system-theme reference). The parser supports hex,
 //! `rgb()`/`rgba()`, `hsl()`/`hsla()`, CSS named colors, and `system:*` syntax.
 
-use alloc::string::{String, ToString};
-use core::fmt;
 use crate::corety::AzString;
 use crate::props::basic::error::{ParseFloatError, ParseIntError};
+use alloc::string::{String, ToString};
+use core::fmt;
 
 use crate::{
     impl_option,
@@ -108,124 +108,460 @@ impl ColorU {
     };
 
     // Additional common colors
-    pub const YELLOW: Self = Self { r: 255, g: 255, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const CYAN: Self = Self { r: 0, g: 255, b: 255, a: Self::ALPHA_OPAQUE };
-    pub const MAGENTA: Self = Self { r: 255, g: 0, b: 255, a: Self::ALPHA_OPAQUE };
-    pub const ORANGE: Self = Self { r: 255, g: 165, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const PINK: Self = Self { r: 255, g: 192, b: 203, a: Self::ALPHA_OPAQUE };
-    pub const PURPLE: Self = Self { r: 128, g: 0, b: 128, a: Self::ALPHA_OPAQUE };
-    pub const BROWN: Self = Self { r: 139, g: 69, b: 19, a: Self::ALPHA_OPAQUE };
-    pub const GRAY: Self = Self { r: 128, g: 128, b: 128, a: Self::ALPHA_OPAQUE };
-    pub const LIGHT_GRAY: Self = Self { r: 211, g: 211, b: 211, a: Self::ALPHA_OPAQUE };
-    pub const DARK_GRAY: Self = Self { r: 64, g: 64, b: 64, a: Self::ALPHA_OPAQUE };
-    pub const NAVY: Self = Self { r: 0, g: 0, b: 128, a: Self::ALPHA_OPAQUE };
-    pub const TEAL: Self = Self { r: 0, g: 128, b: 128, a: Self::ALPHA_OPAQUE };
-    pub const OLIVE: Self = Self { r: 128, g: 128, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const MAROON: Self = Self { r: 128, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const LIME: Self = Self { r: 0, g: 255, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const AQUA: Self = Self { r: 0, g: 255, b: 255, a: Self::ALPHA_OPAQUE };
-    pub const SILVER: Self = Self { r: 192, g: 192, b: 192, a: Self::ALPHA_OPAQUE };
-    pub const FUCHSIA: Self = Self { r: 255, g: 0, b: 255, a: Self::ALPHA_OPAQUE };
-    pub const INDIGO: Self = Self { r: 75, g: 0, b: 130, a: Self::ALPHA_OPAQUE };
-    pub const GOLD: Self = Self { r: 255, g: 215, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const CORAL: Self = Self { r: 255, g: 127, b: 80, a: Self::ALPHA_OPAQUE };
-    pub const SALMON: Self = Self { r: 250, g: 128, b: 114, a: Self::ALPHA_OPAQUE };
-    pub const TURQUOISE: Self = Self { r: 64, g: 224, b: 208, a: Self::ALPHA_OPAQUE };
-    pub const VIOLET: Self = Self { r: 238, g: 130, b: 238, a: Self::ALPHA_OPAQUE };
-    pub const CRIMSON: Self = Self { r: 220, g: 20, b: 60, a: Self::ALPHA_OPAQUE };
-    pub const CHOCOLATE: Self = Self { r: 210, g: 105, b: 30, a: Self::ALPHA_OPAQUE };
-    pub const SKY_BLUE: Self = Self { r: 135, g: 206, b: 235, a: Self::ALPHA_OPAQUE };
-    pub const FOREST_GREEN: Self = Self { r: 34, g: 139, b: 34, a: Self::ALPHA_OPAQUE };
-    pub const SEA_GREEN: Self = Self { r: 46, g: 139, b: 87, a: Self::ALPHA_OPAQUE };
-    pub const SLATE_GRAY: Self = Self { r: 112, g: 128, b: 144, a: Self::ALPHA_OPAQUE };
-    pub const MIDNIGHT_BLUE: Self = Self { r: 25, g: 25, b: 112, a: Self::ALPHA_OPAQUE };
-    pub const DARK_RED: Self = Self { r: 139, g: 0, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const DARK_GREEN: Self = Self { r: 0, g: 100, b: 0, a: Self::ALPHA_OPAQUE };
-    pub const DARK_BLUE: Self = Self { r: 0, g: 0, b: 139, a: Self::ALPHA_OPAQUE };
-    pub const LIGHT_BLUE: Self = Self { r: 173, g: 216, b: 230, a: Self::ALPHA_OPAQUE };
-    pub const LIGHT_GREEN: Self = Self { r: 144, g: 238, b: 144, a: Self::ALPHA_OPAQUE };
-    pub const LIGHT_YELLOW: Self = Self { r: 255, g: 255, b: 224, a: Self::ALPHA_OPAQUE };
-    pub const LIGHT_PINK: Self = Self { r: 255, g: 182, b: 193, a: Self::ALPHA_OPAQUE };
+    pub const YELLOW: Self = Self {
+        r: 255,
+        g: 255,
+        b: 0,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const CYAN: Self = Self {
+        r: 0,
+        g: 255,
+        b: 255,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const MAGENTA: Self = Self {
+        r: 255,
+        g: 0,
+        b: 255,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const ORANGE: Self = Self {
+        r: 255,
+        g: 165,
+        b: 0,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const PINK: Self = Self {
+        r: 255,
+        g: 192,
+        b: 203,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const PURPLE: Self = Self {
+        r: 128,
+        g: 0,
+        b: 128,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const BROWN: Self = Self {
+        r: 139,
+        g: 69,
+        b: 19,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const GRAY: Self = Self {
+        r: 128,
+        g: 128,
+        b: 128,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const LIGHT_GRAY: Self = Self {
+        r: 211,
+        g: 211,
+        b: 211,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const DARK_GRAY: Self = Self {
+        r: 64,
+        g: 64,
+        b: 64,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const NAVY: Self = Self {
+        r: 0,
+        g: 0,
+        b: 128,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const TEAL: Self = Self {
+        r: 0,
+        g: 128,
+        b: 128,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const OLIVE: Self = Self {
+        r: 128,
+        g: 128,
+        b: 0,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const MAROON: Self = Self {
+        r: 128,
+        g: 0,
+        b: 0,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const LIME: Self = Self {
+        r: 0,
+        g: 255,
+        b: 0,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const AQUA: Self = Self {
+        r: 0,
+        g: 255,
+        b: 255,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const SILVER: Self = Self {
+        r: 192,
+        g: 192,
+        b: 192,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const FUCHSIA: Self = Self {
+        r: 255,
+        g: 0,
+        b: 255,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const INDIGO: Self = Self {
+        r: 75,
+        g: 0,
+        b: 130,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const GOLD: Self = Self {
+        r: 255,
+        g: 215,
+        b: 0,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const CORAL: Self = Self {
+        r: 255,
+        g: 127,
+        b: 80,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const SALMON: Self = Self {
+        r: 250,
+        g: 128,
+        b: 114,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const TURQUOISE: Self = Self {
+        r: 64,
+        g: 224,
+        b: 208,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const VIOLET: Self = Self {
+        r: 238,
+        g: 130,
+        b: 238,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const CRIMSON: Self = Self {
+        r: 220,
+        g: 20,
+        b: 60,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const CHOCOLATE: Self = Self {
+        r: 210,
+        g: 105,
+        b: 30,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const SKY_BLUE: Self = Self {
+        r: 135,
+        g: 206,
+        b: 235,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const FOREST_GREEN: Self = Self {
+        r: 34,
+        g: 139,
+        b: 34,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const SEA_GREEN: Self = Self {
+        r: 46,
+        g: 139,
+        b: 87,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const SLATE_GRAY: Self = Self {
+        r: 112,
+        g: 128,
+        b: 144,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const MIDNIGHT_BLUE: Self = Self {
+        r: 25,
+        g: 25,
+        b: 112,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const DARK_RED: Self = Self {
+        r: 139,
+        g: 0,
+        b: 0,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const DARK_GREEN: Self = Self {
+        r: 0,
+        g: 100,
+        b: 0,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const DARK_BLUE: Self = Self {
+        r: 0,
+        g: 0,
+        b: 139,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const LIGHT_BLUE: Self = Self {
+        r: 173,
+        g: 216,
+        b: 230,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const LIGHT_GREEN: Self = Self {
+        r: 144,
+        g: 238,
+        b: 144,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const LIGHT_YELLOW: Self = Self {
+        r: 255,
+        g: 255,
+        b: 224,
+        a: Self::ALPHA_OPAQUE,
+    };
+    pub const LIGHT_PINK: Self = Self {
+        r: 255,
+        g: 182,
+        b: 193,
+        a: Self::ALPHA_OPAQUE,
+    };
 
     // Constructor functions for C API (become AzColorU_red(), AzColorU_cyan(), etc.)
-    #[must_use] pub const fn red() -> Self { Self::RED }
-    #[must_use] pub const fn green() -> Self { Self::GREEN }
-    #[must_use] pub const fn blue() -> Self { Self::BLUE }
-    #[must_use] pub const fn white() -> Self { Self::WHITE }
-    #[must_use] pub const fn black() -> Self { Self::BLACK }
-    #[must_use] pub const fn transparent() -> Self { Self::TRANSPARENT }
-    #[must_use] pub const fn yellow() -> Self { Self::YELLOW }
-    #[must_use] pub const fn cyan() -> Self { Self::CYAN }
-    #[must_use] pub const fn magenta() -> Self { Self::MAGENTA }
-    #[must_use] pub const fn orange() -> Self { Self::ORANGE }
-    #[must_use] pub const fn pink() -> Self { Self::PINK }
-    #[must_use] pub const fn purple() -> Self { Self::PURPLE }
-    #[must_use] pub const fn brown() -> Self { Self::BROWN }
-    #[must_use] pub const fn gray() -> Self { Self::GRAY }
-    #[must_use] pub const fn light_gray() -> Self { Self::LIGHT_GRAY }
-    #[must_use] pub const fn dark_gray() -> Self { Self::DARK_GRAY }
-    #[must_use] pub const fn navy() -> Self { Self::NAVY }
-    #[must_use] pub const fn teal() -> Self { Self::TEAL }
-    #[must_use] pub const fn olive() -> Self { Self::OLIVE }
-    #[must_use] pub const fn maroon() -> Self { Self::MAROON }
-    #[must_use] pub const fn lime() -> Self { Self::LIME }
-    #[must_use] pub const fn aqua() -> Self { Self::AQUA }
-    #[must_use] pub const fn silver() -> Self { Self::SILVER }
-    #[must_use] pub const fn fuchsia() -> Self { Self::FUCHSIA }
-    #[must_use] pub const fn indigo() -> Self { Self::INDIGO }
-    #[must_use] pub const fn gold() -> Self { Self::GOLD }
-    #[must_use] pub const fn coral() -> Self { Self::CORAL }
-    #[must_use] pub const fn salmon() -> Self { Self::SALMON }
-    #[must_use] pub const fn turquoise() -> Self { Self::TURQUOISE }
-    #[must_use] pub const fn violet() -> Self { Self::VIOLET }
-    #[must_use] pub const fn crimson() -> Self { Self::CRIMSON }
-    #[must_use] pub const fn chocolate() -> Self { Self::CHOCOLATE }
-    #[must_use] pub const fn sky_blue() -> Self { Self::SKY_BLUE }
-    #[must_use] pub const fn forest_green() -> Self { Self::FOREST_GREEN }
-    #[must_use] pub const fn sea_green() -> Self { Self::SEA_GREEN }
-    #[must_use] pub const fn slate_gray() -> Self { Self::SLATE_GRAY }
-    #[must_use] pub const fn midnight_blue() -> Self { Self::MIDNIGHT_BLUE }
-    #[must_use] pub const fn dark_red() -> Self { Self::DARK_RED }
-    #[must_use] pub const fn dark_green() -> Self { Self::DARK_GREEN }
-    #[must_use] pub const fn dark_blue() -> Self { Self::DARK_BLUE }
-    #[must_use] pub const fn light_blue() -> Self { Self::LIGHT_BLUE }
-    #[must_use] pub const fn light_green() -> Self { Self::LIGHT_GREEN }
-    #[must_use] pub const fn light_yellow() -> Self { Self::LIGHT_YELLOW }
-    #[must_use] pub const fn light_pink() -> Self { Self::LIGHT_PINK }
+    #[must_use]
+    pub const fn red() -> Self {
+        Self::RED
+    }
+    #[must_use]
+    pub const fn green() -> Self {
+        Self::GREEN
+    }
+    #[must_use]
+    pub const fn blue() -> Self {
+        Self::BLUE
+    }
+    #[must_use]
+    pub const fn white() -> Self {
+        Self::WHITE
+    }
+    #[must_use]
+    pub const fn black() -> Self {
+        Self::BLACK
+    }
+    #[must_use]
+    pub const fn transparent() -> Self {
+        Self::TRANSPARENT
+    }
+    #[must_use]
+    pub const fn yellow() -> Self {
+        Self::YELLOW
+    }
+    #[must_use]
+    pub const fn cyan() -> Self {
+        Self::CYAN
+    }
+    #[must_use]
+    pub const fn magenta() -> Self {
+        Self::MAGENTA
+    }
+    #[must_use]
+    pub const fn orange() -> Self {
+        Self::ORANGE
+    }
+    #[must_use]
+    pub const fn pink() -> Self {
+        Self::PINK
+    }
+    #[must_use]
+    pub const fn purple() -> Self {
+        Self::PURPLE
+    }
+    #[must_use]
+    pub const fn brown() -> Self {
+        Self::BROWN
+    }
+    #[must_use]
+    pub const fn gray() -> Self {
+        Self::GRAY
+    }
+    #[must_use]
+    pub const fn light_gray() -> Self {
+        Self::LIGHT_GRAY
+    }
+    #[must_use]
+    pub const fn dark_gray() -> Self {
+        Self::DARK_GRAY
+    }
+    #[must_use]
+    pub const fn navy() -> Self {
+        Self::NAVY
+    }
+    #[must_use]
+    pub const fn teal() -> Self {
+        Self::TEAL
+    }
+    #[must_use]
+    pub const fn olive() -> Self {
+        Self::OLIVE
+    }
+    #[must_use]
+    pub const fn maroon() -> Self {
+        Self::MAROON
+    }
+    #[must_use]
+    pub const fn lime() -> Self {
+        Self::LIME
+    }
+    #[must_use]
+    pub const fn aqua() -> Self {
+        Self::AQUA
+    }
+    #[must_use]
+    pub const fn silver() -> Self {
+        Self::SILVER
+    }
+    #[must_use]
+    pub const fn fuchsia() -> Self {
+        Self::FUCHSIA
+    }
+    #[must_use]
+    pub const fn indigo() -> Self {
+        Self::INDIGO
+    }
+    #[must_use]
+    pub const fn gold() -> Self {
+        Self::GOLD
+    }
+    #[must_use]
+    pub const fn coral() -> Self {
+        Self::CORAL
+    }
+    #[must_use]
+    pub const fn salmon() -> Self {
+        Self::SALMON
+    }
+    #[must_use]
+    pub const fn turquoise() -> Self {
+        Self::TURQUOISE
+    }
+    #[must_use]
+    pub const fn violet() -> Self {
+        Self::VIOLET
+    }
+    #[must_use]
+    pub const fn crimson() -> Self {
+        Self::CRIMSON
+    }
+    #[must_use]
+    pub const fn chocolate() -> Self {
+        Self::CHOCOLATE
+    }
+    #[must_use]
+    pub const fn sky_blue() -> Self {
+        Self::SKY_BLUE
+    }
+    #[must_use]
+    pub const fn forest_green() -> Self {
+        Self::FOREST_GREEN
+    }
+    #[must_use]
+    pub const fn sea_green() -> Self {
+        Self::SEA_GREEN
+    }
+    #[must_use]
+    pub const fn slate_gray() -> Self {
+        Self::SLATE_GRAY
+    }
+    #[must_use]
+    pub const fn midnight_blue() -> Self {
+        Self::MIDNIGHT_BLUE
+    }
+    #[must_use]
+    pub const fn dark_red() -> Self {
+        Self::DARK_RED
+    }
+    #[must_use]
+    pub const fn dark_green() -> Self {
+        Self::DARK_GREEN
+    }
+    #[must_use]
+    pub const fn dark_blue() -> Self {
+        Self::DARK_BLUE
+    }
+    #[must_use]
+    pub const fn light_blue() -> Self {
+        Self::LIGHT_BLUE
+    }
+    #[must_use]
+    pub const fn light_green() -> Self {
+        Self::LIGHT_GREEN
+    }
+    #[must_use]
+    pub const fn light_yellow() -> Self {
+        Self::LIGHT_YELLOW
+    }
+    #[must_use]
+    pub const fn light_pink() -> Self {
+        Self::LIGHT_PINK
+    }
 
     /// Creates a new color with RGBA values.
-    #[must_use] pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
+    #[must_use]
+    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }
     /// Creates a new color with RGB values (alpha = 255).
-    #[must_use] pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+    #[must_use]
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
     /// Alias for `rgba` - kept for internal compatibility, not exposed in FFI.
     #[inline]
-    #[must_use] pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
+    #[must_use]
+    pub const fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self::rgba(r, g, b, a)
     }
     /// Alias for `rgb` - kept for internal compatibility, not exposed in FFI.
     #[inline]
-    #[must_use] pub const fn new_rgb(r: u8, g: u8, b: u8) -> Self {
+    #[must_use]
+    pub const fn new_rgb(r: u8, g: u8, b: u8) -> Self {
         Self::rgb(r, g, b)
     }
 
     /// Linearly interpolate all four RGBA channels between `self` and `other`.
     /// `t = 0.0` returns `self`, `t = 1.0` returns `other`.
-    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
-            r: channel_to_u8(libm::roundf(f32::from(self.r) + (f32::from(other.r) - f32::from(self.r)) * t)),
-            g: channel_to_u8(libm::roundf(f32::from(self.g) + (f32::from(other.g) - f32::from(self.g)) * t)),
-            b: channel_to_u8(libm::roundf(f32::from(self.b) + (f32::from(other.b) - f32::from(self.b)) * t)),
-            a: channel_to_u8(libm::roundf(f32::from(self.a) + (f32::from(other.a) - f32::from(self.a)) * t)),
+            r: channel_to_u8(libm::roundf(
+                f32::from(self.r) + (f32::from(other.r) - f32::from(self.r)) * t,
+            )),
+            g: channel_to_u8(libm::roundf(
+                f32::from(self.g) + (f32::from(other.g) - f32::from(self.g)) * t,
+            )),
+            b: channel_to_u8(libm::roundf(
+                f32::from(self.b) + (f32::from(other.b) - f32::from(self.b)) * t,
+            )),
+            a: channel_to_u8(libm::roundf(
+                f32::from(self.a) + (f32::from(other.a) - f32::from(self.a)) * t,
+            )),
         }
     }
-    
+
     /// Lighten a color by a percentage (0.0 to 1.0).
     /// Returns a new color blended towards white, preserving the original alpha.
-    #[must_use] pub fn lighten(&self, amount: f32) -> Self {
+    #[must_use]
+    pub fn lighten(&self, amount: f32) -> Self {
         let mut c = self.interpolate(&Self::WHITE, amount.clamp(0.0, 1.0));
         c.a = self.a;
         c
@@ -233,20 +569,23 @@ impl ColorU {
 
     /// Darken a color by a percentage (0.0 to 1.0).
     /// Returns a new color blended towards black, preserving the original alpha.
-    #[must_use] pub fn darken(&self, amount: f32) -> Self {
+    #[must_use]
+    pub fn darken(&self, amount: f32) -> Self {
         let mut c = self.interpolate(&Self::BLACK, amount.clamp(0.0, 1.0));
         c.a = self.a;
         c
     }
-    
+
     /// Mix two colors together with a given ratio (0.0 = self, 1.0 = other).
-    #[must_use] pub fn mix(&self, other: &Self, ratio: f32) -> Self {
+    #[must_use]
+    pub fn mix(&self, other: &Self, ratio: f32) -> Self {
         self.interpolate(other, ratio.clamp(0.0, 1.0))
     }
-    
+
     /// Create a hover variant (slightly lighter for dark colors, darker for light colors).
     /// This is useful for button hover states.
-    #[must_use] pub fn hover_variant(&self) -> Self {
+    #[must_use]
+    pub fn hover_variant(&self) -> Self {
         let luminance = self.relative_luminance();
         if luminance > 0.5 {
             self.darken(0.08)
@@ -257,7 +596,8 @@ impl ColorU {
 
     /// Create an active/pressed variant (darker than hover).
     /// This is useful for button active states.
-    #[must_use] pub fn active_variant(&self) -> Self {
+    #[must_use]
+    pub fn active_variant(&self) -> Self {
         let luminance = self.relative_luminance();
         if luminance > 0.5 {
             self.darken(0.15)
@@ -265,13 +605,14 @@ impl ColorU {
             self.lighten(0.05)
         }
     }
-    
+
     /// Calculate approximate luminance (0.0 = black, 1.0 = white).
     ///
     /// **Note:** This applies BT.709 coefficients directly to gamma-encoded sRGB
     /// values without linearizing first, so it is only an approximation.
     /// For accurate results (e.g. WCAG contrast checks), use [`relative_luminance()`].
-    #[must_use] pub fn luminance(&self) -> f32 {
+    #[must_use]
+    pub fn luminance(&self) -> f32 {
         let r = f32::from(self.r) / 255.0;
         let g = f32::from(self.g) / 255.0;
         let b = f32::from(self.b) / 255.0;
@@ -279,15 +620,16 @@ impl ColorU {
     }
 
     /// Returns white or black text color for best contrast on this background.
-    #[must_use] pub fn contrast_text(&self) -> Self {
+    #[must_use]
+    pub fn contrast_text(&self) -> Self {
         self.best_contrast_text()
     }
-    
+
     // ============================================================
     // WCAG Accessibility and Contrast Helpers
     // Based on W3C WCAG 2.1 guidelines and Chromium research
     // ============================================================
-    
+
     /// Converts a single sRGB channel to linear RGB.
     /// Used for accurate luminance and contrast calculations.
     fn srgb_to_linear(c: f32) -> f32 {
@@ -297,101 +639,111 @@ impl ColorU {
             libm::powf((c + 0.055) / 1.055, 2.4)
         }
     }
-    
+
     /// Calculate relative luminance per WCAG 2.1 specification.
     /// Returns a value between 0.0 (darkest) and 1.0 (lightest).
     /// Uses the sRGB to linear conversion for accurate results.
-    #[must_use] pub fn relative_luminance(&self) -> f32 {
+    #[must_use]
+    pub fn relative_luminance(&self) -> f32 {
         let r = Self::srgb_to_linear(f32::from(self.r) / 255.0);
         let g = Self::srgb_to_linear(f32::from(self.g) / 255.0);
         let b = Self::srgb_to_linear(f32::from(self.b) / 255.0);
         0.2126 * r + 0.7152 * g + 0.0722 * b
     }
-    
+
     /// Calculate the contrast ratio between this color and another.
     /// Returns a value between 1.0 (no contrast) and 21.0 (max contrast).
-    /// 
+    ///
     /// WCAG 2.1 requirements:
     /// - AA normal text: >= 4.5:1
     /// - AA large text: >= 3.0:1
     /// - AAA normal text: >= 7.0:1
     /// - AAA large text: >= 4.5:1
-    #[must_use] pub fn contrast_ratio(&self, other: &Self) -> f32 {
+    #[must_use]
+    pub fn contrast_ratio(&self, other: &Self) -> f32 {
         let l1 = self.relative_luminance();
         let l2 = other.relative_luminance();
         let lighter = if l1 > l2 { l1 } else { l2 };
         let darker = if l1 > l2 { l2 } else { l1 };
         (lighter + 0.05) / (darker + 0.05)
     }
-    
+
     /// Check if the contrast ratio meets WCAG AA requirements for normal text (>= 4.5:1).
-    #[must_use] pub fn meets_wcag_aa(&self, other: &Self) -> bool {
+    #[must_use]
+    pub fn meets_wcag_aa(&self, other: &Self) -> bool {
         self.contrast_ratio(other) >= 4.5
     }
-    
+
     /// Check if the contrast ratio meets WCAG AA requirements for large text (>= 3.0:1).
     /// Large text is defined as 18pt+ or 14pt+ bold.
-    #[must_use] pub fn meets_wcag_aa_large(&self, other: &Self) -> bool {
+    #[must_use]
+    pub fn meets_wcag_aa_large(&self, other: &Self) -> bool {
         self.contrast_ratio(other) >= 3.0
     }
-    
+
     /// Check if the contrast ratio meets WCAG AAA requirements for normal text (>= 7.0:1).
-    #[must_use] pub fn meets_wcag_aaa(&self, other: &Self) -> bool {
+    #[must_use]
+    pub fn meets_wcag_aaa(&self, other: &Self) -> bool {
         self.contrast_ratio(other) >= 7.0
     }
-    
+
     /// Check if the contrast ratio meets WCAG AAA requirements for large text (>= 4.5:1).
-    #[must_use] pub fn meets_wcag_aaa_large(&self, other: &Self) -> bool {
+    #[must_use]
+    pub fn meets_wcag_aaa_large(&self, other: &Self) -> bool {
         self.contrast_ratio(other) >= 4.5
     }
-    
+
     /// Returns true if this color is considered "light" (relative luminance > 0.5).
     /// Useful for determining if dark or light text should be used.
-    #[must_use] pub fn is_light(&self) -> bool {
+    #[must_use]
+    pub fn is_light(&self) -> bool {
         self.relative_luminance() > 0.5
     }
 
     /// Returns true if this color is considered "dark" (relative luminance <= 0.5).
-    #[must_use] pub fn is_dark(&self) -> bool {
+    #[must_use]
+    pub fn is_dark(&self) -> bool {
         self.relative_luminance() <= 0.5
     }
-    
+
     /// Suggest the best text color (black or white) for this background,
     /// ensuring WCAG AA compliance for normal text.
-    /// 
-    /// If neither black nor white meets AA requirements (unlikely), 
+    ///
+    /// If neither black nor white meets AA requirements (unlikely),
     /// returns the one with higher contrast.
-    #[must_use] pub fn best_contrast_text(&self) -> Self {
+    #[must_use]
+    pub fn best_contrast_text(&self) -> Self {
         let white_contrast = self.contrast_ratio(&Self::WHITE);
         let black_contrast = self.contrast_ratio(&Self::BLACK);
-        
+
         if white_contrast >= black_contrast {
             Self::WHITE
         } else {
             Self::BLACK
         }
     }
-    
+
     /// Adjust the color to ensure it meets the minimum contrast ratio against a background.
     /// Lightens or darkens the color as needed.
-    /// 
+    ///
     /// Returns the original color if it already meets the requirement,
     /// otherwise returns an adjusted color that meets the minimum contrast.
-    #[must_use] pub fn ensure_contrast(&self, background: &Self, min_ratio: f32) -> Self {
+    #[must_use]
+    pub fn ensure_contrast(&self, background: &Self, min_ratio: f32) -> Self {
         let current_ratio = self.contrast_ratio(background);
         if current_ratio >= min_ratio {
             return *self;
         }
-        
+
         // Determine if we should lighten or darken
         let bg_luminance = background.relative_luminance();
         let should_lighten = bg_luminance < 0.5;
-        
+
         // Binary search for the right amount
         let mut low = 0.0f32;
         let mut high = 1.0f32;
         let mut result = *self;
-        
+
         for _ in 0..16 {
             let mid = f32::midpoint(low, high);
             let candidate = if should_lighten {
@@ -399,7 +751,7 @@ impl ColorU {
             } else {
                 self.darken(mid)
             };
-            
+
             if candidate.contrast_ratio(background) >= min_ratio {
                 result = candidate;
                 high = mid;
@@ -407,10 +759,10 @@ impl ColorU {
                 low = mid;
             }
         }
-        
+
         result
     }
-    
+
     /// Calculate the APCA (Accessible Perceptual Contrast Algorithm) contrast.
     /// This is a newer algorithm that may replace WCAG contrast in future standards.
     /// Returns a value between -108 (white on black) and 106 (black on white).
@@ -421,7 +773,8 @@ impl ColorU {
     ///
     /// The sign indicates polarity (negative = light text on dark bg).
     /// For most purposes, use the absolute value.
-    #[must_use] pub fn apca_contrast(&self, background: &Self) -> f32 {
+    #[must_use]
+    pub fn apca_contrast(&self, background: &Self) -> f32 {
         // APCA 0.0.98G constants
         const NORMBLKTXT: f32 = 0.56;
         const NORMWHT: f32 = 0.57;
@@ -434,58 +787,75 @@ impl ColorU {
         // Convert to Y (luminance) using sRGB TRC
         let text_y = self.relative_luminance();
         let bg_y = background.relative_luminance();
-        
+
         // Soft clamp
         let text_y = if text_y < 0.0 { 0.0 } else { text_y };
         let bg_y = if bg_y < 0.0 { 0.0 } else { bg_y };
-        
-        
+
         // Clamp black levels
-        let txt_clamp = if text_y < BLKTHRS { 
+        let txt_clamp = if text_y < BLKTHRS {
             text_y + libm::powf(BLKTHRS - text_y, SCALEBLKT)
-        } else { 
-            text_y 
+        } else {
+            text_y
         };
-        let bg_clamp = if bg_y < BLKTHRS { 
+        let bg_clamp = if bg_y < BLKTHRS {
             bg_y + libm::powf(BLKTHRS - bg_y, SCALEBLKT)
-        } else { 
-            bg_y 
+        } else {
+            bg_y
         };
-        
+
         // Calculate contrast
         if bg_clamp > txt_clamp {
             // Dark text on light bg
             let s = (libm::powf(bg_clamp, NORMWHT) - libm::powf(txt_clamp, NORMBLKTXT)) * SCALEWHT;
-            if s < 0.1 { 0.0 } else { s * 100.0 }
+            if s < 0.1 {
+                0.0
+            } else {
+                s * 100.0
+            }
         } else {
             // Light text on dark bg
             let s = (libm::powf(bg_clamp, REVWHT) - libm::powf(txt_clamp, REVTXT)) * SCALEWHT;
-            if s > -0.1 { 0.0 } else { s * 100.0 }
+            if s > -0.1 {
+                0.0
+            } else {
+                s * 100.0
+            }
         }
     }
-    
+
     /// Check if the APCA contrast meets the recommended minimum for body text (|Lc| >= 60).
-    #[must_use] pub fn meets_apca_body(&self, background: &Self) -> bool {
+    #[must_use]
+    pub fn meets_apca_body(&self, background: &Self) -> bool {
         libm::fabsf(self.apca_contrast(background)) >= 60.0
     }
-    
+
     /// Check if the APCA contrast meets the minimum for large text (|Lc| >= 45).
-    #[must_use] pub fn meets_apca_large(&self, background: &Self) -> bool {
+    #[must_use]
+    pub fn meets_apca_large(&self, background: &Self) -> bool {
         libm::fabsf(self.apca_contrast(background)) >= 45.0
     }
-    
+
     /// Set the alpha channel while keeping RGB values.
-    #[must_use] pub const fn with_alpha(&self, a: u8) -> Self {
-        Self { r: self.r, g: self.g, b: self.b, a }
+    #[must_use]
+    pub const fn with_alpha(&self, a: u8) -> Self {
+        Self {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a,
+        }
     }
-    
+
     /// Set the alpha as a float (0.0 to 1.0).
-    #[must_use] pub fn with_alpha_f32(&self, a: f32) -> Self {
+    #[must_use]
+    pub fn with_alpha_f32(&self, a: f32) -> Self {
         self.with_alpha(channel_to_u8(a.clamp(0.0, 1.0) * 255.0))
     }
-    
+
     /// Invert the color (keeping alpha).
-    #[must_use] pub const fn invert(&self) -> Self {
+    #[must_use]
+    pub const fn invert(&self) -> Self {
         Self {
             r: 255 - self.r,
             g: 255 - self.g,
@@ -493,20 +863,30 @@ impl ColorU {
             a: self.a,
         }
     }
-    
+
     /// Convert to grayscale using luminance weights.
-    #[must_use] pub fn to_grayscale(&self) -> Self {
-        let gray = channel_to_u8(0.299 * f32::from(self.r) + 0.587 * f32::from(self.g) + 0.114 * f32::from(self.b));
-        Self { r: gray, g: gray, b: gray, a: self.a }
+    #[must_use]
+    pub fn to_grayscale(&self) -> Self {
+        let gray = channel_to_u8(
+            0.299 * f32::from(self.r) + 0.587 * f32::from(self.g) + 0.114 * f32::from(self.b),
+        );
+        Self {
+            r: gray,
+            g: gray,
+            b: gray,
+            a: self.a,
+        }
     }
 
     /// Returns `true` if the alpha channel is not fully opaque (i.e. `a != 255`).
-    #[must_use] pub const fn has_alpha(&self) -> bool {
+    #[must_use]
+    pub const fn has_alpha(&self) -> bool {
         self.a != Self::ALPHA_OPAQUE
     }
 
     /// Format the color as an 8-digit lowercase hex string (e.g. `#ff0000ff`).
-    #[must_use] pub fn to_hash(&self) -> String {
+    #[must_use]
+    pub fn to_hash(&self) -> String {
         format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a)
     }
 
@@ -515,7 +895,8 @@ impl ColorU {
     // ============================================================
 
     /// Strawberry color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn strawberry(shade: usize) -> Self {
+    #[must_use]
+    pub const fn strawberry(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xff, 0x8c, 0x82),   // 100: #ff8c82
             201..=400 => Self::rgb(0xed, 0x53, 0x53), // 300: #ed5353
@@ -526,7 +907,8 @@ impl ColorU {
     }
 
     /// Orange color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn palette_orange(shade: usize) -> Self {
+    #[must_use]
+    pub const fn palette_orange(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xff, 0xc2, 0x7d),   // 100: #ffc27d
             201..=400 => Self::rgb(0xff, 0xa1, 0x54), // 300: #ffa154
@@ -537,7 +919,8 @@ impl ColorU {
     }
 
     /// Banana color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn banana(shade: usize) -> Self {
+    #[must_use]
+    pub const fn banana(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xff, 0xf3, 0x94),   // 100: #fff394
             201..=400 => Self::rgb(0xff, 0xe1, 0x6b), // 300: #ffe16b
@@ -548,7 +931,8 @@ impl ColorU {
     }
 
     /// Lime color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn palette_lime(shade: usize) -> Self {
+    #[must_use]
+    pub const fn palette_lime(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xd1, 0xff, 0x82),   // 100: #d1ff82
             201..=400 => Self::rgb(0x9b, 0xdb, 0x4d), // 300: #9bdb4d
@@ -559,7 +943,8 @@ impl ColorU {
     }
 
     /// Mint color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn mint(shade: usize) -> Self {
+    #[must_use]
+    pub const fn mint(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0x89, 0xff, 0xdd),   // 100: #89ffdd
             201..=400 => Self::rgb(0x43, 0xd6, 0xb5), // 300: #43d6b5
@@ -570,7 +955,8 @@ impl ColorU {
     }
 
     /// Blueberry color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn blueberry(shade: usize) -> Self {
+    #[must_use]
+    pub const fn blueberry(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0x8c, 0xd5, 0xff),   // 100: #8cd5ff
             201..=400 => Self::rgb(0x64, 0xba, 0xff), // 300: #64baff
@@ -581,7 +967,8 @@ impl ColorU {
     }
 
     /// Grape color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn grape(shade: usize) -> Self {
+    #[must_use]
+    pub const fn grape(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xe4, 0xc6, 0xfa),   // 100: #e4c6fa
             201..=400 => Self::rgb(0xcd, 0x9e, 0xf7), // 300: #cd9ef7
@@ -592,7 +979,8 @@ impl ColorU {
     }
 
     /// Bubblegum color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn bubblegum(shade: usize) -> Self {
+    #[must_use]
+    pub const fn bubblegum(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xfe, 0x9a, 0xb8),   // 100: #fe9ab8
             201..=400 => Self::rgb(0xf4, 0x67, 0x9d), // 300: #f4679d
@@ -603,7 +991,8 @@ impl ColorU {
     }
 
     /// Cocoa color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn cocoa(shade: usize) -> Self {
+    #[must_use]
+    pub const fn cocoa(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xa3, 0x90, 0x7c),   // 100: #a3907c
             201..=400 => Self::rgb(0x8a, 0x71, 0x5e), // 300: #8a715e
@@ -614,7 +1003,8 @@ impl ColorU {
     }
 
     /// Silver color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn palette_silver(shade: usize) -> Self {
+    #[must_use]
+    pub const fn palette_silver(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0xfa, 0xfa, 0xfa),   // 100: #fafafa
             201..=400 => Self::rgb(0xd4, 0xd4, 0xd4), // 300: #d4d4d4
@@ -625,7 +1015,8 @@ impl ColorU {
     }
 
     /// Slate color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn slate(shade: usize) -> Self {
+    #[must_use]
+    pub const fn slate(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0x95, 0xa3, 0xab),   // 100: #95a3ab
             201..=400 => Self::rgb(0x66, 0x78, 0x85), // 300: #667885
@@ -636,7 +1027,8 @@ impl ColorU {
     }
 
     /// Dark color palette (shade: 100, 300, 500, 700, 900)
-    #[must_use] pub const fn dark(shade: usize) -> Self {
+    #[must_use]
+    pub const fn dark(shade: usize) -> Self {
         match shade {
             0..=200 => Self::rgb(0x66, 0x66, 0x66),   // 100: #666
             201..=400 => Self::rgb(0x4d, 0x4d, 0x4d), // 300: #4d4d4d
@@ -651,57 +1043,135 @@ impl ColorU {
     // ============================================================
 
     /// Apple Red (light mode)
-    #[must_use] pub const fn apple_red() -> Self { Self::rgb(255, 59, 48) }
+    #[must_use]
+    pub const fn apple_red() -> Self {
+        Self::rgb(255, 59, 48)
+    }
     /// Apple Red (dark mode)
-    #[must_use] pub const fn apple_red_dark() -> Self { Self::rgb(255, 69, 58) }
+    #[must_use]
+    pub const fn apple_red_dark() -> Self {
+        Self::rgb(255, 69, 58)
+    }
     /// Apple Orange (light mode)
-    #[must_use] pub const fn apple_orange() -> Self { Self::rgb(255, 149, 0) }
+    #[must_use]
+    pub const fn apple_orange() -> Self {
+        Self::rgb(255, 149, 0)
+    }
     /// Apple Orange (dark mode)
-    #[must_use] pub const fn apple_orange_dark() -> Self { Self::rgb(255, 159, 10) }
+    #[must_use]
+    pub const fn apple_orange_dark() -> Self {
+        Self::rgb(255, 159, 10)
+    }
     /// Apple Yellow (light mode)
-    #[must_use] pub const fn apple_yellow() -> Self { Self::rgb(255, 204, 0) }
+    #[must_use]
+    pub const fn apple_yellow() -> Self {
+        Self::rgb(255, 204, 0)
+    }
     /// Apple Yellow (dark mode)
-    #[must_use] pub const fn apple_yellow_dark() -> Self { Self::rgb(255, 214, 10) }
+    #[must_use]
+    pub const fn apple_yellow_dark() -> Self {
+        Self::rgb(255, 214, 10)
+    }
     /// Apple Green (light mode)
-    #[must_use] pub const fn apple_green() -> Self { Self::rgb(40, 205, 65) }
+    #[must_use]
+    pub const fn apple_green() -> Self {
+        Self::rgb(40, 205, 65)
+    }
     /// Apple Green (dark mode)
-    #[must_use] pub const fn apple_green_dark() -> Self { Self::rgb(40, 215, 75) }
+    #[must_use]
+    pub const fn apple_green_dark() -> Self {
+        Self::rgb(40, 215, 75)
+    }
     /// Apple Mint (light mode)
-    #[must_use] pub const fn apple_mint() -> Self { Self::rgb(0, 199, 190) }
+    #[must_use]
+    pub const fn apple_mint() -> Self {
+        Self::rgb(0, 199, 190)
+    }
     /// Apple Mint (dark mode)
-    #[must_use] pub const fn apple_mint_dark() -> Self { Self::rgb(102, 212, 207) }
+    #[must_use]
+    pub const fn apple_mint_dark() -> Self {
+        Self::rgb(102, 212, 207)
+    }
     /// Apple Teal (light mode)
-    #[must_use] pub const fn apple_teal() -> Self { Self::rgb(89, 173, 196) }
+    #[must_use]
+    pub const fn apple_teal() -> Self {
+        Self::rgb(89, 173, 196)
+    }
     /// Apple Teal (dark mode)
-    #[must_use] pub const fn apple_teal_dark() -> Self { Self::rgb(106, 196, 220) }
+    #[must_use]
+    pub const fn apple_teal_dark() -> Self {
+        Self::rgb(106, 196, 220)
+    }
     /// Apple Cyan (light mode)
-    #[must_use] pub const fn apple_cyan() -> Self { Self::rgb(85, 190, 240) }
+    #[must_use]
+    pub const fn apple_cyan() -> Self {
+        Self::rgb(85, 190, 240)
+    }
     /// Apple Cyan (dark mode)
-    #[must_use] pub const fn apple_cyan_dark() -> Self { Self::rgb(90, 200, 245) }
+    #[must_use]
+    pub const fn apple_cyan_dark() -> Self {
+        Self::rgb(90, 200, 245)
+    }
     /// Apple Blue (light mode)
-    #[must_use] pub const fn apple_blue() -> Self { Self::rgb(0, 122, 255) }
+    #[must_use]
+    pub const fn apple_blue() -> Self {
+        Self::rgb(0, 122, 255)
+    }
     /// Apple Blue (dark mode)
-    #[must_use] pub const fn apple_blue_dark() -> Self { Self::rgb(10, 132, 255) }
+    #[must_use]
+    pub const fn apple_blue_dark() -> Self {
+        Self::rgb(10, 132, 255)
+    }
     /// Apple Indigo (light mode)
-    #[must_use] pub const fn apple_indigo() -> Self { Self::rgb(88, 86, 214) }
+    #[must_use]
+    pub const fn apple_indigo() -> Self {
+        Self::rgb(88, 86, 214)
+    }
     /// Apple Indigo (dark mode)
-    #[must_use] pub const fn apple_indigo_dark() -> Self { Self::rgb(94, 92, 230) }
+    #[must_use]
+    pub const fn apple_indigo_dark() -> Self {
+        Self::rgb(94, 92, 230)
+    }
     /// Apple Purple (light mode)
-    #[must_use] pub const fn apple_purple() -> Self { Self::rgb(175, 82, 222) }
+    #[must_use]
+    pub const fn apple_purple() -> Self {
+        Self::rgb(175, 82, 222)
+    }
     /// Apple Purple (dark mode)
-    #[must_use] pub const fn apple_purple_dark() -> Self { Self::rgb(191, 90, 242) }
+    #[must_use]
+    pub const fn apple_purple_dark() -> Self {
+        Self::rgb(191, 90, 242)
+    }
     /// Apple Pink (light mode)
-    #[must_use] pub const fn apple_pink() -> Self { Self::rgb(255, 45, 85) }
+    #[must_use]
+    pub const fn apple_pink() -> Self {
+        Self::rgb(255, 45, 85)
+    }
     /// Apple Pink (dark mode)
-    #[must_use] pub const fn apple_pink_dark() -> Self { Self::rgb(255, 55, 95) }
+    #[must_use]
+    pub const fn apple_pink_dark() -> Self {
+        Self::rgb(255, 55, 95)
+    }
     /// Apple Brown (light mode)
-    #[must_use] pub const fn apple_brown() -> Self { Self::rgb(162, 132, 94) }
+    #[must_use]
+    pub const fn apple_brown() -> Self {
+        Self::rgb(162, 132, 94)
+    }
     /// Apple Brown (dark mode)
-    #[must_use] pub const fn apple_brown_dark() -> Self { Self::rgb(172, 142, 104) }
+    #[must_use]
+    pub const fn apple_brown_dark() -> Self {
+        Self::rgb(172, 142, 104)
+    }
     /// Apple Gray (light mode)
-    #[must_use] pub const fn apple_gray() -> Self { Self::rgb(142, 142, 147) }
+    #[must_use]
+    pub const fn apple_gray() -> Self {
+        Self::rgb(142, 142, 147)
+    }
     /// Apple Gray (dark mode)
-    #[must_use] pub const fn apple_gray_dark() -> Self { Self::rgb(152, 152, 157) }
+    #[must_use]
+    pub const fn apple_gray_dark() -> Self {
+        Self::rgb(152, 152, 157)
+    }
 
     // ============================================================
     // Bootstrap-style semantic button colors
@@ -709,48 +1179,126 @@ impl ColorU {
     // ============================================================
 
     /// Primary button color (blue) - used for main actions
-    #[must_use] pub const fn bootstrap_primary() -> Self { Self::rgb(13, 110, 253) }
-    #[must_use] pub const fn bootstrap_primary_hover() -> Self { Self::rgb(11, 94, 215) }
-    #[must_use] pub const fn bootstrap_primary_active() -> Self { Self::rgb(10, 88, 202) }
-    
+    #[must_use]
+    pub const fn bootstrap_primary() -> Self {
+        Self::rgb(13, 110, 253)
+    }
+    #[must_use]
+    pub const fn bootstrap_primary_hover() -> Self {
+        Self::rgb(11, 94, 215)
+    }
+    #[must_use]
+    pub const fn bootstrap_primary_active() -> Self {
+        Self::rgb(10, 88, 202)
+    }
+
     /// Secondary button color (gray) - used for secondary actions
-    #[must_use] pub const fn bootstrap_secondary() -> Self { Self::rgb(108, 117, 125) }
-    #[must_use] pub const fn bootstrap_secondary_hover() -> Self { Self::rgb(92, 99, 106) }
-    #[must_use] pub const fn bootstrap_secondary_active() -> Self { Self::rgb(86, 94, 100) }
-    
+    #[must_use]
+    pub const fn bootstrap_secondary() -> Self {
+        Self::rgb(108, 117, 125)
+    }
+    #[must_use]
+    pub const fn bootstrap_secondary_hover() -> Self {
+        Self::rgb(92, 99, 106)
+    }
+    #[must_use]
+    pub const fn bootstrap_secondary_active() -> Self {
+        Self::rgb(86, 94, 100)
+    }
+
     /// Success button color (green) - used for confirmations
-    #[must_use] pub const fn bootstrap_success() -> Self { Self::rgb(25, 135, 84) }
-    #[must_use] pub const fn bootstrap_success_hover() -> Self { Self::rgb(21, 115, 71) }
-    #[must_use] pub const fn bootstrap_success_active() -> Self { Self::rgb(20, 108, 67) }
-    
+    #[must_use]
+    pub const fn bootstrap_success() -> Self {
+        Self::rgb(25, 135, 84)
+    }
+    #[must_use]
+    pub const fn bootstrap_success_hover() -> Self {
+        Self::rgb(21, 115, 71)
+    }
+    #[must_use]
+    pub const fn bootstrap_success_active() -> Self {
+        Self::rgb(20, 108, 67)
+    }
+
     /// Danger button color (red) - used for destructive actions
-    #[must_use] pub const fn bootstrap_danger() -> Self { Self::rgb(220, 53, 69) }
-    #[must_use] pub const fn bootstrap_danger_hover() -> Self { Self::rgb(187, 45, 59) }
-    #[must_use] pub const fn bootstrap_danger_active() -> Self { Self::rgb(176, 42, 55) }
-    
+    #[must_use]
+    pub const fn bootstrap_danger() -> Self {
+        Self::rgb(220, 53, 69)
+    }
+    #[must_use]
+    pub const fn bootstrap_danger_hover() -> Self {
+        Self::rgb(187, 45, 59)
+    }
+    #[must_use]
+    pub const fn bootstrap_danger_active() -> Self {
+        Self::rgb(176, 42, 55)
+    }
+
     /// Warning button color (yellow) - used for warnings, uses BLACK text
-    #[must_use] pub const fn bootstrap_warning() -> Self { Self::rgb(255, 193, 7) }
-    #[must_use] pub const fn bootstrap_warning_hover() -> Self { Self::rgb(255, 202, 44) }
-    #[must_use] pub const fn bootstrap_warning_active() -> Self { Self::rgb(255, 205, 57) }
-    
+    #[must_use]
+    pub const fn bootstrap_warning() -> Self {
+        Self::rgb(255, 193, 7)
+    }
+    #[must_use]
+    pub const fn bootstrap_warning_hover() -> Self {
+        Self::rgb(255, 202, 44)
+    }
+    #[must_use]
+    pub const fn bootstrap_warning_active() -> Self {
+        Self::rgb(255, 205, 57)
+    }
+
     /// Info button color (teal/cyan) - used for informational actions
-    #[must_use] pub const fn bootstrap_info() -> Self { Self::rgb(13, 202, 240) }
-    #[must_use] pub const fn bootstrap_info_hover() -> Self { Self::rgb(49, 210, 242) }
-    #[must_use] pub const fn bootstrap_info_active() -> Self { Self::rgb(61, 213, 243) }
-    
+    #[must_use]
+    pub const fn bootstrap_info() -> Self {
+        Self::rgb(13, 202, 240)
+    }
+    #[must_use]
+    pub const fn bootstrap_info_hover() -> Self {
+        Self::rgb(49, 210, 242)
+    }
+    #[must_use]
+    pub const fn bootstrap_info_active() -> Self {
+        Self::rgb(61, 213, 243)
+    }
+
     /// Light button color - used for light-themed buttons
-    #[must_use] pub const fn bootstrap_light() -> Self { Self::rgb(248, 249, 250) }
-    #[must_use] pub const fn bootstrap_light_hover() -> Self { Self::rgb(233, 236, 239) }
-    #[must_use] pub const fn bootstrap_light_active() -> Self { Self::rgb(218, 222, 226) }
-    
+    #[must_use]
+    pub const fn bootstrap_light() -> Self {
+        Self::rgb(248, 249, 250)
+    }
+    #[must_use]
+    pub const fn bootstrap_light_hover() -> Self {
+        Self::rgb(233, 236, 239)
+    }
+    #[must_use]
+    pub const fn bootstrap_light_active() -> Self {
+        Self::rgb(218, 222, 226)
+    }
+
     /// Dark button color - used for dark-themed buttons
-    #[must_use] pub const fn bootstrap_dark() -> Self { Self::rgb(33, 37, 41) }
-    #[must_use] pub const fn bootstrap_dark_hover() -> Self { Self::rgb(66, 70, 73) }
-    #[must_use] pub const fn bootstrap_dark_active() -> Self { Self::rgb(78, 81, 84) }
-    
+    #[must_use]
+    pub const fn bootstrap_dark() -> Self {
+        Self::rgb(33, 37, 41)
+    }
+    #[must_use]
+    pub const fn bootstrap_dark_hover() -> Self {
+        Self::rgb(66, 70, 73)
+    }
+    #[must_use]
+    pub const fn bootstrap_dark_active() -> Self {
+        Self::rgb(78, 81, 84)
+    }
+
     /// Link button text color
-    #[must_use] pub const fn bootstrap_link() -> Self { Self::rgb(13, 110, 253) }
-    #[must_use] pub const fn bootstrap_link_hover() -> Self { Self::rgb(10, 88, 202) }
+    #[must_use]
+    pub const fn bootstrap_link() -> Self {
+        Self::rgb(13, 110, 253)
+    }
+    #[must_use]
+    pub const fn bootstrap_link_hover() -> Self {
+        Self::rgb(10, 88, 202)
+    }
 }
 
 /// f32-based color, range 0.0 to 1.0 (similar to webrenders `ColorF`)
@@ -828,7 +1376,7 @@ impl From<ColorF> for ColorU {
 
 /// A color reference that can be either a concrete color or a system color.
 /// System colors are lazily evaluated at runtime based on the user's system theme.
-/// 
+///
 /// CSS syntax: `system:accent`, `system:text`, `system:background`, etc.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -853,36 +1401,46 @@ impl From<ColorU> for ColorOrSystem {
 
 impl ColorOrSystem {
     /// Create a new `ColorOrSystem` from a concrete color.
-    #[must_use] pub const fn color(c: ColorU) -> Self {
+    #[must_use]
+    pub const fn color(c: ColorU) -> Self {
         Self::Color(c)
     }
-    
+
     /// Create a new `ColorOrSystem` from a system color reference.
-    #[must_use] pub const fn system(s: SystemColorRef) -> Self {
+    #[must_use]
+    pub const fn system(s: SystemColorRef) -> Self {
         Self::System(s)
     }
-    
+
     /// Resolve the color against a `SystemColors` struct.
     /// Returns the system color if available, or falls back to the provided default.
-    #[must_use] pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+    #[must_use]
+    pub fn resolve(&self, system_colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
         match self {
             Self::Color(c) => *c,
             Self::System(ref_type) => ref_type.resolve(system_colors, fallback),
         }
     }
-    
+
     /// Returns the concrete color if available, or a default fallback for system colors.
     /// Use this when `SystemColors` is not available (e.g., during rendering setup).
-    #[must_use] pub const fn to_color_u_with_fallback(&self, fallback: ColorU) -> ColorU {
+    #[must_use]
+    pub const fn to_color_u_with_fallback(&self, fallback: ColorU) -> ColorU {
         match self {
             Self::Color(c) => *c,
             Self::System(_) => fallback,
         }
     }
-    
+
     /// Returns the concrete color if available, or a gray fallback for system colors.
-    #[must_use] pub const fn to_color_u_default(&self) -> ColorU {
-        self.to_color_u_with_fallback(ColorU { r: 128, g: 128, b: 128, a: 255 })
+    #[must_use]
+    pub const fn to_color_u_default(&self) -> ColorU {
+        self.to_color_u_with_fallback(ColorU {
+            r: 128,
+            g: 128,
+            b: 128,
+            a: 255,
+        })
     }
 }
 
@@ -913,7 +1471,8 @@ pub enum SystemColorRef {
 
 impl SystemColorRef {
     /// Resolve this system color reference against actual system colors.
-    #[must_use] pub fn resolve(&self, colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
+    #[must_use]
+    pub fn resolve(&self, colors: &crate::system::SystemColors, fallback: ColorU) -> ColorU {
         match self {
             Self::Text => colors.text.as_option().copied().unwrap_or(fallback),
             Self::Background => colors.background.as_option().copied().unwrap_or(fallback),
@@ -921,14 +1480,27 @@ impl SystemColorRef {
             Self::AccentText => colors.accent_text.as_option().copied().unwrap_or(fallback),
             Self::ButtonFace => colors.button_face.as_option().copied().unwrap_or(fallback),
             Self::ButtonText => colors.button_text.as_option().copied().unwrap_or(fallback),
-            Self::WindowBackground => colors.window_background.as_option().copied().unwrap_or(fallback),
-            Self::SelectionBackground => colors.selection_background.as_option().copied().unwrap_or(fallback),
-            Self::SelectionText => colors.selection_text.as_option().copied().unwrap_or(fallback),
+            Self::WindowBackground => colors
+                .window_background
+                .as_option()
+                .copied()
+                .unwrap_or(fallback),
+            Self::SelectionBackground => colors
+                .selection_background
+                .as_option()
+                .copied()
+                .unwrap_or(fallback),
+            Self::SelectionText => colors
+                .selection_text
+                .as_option()
+                .copied()
+                .unwrap_or(fallback),
         }
     }
-    
+
     /// Get the CSS syntax for this system color reference.
-    #[must_use] pub const fn as_css_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_css_str(&self) -> &'static str {
         match self {
             Self::Text => "system:text",
             Self::Background => "system:background",
@@ -1035,7 +1607,8 @@ pub enum CssColorParseErrorOwned {
 }
 
 impl CssColorParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssColorParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssColorParseErrorOwned {
         match self {
             CssColorParseError::InvalidColor(s) => {
                 CssColorParseErrorOwned::InvalidColor((*s).to_string().into())
@@ -1079,39 +1652,22 @@ impl CssColorParseError<'_> {
 }
 
 impl CssColorParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssColorParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssColorParseError<'_> {
         match self {
             Self::InvalidColor(s) => CssColorParseError::InvalidColor(s),
-            Self::InvalidFunctionName(s) => {
-                CssColorParseError::InvalidFunctionName(s)
-            }
-            Self::InvalidColorComponent(n) => {
-                CssColorParseError::InvalidColorComponent(*n)
-            }
-            Self::IntValueParseErr(e) => {
-                CssColorParseError::IntValueParseErr(*e)
-            }
-            Self::FloatValueParseErr(e) => {
-                CssColorParseError::FloatValueParseErr(*e)
-            }
-            Self::FloatValueOutOfRange(n) => {
-                CssColorParseError::FloatValueOutOfRange(*n)
-            }
-            Self::MissingColorComponent(c) => {
-                CssColorParseError::MissingColorComponent(*c)
-            }
+            Self::InvalidFunctionName(s) => CssColorParseError::InvalidFunctionName(s),
+            Self::InvalidColorComponent(n) => CssColorParseError::InvalidColorComponent(*n),
+            Self::IntValueParseErr(e) => CssColorParseError::IntValueParseErr(*e),
+            Self::FloatValueParseErr(e) => CssColorParseError::FloatValueParseErr(*e),
+            Self::FloatValueOutOfRange(n) => CssColorParseError::FloatValueOutOfRange(*n),
+            Self::MissingColorComponent(c) => CssColorParseError::MissingColorComponent(*c),
             Self::ExtraArguments(s) => CssColorParseError::ExtraArguments(s),
             Self::UnclosedColor(s) => CssColorParseError::UnclosedColor(s),
             Self::EmptyInput => CssColorParseError::EmptyInput,
-            Self::DirectionParseError(e) => {
-                CssColorParseError::DirectionParseError(e.to_shared())
-            }
-            Self::UnsupportedDirection(s) => {
-                CssColorParseError::UnsupportedDirection(s)
-            }
-            Self::InvalidPercentage(e) => {
-                CssColorParseError::InvalidPercentage(e.clone())
-            }
+            Self::DirectionParseError(e) => CssColorParseError::DirectionParseError(e.to_shared()),
+            Self::UnsupportedDirection(s) => CssColorParseError::UnsupportedDirection(s),
+            Self::InvalidPercentage(e) => CssColorParseError::InvalidPercentage(e.clone()),
         }
     }
 }
@@ -1150,7 +1706,7 @@ pub fn parse_css_color(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
 }
 
 /// Parse a color that can be either a concrete color or a system color reference.
-/// 
+///
 /// Supports all standard CSS color formats plus:
 /// - `system:accent` - System accent/highlight color
 /// - `system:text` - System text color
@@ -1167,7 +1723,7 @@ pub fn parse_css_color(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
 /// Returns an error if `input` is not a valid CSS `color-or-system` value.
 pub fn parse_color_or_system(input: &str) -> Result<ColorOrSystem, CssColorParseError<'_>> {
     let input = input.trim();
-    
+
     // Check for system color syntax: "system:name"
     if let Some(system_name) = input.strip_prefix("system:") {
         let system_ref = match system_name.trim() {
@@ -1184,7 +1740,7 @@ pub fn parse_color_or_system(input: &str) -> Result<ColorOrSystem, CssColorParse
         };
         return Ok(ColorOrSystem::System(system_ref));
     }
-    
+
     // Otherwise parse as regular color
     parse_css_color(input).map(ColorOrSystem::Color)
 }
@@ -1257,10 +1813,7 @@ fn parse_color_no_hash(input: &str) -> Result<ColorU, CssColorParseError<'_>> {
 }
 
 #[cfg(feature = "parser")]
-fn parse_color_rgb(
-    input: &str,
-    parse_alpha: bool,
-) -> Result<ColorU, CssColorParseError<'_>> {
+fn parse_color_rgb(input: &str, parse_alpha: bool) -> Result<ColorU, CssColorParseError<'_>> {
     let mut components = input.split(',').map(str::trim);
     let rgb_color = parse_color_rgb_components(&mut components)?;
     let a = if parse_alpha {
@@ -1300,10 +1853,7 @@ fn parse_color_rgb_components<'a>(
 }
 
 #[cfg(feature = "parser")]
-fn parse_color_hsl(
-    input: &str,
-    parse_alpha: bool,
-) -> Result<ColorU, CssColorParseError<'_>> {
+fn parse_color_hsl(input: &str, parse_alpha: bool) -> Result<ColorU, CssColorParseError<'_>> {
     let mut components = input.split(',').map(str::trim);
     let rgb_color = parse_color_hsl_components(&mut components)?;
     let a = if parse_alpha {
@@ -1690,10 +2240,10 @@ mod tests {
             parse_color_or_system("system:window-background").unwrap(),
             ColorOrSystem::System(SystemColorRef::WindowBackground)
         );
-        
+
         // Invalid system color should error
         assert!(parse_color_or_system("system:invalid").is_err());
-        
+
         // Regular colors should still work
         assert_eq!(
             parse_color_or_system("red").unwrap(),
@@ -1708,7 +2258,7 @@ mod tests {
     #[test]
     fn test_system_color_resolution() {
         use crate::system::SystemColors;
-        
+
         let system_colors = SystemColors {
             text: OptionColorU::Some(ColorU::BLACK),
             secondary_text: OptionColorU::None,
@@ -1732,17 +2282,17 @@ mod tests {
             sidebar_background: OptionColorU::None,
             sidebar_selection: OptionColorU::None,
         };
-        
+
         // Test resolution of system colors
         let accent_ref = ColorOrSystem::System(SystemColorRef::Accent);
         let resolved = accent_ref.resolve(&system_colors, ColorU::GRAY);
         assert_eq!(resolved, ColorU::new_rgb(0, 122, 255));
-        
+
         // Test resolution with fallback when color is not set
         let empty_colors = SystemColors::default();
         let resolved_fallback = accent_ref.resolve(&empty_colors, ColorU::GRAY);
         assert_eq!(resolved_fallback, ColorU::GRAY);
-        
+
         // Test that concrete colors just return themselves
         let concrete = ColorOrSystem::Color(ColorU::RED);
         let resolved_concrete = concrete.resolve(&system_colors, ColorU::GRAY);
@@ -1754,7 +2304,10 @@ mod tests {
         assert_eq!(SystemColorRef::Accent.as_css_str(), "system:accent");
         assert_eq!(SystemColorRef::Text.as_css_str(), "system:text");
         assert_eq!(SystemColorRef::Background.as_css_str(), "system:background");
-        assert_eq!(SystemColorRef::SelectionBackground.as_css_str(), "system:selection-background");
+        assert_eq!(
+            SystemColorRef::SelectionBackground.as_css_str(),
+            "system:selection-background"
+        );
     }
 }
 
@@ -1766,16 +2319,66 @@ mod autotest_generated {
     /// Every `ColorU` this module sweeps over. Chosen to hit the interesting
     /// channel boundaries (0 / 1 / 127 / 128 / 254 / 255) plus a few real colors.
     const SAMPLES: [ColorU; 10] = [
-        ColorU { r: 0, g: 0, b: 0, a: 0 },
-        ColorU { r: 0, g: 0, b: 0, a: 255 },
-        ColorU { r: 255, g: 255, b: 255, a: 255 },
-        ColorU { r: 255, g: 255, b: 255, a: 0 },
-        ColorU { r: 1, g: 2, b: 3, a: 4 },
-        ColorU { r: 127, g: 128, b: 129, a: 254 },
-        ColorU { r: 254, g: 1, b: 128, a: 1 },
-        ColorU { r: 128, g: 128, b: 128, a: 255 },
-        ColorU { r: 255, g: 0, b: 0, a: 255 },
-        ColorU { r: 13, g: 110, b: 253, a: 200 },
+        ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        },
+        ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        },
+        ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        },
+        ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 0,
+        },
+        ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4,
+        },
+        ColorU {
+            r: 127,
+            g: 128,
+            b: 129,
+            a: 254,
+        },
+        ColorU {
+            r: 254,
+            g: 1,
+            b: 128,
+            a: 1,
+        },
+        ColorU {
+            r: 128,
+            g: 128,
+            b: 128,
+            a: 255,
+        },
+        ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        },
+        ColorU {
+            r: 13,
+            g: 110,
+            b: 253,
+            a: 200,
+        },
     ];
 
     // =====================================================================
@@ -1851,7 +2454,10 @@ mod autotest_generated {
     #[test]
     fn new_and_new_rgb_are_exact_aliases() {
         for c in SAMPLES {
-            assert_eq!(ColorU::new(c.r, c.g, c.b, c.a), ColorU::rgba(c.r, c.g, c.b, c.a));
+            assert_eq!(
+                ColorU::new(c.r, c.g, c.b, c.a),
+                ColorU::rgba(c.r, c.g, c.b, c.a)
+            );
             assert_eq!(ColorU::new_rgb(c.r, c.g, c.b), ColorU::rgb(c.r, c.g, c.b));
         }
     }
@@ -2099,7 +2705,10 @@ mod autotest_generated {
                 for b in (0..=255u16).step_by(85) {
                     #[allow(clippy::cast_possible_truncation)]
                     let l = ColorU::rgb(r as u8, g as u8, b as u8).luminance();
-                    assert!(l.is_finite() && (-1e-6..=1.000_001).contains(&l), "luminance {l}");
+                    assert!(
+                        l.is_finite() && (-1e-6..=1.000_001).contains(&l),
+                        "luminance {l}"
+                    );
                 }
             }
         }
@@ -2108,10 +2717,12 @@ mod autotest_generated {
     #[test]
     fn luminance_ignores_alpha() {
         for a in [0u8, 1, 128, 254, 255] {
-            assert!((ColorU::rgba(10, 20, 30, a).luminance()
-                - ColorU::rgba(10, 20, 30, 255).luminance())
+            assert!(
+                (ColorU::rgba(10, 20, 30, a).luminance()
+                    - ColorU::rgba(10, 20, 30, 255).luminance())
                 .abs()
-                < 1e-9);
+                    < 1e-9
+            );
         }
     }
 
@@ -2185,7 +2796,10 @@ mod autotest_generated {
             for b in SAMPLES {
                 let r = a.contrast_ratio(&b);
                 assert!(r.is_finite(), "non-finite contrast ratio");
-                assert!((0.999..=21.001).contains(&r), "contrast ratio out of range: {r}");
+                assert!(
+                    (0.999..=21.001).contains(&r),
+                    "contrast ratio out of range: {r}"
+                );
             }
             // Self-contrast is exactly 1.
             assert!((a.contrast_ratio(&a) - 1.0).abs() < 1e-6);
@@ -2241,7 +2855,11 @@ mod autotest_generated {
         assert_eq!(ColorU::BLACK.best_contrast_text(), ColorU::WHITE);
         for c in SAMPLES {
             let t = c.best_contrast_text();
-            let other = if t == ColorU::WHITE { ColorU::BLACK } else { ColorU::WHITE };
+            let other = if t == ColorU::WHITE {
+                ColorU::BLACK
+            } else {
+                ColorU::WHITE
+            };
             assert!(
                 c.contrast_ratio(&t) >= c.contrast_ratio(&other),
                 "{c:?} picked the lower-contrast text color"
@@ -2283,7 +2901,10 @@ mod autotest_generated {
         // <= current ratio: early return.
         assert_eq!(gray.ensure_contrast(&ColorU::WHITE, 0.0), gray);
         assert_eq!(gray.ensure_contrast(&ColorU::WHITE, -1.0), gray);
-        assert_eq!(gray.ensure_contrast(&ColorU::WHITE, f32::NEG_INFINITY), gray);
+        assert_eq!(
+            gray.ensure_contrast(&ColorU::WHITE, f32::NEG_INFINITY),
+            gray
+        );
         // Unsatisfiable / NaN: every comparison is false, so `result` never
         // moves off `*self`. Terminates (fixed 16 iterations), never hangs.
         assert_eq!(gray.ensure_contrast(&ColorU::WHITE, f32::INFINITY), gray);
@@ -2379,7 +3000,10 @@ mod autotest_generated {
     fn invert_does_not_underflow_at_the_channel_bounds() {
         // `255 - self.r` on u8 would panic in debug on underflow; it cannot,
         // but pin the boundary values anyway.
-        assert_eq!(ColorU::rgba(0, 0, 0, 0).invert(), ColorU::rgba(255, 255, 255, 0));
+        assert_eq!(
+            ColorU::rgba(0, 0, 0, 0).invert(),
+            ColorU::rgba(255, 255, 255, 0)
+        );
         assert_eq!(
             ColorU::rgba(255, 255, 255, 255).invert(),
             ColorU::rgba(0, 0, 0, 255)
@@ -2437,7 +3061,9 @@ mod autotest_generated {
             assert_eq!(h.len(), 9, "{h} is not 9 bytes");
             assert!(h.starts_with('#'));
             assert!(
-                h[1..].chars().all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
+                h[1..]
+                    .chars()
+                    .all(|ch| ch.is_ascii_hexdigit() && !ch.is_ascii_uppercase()),
                 "{h} is not lowercase hex"
             );
         }
@@ -2453,7 +3079,10 @@ mod autotest_generated {
         assert_eq!(format!("{}", ColorU::TRANSPARENT), "rgba(0, 0, 0, 0)");
         assert_eq!(format!("{}", ColorU::default()), "rgba(0, 0, 0, 1)");
         // Alpha is normalized to 0.0..=1.0.
-        assert_eq!(format!("{}", ColorU::rgba(1, 2, 3, 128)), "rgba(1, 2, 3, 0.5019608)");
+        assert_eq!(
+            format!("{}", ColorU::rgba(1, 2, 3, 128)),
+            "rgba(1, 2, 3, 0.5019608)"
+        );
         for c in SAMPLES {
             let s = format!("{c}");
             assert!(s.starts_with("rgba(") && s.ends_with(')') && s.len() > 6);
@@ -2465,9 +3094,17 @@ mod autotest_generated {
         assert_eq!(format!("{}", ColorF::BLACK), "rgba(0, 0, 0, 1)");
         assert_eq!(format!("{}", ColorF::WHITE), "rgba(255, 255, 255, 1)");
         assert_eq!(format!("{}", ColorF::TRANSPARENT), "rgba(0, 0, 0, 0)");
-        assert_eq!(format!("{}", ColorF::default()), format!("{}", ColorF::BLACK));
+        assert_eq!(
+            format!("{}", ColorF::default()),
+            format!("{}", ColorF::BLACK)
+        );
 
-        let nan = ColorF { r: f32::NAN, g: f32::NAN, b: f32::NAN, a: f32::NAN };
+        let nan = ColorF {
+            r: f32::NAN,
+            g: f32::NAN,
+            b: f32::NAN,
+            a: f32::NAN,
+        };
         assert_eq!(format!("{nan}"), "rgba(NaN, NaN, NaN, NaN)");
 
         let inf = ColorF {
@@ -2477,7 +3114,10 @@ mod autotest_generated {
             a: f32::INFINITY,
         };
         let s = format!("{inf}");
-        assert!(s.starts_with("rgba(inf, -inf, ") && s.ends_with(", inf)"), "{s}");
+        assert!(
+            s.starts_with("rgba(inf, -inf, ") && s.ends_with(", inf)"),
+            "{s}"
+        );
     }
 
     // =====================================================================
@@ -2498,10 +3138,20 @@ mod autotest_generated {
     #[test]
     fn colorf_to_coloru_clamps_out_of_range_channels() {
         // > 1.0 is clamped by `.min(1.0)`.
-        let over = ColorF { r: 2.0, g: 1e30, b: f32::INFINITY, a: 1.5 };
+        let over = ColorF {
+            r: 2.0,
+            g: 1e30,
+            b: f32::INFINITY,
+            a: 1.5,
+        };
         assert_eq!(ColorU::from(over), ColorU::rgba(255, 255, 255, 255));
         // < 0.0 is NOT clamped by `.min`, but `as u8` saturates it to 0 anyway.
-        let under = ColorF { r: -1.0, g: -1e30, b: f32::NEG_INFINITY, a: -0.5 };
+        let under = ColorF {
+            r: -1.0,
+            g: -1e30,
+            b: f32::NEG_INFINITY,
+            a: -0.5,
+        };
         assert_eq!(ColorU::from(under), ColorU::rgba(0, 0, 0, 0));
     }
 
@@ -2509,14 +3159,22 @@ mod autotest_generated {
     fn colorf_to_coloru_maps_nan_channels_to_255() {
         // `f32::min` returns the NON-NaN operand, so `NaN.min(1.0) == 1.0`,
         // and a NaN channel comes out fully saturated rather than 0.
-        let nan = ColorF { r: f32::NAN, g: 0.0, b: 0.0, a: f32::NAN };
+        let nan = ColorF {
+            r: f32::NAN,
+            g: 0.0,
+            b: 0.0,
+            a: f32::NAN,
+        };
         assert_eq!(ColorU::from(nan), ColorU::rgba(255, 0, 0, 255));
     }
 
     #[cfg(feature = "parser")]
     #[test]
     fn to_hash_round_trips_through_the_parser() {
-        assert_eq!(parse_css_color(&ColorU::RED.to_hash()).unwrap(), ColorU::RED);
+        assert_eq!(
+            parse_css_color(&ColorU::RED.to_hash()).unwrap(),
+            ColorU::RED
+        );
         for r in (0..=255u16).step_by(51) {
             for g in (0..=255u16).step_by(51) {
                 for b in (0..=255u16).step_by(85) {
@@ -2593,8 +3251,14 @@ mod autotest_generated {
         assert_eq!(s.to_color_u_default(), ColorU::rgba(128, 128, 128, 255));
 
         // Default is opaque black, and From<ColorU> agrees with ::color().
-        assert_eq!(ColorOrSystem::default(), ColorOrSystem::Color(ColorU::BLACK));
-        assert_eq!(ColorOrSystem::from(ColorU::RED), ColorOrSystem::color(ColorU::RED));
+        assert_eq!(
+            ColorOrSystem::default(),
+            ColorOrSystem::Color(ColorU::BLACK)
+        );
+        assert_eq!(
+            ColorOrSystem::from(ColorU::RED),
+            ColorOrSystem::color(ColorU::RED)
+        );
     }
 
     #[test]
@@ -2614,7 +3278,11 @@ mod autotest_generated {
             SystemColorRef::SelectionText,
         ];
         for variant in all {
-            assert_eq!(variant.resolve(&empty, ColorU::RED), ColorU::RED, "{variant:?}");
+            assert_eq!(
+                variant.resolve(&empty, ColorU::RED),
+                ColorU::RED,
+                "{variant:?}"
+            );
             assert_eq!(
                 ColorOrSystem::System(variant).resolve(&empty, ColorU::RED),
                 ColorU::RED
@@ -2649,7 +3317,25 @@ mod autotest_generated {
             ColorU::dark,
         ];
         for p in PALETTES {
-            for shade in [0, 1, 100, 200, 201, 300, 400, 401, 500, 600, 601, 700, 800, 801, 900, 1000, usize::MAX] {
+            for shade in [
+                0,
+                1,
+                100,
+                200,
+                201,
+                300,
+                400,
+                401,
+                500,
+                600,
+                601,
+                700,
+                800,
+                801,
+                900,
+                1000,
+                usize::MAX,
+            ] {
                 assert_eq!(p(shade).a, 255, "shade {shade} was not opaque");
             }
             // Every out-of-band shade collapses into the 900 bucket.
@@ -2728,15 +3414,48 @@ mod autotest_generated {
     fn every_named_constructor_except_transparent_is_opaque() {
         type Ctor = fn() -> ColorU;
         const CTORS: [Ctor; 43] = [
-            ColorU::red, ColorU::green, ColorU::blue, ColorU::white, ColorU::black,
-            ColorU::yellow, ColorU::cyan, ColorU::magenta, ColorU::orange, ColorU::pink,
-            ColorU::purple, ColorU::brown, ColorU::gray, ColorU::light_gray, ColorU::dark_gray,
-            ColorU::navy, ColorU::teal, ColorU::olive, ColorU::maroon, ColorU::lime,
-            ColorU::aqua, ColorU::silver, ColorU::fuchsia, ColorU::indigo, ColorU::gold,
-            ColorU::coral, ColorU::salmon, ColorU::turquoise, ColorU::violet, ColorU::crimson,
-            ColorU::chocolate, ColorU::sky_blue, ColorU::forest_green, ColorU::sea_green,
-            ColorU::slate_gray, ColorU::midnight_blue, ColorU::dark_red, ColorU::dark_green,
-            ColorU::dark_blue, ColorU::light_blue, ColorU::light_green, ColorU::light_yellow,
+            ColorU::red,
+            ColorU::green,
+            ColorU::blue,
+            ColorU::white,
+            ColorU::black,
+            ColorU::yellow,
+            ColorU::cyan,
+            ColorU::magenta,
+            ColorU::orange,
+            ColorU::pink,
+            ColorU::purple,
+            ColorU::brown,
+            ColorU::gray,
+            ColorU::light_gray,
+            ColorU::dark_gray,
+            ColorU::navy,
+            ColorU::teal,
+            ColorU::olive,
+            ColorU::maroon,
+            ColorU::lime,
+            ColorU::aqua,
+            ColorU::silver,
+            ColorU::fuchsia,
+            ColorU::indigo,
+            ColorU::gold,
+            ColorU::coral,
+            ColorU::salmon,
+            ColorU::turquoise,
+            ColorU::violet,
+            ColorU::crimson,
+            ColorU::chocolate,
+            ColorU::sky_blue,
+            ColorU::forest_green,
+            ColorU::sea_green,
+            ColorU::slate_gray,
+            ColorU::midnight_blue,
+            ColorU::dark_red,
+            ColorU::dark_green,
+            ColorU::dark_blue,
+            ColorU::light_blue,
+            ColorU::light_green,
+            ColorU::light_yellow,
             ColorU::light_pink,
         ];
         for ctor in CTORS {
@@ -2753,36 +3472,68 @@ mod autotest_generated {
     fn apple_and_bootstrap_palettes_are_opaque_and_distinct() {
         type Ctor = fn() -> ColorU;
         const APPLE: [Ctor; 26] = [
-            ColorU::apple_red, ColorU::apple_red_dark,
-            ColorU::apple_orange, ColorU::apple_orange_dark,
-            ColorU::apple_yellow, ColorU::apple_yellow_dark,
-            ColorU::apple_green, ColorU::apple_green_dark,
-            ColorU::apple_mint, ColorU::apple_mint_dark,
-            ColorU::apple_teal, ColorU::apple_teal_dark,
-            ColorU::apple_cyan, ColorU::apple_cyan_dark,
-            ColorU::apple_blue, ColorU::apple_blue_dark,
-            ColorU::apple_indigo, ColorU::apple_indigo_dark,
-            ColorU::apple_purple, ColorU::apple_purple_dark,
-            ColorU::apple_pink, ColorU::apple_pink_dark,
-            ColorU::apple_brown, ColorU::apple_brown_dark,
-            ColorU::apple_gray, ColorU::apple_gray_dark,
+            ColorU::apple_red,
+            ColorU::apple_red_dark,
+            ColorU::apple_orange,
+            ColorU::apple_orange_dark,
+            ColorU::apple_yellow,
+            ColorU::apple_yellow_dark,
+            ColorU::apple_green,
+            ColorU::apple_green_dark,
+            ColorU::apple_mint,
+            ColorU::apple_mint_dark,
+            ColorU::apple_teal,
+            ColorU::apple_teal_dark,
+            ColorU::apple_cyan,
+            ColorU::apple_cyan_dark,
+            ColorU::apple_blue,
+            ColorU::apple_blue_dark,
+            ColorU::apple_indigo,
+            ColorU::apple_indigo_dark,
+            ColorU::apple_purple,
+            ColorU::apple_purple_dark,
+            ColorU::apple_pink,
+            ColorU::apple_pink_dark,
+            ColorU::apple_brown,
+            ColorU::apple_brown_dark,
+            ColorU::apple_gray,
+            ColorU::apple_gray_dark,
         ];
         const BOOTSTRAP: [Ctor; 23] = [
-            ColorU::bootstrap_primary, ColorU::bootstrap_primary_hover, ColorU::bootstrap_primary_active,
-            ColorU::bootstrap_secondary, ColorU::bootstrap_secondary_hover, ColorU::bootstrap_secondary_active,
-            ColorU::bootstrap_success, ColorU::bootstrap_success_hover, ColorU::bootstrap_success_active,
-            ColorU::bootstrap_danger, ColorU::bootstrap_danger_hover, ColorU::bootstrap_danger_active,
-            ColorU::bootstrap_warning, ColorU::bootstrap_warning_hover, ColorU::bootstrap_warning_active,
-            ColorU::bootstrap_info, ColorU::bootstrap_info_hover, ColorU::bootstrap_info_active,
-            ColorU::bootstrap_light, ColorU::bootstrap_light_hover, ColorU::bootstrap_light_active,
-            ColorU::bootstrap_dark, ColorU::bootstrap_dark_hover,
+            ColorU::bootstrap_primary,
+            ColorU::bootstrap_primary_hover,
+            ColorU::bootstrap_primary_active,
+            ColorU::bootstrap_secondary,
+            ColorU::bootstrap_secondary_hover,
+            ColorU::bootstrap_secondary_active,
+            ColorU::bootstrap_success,
+            ColorU::bootstrap_success_hover,
+            ColorU::bootstrap_success_active,
+            ColorU::bootstrap_danger,
+            ColorU::bootstrap_danger_hover,
+            ColorU::bootstrap_danger_active,
+            ColorU::bootstrap_warning,
+            ColorU::bootstrap_warning_hover,
+            ColorU::bootstrap_warning_active,
+            ColorU::bootstrap_info,
+            ColorU::bootstrap_info_hover,
+            ColorU::bootstrap_info_active,
+            ColorU::bootstrap_light,
+            ColorU::bootstrap_light_hover,
+            ColorU::bootstrap_light_active,
+            ColorU::bootstrap_dark,
+            ColorU::bootstrap_dark_hover,
         ];
         for ctor in APPLE.iter().chain(BOOTSTRAP.iter()) {
             assert_eq!(ctor().a, 255);
         }
         // Each light/dark pair must actually differ.
         for pair in APPLE.chunks_exact(2) {
-            assert_ne!(pair[0](), pair[1](), "an apple light/dark pair is identical");
+            assert_ne!(
+                pair[0](),
+                pair[1](),
+                "an apple light/dark pair is identical"
+            );
         }
         // bootstrap_link duplicates bootstrap_primary by design; check the hover shifts.
         assert_eq!(ColorU::bootstrap_link(), ColorU::bootstrap_primary());
@@ -2812,16 +3563,39 @@ mod autotest_generated {
         assert!(parse_css_color("\t\n\r ").is_err());
         assert!(parse_css_color("#").is_err());
         assert_eq!(parse_css_color(""), Err(CssColorParseError::EmptyInput));
-        assert_eq!(parse_css_color("  \t "), Err(CssColorParseError::EmptyInput));
+        assert_eq!(
+            parse_css_color("  \t "),
+            Err(CssColorParseError::EmptyInput)
+        );
     }
 
     #[cfg(feature = "parser")]
     #[test]
     fn parse_css_color_garbage_is_rejected_without_panicking() {
         for garbage in [
-            "!@#$%^&*()", "\0\0\0", "rgb", "rgb(", "rgb)", ")(", "()", "#-1", "#+1",
-            "notacolor", "0", "-0", "1e10", "NaN", "inf", "-inf", ";", ",,,", "\\",
-            "rgb(,,)", "hsl(,,)", "rgba(,,,)", "#\u{0}\u{0}\u{0}",
+            "!@#$%^&*()",
+            "\0\0\0",
+            "rgb",
+            "rgb(",
+            "rgb)",
+            ")(",
+            "()",
+            "#-1",
+            "#+1",
+            "notacolor",
+            "0",
+            "-0",
+            "1e10",
+            "NaN",
+            "inf",
+            "-inf",
+            ";",
+            ",,,",
+            "\\",
+            "rgb(,,)",
+            "hsl(,,)",
+            "rgba(,,,)",
+            "#\u{0}\u{0}\u{0}",
         ] {
             assert!(
                 parse_css_color(garbage).is_err(),
@@ -2862,13 +3636,13 @@ mod autotest_generated {
         // The 3/4-byte hex branches read raw bytes, so a multi-byte char must
         // fail cleanly rather than slice through a char boundary.
         for input in [
-            "\u{1F600}",        // emoji
-            "#\u{1F600}",       // 4 bytes after '#' -> hits the len==4 branch
-            "#\u{e9}1",         // 3 bytes after '#' -> hits the len==3 branch
+            "\u{1F600}",           // emoji
+            "#\u{1F600}",          // 4 bytes after '#' -> hits the len==4 branch
+            "#\u{e9}1",            // 3 bytes after '#' -> hits the len==3 branch
             "#\u{e9}\u{e9}\u{e9}", // 6 bytes -> hits the from_str_radix branch
             "r\u{e9}d",
-            "\u{0301}\u{0301}",  // bare combining marks
-            "\u{4e2d}\u{6587}",  // CJK
+            "\u{0301}\u{0301}", // bare combining marks
+            "\u{4e2d}\u{6587}", // CJK
             "rgb(\u{1F600},0,0)",
             "rgba(0,0,0,\u{1F600})",
             "hsl(\u{1F600},100%,50%)",
@@ -2920,15 +3694,15 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn parse_css_color_arity_errors() {
-        assert!(parse_css_color("rgb(255,0)").is_err());       // missing blue
-        assert!(parse_css_color("rgb(255)").is_err());         // missing green
-        assert!(parse_css_color("rgb()").is_err());            // missing everything
-        assert!(parse_css_color("rgb(0,0,0,0)").is_err());     // extra arg to rgb()
-        assert!(parse_css_color("rgba(0,0,0)").is_err());      // missing alpha
-        assert!(parse_css_color("rgba(0,0,0,1,1)").is_err());  // extra arg to rgba()
-        assert!(parse_css_color("hsl(0,100%)").is_err());      // missing lightness
+        assert!(parse_css_color("rgb(255,0)").is_err()); // missing blue
+        assert!(parse_css_color("rgb(255)").is_err()); // missing green
+        assert!(parse_css_color("rgb()").is_err()); // missing everything
+        assert!(parse_css_color("rgb(0,0,0,0)").is_err()); // extra arg to rgb()
+        assert!(parse_css_color("rgba(0,0,0)").is_err()); // missing alpha
+        assert!(parse_css_color("rgba(0,0,0,1,1)").is_err()); // extra arg to rgba()
+        assert!(parse_css_color("hsl(0,100%)").is_err()); // missing lightness
         assert!(parse_css_color("hsla(0,100%,50%)").is_err()); // missing alpha
-        // This implementation requires commas; space-separated CSS4 syntax is not supported.
+                                                               // This implementation requires commas; space-separated CSS4 syntax is not supported.
         assert!(parse_css_color("rgb(255 0 0)").is_err());
     }
 
@@ -2937,7 +3711,10 @@ mod autotest_generated {
     fn parse_css_color_leading_and_trailing_whitespace_is_trimmed() {
         assert_eq!(parse_css_color("  red  ").unwrap(), ColorU::RED);
         assert_eq!(parse_css_color("\t#f00\n").unwrap(), ColorU::RED);
-        assert_eq!(parse_css_color("  rgb( 255 , 0 , 0 )  ").unwrap(), ColorU::RED);
+        assert_eq!(
+            parse_css_color("  rgb( 255 , 0 , 0 )  ").unwrap(),
+            ColorU::RED
+        );
         // Trailing junk after a bare keyword IS rejected.
         assert!(parse_css_color("red;garbage").is_err());
         assert!(parse_css_color("red red").is_err());
@@ -2950,18 +3727,33 @@ mod autotest_generated {
         // KNOWN DEVIATION (pinned, not endorsed): parse_parentheses slices between
         // the FIRST '(' and the LAST ')', so anything after the closing paren is
         // silently dropped instead of being rejected as an error. See report.
-        assert_eq!(parse_css_color("rgb(1,2,3)garbage").unwrap(), ColorU::rgb(1, 2, 3));
-        assert_eq!(parse_css_color("rgb(1,2,3);").unwrap(), ColorU::rgb(1, 2, 3));
+        assert_eq!(
+            parse_css_color("rgb(1,2,3)garbage").unwrap(),
+            ColorU::rgb(1, 2, 3)
+        );
+        assert_eq!(
+            parse_css_color("rgb(1,2,3);").unwrap(),
+            ColorU::rgb(1, 2, 3)
+        );
     }
 
     #[cfg(feature = "parser")]
     #[test]
     fn parse_css_color_hex_is_case_insensitive_and_length_checked() {
-        assert_eq!(parse_css_color("#ABCDEF").unwrap(), parse_css_color("#abcdef").unwrap());
+        assert_eq!(
+            parse_css_color("#ABCDEF").unwrap(),
+            parse_css_color("#abcdef").unwrap()
+        );
         assert_eq!(parse_css_color("#FFF").unwrap(), ColorU::WHITE);
         // 3/4-digit shorthand expands by *17 (f -> 0xff).
-        assert_eq!(parse_css_color("#f00f").unwrap(), ColorU::rgba(255, 0, 0, 255));
-        assert_eq!(parse_css_color("#0008").unwrap(), ColorU::rgba(0, 0, 0, 136));
+        assert_eq!(
+            parse_css_color("#f00f").unwrap(),
+            ColorU::rgba(255, 0, 0, 255)
+        );
+        assert_eq!(
+            parse_css_color("#0008").unwrap(),
+            ColorU::rgba(0, 0, 0, 136)
+        );
         // Only lengths 3, 4, 6 and 8 are legal.
         for bad_len in ["#", "#f", "#ff", "#fffff", "#fffffff", "#fffffffff"] {
             assert!(parse_css_color(bad_len).is_err(), "{bad_len} accepted");
@@ -3015,7 +3807,10 @@ mod autotest_generated {
         // re-normalizes it, so a unitless component is a 0..1 FRACTION rather than
         // the CSS Color 4 "number of percent". `hsl(0 100 50)` — plain red in every
         // browser — comes out CYAN here. Pinned so a fix shows up as a diff.
-        assert_eq!(parse_css_color("hsl(0,100,50)").unwrap(), ColorU::rgb(0, 255, 255));
+        assert_eq!(
+            parse_css_color("hsl(0,100,50)").unwrap(),
+            ColorU::rgb(0, 255, 255)
+        );
         // The fraction spelling is what currently means "100% / 50%".
         assert_eq!(parse_css_color("hsl(0,1,0.5)").unwrap(), ColorU::RED);
         // The mixed spelling that the existing suite smoke-tests happens to land on
@@ -3033,7 +3828,10 @@ mod autotest_generated {
         assert_eq!(parse_color_no_hash("fff").unwrap(), ColorU::WHITE);
         assert_eq!(parse_color_no_hash("000f").unwrap(), ColorU::BLACK);
         assert_eq!(parse_color_no_hash("ff0000").unwrap(), ColorU::RED);
-        assert_eq!(parse_color_no_hash("ff000080").unwrap(), ColorU::rgba(255, 0, 0, 128));
+        assert_eq!(
+            parse_color_no_hash("ff000080").unwrap(),
+            ColorU::rgba(255, 0, 0, 128)
+        );
         for bad in ["", "f", "ff", "fffff", "fffffff", "fffffffff", "   ", "zzz"] {
             assert!(parse_color_no_hash(bad).is_err(), "{bad:?} accepted");
         }
@@ -3046,8 +3844,14 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn parse_color_rgb_alpha_flag_controls_arity() {
-        assert_eq!(parse_color_rgb("1,2,3", false).unwrap(), ColorU::rgb(1, 2, 3));
-        assert_eq!(parse_color_rgb("1,2,3,1", true).unwrap(), ColorU::rgba(1, 2, 3, 255));
+        assert_eq!(
+            parse_color_rgb("1,2,3", false).unwrap(),
+            ColorU::rgb(1, 2, 3)
+        );
+        assert_eq!(
+            parse_color_rgb("1,2,3,1", true).unwrap(),
+            ColorU::rgba(1, 2, 3, 255)
+        );
         // parse_alpha=true but no alpha given.
         assert!(parse_color_rgb("1,2,3", true).is_err());
         // parse_alpha=false but an alpha given.
@@ -3084,7 +3888,10 @@ mod autotest_generated {
             ["+0", "0", "999999999999999999999"],
         ] {
             let mut it = bad.into_iter();
-            assert!(parse_color_rgb_components(&mut it).is_err(), "{bad:?} accepted");
+            assert!(
+                parse_color_rgb_components(&mut it).is_err(),
+                "{bad:?} accepted"
+            );
         }
         // Extra components past the third are simply not consumed here.
         let mut extra = ["1", "2", "3", "4", "5"].into_iter();
@@ -3105,7 +3912,10 @@ mod autotest_generated {
         // `hsl(0 100 50)` saturation/lightness are scaled 100x too far. Only the
         // fraction spelling currently round-trips to red. See report.
         let mut fractions = ["0", "1", "0.5"].into_iter();
-        assert_eq!(parse_color_hsl_components(&mut fractions).unwrap(), ColorU::RED);
+        assert_eq!(
+            parse_color_hsl_components(&mut fractions).unwrap(),
+            ColorU::RED
+        );
         let mut unitless = ["0", "100", "50"].into_iter();
         assert_eq!(
             parse_color_hsl_components(&mut unitless).unwrap(),
@@ -3125,7 +3935,10 @@ mod autotest_generated {
             ["0", "100%", ""],
         ] {
             let mut it = bad.into_iter();
-            assert!(parse_color_hsl_components(&mut it).is_err(), "{bad:?} accepted");
+            assert!(
+                parse_color_hsl_components(&mut it).is_err(),
+                "{bad:?} accepted"
+            );
         }
     }
 
@@ -3142,7 +3955,9 @@ mod autotest_generated {
             );
         }
         // Out of range / unparseable / NaN / inf all produce Err, never a panic.
-        for bad in ["", " ", "-0.0001", "1.0001", "2", "-1", "NaN", "inf", "-inf", "abc", "0,5", "50%"] {
+        for bad in [
+            "", " ", "-0.0001", "1.0001", "2", "-1", "NaN", "inf", "-inf", "abc", "0,5", "50%",
+        ] {
             let mut it = [bad].into_iter();
             assert!(parse_alpha_component(&mut it).is_err(), "{bad:?} accepted");
         }
@@ -3155,8 +3970,14 @@ mod autotest_generated {
     #[test]
     fn parse_color_builtin_rejects_junk_without_panicking() {
         assert_eq!(parse_color_builtin("red").unwrap(), ColorU::RED);
-        assert_eq!(parse_color_builtin("REBECCAPURPLE").unwrap(), ColorU::rgb(102, 51, 153));
-        assert_eq!(parse_color_builtin("transparent").unwrap(), ColorU::TRANSPARENT);
+        assert_eq!(
+            parse_color_builtin("REBECCAPURPLE").unwrap(),
+            ColorU::rgb(102, 51, 153)
+        );
+        assert_eq!(
+            parse_color_builtin("transparent").unwrap(),
+            ColorU::TRANSPARENT
+        );
         // Not trimmed at this level — the caller is responsible for that.
         assert!(parse_color_builtin(" red").is_err());
         assert!(parse_color_builtin("").is_err());
@@ -3179,8 +4000,8 @@ mod autotest_generated {
             "system: ",
             "system::text",
             "system:text-",
-            "system:TEXT",      // the variant table is case-SENSITIVE
-            "SYSTEM:text",      // the prefix is case-SENSITIVE
+            "system:TEXT", // the variant table is case-SENSITIVE
+            "SYSTEM:text", // the prefix is case-SENSITIVE
             "system:text;junk",
             "system:\u{1F600}",
         ] {
@@ -3233,24 +4054,28 @@ mod autotest_generated {
     fn css_color_parse_error_round_trips_through_owned() {
         // One representative input per reachable error variant.
         let errors = [
-            parse_css_color("notacolor").unwrap_err(),        // InvalidColor
-            parse_css_color("foo(1,2)").unwrap_err(),          // InvalidFunctionName
-            parse_css_color("#zzz").unwrap_err(),              // InvalidColorComponent
-            parse_css_color("rgb(300,0,0)").unwrap_err(),      // IntValueParseErr
-            parse_css_color("rgba(0,0,0,x)").unwrap_err(),     // FloatValueParseErr
-            parse_css_color("rgba(0,0,0,2)").unwrap_err(),     // FloatValueOutOfRange
-            parse_css_color("rgb(1,2)").unwrap_err(),          // MissingColorComponent
-            parse_css_color("rgb(1,2,3,4)").unwrap_err(),      // ExtraArguments
-            parse_css_color("rgb(1,2,3").unwrap_err(),         // UnclosedColor
-            parse_css_color("").unwrap_err(),                  // EmptyInput
-            parse_css_color("hsl(x,1%,1%)").unwrap_err(),      // DirectionParseError
-            parse_css_color("hsl(0,x%,1%)").unwrap_err(),      // InvalidPercentage
+            parse_css_color("notacolor").unwrap_err(), // InvalidColor
+            parse_css_color("foo(1,2)").unwrap_err(),  // InvalidFunctionName
+            parse_css_color("#zzz").unwrap_err(),      // InvalidColorComponent
+            parse_css_color("rgb(300,0,0)").unwrap_err(), // IntValueParseErr
+            parse_css_color("rgba(0,0,0,x)").unwrap_err(), // FloatValueParseErr
+            parse_css_color("rgba(0,0,0,2)").unwrap_err(), // FloatValueOutOfRange
+            parse_css_color("rgb(1,2)").unwrap_err(),  // MissingColorComponent
+            parse_css_color("rgb(1,2,3,4)").unwrap_err(), // ExtraArguments
+            parse_css_color("rgb(1,2,3").unwrap_err(), // UnclosedColor
+            parse_css_color("").unwrap_err(),          // EmptyInput
+            parse_css_color("hsl(x,1%,1%)").unwrap_err(), // DirectionParseError
+            parse_css_color("hsl(0,x%,1%)").unwrap_err(), // InvalidPercentage
         ];
         for e in &errors {
             let owned = e.to_contained();
             let shared = owned.to_shared();
             // Borrowed -> owned -> borrowed -> owned must be a fixed point.
-            assert_eq!(shared.to_contained(), owned, "error did not round-trip: {e}");
+            assert_eq!(
+                shared.to_contained(),
+                owned,
+                "error did not round-trip: {e}"
+            );
             // Debug/Display must both produce something non-empty.
             assert!(!format!("{e}").is_empty());
             assert!(!format!("{e:?}").is_empty());

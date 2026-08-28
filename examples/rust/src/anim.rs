@@ -8,8 +8,8 @@
 //! the live frame count. So BOTH the moving box and the incrementing number
 //! demonstrate the animation loop is actually running.
 
-use azul::prelude::*;
 use azul::option::OptionRefAny;
+use azul::prelude::*;
 use azul::task::TerminateTimer;
 
 /// The only state an animation needs here: how many timer ticks have elapsed.
@@ -34,7 +34,10 @@ const AMPLITUDE: f32 = 248.0;
 const SPEED: f32 = 0.05;
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let frame = data.downcast_ref::<AnimState>().map(|s| s.frame).unwrap_or(0);
+    let frame = data
+        .downcast_ref::<AnimState>()
+        .map(|s| s.frame)
+        .unwrap_or(0);
 
     // Eased ping-pong 0 -> 1 -> 0 derived purely from the frame counter.
     let phase = (frame as f32) * SPEED;
@@ -52,7 +55,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             .with_css(ROOT)
             .with_child(Dom::create_div_with_text("Timer Animation").with_css(TITLE))
             .with_child(
-                Dom::create_div_with_text("box slides via add_timer → RefreshDom").with_css(SUBTITLE),
+                Dom::create_div_with_text("box slides via add_timer → RefreshDom")
+                    .with_css(SUBTITLE),
             )
             .with_child(
                 Dom::create_div()

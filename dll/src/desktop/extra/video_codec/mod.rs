@@ -45,7 +45,11 @@ pub mod pipeline;
 // Real Vulkan Video H.264 decoder (Linux + Windows). Behind `video-native`; the
 // gpu-video wiring + NV12->RGBA CPU conversion live here. Other platforms keep
 // the stub (Apple: VideoToolbox / Android: MediaCodec land later).
-#[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
+#[cfg(all(
+    feature = "video-native",
+    target_arch = "x86_64",
+    any(target_os = "linux", target_os = "windows")
+))]
 mod decode_vulkan;
 
 // Real VideoToolbox H.264 encoder + decoder (macOS/iOS). Every framework
@@ -87,7 +91,10 @@ const fn decode_engine_compiled() -> bool {
         feature = "video-native",
         target_arch = "x86_64",
         any(target_os = "linux", target_os = "windows")
-    )) || cfg!(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))
+    )) || cfg!(all(
+        any(target_os = "macos", target_os = "ios"),
+        feature = "libloading"
+    ))
 }
 
 /// Whether this build contains a real ENCODE engine that `EncoderInner` can
@@ -95,7 +102,10 @@ const fn decode_engine_compiled() -> bool {
 /// and MediaCodec are not wired, so on Linux/Windows/Android `encode()` is a
 /// counting stub in EVERY build and `VideoEncoder::open` must say so.
 const fn encode_engine_compiled() -> bool {
-    cfg!(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))
+    cfg!(all(
+        any(target_os = "macos", target_os = "ios"),
+        feature = "libloading"
+    ))
 }
 
 /// One line naming why a DECODE handle can never produce output on this build
@@ -147,12 +157,20 @@ struct DecoderInner {
     frames_decoded: u64,
     /// Real Vulkan Video decoder, when one could be opened (H.264, Linux/Windows,
     /// `video-native`). `None` => behaves like the stub (no frames produced).
-    #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
+    #[cfg(all(
+        feature = "video-native",
+        target_arch = "x86_64",
+        any(target_os = "linux", target_os = "windows")
+    ))]
     backend: Option<decode_vulkan::VulkanVideoDecoder>,
     /// Frames decoded but not yet pulled. Decode is pipelined + B-frame-reordered,
     /// so one fed chunk can yield several frames; we hand them out one per
     /// `decode` / `next_frame` call.
-    #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
+    #[cfg(all(
+        feature = "video-native",
+        target_arch = "x86_64",
+        any(target_os = "linux", target_os = "windows")
+    ))]
     pending: std::collections::VecDeque<VideoFrame>,
     /// Real VideoToolbox H.264 decoder (macOS/iOS, dlopen'd — not behind
     /// `video-native`). `None` => stub.
@@ -553,7 +571,11 @@ impl VideoDecoder {
         let inner = Box::new(DecoderInner {
             h265,
             frames_decoded: 0,
-            #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
+            #[cfg(all(
+                feature = "video-native",
+                target_arch = "x86_64",
+                any(target_os = "linux", target_os = "windows")
+            ))]
             backend: if h265 {
                 // H.265 decode isn't wired into the bytes-decoder path yet; the
                 // demos are H.264. Leaving this None keeps the stub behaviour.
@@ -561,7 +583,11 @@ impl VideoDecoder {
             } else {
                 decode_vulkan::VulkanVideoDecoder::open_h264()
             },
-            #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
+            #[cfg(all(
+                feature = "video-native",
+                target_arch = "x86_64",
+                any(target_os = "linux", target_os = "windows")
+            ))]
             pending: std::collections::VecDeque::new(),
             #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "libloading"))]
             vt: if h265 {
@@ -595,7 +621,11 @@ impl VideoDecoder {
             None => return OptionVideoFrame::None,
         };
         inner.frames_decoded = inner.frames_decoded.wrapping_add(1);
-        #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
+        #[cfg(all(
+            feature = "video-native",
+            target_arch = "x86_64",
+            any(target_os = "linux", target_os = "windows")
+        ))]
         {
             if let Some(backend) = inner.backend.as_mut() {
                 for f in backend.decode(data.as_slice()) {
@@ -625,7 +655,11 @@ impl VideoDecoder {
     /// `decode` / `flush` there may be several frames buffered (pipelining +
     /// B-frame reordering); loop `next_frame` until it returns `None`.
     pub fn next_frame(&self) -> OptionVideoFrame {
-        #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
+        #[cfg(all(
+            feature = "video-native",
+            target_arch = "x86_64",
+            any(target_os = "linux", target_os = "windows")
+        ))]
         if let Some(inner) = unsafe { (self.ptr as *mut DecoderInner).as_mut() } {
             if let Some(f) = inner.pending.pop_front() {
                 return OptionVideoFrame::Some(f);
@@ -644,7 +678,11 @@ impl VideoDecoder {
     /// (drain the rest with [`next_frame`](Self::next_frame)). Frames held back
     /// for B-frame reordering only come out after a flush.
     pub fn flush(&self) -> OptionVideoFrame {
-        #[cfg(all(feature = "video-native", target_arch = "x86_64", any(target_os = "linux", target_os = "windows")))]
+        #[cfg(all(
+            feature = "video-native",
+            target_arch = "x86_64",
+            any(target_os = "linux", target_os = "windows")
+        ))]
         if let Some(inner) = unsafe { (self.ptr as *mut DecoderInner).as_mut() } {
             if let Some(backend) = inner.backend.as_mut() {
                 for f in backend.flush() {

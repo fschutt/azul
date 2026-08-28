@@ -21,13 +21,13 @@ use azul::widgets::*;
 // `azul::dom`. (The existing widgets — Button/CheckBox/DropDown — instead take
 // a bare fn type, so they need nothing from here.)
 use azul::dom::{
-    AttributeNameValue, AttributeType, IdOrClass, NodeType,
-    AccordionOnToggleCallback, AlertOnDismissCallback, BreadcrumbOnNavigateCallback,
-    ChipOnRemoveCallback, ComboBoxOnSelectCallback, DatePickerOnChangeCallback,
-    ModalOnCloseCallback, PaginationOnChangeCallback, PopoverOnToggleCallback,
-    RadioGroupOnChangeCallback, SegmentedOnChangeCallback, SliderOnValueChangeCallback,
-    SplitPaneOnResizeCallback, StepperOnStepChangeCallback, SwitchOnToggleCallback,
-    TextAreaOnFocusLostCallback, TimePickerOnChangeCallback, ToastOnDismissCallback,
+    AccordionOnToggleCallback, AlertOnDismissCallback, AttributeNameValue, AttributeType,
+    BreadcrumbOnNavigateCallback, ChipOnRemoveCallback, ComboBoxOnSelectCallback,
+    DatePickerOnChangeCallback, IdOrClass, ModalOnCloseCallback, NodeType,
+    PaginationOnChangeCallback, PopoverOnToggleCallback, RadioGroupOnChangeCallback,
+    SegmentedOnChangeCallback, SliderOnValueChangeCallback, SplitPaneOnResizeCallback,
+    StepperOnStepChangeCallback, SwitchOnToggleCallback, TextAreaOnFocusLostCallback,
+    TimePickerOnChangeCallback, ToastOnDismissCallback,
 };
 
 // `WindowDecorations` lives in `azul::css`, not `azul::window`.
@@ -124,16 +124,15 @@ fn labelled(label: &str, widget: Dom) -> Dom {
 
 /// A titled card grouping several labelled widgets.
 fn section(title: &str, items: Vec<Dom>) -> Dom {
-    let mut col = Dom::create_div()
-        .with_css(
-            "display: flex; flex-direction: column; background-color: #ffffff; \
+    let mut col =
+        Dom::create_div()
+            .with_css(
+                "display: flex; flex-direction: column; background-color: #ffffff; \
              border-radius: 10px; padding: 18px; margin-bottom: 20px;",
-        )
-        .with_child(
-            Dom::create_div_with_text(title).with_css(
+            )
+            .with_child(Dom::create_div_with_text(title).with_css(
                 "font-size: 18px; font-weight: bold; color: #1d2939; margin-bottom: 14px;",
-            ),
-        );
+            ));
     for it in items {
         col = col.with_child(it);
     }
@@ -228,33 +227,26 @@ fn context_menu(data: &RefAny) -> Menu {
         MenuItem::string(menu_action(data, "Copy")),
         MenuItem::string(menu_action(data, "Paste")),
         MenuItem::separator(),
-        MenuItem::string(
-            StringMenuItem::create("More")
-                .with_children(vec![
-                    MenuItem::string(menu_action(data, "Duplicate")),
-                    MenuItem::string(menu_action(data, "Delete")),
-                ]),
-        ),
+        MenuItem::string(StringMenuItem::create("More").with_children(vec![
+            MenuItem::string(menu_action(data, "Duplicate")),
+            MenuItem::string(menu_action(data, "Delete")),
+        ])),
     ])
 }
 
 /// The window menu bar: File / Edit, wired to the same status line.
 fn menu_bar(data: &RefAny) -> Menu {
     Menu::create(vec![
-        MenuItem::string(
-            StringMenuItem::create("File").with_children(vec![
-                MenuItem::string(menu_action(data, "New")),
-                MenuItem::string(menu_action(data, "Open")),
-                MenuItem::separator(),
-                MenuItem::string(menu_action(data, "Quit")),
-            ]),
-        ),
-        MenuItem::string(
-            StringMenuItem::create("Edit").with_children(vec![
-                MenuItem::string(menu_action(data, "Undo")),
-                MenuItem::string(menu_action(data, "Redo")),
-            ]),
-        ),
+        MenuItem::string(StringMenuItem::create("File").with_children(vec![
+            MenuItem::string(menu_action(data, "New")),
+            MenuItem::string(menu_action(data, "Open")),
+            MenuItem::separator(),
+            MenuItem::string(menu_action(data, "Quit")),
+        ])),
+        MenuItem::string(StringMenuItem::create("Edit").with_children(vec![
+            MenuItem::string(menu_action(data, "Undo")),
+            MenuItem::string(menu_action(data, "Redo")),
+        ])),
     ])
 }
 
@@ -266,13 +258,18 @@ fn menus_section(data: &RefAny, status: &str) -> Dom {
              border: 1px dashed #98a2b3; border-radius: 8px; background-color: #f9fafb; \
              color: #475467; cursor: context-menu;",
         )
-        .with_child(Dom::create_span_with_text("Right-click me for a context menu"))
+        .with_child(Dom::create_span_with_text(
+            "Right-click me for a context menu",
+        ))
         .with_context_menu(context_menu(data));
     section(
         "Menus",
         vec![
             labelled("Context menu", box_),
-            labelled("Status", Dom::create_span_with_text(status).with_css("color: #1d2939;")),
+            labelled(
+                "Status",
+                Dom::create_span_with_text(status).with_css("color: #1d2939;"),
+            ),
         ],
     )
 }
@@ -318,19 +315,41 @@ fn files_section(data: &RefAny, dropped: &[azul::str::String], hovering: bool) -
         } else {
             "Drag files here from your file manager"
         }));
-    zone.add_callback(EventFilter::Window(WindowEventFilter::HoveredFile), data.clone(), on_file_hover);
-    zone.add_callback(EventFilter::Window(WindowEventFilter::HoveredFileCancelled), data.clone(), on_file_hover);
-    zone.add_callback(EventFilter::Window(WindowEventFilter::DroppedFile), data.clone(), on_file_drop);
+    zone.add_callback(
+        EventFilter::Window(WindowEventFilter::HoveredFile),
+        data.clone(),
+        on_file_hover,
+    );
+    zone.add_callback(
+        EventFilter::Window(WindowEventFilter::HoveredFileCancelled),
+        data.clone(),
+        on_file_hover,
+    );
+    zone.add_callback(
+        EventFilter::Window(WindowEventFilter::DroppedFile),
+        data.clone(),
+        on_file_drop,
+    );
 
-    let mut list = Dom::create_div().with_css("display: flex; flex-direction: column; gap: 2px; margin-top: 8px;");
+    let mut list = Dom::create_div()
+        .with_css("display: flex; flex-direction: column; gap: 2px; margin-top: 8px;");
     if dropped.is_empty() {
-        list = list.with_child(Dom::create_span_with_text("(nothing dropped yet)").with_css("color: #98a2b3; font-size: 12px;"));
+        list = list.with_child(
+            Dom::create_span_with_text("(nothing dropped yet)")
+                .with_css("color: #98a2b3; font-size: 12px;"),
+        );
     } else {
         for f in dropped {
-            list = list.with_child(Dom::create_span_with_text(f.as_str()).with_css("font-size: 12px; color: #1d2939; font-family: monospace;"));
+            list = list.with_child(
+                Dom::create_span_with_text(f.as_str())
+                    .with_css("font-size: 12px; color: #1d2939; font-family: monospace;"),
+            );
         }
     }
-    section("Files", vec![labelled("Drop zone", zone), labelled("Dropped files", list)])
+    section(
+        "Files",
+        vec![labelled("Drop zone", zone), labelled("Dropped files", list)],
+    )
 }
 
 // ──────────────────────────── VS-style tabs ────────────────────────────────
@@ -349,7 +368,8 @@ fn tab_index_of(data: &mut RefAny) -> Option<usize> {
     data.downcast_ref::<(RefAny, usize)>().map(|p| (*p).1)
 }
 fn tab_showcase_of(data: &mut RefAny) -> Option<RefAny> {
-    data.downcast_ref::<(RefAny, usize)>().map(|p| (*p).0.clone())
+    data.downcast_ref::<(RefAny, usize)>()
+        .map(|p| (*p).0.clone())
 }
 
 /// Click a tab header → make it the active document.
@@ -435,21 +455,42 @@ fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom
                  border-radius: 6px 6px 0px 0px; -azul-user-select: none;",
             ))
             .with_child(Dom::create_span_with_text(label.as_str()));
-        tab.add_callback(EventFilter::Hover(HoverEventFilter::MouseDown), tab_data(data, i), on_tab_click);
-        tab.add_callback(EventFilter::Hover(HoverEventFilter::DragStart), tab_data(data, i), on_tab_drag_start);
-        tab.add_callback(EventFilter::Hover(HoverEventFilter::DragOver), tab_data(data, i), on_tab_drag_over);
-        tab.add_callback(EventFilter::Hover(HoverEventFilter::Drop), tab_data(data, i), on_tab_drop);
+        tab.add_callback(
+            EventFilter::Hover(HoverEventFilter::MouseDown),
+            tab_data(data, i),
+            on_tab_click,
+        );
+        tab.add_callback(
+            EventFilter::Hover(HoverEventFilter::DragStart),
+            tab_data(data, i),
+            on_tab_drag_start,
+        );
+        tab.add_callback(
+            EventFilter::Hover(HoverEventFilter::DragOver),
+            tab_data(data, i),
+            on_tab_drag_over,
+        );
+        tab.add_callback(
+            EventFilter::Hover(HoverEventFilter::Drop),
+            tab_data(data, i),
+            on_tab_drop,
+        );
         strip = strip.with_child(tab);
     }
 
-    let active_label = tabs.get(active).map(|t| t.as_str().to_string()).unwrap_or_default();
+    let active_label = tabs
+        .get(active)
+        .map(|t| t.as_str().to_string())
+        .unwrap_or_default();
     let pane = Dom::create_div()
         .with_css(
             "min-height: 90px; padding: 16px; background-color: #ffffff; \
              border: 1px solid #d0d5dd; border-top: none; border-radius: 0px 0px 8px 8px; \
              color: #475467; font-family: monospace;",
         )
-        .with_child(Dom::create_span_with_text(format!("// {active_label}")).with_css("color: #1d2939;"));
+        .with_child(
+            Dom::create_span_with_text(format!("// {active_label}")).with_css("color: #1d2939;"),
+        );
 
     let strip_and_pane = Dom::create_div()
         .with_css("display: flex; flex-direction: column;")
@@ -458,9 +499,10 @@ fn tabs_section(data: &RefAny, tabs: &[azul::str::String], active: usize) -> Dom
 
     section(
         "Documents (VS-style tabs)",
-        vec![
-            labelled("Drag a tab onto another to reorder", strip_and_pane),
-        ],
+        vec![labelled(
+            "Drag a tab onto another to reorder",
+            strip_and_pane,
+        )],
     )
 }
 
@@ -496,7 +538,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_placeholder("Multi-line text area...")
                     .with_on_focus_lost(
                         data.clone(),
-                        TextAreaOnFocusLostCallback { cb: on_textarea_focus_lost, callable: OptionRefAny::None },
+                        TextAreaOnFocusLostCallback {
+                            cb: on_textarea_focus_lost,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -512,7 +557,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Slider::create(s.slider_value, 0.0, 100.0)
                     .with_on_value_change(
                         data.clone(),
-                        SliderOnValueChangeCallback { cb: on_slider, callable: OptionRefAny::None },
+                        SliderOnValueChangeCallback {
+                            cb: on_slider,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -521,7 +569,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Switch::create(s.switch_on)
                     .with_on_toggle(
                         data.clone(),
-                        SwitchOnToggleCallback { cb: on_switch, callable: OptionRefAny::None },
+                        SwitchOnToggleCallback {
+                            cb: on_switch,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -544,7 +595,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_selected_index(s.selected_radio)
                     .with_on_change(
                         data.clone(),
-                        RadioGroupOnChangeCallback { cb: on_radio, callable: OptionRefAny::None },
+                        RadioGroupOnChangeCallback {
+                            cb: on_radio,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -554,7 +608,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_selected_index(s.selected_segment)
                     .with_on_change(
                         data.clone(),
-                        SegmentedOnChangeCallback { cb: on_segmented, callable: OptionRefAny::None },
+                        SegmentedOnChangeCallback {
+                            cb: on_segmented,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -574,7 +631,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_placeholder("Pick a fruit")
                     .with_on_select(
                         data.clone(),
-                        ComboBoxOnSelectCallback { cb: on_combobox, callable: OptionRefAny::None },
+                        ComboBoxOnSelectCallback {
+                            cb: on_combobox,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -624,11 +684,17 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_removable(true)
                     .with_on_remove(
                         data.clone(),
-                        ChipOnRemoveCallback { cb: on_chip_remove, callable: OptionRefAny::None },
+                        ChipOnRemoveCallback {
+                            cb: on_chip_remove,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
-            labelled("Avatar", Avatar::create("FS").with_size(AvatarSize::Large).dom()),
+            labelled(
+                "Avatar",
+                Avatar::create("FS").with_size(AvatarSize::Large).dom(),
+            ),
             labelled(
                 "Card",
                 Card::create(Dom::create_div_with_text("Card body content"))
@@ -638,13 +704,20 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
             labelled("Divider", Divider::create().dom()),
             labelled(
                 "ProgressBar",
-                ProgressBar::create(s.progress).dom().with_css("width: 240px;"),
+                ProgressBar::create(s.progress)
+                    .dom()
+                    .with_css("width: 240px;"),
             ),
             labelled(
                 "Spinner",
                 Spinner::create()
                     .with_spinner_size(32)
-                    .with_color(ColorU { r: 33, g: 150, b: 243, a: 255 })
+                    .with_color(ColorU {
+                        r: 33,
+                        g: 150,
+                        b: 243,
+                        a: 255,
+                    })
                     .dom(),
             ),
         ],
@@ -661,7 +734,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_dismissible(true)
                     .with_on_dismiss(
                         data.clone(),
-                        AlertOnDismissCallback { cb: on_alert_dismiss, callable: OptionRefAny::None },
+                        AlertOnDismissCallback {
+                            cb: on_alert_dismiss,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -671,7 +747,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_dismissible(true)
                     .with_on_dismiss(
                         data.clone(),
-                        ToastOnDismissCallback { cb: on_toast_dismiss, callable: OptionRefAny::None },
+                        ToastOnDismissCallback {
+                            cb: on_toast_dismiss,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -687,7 +766,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_close_button(true)
                     .with_on_close(
                         data.clone(),
-                        ModalOnCloseCallback { cb: on_modal_close, callable: OptionRefAny::None },
+                        ModalOnCloseCallback {
+                            cb: on_modal_close,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -701,7 +783,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     // DOM never changes - the engine re-parents the subtree in the layout.
     let docking = section(
         "Docking",
-        vec![labelled("Dockable panel (drag the grip out; drop it on the other zone)", dock_zones())],
+        vec![labelled(
+            "Dockable panel (drag the grip out; drop it on the other zone)",
+            dock_zones(),
+        )],
     );
 
     // ── Menus + Files + Tabs ────────────────────────────────────────────
@@ -718,7 +803,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Breadcrumb::create(strs(&["Home", "Library", "Data"]))
                     .with_on_navigate(
                         data.clone(),
-                        BreadcrumbOnNavigateCallback { cb: on_breadcrumb, callable: OptionRefAny::None },
+                        BreadcrumbOnNavigateCallback {
+                            cb: on_breadcrumb,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -727,7 +815,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 Pagination::create(s.current_page, 10)
                     .with_on_change(
                         data.clone(),
-                        PaginationOnChangeCallback { cb: on_pagination, callable: OptionRefAny::None },
+                        PaginationOnChangeCallback {
+                            cb: on_pagination,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -737,7 +828,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_current_step(s.current_step)
                     .with_on_step_change(
                         data.clone(),
-                        StepperOnStepChangeCallback { cb: on_stepper, callable: OptionRefAny::None },
+                        StepperOnStepChangeCallback {
+                            cb: on_stepper,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -757,7 +851,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 ])
                 .with_on_toggle(
                     data.clone(),
-                    AccordionOnToggleCallback { cb: on_accordion, callable: OptionRefAny::None },
+                    AccordionOnToggleCallback {
+                        cb: on_accordion,
+                        callable: OptionRefAny::None,
+                    },
                 )
                 .dom(),
             ),
@@ -778,7 +875,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 .with_open(false)
                 .with_on_toggle(
                     data.clone(),
-                    PopoverOnToggleCallback { cb: on_popover, callable: OptionRefAny::None },
+                    PopoverOnToggleCallback {
+                        cb: on_popover,
+                        callable: OptionRefAny::None,
+                    },
                 )
                 .dom(),
             ),
@@ -792,7 +892,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 .with_ratio(0.5)
                 .with_on_resize(
                     data.clone(),
-                    SplitPaneOnResizeCallback { cb: on_splitpane, callable: OptionRefAny::None },
+                    SplitPaneOnResizeCallback {
+                        cb: on_splitpane,
+                        callable: OptionRefAny::None,
+                    },
                 )
                 .dom()
                 .with_css("height: 120px;"),
@@ -809,7 +912,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 DatePicker::create(s.date.year, s.date.month, s.date.day)
                     .with_on_change(
                         data.clone(),
-                        DatePickerOnChangeCallback { cb: on_datepicker, callable: OptionRefAny::None },
+                        DatePickerOnChangeCallback {
+                            cb: on_datepicker,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -820,7 +926,10 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                     .with_pm(s.time.is_pm)
                     .with_on_change(
                         data.clone(),
-                        TimePickerOnChangeCallback { cb: on_timepicker, callable: OptionRefAny::None },
+                        TimePickerOnChangeCallback {
+                            cb: on_timepicker,
+                            callable: OptionRefAny::None,
+                        },
                     )
                     .dom(),
             ),
@@ -831,7 +940,11 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     let heading = Dom::create_div_with_text("Azul Widget Showcase")
         .with_css("font-size: 26px; font-weight: bold; color: #101828; margin-bottom: 4px;");
     let subtitle = Dom::create_div_with_text(
-        format!("Every built-in widget (callbacks fired so far: {})", s.interactions).as_str(),
+        format!(
+            "Every built-in widget (callbacks fired so far: {})",
+            s.interactions
+        )
+        .as_str(),
     )
     .with_css("font-size: 13px; color: #667085; margin-bottom: 20px;");
 
@@ -1000,7 +1113,10 @@ extern "C" fn on_text_input(
         s.text = state.get_text().as_str().into();
         s.interactions += 1;
     }
-    OnTextInputReturn { update: Update::DoNothing, valid: TextInputValid::Yes }
+    OnTextInputReturn {
+        update: Update::DoNothing,
+        valid: TextInputValid::Yes,
+    }
 }
 
 /// The picker reports every change; storing it is what makes the swatch
@@ -1027,7 +1143,11 @@ extern "C" fn on_radio(mut data: RefAny, _: CallbackInfo, state: RadioGroupState
     }
     bump(&mut data)
 }
-extern "C" fn on_textarea_focus_lost(mut data: RefAny, _: CallbackInfo, _: TextAreaState) -> Update {
+extern "C" fn on_textarea_focus_lost(
+    mut data: RefAny,
+    _: CallbackInfo,
+    _: TextAreaState,
+) -> Update {
     bump(&mut data)
 }
 extern "C" fn on_combobox(mut data: RefAny, _: CallbackInfo, state: ComboBoxState) -> Update {
@@ -1107,16 +1227,35 @@ pub fn start() {
         current_page: 1,
         current_step: 1,
         interactions: 0,
-        color: ColorU { r: 255, g: 87, b: 51, a: 255 },
+        color: ColorU {
+            r: 255,
+            g: 87,
+            b: 51,
+            a: 255,
+        },
         menu_status: "No menu item chosen yet.".into(),
         dropped: Vec::new(),
         file_hovering: false,
-        tabs: vec!["main.rs".into(), "lib.rs".into(), "Cargo.toml".into(), "README.md".into()],
+        tabs: vec![
+            "main.rs".into(),
+            "lib.rs".into(),
+            "Cargo.toml".into(),
+            "README.md".into(),
+        ],
         active_tab: 0,
         drag_tab: usize::MAX,
         drag_over: usize::MAX,
-        date: DatePickerState { year: 2026, month: 6, day: 23 },
-        time: TimePickerState { hour: 14, minute: 30, is_pm: false, is_24h: true },
+        date: DatePickerState {
+            year: 2026,
+            month: 6,
+            day: 23,
+        },
+        time: TimePickerState {
+            hour: 14,
+            minute: 30,
+            is_pm: false,
+            is_24h: true,
+        },
         combo_text: "".into(),
         accordion_open: vec![true, false],
     });

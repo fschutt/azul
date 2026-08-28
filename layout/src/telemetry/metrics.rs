@@ -171,7 +171,8 @@ impl InstrumentKey {
     /// same labels in any order therefore name the SAME series.
     #[must_use]
     pub fn with_labels(name: &str, labels: &[(&str, &str)]) -> Self {
-        let mut dims: Vec<(String, String)> = Vec::with_capacity(labels.len().min(MAX_LABELS_PER_METRIC));
+        let mut dims: Vec<(String, String)> =
+            Vec::with_capacity(labels.len().min(MAX_LABELS_PER_METRIC));
         for (k, v) in labels {
             let key: String = k
                 .chars()
@@ -382,22 +383,74 @@ pub struct InstrumentInfo {
 /// App-defined instruments join the inventory at runtime with a generic
 /// description (see [`instrument_inventory`]).
 pub const ENGINE_INSTRUMENTS: &[(&str, &str, &str)] = &[
-    (SESSIONS_STARTED, "counter", "How often the app was started (adoption per version)."),
+    (
+        SESSIONS_STARTED,
+        "counter",
+        "How often the app was started (adoption per version).",
+    ),
     (CRASHES, "counter", "How often the app crashed."),
-    (PANICS, "counter", "How often an internal error (panic) was caught."),
-    (STARTUP_SECONDS, "histogram", "How long the app took to start."),
-    (STARTUP_RSS_BYTES, "gauge", "Memory footprint right after startup."),
-    (RELAYOUT_SCOPE, "counter", "Which relayout paths run (full vs incremental) - engine performance triage."),
-    (UPDATE_CHECK, "counter", "Update-check outcomes (up to date / available / staggered / error)."),
+    (
+        PANICS,
+        "counter",
+        "How often an internal error (panic) was caught.",
+    ),
+    (
+        STARTUP_SECONDS,
+        "histogram",
+        "How long the app took to start.",
+    ),
+    (
+        STARTUP_RSS_BYTES,
+        "gauge",
+        "Memory footprint right after startup.",
+    ),
+    (
+        RELAYOUT_SCOPE,
+        "counter",
+        "Which relayout paths run (full vs incremental) - engine performance triage.",
+    ),
+    (
+        UPDATE_CHECK,
+        "counter",
+        "Update-check outcomes (up to date / available / staggered / error).",
+    ),
     (UPDATE_APPLY, "counter", "Update-install outcomes."),
-    (PHASE_SECONDS, "histogram", "Time per engine phase (layout, repaint, callbacks)."),
+    (
+        PHASE_SECONDS,
+        "histogram",
+        "Time per engine phase (layout, repaint, callbacks).",
+    ),
     (RSS_BYTES, "gauge", "Process memory footprint over time."),
-    (FRAME_SECONDS, "histogram", "Time per rendered frame (smoothness)."),
-    (TIMER_FRAME_SECONDS, "histogram", "Time spent in app timer callbacks."),
-    (SLOW_FRAMES, "counter", "Frames slower than the smoothness threshold."),
-    (DOCUMENT_SIZE, "gauge", "App-reported size of the open document."),
-    (DOC_RSS_DELTA_BYTES, "gauge", "Memory the open document added."),
-    (DOC_RSS_PER_UNIT, "gauge", "Memory per document unit (is 300 MB reasonable for this file)."),
+    (
+        FRAME_SECONDS,
+        "histogram",
+        "Time per rendered frame (smoothness).",
+    ),
+    (
+        TIMER_FRAME_SECONDS,
+        "histogram",
+        "Time spent in app timer callbacks.",
+    ),
+    (
+        SLOW_FRAMES,
+        "counter",
+        "Frames slower than the smoothness threshold.",
+    ),
+    (
+        DOCUMENT_SIZE,
+        "gauge",
+        "App-reported size of the open document.",
+    ),
+    (
+        DOC_RSS_DELTA_BYTES,
+        "gauge",
+        "Memory the open document added.",
+    ),
+    (
+        DOC_RSS_PER_UNIT,
+        "gauge",
+        "Memory per document unit (is 300 MB reasonable for this file).",
+    ),
     (HEAP_BYTES, "gauge", "Allocator heap in use."),
 ];
 
@@ -434,7 +487,10 @@ pub fn instrument_inventory() -> Vec<InstrumentInfo> {
 }
 
 fn disabled_set() -> &'static std::sync::RwLock<std::collections::BTreeSet<String>> {
-    use std::{collections::BTreeSet, sync::{OnceLock, RwLock}};
+    use std::{
+        collections::BTreeSet,
+        sync::{OnceLock, RwLock},
+    };
     static DISABLED: OnceLock<RwLock<BTreeSet<String>>> = OnceLock::new();
     DISABLED.get_or_init(|| RwLock::new(BTreeSet::new()))
 }
@@ -555,7 +611,11 @@ pub fn histogram_record(name: &str, value: f64) {
 
 /// Records a histogram observation on a series carrying one extra dimension.
 pub fn histogram_record_dim(name: &str, dim_key: &str, dim_value: &str, value: f64) {
-    record_in_histogram(InstrumentKey::with_dim(name, dim_key, dim_value), name, value);
+    record_in_histogram(
+        InstrumentKey::with_dim(name, dim_key, dim_value),
+        name,
+        value,
+    );
 }
 
 /// Records a histogram observation on a series carrying free-form labels.
@@ -721,7 +781,10 @@ mod tests {
             Some(&InstrumentValue::Counter(5))
         );
         assert_eq!(
-            find(&snap, &InstrumentKey::with_dim("test_unique_dim_total", "result", "ok")),
+            find(
+                &snap,
+                &InstrumentKey::with_dim("test_unique_dim_total", "result", "ok")
+            ),
             Some(&InstrumentValue::Counter(1))
         );
         assert_eq!(
@@ -756,7 +819,11 @@ mod tests {
         assert_eq!(a.dims.len(), 2);
         assert_eq!(a.dims[0].0, "doc_type");
         assert_eq!(a.dims[1].0, "size_");
-        assert_eq!(a.dims[1].1.len(), MAX_LABEL_VALUE_LEN, "value must be truncated");
+        assert_eq!(
+            a.dims[1].1.len(),
+            MAX_LABEL_VALUE_LEN,
+            "value must be truncated"
+        );
     }
 
     #[test]
@@ -764,8 +831,10 @@ mod tests {
         let labels: Vec<(String, String)> = (0..10)
             .map(|i| (format!("k{i}"), format!("v{i}")))
             .collect();
-        let borrowed: Vec<(&str, &str)> =
-            labels.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        let borrowed: Vec<(&str, &str)> = labels
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
         let key = InstrumentKey::with_labels("test_labels_cap_total", &borrowed);
         assert_eq!(
             key.dims.len(),

@@ -159,7 +159,8 @@ pub fn emit_type_decls(
     // 1-byte Storable placeholder here so the type resolves locally;
     // actual function-pointer marshalling lives on the FFI side.
     builder.line("-- ---------------------------------------------------------------------------");
-    builder.line("-- Callback typedef placeholders (function pointers — real marshalling in FFI.hs)");
+    builder
+        .line("-- Callback typedef placeholders (function pointers — real marshalling in FFI.hs)");
     builder.line("-- ---------------------------------------------------------------------------");
     builder.blank();
     for cb in &ir.callback_typedefs {
@@ -190,9 +191,7 @@ pub fn emit_type_decls(
     let filtered = |cat: TypeCategory| {
         matches!(
             cat,
-            TypeCategory::Recursive
-                | TypeCategory::VecRef
-                | TypeCategory::DestructorOrClone
+            TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::DestructorOrClone
         )
     };
     for s in &ir.structs {
@@ -259,10 +258,16 @@ fn emit_monomorphized_alias(
             // Minimal Storable: encode/decode the variant index as Int32.
             builder.line(&format!("instance Storable {} where", name));
             builder.indent();
-            builder.line(&format!("sizeOf _ = sizeOf (undefined :: Foreign.C.Types.CInt)"));
-            builder.line(&format!("alignment _ = alignment (undefined :: Foreign.C.Types.CInt)"));
-            builder.line("peek _ = error \"peek on monomorphized SimpleEnum: not yet implemented\"");
-            builder.line("poke _ _ = error \"poke on monomorphized SimpleEnum: not yet implemented\"");
+            builder.line(&format!(
+                "sizeOf _ = sizeOf (undefined :: Foreign.C.Types.CInt)"
+            ));
+            builder.line(&format!(
+                "alignment _ = alignment (undefined :: Foreign.C.Types.CInt)"
+            ));
+            builder
+                .line("peek _ = error \"peek on monomorphized SimpleEnum: not yet implemented\"");
+            builder
+                .line("poke _ _ = error \"poke on monomorphized SimpleEnum: not yet implemented\"");
             builder.dedent();
             builder.blank();
         }
@@ -456,14 +461,21 @@ fn emit_struct_decl(
             let hty = haskell_field_type(&f.type_name, f.ref_kind, ir);
             sum_terms.push(format!("sizeOf (undefined :: {})", hty));
         }
-        builder.line(&format!("{}_sizeOf_total = {}", tname, sum_terms.join(" + ")));
+        builder.line(&format!(
+            "{}_sizeOf_total = {}",
+            tname,
+            sum_terms.join(" + ")
+        ));
     }
     builder.line(&format!("{}_alignment_total :: Int", tname));
     // Pessimistic: take the max alignment of the first field (sufficient
     // for the C ABI on every platform we target — pointer-aligned).
     if let Some(f0) = s.fields.first() {
         let hty = haskell_field_type(&f0.type_name, f0.ref_kind, ir);
-        builder.line(&format!("{}_alignment_total = alignment (undefined :: {})", tname, hty));
+        builder.line(&format!(
+            "{}_alignment_total = alignment (undefined :: {})",
+            tname, hty
+        ));
     } else {
         builder.line(&format!("{}_alignment_total = 1", tname));
     }
@@ -529,11 +541,7 @@ fn emit_vec_to_list_helper(
 ) -> Result<()> {
     use super::super::ir::FunctionKind;
     let vec_name = haskell_data_name(&s.name);
-    let elem_haskell = haskell_field_type(
-        elem_rust,
-        super::super::ir::FieldRefKind::Owned,
-        ir,
-    );
+    let elem_haskell = haskell_field_type(elem_rust, super::super::ir::FieldRefKind::Owned, ir);
     let lname = lower_first(&vec_name);
     let helper = format!("{}ToList", lname);
 
@@ -546,10 +554,14 @@ fn emit_vec_to_list_helper(
     // Without `_clone`, fall back to the legacy shallow `peekElemOff`
     // path with a warning comment. Pre-existing for POD elements with
     // no clone; same recipe as the Lua / OCaml fallbacks.
-    let has_clone = ir.functions.iter().any(|f| {
-        f.class_name == elem_rust && matches!(f.kind, FunctionKind::DeepCopy)
-    });
-    let clone_via_binding = format!("az_{}_clone_via_internal", lower_first(&haskell_data_name(elem_rust)));
+    let has_clone = ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == elem_rust && matches!(f.kind, FunctionKind::DeepCopy));
+    let clone_via_binding = format!(
+        "az_{}_clone_via_internal",
+        lower_first(&haskell_data_name(elem_rust))
+    );
     let clone_via_symbol = format!("Az{}_clone_via", elem_rust);
 
     if has_clone {
@@ -574,9 +586,11 @@ fn emit_vec_to_list_helper(
         // Vec struct.
         match foreign_imports.get(&clone_via_binding) {
             None => {
-                foreign_imports
-                    .insert(clone_via_binding.clone(), clone_via_symbol.clone());
-                builder.line(&format!("foreign import ccall unsafe \"{}\"", clone_via_symbol));
+                foreign_imports.insert(clone_via_binding.clone(), clone_via_symbol.clone());
+                builder.line(&format!(
+                    "foreign import ccall unsafe \"{}\"",
+                    clone_via_symbol
+                ));
                 builder.indent();
                 builder.line(&format!(
                     "{} :: Ptr {} -> Ptr {} -> IO ()",
@@ -631,16 +645,16 @@ fn emit_vec_to_list_helper(
         ));
         builder.line("-- yielded entries dangle if the Vec is closed before they're consumed.");
     }
-    builder.line(&format!("{} :: {} -> IO [{}]", helper, vec_name, elem_haskell));
+    builder.line(&format!(
+        "{} :: {} -> IO [{}]",
+        helper, vec_name, elem_haskell
+    ));
     builder.line(&format!("{} v = do", helper));
     builder.indent();
     let ptr_field = haskell_field_name(&s.name, "ptr");
     let len_field = haskell_field_name(&s.name, "len");
     builder.line(&format!("let __p = {} v", ptr_field));
-    builder.line(&format!(
-        "    __n = fromIntegral ({} v) :: Int",
-        len_field
-    ));
+    builder.line(&format!("    __n = fromIntegral ({} v) :: Int", len_field));
     if has_clone {
         // `Foreign.Marshal.Alloc.alloca` provides a `Ptr <Elem>` for
         // the clone output; `peek` reads it back as `Elem` and the
@@ -771,24 +785,14 @@ fn emit_tagged_union_decl(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR
                     .iter()
                     .map(|(t, rk)| haskell_field_type(t, *rk, ir))
                     .collect();
-                builder.line(&format!(
-                    "{}{} {}",
-                    prefix,
-                    vname,
-                    payload_types.join(" ")
-                ));
+                builder.line(&format!("{}{} {}", prefix, vname, payload_types.join(" ")));
             }
             EnumVariantKind::Struct(fields) => {
                 let payload_types: Vec<String> = fields
                     .iter()
                     .map(|f| haskell_field_type(&f.type_name, f.ref_kind, ir))
                     .collect();
-                builder.line(&format!(
-                    "{}{} {}",
-                    prefix,
-                    vname,
-                    payload_types.join(" ")
-                ));
+                builder.line(&format!("{}{} {}", prefix, vname, payload_types.join(" ")));
             }
         }
     }
@@ -1010,8 +1014,8 @@ fn pointer_form(inner: &str, ir: &CodegenIR) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::super::ir::{FunctionDef, FunctionKind};
+    use super::*;
 
     /// A Vec-shaped struct: `[ptr: *const <elem>, len, cap, destructor]` —
     /// exactly the shape `detect_vec_elem_type` keys on.
@@ -1099,7 +1103,9 @@ mod tests {
             if !line.trim_start().starts_with("foreign import") {
                 continue;
             }
-            let Some(next) = lines.get(i + 1) else { continue };
+            let Some(next) = lines.get(i + 1) else {
+                continue;
+            };
             let t = next.trim_start();
             let end = t
                 .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '\''))
@@ -1153,7 +1159,8 @@ mod tests {
         );
         // The second Vec's decoder still calls the shared binding.
         assert_eq!(
-            src.matches("az_azString_clone_via_internal __ep __out").count(),
+            src.matches("az_azString_clone_via_internal __ep __out")
+                .count(),
             2,
             "both decoders must call the shared clone-via binding:\n{}",
             src

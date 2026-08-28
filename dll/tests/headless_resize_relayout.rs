@@ -22,8 +22,8 @@ use azul_core::resources::AppConfig;
 use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::FcFontCache;
 
-use azul::desktop::shell2::headless::HeadlessWindow;
 use azul::desktop::shell2::common::event::PlatformWindow;
+use azul::desktop::shell2::headless::HeadlessWindow;
 
 /// What each `layout()` invocation observed: the relayout reason and the
 /// window size at call time. The recording callback writes into a Vec
@@ -64,14 +64,15 @@ fn read_observations(window: &HeadlessWindow) -> Vec<LayoutObservation> {
 }
 
 fn make_window() -> HeadlessWindow {
-
     let fc_cache = Arc::new(FcFontCache::default());
     let app_data = Arc::new(RefCell::new(RefAny::new(RecordingState::default())));
     let icon_provider = SharedIconProvider::from_handle(IconProviderHandle::default());
 
     let mut options = WindowCreateOptions::default();
-    options.window_state.size.dimensions =
-        azul_core::geom::LogicalSize { width: 1024.0, height: 768.0 };
+    options.window_state.size.dimensions = azul_core::geom::LogicalSize {
+        width: 1024.0,
+        height: 768.0,
+    };
     let cb: extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom = recording_layout;
     options.window_state.layout_callback = LayoutCallback::create(cb);
 
@@ -94,10 +95,16 @@ fn initial_layout_call_reports_reason_initial() {
     // The pending reason on a fresh window must be Initial.
     assert_eq!(window.pending_relayout_reason(), RelayoutReason::Initial);
 
-    window.regenerate_layout().expect("initial regenerate_layout");
+    window
+        .regenerate_layout()
+        .expect("initial regenerate_layout");
 
     let obs = read_observations(&window);
-    assert_eq!(obs.len(), 1, "layout() must run exactly once on the first regen");
+    assert_eq!(
+        obs.len(),
+        1,
+        "layout() must run exactly once on the first regen"
+    );
     assert_eq!(obs[0].reason, RelayoutReason::Initial);
     assert_eq!(obs[0].width, 1024.0);
     assert_eq!(obs[0].height, 768.0);
@@ -106,7 +113,9 @@ fn initial_layout_call_reports_reason_initial() {
 #[test]
 fn resize_re_invokes_layout_with_resize_reason_and_new_size() {
     let mut window = make_window();
-    window.regenerate_layout().expect("initial regenerate_layout");
+    window
+        .regenerate_layout()
+        .expect("initial regenerate_layout");
 
     // Cross the 768px breakpoint so a real platform path would also
     // request a regen. simulate_resize updates the window size and
@@ -114,7 +123,9 @@ fn resize_re_invokes_layout_with_resize_reason_and_new_size() {
     window.simulate_resize(320.0, 600.0);
     assert_eq!(window.pending_relayout_reason(), RelayoutReason::Resize);
 
-    window.regenerate_layout().expect("resize regenerate_layout");
+    window
+        .regenerate_layout()
+        .expect("resize regenerate_layout");
 
     let obs = read_observations(&window);
     assert_eq!(obs.len(), 2, "layout() must run again after a resize");
@@ -125,7 +136,10 @@ fn resize_re_invokes_layout_with_resize_reason_and_new_size() {
         RelayoutReason::Resize,
         "the resize-triggered call must report RelayoutReason::Resize",
     );
-    assert_eq!(resize_call.width, 320.0, "info.window_size reflects the new width");
+    assert_eq!(
+        resize_call.width, 320.0,
+        "info.window_size reflects the new width"
+    );
     assert_eq!(resize_call.height, 600.0);
 }
 
@@ -150,5 +164,8 @@ fn untagged_relayout_after_resize_reports_refresh_dom() {
     let obs = read_observations(&window);
     assert_eq!(obs.len(), 3);
     assert_eq!(obs[2].reason, RelayoutReason::RefreshDom);
-    assert_eq!(obs[2].width, 320.0, "size still reflects the previous resize");
+    assert_eq!(
+        obs[2].width, 320.0,
+        "size still reflects the previous resize"
+    );
 }

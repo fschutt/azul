@@ -76,7 +76,8 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
         DomId::ROOT_ID,
         font_loader,
         page_config,
-        &azul_core::resources::ImageCache::default(),        azul_core::task::GetSystemTimeCallback {
+        &azul_core::resources::ImageCache::default(),
+        azul_core::task::GetSystemTimeCallback {
             cb: azul_core::task::get_system_time_libstd,
         },
         false,

@@ -34,11 +34,16 @@ use azul_core::{
     dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec},
     refany::RefAny,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec},
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, *},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            *,
+        },
         layout::*,
         property::CssProperty as P,
         style::*,
@@ -59,18 +64,53 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 
 // -- the Office-2013-era look palette (seeds QuickAccessTheme::office_2013) --
 
-const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+const WHITE: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+const TRANSPARENT: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 0,
+};
 /// Title text gray (#5D5D5D).
-const W13_TITLE_TEXT: ColorU = ColorU { r: 93, g: 93, b: 93, a: 255 };
+const W13_TITLE_TEXT: ColorU = ColorU {
+    r: 93,
+    g: 93,
+    b: 93,
+    a: 255,
+};
 /// Action glyph gray (#6A6A6A).
-const W13_ICON_GRAY: ColorU = ColorU { r: 106, g: 106, b: 106, a: 255 };
+const W13_ICON_GRAY: ColorU = ColorU {
+    r: 106,
+    g: 106,
+    b: 106,
+    a: 255,
+};
 /// Hover fill on band controls (#E5E5E5).
-const W13_HOVER_BG: ColorU = ColorU { r: 229, g: 229, b: 229, a: 255 };
+const W13_HOVER_BG: ColorU = ColorU {
+    r: 229,
+    g: 229,
+    b: 229,
+    a: 255,
+};
 /// Pressed fill (#CCCCCC).
-const W13_PRESSED_BG: ColorU = ColorU { r: 204, g: 204, b: 204, a: 255 };
+const W13_PRESSED_BG: ColorU = ColorU {
+    r: 204,
+    g: 204,
+    b: 204,
+    a: 255,
+};
 /// Close button hover fill (#E81123, the Windows caption red).
-const W13_CLOSE_HOVER: ColorU = ColorU { r: 232, g: 17, b: 35, a: 255 };
+const W13_CLOSE_HOVER: ColorU = ColorU {
+    r: 232,
+    g: 17,
+    b: 35,
+    a: 255,
+};
 
 // -- Metrics (the Office-2013-era look, logical px) --
 
@@ -162,10 +202,16 @@ const fn cond_border_box() -> Cond {
 
 fn push_row_center(v: &mut Vec<Cond>) {
     v.push(Cond::simple(P::const_display(LayoutDisplay::Flex)));
-    v.push(Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)));
+    v.push(Cond::simple(P::const_flex_direction(
+        LayoutFlexDirection::Row,
+    )));
     v.push(Cond::simple(P::const_align_items(LayoutAlignItems::Center)));
-    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))));
-    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })));
 }
 
 /// Flat, hover-highlighted button chassis shared by every band control.
@@ -183,36 +229,76 @@ fn push_flat_button(v: &mut Vec<Cond>, t: &QuickAccessTheme) {
 
 /// 1px solid border on all four sides in the given color.
 fn push_box_border(v: &mut Vec<Cond>, c: ColorU) {
-    v.push(Cond::simple(P::const_border_top_width(LayoutBorderTopWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_top_color(StyleBorderTopColor { inner: c })));
-    v.push(Cond::simple(P::const_border_left_color(StyleBorderLeftColor { inner: c })));
-    v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor { inner: c })));
-    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: c })));
+    v.push(Cond::simple(P::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_top_style(
+        StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_left_style(
+        StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_top_color(
+        StyleBorderTopColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_left_color(
+        StyleBorderLeftColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_right_color(
+        StyleBorderRightColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_color(
+        StyleBorderBottomColor { inner: c },
+    )));
 }
 
 fn theme_bar(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
     v.push(cond_border_box());
-    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(BAR_HEIGHT))));
+    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(
+        BAR_HEIGHT,
+    ))));
     v.push(Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)));
-    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(TITLE_PX))));
+    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        TITLE_PX,
+    ))));
     v.push(cond_bg(t.bg));
-    v.push(Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(8))));
+    v.push(Cond::simple(P::const_padding_left(
+        LayoutPaddingLeft::const_px(8),
+    )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_leading(_t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
-    v.push(Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(4))));
+    v.push(Cond::simple(P::const_margin_right(
+        LayoutMarginRight::const_px(4),
+    )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -220,9 +306,15 @@ fn theme_action_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
     push_flat_button(&mut v, t);
-    v.push(Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)));
-    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(QAT_BUTTON_W))));
-    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(BAR_HEIGHT - 4))));
+    v.push(Cond::simple(P::const_justify_content(
+        LayoutJustifyContent::Center,
+    )));
+    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(
+        QAT_BUTTON_W,
+    ))));
+    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(
+        BAR_HEIGHT - 4,
+    ))));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -257,9 +349,15 @@ fn theme_window_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
     push_flat_button(&mut v, t);
-    v.push(Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)));
-    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(WIN_BUTTON_W))));
-    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(BAR_HEIGHT))));
+    v.push(Cond::simple(P::const_justify_content(
+        LayoutJustifyContent::Center,
+    )));
+    v.push(Cond::simple(P::const_width(LayoutWidth::const_px(
+        WIN_BUTTON_W,
+    ))));
+    v.push(Cond::simple(P::const_height(LayoutHeight::const_px(
+        BAR_HEIGHT,
+    ))));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -354,7 +452,10 @@ impl QuickAccessAction {
     /// Creates an inert action with the given icon name.
     #[must_use]
     pub fn new(icon: AzString) -> Self {
-        Self { icon, on_click: None.into() }
+        Self {
+            icon,
+            on_click: None.into(),
+        }
     }
 
     /// Sets the click callback.
@@ -396,7 +497,11 @@ impl_vec!(
     QuickAccessActionVecSlice,
     OptionQuickAccessAction
 );
-impl_vec_clone!(QuickAccessAction, QuickAccessActionVec, QuickAccessActionVecDestructor);
+impl_vec_clone!(
+    QuickAccessAction,
+    QuickAccessActionVec,
+    QuickAccessActionVecDestructor
+);
 impl_vec_debug!(QuickAccessAction, QuickAccessActionVec);
 impl_vec_mut!(QuickAccessAction, QuickAccessActionVec);
 
@@ -434,12 +539,15 @@ pub struct QuickAccessBar {
 
 // -- CSS classes --
 
-static CLS_QAB: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-quick-access"))];
-static CLS_LEADING: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-quick-access-leading"))];
-static CLS_TITLE: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-quick-access-title"))];
+static CLS_QAB: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-quick-access",
+))];
+static CLS_LEADING: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-quick-access-leading",
+))];
+static CLS_TITLE: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-quick-access-title",
+))];
 
 // -- Constructors / builders --
 
@@ -476,9 +584,9 @@ impl QuickAccessBar {
             QuickAccessAction::new(AzString::from_const_str("redo")),
         ]);
         band.show_menu_arrow = true;
-        band.trailing_actions = QuickAccessActionVec::from_vec(vec![
-            QuickAccessAction::new(AzString::from_const_str("help_outline")),
-        ]);
+        band.trailing_actions = QuickAccessActionVec::from_vec(vec![QuickAccessAction::new(
+            AzString::from_const_str("help_outline"),
+        )]);
         band
     }
 
@@ -668,7 +776,12 @@ mod tests {
     #[test]
     fn quick_access_office_2013_has_save_undo_redo_and_help() {
         let q = QuickAccessBar::office_2013(AzString::from("Document1 - AzWriter"));
-        let icons: Vec<&str> = q.actions.as_slice().iter().map(|a| a.icon.as_str()).collect();
+        let icons: Vec<&str> = q
+            .actions
+            .as_slice()
+            .iter()
+            .map(|a| a.icon.as_str())
+            .collect();
         assert_eq!(icons, ["save", "undo", "redo"]);
         assert!(q.show_menu_arrow);
         assert_eq!(q.trailing_actions.len(), 1);

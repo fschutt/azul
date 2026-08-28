@@ -352,9 +352,8 @@ fn merge_batches(files: &[PathBuf]) -> Vec<MergedBatch> {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
         };
-        let parsed: Option<(String, Vec<Value>)> = serde_json::from_slice::<Value>(&bytes)
-            .ok()
-            .and_then(|v| {
+        let parsed: Option<(String, Vec<Value>)> =
+            serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| {
                 let obj = v.as_object()?;
                 if obj.len() != 1 {
                     return None;
@@ -365,7 +364,12 @@ fn merge_batches(files: &[PathBuf]) -> Vec<MergedBatch> {
         if let Some((key, items)) = parsed {
             let same_key = current_key.as_deref() == Some(key.as_str());
             if !same_key || current_size + bytes.len() > MAX_BATCH_BYTES {
-                flush(&current_key, &mut current_items, &mut current_files, &mut out);
+                flush(
+                    &current_key,
+                    &mut current_items,
+                    &mut current_files,
+                    &mut out,
+                );
                 current_key = Some(key);
                 current_size = 0;
             }
@@ -374,14 +378,24 @@ fn merge_batches(files: &[PathBuf]) -> Vec<MergedBatch> {
             current_size += bytes.len();
         } else {
             // Unknown shape: ship verbatim, alone.
-            flush(&current_key, &mut current_items, &mut current_files, &mut out);
+            flush(
+                &current_key,
+                &mut current_items,
+                &mut current_files,
+                &mut out,
+            );
             out.push(MergedBatch {
                 body: bytes,
                 files: vec![path.clone()],
             });
         }
     }
-    flush(&current_key, &mut current_items, &mut current_files, &mut out);
+    flush(
+        &current_key,
+        &mut current_items,
+        &mut current_files,
+        &mut out,
+    );
     out
 }
 
@@ -406,7 +420,9 @@ mod tests {
         assert_eq!(merged[0].files.len(), 2);
         let v: serde_json::Value = serde_json::from_slice(&merged[0].body).unwrap();
         assert_eq!(
-            v.get("resourceMetrics").and_then(|a| a.as_array()).map(Vec::len),
+            v.get("resourceMetrics")
+                .and_then(|a| a.as_array())
+                .map(Vec::len),
             Some(3),
             "resource arrays concatenate"
         );
@@ -417,7 +433,10 @@ mod tests {
     fn merge_splits_at_the_size_cap_and_isolates_foreign_shapes() {
         let d = std::env::temp_dir().join(format!("azul-qbatch-split-{}", std::process::id()));
         std::fs::create_dir_all(&d).unwrap();
-        let big = format!(r#"{{"resourceMetrics":[{{"pad":"{}"}}]}}"#, "x".repeat(MAX_BATCH_BYTES));
+        let big = format!(
+            r#"{{"resourceMetrics":[{{"pad":"{}"}}]}}"#,
+            "x".repeat(MAX_BATCH_BYTES)
+        );
         let f1 = d.join("f1.json");
         let f2 = d.join("f2.json");
         std::fs::write(&f1, &big).unwrap();
@@ -430,7 +449,11 @@ mod tests {
         std::fs::write(&ok, r#"{"resourceLogs":[{"n":1}]}"#).unwrap();
         let merged = merge_batches(&[ok.clone(), odd.clone()]);
         assert_eq!(merged.len(), 2);
-        assert_eq!(merged[1].body, std::fs::read(&odd).unwrap(), "foreign shape ships verbatim");
+        assert_eq!(
+            merged[1].body,
+            std::fs::read(&odd).unwrap(),
+            "foreign shape ships verbatim"
+        );
         drop(std::fs::remove_dir_all(d));
     }
 
@@ -509,7 +532,9 @@ mod tests {
         let dir = scratch("bytes");
         let queue = PingQueue::new(dir.clone()).with_quota(DEFAULT_MAX_FILES, 16);
         for _ in 0..5 {
-            queue.enqueue(PingKind::Metrics, "0123456789").expect("enqueue");
+            queue
+                .enqueue(PingKind::Metrics, "0123456789")
+                .expect("enqueue");
         }
         let total: u64 = queue
             .pending()

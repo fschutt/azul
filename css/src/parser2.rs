@@ -26,7 +26,10 @@ pub struct CssSyntaxErrorPos {
 
 impl From<azul_simplecss::ErrorPos> for CssSyntaxErrorPos {
     fn from(p: azul_simplecss::ErrorPos) -> Self {
-        Self { row: p.row, col: p.col }
+        Self {
+            row: p.row,
+            col: p.col,
+        }
     }
 }
 
@@ -53,7 +56,15 @@ impl From<SimplecssError> for CssSyntaxError {
     fn from(e: SimplecssError) -> Self {
         match e {
             SimplecssError::UnexpectedEndOfStream(pos) => Self::UnexpectedEndOfStream(pos.into()),
-            SimplecssError::InvalidAdvance { expected, total, pos } => Self::InvalidAdvance(CssSyntaxInvalidAdvance { expected, total, pos: pos.into() }),
+            SimplecssError::InvalidAdvance {
+                expected,
+                total,
+                pos,
+            } => Self::InvalidAdvance(CssSyntaxInvalidAdvance {
+                expected,
+                total,
+                pos: pos.into(),
+            }),
             SimplecssError::UnsupportedToken(pos) => Self::UnsupportedToken(pos.into()),
             SimplecssError::UnknownToken(pos) => Self::UnknownToken(pos.into()),
         }
@@ -69,8 +80,8 @@ use crate::{
         NodeTypeTagParseError, NodeTypeTagParseErrorOwned,
     },
     dynamic_selector::{
-        BoolCondition, DynamicSelector, DynamicSelectorVec, LanguageCondition, MediaType,
-        MinMaxRange, OrientationType, OsCondition, ThemeCondition, parse_os_version,
+        parse_os_version, BoolCondition, DynamicSelector, DynamicSelectorVec, LanguageCondition,
+        MediaType, MinMaxRange, OrientationType, OsCondition, ThemeCondition,
     },
     props::{
         basic::parse::parse_parentheses,
@@ -99,7 +110,8 @@ pub struct CssParseErrorOwned {
 }
 
 impl CssParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssParseErrorOwned {
         CssParseErrorOwned {
             css_string: self.css_string.to_string().into(),
             error: self.error.to_contained(),
@@ -109,7 +121,8 @@ impl CssParseError<'_> {
 }
 
 impl CssParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssParseError<'_> {
         CssParseError {
             css_string: self.css_string.as_str(),
             error: self.error.to_shared(),
@@ -135,8 +148,12 @@ fn clamp_to_char_boundary(s: &str, pos: usize) -> usize {
 
 impl<'a> CssParseError<'a> {
     /// Returns the string between the (start, end) location
-    #[must_use] pub fn get_error_string(&self) -> &'a str {
-        let (start, end) = (self.location.start.original_pos, self.location.end.original_pos);
+    #[must_use]
+    pub fn get_error_string(&self) -> &'a str {
+        let (start, end) = (
+            self.location.start.original_pos,
+            self.location.end.original_pos,
+        );
         // `location` is a pub field on a pub struct and `CssParseErrorOwned::to_shared`
         // rebuilds one without revalidating, so start/end are NOT trustworthy: they can
         // sit past the end, be reversed, or land inside a multi-byte char. A raw slice
@@ -207,7 +224,8 @@ pub enum CssParseErrorInnerOwned {
 }
 
 impl CssParseErrorInner<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssParseErrorInnerOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssParseErrorInnerOwned {
         match self {
             CssParseErrorInner::ParseError(e) => CssParseErrorInnerOwned::ParseError(*e),
             CssParseErrorInner::UnclosedBlock => CssParseErrorInnerOwned::UnclosedBlock,
@@ -222,7 +240,10 @@ impl CssParseErrorInner<'_> {
                 CssParseErrorInnerOwned::NodeTypeTag(e.to_contained())
             }
             CssParseErrorInner::UnknownPropertyKey(a, b) => {
-                CssParseErrorInnerOwned::UnknownPropertyKey(UnknownPropertyKeyError { key: (*a).to_string().into(), value: (*b).to_string().into() })
+                CssParseErrorInnerOwned::UnknownPropertyKey(UnknownPropertyKeyError {
+                    key: (*a).to_string().into(),
+                    value: (*b).to_string().into(),
+                })
             }
             CssParseErrorInner::VarOnShorthandProperty { key, value } => {
                 CssParseErrorInnerOwned::VarOnShorthandProperty(VarOnShorthandPropertyError {
@@ -235,7 +256,8 @@ impl CssParseErrorInner<'_> {
 }
 
 impl CssParseErrorInnerOwned {
-    #[must_use] pub fn to_shared(&self) -> CssParseErrorInner<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssParseErrorInner<'_> {
         match self {
             Self::ParseError(e) => CssParseErrorInner::ParseError(*e),
             Self::UnclosedBlock => CssParseErrorInner::UnclosedBlock,
@@ -246,18 +268,14 @@ impl CssParseErrorInnerOwned {
             Self::PseudoSelectorParseError(e) => {
                 CssParseErrorInner::PseudoSelectorParseError(e.to_shared())
             }
-            Self::NodeTypeTag(e) => {
-                CssParseErrorInner::NodeTypeTag(e.to_shared())
-            }
+            Self::NodeTypeTag(e) => CssParseErrorInner::NodeTypeTag(e.to_shared()),
             Self::UnknownPropertyKey(e) => {
                 CssParseErrorInner::UnknownPropertyKey(e.key.as_str(), e.value.as_str())
             }
-            Self::VarOnShorthandProperty(e) => {
-                CssParseErrorInner::VarOnShorthandProperty {
-                    key: e.key,
-                    value: e.value.as_str(),
-                }
-            }
+            Self::VarOnShorthandProperty(e) => CssParseErrorInner::VarOnShorthandProperty {
+                key: e.key,
+                value: e.value.as_str(),
+            },
         }
     }
 }
@@ -342,7 +360,8 @@ pub enum CssPseudoSelectorParseErrorOwned {
 }
 
 impl CssPseudoSelectorParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssPseudoSelectorParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssPseudoSelectorParseErrorOwned {
         match self {
             CssPseudoSelectorParseError::EmptyNthChild => {
                 CssPseudoSelectorParseErrorOwned::EmptyNthChild
@@ -364,20 +383,18 @@ impl CssPseudoSelectorParseError<'_> {
 }
 
 impl CssPseudoSelectorParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssPseudoSelectorParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssPseudoSelectorParseError<'_> {
         match self {
-            Self::EmptyNthChild => {
-                CssPseudoSelectorParseError::EmptyNthChild
-            }
-            Self::UnknownSelector(e) => {
-                CssPseudoSelectorParseError::UnknownSelector(e.selector.as_str(), e.suggestion.as_ref().map(AzString::as_str))
-            }
+            Self::EmptyNthChild => CssPseudoSelectorParseError::EmptyNthChild,
+            Self::UnknownSelector(e) => CssPseudoSelectorParseError::UnknownSelector(
+                e.selector.as_str(),
+                e.suggestion.as_ref().map(AzString::as_str),
+            ),
             Self::InvalidNthChildPattern(s) => {
                 CssPseudoSelectorParseError::InvalidNthChildPattern(s)
             }
-            Self::InvalidNthChild(e) => {
-                CssPseudoSelectorParseError::InvalidNthChild(e.to_std())
-            }
+            Self::InvalidNthChild(e) => CssPseudoSelectorParseError::InvalidNthChild(e.to_std()),
         }
     }
 }
@@ -410,7 +427,8 @@ pub enum DynamicCssParseErrorOwned {
 }
 
 impl DynamicCssParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> DynamicCssParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> DynamicCssParseErrorOwned {
         match self {
             DynamicCssParseError::InvalidBraceContents(s) => {
                 DynamicCssParseErrorOwned::InvalidBraceContents((*s).to_string().into())
@@ -423,14 +441,11 @@ impl DynamicCssParseError<'_> {
 }
 
 impl DynamicCssParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> DynamicCssParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> DynamicCssParseError<'_> {
         match self {
-            Self::InvalidBraceContents(s) => {
-                DynamicCssParseError::InvalidBraceContents(s)
-            }
-            Self::UnexpectedValue(e) => {
-                DynamicCssParseError::UnexpectedValue(e.to_shared())
-            }
+            Self::InvalidBraceContents(s) => DynamicCssParseError::InvalidBraceContents(s),
+            Self::UnexpectedValue(e) => DynamicCssParseError::UnexpectedValue(e.to_shared()),
         }
     }
 }
@@ -483,7 +498,8 @@ pub fn pseudo_selector_from_str<'a>(
 /// Parses the inner content of an attribute selector token (the text between `[` and `]`).
 ///
 /// Returns `None` if the input is malformed (empty name, unterminated quote, etc).
-#[must_use] pub fn parse_attribute_selector(input: &str) -> Option<CssAttributeSelector> {
+#[must_use]
+pub fn parse_attribute_selector(input: &str) -> Option<CssAttributeSelector> {
     let s = input.trim();
     if s.is_empty() {
         return None;
@@ -508,7 +524,11 @@ pub fn pseudo_selector_from_str<'a>(
         None => (s, None),
         Some(i) => {
             let name = s[..i].trim();
-            let op_len = if matches!(op, AttributeMatchOp::Eq) { 1 } else { 2 };
+            let op_len = if matches!(op, AttributeMatchOp::Eq) {
+                1
+            } else {
+                2
+            };
             let raw_value = s[i + op_len..].trim();
             let unquoted = strip_attribute_quotes(raw_value)?;
             (name, Some(unquoted))
@@ -519,15 +539,20 @@ pub fn pseudo_selector_from_str<'a>(
         return None;
     }
     // Reject names that contain whitespace or quotes.
-    if name.chars().any(|c| c.is_whitespace() || c == '"' || c == '\'') {
+    if name
+        .chars()
+        .any(|c| c.is_whitespace() || c == '"' || c == '\'')
+    {
         return None;
     }
 
     Some(CssAttributeSelector {
         name: name.to_string().into(),
         op,
-        value: value
-            .map_or_else(|| OptionString::None, |v| OptionString::Some(v.to_string().into())),
+        value: value.map_or_else(
+            || OptionString::None,
+            |v| OptionString::Some(v.to_string().into()),
+        ),
     })
 }
 
@@ -635,7 +660,8 @@ pub struct ErrorLocationRange {
 
 impl ErrorLocation {
     /// Given an error location, returns the (line, column)
-    #[must_use] pub fn get_line_column_from_error(&self, css_string: &str) -> (usize, usize) {
+    #[must_use]
+    pub fn get_line_column_from_error(&self, css_string: &str) -> (usize, usize) {
         // `original_pos` is a pub field and, at Token::EndOfStream, `get_error_location`
         // records it as exactly `css_string.len()` -- so `- 1` lands INSIDE the final
         // character whenever the stylesheet ends in a multi-byte char, and an
@@ -660,8 +686,14 @@ impl ErrorLocation {
 
 impl fmt::Display for CssParseError<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let start_location = self.location.start.get_line_column_from_error(self.css_string);
-        let end_location = self.location.end.get_line_column_from_error(self.css_string);
+        let start_location = self
+            .location
+            .start
+            .get_line_column_from_error(self.css_string);
+        let end_location = self
+            .location
+            .end
+            .get_line_column_from_error(self.css_string);
         write!(
             f,
             "    start: line {}:{}\r\n    end: line {}:{}\r\n    text: \"{}\"\r\n    reason: {}",
@@ -680,7 +712,8 @@ impl fmt::Display for CssParseError<'_> {
 /// Never panics. Syntax errors and unsupported properties are collected as
 /// [`CssParseWarnMsg`] items rather than causing a hard failure, so the caller
 /// always receives a (possibly empty) stylesheet.
-#[must_use] pub fn new_from_str(css_string: &str) -> (Css, Vec<CssParseWarnMsg<'_>>) {
+#[must_use]
+pub fn new_from_str(css_string: &str) -> (Css, Vec<CssParseWarnMsg<'_>>) {
     // ONE tokenizer pass. `@keyframes` rides `azul_simplecss`'s native
     // at-rule handling (`AtRule("keyframes")` + `AtStr(name)` + the nesting
     // stack): the main loop switches into a stop-collection mode at the
@@ -695,7 +728,10 @@ impl fmt::Display for CssParseError<'_> {
     let mut keyframes: Vec<crate::css::Keyframes> = Vec::new();
     let (rules, warnings) = new_from_str_inner(css_string, &mut tokenizer, &mut keyframes);
     (
-        Css { rules: rules.into(), keyframes: keyframes.into() },
+        Css {
+            rules: rules.into(),
+            keyframes: keyframes.into(),
+        },
         warnings,
     )
 }
@@ -768,7 +804,8 @@ pub enum CssPathParseErrorOwned {
 }
 
 impl CssPathParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssPathParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssPathParseErrorOwned {
         match self {
             CssPathParseError::EmptyPath => CssPathParseErrorOwned::EmptyPath,
             CssPathParseError::InvalidTokenEncountered(s) => {
@@ -789,15 +826,12 @@ impl CssPathParseError<'_> {
 }
 
 impl CssPathParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssPathParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssPathParseError<'_> {
         match self {
             Self::EmptyPath => CssPathParseError::EmptyPath,
-            Self::InvalidTokenEncountered(s) => {
-                CssPathParseError::InvalidTokenEncountered(s)
-            }
-            Self::UnexpectedEndOfStream(s) => {
-                CssPathParseError::UnexpectedEndOfStream(s)
-            }
+            Self::InvalidTokenEncountered(s) => CssPathParseError::InvalidTokenEncountered(s),
+            Self::UnexpectedEndOfStream(s) => CssPathParseError::UnexpectedEndOfStream(s),
             Self::SyntaxError(e) => CssPathParseError::SyntaxError(*e),
             Self::NodeTypeTag(e) => CssPathParseError::NodeTypeTag(e.to_shared()),
             Self::PseudoSelectorParseError(e) => {
@@ -921,7 +955,8 @@ pub struct UnparsedCssRuleBlockOwned {
 }
 
 impl UnparsedCssRuleBlock<'_> {
-    #[must_use] pub fn to_contained(&self) -> UnparsedCssRuleBlockOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> UnparsedCssRuleBlockOwned {
         UnparsedCssRuleBlockOwned {
             path: self.path.clone(),
             declarations: self
@@ -935,7 +970,8 @@ impl UnparsedCssRuleBlock<'_> {
 }
 
 impl UnparsedCssRuleBlockOwned {
-    #[must_use] pub fn to_shared(&self) -> UnparsedCssRuleBlock<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> UnparsedCssRuleBlock<'_> {
         UnparsedCssRuleBlock {
             path: self.path.clone(),
             declarations: self
@@ -962,7 +998,8 @@ pub struct CssParseWarnMsgOwned {
 }
 
 impl CssParseWarnMsg<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssParseWarnMsgOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssParseWarnMsgOwned {
         CssParseWarnMsgOwned {
             warning: self.warning.to_contained(),
             location: self.location,
@@ -971,7 +1008,8 @@ impl CssParseWarnMsg<'_> {
 }
 
 impl CssParseWarnMsgOwned {
-    #[must_use] pub fn to_shared(&self) -> CssParseWarnMsg<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssParseWarnMsg<'_> {
         CssParseWarnMsg {
             warning: self.warning.to_shared(),
             location: self.location,
@@ -1022,7 +1060,8 @@ pub enum CssParseWarnMsgInnerOwned {
 }
 
 impl CssParseWarnMsgInner<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssParseWarnMsgInnerOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssParseWarnMsgInnerOwned {
         match self {
             Self::UnsupportedKeyValuePair { key, value } => {
                 CssParseWarnMsgInnerOwned::UnsupportedKeyValuePair {
@@ -1050,7 +1089,8 @@ impl CssParseWarnMsgInner<'_> {
 }
 
 impl CssParseWarnMsgInnerOwned {
-    #[must_use] pub fn to_shared(&self) -> CssParseWarnMsgInner<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssParseWarnMsgInner<'_> {
         match self {
             Self::UnsupportedKeyValuePair { key, value } => {
                 CssParseWarnMsgInner::UnsupportedKeyValuePair { key, value }
@@ -1202,25 +1242,39 @@ fn parse_media_feature(feature: &str) -> Option<DynamicSelector> {
             }
         }
         "prefers-contrast" | "prefers-high-contrast" => {
-            if value.eq_ignore_ascii_case("more") || value.eq_ignore_ascii_case("high") || value.eq_ignore_ascii_case("active") {
+            if value.eq_ignore_ascii_case("more")
+                || value.eq_ignore_ascii_case("high")
+                || value.eq_ignore_ascii_case("active")
+            {
                 return Some(DynamicSelector::PrefersHighContrast(BoolCondition::True));
-            } else if value.eq_ignore_ascii_case("no-preference") || value.eq_ignore_ascii_case("none") {
+            } else if value.eq_ignore_ascii_case("no-preference")
+                || value.eq_ignore_ascii_case("none")
+            {
                 return Some(DynamicSelector::PrefersHighContrast(BoolCondition::False));
             }
         }
         "aspect-ratio" => {
             if let Some(ratio) = parse_ratio_value(value) {
-                return Some(DynamicSelector::AspectRatio(MinMaxRange::new(Some(ratio), Some(ratio))));
+                return Some(DynamicSelector::AspectRatio(MinMaxRange::new(
+                    Some(ratio),
+                    Some(ratio),
+                )));
             }
         }
         "min-aspect-ratio" => {
             if let Some(ratio) = parse_ratio_value(value) {
-                return Some(DynamicSelector::AspectRatio(MinMaxRange::new(Some(ratio), None)));
+                return Some(DynamicSelector::AspectRatio(MinMaxRange::new(
+                    Some(ratio),
+                    None,
+                )));
             }
         }
         "max-aspect-ratio" => {
             if let Some(ratio) = parse_ratio_value(value) {
-                return Some(DynamicSelector::AspectRatio(MinMaxRange::new(None, Some(ratio))));
+                return Some(DynamicSelector::AspectRatio(MinMaxRange::new(
+                    None,
+                    Some(ratio),
+                )));
             }
         }
         _ => {}
@@ -1253,7 +1307,9 @@ fn parse_ratio_value(value: &str) -> Option<f32> {
     if let Some((num, den)) = value.split_once('/') {
         let num: f32 = num.trim().parse().ok()?;
         let den: f32 = den.trim().parse().ok()?;
-        if den == 0.0 { return None; }
+        if den == 0.0 {
+            return None;
+        }
         // Same NaN-sentinel hazard as parse_px_value: "inf/inf" and "1/NaN" both parse,
         // and a NaN ratio reads back out of MinMaxRange as "no bound".
         Some(num / den).filter(|r| r.is_finite())
@@ -1282,13 +1338,17 @@ fn parse_container_conditions(content: &str) -> Vec<DynamicSelector> {
     } else {
         // No parentheses - might be just a container name
         if !content.is_empty() {
-            conditions.push(DynamicSelector::ContainerName(AzString::from(content.to_string())));
+            conditions.push(DynamicSelector::ContainerName(AzString::from(
+                content.to_string(),
+            )));
         }
         return conditions;
     };
 
     if let Some(name) = name_part {
-        conditions.push(DynamicSelector::ContainerName(AzString::from(name.to_string())));
+        conditions.push(DynamicSelector::ContainerName(AzString::from(
+            name.to_string(),
+        )));
     }
 
     // Parse the parenthesized query parts
@@ -1311,27 +1371,20 @@ fn parse_container_feature(feature: &str) -> Option<DynamicSelector> {
     let value = value.trim();
 
     match key.to_lowercase().as_str() {
-        "min-width" => {
-            parse_px_value(value).map(|px| DynamicSelector::ContainerWidth(MinMaxRange::new(Some(px), None)))
-        }
-        "max-width" => {
-            parse_px_value(value).map(|px| DynamicSelector::ContainerWidth(MinMaxRange::new(None, Some(px))))
-        }
-        "min-height" => {
-            parse_px_value(value).map(|px| DynamicSelector::ContainerHeight(MinMaxRange::new(Some(px), None)))
-        }
-        "max-height" => {
-            parse_px_value(value).map(|px| DynamicSelector::ContainerHeight(MinMaxRange::new(None, Some(px))))
-        }
-        "aspect-ratio" => {
-            parse_ratio_value(value).map(|r| DynamicSelector::AspectRatio(MinMaxRange::new(Some(r), Some(r))))
-        }
-        "min-aspect-ratio" => {
-            parse_ratio_value(value).map(|r| DynamicSelector::AspectRatio(MinMaxRange::new(Some(r), None)))
-        }
-        "max-aspect-ratio" => {
-            parse_ratio_value(value).map(|r| DynamicSelector::AspectRatio(MinMaxRange::new(None, Some(r))))
-        }
+        "min-width" => parse_px_value(value)
+            .map(|px| DynamicSelector::ContainerWidth(MinMaxRange::new(Some(px), None))),
+        "max-width" => parse_px_value(value)
+            .map(|px| DynamicSelector::ContainerWidth(MinMaxRange::new(None, Some(px)))),
+        "min-height" => parse_px_value(value)
+            .map(|px| DynamicSelector::ContainerHeight(MinMaxRange::new(Some(px), None))),
+        "max-height" => parse_px_value(value)
+            .map(|px| DynamicSelector::ContainerHeight(MinMaxRange::new(None, Some(px)))),
+        "aspect-ratio" => parse_ratio_value(value)
+            .map(|r| DynamicSelector::AspectRatio(MinMaxRange::new(Some(r), Some(r)))),
+        "min-aspect-ratio" => parse_ratio_value(value)
+            .map(|r| DynamicSelector::AspectRatio(MinMaxRange::new(Some(r), None))),
+        "max-aspect-ratio" => parse_ratio_value(value)
+            .map(|r| DynamicSelector::AspectRatio(MinMaxRange::new(None, Some(r)))),
         _ => None,
     }
 }
@@ -1501,7 +1554,10 @@ fn new_from_str_inner<'a>(
                 warning: CssParseWarnMsgInner::MalformedStructure {
                     message: "Parser iteration limit exceeded - possible infinite loop",
                 },
-                location: ErrorLocationRange { start: last_error_location, end: get_error_location(tokenizer) },
+                location: ErrorLocationRange {
+                    start: last_error_location,
+                    end: get_error_location(tokenizer),
+                },
             });
             break;
         }
@@ -1515,7 +1571,10 @@ fn new_from_str_inner<'a>(
                     warning: CssParseWarnMsgInner::MalformedStructure {
                         message: "Parser stuck - position not advancing",
                     },
-                    location: ErrorLocationRange { start: last_error_location, end: get_error_location(tokenizer) },
+                    location: ErrorLocationRange {
+                        start: last_error_location,
+                        end: get_error_location(tokenizer),
+                    },
                 });
                 break;
             }
@@ -1542,7 +1601,10 @@ fn new_from_str_inner<'a>(
                 };
                 warnings.push(CssParseWarnMsg {
                     warning,
-                    location: ErrorLocationRange { start: last_error_location, end: error_location },
+                    location: ErrorLocationRange {
+                        start: last_error_location,
+                        end: error_location,
+                    },
                 });
                 // On error, break to avoid infinite loop - the tokenizer may be stuck
                 break;
@@ -1553,7 +1615,10 @@ fn new_from_str_inner<'a>(
             ($warning:expr) => {{
                 warnings.push(CssParseWarnMsg {
                     warning: $warning,
-                    location: ErrorLocationRange { start: last_error_location, end: get_error_location(tokenizer) },
+                    location: ErrorLocationRange {
+                        start: last_error_location,
+                        end: get_error_location(tokenizer),
+                    },
                 });
                 continue;
             }};
@@ -1563,9 +1628,7 @@ fn new_from_str_inner<'a>(
             let mut close_kf = false;
             let mut eos = false;
             {
-                let cap = keyframes_capture
-                    .as_mut()
-                    .expect("checked is_some above");
+                let cap = keyframes_capture.as_mut().expect("checked is_some above");
                 match token {
                     Token::TypeSelector(sel) => {
                         if !cap.in_stop {
@@ -1615,9 +1678,7 @@ fn new_from_str_inner<'a>(
                 }
             }
             if close_kf {
-                let mut cap = keyframes_capture
-                    .take()
-                    .expect("close_kf implies capture");
+                let mut cap = keyframes_capture.take().expect("close_kf implies capture");
                 cap.stops.sort_by_key(|st| st.permille);
                 keyframes_out.push(crate::css::Keyframes {
                     name: cap.name.into(),
@@ -1679,12 +1740,19 @@ fn new_from_str_inner<'a>(
                 if let Some(rule_name) = pending_at_rule.take() {
                     let combined_content = pending_at_str_parts.join(" and ");
                     pending_at_str_parts.clear();
-                    
+
                     let conditions = match rule_name.to_lowercase().as_str() {
                         "media" => parse_media_conditions(&combined_content),
-                        "lang" => parse_lang_condition(&combined_content).into_iter().collect(),
-                        "os" => crate::dynamic_selector::parse_os_at_rule_content(&combined_content).unwrap_or_default(),
-                        "theme" => parse_theme_condition(&combined_content).into_iter().collect(),
+                        "lang" => parse_lang_condition(&combined_content)
+                            .into_iter()
+                            .collect(),
+                        "os" => {
+                            crate::dynamic_selector::parse_os_at_rule_content(&combined_content)
+                                .unwrap_or_default()
+                        }
+                        "theme" => parse_theme_condition(&combined_content)
+                            .into_iter()
+                            .collect(),
                         "container" => parse_container_conditions(&combined_content),
                         _ => {
                             // Unknown @-rule, ignore
@@ -1711,30 +1779,33 @@ fn new_from_str_inner<'a>(
                     // Get parent paths and combine with current paths. Beyond
                     // MAX_NESTING_DEPTH, stop combining with the ancestor chain to
                     // bound the O(depth^2) path-cloning (see the const's doc above).
-                    let combined_paths: Vec<Vec<CssPathSelector>> = if block_nesting > MAX_NESTING_DEPTH {
-                        std::mem::take(&mut current_paths)
-                    } else {
-                        let parent_paths = get_parent_paths(&nesting_stack);
-                        if parent_paths.is_empty() {
-                            current_paths.clone()
+                    let combined_paths: Vec<Vec<CssPathSelector>> =
+                        if block_nesting > MAX_NESTING_DEPTH {
+                            std::mem::take(&mut current_paths)
                         } else {
-                            // Combine each parent path with each current path
-                            let mut result = Vec::new();
-                            for parent in &parent_paths {
-                                for child in &current_paths {
-                                    // Check if child starts with pseudo-selector
-                                    let is_pseudo_only = child.first().is_some_and(|s| matches!(s, CssPathSelector::PseudoSelector(_)));
-                                    let mut combined = parent.clone();
-                                    if !is_pseudo_only && !child.is_empty() {
-                                        combined.push(CssPathSelector::Children);
+                            let parent_paths = get_parent_paths(&nesting_stack);
+                            if parent_paths.is_empty() {
+                                current_paths.clone()
+                            } else {
+                                // Combine each parent path with each current path
+                                let mut result = Vec::new();
+                                for parent in &parent_paths {
+                                    for child in &current_paths {
+                                        // Check if child starts with pseudo-selector
+                                        let is_pseudo_only = child.first().is_some_and(|s| {
+                                            matches!(s, CssPathSelector::PseudoSelector(_))
+                                        });
+                                        let mut combined = parent.clone();
+                                        if !is_pseudo_only && !child.is_empty() {
+                                            combined.push(CssPathSelector::Children);
+                                        }
+                                        combined.extend(child.iter().cloned());
+                                        result.push(combined);
                                     }
-                                    combined.extend(child.iter().cloned());
-                                    result.push(combined);
                                 }
+                                result
                             }
-                            result
-                        }
-                    };
+                        };
 
                     // Push to nesting stack
                     nesting_stack.push(NestingLevel {
@@ -1798,17 +1869,15 @@ fn new_from_str_inner<'a>(
             Token::UniversalSelector => {
                 last_path.push(CssPathSelector::Global);
             }
-            Token::TypeSelector(div_type) => {
-                match NodeTypeTag::from_str(div_type) {
-                    Ok(nt) => last_path.push(CssPathSelector::Type(nt)),
-                    Err(e) => {
-                        warn_and_continue!(CssParseWarnMsgInner::SkippedRule {
-                            selector: Some(div_type),
-                            error: e.into(),
-                        });
-                    }
+            Token::TypeSelector(div_type) => match NodeTypeTag::from_str(div_type) {
+                Ok(nt) => last_path.push(CssPathSelector::Type(nt)),
+                Err(e) => {
+                    warn_and_continue!(CssParseWarnMsgInner::SkippedRule {
+                        selector: Some(div_type),
+                        error: e.into(),
+                    });
                 }
-            }
+            },
             Token::IdSelector(id) => {
                 last_path.push(CssPathSelector::Id(id.to_string().into()));
             }
@@ -1827,7 +1896,8 @@ fn new_from_str_inner<'a>(
             Token::Combinator(Combinator::Tilde) => {
                 last_path.push(CssPathSelector::GeneralSibling);
             }
-            Token::PseudoClass { selector, value } | Token::DoublePseudoClass { selector, value } => {
+            Token::PseudoClass { selector, value }
+            | Token::DoublePseudoClass { selector, value } => {
                 match pseudo_selector_from_str(selector, value) {
                     Ok(ps) => last_path.push(CssPathSelector::PseudoSelector(ps)),
                     Err(e) => {
@@ -1839,14 +1909,24 @@ fn new_from_str_inner<'a>(
                 }
             }
             Token::AttributeSelector(attr) => {
-                if let Some(sel) = parse_attribute_selector(attr) { last_path.push(CssPathSelector::Attribute(sel)) } else { warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
-                    message: "Malformed attribute selector, rule skipped",
-                }) }
+                if let Some(sel) = parse_attribute_selector(attr) {
+                    last_path.push(CssPathSelector::Attribute(sel))
+                } else {
+                    warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
+                        message: "Malformed attribute selector, rule skipped",
+                    })
+                }
             }
             Token::Declaration(key, val) => {
                 current_declarations.insert(
                     key,
-                    (val, ErrorLocationRange { start: last_error_location, end: get_error_location(tokenizer) }),
+                    (
+                        val,
+                        ErrorLocationRange {
+                            start: last_error_location,
+                            end: get_error_location(tokenizer),
+                        },
+                    ),
                 );
             }
             Token::EndOfStream => {
@@ -1855,7 +1935,10 @@ fn new_from_str_inner<'a>(
                         warning: CssParseWarnMsgInner::MalformedStructure {
                             message: "Unclosed blocks at end of file",
                         },
-                        location: ErrorLocationRange { start: last_error_location, end: get_error_location(tokenizer) },
+                        location: ErrorLocationRange {
+                            start: last_error_location,
+                            end: get_error_location(tokenizer),
+                        },
                     });
                 }
                 break;
@@ -1939,7 +2022,11 @@ fn css_blocks_to_stylesheet<'a>(
                 &css_key_map,
             ) {
                 Ok(decls) => {
-                    declarations.extend(decls.into_iter().map(|d| resolve_var_reference(d, &custom_props)));
+                    declarations.extend(
+                        decls
+                            .into_iter()
+                            .map(|d| resolve_var_reference(d, &custom_props)),
+                    );
                 }
                 Err(e) => {
                     warnings.push(CssParseWarnMsg {
@@ -2113,8 +2200,10 @@ mod autotest_generated {
     fn catch<R>(f: impl FnOnce() -> R) -> Result<R, String> {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|e| {
             e.downcast_ref::<String>().cloned().unwrap_or_else(|| {
-                e.downcast_ref::<&str>()
-                    .map_or_else(|| "<non-string panic payload>".to_string(), |s| (*s).to_string())
+                e.downcast_ref::<&str>().map_or_else(
+                    || "<non-string panic payload>".to_string(),
+                    |s| (*s).to_string(),
+                )
             })
         })
     }
@@ -2125,7 +2214,9 @@ mod autotest_generated {
 
     fn loc(start: usize, end: usize) -> ErrorLocationRange {
         ErrorLocationRange {
-            start: ErrorLocation { original_pos: start },
+            start: ErrorLocation {
+                original_pos: start,
+            },
             end: ErrorLocation { original_pos: end },
         }
     }
@@ -2214,7 +2305,9 @@ mod autotest_generated {
         );
         assert_eq!(
             pseudo_selector_from_str("nth-child", Some("2")),
-            Ok(CssPathPseudoSelector::NthChild(CssNthChildSelector::Number(2)))
+            Ok(CssPathPseudoSelector::NthChild(
+                CssNthChildSelector::Number(2)
+            ))
         );
     }
 
@@ -2224,7 +2317,9 @@ mod autotest_generated {
         for v in ["de-DE", "\"de-DE\"", "'de-DE'", "  \"de-DE\"  "] {
             assert_eq!(
                 pseudo_selector_from_str("lang", Some(v)),
-                Ok(CssPathPseudoSelector::Lang(AzString::from("de-DE".to_string()))),
+                Ok(CssPathPseudoSelector::Lang(AzString::from(
+                    "de-DE".to_string()
+                ))),
                 "lang value {v:?} did not normalise to de-DE"
             );
         }
@@ -2277,7 +2372,11 @@ mod autotest_generated {
     fn pseudo_selector_from_str_deeply_nested_value_does_not_stack_overflow() {
         let nested = "(".repeat(10_000);
         let r = catch(|| pseudo_selector_from_str("nth-child", Some(&nested)).is_err());
-        assert_eq!(r, Ok(true), "deeply nested nth-child value was not rejected safely");
+        assert_eq!(
+            r,
+            Ok(true),
+            "deeply nested nth-child value was not rejected safely"
+        );
     }
 
     // --- parse_attribute_selector ----------------------------------------
@@ -2301,12 +2400,15 @@ mod autotest_generated {
             ("a*=b", AttributeMatchOp::Substring),
         ];
         for (input, expected_op) in cases {
-            let sel = parse_attribute_selector(input)
-                .unwrap_or_else(|| panic!("{input:?} should parse"));
+            let sel =
+                parse_attribute_selector(input).unwrap_or_else(|| panic!("{input:?} should parse"));
             assert_eq!(sel.name.as_str(), "a", "wrong name for {input:?}");
             assert_eq!(sel.op, expected_op, "wrong op for {input:?}");
             assert_eq!(
-                sel.value.clone().into_option().map(|v| v.as_str().to_string()),
+                sel.value
+                    .clone()
+                    .into_option()
+                    .map(|v| v.as_str().to_string()),
                 Some("b".to_string()),
                 "wrong value for {input:?}"
             );
@@ -2316,10 +2418,13 @@ mod autotest_generated {
     #[test]
     fn parse_attribute_selector_quotes_are_stripped_and_unbalanced_rejected() {
         for input in ["a=\"b\"", "a='b'", "a=b", "  a  =  \"b\"  "] {
-            let sel = parse_attribute_selector(input)
-                .unwrap_or_else(|| panic!("{input:?} should parse"));
+            let sel =
+                parse_attribute_selector(input).unwrap_or_else(|| panic!("{input:?} should parse"));
             assert_eq!(
-                sel.value.clone().into_option().map(|v| v.as_str().to_string()),
+                sel.value
+                    .clone()
+                    .into_option()
+                    .map(|v| v.as_str().to_string()),
                 Some("b".to_string()),
                 "quotes not stripped for {input:?}"
             );
@@ -2355,7 +2460,10 @@ mod autotest_generated {
         // Multi-byte values must not be sliced mid-char.
         let sel = parse_attribute_selector("lang=\"\u{4E2D}\u{6587}\"").expect("unicode value");
         assert_eq!(
-            sel.value.clone().into_option().map(|v| v.as_str().to_string()),
+            sel.value
+                .clone()
+                .into_option()
+                .map(|v| v.as_str().to_string()),
             Some("\u{4E2D}\u{6587}".to_string())
         );
     }
@@ -2383,7 +2491,9 @@ mod autotest_generated {
                 let name = sel.name.as_str();
                 assert!(!name.is_empty(), "empty name accepted for {input:?}");
                 assert!(
-                    !name.chars().any(|c| c.is_whitespace() || c == '"' || c == '\''),
+                    !name
+                        .chars()
+                        .any(|c| c.is_whitespace() || c == '"' || c == '\''),
                     "name {name:?} contains whitespace/quotes for input {input:?}"
                 );
             }
@@ -2429,7 +2539,11 @@ mod autotest_generated {
         ];
         for s in cases {
             let r = catch(|| strip_attribute_quotes(s));
-            assert!(r.is_ok(), "strip_attribute_quotes({s:?}) panicked: {}", r.unwrap_err());
+            assert!(
+                r.is_ok(),
+                "strip_attribute_quotes({s:?}) panicked: {}",
+                r.unwrap_err()
+            );
         }
         assert_eq!(strip_attribute_quotes("\"\u{1F600}\""), Some("\u{1F600}"));
         assert_eq!(strip_attribute_quotes("\u{1F600}"), Some("\u{1F600}"));
@@ -2447,11 +2561,26 @@ mod autotest_generated {
 
     #[test]
     fn parse_nth_child_selector_valid_minimal() {
-        assert_eq!(parse_nth_child_selector("2"), Ok(CssNthChildSelector::Number(2)));
-        assert_eq!(parse_nth_child_selector("0"), Ok(CssNthChildSelector::Number(0)));
-        assert_eq!(parse_nth_child_selector("even"), Ok(CssNthChildSelector::Even));
-        assert_eq!(parse_nth_child_selector("odd"), Ok(CssNthChildSelector::Odd));
-        assert_eq!(parse_nth_child_selector("  7  "), Ok(CssNthChildSelector::Number(7)));
+        assert_eq!(
+            parse_nth_child_selector("2"),
+            Ok(CssNthChildSelector::Number(2))
+        );
+        assert_eq!(
+            parse_nth_child_selector("0"),
+            Ok(CssNthChildSelector::Number(0))
+        );
+        assert_eq!(
+            parse_nth_child_selector("even"),
+            Ok(CssNthChildSelector::Even)
+        );
+        assert_eq!(
+            parse_nth_child_selector("odd"),
+            Ok(CssNthChildSelector::Odd)
+        );
+        assert_eq!(
+            parse_nth_child_selector("  7  "),
+            Ok(CssNthChildSelector::Number(7))
+        );
         assert_eq!(
             parse_nth_child_selector("2n+3"),
             Ok(CssNthChildSelector::Pattern(CssNthChildPattern {
@@ -2515,7 +2644,11 @@ mod autotest_generated {
     fn parse_nth_child_selector_float_and_non_finite_strings_are_rejected() {
         for v in ["NaN", "inf", "-inf", "1.5", "1e5", "0x2", "+2", " 2 n "] {
             let r = catch(|| parse_nth_child_selector(v));
-            assert!(r.is_ok(), "parse_nth_child_selector({v:?}) panicked: {}", r.unwrap_err());
+            assert!(
+                r.is_ok(),
+                "parse_nth_child_selector({v:?}) panicked: {}",
+                r.unwrap_err()
+            );
         }
         assert!(parse_nth_child_selector("NaN").is_err());
         assert!(parse_nth_child_selector("inf").is_err());
@@ -2536,15 +2669,29 @@ mod autotest_generated {
         // panic, no matter what the input looks like.
         for s in HOSTILE {
             let r = catch(|| parse_nth_child_pattern(s));
-            assert!(r.is_ok(), "parse_nth_child_pattern({s:?}) panicked: {}", r.unwrap_err());
+            assert!(
+                r.is_ok(),
+                "parse_nth_child_pattern({s:?}) panicked: {}",
+                r.unwrap_err()
+            );
         }
     }
 
     #[test]
     fn parse_nth_child_selector_unicode_never_panics() {
-        for v in ["\u{1F600}", "\u{FF12}", "2\u{301}", "e\u{301}ven", "\u{4E2D}n+\u{6587}"] {
+        for v in [
+            "\u{1F600}",
+            "\u{FF12}",
+            "2\u{301}",
+            "e\u{301}ven",
+            "\u{4E2D}n+\u{6587}",
+        ] {
             let r = catch(|| parse_nth_child_selector(v));
-            assert!(r.is_ok(), "parse_nth_child_selector({v:?}) panicked: {}", r.unwrap_err());
+            assert!(
+                r.is_ok(),
+                "parse_nth_child_selector({v:?}) panicked: {}",
+                r.unwrap_err()
+            );
             assert!(
                 parse_nth_child_selector(v).is_err(),
                 "{v:?} is not a valid nth-child value"
@@ -2613,7 +2760,12 @@ mod autotest_generated {
 
         for input in inputs {
             let r = catch(|| parse_css_path(input));
-            assert!(r.is_ok(), "parse_css_path({:.40?}) panicked: {}", input, r.unwrap_err());
+            assert!(
+                r.is_ok(),
+                "parse_css_path({:.40?}) panicked: {}",
+                input,
+                r.unwrap_err()
+            );
         }
     }
 
@@ -2694,7 +2846,11 @@ mod autotest_generated {
         }
 
         let conds = parse_media_conditions("screen and (max-width: 600px)");
-        assert_eq!(conds.len(), 2, "compound query should yield both conditions");
+        assert_eq!(
+            conds.len(),
+            2,
+            "compound query should yield both conditions"
+        );
         assert_eq!(conds[0], DynamicSelector::Media(MediaType::Screen));
         match &conds[1] {
             DynamicSelector::ViewportWidth(r) => {
@@ -2707,7 +2863,17 @@ mod autotest_generated {
 
     #[test]
     fn parse_media_conditions_empty_and_garbage_yield_no_conditions() {
-        for input in ["", "   ", "((((", "))))", "\u{1F600}", "and", "(", ")", "()"] {
+        for input in [
+            "",
+            "   ",
+            "((((",
+            "))))",
+            "\u{1F600}",
+            "and",
+            "(",
+            ")",
+            "()",
+        ] {
             let r = catch(|| parse_media_conditions(input));
             match r {
                 Ok(conds) => assert!(
@@ -2723,11 +2889,19 @@ mod autotest_generated {
     fn parse_media_conditions_extremely_long_and_deeply_nested_terminate() {
         let nested = format!("({})", "(".repeat(10_000));
         let r = catch(|| parse_media_conditions(&nested));
-        assert!(r.is_ok(), "deeply nested media query panicked: {}", r.unwrap_err());
+        assert!(
+            r.is_ok(),
+            "deeply nested media query panicked: {}",
+            r.unwrap_err()
+        );
 
         let long = "screen and ".repeat(20_000);
         let r = catch(|| parse_media_conditions(&long));
-        assert!(r.is_ok(), "very long media query panicked: {}", r.unwrap_err());
+        assert!(
+            r.is_ok(),
+            "very long media query panicked: {}",
+            r.unwrap_err()
+        );
     }
 
     #[test]
@@ -2815,7 +2989,17 @@ mod autotest_generated {
 
     #[test]
     fn parse_px_value_malformed_returns_none() {
-        for input in ["", "   ", "px", "abc", "8 0 0", "800pxx", "\u{1F600}", "800%", "--"] {
+        for input in [
+            "",
+            "   ",
+            "px",
+            "abc",
+            "8 0 0",
+            "800pxx",
+            "\u{1F600}",
+            "800%",
+            "--",
+        ] {
             let r = catch(|| parse_px_value(input));
             match r {
                 Ok(v) => assert!(v.is_none(), "{input:?} should be rejected, got {v:?}"),
@@ -2841,7 +3025,11 @@ mod autotest_generated {
 
         let huge_digits = "9".repeat(100_000);
         let r = catch(|| parse_px_value(&huge_digits));
-        assert!(r.is_ok(), "a 100k-digit number panicked: {}", r.unwrap_err());
+        assert!(
+            r.is_ok(),
+            "a 100k-digit number panicked: {}",
+            r.unwrap_err()
+        );
     }
 
     /// BUG (red): `f32::from_str` accepts `"NaN"`, `"inf"` and `"infinity"`, none of
@@ -2851,7 +3039,9 @@ mod autotest_generated {
     /// `parse_px_value` should reject non-finite values at the source.
     #[test]
     fn parse_px_value_rejects_non_finite_values() {
-        for input in ["NaN", "nan", "inf", "-inf", "infinity", "NaNpx", "infpx", "-infpx"] {
+        for input in [
+            "NaN", "nan", "inf", "-inf", "infinity", "NaNpx", "infpx", "-infpx",
+        ] {
             if let Some(px) = parse_px_value(input) {
                 assert!(
                     px.is_finite(),
@@ -2886,7 +3076,17 @@ mod autotest_generated {
 
     #[test]
     fn parse_ratio_value_malformed_returns_none() {
-        for input in ["", "   ", "/", "16/", "/9", "a/b", "1/2/3", "\u{1F600}", "16:9"] {
+        for input in [
+            "",
+            "   ",
+            "/",
+            "16/",
+            "/9",
+            "a/b",
+            "1/2/3",
+            "\u{1F600}",
+            "16:9",
+        ] {
             let r = catch(|| parse_ratio_value(input));
             match r {
                 Ok(v) => assert!(v.is_none(), "{input:?} should be rejected, got {v:?}"),
@@ -2977,7 +3177,14 @@ mod autotest_generated {
 
     #[test]
     fn parse_container_feature_malformed_returns_none() {
-        for input in ["", "   ", "nocolon", "min-width:", "min-width: abc", "unknown: 1px"] {
+        for input in [
+            "",
+            "   ",
+            "nocolon",
+            "min-width:",
+            "min-width: abc",
+            "unknown: 1px",
+        ] {
             let r = catch(|| parse_container_feature(input));
             match r {
                 Ok(v) => assert!(v.is_none(), "{input:?} should be rejected, got {v:?}"),
@@ -2992,7 +3199,15 @@ mod autotest_generated {
 
     #[test]
     fn parse_theme_condition_valid_minimal() {
-        for input in ["dark", "(dark)", "DARK", "\"dark\"", "'dark'", "(\"dark\")", "  dark  "] {
+        for input in [
+            "dark",
+            "(dark)",
+            "DARK",
+            "\"dark\"",
+            "'dark'",
+            "(\"dark\")",
+            "  dark  ",
+        ] {
             assert_eq!(
                 parse_theme_condition(input),
                 Some(DynamicSelector::Theme(ThemeCondition::Dark)),
@@ -3007,7 +3222,17 @@ mod autotest_generated {
 
     #[test]
     fn parse_theme_condition_garbage_returns_none() {
-        for input in ["", "   ", "(", ")", "()", "sepia", "\u{1F600}", "dark light", "\"dark"] {
+        for input in [
+            "",
+            "   ",
+            "(",
+            ")",
+            "()",
+            "sepia",
+            "\u{1F600}",
+            "dark light",
+            "\"dark",
+        ] {
             let r = catch(|| parse_theme_condition(input));
             match r {
                 Ok(v) => assert!(v.is_none(), "theme {input:?} should be rejected, got {v:?}"),
@@ -3074,7 +3299,15 @@ mod autotest_generated {
 
     #[test]
     fn parse_css_variable_brace_contents_rejects_non_variables() {
-        for input in ["", "   ", "main-bg-col", "-main-bg-col", "blue", "\u{1F600}", ","] {
+        for input in [
+            "",
+            "   ",
+            "main-bg-col",
+            "-main-bg-col",
+            "blue",
+            "\u{1F600}",
+            ",",
+        ] {
             assert_eq!(
                 parse_css_variable_brace_contents(input),
                 None,
@@ -3217,7 +3450,10 @@ mod autotest_generated {
             &mut warnings,
             &mut declarations,
         );
-        assert!(r.is_err(), "a known key with an unparseable value must error");
+        assert!(
+            r.is_err(),
+            "a known key with an unparseable value must error"
+        );
         assert!(declarations.is_empty());
     }
 
@@ -3306,7 +3542,8 @@ mod autotest_generated {
         let crlf = "\r\n".repeat(1_000);
         for css in [newlines.as_str(), crlf.as_str()] {
             for pos in [1_usize, 2, 3, 500, css.len()] {
-                let r = catch(|| ErrorLocation { original_pos: pos }.get_line_column_from_error(css));
+                let r =
+                    catch(|| ErrorLocation { original_pos: pos }.get_line_column_from_error(css));
                 assert!(
                     r.is_ok(),
                     "get_line_column_from_error(pos={pos}) underflowed/panicked: {}",
@@ -3466,7 +3703,8 @@ mod autotest_generated {
     #[test]
     fn display_of_error_and_warning_inners_is_never_empty() {
         let km = key_map();
-        let margin = CombinedCssPropertyType::from_str("margin", &km).expect("margin is a shorthand");
+        let margin =
+            CombinedCssPropertyType::from_str("margin", &km).expect("margin is a shorthand");
 
         let inners: Vec<CssParseErrorInner<'_>> = vec![
             CssParseErrorInner::ParseError(CssSyntaxError::UnknownToken(CssSyntaxErrorPos {
@@ -3524,9 +3762,7 @@ mod autotest_generated {
             CssPseudoSelectorParseError::UnknownSelector("blah", None),
             CssPseudoSelectorParseError::UnknownSelector("blah", Some("3")),
             CssPseudoSelectorParseError::InvalidNthChildPattern("2x+1"),
-            CssPseudoSelectorParseError::InvalidNthChild(
-                "x".parse::<u32>().unwrap_err(),
-            ),
+            CssPseudoSelectorParseError::InvalidNthChild("x".parse::<u32>().unwrap_err()),
             CssPseudoSelectorParseError::InvalidNthChild(
                 "99999999999999999999".parse::<u32>().unwrap_err(),
             ),
@@ -3768,10 +4004,9 @@ mod autotest_generated {
         let (css, warnings) = new_from_str("div { width: 100px;");
         assert_eq!(css.rules.len(), 0, "an unclosed block emits no rules");
         assert!(
-            warnings.iter().any(|w| matches!(
-                w.warning,
-                CssParseWarnMsgInner::MalformedStructure { .. }
-            )),
+            warnings
+                .iter()
+                .any(|w| matches!(w.warning, CssParseWarnMsgInner::MalformedStructure { .. })),
             "expected a MalformedStructure warning, got {warnings:?}"
         );
     }
@@ -3796,10 +4031,17 @@ mod autotest_generated {
             .iter()
             .flat_map(|r| r.declarations.as_slice().iter())
             .collect();
-        assert_eq!(decls.len(), 1, "custom-prop def emits nothing, var() resolves: {decls:?}");
+        assert_eq!(
+            decls.len(),
+            1,
+            "custom-prop def emits nothing, var() resolves: {decls:?}"
+        );
         // The resolved declaration is identical to a direct `width:150px`.
         let (direct, _) = new_from_str(".v{width:150px}");
-        assert_eq!(decls[0], &direct.rules.as_slice()[0].declarations.as_slice()[0]);
+        assert_eq!(
+            decls[0],
+            &direct.rules.as_slice()[0].declarations.as_slice()[0]
+        );
     }
 
     #[test]
@@ -3872,7 +4114,11 @@ mod autotest_generated {
     #[test]
     fn new_from_str_comma_separated_selectors_emit_one_rule_each() {
         let (css, _warnings) = new_from_str("div, p { width: 1px; }");
-        assert_eq!(css.rules.len(), 2, "each selector in the list gets its own rule");
+        assert_eq!(
+            css.rules.len(),
+            2,
+            "each selector in the list gets its own rule"
+        );
     }
 
     #[test]
@@ -3932,7 +4178,11 @@ mod autotest_generated {
         assert_eq!(rules.len(), 2, "both blocks are emitted");
         assert_eq!(rules[0].declarations.len(), 1);
         assert_eq!(rules[1].declarations.len(), 0, "the unknown key is dropped");
-        assert_eq!(warnings.len(), 1, "the unknown key produced exactly one warning");
+        assert_eq!(
+            warnings.len(),
+            1,
+            "the unknown key produced exactly one warning"
+        );
         assert!(matches!(
             warnings[0].warning,
             CssParseWarnMsgInner::SkippedDeclaration { .. }
@@ -3968,7 +4218,12 @@ mod keyframes_tests {
         "#;
         let (parsed, _warnings) = new_from_str(css);
         let kf: Vec<_> = parsed.keyframes.as_ref().iter().collect();
-        assert_eq!(kf.len(), 1, "nested @keyframes must parse: {:?}", parsed.keyframes);
+        assert_eq!(
+            kf.len(),
+            1,
+            "nested @keyframes must parse: {:?}",
+            parsed.keyframes
+        );
         assert_eq!(kf[0].name.as_str(), "nested");
         let permilles: Vec<u16> = kf[0].stops.iter().map(|s| s.permille).collect();
         assert_eq!(permilles, vec![0, 500, 1000]);
@@ -4038,7 +4293,11 @@ mod keyframes_tests {
         assert_eq!(stops[0].permille, 0);
         assert_eq!(stops[1].permille, 500);
         assert_eq!(stops[2].permille, 1000);
-        assert_eq!(stops[0].props.as_ref().len(), 2, "from: transform + opacity");
+        assert_eq!(
+            stops[0].props.as_ref().len(),
+            2,
+            "from: transform + opacity"
+        );
         assert_eq!(stops[2].props.as_ref().len(), 2, "to: transform + width");
 
         // The surrounding rules are intact — the block was skipped, not

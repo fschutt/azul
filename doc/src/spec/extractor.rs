@@ -3,9 +3,9 @@
 //! Parses downloaded W3C spec HTML files and extracts relevant paragraphs
 //! based on keywords. Uses simple HTML parsing without external dependencies.
 
-use std::path::Path;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::path::Path;
 
 /// A single extracted paragraph with context
 #[derive(Debug, Clone)]
@@ -32,7 +32,11 @@ pub fn paragraph_content_hash(para: &ExtractedParagraph) -> String {
     let mut hasher = DefaultHasher::new();
     para.source_file.hash(&mut hasher);
     para.section_id.hash(&mut hasher);
-    para.text.chars().take(200).collect::<String>().hash(&mut hasher);
+    para.text
+        .chars()
+        .take(200)
+        .collect::<String>()
+        .hash(&mut hasher);
     format!("{:06x}", hasher.finish() & 0xFFFFFF)
 }
 
@@ -43,26 +47,26 @@ pub fn extract_paragraphs(
 ) -> Result<Vec<ExtractedParagraph>, String> {
     let html = std::fs::read_to_string(html_path)
         .map_err(|e| format!("Failed to read {}: {}", html_path.display(), e))?;
-    
+
     let source_file = html_path
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_default();
-    
+
     let mut results = Vec::new();
     let mut current_section = String::new();
     let mut current_section_id = None;
-    
+
     // Split into lines for approximate line tracking
     let lines: Vec<&str> = html.lines().collect();
-    
+
     for (line_num, line) in lines.iter().enumerate() {
         // Track section headings (h1-h6)
         if let Some(heading) = extract_heading(line) {
             current_section = heading.text.clone();
             current_section_id = heading.id;
         }
-        
+
         // Extract paragraphs and definition list definitions.
         // Skip <li> (captures TOC, navigation, property indexes) and only
         // match <p> and <dd> for actual spec prose.
@@ -74,9 +78,7 @@ pub fn extract_paragraphs(
             // Check for keyword matches
             let matched: Vec<String> = keywords
                 .iter()
-                .filter(|kw| {
-                    plain_text.to_lowercase().contains(&kw.to_lowercase())
-                })
+                .filter(|kw| plain_text.to_lowercase().contains(&kw.to_lowercase()))
                 .cloned()
                 .collect();
 
@@ -104,10 +106,10 @@ pub fn extract_paragraphs(
             }
         }
     }
-    
+
     // Deduplicate by text (same paragraph might match multiple times)
     results.dedup_by(|a, b| a.text == b.text);
-    
+
     Ok(results)
 }
 
@@ -123,7 +125,7 @@ fn extract_heading(line: &str) -> Option<Heading> {
         if line.contains(&open_tag) {
             // Extract ID if present
             let id = extract_id_attr(line);
-            
+
             // Extract text content
             let text = strip_html(line);
             if !text.is_empty() {
@@ -155,11 +157,11 @@ fn collect_element(lines: &[&str], start_line: usize) -> String {
     // Simple approach: collect until we see closing tag or new element
     let mut result = String::new();
     let mut depth = 0;
-    
+
     for line in &lines[start_line..] {
         result.push_str(line);
         result.push(' ');
-        
+
         // Simple depth tracking
         depth += line.matches("<p").count() as i32;
         depth += line.matches("<dd").count() as i32;
@@ -167,12 +169,12 @@ fn collect_element(lines: &[&str], start_line: usize) -> String {
         depth -= line.matches("</p>").count() as i32;
         depth -= line.matches("</dd>").count() as i32;
         depth -= line.matches("</li>").count() as i32;
-        
+
         if depth <= 0 || result.len() > 5000 {
             break;
         }
     }
-    
+
     result
 }
 
@@ -215,7 +217,7 @@ pub fn strip_html(html: &str) -> String {
             result.push(c);
         }
     }
-    
+
     // Decode common HTML entities
     let result = result
         .replace("&nbsp;", " ")
@@ -225,7 +227,7 @@ pub fn strip_html(html: &str) -> String {
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&apos;", "'");
-    
+
     // Collapse whitespace
     let mut prev_space = false;
     result
@@ -270,10 +272,10 @@ pub fn extract_for_skill_node(
     spec_dir: &Path,
 ) -> Result<Vec<ExtractedParagraph>, String> {
     let mut all_paragraphs = Vec::new();
-    
+
     // Determine which spec files to search based on node's spec_urls
     let registry = super::downloader::SpecRegistry::new();
-    
+
     for url in registry.get_all_urls() {
         let local_path = spec_dir.join(&url.local_filename);
         if local_path.exists() {
@@ -287,11 +289,13 @@ pub fn extract_for_skill_node(
             }
         }
     }
-    
+
     // Sort by relevance (number of matched keywords, then shorter text first
     // since shorter paragraphs tend to be more focused)
     all_paragraphs.sort_by(|a, b| {
-        b.matched_keywords.len().cmp(&a.matched_keywords.len())
+        b.matched_keywords
+            .len()
+            .cmp(&a.matched_keywords.len())
             .then(a.text.len().cmp(&b.text.len()))
     });
 
@@ -309,27 +313,28 @@ pub fn extract_for_skill_node(
 /// Format extracted paragraphs for inclusion in a prompt
 pub fn format_paragraphs_for_prompt(paragraphs: &[ExtractedParagraph]) -> String {
     let mut output = String::new();
-    
+
     output.push_str("## Relevant W3C Specification Paragraphs\n\n");
-    
+
     let mut current_source = String::new();
-    
+
     for para in paragraphs {
         if para.source_file != current_source {
             current_source = para.source_file.clone();
             output.push_str(&format!("\n### From: {}\n\n", current_source));
         }
-        
+
         output.push_str(&format!(
             "**Section: {}**{}\n> {}\n\n",
             para.section,
-            para.section_id.as_ref()
+            para.section_id
+                .as_ref()
                 .map(|id| format!(" (#{id})"))
                 .unwrap_or_default(),
             para.text.chars().take(500).collect::<String>()
         ));
     }
-    
+
     output
 }
 
@@ -351,20 +356,16 @@ fn deduplicate_paragraphs(
     // Pre-compute word sets (skip tiny words to reduce noise)
     let word_sets: Vec<HashSet<&str>> = paragraphs
         .iter()
-        .map(|p| {
-            p.text
-                .split_whitespace()
-                .filter(|w| w.len() >= 3)
-                .collect()
-        })
+        .map(|p| p.text.split_whitespace().filter(|w| w.len() >= 3).collect())
         .collect();
 
     let mut keep = vec![false; paragraphs.len()];
 
     for i in 0..paragraphs.len() {
-        let dominated = keep.iter().enumerate().any(|(j, &kept)| {
-            kept && jaccard_similarity(&word_sets[i], &word_sets[j]) > threshold
-        });
+        let dominated = keep
+            .iter()
+            .enumerate()
+            .any(|(j, &kept)| kept && jaccard_similarity(&word_sets[i], &word_sets[j]) > threshold);
         if !dominated {
             keep[i] = true;
         }
@@ -377,7 +378,10 @@ fn deduplicate_paragraphs(
         .collect()
 }
 
-fn jaccard_similarity(a: &std::collections::HashSet<&str>, b: &std::collections::HashSet<&str>) -> f64 {
+fn jaccard_similarity(
+    a: &std::collections::HashSet<&str>,
+    b: &std::collections::HashSet<&str>,
+) -> f64 {
     let intersection = a.iter().filter(|w| b.contains(*w)).count();
     let union = a.len() + b.len() - intersection;
     if union == 0 {

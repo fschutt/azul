@@ -204,8 +204,7 @@ fn image_that_no_longer_fits_its_page_moves_whole_never_splits() {
     // (clipped-height) copy of the 200px-wide float.
     for (i, page) in pages.iter().enumerate() {
         let partial = page.items.iter().any(|it| match it {
-            DisplayListItem::Rect { bounds, .. }
-            | DisplayListItem::HitTestArea { bounds, .. } => {
+            DisplayListItem::Rect { bounds, .. } | DisplayListItem::HitTestArea { bounds, .. } => {
                 (bounds.0.size.width - 200.0).abs() < 0.6
                     && bounds.0.size.height > 1.0
                     && (bounds.0.size.height - 100.0).abs() > 0.6

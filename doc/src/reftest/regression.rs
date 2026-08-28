@@ -80,15 +80,15 @@ pub fn run_regression_analysis(config: RegressionConfig) -> anyhow::Result<()> {
     println!("║           Azul Reftest Regression Analysis                    ║");
     println!("╚═══════════════════════════════════════════════════════════════╝");
     println!();
-    
+
     // Create regression output directory
     let regression_dir = config.output_dir.join("regression");
     fs::create_dir_all(&regression_dir)?;
-    
+
     // Step 1: Get persistent temp directory
     let temp_dir = get_or_create_temp_dir(&config)?;
     println!("[1/4] Temp directory: {}", temp_dir.display());
-    
+
     // Step 2: Load refs from file or use direct refs
     let refs = if let Some(ref file_path) = config.refs_file {
         println!("[2/4] Loading refs from file: {}", file_path.display());
@@ -96,7 +96,7 @@ pub fn run_regression_analysis(config: RegressionConfig) -> anyhow::Result<()> {
     } else {
         config.refs.clone()
     };
-    
+
     // Create a temporary config with loaded refs for resolve_refs
     let config_with_refs = RegressionConfig {
         azul_root: config.azul_root.clone(),
@@ -105,44 +105,41 @@ pub fn run_regression_analysis(config: RegressionConfig) -> anyhow::Result<()> {
         test_dir: config.test_dir.clone(),
         output_dir: config.output_dir.clone(),
     };
-    
+
     let commits = resolve_refs(&config_with_refs)?;
     println!("       Resolved {} commit(s) to process", commits.len());
-    
+
     if commits.is_empty() {
         println!("No commits to analyze.");
         return Ok(());
     }
-    
+
     // Step 3: Find which commits still need processing
     let pending = find_pending_commits(&commits, &regression_dir);
-    println!("[3/4] {} commits need processing ({} already done)", 
-             pending.len(), commits.len() - pending.len());
-    
+    println!(
+        "[3/4] {} commits need processing ({} already done)",
+        pending.len(),
+        commits.len() - pending.len()
+    );
+
     if pending.is_empty() {
         println!("All specified commits already processed.");
         println!("Run 'debug-regression statistics' to generate the report.");
         return Ok(());
     }
-    
+
     // Step 4: Process each pending commit
     println!("[4/4] Processing pending commits...\n");
-    
+
     for (idx, commit) in pending.iter().enumerate() {
-        process_commit(
-            commit,
-            &temp_dir,
-            &regression_dir,
-            idx + 1,
-            pending.len(),
-        )?;
+        process_commit(commit, &temp_dir, &regression_dir, idx + 1, pending.len())?;
     }
-    
+
     println!("\n╔═══════════════════════════════════════════════════════════════╗");
     println!("║                    Processing Complete!                        ║");
     println!("╚═══════════════════════════════════════════════════════════════╝");
     println!("Run 'debug-regression statistics' to generate the comparison report.");
-    
+
     Ok(())
 }
 
@@ -152,23 +149,23 @@ pub fn run_statistics(config: RegressionConfig) -> anyhow::Result<()> {
     eprintln!("║           Azul Reftest Regression Statistics                  ║");
     eprintln!("╚═══════════════════════════════════════════════════════════════╝");
     eprintln!();
-    
+
     let regression_dir = config.output_dir.join("regression");
-    
+
     if !regression_dir.exists() {
         eprintln!("No regression data found. Run 'debug-regression' first.");
         return Ok(());
     }
-    
+
     // Collect all processed commits
     eprintln!("[1/2] Collecting commit data...");
     let commits = collect_processed_commits(&regression_dir, &config.azul_root)?;
     eprintln!("  Found {} processed commits", commits.len());
-    
+
     // Generate TXT report to stdout
     eprintln!("[2/2] Generating diff report...");
     generate_diff_report(&commits, &config.azul_root)?;
-    
+
     Ok(())
 }
 
@@ -178,33 +175,33 @@ pub fn run_visual_report(config: RegressionConfig) -> anyhow::Result<()> {
     eprintln!("║         Azul Reftest Visual Regression Report                 ║");
     eprintln!("╚═══════════════════════════════════════════════════════════════╝");
     eprintln!();
-    
+
     let regression_dir = config.output_dir.join("regression");
-    
+
     if !regression_dir.exists() {
         eprintln!("No regression data found. Run 'debug-regression' first.");
         return Ok(());
     }
-    
+
     // Collect all processed commits
     eprintln!("[1/2] Collecting commit data...");
     let commits = collect_processed_commits(&regression_dir, &config.azul_root)?;
     eprintln!("  Found {} processed commits", commits.len());
-    
+
     // Generate HTML report
     eprintln!("[2/2] Generating visual HTML report...");
     generate_visual_html_report(&commits, &regression_dir, &config.azul_root)?;
-    
+
     let report_path = regression_dir.join("visual.html");
     eprintln!("  Report generated: {}", report_path.display());
-    
+
     Ok(())
 }
 
 /// Generate or create the persistent temp directory
 fn get_or_create_temp_dir(config: &RegressionConfig) -> anyhow::Result<PathBuf> {
     let temp_base = std::env::temp_dir().join(TEMP_DIR_NAME);
-    
+
     if temp_base.exists() {
         // Check if it's a valid git repo
         let git_dir = temp_base.join(".git");
@@ -216,10 +213,10 @@ fn get_or_create_temp_dir(config: &RegressionConfig) -> anyhow::Result<PathBuf> 
         println!("  Removing invalid temp directory...");
         let _ = fs::remove_dir_all(&temp_base);
     }
-    
+
     // Clone the repository
     println!("  Cloning repository to temp directory (this may take a while)...");
-    
+
     let output = Command::new("git")
         .args([
             "clone",
@@ -229,7 +226,7 @@ fn get_or_create_temp_dir(config: &RegressionConfig) -> anyhow::Result<PathBuf> 
             temp_base.to_str().unwrap(),
         ])
         .output()?;
-    
+
     if !output.status.success() {
         // Try without --shared for compatibility
         let output = Command::new("git")
@@ -240,7 +237,7 @@ fn get_or_create_temp_dir(config: &RegressionConfig) -> anyhow::Result<PathBuf> 
                 temp_base.to_str().unwrap(),
             ])
             .output()?;
-        
+
         if !output.status.success() {
             return Err(anyhow::anyhow!(
                 "Failed to clone repository: {}",
@@ -248,7 +245,7 @@ fn get_or_create_temp_dir(config: &RegressionConfig) -> anyhow::Result<PathBuf> 
             ));
         }
     }
-    
+
     println!("  Clone complete.");
     Ok(temp_base)
 }
@@ -256,27 +253,32 @@ fn get_or_create_temp_dir(config: &RegressionConfig) -> anyhow::Result<PathBuf> 
 /// Resolve git refs to commit info
 fn resolve_refs(config: &RegressionConfig) -> anyhow::Result<Vec<CommitInfo>> {
     let mut commits = Vec::new();
-    
+
     for git_ref in &config.refs {
         // Use %x00 as delimiter to handle multi-line body
         let output = Command::new("git")
             .current_dir(&config.azul_root)
-            .args(["log", "-1", "--format=%H%x00%h%x00%s%x00%b%x00%ci%x00%an", git_ref])
+            .args([
+                "log",
+                "-1",
+                "--format=%H%x00%h%x00%s%x00%b%x00%ci%x00%an",
+                git_ref,
+            ])
             .output()?;
-        
+
         if !output.status.success() {
             println!("  Warning: Could not resolve ref '{}', skipping", git_ref);
             continue;
         }
-        
+
         let stdout = String::from_utf8_lossy(&output.stdout);
         let line = stdout.trim();
-        
+
         if let Some(commit) = parse_commit_line(line) {
             commits.push(commit);
         }
     }
-    
+
     Ok(commits)
 }
 
@@ -294,7 +296,7 @@ fn parse_commit_line(line: &str) -> Option<CommitInfo> {
             author: parts[5].to_string(),
         });
     }
-    
+
     // Fall back to old pipe-separated format (5 parts, no body)
     let parts: Vec<&str> = line.splitn(5, '|').collect();
     if parts.len() == 5 {
@@ -331,34 +333,38 @@ fn find_pending_commits(commits: &[CommitInfo], regression_dir: &Path) -> Vec<Co
 }
 
 /// Collect all processed commits from the regression directory
-fn collect_processed_commits(regression_dir: &Path, azul_root: &Path) -> anyhow::Result<Vec<(CommitInfo, CommitStatus)>> {
+fn collect_processed_commits(
+    regression_dir: &Path,
+    azul_root: &Path,
+) -> anyhow::Result<Vec<(CommitInfo, CommitStatus)>> {
     let mut results = Vec::new();
-    
+
     for entry in fs::read_dir(regression_dir)? {
         let entry = entry?;
         let path = entry.path();
-        
+
         if !path.is_dir() {
             continue;
         }
-        
+
         let dir_name = path.file_name().unwrap().to_string_lossy().to_string();
-        
+
         // Skip chrome directory
         if dir_name == "chrome" {
             continue;
         }
-        
+
         // Fetch commit info directly from git using the short hash
-        let commit = fetch_commit_info_from_git(&dir_name, azul_root).unwrap_or_else(|| CommitInfo {
-            hash: dir_name.clone(),
-            short_hash: dir_name.clone(),
-            message: "Unknown".to_string(),
-            body: String::new(),
-            date: "Unknown".to_string(),
-            author: "Unknown".to_string(),
-        });
-        
+        let commit =
+            fetch_commit_info_from_git(&dir_name, azul_root).unwrap_or_else(|| CommitInfo {
+                hash: dir_name.clone(),
+                short_hash: dir_name.clone(),
+                message: "Unknown".to_string(),
+                body: String::new(),
+                date: "Unknown".to_string(),
+                author: "Unknown".to_string(),
+            });
+
         let status = if path.join("BUILD_ERROR.txt").exists() {
             let err = fs::read_to_string(path.join("BUILD_ERROR.txt"))
                 .unwrap_or_else(|_| "Unknown error".to_string());
@@ -381,13 +387,13 @@ fn collect_processed_commits(regression_dir: &Path, azul_root: &Path) -> anyhow:
         } else {
             CommitStatus::Pending
         };
-        
+
         results.push((commit, status));
     }
-    
+
     // Sort by date (newest first for visual report)
     results.sort_by(|a, b| b.0.date.cmp(&a.0.date));
-    
+
     Ok(results)
 }
 
@@ -395,14 +401,19 @@ fn collect_processed_commits(regression_dir: &Path, azul_root: &Path) -> anyhow:
 fn fetch_commit_info_from_git(commit_ref: &str, azul_root: &Path) -> Option<CommitInfo> {
     let output = Command::new("git")
         .current_dir(azul_root)
-        .args(["log", "-1", "--format=%H%x00%h%x00%s%x00%b%x00%ci%x00%an", commit_ref])
+        .args([
+            "log",
+            "-1",
+            "--format=%H%x00%h%x00%s%x00%b%x00%ci%x00%an",
+            commit_ref,
+        ])
         .output()
         .ok()?;
-    
+
     if !output.status.success() {
         return None;
     }
-    
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     let line = stdout.trim();
     parse_commit_line(line)
@@ -418,41 +429,54 @@ fn process_commit(
 ) -> anyhow::Result<()> {
     let commit_dir = regression_dir.join(&commit.short_hash);
     fs::create_dir_all(&commit_dir)?;
-    
+
     // Save commit info for later (use null separator to handle multi-line body)
     fs::write(
         commit_dir.join("commit_info.txt"),
-        format!("{}\0{}\0{}\0{}\0{}\0{}", commit.hash, commit.short_hash, commit.message, commit.body, commit.date, commit.author)
+        format!(
+            "{}\0{}\0{}\0{}\0{}\0{}",
+            commit.hash, commit.short_hash, commit.message, commit.body, commit.date, commit.author
+        ),
     )?;
-    
-    println!("┌─ [{}/{}] {} ─────────────────────────────────────", current, total, commit.short_hash);
+
+    println!(
+        "┌─ [{}/{}] {} ─────────────────────────────────────",
+        current, total, commit.short_hash
+    );
     println!("│  {}", commit.message.chars().take(60).collect::<String>());
-    println!("│  by {} on {}", commit.author, commit.date.split_whitespace().next().unwrap_or(""));
-    
+    println!(
+        "│  by {} on {}",
+        commit.author,
+        commit.date.split_whitespace().next().unwrap_or("")
+    );
+
     // Checkout this commit in the temp directory
     print!("│  [CHECKOUT] ");
     std::io::stdout().flush()?;
-    
+
     let output = Command::new("git")
         .current_dir(temp_dir)
         .args(["checkout", "--force", &commit.hash])
         .output()?;
-    
+
     if !output.status.success() {
-        let err = format!("Checkout failed: {}", String::from_utf8_lossy(&output.stderr));
+        let err = format!(
+            "Checkout failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         println!("FAILED");
         fs::write(commit_dir.join("BUILD_ERROR.txt"), &err)?;
         println!("└─ Skipped (checkout error)\n");
         return Ok(());
     }
     println!("OK");
-    
+
     // Run reftest (this will build azul-doc and run all tests in /doc/working)
     print!("│  [REFTEST] cargo run --release -p azul-doc -- reftest ");
     std::io::stdout().flush()?;
-    
+
     let reftest_output_dir = temp_dir.join("doc").join("target").join("reftest");
-    
+
     // Run: cargo run --release -p azul-doc -- reftest
     // This builds azul-doc and runs all reftests in /doc/working
     let output = Command::new("cargo")
@@ -460,7 +484,7 @@ fn process_commit(
         .args(["run", "--release", "-p", "azul-doc", "--", "reftest"])
         .env("CARGO_TERM_COLOR", "never")
         .output()?;
-    
+
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -472,33 +496,41 @@ fn process_commit(
             .take(15)
             .collect::<Vec<_>>()
             .join("\n");
-        
+
         let err = if error_summary.is_empty() {
-            combined.lines().rev().take(30).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
+            combined
+                .lines()
+                .rev()
+                .take(30)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+                .join("\n")
         } else {
             error_summary
         };
-        
+
         println!("FAILED");
         fs::write(commit_dir.join("BUILD_ERROR.txt"), &err)?;
         println!("└─ Skipped (build/reftest error)\n");
         return Ok(());
     }
     println!("OK");
-    
+
     // Copy screenshots to regression folder
     print!("│  [COPY] ");
     std::io::stdout().flush()?;
-    
+
     let mut count = 0;
     let reftest_img_dir = reftest_output_dir.join("reftest_img");
-    
+
     if reftest_img_dir.exists() {
         for entry in fs::read_dir(&reftest_img_dir)? {
             let entry = entry?;
             let path = entry.path();
             let filename = path.file_name().unwrap().to_string_lossy();
-            
+
             // Copy only azul screenshots
             if filename.ends_with("_azul.webp") || filename.ends_with("_azul.png") {
                 let dest = commit_dir.join(&*filename);
@@ -507,18 +539,18 @@ fn process_commit(
             }
         }
     }
-    
+
     // Also copy results.json if it exists
     let results_json = reftest_output_dir.join("results.json");
     if results_json.exists() {
         fs::copy(&results_json, commit_dir.join("results.json"))?;
     }
-    
+
     println!("{} files", count);
-    
+
     // Mark as complete
     fs::write(commit_dir.join("COMPLETE"), "")?;
-    
+
     println!("└─ Done\n");
     Ok(())
 }
@@ -526,15 +558,15 @@ fn process_commit(
 /// Find test files in directory
 fn find_test_files(test_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
-    
+
     if !test_dir.exists() {
         return Ok(files);
     }
-    
+
     for entry in fs::read_dir(test_dir)? {
         let entry = entry?;
         let path = entry.path();
-        
+
         if path.is_file() {
             if let Some(ext) = path.extension() {
                 let ext = ext.to_string_lossy().to_lowercase();
@@ -544,33 +576,30 @@ fn find_test_files(test_dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
             }
         }
     }
-    
+
     files.sort();
     Ok(files)
 }
 
 /// Ensure Chrome reference screenshots exist
-fn ensure_chrome_references(
-    test_files: &[PathBuf],
-    chrome_dir: &Path,
-) -> anyhow::Result<()> {
+fn ensure_chrome_references(test_files: &[PathBuf], chrome_dir: &Path) -> anyhow::Result<()> {
     fs::create_dir_all(chrome_dir)?;
     let chrome_path = super::get_chrome_path();
-    
+
     let mut generated = 0;
     for test_file in test_files {
         let test_name = test_file.file_stem().unwrap().to_string_lossy().to_string();
         let chrome_img = chrome_dir.join(format!("{}.png", test_name));
-        
+
         if chrome_img.exists() {
             continue;
         }
-        
+
         print!("  Generating Chrome reference for {}... ", test_name);
         std::io::stdout().flush()?;
-        
+
         let layout_json = chrome_dir.join(format!("{}_layout.json", test_name));
-        
+
         match super::generate_chrome_screenshot_with_debug(
             &chrome_path,
             test_file,
@@ -588,13 +617,13 @@ fn ensure_chrome_references(
             }
         }
     }
-    
+
     if generated == 0 {
         println!("  All Chrome references already exist.");
     } else {
         println!("  Generated {} new Chrome references.", generated);
     }
-    
+
     Ok(())
 }
 
@@ -617,21 +646,21 @@ fn generate_html_report(
         }
     }
     test_names.sort();
-    
+
     // Calculate diffs between commits and Chrome reference
     let mut test_diffs: BTreeMap<String, Vec<(String, String, i64, i64)>> = BTreeMap::new();
     for test in &test_names {
         test_diffs.insert(test.clone(), Vec::new());
     }
-    
+
     let chrome_ref_diffs: HashMap<String, i64> = HashMap::new();
-    
+
     for (commit, status) in commit_data {
         if let CommitStatus::Success { screenshots } = status {
             for test in &test_names {
                 if let Some(azul_path) = screenshots.get(test) {
                     let chrome_path = chrome_dir.join(format!("{}.png", test));
-                    
+
                     if chrome_path.exists() {
                         if let Ok(diff_to_chrome) = compare_images(&chrome_path, azul_path) {
                             if let Some(diffs) = test_diffs.get_mut(test) {
@@ -648,7 +677,7 @@ fn generate_html_report(
             }
         }
     }
-    
+
     // Generate HTML
     let mut html = String::new();
     html.push_str(r#"<!DOCTYPE html>
@@ -688,17 +717,33 @@ fn generate_html_report(
 
     // Summary section
     let total = commit_data.len();
-    let success = commit_data.iter().filter(|(_, s)| matches!(s, CommitStatus::Success { .. })).count();
-    let failed = commit_data.iter().filter(|(_, s)| matches!(s, CommitStatus::BuildFailed(_))).count();
-    let pending = commit_data.iter().filter(|(_, s)| matches!(s, CommitStatus::Pending)).count();
-    
-    html.push_str(&format!(r#"
+    let success = commit_data
+        .iter()
+        .filter(|(_, s)| matches!(s, CommitStatus::Success { .. }))
+        .count();
+    let failed = commit_data
+        .iter()
+        .filter(|(_, s)| matches!(s, CommitStatus::BuildFailed(_)))
+        .count();
+    let pending = commit_data
+        .iter()
+        .filter(|(_, s)| matches!(s, CommitStatus::Pending))
+        .count();
+
+    html.push_str(&format!(
+        r#"
     <div class="summary">
         <h2>Summary</h2>
         <p><strong>Commits processed:</strong> {} total, {} successful, {} failed, {} pending</p>
         <p><strong>Tests tracked:</strong> {}</p>
     </div>
-"#, total, success, failed, pending, test_names.len()));
+"#,
+        total,
+        success,
+        failed,
+        pending,
+        test_names.len()
+    ));
 
     // Test results by test
     html.push_str("<h2>📊 Results by Test</h2>\n");
@@ -706,18 +751,23 @@ fn generate_html_report(
     for test in &test_names {
         let diffs = test_diffs.get(test).unwrap();
         let chrome_img = format!("chrome/{}.png", test);
-        
-        html.push_str(&format!(r#"
+
+        html.push_str(&format!(
+            r#"
     <div class="test-section">
         <div class="test-name">{}</div>
-"#, test));
+"#,
+            test
+        ));
 
         if diffs.is_empty() {
             html.push_str("        <p>No data available for this test.</p>\n");
         } else {
             html.push_str("        <table>\n");
-            html.push_str("            <tr><th>Commit</th><th>Message</th><th>Diff from Chrome</th></tr>\n");
-            
+            html.push_str(
+                "            <tr><th>Commit</th><th>Message</th><th>Diff from Chrome</th></tr>\n",
+            );
+
             for (hash, msg, diff_chrome, _) in diffs {
                 let diff_class = if *diff_chrome == 0 {
                     "diff-good"
@@ -726,9 +776,9 @@ fn generate_html_report(
                 } else {
                     "diff-bad"
                 };
-                
+
                 let percentage = (*diff_chrome as f64 / (1920.0 * 1080.0)) * 100.0;
-                
+
                 html.push_str(&format!(
                     "            <tr><td><span class=\"commit-hash\">{}</span></td><td>{}</td><td class=\"{}\">{}px ({:.2}%)</td></tr>\n",
                     hash,
@@ -740,9 +790,10 @@ fn generate_html_report(
             }
             html.push_str("        </table>\n");
         }
-        
+
         // Comparison images
-        html.push_str(&format!(r#"
+        html.push_str(&format!(
+            r#"
         <details>
             <summary>View Screenshots</summary>
             <div class="comparison">
@@ -750,28 +801,36 @@ fn generate_html_report(
                     <div class="comparison-label">Chrome Reference</div>
                     <img src="{}" alt="Chrome">
                 </div>
-"#, chrome_img));
+"#,
+            chrome_img
+        ));
 
         // Show first and last Azul screenshots
         if let Some((first_hash, _, _, _)) = diffs.first() {
             let first_img = format!("{}/{}_azul.webp", first_hash, test);
-            html.push_str(&format!(r#"
+            html.push_str(&format!(
+                r#"
                 <div class="comparison-item">
                     <div class="comparison-label">Azul @ {}</div>
                     <img src="{}" alt="Azul">
                 </div>
-"#, first_hash, first_img));
+"#,
+                first_hash, first_img
+            ));
         }
 
         if diffs.len() > 1 {
             if let Some((last_hash, _, _, _)) = diffs.last() {
                 let last_img = format!("{}/{}_azul.webp", last_hash, test);
-                html.push_str(&format!(r#"
+                html.push_str(&format!(
+                    r#"
                 <div class="comparison-item">
                     <div class="comparison-label">Azul @ {}</div>
                     <img src="{}" alt="Azul">
                 </div>
-"#, last_hash, last_img));
+"#,
+                    last_hash, last_img
+                ));
             }
         }
 
@@ -780,14 +839,16 @@ fn generate_html_report(
 
     // Commit details
     html.push_str("<h2>📋 Commit Details</h2>\n");
-    
+
     for (commit, status) in commit_data {
         let (status_class, status_text) = match status {
-            CommitStatus::Success { screenshots } => ("status-ok", format!("✓ {} screenshots", screenshots.len())),
+            CommitStatus::Success { screenshots } => {
+                ("status-ok", format!("✓ {} screenshots", screenshots.len()))
+            }
             CommitStatus::BuildFailed(_) => ("status-failed", "✗ Build failed".to_string()),
             CommitStatus::Pending => ("status-pending", "⏳ Pending".to_string()),
         };
-        
+
         html.push_str(&format!(r#"
     <div class="test-section">
         <div class="test-name"><span class="commit-hash">{}</span> - {}</div>
@@ -800,14 +861,14 @@ fn generate_html_report(
             status_class,
             status_text
         ));
-        
+
         if let CommitStatus::BuildFailed(err) = status {
             html.push_str(&format!(
                 "        <details><summary>View Error</summary><div class=\"build-error\">{}</div></details>\n",
                 err.replace('<', "&lt;").replace('>', "&gt;")
             ));
         }
-        
+
         html.push_str("    </div>\n");
     }
 
@@ -815,9 +876,9 @@ fn generate_html_report(
 
     let report_path = regression_dir.join("index.html");
     fs::write(&report_path, html)?;
-    
+
     println!("  Report generated: {}", report_path.display());
-    
+
     Ok(())
 }
 
@@ -829,46 +890,47 @@ fn calculate_worst_regressions(
 ) -> Vec<(String, String, i64, String)> {
     // (prev_hash, curr_hash, total_delta, message)
     let mut regressions: Vec<(String, String, i64, String)> = Vec::new();
-    
+
     let mut sorted_commits: Vec<_> = commit_data.iter().collect();
     sorted_commits.sort_by(|a, b| b.0.date.cmp(&a.0.date));
-    
+
     let mut prev_results: Option<serde_json::Value> = None;
     let mut prev_commit: Option<&CommitInfo> = None;
-    
+
     for (commit, status) in sorted_commits.iter().rev() {
         if !matches!(status, CommitStatus::Success { .. }) {
             continue;
         }
-        
+
         let results_path = azul_root
             .join("doc/target/reftest/regression")
             .join(&commit.short_hash)
             .join("results.json");
-        
+
         if !results_path.exists() {
             continue;
         }
-        
+
         let content = match fs::read_to_string(&results_path) {
             Ok(c) => c,
             Err(_) => continue,
         };
-        
+
         let current: serde_json::Value = match serde_json::from_str(&content) {
             Ok(v) => v,
             Err(_) => continue,
         };
-        
+
         if let (Some(prev), Some(prev_c)) = (&prev_results, prev_commit) {
             let detailed = diff_results_detailed(prev, &current);
-            
+
             // Sum up all positive deltas (regressions)
-            let total_delta: i64 = detailed.iter()
+            let total_delta: i64 = detailed
+                .iter()
                 .filter(|c| c.status == "REGRESSED" || c.status == "BROKE")
                 .map(|c| (c.curr_diff - c.prev_diff) as i64)
                 .sum();
-            
+
             if total_delta > 0 {
                 regressions.push((
                     prev_c.short_hash.clone(),
@@ -878,11 +940,11 @@ fn calculate_worst_regressions(
                 ));
             }
         }
-        
+
         prev_results = Some(current);
         prev_commit = Some(commit);
     }
-    
+
     // Sort by total delta descending
     regressions.sort_by(|a, b| b.2.cmp(&a.2));
     regressions.truncate(top_n);
@@ -890,72 +952,86 @@ fn calculate_worst_regressions(
 }
 
 /// Generate a diff report comparing render_warnings between commits
-fn generate_diff_report(commit_data: &[(CommitInfo, CommitStatus)], azul_root: &Path) -> anyhow::Result<()> {
+fn generate_diff_report(
+    commit_data: &[(CommitInfo, CommitStatus)],
+    azul_root: &Path,
+) -> anyhow::Result<()> {
     // Sort commits by date (newest first)
     let mut sorted_commits: Vec<_> = commit_data.iter().collect();
     sorted_commits.sort_by(|a, b| b.0.date.cmp(&a.0.date));
-    
+
     println!("# Azul Layout Regression Analysis");
-    println!("# Generated: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    println!(
+        "# Generated: {}",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    );
     println!("# Commits analyzed: {}", sorted_commits.len());
     println!();
-    
+
     // First pass: calculate worst regressions
     let worst_regressions = calculate_worst_regressions(commit_data, azul_root, 5);
-    
+
     if !worst_regressions.is_empty() {
         println!("## WORST REGRESSIONS (Top {})", worst_regressions.len());
         println!();
         println!("These commits caused the largest total regression (sum of all diff deltas):");
         println!();
-        for (i, (prev_hash, curr_hash, total_delta, message)) in worst_regressions.iter().enumerate() {
-            println!("{}. {} -> {} (total delta: +{})", i + 1, prev_hash, curr_hash, total_delta);
+        for (i, (prev_hash, curr_hash, total_delta, message)) in
+            worst_regressions.iter().enumerate()
+        {
+            println!(
+                "{}. {} -> {} (total delta: +{})",
+                i + 1,
+                prev_hash,
+                curr_hash,
+                total_delta
+            );
             println!("   Message: {}", message);
         }
         println!();
     }
-    
+
     println!("## PART 1: Summary of Changes (sorted by date, oldest first)");
     println!();
-    
+
     // Collect all detailed comparisons for Part 2
     let mut all_detailed: Vec<(CommitInfo, CommitInfo, Vec<TestComparison>)> = Vec::new();
-    
+
     // Load results.json for each commit and compare
     let mut prev_results: Option<serde_json::Value> = None;
     let mut prev_commit: Option<&CommitInfo> = None;
-    
+
     // Process from oldest to newest for proper diffing
     for (commit, status) in sorted_commits.iter().rev() {
         if !matches!(status, CommitStatus::Success { .. }) {
             continue;
         }
-        
+
         // Try to load results.json
         let results_path = azul_root
             .join("doc/target/reftest/regression")
             .join(&commit.short_hash)
             .join("results.json");
-        
+
         if !results_path.exists() {
             continue;
         }
-        
+
         let content = match fs::read_to_string(&results_path) {
             Ok(c) => c,
             Err(_) => continue,
         };
-        
+
         let current: serde_json::Value = match serde_json::from_str(&content) {
             Ok(v) => v,
             Err(_) => continue,
         };
-        
+
         if let (Some(prev), Some(prev_c)) = (&prev_results, prev_commit) {
             // Compare with previous commit
             let diffs = diff_results(prev, &current);
             let detailed = diff_results_detailed(prev, &current);
-            
+
             if !diffs.is_empty() {
                 println!("═══════════════════════════════════════════════════════════════");
                 println!("COMMIT: {} -> {}", prev_c.short_hash, commit.short_hash);
@@ -963,22 +1039,22 @@ fn generate_diff_report(commit_data: &[(CommitInfo, CommitStatus)], azul_root: &
                 println!("DATE: {}", commit.date);
                 println!("AUTHOR: {}", commit.author);
                 println!("───────────────────────────────────────────────────────────────");
-                
+
                 for diff in &diffs {
                     println!("{}", diff);
                 }
                 println!();
-                
+
                 if !detailed.is_empty() {
                     all_detailed.push((prev_c.clone(), (*commit).clone(), detailed));
                 }
             }
         }
-        
+
         prev_results = Some(current);
         prev_commit = Some(commit);
     }
-    
+
     // Part 2: Detailed analysis with log diffs
     if !all_detailed.is_empty() {
         println!();
@@ -986,47 +1062,88 @@ fn generate_diff_report(commit_data: &[(CommitInfo, CommitStatus)], azul_root: &
         println!();
         println!("This section shows what changed in the layout engine output between commits.");
         println!();
-        
+
         for (prev_c, curr_c, comparisons) in &all_detailed {
             // Only show regressions in detail
-            let regressions: Vec<_> = comparisons.iter()
+            let regressions: Vec<_> = comparisons
+                .iter()
                 .filter(|c| c.status == "REGRESSED" || c.status == "BROKE")
                 .collect();
-            
+
             if regressions.is_empty() {
                 continue;
             }
-            
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            println!(
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            );
             println!("REGRESSION: {} -> {}", prev_c.short_hash, curr_c.short_hash);
-            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!(
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            );
             println!();
-            println!("BEFORE ({}, {}):", prev_c.short_hash, prev_c.date.split_whitespace().take(2).collect::<Vec<_>>().join(" "));
+            println!(
+                "BEFORE ({}, {}):",
+                prev_c.short_hash,
+                prev_c
+                    .date
+                    .split_whitespace()
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
             println!("  Message: {}", prev_c.message);
             println!();
-            println!("AFTER ({}, {}):", curr_c.short_hash, curr_c.date.split_whitespace().take(2).collect::<Vec<_>>().join(" "));
+            println!(
+                "AFTER ({}, {}):",
+                curr_c.short_hash,
+                curr_c
+                    .date
+                    .split_whitespace()
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
             println!("  Message: {}", curr_c.message);
             println!();
-            
+
             for comp in regressions {
-                println!("┌─── TEST: {} [{}] ───────────────────────────────", comp.test_name, comp.status);
+                println!(
+                    "┌─── TEST: {} [{}] ───────────────────────────────",
+                    comp.test_name, comp.status
+                );
                 println!("│");
-                println!("│ DIFF COUNT: {} -> {} (delta: {:+})", comp.prev_diff, comp.curr_diff, comp.curr_diff - comp.prev_diff);
+                println!(
+                    "│ DIFF COUNT: {} -> {} (delta: {:+})",
+                    comp.prev_diff,
+                    comp.curr_diff,
+                    comp.curr_diff - comp.prev_diff
+                );
                 println!("│");
-                
+
                 // Show solved_layout diff if different
                 if comp.prev_solved_layout != comp.curr_solved_layout {
                     println!("│ SOLVED LAYOUT:");
-                    println!("│   BEFORE: {}", comp.prev_solved_layout.lines().next().unwrap_or(""));
-                    println!("│   AFTER:  {}", comp.curr_solved_layout.lines().next().unwrap_or(""));
+                    println!(
+                        "│   BEFORE: {}",
+                        comp.prev_solved_layout.lines().next().unwrap_or("")
+                    );
+                    println!(
+                        "│   AFTER:  {}",
+                        comp.curr_solved_layout.lines().next().unwrap_or("")
+                    );
                     println!("│");
                 }
-                
+
                 // Show display list item count diff
-                let prev_items = comp.prev_display_list.lines()
+                let prev_items = comp
+                    .prev_display_list
+                    .lines()
                     .find(|l| l.contains("Items:"))
                     .unwrap_or("");
-                let curr_items = comp.curr_display_list.lines()
+                let curr_items = comp
+                    .curr_display_list
+                    .lines()
                     .find(|l| l.contains("Items:"))
                     .unwrap_or("");
                 if prev_items != curr_items {
@@ -1035,7 +1152,7 @@ fn generate_diff_report(commit_data: &[(CommitInfo, CommitStatus)], azul_root: &
                     println!("│   AFTER:  {}", curr_items.trim());
                     println!("│");
                 }
-                
+
                 // Show log changes
                 if !comp.log_changes.is_empty() {
                     println!("│ LOG CHANGES (by source location):");
@@ -1044,32 +1161,43 @@ fn generate_diff_report(commit_data: &[(CommitInfo, CommitStatus)], azul_root: &
                     }
                     println!("│");
                 }
-                
+
                 println!("└────────────────────────────────────────────────────────────────");
                 println!();
             }
-            
+
             // Show git diff for layout directory
             println!("GIT DIFF (layout/):");
             println!("```diff");
             let git_diff = std::process::Command::new("git")
-                .args(["diff", "--stat", &format!("{}..{}", prev_c.short_hash, curr_c.short_hash), "--", "layout/"])
+                .args([
+                    "diff",
+                    "--stat",
+                    &format!("{}..{}", prev_c.short_hash, curr_c.short_hash),
+                    "--",
+                    "layout/",
+                ])
                 .current_dir(azul_root)
                 .output();
-            
+
             if let Ok(output) = git_diff {
                 let diff_stat = String::from_utf8_lossy(&output.stdout);
                 if !diff_stat.trim().is_empty() {
                     println!("{}", diff_stat.trim());
                 }
             }
-            
+
             // Get full git diff
             let git_diff_full = std::process::Command::new("git")
-                .args(["diff", &format!("{}..{}", prev_c.short_hash, curr_c.short_hash), "--", "layout/"])
+                .args([
+                    "diff",
+                    &format!("{}..{}", prev_c.short_hash, curr_c.short_hash),
+                    "--",
+                    "layout/",
+                ])
                 .current_dir(azul_root)
                 .output();
-            
+
             if let Ok(output) = git_diff_full {
                 let diff_content = String::from_utf8_lossy(&output.stdout);
                 print!("{}", diff_content);
@@ -1078,60 +1206,85 @@ fn generate_diff_report(commit_data: &[(CommitInfo, CommitStatus)], azul_root: &
             println!();
         }
     }
-    
+
     Ok(())
 }
 
 /// Diff two results.json files and return a list of changes
 fn diff_results(prev: &serde_json::Value, curr: &serde_json::Value) -> Vec<String> {
     let mut diffs = Vec::new();
-    
+
     let prev_tests = prev.get("tests").and_then(|t| t.as_array());
     let curr_tests = curr.get("tests").and_then(|t| t.as_array());
-    
+
     let (Some(prev_tests), Some(curr_tests)) = (prev_tests, curr_tests) else {
         return diffs;
     };
-    
+
     // Build maps by test_name
     let prev_map: std::collections::HashMap<&str, &serde_json::Value> = prev_tests
         .iter()
         .filter_map(|t| t.get("test_name").and_then(|n| n.as_str()).map(|n| (n, t)))
         .collect();
-    
+
     for curr_test in curr_tests {
         let Some(test_name) = curr_test.get("test_name").and_then(|n| n.as_str()) else {
             continue;
         };
-        
-        let curr_diff = curr_test.get("diff_count").and_then(|d| d.as_i64()).unwrap_or(0);
-        let curr_passed = curr_test.get("passed").and_then(|p| p.as_bool()).unwrap_or(false);
-        
+
+        let curr_diff = curr_test
+            .get("diff_count")
+            .and_then(|d| d.as_i64())
+            .unwrap_or(0);
+        let curr_passed = curr_test
+            .get("passed")
+            .and_then(|p| p.as_bool())
+            .unwrap_or(false);
+
         if let Some(prev_test) = prev_map.get(test_name) {
-            let prev_diff = prev_test.get("diff_count").and_then(|d| d.as_i64()).unwrap_or(0);
-            let prev_passed = prev_test.get("passed").and_then(|p| p.as_bool()).unwrap_or(false);
-            
+            let prev_diff = prev_test
+                .get("diff_count")
+                .and_then(|d| d.as_i64())
+                .unwrap_or(0);
+            let prev_passed = prev_test
+                .get("passed")
+                .and_then(|p| p.as_bool())
+                .unwrap_or(false);
+
             // Check for pass/fail change or significant diff
             let has_change = prev_passed != curr_passed || (curr_diff - prev_diff).abs() > 1000;
-            
+
             if has_change {
                 let status = if prev_passed != curr_passed {
-                    if curr_passed { "[FIXED]" } else { "[BROKE]" }
+                    if curr_passed {
+                        "[FIXED]"
+                    } else {
+                        "[BROKE]"
+                    }
                 } else if curr_diff < prev_diff {
                     "[IMPROVED]"
                 } else {
                     "[REGRESSED]"
                 };
-                
-                diffs.push(format!("  {} {} (diff: {} -> {}, delta: {:+})", 
-                    status, test_name, prev_diff, curr_diff, curr_diff - prev_diff));
+
+                diffs.push(format!(
+                    "  {} {} (diff: {} -> {}, delta: {:+})",
+                    status,
+                    test_name,
+                    prev_diff,
+                    curr_diff,
+                    curr_diff - prev_diff
+                ));
             }
         } else {
             // New test
-            diffs.push(format!("  [NEW] {} (diff: {}, passed: {})", test_name, curr_diff, curr_passed));
+            diffs.push(format!(
+                "  [NEW] {} (diff: {}, passed: {})",
+                test_name, curr_diff, curr_passed
+            ));
         }
     }
-    
+
     diffs
 }
 
@@ -1155,68 +1308,88 @@ fn diff_results_detailed(
     curr: &serde_json::Value,
 ) -> Vec<TestComparison> {
     let mut comparisons = Vec::new();
-    
+
     let prev_tests = prev.get("tests").and_then(|t| t.as_array());
     let curr_tests = curr.get("tests").and_then(|t| t.as_array());
-    
+
     let (Some(prev_tests), Some(curr_tests)) = (prev_tests, curr_tests) else {
         return comparisons;
     };
-    
+
     // Build maps by test_name
     let prev_map: std::collections::HashMap<&str, &serde_json::Value> = prev_tests
         .iter()
         .filter_map(|t| t.get("test_name").and_then(|n| n.as_str()).map(|n| (n, t)))
         .collect();
-    
+
     for curr_test in curr_tests {
         let Some(test_name) = curr_test.get("test_name").and_then(|n| n.as_str()) else {
             continue;
         };
-        
-        let curr_diff = curr_test.get("diff_count").and_then(|d| d.as_i64()).unwrap_or(0);
-        let curr_passed = curr_test.get("passed").and_then(|p| p.as_bool()).unwrap_or(false);
-        
+
+        let curr_diff = curr_test
+            .get("diff_count")
+            .and_then(|d| d.as_i64())
+            .unwrap_or(0);
+        let curr_passed = curr_test
+            .get("passed")
+            .and_then(|p| p.as_bool())
+            .unwrap_or(false);
+
         if let Some(prev_test) = prev_map.get(test_name) {
-            let prev_diff = prev_test.get("diff_count").and_then(|d| d.as_i64()).unwrap_or(0);
-            let prev_passed = prev_test.get("passed").and_then(|p| p.as_bool()).unwrap_or(false);
-            
+            let prev_diff = prev_test
+                .get("diff_count")
+                .and_then(|d| d.as_i64())
+                .unwrap_or(0);
+            let prev_passed = prev_test
+                .get("passed")
+                .and_then(|p| p.as_bool())
+                .unwrap_or(false);
+
             // Only include significant changes
             let has_change = prev_passed != curr_passed || (curr_diff - prev_diff).abs() > 1000;
             if !has_change {
                 continue;
             }
-            
+
             let status = if prev_passed != curr_passed {
-                if curr_passed { "FIXED".to_string() } else { "BROKE".to_string() }
+                if curr_passed {
+                    "FIXED".to_string()
+                } else {
+                    "BROKE".to_string()
+                }
             } else if curr_diff < prev_diff {
                 "IMPROVED".to_string()
             } else {
                 "REGRESSED".to_string()
             };
-            
+
             // Extract fields
-            let prev_solved = prev_test.get("solved_layout")
+            let prev_solved = prev_test
+                .get("solved_layout")
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
                 .to_string();
-            let curr_solved = curr_test.get("solved_layout")
+            let curr_solved = curr_test
+                .get("solved_layout")
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
                 .to_string();
-            
-            let prev_display = prev_test.get("display_list")
+
+            let prev_display = prev_test
+                .get("display_list")
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
                 .to_string();
-            let curr_display = curr_test.get("display_list")
+            let curr_display = curr_test
+                .get("display_list")
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
                 .to_string();
-            
+
             // Compare render_warnings by source location
             let log_changes = diff_render_warnings(prev_test, curr_test);
-            
+
             comparisons.push(TestComparison {
                 test_name: test_name.to_string(),
                 status,
@@ -1230,90 +1403,110 @@ fn diff_results_detailed(
             });
         }
     }
-    
+
     comparisons
 }
 
 /// Diff render_warnings by grouping them by source location
-fn diff_render_warnings(prev_test: &serde_json::Value, curr_test: &serde_json::Value) -> Vec<String> {
+fn diff_render_warnings(
+    prev_test: &serde_json::Value,
+    curr_test: &serde_json::Value,
+) -> Vec<String> {
     let mut changes = Vec::new();
-    
-    let prev_warnings = prev_test.get("render_warnings")
+
+    let prev_warnings = prev_test
+        .get("render_warnings")
         .and_then(|w| w.as_array())
         .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
         .unwrap_or_default();
-    
-    let curr_warnings = curr_test.get("render_warnings")
+
+    let curr_warnings = curr_test
+        .get("render_warnings")
         .and_then(|w| w.as_array())
         .map(|a| a.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
         .unwrap_or_default();
-    
+
     // Extract source locations and group messages
     fn extract_location(msg: &str) -> Option<&str> {
         // Pattern: (layout/src/solver3/mod.rs:123:45)
         if let Some(start) = msg.rfind('(') {
             if let Some(end) = msg.rfind(')') {
                 if start < end {
-                    return Some(&msg[start+1..end]);
+                    return Some(&msg[start + 1..end]);
                 }
             }
         }
         None
     }
-    
+
     // Group by location
-    let mut prev_by_loc: std::collections::HashMap<String, Vec<&str>> = std::collections::HashMap::new();
-    let mut curr_by_loc: std::collections::HashMap<String, Vec<&str>> = std::collections::HashMap::new();
-    
+    let mut prev_by_loc: std::collections::HashMap<String, Vec<&str>> =
+        std::collections::HashMap::new();
+    let mut curr_by_loc: std::collections::HashMap<String, Vec<&str>> =
+        std::collections::HashMap::new();
+
     for msg in &prev_warnings {
         let loc = extract_location(msg).unwrap_or("unknown").to_string();
         prev_by_loc.entry(loc).or_default().push(msg);
     }
-    
+
     for msg in &curr_warnings {
         let loc = extract_location(msg).unwrap_or("unknown").to_string();
         curr_by_loc.entry(loc).or_default().push(msg);
     }
-    
+
     // Find differences
-    let all_locs: std::collections::HashSet<&String> = prev_by_loc.keys().chain(curr_by_loc.keys()).collect();
-    
+    let all_locs: std::collections::HashSet<&String> =
+        prev_by_loc.keys().chain(curr_by_loc.keys()).collect();
+
     for loc in all_locs {
         let prev_count = prev_by_loc.get(loc).map(|v| v.len()).unwrap_or(0);
         let curr_count = curr_by_loc.get(loc).map(|v| v.len()).unwrap_or(0);
-        
+
         if prev_count != curr_count {
             if prev_count == 0 {
                 changes.push(format!("  + [NEW] {} ({}x)", loc, curr_count));
             } else if curr_count == 0 {
                 changes.push(format!("  - [REMOVED] {} (was {}x)", loc, prev_count));
             } else {
-                changes.push(format!("  ~ [CHANGED] {} ({}x -> {}x)", loc, prev_count, curr_count));
+                changes.push(format!(
+                    "  ~ [CHANGED] {} ({}x -> {}x)",
+                    loc, prev_count, curr_count
+                ));
             }
         }
     }
-    
+
     // Also check for specific value changes in key messages
-    let key_patterns = ["font chains", "DOM has", "Display list with", "main_pen=", "content_box_height="];
-    
+    let key_patterns = [
+        "font chains",
+        "DOM has",
+        "Display list with",
+        "main_pen=",
+        "content_box_height=",
+    ];
+
     for pattern in key_patterns {
         let prev_match: Option<&str> = prev_warnings.iter().find(|m| m.contains(pattern)).copied();
         let curr_match: Option<&str> = curr_warnings.iter().find(|m| m.contains(pattern)).copied();
-        
+
         if prev_match != curr_match {
             if let (Some(p), Some(c)) = (prev_match, curr_match) {
                 // Extract the numeric value if possible
                 let extract_num = |s: &str, pat: &str| -> Option<String> {
                     if let Some(idx) = s.find(pat) {
                         let rest = &s[idx + pat.len()..];
-                        let num: String = rest.chars().take_while(|c| c.is_numeric() || *c == '.').collect();
+                        let num: String = rest
+                            .chars()
+                            .take_while(|c| c.is_numeric() || *c == '.')
+                            .collect();
                         if !num.is_empty() {
                             return Some(num);
                         }
                     }
                     None
                 };
-                
+
                 if let (Some(pv), Some(cv)) = (extract_num(p, pattern), extract_num(c, pattern)) {
                     if pv != cv {
                         changes.push(format!("  VALUE: {} {} -> {}", pattern, pv, cv));
@@ -1322,7 +1515,7 @@ fn diff_render_warnings(prev_test: &serde_json::Value, curr_test: &serde_json::V
             }
         }
     }
-    
+
     changes
 }
 
@@ -1384,39 +1577,45 @@ struct GeminiError {
 }
 
 /// Send regression analysis to Gemini API
-pub fn run_statistics_send(config: RegressionConfig, output_path: Option<PathBuf>) -> anyhow::Result<()> {
-
+pub fn run_statistics_send(
+    config: RegressionConfig,
+    output_path: Option<PathBuf>,
+) -> anyhow::Result<()> {
     /// Gemini API URL (using gemini-3-pro-preview with thinking)
     const GEMINI_API_URL: &str =
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent";
-        
+
     let regression_dir = config.output_dir.join("regression");
-    
+
     if !regression_dir.exists() {
         eprintln!("No regression data found. Run 'debug-regression' first.");
         return Ok(());
     }
-    
+
     // Load API key
     let api_key_path = config.azul_root.join("GEMINI_API_KEY.txt");
     let api_key = fs::read_to_string(&api_key_path)
-        .map_err(|e| anyhow::anyhow!("Failed to load Gemini API key from {:?}: {}", api_key_path, e))?
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to load Gemini API key from {:?}: {}",
+                api_key_path,
+                e
+            )
+        })?
         .trim()
         .to_string();
     eprintln!("[INFO] API key loaded");
-    
+
     // Generate prompt on-the-fly
     eprintln!("[INFO] Generating prompt...");
     let prompt = generate_full_prompt(&config)?;
     eprintln!("[INFO] Prompt generated: {} chars", prompt.len());
-    
+
     // Build request
     let request = GeminiRequest {
         contents: vec![GeminiContent {
             role: "user".to_string(),
-            parts: vec![GeminiPart {
-                text: prompt,
-            }],
+            parts: vec![GeminiPart { text: prompt }],
         }],
         generation_config: GenerationConfig {
             thinking_config: ThinkingConfig {
@@ -1424,39 +1623,48 @@ pub fn run_statistics_send(config: RegressionConfig, output_path: Option<PathBuf
             },
         },
     };
-    
+
     let url = format!("{}?key={}", GEMINI_API_URL, api_key);
-    
+
     eprintln!("[INFO] Sending to Gemini API (this may take a while)...");
-    
+
     let agent = crate::reftest::make_https_agent();
-    let response: GeminiResponse = agent.post(&url)
+    let response: GeminiResponse = agent
+        .post(&url)
         .header("Content-Type", "application/json")
         .send_json(&request)
         .map_err(|e| anyhow::anyhow!("Gemini API request failed: {}", e))?
         .into_body()
         .read_json()
         .map_err(|e| anyhow::anyhow!("Failed to parse Gemini response: {}", e))?;
-    
+
     // Check for errors
     if let Some(error) = response.error {
         return Err(anyhow::anyhow!("Gemini API error: {}", error.message));
     }
-    
+
     // Extract text from response
     let text = response
         .candidates
         .and_then(|c| c.into_iter().next())
-        .and_then(|c| c.content.parts.into_iter().filter_map(|p| p.text).collect::<Vec<_>>().join("\n\n").into())
+        .and_then(|c| {
+            c.content
+                .parts
+                .into_iter()
+                .filter_map(|p| p.text)
+                .collect::<Vec<_>>()
+                .join("\n\n")
+                .into()
+        })
         .unwrap_or_default();
-    
+
     // Save response
     let response_path = output_path.unwrap_or_else(|| config.azul_root.join("gemini_response.md"));
     fs::write(&response_path, &text)?;
-    
+
     eprintln!("[INFO] Response saved to: {:?}", response_path);
     println!("{}", text);
-    
+
     Ok(())
 }
 
@@ -1464,25 +1672,25 @@ pub fn run_statistics_send(config: RegressionConfig, output_path: Option<PathBuf
 fn generate_full_prompt(config: &RegressionConfig) -> anyhow::Result<String> {
     let regression_dir = config.output_dir.join("regression");
     let commits = collect_processed_commits(&regression_dir, &config.azul_root)?;
-    
+
     let mut prompt = String::new();
-    
+
     // Header
     prompt.push_str("# Azul Layout Regression Analysis - Gemini Prompt\n\n");
     prompt.push_str("## Task\n\n");
     prompt.push_str("Analyze the following layout regression data and source code.\n");
     prompt.push_str("Identify which code changes caused regressions and suggest fixes.\n\n");
-    
+
     // Regression diffs - capture output
     prompt.push_str("## Regression History\n\n");
     prompt.push_str("The following shows which commits changed test results:\n\n");
     prompt.push_str("```\n");
     prompt.push_str(&generate_diff_report_string(&commits, &config.azul_root)?);
     prompt.push_str("```\n\n");
-    
+
     // Current source code
     prompt.push_str("## Current Source Code\n\n");
-    
+
     // solver3 files
     let solver3_dir = config.azul_root.join("layout/src/solver3");
     if solver3_dir.exists() {
@@ -1501,7 +1709,7 @@ fn generate_full_prompt(config: &RegressionConfig) -> anyhow::Result<String> {
             }
         }
     }
-    
+
     // text3 files
     let text3_dir = config.azul_root.join("layout/src/text3");
     if text3_dir.exists() {
@@ -1520,7 +1728,7 @@ fn generate_full_prompt(config: &RegressionConfig) -> anyhow::Result<String> {
             }
         }
     }
-    
+
     // Instructions
     prompt.push_str("## Instructions\n\n");
     prompt.push_str("Based on the regression history and source code above:\n");
@@ -1528,140 +1736,208 @@ fn generate_full_prompt(config: &RegressionConfig) -> anyhow::Result<String> {
     prompt.push_str("2. Analyze the code changes that likely caused these issues\n");
     prompt.push_str("3. Suggest specific code fixes to restore correct behavior\n");
     prompt.push_str("4. Focus on the most impactful regressions first\n");
-    
+
     Ok(prompt)
 }
 
 /// Generate diff report as a String (instead of printing to stdout)
-fn generate_diff_report_string(commit_data: &[(CommitInfo, CommitStatus)], azul_root: &Path) -> anyhow::Result<String> {
+fn generate_diff_report_string(
+    commit_data: &[(CommitInfo, CommitStatus)],
+    azul_root: &Path,
+) -> anyhow::Result<String> {
     let mut output = String::new();
-    
+
     // Sort commits by date (newest first)
     let mut sorted_commits: Vec<_> = commit_data.iter().collect();
     sorted_commits.sort_by(|a, b| b.0.date.cmp(&a.0.date));
-    
+
     output.push_str(&format!("# Azul Layout Regression Analysis\n"));
-    output.push_str(&format!("# Generated: {}\n", chrono::Local::now().format("%Y-%m-%d %H:%M:%S")));
+    output.push_str(&format!(
+        "# Generated: {}\n",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    ));
     output.push_str(&format!("# Commits analyzed: {}\n\n", sorted_commits.len()));
-    
+
     // First pass: calculate worst regressions
     let worst_regressions = calculate_worst_regressions(commit_data, azul_root, 5);
-    
+
     if !worst_regressions.is_empty() {
-        output.push_str(&format!("## WORST REGRESSIONS (Top {})\n\n", worst_regressions.len()));
-        output.push_str("These commits caused the largest total regression (sum of all diff deltas):\n\n");
-        for (i, (prev_hash, curr_hash, total_delta, message)) in worst_regressions.iter().enumerate() {
-            output.push_str(&format!("{}. {} -> {} (total delta: +{})\n", i + 1, prev_hash, curr_hash, total_delta));
+        output.push_str(&format!(
+            "## WORST REGRESSIONS (Top {})\n\n",
+            worst_regressions.len()
+        ));
+        output.push_str(
+            "These commits caused the largest total regression (sum of all diff deltas):\n\n",
+        );
+        for (i, (prev_hash, curr_hash, total_delta, message)) in
+            worst_regressions.iter().enumerate()
+        {
+            output.push_str(&format!(
+                "{}. {} -> {} (total delta: +{})\n",
+                i + 1,
+                prev_hash,
+                curr_hash,
+                total_delta
+            ));
             output.push_str(&format!("   Message: {}\n", message));
         }
         output.push_str("\n");
     }
-    
+
     output.push_str("## PART 1: Summary of Changes (sorted by date, oldest first)\n\n");
-    
+
     // Collect all detailed comparisons for Part 2
     let mut all_detailed: Vec<(CommitInfo, CommitInfo, Vec<TestComparison>)> = Vec::new();
-    
+
     // Load results.json for each commit and compare
     let mut prev_results: Option<serde_json::Value> = None;
     let mut prev_commit: Option<&CommitInfo> = None;
-    
+
     // Process from oldest to newest for proper diffing
     for (commit, status) in sorted_commits.iter().rev() {
         if !matches!(status, CommitStatus::Success { .. }) {
             continue;
         }
-        
+
         // Try to load results.json
         let results_path = azul_root
             .join("doc/target/reftest/regression")
             .join(&commit.short_hash)
             .join("results.json");
-        
+
         if !results_path.exists() {
             continue;
         }
-        
+
         let content = match fs::read_to_string(&results_path) {
             Ok(c) => c,
             Err(_) => continue,
         };
-        
+
         let current: serde_json::Value = match serde_json::from_str(&content) {
             Ok(v) => v,
             Err(_) => continue,
         };
-        
+
         if let (Some(prev), Some(prev_c)) = (&prev_results, prev_commit) {
             // Compare with previous commit
             let diffs = diff_results(prev, &current);
             let detailed = diff_results_detailed(prev, &current);
-            
+
             if !diffs.is_empty() {
-                output.push_str("═══════════════════════════════════════════════════════════════\n");
-                output.push_str(&format!("COMMIT: {} -> {}\n", prev_c.short_hash, commit.short_hash));
+                output
+                    .push_str("═══════════════════════════════════════════════════════════════\n");
+                output.push_str(&format!(
+                    "COMMIT: {} -> {}\n",
+                    prev_c.short_hash, commit.short_hash
+                ));
                 output.push_str(&format!("MESSAGE: {}\n", commit.message));
                 output.push_str(&format!("DATE: {}\n", commit.date));
                 output.push_str(&format!("AUTHOR: {}\n", commit.author));
-                output.push_str("───────────────────────────────────────────────────────────────\n");
-                
+                output
+                    .push_str("───────────────────────────────────────────────────────────────\n");
+
                 for diff in &diffs {
                     output.push_str(&format!("{}\n", diff));
                 }
                 output.push_str("\n");
-                
+
                 if !detailed.is_empty() {
                     all_detailed.push((prev_c.clone(), (*commit).clone(), detailed));
                 }
             }
         }
-        
+
         prev_results = Some(current);
         prev_commit = Some(commit);
     }
-    
+
     // Part 2: Detailed analysis with log diffs
     if !all_detailed.is_empty() {
         output.push_str("\n## PART 2: Detailed Regression Analysis\n\n");
-        output.push_str("This section shows what changed in the layout engine output between commits.\n\n");
-        
+        output.push_str(
+            "This section shows what changed in the layout engine output between commits.\n\n",
+        );
+
         for (prev_c, curr_c, comparisons) in &all_detailed {
             // Only show regressions in detail
-            let regressions: Vec<_> = comparisons.iter()
+            let regressions: Vec<_> = comparisons
+                .iter()
                 .filter(|c| c.status == "REGRESSED" || c.status == "BROKE")
                 .collect();
-            
+
             if regressions.is_empty() {
                 continue;
             }
-            
-            output.push_str("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-            output.push_str(&format!("REGRESSION: {} -> {}\n", prev_c.short_hash, curr_c.short_hash));
+
+            output.push_str(
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n",
+            );
+            output.push_str(&format!(
+                "REGRESSION: {} -> {}\n",
+                prev_c.short_hash, curr_c.short_hash
+            ));
             output.push_str("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
-            output.push_str(&format!("BEFORE ({}, {}):\n", prev_c.short_hash, prev_c.date.split_whitespace().take(2).collect::<Vec<_>>().join(" ")));
+            output.push_str(&format!(
+                "BEFORE ({}, {}):\n",
+                prev_c.short_hash,
+                prev_c
+                    .date
+                    .split_whitespace()
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ));
             output.push_str(&format!("  Message: {}\n\n", prev_c.message));
-            output.push_str(&format!("AFTER ({}, {}):\n", curr_c.short_hash, curr_c.date.split_whitespace().take(2).collect::<Vec<_>>().join(" ")));
+            output.push_str(&format!(
+                "AFTER ({}, {}):\n",
+                curr_c.short_hash,
+                curr_c
+                    .date
+                    .split_whitespace()
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ));
             output.push_str(&format!("  Message: {}\n\n", curr_c.message));
-            
+
             for comp in regressions {
-                output.push_str(&format!("┌─── TEST: {} [{}] ───────────────────────────────\n", comp.test_name, comp.status));
+                output.push_str(&format!(
+                    "┌─── TEST: {} [{}] ───────────────────────────────\n",
+                    comp.test_name, comp.status
+                ));
                 output.push_str("│\n");
-                output.push_str(&format!("│ DIFF COUNT: {} -> {} (delta: {:+})\n", comp.prev_diff, comp.curr_diff, comp.curr_diff - comp.prev_diff));
+                output.push_str(&format!(
+                    "│ DIFF COUNT: {} -> {} (delta: {:+})\n",
+                    comp.prev_diff,
+                    comp.curr_diff,
+                    comp.curr_diff - comp.prev_diff
+                ));
                 output.push_str("│\n");
-                
+
                 // Show solved_layout diff if different
                 if comp.prev_solved_layout != comp.curr_solved_layout {
                     output.push_str("│ SOLVED LAYOUT:\n");
-                    output.push_str(&format!("│   BEFORE: {}\n", comp.prev_solved_layout.lines().next().unwrap_or("")));
-                    output.push_str(&format!("│   AFTER:  {}\n", comp.curr_solved_layout.lines().next().unwrap_or("")));
+                    output.push_str(&format!(
+                        "│   BEFORE: {}\n",
+                        comp.prev_solved_layout.lines().next().unwrap_or("")
+                    ));
+                    output.push_str(&format!(
+                        "│   AFTER:  {}\n",
+                        comp.curr_solved_layout.lines().next().unwrap_or("")
+                    ));
                     output.push_str("│\n");
                 }
-                
+
                 // Show display list item count diff
-                let prev_items = comp.prev_display_list.lines()
+                let prev_items = comp
+                    .prev_display_list
+                    .lines()
                     .find(|l| l.contains("Items:"))
                     .unwrap_or("");
-                let curr_items = comp.curr_display_list.lines()
+                let curr_items = comp
+                    .curr_display_list
+                    .lines()
                     .find(|l| l.contains("Items:"))
                     .unwrap_or("");
                 if prev_items != curr_items {
@@ -1670,7 +1946,7 @@ fn generate_diff_report_string(commit_data: &[(CommitInfo, CommitStatus)], azul_
                     output.push_str(&format!("│   AFTER:  {}\n", curr_items.trim()));
                     output.push_str("│\n");
                 }
-                
+
                 // Show log changes
                 if !comp.log_changes.is_empty() {
                     output.push_str("│ LOG CHANGES (by source location):\n");
@@ -1679,31 +1955,44 @@ fn generate_diff_report_string(commit_data: &[(CommitInfo, CommitStatus)], azul_
                     }
                     output.push_str("│\n");
                 }
-                
-                output.push_str("└────────────────────────────────────────────────────────────────\n\n");
+
+                output.push_str(
+                    "└────────────────────────────────────────────────────────────────\n\n",
+                );
             }
-            
+
             // Show git diff for layout directory
             output.push_str("GIT DIFF (layout/):\n");
             output.push_str("```diff\n");
             let git_diff = std::process::Command::new("git")
-                .args(["diff", "--stat", &format!("{}..{}", prev_c.short_hash, curr_c.short_hash), "--", "layout/"])
+                .args([
+                    "diff",
+                    "--stat",
+                    &format!("{}..{}", prev_c.short_hash, curr_c.short_hash),
+                    "--",
+                    "layout/",
+                ])
                 .current_dir(azul_root)
                 .output();
-            
+
             if let Ok(git_output) = git_diff {
                 let diff_stat = String::from_utf8_lossy(&git_output.stdout);
                 if !diff_stat.trim().is_empty() {
                     output.push_str(&format!("{}\n", diff_stat.trim()));
                 }
             }
-            
+
             // Get full git diff
             let git_diff_full = std::process::Command::new("git")
-                .args(["diff", &format!("{}..{}", prev_c.short_hash, curr_c.short_hash), "--", "layout/"])
+                .args([
+                    "diff",
+                    &format!("{}..{}", prev_c.short_hash, curr_c.short_hash),
+                    "--",
+                    "layout/",
+                ])
                 .current_dir(azul_root)
                 .output();
-            
+
             if let Ok(git_output) = git_diff_full {
                 let diff_content = String::from_utf8_lossy(&git_output.stdout);
                 output.push_str(&diff_content);
@@ -1711,23 +2000,23 @@ fn generate_diff_report_string(commit_data: &[(CommitInfo, CommitStatus)], azul_
             output.push_str("```\n\n");
         }
     }
-    
+
     Ok(output)
 }
 
 /// Generate a full prompt for Gemini with regression analysis and source code
 pub fn run_statistics_prompt(config: RegressionConfig) -> anyhow::Result<()> {
     let regression_dir = config.output_dir.join("regression");
-    
+
     if !regression_dir.exists() {
         eprintln!("No regression data found. Run 'debug-regression' first.");
         return Ok(());
     }
-    
+
     // Generate and print the full prompt
     let prompt = generate_full_prompt(&config)?;
     println!("{}", prompt);
-    
+
     Ok(())
 }
 
@@ -1735,24 +2024,24 @@ pub fn run_statistics_prompt(config: RegressionConfig) -> anyhow::Result<()> {
 fn compare_images(path1: &Path, path2: &Path) -> anyhow::Result<i64> {
     let img1 = image::open(path1)?;
     let img2 = image::open(path2)?;
-    
+
     let (w1, h1) = img1.dimensions();
     let (w2, h2) = img2.dimensions();
-    
+
     if w1 != w2 || h1 != h2 {
         return Ok((w1 * h1) as i64);
     }
-    
+
     let rgba1 = img1.to_rgba8();
     let rgba2 = img2.to_rgba8();
-    
+
     let mut diff: i64 = 0;
     for (p1, p2) in rgba1.pixels().zip(rgba2.pixels()) {
         if p1 != p2 {
             diff += 1;
         }
     }
-    
+
     Ok(diff)
 }
 
@@ -1765,7 +2054,7 @@ fn generate_visual_html_report(
     // Sort commits by date (newest first to show most recent at top)
     let mut sorted_commits: Vec<_> = commit_data.iter().collect();
     sorted_commits.sort_by(|a, b| b.0.date.cmp(&a.0.date));
-    
+
     // Collect all test names from successful commits
     let mut all_test_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for (_, status) in &sorted_commits {
@@ -1775,12 +2064,12 @@ fn generate_visual_html_report(
             }
         }
     }
-    
+
     let test_names: Vec<String> = all_test_names.into_iter().collect();
-    
+
     // Load Chrome references if available
     let chrome_dir = regression_dir.join("chrome");
-    
+
     // Build HTML - styled similar to reftest.html
     let mut html = String::new();
     html.push_str(r#"<!DOCTYPE html>
@@ -2056,34 +2345,53 @@ fn generate_visual_html_report(
       
       <div class="summary-bar">
         <span class="stat">Commits: <span class="stat-value">"#);
-    
+
     html.push_str(&sorted_commits.len().to_string());
-    html.push_str(r#"</span></span>
-        <span class="stat">Tests: <span class="stat-value">"#);
+    html.push_str(
+        r#"</span></span>
+        <span class="stat">Tests: <span class="stat-value">"#,
+    );
     html.push_str(&test_names.len().to_string());
-    html.push_str(r#"</span></span>
-        <span class="stat">Successful: <span class="stat-value pass">"#);
-    let success_count = sorted_commits.iter().filter(|(_, s)| matches!(s, CommitStatus::Success { .. })).count();
-    let failed_count = sorted_commits.iter().filter(|(_, s)| matches!(s, CommitStatus::BuildFailed(_))).count();
+    html.push_str(
+        r#"</span></span>
+        <span class="stat">Successful: <span class="stat-value pass">"#,
+    );
+    let success_count = sorted_commits
+        .iter()
+        .filter(|(_, s)| matches!(s, CommitStatus::Success { .. }))
+        .count();
+    let failed_count = sorted_commits
+        .iter()
+        .filter(|(_, s)| matches!(s, CommitStatus::BuildFailed(_)))
+        .count();
     html.push_str(&success_count.to_string());
-    html.push_str(r#"</span></span>
-        <span class="stat">Failed: <span class="stat-value fail">"#);
+    html.push_str(
+        r#"</span></span>
+        <span class="stat">Failed: <span class="stat-value fail">"#,
+    );
     html.push_str(&failed_count.to_string());
-    html.push_str(r#"</span></span>
-        <span class="stat" style="color:#888;font-size:0.85rem;">Generated: "#);
+    html.push_str(
+        r#"</span></span>
+        <span class="stat" style="color:#888;font-size:0.85rem;">Generated: "#,
+    );
     html.push_str(&chrono::Local::now().format("%Y-%m-%d %H:%M").to_string());
-    html.push_str(r#"</span>
+    html.push_str(
+        r#"</span>
       </div>
       
       <div class="controls">
         <select id="testFilter" onchange="filterTests()">
           <option value="all">All tests</option>
-"#);
-    
+"#,
+    );
+
     for test in &test_names {
-        html.push_str(&format!("          <option value=\"{}\">{}</option>\n", test, test));
+        html.push_str(&format!(
+            "          <option value=\"{}\">{}</option>\n",
+            test, test
+        ));
     }
-    
+
     html.push_str(r#"        </select>
         <input type="text" id="searchInput" placeholder="Search commits..." oninput="filterCommits()">
         <label><input type="checkbox" id="hideErrors" onchange="filterCommits()"> Hide build errors</label>
@@ -2094,7 +2402,8 @@ fn generate_visual_html_report(
 
     // Generate test sections - COLLAPSED by default
     for test_name in &test_names {
-        html.push_str(&format!(r#"
+        html.push_str(&format!(
+            r#"
       <div class="test-card collapsed" data-test="{}">
         <div class="test-card-header" onclick="toggleCard(this)">
           <div class="test-card-header-left">
@@ -2104,23 +2413,32 @@ fn generate_visual_html_report(
           <span style="font-size:0.8rem;color:#666;">{} commits</span>
         </div>
         <div class="test-card-body">
-"#, test_name, test_name, sorted_commits.iter().filter(|(_, s)| matches!(s, CommitStatus::Success { .. })).count()));
-        
+"#,
+            test_name,
+            test_name,
+            sorted_commits
+                .iter()
+                .filter(|(_, s)| matches!(s, CommitStatus::Success { .. }))
+                .count()
+        ));
+
         // Chrome reference if exists
         let chrome_img = chrome_dir.join(format!("{}.png", test_name));
         if chrome_img.exists() {
-            html.push_str(r#"          <div class="chrome-reference">
+            html.push_str(
+                r#"          <div class="chrome-reference">
             <span class="chrome-reference-label">Chrome Reference</span>
-            <img src="chrome/"#);
+            <img src="chrome/"#,
+            );
             html.push_str(test_name);
             html.push_str(r#".png" alt="Chrome Reference" onclick="showImageModal(this.src, 'Chrome Reference')">
           </div>
 "#);
         }
-        
+
         // Track previous diff for delta calculation
         let mut prev_diff: Option<i64> = None;
-        
+
         // Commit rows
         for (commit, status) in &sorted_commits {
             match status {
@@ -2134,7 +2452,8 @@ fn generate_visual_html_report(
                                     .and_then(|t| t.as_array())
                                     .and_then(|tests| {
                                         tests.iter().find(|t| {
-                                            t.get("test_name").and_then(|n| n.as_str()) == Some(test_name)
+                                            t.get("test_name").and_then(|n| n.as_str())
+                                                == Some(test_name)
                                         })
                                     })
                                     .and_then(|t| t.get("diff_count"))
@@ -2148,25 +2467,27 @@ fn generate_visual_html_report(
                     } else {
                         None
                     };
-                    
+
                     let delta = diff_count.and_then(|curr| prev_diff.map(|prev| curr - prev));
                     let row_class = match delta {
                         Some(d) if d > 1000 => "commit-row has-regression",
                         Some(d) if d < -1000 => "commit-row has-improvement",
                         _ => "commit-row",
                     };
-                    
+
                     // GitHub commit link
-                    let github_url = format!("https://github.com/fschutt/azul/commit/{}", commit.hash);
-                    
-                    html.push_str(&format!(r#"          <div class="{}" data-commit="{}">
+                    let github_url =
+                        format!("https://github.com/fschutt/azul/commit/{}", commit.hash);
+
+                    html.push_str(&format!(
+                        r#"          <div class="{}" data-commit="{}">
             <div class="commit-info">
               <div class="commit-header">
                 <span class="commit-hash"><a href="{}" target="_blank">{}</a></span>
                 <span style="font-size:0.7rem;color:#888;">{}</span>
               </div>
               <div class="commit-subject">{}</div>
-"#, 
+"#,
                         row_class,
                         commit.short_hash,
                         github_url,
@@ -2174,33 +2495,59 @@ fn generate_visual_html_report(
                         commit.date.split_whitespace().next().unwrap_or(""),
                         html_escape(&commit.message)
                     ));
-                    
+
                     // Show commit body if present
                     if !commit.body.is_empty() {
-                        html.push_str(&format!(r#"              <div class="commit-body">{}</div>
-"#, html_escape(&commit.body)));
+                        html.push_str(&format!(
+                            r#"              <div class="commit-body">{}</div>
+"#,
+                            html_escape(&commit.body)
+                        ));
                     }
-                    
-                    html.push_str(&format!(r#"              <div class="commit-meta">by {}</div>
-"#, html_escape(&commit.author)));
-                    
+
+                    html.push_str(&format!(
+                        r#"              <div class="commit-meta">by {}</div>
+"#,
+                        html_escape(&commit.author)
+                    ));
+
                     // Diff count display
                     if let Some(diff) = diff_count {
-                        let diff_class = if diff == 0 { "diff-improved" } else if diff < 10000 { "diff-same" } else { "diff-regressed" };
-                        html.push_str(&format!(r#"              <div class="commit-diff">
-                <span class="diff-count {}">{}px</span>"#, diff_class, diff));
-                        
+                        let diff_class = if diff == 0 {
+                            "diff-improved"
+                        } else if diff < 10000 {
+                            "diff-same"
+                        } else {
+                            "diff-regressed"
+                        };
+                        html.push_str(&format!(
+                            r#"              <div class="commit-diff">
+                <span class="diff-count {}">{}px</span>"#,
+                            diff_class, diff
+                        ));
+
                         if let Some(d) = delta {
-                            let delta_class = if d < 0 { "diff-improved" } else if d > 0 { "diff-regressed" } else { "diff-same" };
+                            let delta_class = if d < 0 {
+                                "diff-improved"
+                            } else if d > 0 {
+                                "diff-regressed"
+                            } else {
+                                "diff-same"
+                            };
                             let sign = if d > 0 { "+" } else { "" };
-                            html.push_str(&format!(r#" <span class="diff-delta {}">({}{} from prev)</span>"#, delta_class, sign, d));
+                            html.push_str(&format!(
+                                r#" <span class="diff-delta {}">({}{} from prev)</span>"#,
+                                delta_class, sign, d
+                            ));
                         }
-                        html.push_str(r#"
+                        html.push_str(
+                            r#"
               </div>
-"#);
+"#,
+                        );
                         prev_diff = Some(diff);
                     }
-                    
+
                     // Action buttons in left column
                     html.push_str(&format!(r#"              <div class="commit-actions">
                 <button class="action-btn" onclick="showDebugInfo('{}', '{}')">Debug</button>
@@ -2208,52 +2555,70 @@ fn generate_visual_html_report(
               </div>
             </div>
 "#, commit.short_hash, test_name, commit.short_hash, test_name));
-                    
+
                     // Screenshot
                     if let Some(screenshot_path) = screenshots.get(test_name) {
-                        let relative_path = format!("{}/{}", commit.short_hash, screenshot_path.file_name().unwrap().to_string_lossy());
-                        html.push_str(&format!(r#"            <div class="commit-screenshot">
+                        let relative_path = format!(
+                            "{}/{}",
+                            commit.short_hash,
+                            screenshot_path.file_name().unwrap().to_string_lossy()
+                        );
+                        html.push_str(&format!(
+                            r#"            <div class="commit-screenshot">
               <img src="{}" alt="Azul @ {}" onclick="showImageModal(this.src, 'Azul @ {} - {}')">
             </div>
-"#, relative_path, commit.short_hash, commit.short_hash, html_escape(&commit.message)));
+"#,
+                            relative_path,
+                            commit.short_hash,
+                            commit.short_hash,
+                            html_escape(&commit.message)
+                        ));
                     } else {
-                        html.push_str(r#"            <div class="commit-screenshot">
+                        html.push_str(
+                            r#"            <div class="commit-screenshot">
               <span class="no-screenshot">No screenshot</span>
             </div>
-"#);
+"#,
+                        );
                     }
-                    
+
                     html.push_str("          </div>\n");
                 }
                 CommitStatus::BuildFailed(err) => {
-                    let github_url = format!("https://github.com/fschutt/azul/commit/{}", commit.hash);
-                    html.push_str(&format!(r#"          <div class="commit-row build-error" data-commit="{}">
+                    let github_url =
+                        format!("https://github.com/fschutt/azul/commit/{}", commit.hash);
+                    html.push_str(&format!(
+                        r#"          <div class="commit-row build-error" data-commit="{}">
             <div class="commit-info">
               <div class="commit-header">
                 <span class="commit-hash"><a href="{}" target="_blank">{}</a></span>
                 <span style="font-size:0.7rem;color:#888;">{}</span>
               </div>
               <div class="commit-subject">{}</div>
-"#, 
+"#,
                         commit.short_hash,
                         github_url,
                         commit.short_hash,
                         commit.date.split_whitespace().next().unwrap_or(""),
                         html_escape(&commit.message)
                     ));
-                    
+
                     if !commit.body.is_empty() {
-                        html.push_str(&format!(r#"              <div class="commit-body">{}</div>
-"#, html_escape(&commit.body)));
+                        html.push_str(&format!(
+                            r#"              <div class="commit-body">{}</div>
+"#,
+                            html_escape(&commit.body)
+                        ));
                     }
-                    
-                    html.push_str(&format!(r#"              <div class="commit-meta">by {}</div>
+
+                    html.push_str(&format!(
+                        r#"              <div class="commit-meta">by {}</div>
             </div>
             <div class="commit-screenshot">
               <div class="build-error-msg">{}</div>
             </div>
           </div>
-"#, 
+"#,
                         html_escape(&commit.author),
                         html_escape(&err.lines().take(8).collect::<Vec<_>>().join("\n"))
                     ));
@@ -2263,10 +2628,10 @@ fn generate_visual_html_report(
                 }
             }
         }
-        
+
         html.push_str("        </div>\n      </div>\n");
     }
-    
+
     // Modal and scripts
     html.push_str(r#"
     </main>
@@ -2425,18 +2790,18 @@ fn generate_visual_html_report(
 </body>
 </html>
 "#);
-    
+
     let report_path = regression_dir.join("visual.html");
     fs::write(&report_path, html)?;
-    
+
     Ok(())
 }
 
 /// Escape HTML special characters
 fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
-     .replace('<', "&lt;")
-     .replace('>', "&gt;")
-     .replace('"', "&quot;")
-     .replace('\'', "&#039;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#039;")
 }

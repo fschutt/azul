@@ -27,25 +27,32 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize, StyleFontWeight},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutMarginLeft, LayoutMarginRight},
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutMarginLeft, LayoutMarginRight,
+        },
         property::{CssProperty, *},
-        style::{StyleCursor, StyleUserSelect, StyleTextColor},
+        style::{StyleCursor, StyleTextColor, StyleUserSelect},
     },
-    impl_option_inner, AzString, StringVec,
+    AzString, StringVec,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
 
 static BREADCRUMB_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-breadcrumb"))];
-static BREADCRUMB_ITEM_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-breadcrumb-item"))];
-static BREADCRUMB_CURRENT_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-breadcrumb-current"))];
-static BREADCRUMB_SEPARATOR_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-breadcrumb-separator"))];
+static BREADCRUMB_ITEM_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-breadcrumb-item",
+))];
+static BREADCRUMB_CURRENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-breadcrumb-current",
+))];
+static BREADCRUMB_SEPARATOR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-breadcrumb-separator",
+))];
 
 /// Separator glyph rendered between crumbs.
 const SEPARATOR_GLYPH: AzString = AzString::from_const_str("/");
@@ -103,11 +110,26 @@ pub struct BreadcrumbState {
 
 // ---- colours ----
 /// Crumb-link colour (#0d6efd, Bootstrap link blue).
-const LINK_COLOR: ColorU = ColorU { r: 13, g: 110, b: 253, a: 255 };
+const LINK_COLOR: ColorU = ColorU {
+    r: 13,
+    g: 110,
+    b: 253,
+    a: 255,
+};
 /// Current-crumb colour (#495057, muted dark grey).
-const CURRENT_COLOR: ColorU = ColorU { r: 73, g: 80, b: 87, a: 255 };
+const CURRENT_COLOR: ColorU = ColorU {
+    r: 73,
+    g: 80,
+    b: 87,
+    a: 255,
+};
 /// Separator colour (#6c757d, grey).
-const SEPARATOR_COLOR: ColorU = ColorU { r: 108, g: 117, b: 125, a: 255 };
+const SEPARATOR_COLOR: ColorU = ColorU {
+    r: 108,
+    g: 117,
+    b: 125,
+    a: 255,
+};
 
 /// Row container: a horizontal flex row that hugs its content.
 static BREADCRUMB_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
@@ -145,10 +167,12 @@ static BREADCRUMB_CURRENT_STYLE: &[CssPropertyWithConditions] = &[
 static BREADCRUMB_SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-    CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(8))),
-    CssPropertyWithConditions::simple(CssProperty::const_margin_right(LayoutMarginRight::const_px(
+    CssPropertyWithConditions::simple(CssProperty::const_margin_left(LayoutMarginLeft::const_px(
         8,
     ))),
+    CssPropertyWithConditions::simple(CssProperty::const_margin_right(
+        LayoutMarginRight::const_px(8),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
         inner: SEPARATOR_COLOR,
     })),
@@ -156,7 +180,8 @@ static BREADCRUMB_SEPARATOR_STYLE: &[CssPropertyWithConditions] = &[
 
 impl Breadcrumb {
     /// Creates a breadcrumb from the given labels (the last is the current page).
-    #[must_use] pub fn create(labels: StringVec) -> Self {
+    #[must_use]
+    pub fn create(labels: StringVec) -> Self {
         Self {
             breadcrumb_state: BreadcrumbStateWrapper::default(),
             labels,
@@ -167,7 +192,8 @@ impl Breadcrumb {
     }
 
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(StringVec::from_const_slice(&[]));
         core::mem::swap(&mut s, self);
         s
@@ -187,7 +213,8 @@ impl Breadcrumb {
     }
 
     #[inline]
-    #[must_use] pub fn with_on_navigate<C: Into<BreadcrumbOnNavigateCallback>>(
+    #[must_use]
+    pub fn with_on_navigate<C: Into<BreadcrumbOnNavigateCallback>>(
         mut self,
         data: RefAny,
         on_navigate: C,
@@ -196,7 +223,8 @@ impl Breadcrumb {
         self
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -312,7 +340,9 @@ extern "C" fn on_crumb_click(mut data: RefAny, mut info: CallbackInfo) -> Update
     let inner = bc.inner;
     let bc = &mut *bc;
     match bc.on_navigate.as_mut() {
-        Some(BreadcrumbOnNavigate { callback, refany }) => (callback.cb)(refany.clone(), info, inner),
+        Some(BreadcrumbOnNavigate { callback, refany }) => {
+            (callback.cb)(refany.clone(), info, inner)
+        }
         None => Update::DoNothing,
     }
 }
@@ -363,7 +393,11 @@ mod autotest_generated {
 
     /// `n` distinct labels: `c0, c1, … c{n-1}`.
     fn n_labels(n: usize) -> StringVec {
-        StringVec::from_vec((0..n).map(|i| AzString::from(format!("c{i}"))).collect::<Vec<_>>())
+        StringVec::from_vec(
+            (0..n)
+                .map(|i| AzString::from(format!("c{i}")))
+                .collect::<Vec<_>>(),
+        )
     }
 
     /// The text of a text node, looking through the `<p>` block wrapper the
@@ -646,7 +680,11 @@ mod autotest_generated {
         let old = bc.swap_with_default();
 
         let old_labels: Vec<&str> = old.labels.as_ref().iter().map(AzString::as_str).collect();
-        assert_eq!(old_labels, ["Home", "Docs", "Here"], "the old value moves out");
+        assert_eq!(
+            old_labels,
+            ["Home", "Docs", "Here"],
+            "the old value moves out"
+        );
         assert!(
             bc.labels.as_ref().is_empty(),
             "self must be left as a default (empty) breadcrumb"
@@ -737,8 +775,7 @@ mod autotest_generated {
             .as_mut()
             .expect("still Some after the overwrite");
         assert_eq!(
-            installed.callback.cb as usize,
-            nav_do_nothing as usize,
+            installed.callback.cb as usize, nav_do_nothing as usize,
             "the last set_on_navigate must win"
         );
         assert_eq!(
@@ -798,9 +835,15 @@ mod autotest_generated {
         let dom = Breadcrumb::create(labels(&["Home"])).dom();
         let children = dom.children.as_ref();
 
-        assert_eq!(children.len(), 1, "a lone label is the current page, nothing else");
+        assert_eq!(
+            children.len(),
+            1,
+            "a lone label is the current page, nothing else"
+        );
         assert_eq!(text_of(&children[0]), Some("Home"));
-        assert!(children[0].root.has_class("__azul-native-breadcrumb-current"));
+        assert!(children[0]
+            .root
+            .has_class("__azul-native-breadcrumb-current"));
         assert!(
             children[0].root.get_callbacks().as_ref().is_empty(),
             "the current page must not be clickable"
@@ -814,7 +857,11 @@ mod autotest_generated {
         let dom = Breadcrumb::create(labels(&case)).dom();
         let children = dom.children.as_ref();
 
-        assert_eq!(children.len(), 2 * case.len() - 1, "n crumbs + (n-1) separators");
+        assert_eq!(
+            children.len(),
+            2 * case.len() - 1,
+            "n crumbs + (n-1) separators"
+        );
 
         for (pos, child) in children.iter().enumerate() {
             let is_last_child = pos + 1 == children.len();
@@ -867,7 +914,11 @@ mod autotest_generated {
             // the label convention, so descendants = 2 x children.
             let expected = 2 * children;
 
-            assert_eq!(dom.children.as_ref().len(), children, "child count for n={n}");
+            assert_eq!(
+                dom.children.as_ref().len(),
+                children,
+                "child count for n={n}"
+            );
             assert_eq!(
                 dom.estimated_total_children,
                 recursive_descendants(&dom),
@@ -896,11 +947,15 @@ mod autotest_generated {
 
         assert_eq!(text_of(&children[0]), Some("/"));
         assert!(children[0].root.has_class("__azul-native-breadcrumb-item"));
-        assert!(!children[0].root.has_class("__azul-native-breadcrumb-separator"));
+        assert!(!children[0]
+            .root
+            .has_class("__azul-native-breadcrumb-separator"));
         assert!(!children[0].root.get_callbacks().as_ref().is_empty());
 
         assert_eq!(text_of(&children[1]), Some("/"));
-        assert!(children[1].root.has_class("__azul-native-breadcrumb-separator"));
+        assert!(children[1]
+            .root
+            .has_class("__azul-native-breadcrumb-separator"));
         assert!(children[1].root.get_callbacks().as_ref().is_empty());
     }
 
@@ -977,7 +1032,10 @@ mod autotest_generated {
 
         assert_eq!(text_color(BREADCRUMB_ITEM_STYLE), Some(LINK_COLOR));
         assert_eq!(text_color(BREADCRUMB_CURRENT_STYLE), Some(CURRENT_COLOR));
-        assert_eq!(text_color(BREADCRUMB_SEPARATOR_STYLE), Some(SEPARATOR_COLOR));
+        assert_eq!(
+            text_color(BREADCRUMB_SEPARATOR_STYLE),
+            Some(SEPARATOR_COLOR)
+        );
     }
 
     #[test]
@@ -1079,7 +1137,11 @@ mod autotest_generated {
         let (styled, state) = flatten(bc);
 
         let (update, _) = run_click(Some(styled.clone()), 9, state.clone());
-        assert_eq!(update, Update::RefreshDom, "the user's Update must propagate");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user's Update must propagate"
+        );
         assert_eq!(log_indices(&mut log), vec![2]);
 
         // A second click updates the shared state again — the index is not sticky.
@@ -1100,8 +1162,7 @@ mod autotest_generated {
             (nav_cb(nav_do_nothing), Update::DoNothing),
             (nav_cb(nav_refresh_all), Update::RefreshDomAllWindows),
         ] {
-            let bc =
-                Breadcrumb::create(labels(&["a", "b"])).with_on_navigate(RefAny::new(0u8), cb);
+            let bc = Breadcrumb::create(labels(&["a", "b"])).with_on_navigate(RefAny::new(0u8), cb);
             let (styled, state) = flatten(bc);
             let (update, _) = run_click(Some(styled), 1, state);
             assert_eq!(update, expected);

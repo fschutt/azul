@@ -36,10 +36,9 @@ use azul_css::{
             border_radius::StyleBorderRadius,
             lists::{StyleListStylePosition, StyleListStyleType},
             StyleAlignmentBaseline, StyleBaselineSource, StyleDirection, StyleDominantBaseline,
-            StyleInitialLetterAlign, StyleLineFitEdge,
-            StyleInitialLetterWrap, StyleTextAlign, StyleTextBoxEdge, StyleTextBoxTrim,
-            StyleUnicodeBidi, StyleUserSelect, StyleVerticalAlign, StyleVisibility,
-            StyleWhiteSpace,
+            StyleInitialLetterAlign, StyleInitialLetterWrap, StyleLineFitEdge, StyleTextAlign,
+            StyleTextBoxEdge, StyleTextBoxTrim, StyleUnicodeBidi, StyleUserSelect,
+            StyleVerticalAlign, StyleVisibility, StyleWhiteSpace,
         },
     },
 };
@@ -91,7 +90,8 @@ const THUMB_ACTIVE_DARKEN: u8 = 15;
 /// `compute_all_font_sizes_px` walker mirrors the original's
 /// `computed_values` → cascade → `DEFAULT_FONT_SIZE` ordering,
 /// so rendered pixels are byte-identical.
-#[must_use] pub fn get_element_font_size(
+#[must_use]
+pub fn get_element_font_size(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     node_state: &StyledNodeState,
@@ -366,7 +366,8 @@ fn resolve_font_size_one(
 /// Retrieves the parent's own `StyledNodeState` so that pseudo-class-specific
 /// font-size rules (e.g. `div:hover { font-size: 32px }`) are resolved
 /// against the parent's actual state, not the child's.
-#[must_use] pub fn get_parent_font_size(
+#[must_use]
+pub fn get_parent_font_size(
     styled_dom: &StyledDom,
     dom_id: NodeId,
     _node_state: &StyledNodeState, // child's state — intentionally unused
@@ -386,7 +387,8 @@ fn resolve_font_size_one(
 ///
 /// Uses the root element's own `StyledNodeState` so that pseudo-class-specific
 /// rules are resolved correctly regardless of which node triggered the call.
-#[must_use] pub fn get_root_font_size(styled_dom: &StyledDom, _node_state: &StyledNodeState) -> f32 {
+#[must_use]
+pub fn get_root_font_size(styled_dom: &StyledDom, _node_state: &StyledNodeState) -> f32 {
     let root_id = NodeId::new(0);
     let root_state = &styled_dom.styled_nodes.as_container()[root_id].styled_node_state;
     get_element_font_size(styled_dom, root_id, root_state)
@@ -394,8 +396,7 @@ fn resolve_font_size_one(
 
 /// A value that can be Auto, Initial, Inherit, or an explicit value.
 /// This preserves CSS cascade semantics better than Option<T>.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum MultiValue<T> {
     /// CSS 'auto' keyword
     #[default]
@@ -464,7 +465,8 @@ impl<T> MultiValue<T> {
 impl MultiValue<LayoutOverflow> {
     /// Returns true if this overflow value causes content to be clipped.
     /// This includes Hidden, Clip, Auto, and Scroll (all values except Visible).
-    #[must_use] pub const fn is_clipped(&self) -> bool {
+    #[must_use]
+    pub const fn is_clipped(&self) -> bool {
         matches!(
             self,
             Self::Exact(
@@ -476,7 +478,8 @@ impl MultiValue<LayoutOverflow> {
         )
     }
 
-    #[must_use] pub const fn is_scroll(&self) -> bool {
+    #[must_use]
+    pub const fn is_scroll(&self) -> bool {
         matches!(
             self,
             Self::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto)
@@ -488,48 +491,54 @@ impl MultiValue<LayoutOverflow> {
     /// `hidden | scroll | auto` — an `overflow: hidden` box is
     /// programmatically scrollable even though its user scrolling is
     /// disabled. The unset sentinel (initial = visible) does not.
-    #[must_use] pub const fn is_scroll_container(&self) -> bool {
+    #[must_use]
+    pub const fn is_scroll_container(&self) -> bool {
         matches!(
             self,
-            Self::Exact(
-                LayoutOverflow::Hidden | LayoutOverflow::Scroll | LayoutOverflow::Auto
-            )
+            Self::Exact(LayoutOverflow::Hidden | LayoutOverflow::Scroll | LayoutOverflow::Auto)
         )
     }
 
     /// Does this value allow scrolling DIRECTLY TRIGGERED BY THE USER
     /// (wheel, scrollbar, keyboard)? `hidden` does not.
-    #[must_use] pub const fn allows_user_scrolling(&self) -> bool {
+    #[must_use]
+    pub const fn allows_user_scrolling(&self) -> bool {
         matches!(
             self,
             Self::Exact(LayoutOverflow::Scroll | LayoutOverflow::Auto)
         )
     }
 
-    #[must_use] pub const fn is_auto_overflow(&self) -> bool {
+    #[must_use]
+    pub const fn is_auto_overflow(&self) -> bool {
         matches!(self, Self::Exact(LayoutOverflow::Auto))
     }
 
-    #[must_use] pub const fn is_hidden(&self) -> bool {
+    #[must_use]
+    pub const fn is_hidden(&self) -> bool {
         matches!(self, Self::Exact(LayoutOverflow::Hidden))
     }
 
-    #[must_use] pub const fn is_hidden_or_clip(&self) -> bool {
+    #[must_use]
+    pub const fn is_hidden_or_clip(&self) -> bool {
         matches!(
             self,
             Self::Exact(LayoutOverflow::Hidden | LayoutOverflow::Clip)
         )
     }
 
-    #[must_use] pub const fn is_scroll_explicit(&self) -> bool {
+    #[must_use]
+    pub const fn is_scroll_explicit(&self) -> bool {
         matches!(self, Self::Exact(LayoutOverflow::Scroll))
     }
 
-    #[must_use] pub const fn is_clip(&self) -> bool {
+    #[must_use]
+    pub const fn is_clip(&self) -> bool {
         matches!(self, Self::Exact(LayoutOverflow::Clip))
     }
 
-    #[must_use] pub const fn is_visible_or_clip(&self) -> bool {
+    #[must_use]
+    pub const fn is_visible_or_clip(&self) -> bool {
         matches!(
             self,
             Self::Exact(LayoutOverflow::Visible | LayoutOverflow::Clip)
@@ -543,7 +552,8 @@ impl MultiValue<LayoutOverflow> {
     /// `!is_visible_or_clip()` for this was wrong: the "not set" `MultiValue::Auto`
     /// sentinel is not visible/clip, so every plain block spuriously got a BFC on
     /// the slow cascade path (the fast path returns `Exact(Visible)` and did not).
-    #[must_use] pub const fn establishes_bfc(&self) -> bool {
+    #[must_use]
+    pub const fn establishes_bfc(&self) -> bool {
         matches!(
             self,
             Self::Exact(LayoutOverflow::Hidden | LayoutOverflow::Scroll | LayoutOverflow::Auto)
@@ -561,10 +571,8 @@ impl MultiValue<LayoutOverflow> {
     /// the slow path (pseudo-states / no compact cache) callers treated the
     /// axis as visible instead of a scroll container - the compact fast path
     /// (which always materializes `Exact`) disagreed.
-    #[must_use] pub const fn resolve_computed(
-        &self,
-        other_axis: &Self,
-    ) -> Self {
+    #[must_use]
+    pub const fn resolve_computed(&self, other_axis: &Self) -> Self {
         let this = match self {
             Self::Exact(v) => *v,
             _ => LayoutOverflow::Visible,
@@ -587,7 +595,8 @@ impl MultiValue<LayoutOverflow> {
 
 // Implement helper methods for LayoutPosition
 impl MultiValue<LayoutPosition> {
-    #[must_use] pub const fn is_absolute_or_fixed(&self) -> bool {
+    #[must_use]
+    pub const fn is_absolute_or_fixed(&self) -> bool {
         matches!(
             self,
             Self::Exact(LayoutPosition::Absolute | LayoutPosition::Fixed)
@@ -597,24 +606,22 @@ impl MultiValue<LayoutPosition> {
 
 // Implement helper methods for LayoutFloat
 impl MultiValue<LayoutFloat> {
-    #[must_use] pub const fn is_none(&self) -> bool {
+    #[must_use]
+    pub const fn is_none(&self) -> bool {
         matches!(
             self,
-            Self::Auto
-                | Self::Initial
-                | Self::Inherit
-                | Self::Exact(LayoutFloat::None)
+            Self::Auto | Self::Initial | Self::Inherit | Self::Exact(LayoutFloat::None)
         )
     }
 }
-
 
 /// Helper macro to reduce boilerplate for simple CSS property getters
 /// Returns the inner `PixelValue` wrapped in `MultiValue`
 macro_rules! get_css_property_pixel {
     // Variant WITH compact cache fast path for i16-encoded resolved px properties
     ($fn_name:ident, $cache_method:ident, $ua_property:expr, compact_i16 = $compact_method:ident) => {
-        #[must_use] pub fn $fn_name(
+        #[must_use]
+        pub fn $fn_name(
             styled_dom: &StyledDom,
             node_id: NodeId,
             node_state: &StyledNodeState,
@@ -1329,7 +1336,8 @@ get_css_property!(
 /// compact fast path the mapping already happened at build time, in
 /// declaration order (equal-specificity last-wins); this slow-path fallback
 /// uses "physical if declared, else logical" as the cascade approximation.
-#[must_use] pub fn get_overflow_x(
+#[must_use]
+pub fn get_overflow_x(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1355,7 +1363,8 @@ get_css_property!(
 }
 
 /// Physical `overflow-y`; see [`get_overflow_x`] for the logical fallback.
-#[must_use] pub fn get_overflow_y(
+#[must_use]
+pub fn get_overflow_y(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1549,8 +1558,10 @@ get_css_property!(
 // Hand-rolled fast path: 99% of nodes don't set scrollbar-gutter, and the
 // default is `auto`. The compact cache stores the enum in 2 bits of
 // tier2_cold.hot_flags, so we can return the answer without a cascade walk.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-#[must_use] pub fn get_scrollbar_gutter_property(
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[must_use]
+pub fn get_scrollbar_gutter_property(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1609,7 +1620,8 @@ get_css_property!(
 // Hand-rolled (not macro-generated) to attach a negative fast-path: most
 // nodes have no text-orientation declared (default = Mixed), so we avoid a
 // cascade walk per fc.rs call (which is called ~2× per node).
-#[must_use] pub fn get_text_orientation_property(
+#[must_use]
+pub fn get_text_orientation_property(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1630,10 +1642,8 @@ get_css_property!(
     {
         return MultiValue::Exact(val);
     }
-    let ua = azul_core::ua_css::get_ua_property(
-        &node_data.node_type,
-        CssPropertyType::TextOrientation,
-    );
+    let ua =
+        azul_core::ua_css::get_ua_property(&node_data.node_type, CssPropertyType::TextOrientation);
     if let Some(ua_prop) = ua {
         if let Some(val) = extract_property_value::<StyleTextOrientation>(ua_prop) {
             return MultiValue::Exact(val);
@@ -1659,7 +1669,8 @@ get_css_property!(
 // NOTE: vertical-align does NOT use the compact cache because the compact cache
 // only stores keyword variants (3 bits = 8 values) and silently drops
 // Percentage/Length values by mapping them to Baseline. Always use the slow path.
-#[must_use] pub fn get_vertical_align_property(
+#[must_use]
+pub fn get_vertical_align_property(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1675,10 +1686,8 @@ get_css_property!(
         return MultiValue::Exact(val);
     }
 
-    let ua_css = azul_core::ua_css::get_ua_property(
-        &node_data.node_type,
-        CssPropertyType::VerticalAlign,
-    );
+    let ua_css =
+        azul_core::ua_css::get_ua_property(&node_data.node_type, CssPropertyType::VerticalAlign);
 
     if let Some(ua_prop) = ua_css {
         if let Some(val) = extract_property_value::<StyleVerticalAlign>(ua_prop) {
@@ -1691,7 +1700,8 @@ get_css_property!(
 // Complex Property Getters
 
 /// Get border radius for all four corners (raw CSS property values)
-#[must_use] pub fn get_style_border_radius(
+#[must_use]
+pub fn get_style_border_radius(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1764,7 +1774,8 @@ get_css_property!(
 /// # Arguments
 /// * `element_size` - The element's own size (width × height) for % resolution. According to CSS
 ///   spec, border-radius % uses element's own dimensions.
-#[must_use] pub fn get_border_radius(
+#[must_use]
+pub fn get_border_radius(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -1810,7 +1821,9 @@ get_css_property!(
         .as_container()
         .get(node_id)
         .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-        .map_or(DEFAULT_FONT_SIZE, |p| get_element_font_size(styled_dom, p, node_state));
+        .map_or(DEFAULT_FONT_SIZE, |p| {
+            get_element_font_size(styled_dom, p, node_state)
+        });
     let root_font_size = get_root_font_size(styled_dom, node_state);
 
     // Create resolution context
@@ -1875,7 +1888,8 @@ get_css_property!(
 /// Returns the resolved integer z-index value:
 /// - `z-index: auto` → 0 (participates in parent's stacking context)
 /// - `z-index: <integer>` → that integer value
-#[must_use] pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
+#[must_use]
+pub fn get_z_index(styled_dom: &StyledDom, node_id: Option<NodeId>) -> i32 {
     use azul_css::props::layout::position::LayoutZIndex;
 
     let Some(node_id) = node_id else {
@@ -1916,7 +1930,8 @@ get_css_property!(
 // z-index:<integer> ALWAYS establishes new stacking context on positioned elements
 /// Returns true if z-index is `auto` (the initial value), false if it's an explicit `<integer>`.
 /// This distinction matters for stacking context creation per §9.9.1.
-#[must_use] pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool {
+#[must_use]
+pub fn is_z_index_auto(styled_dom: &StyledDom, node_id: Option<NodeId>) -> bool {
     use azul_css::props::layout::position::LayoutZIndex;
 
     let Some(node_id) = node_id else {
@@ -1972,8 +1987,10 @@ get_css_property!(
 /// Implementation: When requesting the background of an `<html>` node, we first check if it
 /// has a transparent background with no image. If so, we look for a `<body>` child and use
 /// its background instead.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-#[must_use] pub fn get_background_color(
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[must_use]
+pub fn get_background_color(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -2063,7 +2080,8 @@ get_css_property!(
 /// CSS Background Propagation (CSS Backgrounds 3, Section 2.11.2):
 /// For HTML documents, if the root `<html>` element has no background (transparent with no image),
 /// propagate the background from the first `<body>` child element.
-#[must_use] pub fn get_background_contents(
+#[must_use]
+pub fn get_background_contents(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -2135,7 +2153,8 @@ pub struct BorderInfo {
 }
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-#[must_use] pub fn get_border_info(
+#[must_use]
+pub fn get_border_info(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -2340,10 +2359,7 @@ fn get_inline_border_info(
 
     // Fetch padding values for inline elements. Viewport units (vw/vh/...) resolve
     // against the real viewport instead of being treated as raw pixels.
-    fn resolve_padding(
-        mv: MultiValue<PixelValue>,
-        viewport: PhysicalSize,
-    ) -> f32 {
+    fn resolve_padding(mv: MultiValue<PixelValue>, viewport: PhysicalSize) -> f32 {
         match mv {
             MultiValue::Exact(pv) => super::calc::resolve_pixel_value_with_viewport(
                 &pv,
@@ -2431,10 +2447,22 @@ fn get_inline_border_info(
     let bottom = border_width_px!(&border_info.widths.bottom);
     let left = border_width_px!(&border_info.widths.left);
 
-    let p_top = resolve_padding(get_css_padding_top(styled_dom, node_id, node_state), viewport);
-    let p_right = resolve_padding(get_css_padding_right(styled_dom, node_id, node_state), viewport);
-    let p_bottom = resolve_padding(get_css_padding_bottom(styled_dom, node_id, node_state), viewport);
-    let p_left = resolve_padding(get_css_padding_left(styled_dom, node_id, node_state), viewport);
+    let p_top = resolve_padding(
+        get_css_padding_top(styled_dom, node_id, node_state),
+        viewport,
+    );
+    let p_right = resolve_padding(
+        get_css_padding_right(styled_dom, node_id, node_state),
+        viewport,
+    );
+    let p_bottom = resolve_padding(
+        get_css_padding_bottom(styled_dom, node_id, node_state),
+        viewport,
+    );
+    let p_left = resolve_padding(
+        get_css_padding_left(styled_dom, node_id, node_state),
+        viewport,
+    );
 
     // Only return Some if there's actually a border or padding
     let has_border = top > 0.0 || right > 0.0 || bottom > 0.0 || left > 0.0;
@@ -2502,7 +2530,8 @@ impl SelectionStyle {
 }
 
 /// Get selection style for a node
-#[must_use] pub fn get_selection_style(
+#[must_use]
+pub fn get_selection_style(
     styled_dom: &StyledDom,
     node_id: Option<NodeId>,
     system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -2547,7 +2576,10 @@ impl SelectionStyle {
         .ptr
         .get_selection_radius(node_data, &node_id, node_state)
         .and_then(|r| r.get_property().copied())
-        .map_or(0.0, |r| r.inner.to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE));
+        .map_or(0.0, |r| {
+            r.inner
+                .to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE)
+        });
 
     SelectionStyle {
         bg_color,
@@ -2583,7 +2615,8 @@ impl Default for CaretStyle {
 }
 
 /// Get caret style for a node
-#[must_use] pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> CaretStyle {
+#[must_use]
+pub fn get_caret_style(styled_dom: &StyledDom, node_id: Option<NodeId>) -> CaretStyle {
     let Some(node_id) = node_id else {
         return CaretStyle::default();
     };
@@ -2614,7 +2647,10 @@ impl Default for CaretStyle {
         .ptr
         .get_caret_width(node_data, &node_id, node_state)
         .and_then(|w| w.get_property().copied())
-        .map_or(DEFAULT_CARET_WIDTH_PX, |w| w.inner.to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE));
+        .map_or(DEFAULT_CARET_WIDTH_PX, |w| {
+            w.inner
+                .to_pixels_internal(0.0, DEFAULT_EM_SIZE, DEFAULT_EM_SIZE)
+        });
 
     // Bound first so the fallback is neither a lazy closure nor an inline call
     // in `map_or` — both shapes trip a clippy lint, and neither reads better.
@@ -2644,7 +2680,8 @@ impl Default for CaretStyle {
 /// If neither path set `scrollbar_info`, the node genuinely does not need
 /// scrollbars. The previous heuristic (>3 children = force overflow) caused
 /// false-positive scrollbars on normal containers.
-#[must_use] pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirements {
+#[must_use]
+pub fn get_scrollbar_info_from_layout(node: &LayoutNode) -> ScrollbarRequirements {
     node.scrollbar_info.unwrap_or_default()
 }
 
@@ -2688,7 +2725,8 @@ get_css_property!(
     compact = get_display
 );
 
-#[must_use] pub fn get_display_property(
+#[must_use]
+pub fn get_display_property(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
 ) -> MultiValue<LayoutDisplay> {
@@ -2704,8 +2742,10 @@ get_css_property!(
 /// When an element is floated, absolutely positioned, or is the root element,
 /// its computed display value may be "blockified" per the table in CSS Display 3 §2.7.
 /// This function returns the blockified display value without mutating any state.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-#[must_use] pub const fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[must_use]
+pub const fn blockify_display(raw_display: LayoutDisplay) -> LayoutDisplay {
     match raw_display {
         // Inline-level display types become their block-level equivalents
         LayoutDisplay::Inline => LayoutDisplay::Block,
@@ -2748,7 +2788,8 @@ get_css_property!(
 // four independent layout-state flags drive the blockification decision; bundling them
 // into a struct would add ceremony without clarifying this pure decision function.
 #[allow(clippy::fn_params_excessive_bools)]
-#[must_use] pub fn get_computed_display(
+#[must_use]
+pub fn get_computed_display(
     raw_display: LayoutDisplay,
     is_absolute_or_fixed: bool,
     is_floated: bool,
@@ -2770,7 +2811,8 @@ get_css_property!(
 /// Reads the CSS `vertical-align` property for a DOM node and converts it to
 /// the text3 `VerticalAlign` enum used during inline layout.
 // +spec:display-property:24c160 - vertical-align aligns inline-level box within the line
-#[must_use] pub fn get_vertical_align_for_node(
+#[must_use]
+pub fn get_vertical_align_for_node(
     styled_dom: &StyledDom,
     dom_id: NodeId,
 ) -> crate::text3::cache::VerticalAlign {
@@ -2797,11 +2839,17 @@ get_css_property!(
             // old `normalized() * font_size` scaled (and sign-flipped) absolute
             // line-heights — e.g. `line-height: 30px` + `vertical-align: 50%` gave
             // -240px instead of +15px.
-            let line_height = get_line_height_value(styled_dom, dom_id, node_state)
-                .map_or(font_size * 1.2, |lh| {
+            let line_height = get_line_height_value(styled_dom, dom_id, node_state).map_or(
+                font_size * 1.2,
+                |lh| {
                     let n = lh.inner.normalized();
-                    if n < 0.0 { -n } else { n * font_size }
-                });
+                    if n < 0.0 {
+                        -n
+                    } else {
+                        n * font_size
+                    }
+                },
+            );
             crate::text3::cache::VerticalAlign::Offset(p.normalized() * line_height)
         }
         // §10.8.1: <length> is absolute offset from baseline
@@ -2843,10 +2891,7 @@ get_css_property!(
 /// does.
 #[derive(Default, Debug)]
 pub struct StyleCache {
-    by_node: HashMap<
-        (u32, StyledNodeState, u32, u32),
-        std::sync::Arc<StyleProperties>,
-    >,
+    by_node: HashMap<(u32, StyledNodeState, u32, u32), std::sync::Arc<StyleProperties>>,
     by_value: HashMap<u64, Vec<std::sync::Arc<StyleProperties>>>,
 }
 
@@ -3063,13 +3108,11 @@ pub fn get_style_properties(
                     // scale (see core/src/compact.rs): NEGATIVE = absolute px
                     // stored as -px x 10, so decoded == -px directly;
                     // positive = multiple x 1000, so decoded == multiple x 100.
-                    fast_lh = Some(crate::text3::cache::LineHeight::Px(
-                        if decoded < 0.0 {
-                            -decoded
-                        } else {
-                            (decoded / 100.0) * font_size
-                        },
-                    ));
+                    fast_lh = Some(crate::text3::cache::LineHeight::Px(if decoded < 0.0 {
+                        -decoded
+                    } else {
+                        (decoded / 100.0) * font_size
+                    }));
                 } else {
                     // Sentinel in compact cache = "normal" (CSS default).
                     sentinel_normal = true;
@@ -3087,7 +3130,11 @@ pub fn get_style_properties(
                         // Negative normalized() = absolute px value (parser convention
                         // for "50px" etc.); positive = multiple of font-size.
                         let n = v.inner.normalized();
-                        crate::text3::cache::LineHeight::Px(if n < 0.0 { -n } else { n * font_size })
+                        crate::text3::cache::LineHeight::Px(if n < 0.0 {
+                            -n
+                        } else {
+                            n * font_size
+                        })
                     })
             })
         }
@@ -3287,8 +3334,8 @@ pub fn get_style_properties(
         .get_text_transform(node_data, &dom_id, node_state)
         .and_then(|v| v.get_property().copied())
         .map(|t| {
-            use azul_css::props::style::text::StyleTextTransform as Css;
             use crate::text3::cache::TextTransform as T3;
+            use azul_css::props::style::text::StyleTextTransform as Css;
             match t {
                 Css::None => T3::None,
                 Css::Uppercase => T3::Uppercase,
@@ -3324,7 +3371,8 @@ pub fn get_style_properties(
     }
 }
 
-#[must_use] pub fn get_list_style_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> StyleListStyleType {
+#[must_use]
+pub fn get_list_style_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> StyleListStyleType {
     let Some(id) = dom_id else {
         return StyleListStyleType::default();
     };
@@ -3338,7 +3386,8 @@ pub fn get_style_properties(
         .unwrap_or_default()
 }
 
-#[must_use] pub fn get_list_style_position(
+#[must_use]
+pub fn get_list_style_position(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
 ) -> StyleListStylePosition {
@@ -3504,7 +3553,8 @@ get_css_property_pixel!(
 // Fragmentation (page breaking) properties
 
 /// Get break-before property for paged media
-#[must_use] pub fn get_break_before(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
+#[must_use]
+pub fn get_break_before(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
     let Some(id) = dom_id else {
         return PageBreak::Auto;
     };
@@ -3515,18 +3565,15 @@ get_css_property_pixel!(
     // miss path on BOTH branches, not `Auto`.
     let ua_fallback = |styled_dom: &StyledDom| -> PageBreak {
         let node_data = &styled_dom.node_data.as_container()[id];
-        azul_core::ua_css::get_ua_property(
-            node_data.get_node_type(),
-            CssPropertyType::BreakBefore,
-        )
-        .and_then(|p| {
-            if let CssProperty::BreakBefore(v) = p {
-                v.get_property().copied()
-            } else {
-                None
-            }
-        })
-        .unwrap_or(PageBreak::Auto)
+        azul_core::ua_css::get_ua_property(node_data.get_node_type(), CssPropertyType::BreakBefore)
+            .and_then(|p| {
+                if let CssProperty::BreakBefore(v) = p {
+                    v.get_property().copied()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(PageBreak::Auto)
     };
     // Negative fast path: break-* is almost never declared by authors.
     if node_state.is_normal() {
@@ -3546,7 +3593,8 @@ get_css_property_pixel!(
 }
 
 /// Get break-after property for paged media
-#[must_use] pub fn get_break_after(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
+#[must_use]
+pub fn get_break_after(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> PageBreak {
     let Some(id) = dom_id else {
         return PageBreak::Auto;
     };
@@ -3568,7 +3616,8 @@ get_css_property_pixel!(
 }
 
 /// Check if a `PageBreak` value forces a page break (always, page, left, right, etc.)
-#[must_use] pub const fn is_forced_page_break(page_break: PageBreak) -> bool {
+#[must_use]
+pub const fn is_forced_page_break(page_break: PageBreak) -> bool {
     matches!(
         page_break,
         PageBreak::Always
@@ -3582,7 +3631,8 @@ get_css_property_pixel!(
 }
 
 /// Get break-inside property for paged media
-#[must_use] pub fn get_break_inside(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> BreakInside {
+#[must_use]
+pub fn get_break_inside(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> BreakInside {
     let Some(id) = dom_id else {
         return BreakInside::Auto;
     };
@@ -3597,7 +3647,8 @@ get_css_property_pixel!(
 }
 
 /// Get orphans property (minimum lines at bottom of page)
-#[must_use] pub fn get_orphans(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
+#[must_use]
+pub fn get_orphans(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
     let Some(id) = dom_id else {
         return 2; // Default value
     };
@@ -3612,7 +3663,8 @@ get_css_property_pixel!(
 }
 
 /// Get widows property (minimum lines at top of page)
-#[must_use] pub fn get_widows(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
+#[must_use]
+pub fn get_widows(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> u32 {
     let Some(id) = dom_id else {
         return 2; // Default value
     };
@@ -3627,7 +3679,8 @@ get_css_property_pixel!(
 }
 
 /// Get box-decoration-break property
-#[must_use] pub fn get_box_decoration_break(
+#[must_use]
+pub fn get_box_decoration_break(
     styled_dom: &StyledDom,
     dom_id: Option<NodeId>,
 ) -> BoxDecorationBreak {
@@ -3647,12 +3700,14 @@ get_css_property_pixel!(
 // Helper functions for break properties
 
 /// Check if a `PageBreak` value is avoid
-#[must_use] pub const fn is_avoid_page_break(page_break: &PageBreak) -> bool {
+#[must_use]
+pub const fn is_avoid_page_break(page_break: &PageBreak) -> bool {
     matches!(page_break, PageBreak::Avoid | PageBreak::AvoidPage)
 }
 
 /// Check if a `BreakInside` value prevents breaks
-#[must_use] pub const fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
+#[must_use]
+pub const fn is_avoid_break_inside(break_inside: &BreakInside) -> bool {
     matches!(
         break_inside,
         BreakInside::Avoid | BreakInside::AvoidPage | BreakInside::AvoidColumn
@@ -3740,18 +3795,26 @@ fn collect_alias_files(
     map: &mut std::collections::BTreeMap<String, Vec<String>>,
 ) {
     for path in files {
-        let Ok(content) = std::fs::read_to_string(path) else { continue };
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue;
+        };
         let mut rest = content.as_str();
         while let Some(start) = rest.find("<alias") {
-            let Some(end_rel) = rest[start..].find("</alias>") else { break };
+            let Some(end_rel) = rest[start..].find("</alias>") else {
+                break;
+            };
             let block = &rest[start..start + end_rel];
             rest = &rest[start + end_rel + "</alias>".len()..];
-            let Some(fam) = extract_xml_tag(block, "family") else { continue };
+            let Some(fam) = extract_xml_tag(block, "family") else {
+                continue;
+            };
             let fam_lower = fam.to_ascii_lowercase();
             if !matches!(fam_lower.as_str(), "sans-serif" | "serif" | "monospace") {
                 continue;
             }
-            let Some(prefer_start) = block.find("<prefer>") else { continue };
+            let Some(prefer_start) = block.find("<prefer>") else {
+                continue;
+            };
             let prefer_end = block[prefer_start..]
                 .find("</prefer>")
                 .map_or(block.len(), |e| prefer_start + e);
@@ -3761,7 +3824,9 @@ fn collect_alias_files(
                 if !entry.iter().any(|e| e.eq_ignore_ascii_case(&f)) {
                     entry.push(f.clone());
                 }
-                let Some(pos) = prefer_block.find("</family>") else { break };
+                let Some(pos) = prefer_block.find("</family>") else {
+                    break;
+                };
                 prefer_block = &prefer_block[pos + "</family>".len()..];
             }
         }
@@ -3919,7 +3984,9 @@ fn build_font_selector_stack(
         };
         if let Some(system_type) = system_type {
             let current;
-            let platform = if let Some(p) = platform { p } else {
+            let platform = if let Some(p) = platform {
+                p
+            } else {
                 current = azul_css::system::Platform::current();
                 &current
             };
@@ -4012,30 +4079,35 @@ pub struct ResolvedFontChains {
 
 impl ResolvedFontChains {
     /// Get a font chain by its key
-    #[must_use] pub fn get(&self, key: &FontChainKeyOrRef) -> Option<&FontFallbackChain> {
+    #[must_use]
+    pub fn get(&self, key: &FontChainKeyOrRef) -> Option<&FontFallbackChain> {
         self.chains.get(key)
     }
 
     /// Get a font chain by `FontChainKey` (for system fonts)
-    #[must_use] pub fn get_by_chain_key(&self, key: &FontChainKey) -> Option<&FontFallbackChain> {
+    #[must_use]
+    pub fn get_by_chain_key(&self, key: &FontChainKey) -> Option<&FontFallbackChain> {
         self.chains.get(&FontChainKeyOrRef::Chain(key.clone()))
     }
 
     /// Get a font chain for a font stack (via fontconfig)
-    #[must_use] pub fn get_for_font_stack(&self, font_stack: &[FontSelector]) -> Option<&FontFallbackChain> {
+    #[must_use]
+    pub fn get_for_font_stack(&self, font_stack: &[FontSelector]) -> Option<&FontFallbackChain> {
         let key = FontChainKeyOrRef::Chain(FontChainKey::from_selectors(font_stack));
         self.chains.get(&key)
     }
 
     /// Get a font chain for a `FontRef` pointer
-    #[must_use] pub fn get_for_font_ref(&self, ptr: usize) -> Option<&FontFallbackChain> {
+    #[must_use]
+    pub fn get_for_font_ref(&self, ptr: usize) -> Option<&FontFallbackChain> {
         self.chains.get(&FontChainKeyOrRef::Ref(ptr))
     }
 
     /// Consume self and return the inner `HashMap` with `FontChainKeyOrRef` keys
     ///
     /// This is useful when you need access to both Chain and Ref variants.
-    #[must_use] pub fn into_inner(self) -> HashMap<FontChainKeyOrRef, FontFallbackChain> {
+    #[must_use]
+    pub fn into_inner(self) -> HashMap<FontChainKeyOrRef, FontFallbackChain> {
         self.chains
     }
 
@@ -4043,7 +4115,8 @@ impl ResolvedFontChains {
     ///
     /// This filters out `FontRef` entries and returns only the chains
     /// resolved via fontconfig. This is what `FontManager` expects.
-    #[must_use] pub fn into_fontconfig_chains(self) -> HashMap<FontChainKey, FontFallbackChain> {
+    #[must_use]
+    pub fn into_fontconfig_chains(self) -> HashMap<FontChainKey, FontFallbackChain> {
         // (2026-06-10: reverted to HashMap end-to-end — the empty-hashbrown RawIter hang behind
         // the 2026-06-05 BTreeMap migration was the un-mirrored EMPTY_GROUP static, fixed
         // transpiler-side in symbol_table.rs::compute_hashbrown_empty_group_ranges.)
@@ -4060,17 +4133,20 @@ impl ResolvedFontChains {
     }
 
     /// Get the number of resolved chains
-    #[must_use] pub fn len(&self) -> usize {
+    #[must_use]
+    pub fn len(&self) -> usize {
         self.chains.len()
     }
 
     /// Check if there are no resolved chains
-    #[must_use] pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
         self.chains.is_empty()
     }
 
     /// Get the number of direct `FontRefs`
-    #[must_use] pub fn font_refs_len(&self) -> usize {
+    #[must_use]
+    pub fn font_refs_len(&self) -> usize {
         self.chains.keys().filter(|k| k.is_ref()).count()
     }
 }
@@ -4088,7 +4164,8 @@ impl ResolvedFontChains {
 /// A `CollectedFontStacks` containing all unique font stacks and a hash-to-index mapping
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-#[must_use] pub fn collect_font_stacks_from_styled_dom(
+#[must_use]
+pub fn collect_font_stacks_from_styled_dom(
     styled_dom: &StyledDom,
     platform: &azul_css::system::Platform,
 ) -> CollectedFontStacks {
@@ -4142,11 +4219,10 @@ impl ResolvedFontChains {
         // NodeType is #[repr(C,u8)] so the discriminant is the u8 at offset 0; Text=177
         // (per AzDom_createText: `mov w8,#0xb1; strb w8,[x19]`). Compare the raw
         // discriminant to the literal 177 (a source literal lifts correctly).
-        let nt_disc = unsafe {
-            core::ptr::read((&raw const node_data.internal[i].node_type).cast::<u8>())
-        };
-        let is_text = nt_disc == 177
-            || matches!(node_data.internal[i].node_type, NodeType::Text(_));
+        let nt_disc =
+            unsafe { core::ptr::read((&raw const node_data.internal[i].node_type).cast::<u8>()) };
+        let is_text =
+            nt_disc == 177 || matches!(node_data.internal[i].node_type, NodeType::Text(_));
         if !is_text {
             continue;
         }
@@ -4193,7 +4269,13 @@ impl ResolvedFontChains {
             let nt_ptr = (&raw const node_data.internal[i].node_type).cast::<u8>();
             let disc = unsafe { core::ptr::read_volatile(nt_ptr) };
             // Text is one specific discriminant; count whatever the body node ISN'T.
-            if disc != unsafe { core::ptr::read_volatile((&raw const node_data.internal[0].node_type).cast::<u8>()) } {
+            if disc
+                != unsafe {
+                    core::ptr::read_volatile(
+                        (&raw const node_data.internal[0].node_type).cast::<u8>(),
+                    )
+                }
+            {
                 raw_text += 1;
             }
         }
@@ -4296,7 +4378,8 @@ impl ResolvedFontChains {
 /// returned set are deduped + sorted via `BTreeSet`.
 ///
 /// Cost: O(total text length). Cheap relative to layout itself.
-#[must_use] pub fn collect_used_codepoints(styled_dom: &StyledDom) -> std::collections::BTreeSet<u32> {
+#[must_use]
+pub fn collect_used_codepoints(styled_dom: &StyledDom) -> std::collections::BTreeSet<u32> {
     let mut out = std::collections::BTreeSet::new();
     let node_data = styled_dom.node_data.as_container();
     for node in node_data.internal {
@@ -4326,7 +4409,8 @@ impl ResolvedFontChains {
 /// (`prune_chain_to_used_chars`) runs *after* resolution to trim an
 /// already-resolved chain and every Latin-covering font passes ASCII
 /// trivially. That assumption doesn't hold during probing.
-#[must_use] pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::BTreeSet<char> {
+#[must_use]
+pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::BTreeSet<char> {
     let mut out = std::collections::BTreeSet::new();
     let node_data = styled_dom.node_data.as_container();
     for node in node_data.internal {
@@ -4409,7 +4493,8 @@ pub fn prune_chain_to_used_chars(
 /// actually uses. An ASCII-only page returns an empty vector, which
 /// avoids dragging Arial Unicode MS, CJK fonts, etc. into the
 /// resolved chain and therefore into the eager-load step.
-#[must_use] pub fn scripts_present_in_styled_dom(styled_dom: &StyledDom) -> Vec<UnicodeRange> {
+#[must_use]
+pub fn scripts_present_in_styled_dom(styled_dom: &StyledDom) -> Vec<UnicodeRange> {
     let scripts = DEFAULT_UNICODE_FALLBACK_SCRIPTS;
     let mut seen = vec![false; scripts.len()];
     let mut hits = 0usize;
@@ -4460,7 +4545,8 @@ pub fn prune_chain_to_used_chars(
 /// - `Some(ranges)` attaches fallbacks only for the listed scripts.
 ///   Production callers compute this via
 ///   [`scripts_present_in_styled_dom`].
-#[must_use] pub fn resolve_font_chains(
+#[must_use]
+pub fn resolve_font_chains(
     collected: &CollectedFontStacks,
     fc_cache: &FcFontCache,
     scripts_hint: Option<&[UnicodeRange]>,
@@ -4500,8 +4586,8 @@ fn split_memory_matches(
         let faces = memory_families.get(&norm);
 
         // A primary face IS the family: it wins outright, disk never consulted.
-        if let Some(face) =
-            faces.and_then(|f| pick_memory_face(f, weight, italic, oblique, MemoryFontTier::Primary))
+        if let Some(face) = faces
+            .and_then(|f| pick_memory_face(f, weight, italic, oblique, MemoryFontTier::Primary))
         {
             groups.push(rust_fontconfig::CssFallbackGroup {
                 css_name: family.clone(),
@@ -4561,11 +4647,10 @@ fn pick_memory_face(
     };
     // A variable face whose wght axis covers the request satisfies it exactly.
     let req = f32::from(weight as u16);
-    if let Some(vf) = pool
-        .iter()
-        .copied()
-        .find(|f| f.weight_axis.is_some_and(|(min, max)| req >= min && req <= max))
-    {
+    if let Some(vf) = pool.iter().copied().find(|f| {
+        f.weight_axis
+            .is_some_and(|(min, max)| req >= min && req <= max)
+    }) {
         return Some(vf);
     }
     // Otherwise pick the nearest static weight (CSS fallback order).
@@ -4693,7 +4778,8 @@ fn should_prune_family(
     aliases.contains(&lower) && !available.contains(&lower) && !is_generic_family(family)
 }
 
-#[must_use] pub fn resolve_font_chains_with_registry(
+#[must_use]
+pub fn resolve_font_chains_with_registry(
     collected: &CollectedFontStacks,
     fc_cache: &FcFontCache,
     registry: Option<&rust_fontconfig::registry::FcFontRegistry>,
@@ -4758,8 +4844,13 @@ fn should_prune_family(
         // MEMORY FONTS FIRST (see `split_memory_matches`): a family
         // registered by name into the cache's in-memory table wins over
         // anything on disk, exactly as CSS says.
-        let (mem_groups, disk_families, mem_fallbacks) =
-            split_memory_matches(&font_families, memory_families, weight, is_italic, is_oblique);
+        let (mem_groups, disk_families, mem_fallbacks) = split_memory_matches(
+            &font_families,
+            memory_families,
+            weight,
+            is_italic,
+            is_oblique,
+        );
 
         // Alias candidates the system cannot serve never reach the resolver:
         // each one costs a real lookup (~0.52 ms) to learn what a set
@@ -4836,7 +4927,11 @@ fn should_prune_family(
         // font IS registered (generic→OS-name expansion + token/unicode query is
         // lift-fragile). If the chain has no fonts, append the first registered font so
         // load_missing_for_chains / resolve_char find it and text shapes (not measure 0).
-        let total_fonts = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
+        let total_fonts = chain
+            .css_fallbacks
+            .iter()
+            .map(|g| g.fonts.len())
+            .sum::<usize>()
             + chain.unicode_fallbacks.len();
         if total_fonts == 0 {
             if let Some((_pattern, id)) = first_font_in_cache(fc_cache).as_ref() {
@@ -4888,9 +4983,7 @@ fn should_prune_family(
 /// rust-fontconfig documents `for_each_pattern` as "avoids the per-entry
 /// clone that `list` incurs"; it has no early exit, so this keeps the first
 /// hit and ignores the rest — one clone instead of N.
-fn first_font_in_cache(
-    fc_cache: &FcFontCache,
-) -> Option<(rust_fontconfig::FcPattern, FontId)> {
+fn first_font_in_cache(fc_cache: &FcFontCache) -> Option<(rust_fontconfig::FcPattern, FontId)> {
     let mut first = None;
     fc_cache.for_each_pattern(|pattern, id| {
         if first.is_none() {
@@ -4915,12 +5008,15 @@ fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCa
         return;
     };
     let keys: Vec<FontChainKeyOrRef> = resolved.chains.keys().cloned().collect();
-    let mut rebuilt: HashMap<FontChainKeyOrRef, FontFallbackChain> =
-        HashMap::new();
+    let mut rebuilt: HashMap<FontChainKeyOrRef, FontFallbackChain> = HashMap::new();
     let mut last_resort = 0usize;
     for key in keys {
         if let Some(mut chain) = resolved.chains.remove(&key) {
-            let total = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
+            let total = chain
+                .css_fallbacks
+                .iter()
+                .map(|g| g.fonts.len())
+                .sum::<usize>()
                 + chain.unicode_fallbacks.len();
             if total == 0 {
                 // NOT SILENT: this chain matched nothing at all. Every such
@@ -4962,7 +5058,8 @@ fn ensure_chains_nonempty(resolved: &mut ResolvedFontChains, fc_cache: &FcFontCa
 /// in a single pass over the DOM nodes. Replaces the old two-pass approach
 /// where `register_embedded_fonts_from_styled_dom` + `collect_and_resolve_font_chains`
 /// each independently scanned all nodes.
-#[must_use] pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
+#[must_use]
+pub fn collect_and_resolve_font_chains_with_registration<T: ParsedFontTrait>(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,
     font_manager: &crate::text3::cache::FontManager<T>,
@@ -5094,8 +5191,13 @@ pub fn resolve_font_chains_fast(
         // (production always has a live registry, so it always took this
         // path). Match memory families by name here, in CSS order, and only
         // hand the remaining families to the disk probe.
-        let (mut css_fallbacks, disk_families, mem_fallbacks) =
-            split_memory_matches(&font_families, memory_families, weight, is_italic, is_oblique);
+        let (mut css_fallbacks, disk_families, mem_fallbacks) = split_memory_matches(
+            &font_families,
+            memory_families,
+            weight,
+            is_italic,
+            is_oblique,
+        );
 
         let request = vec![(disk_families.clone(), codepoints.clone())];
         let mut chains_out = if disk_families.is_empty() {
@@ -5113,9 +5215,7 @@ pub fn resolve_font_chains_fast(
                 font_families,
                 weight,
                 italic_match,
-                chains_out
-                    .first()
-                    .map_or(0, |c| c.css_fallbacks.len()),
+                chains_out.first().map_or(0, |c| c.css_fallbacks.len()),
                 total_fonts,
             );
         }
@@ -5212,7 +5312,8 @@ fn report_unresolved_families(resolved: &ResolvedFontChains) {
 /// Legacy wrapper: collect + resolve without registration. Kept for
 /// backward compatibility; defaults to the full 7-script unicode
 /// fallback set.
-#[must_use] pub fn collect_and_resolve_font_chains(
+#[must_use]
+pub fn collect_and_resolve_font_chains(
     styled_dom: &StyledDom,
     fc_cache: &FcFontCache,
     platform: &azul_css::system::Platform,
@@ -5243,7 +5344,8 @@ use rust_fontconfig::FontId;
 ///
 /// This function collects all `FontIds` that are referenced in the font chains,
 /// which represents the complete set of fonts that may be needed for rendering.
-#[must_use] pub fn collect_font_ids_from_chains(chains: &ResolvedFontChains) -> HashSet<FontId> {
+#[must_use]
+pub fn collect_font_ids_from_chains(chains: &ResolvedFontChains) -> HashSet<FontId> {
     let mut font_ids = HashSet::new();
 
     // M12.7: hashbrown's RawIterRange (the .values() iterator below) mis-lifts
@@ -5279,7 +5381,8 @@ use rust_fontconfig::FontId;
 /// # Returns
 /// Set of `FontIds` that need to be loaded
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
-#[must_use] pub fn compute_fonts_to_load(
+#[must_use]
+pub fn compute_fonts_to_load(
     required_fonts: &HashSet<FontId>,
     already_loaded: &HashSet<FontId>,
 ) -> HashSet<FontId> {
@@ -5358,10 +5461,7 @@ where
                 loaded.insert(*font_id, font);
             }
             Err(e) => {
-                failed.push((
-                    *font_id,
-                    format!("Failed to parse font {font_id:?}: {e:?}"),
-                ));
+                failed.push((*font_id, format!("Failed to parse font {font_id:?}: {e:?}")));
             }
         }
     }
@@ -5587,7 +5687,8 @@ impl ComputedScrollbarStyle {
 /// When `system_style` is `None`, falls back to the unconditional UA rule
 /// (classic light scrollbar).
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-#[must_use] pub fn get_scrollbar_style(
+#[must_use]
+pub fn get_scrollbar_style(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5770,7 +5871,8 @@ const fn extract_color_from_background(
 }
 
 /// Check if a node should clip its scrollbar to the container's border-radius
-#[must_use] pub fn should_clip_scrollbar_to_border(
+#[must_use]
+pub fn should_clip_scrollbar_to_border(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5780,7 +5882,8 @@ const fn extract_color_from_background(
 }
 
 /// Get the scrollbar visual width in pixels for a node (used for rendering)
-#[must_use] pub fn get_scrollbar_width_px(
+#[must_use]
+pub fn get_scrollbar_width_px(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5793,7 +5896,8 @@ const fn extract_color_from_background(
 ///
 /// Returns `true` if the text can be selected (default behavior),
 /// `false` if `user-select: none` is set.
-#[must_use] pub fn is_text_selectable(
+#[must_use]
+pub fn is_text_selectable(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -5815,7 +5919,8 @@ const fn extract_color_from_background(
 /// - OR the node has `contenteditable` attribute set to `true`
 ///
 /// This does NOT check inheritance - use `is_node_contenteditable_inherited` for that.
-#[must_use] pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+#[must_use]
+pub fn is_node_contenteditable(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     use azul_core::dom::AttributeType;
 
     let node_data = &styled_dom.node_data.as_container()[node_id];
@@ -5837,6 +5942,7 @@ const fn extract_color_from_background(
 // Additional ExtractPropertyValue impls (not in compact cache tier 1/2)
 // =============================================================================
 
+use azul_css::props::layout::overflow::StyleTextOverflow;
 use azul_css::props::layout::table::{
     LayoutTableLayout, StyleBorderCollapse, StyleCaptionSide, StyleEmptyCells,
 };
@@ -5845,7 +5951,6 @@ use azul_css::props::style::effects::StyleAspectRatio;
 use azul_css::props::style::effects::StyleCursor;
 use azul_css::props::style::effects::StyleObjectFit;
 use azul_css::props::style::effects::StyleObjectPosition;
-use azul_css::props::layout::overflow::StyleTextOverflow;
 use azul_css::props::style::effects::StyleTextOrientation;
 use azul_css::props::style::text::StyleHyphens;
 use azul_css::props::style::text::StyleLineBreak;
@@ -6090,7 +6195,8 @@ get_css_property!(
 // `extract()` could not tell them apart. No UA rule declares either property
 // anyway (the initial value is `auto`, which is what absence means), so the
 // author-CSS lookup is the whole cascade here.
-#[must_use] pub fn get_overscroll_behavior_x(
+#[must_use]
+pub fn get_overscroll_behavior_x(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6104,7 +6210,8 @@ get_css_property!(
         .map_or(MultiValue::Auto, MultiValue::Exact)
 }
 
-#[must_use] pub fn get_overscroll_behavior_y(
+#[must_use]
+pub fn get_overscroll_behavior_y(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6132,7 +6239,8 @@ get_css_property!(
 // =============================================================================
 
 /// Get height property value for IFC text layout height reference.
-#[must_use] pub fn get_height_value(
+#[must_use]
+pub fn get_height_value(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6147,7 +6255,8 @@ get_css_property!(
 }
 
 /// Get shape-inside property. Returns Option<ShapeInside> (cloned).
-#[must_use] pub fn get_shape_inside(
+#[must_use]
+pub fn get_shape_inside(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6162,7 +6271,8 @@ get_css_property!(
 }
 
 /// Get shape-outside property. Returns Option<ShapeOutside> (cloned).
-#[must_use] pub fn get_shape_outside(
+#[must_use]
+pub fn get_shape_outside(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6177,7 +6287,8 @@ get_css_property!(
 }
 
 /// Get line-height as the full `StyleLineHeight` value for caller resolution.
-#[must_use] pub fn get_line_height_value(
+#[must_use]
+pub fn get_line_height_value(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6192,7 +6303,8 @@ get_css_property!(
 }
 
 /// Get text-indent as the full `StyleTextIndent` value for caller resolution.
-#[must_use] pub fn get_text_indent_value(
+#[must_use]
+pub fn get_text_indent_value(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6207,7 +6319,8 @@ get_css_property!(
 }
 
 /// Get column-count property. Returns Option<ColumnCount>.
-#[must_use] pub fn get_column_count(
+#[must_use]
+pub fn get_column_count(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6222,7 +6335,8 @@ get_css_property!(
 }
 
 /// Get initial-letter property. Returns Option<StyleInitialLetter>.
-#[must_use] pub fn get_initial_letter(
+#[must_use]
+pub fn get_initial_letter(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6237,7 +6351,8 @@ get_css_property!(
 }
 
 /// Get line-clamp property. Returns Option<StyleLineClamp>.
-#[must_use] pub fn get_line_clamp(
+#[must_use]
+pub fn get_line_clamp(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6252,7 +6367,8 @@ get_css_property!(
 }
 
 /// Get hanging-punctuation property. Returns Option<StyleHangingPunctuation>.
-#[must_use] pub fn get_hanging_punctuation(
+#[must_use]
+pub fn get_hanging_punctuation(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6267,7 +6383,8 @@ get_css_property!(
 }
 
 /// Get text-combine-upright property. Returns Option<StyleTextCombineUpright>.
-#[must_use] pub fn get_text_combine_upright(
+#[must_use]
+pub fn get_text_combine_upright(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6282,7 +6399,8 @@ get_css_property!(
 }
 
 /// Get exclusion-margin value. Returns f32 (default 0.0).
-#[must_use] pub fn get_exclusion_margin(
+#[must_use]
+pub fn get_exclusion_margin(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6297,7 +6415,8 @@ get_css_property!(
 }
 
 /// Get hyphenation-language property. Returns Option<StyleHyphenationLanguage>.
-#[must_use] pub fn get_hyphenation_language(
+#[must_use]
+pub fn get_hyphenation_language(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6312,7 +6431,8 @@ get_css_property!(
 }
 
 /// Get border-spacing property.
-#[must_use] pub fn get_border_spacing(
+#[must_use]
+pub fn get_border_spacing(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6353,7 +6473,8 @@ get_css_property!(
 /// GPU fast path: the compact cache encodes opacity as a u8 (0-254, 255 = unset).
 /// Avoids the 4-pseudo-state × 6-layer cascade walk for animations reading opacity
 /// across every node each frame.
-#[must_use] pub fn get_opacity(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledNodeState) -> f32 {
+#[must_use]
+pub fn get_opacity(styled_dom: &StyledDom, node_id: NodeId, node_state: &StyledNodeState) -> f32 {
     // FAST PATH: compact cache for normal state
     if node_state.is_normal() {
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
@@ -6375,7 +6496,8 @@ get_css_property!(
 }
 
 /// Get filter property. Returns Option with cloned filter list.
-#[must_use] pub fn get_filter(
+#[must_use]
+pub fn get_filter(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6397,7 +6519,8 @@ get_css_property!(
 }
 
 /// Get backdrop-filter property. Returns Option with cloned filter list.
-#[must_use] pub fn get_backdrop_filter(
+#[must_use]
+pub fn get_backdrop_filter(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6436,7 +6559,8 @@ fn box_shadow_fast_bail(
 }
 
 /// Get box-shadow for left side. Returns Option<StyleBoxShadow> (cloned).
-#[must_use] pub fn get_box_shadow_left(
+#[must_use]
+pub fn get_box_shadow_left(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6454,7 +6578,8 @@ fn box_shadow_fast_bail(
 }
 
 /// Get box-shadow for right side. Returns Option<StyleBoxShadow> (cloned).
-#[must_use] pub fn get_box_shadow_right(
+#[must_use]
+pub fn get_box_shadow_right(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6472,7 +6597,8 @@ fn box_shadow_fast_bail(
 }
 
 /// Get box-shadow for top side. Returns Option<StyleBoxShadow> (cloned).
-#[must_use] pub fn get_box_shadow_top(
+#[must_use]
+pub fn get_box_shadow_top(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6490,7 +6616,8 @@ fn box_shadow_fast_bail(
 }
 
 /// Get box-shadow for bottom side. Returns Option<StyleBoxShadow> (cloned).
-#[must_use] pub fn get_box_shadow_bottom(
+#[must_use]
+pub fn get_box_shadow_bottom(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6508,7 +6635,8 @@ fn box_shadow_fast_bail(
 }
 
 /// Get text-shadow property. Returns Option<StyleBoxShadow> (cloned).
-#[must_use] pub fn get_text_shadow(
+#[must_use]
+pub fn get_text_shadow(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6535,7 +6663,8 @@ fn box_shadow_fast_bail(
 /// skips the cascade walk entirely — which is the overwhelming case since most
 /// nodes have no transform. Only nodes that actually have a transform pay the
 /// slow-walk cost to retrieve the parsed value.
-#[must_use] pub fn get_transform(
+#[must_use]
+pub fn get_transform(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6559,7 +6688,8 @@ fn box_shadow_fast_bail(
 }
 
 /// Get counter-reset property. Returns Option<CounterReset> (cloned).
-#[must_use] pub fn get_counter_reset(
+#[must_use]
+pub fn get_counter_reset(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6574,7 +6704,8 @@ fn box_shadow_fast_bail(
 }
 
 /// Get counter-increment property. Returns Option<CounterIncrement> (cloned).
-#[must_use] pub fn get_counter_increment(
+#[must_use]
+pub fn get_counter_increment(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6613,7 +6744,8 @@ fn box_shadow_fast_bail(
 ///   C                              <!-- editable (inherited) -->
 /// </div>
 /// ```
-#[must_use] pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+#[must_use]
+pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     use azul_core::dom::AttributeType;
 
     let node_data_container = styled_dom.node_data.as_container();
@@ -6641,7 +6773,9 @@ fn box_shadow_fast_bail(
         }
 
         // No explicit setting on this node, check parent for inheritance
-        current_node_id = hierarchy.get(nid).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        current_node_id = hierarchy
+            .get(nid)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
 
     // Reached root without finding contenteditable - not editable
@@ -6657,7 +6791,8 @@ fn box_shadow_fast_bail(
 ///
 /// - `Some(node_id)` of the contenteditable ancestor (may be the node itself)
 /// - `None` if no contenteditable ancestor exists
-#[must_use] pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) -> Option<NodeId> {
+#[must_use]
+pub fn find_contenteditable_ancestor(styled_dom: &StyledDom, node_id: NodeId) -> Option<NodeId> {
     use azul_core::dom::AttributeType;
 
     let node_data_container = styled_dom.node_data.as_container();
@@ -6685,7 +6820,9 @@ fn box_shadow_fast_bail(
         }
 
         // Check parent
-        current_node_id = hierarchy.get(nid).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        current_node_id = hierarchy
+            .get(nid)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
     }
 
     None
@@ -6700,7 +6837,8 @@ fn box_shadow_fast_bail(
 
 macro_rules! get_css_property_value {
     ($fn_name:ident, $cache_method:ident, $ret_type:ty) => {
-        #[must_use] pub fn $fn_name(
+        #[must_use]
+        pub fn $fn_name(
             styled_dom: &StyledDom,
             node_id: NodeId,
             node_state: &StyledNodeState,
@@ -6786,7 +6924,8 @@ get_css_property_value!(get_grid_row_prop, get_grid_row, LayoutGridRowValue);
 ///
 /// Uses the generic `get_property()` since `CssPropertyCache` lacks a specific getter.
 /// Returns the inner `GridTemplateAreas` value (already unwrapped from `CssPropertyValue`).
-#[must_use] pub fn get_grid_template_areas_prop(
+#[must_use]
+pub fn get_grid_template_areas_prop(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6815,7 +6954,8 @@ get_css_property_value!(get_grid_row_prop, get_grid_row, LayoutGridRowValue);
 /// CSS Masking Module Level 1, section 3:
 /// The clip-path property creates a clipping region that determines which parts
 /// of an element are visible. Returns None for `clip-path: none` (default).
-#[must_use] pub fn get_clip_path(
+#[must_use]
+pub fn get_clip_path(
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -6944,7 +7084,12 @@ mod autotest_generated {
 
     /// `<body>` with a single text child.
     fn body_with_text(text: &str) -> StyledDom {
-        let mut dom = Dom::create_body().with_children(vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into());
+        let mut dom = Dom::create_body().with_children(
+            vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+                text,
+            )]
+            .into(),
+        );
         StyledDom::create(&mut dom, Css::empty())
     }
 
@@ -7096,7 +7241,10 @@ mod autotest_generated {
         // NaN is not equal to itself: assert the *shape*, not equality.
         let nan = MultiValue::Exact(f32::NAN).exact().unwrap();
         assert!(nan.is_nan());
-        assert_eq!(MultiValue::Exact(f32::INFINITY).exact(), Some(f32::INFINITY));
+        assert_eq!(
+            MultiValue::Exact(f32::INFINITY).exact(),
+            Some(f32::INFINITY)
+        );
         assert_eq!(
             MultiValue::Exact(f32::NEG_INFINITY).exact(),
             Some(f32::NEG_INFINITY)
@@ -7128,7 +7276,10 @@ mod autotest_generated {
 
     #[test]
     fn multivalue_map_transforms_exact_and_preserves_the_keyword_variants() {
-        assert_eq!(MultiValue::Exact(2_i32).map(|v| v * 2), MultiValue::Exact(4));
+        assert_eq!(
+            MultiValue::Exact(2_i32).map(|v| v * 2),
+            MultiValue::Exact(4)
+        );
         assert_eq!(MultiValue::<i32>::Auto.map(|v| v * 2), MultiValue::Auto);
         assert_eq!(
             MultiValue::<i32>::Initial.map(|v| v * 2),
@@ -7221,11 +7372,8 @@ mod autotest_generated {
         // Gotcha guard: MultiValue::Auto is the CSS *keyword* `auto`, which is NOT
         // the same thing as Exact(LayoutOverflow::Auto). None of the LayoutOverflow
         // predicates may fire for a keyword variant.
-        let keywords: [MultiValue<LayoutOverflow>; 3] = [
-            MultiValue::Auto,
-            MultiValue::Initial,
-            MultiValue::Inherit,
-        ];
+        let keywords: [MultiValue<LayoutOverflow>; 3] =
+            [MultiValue::Auto, MultiValue::Initial, MultiValue::Inherit];
         for v in keywords {
             assert!(!v.is_clipped(), "{v:?}");
             assert!(!v.is_scroll(), "{v:?}");
@@ -7287,21 +7435,16 @@ mod autotest_generated {
 
     #[test]
     fn overflow_resolve_computed_treats_unset_as_the_initial_visible() {
-        let keywords: [MultiValue<LayoutOverflow>; 3] = [
-            MultiValue::Auto,
-            MultiValue::Initial,
-            MultiValue::Inherit,
-        ];
+        let keywords: [MultiValue<LayoutOverflow>; 3] =
+            [MultiValue::Auto, MultiValue::Initial, MultiValue::Inherit];
         // css-overflow-3 §3.1 applies to the UNSET sentinel too (it means
         // the initial `visible`): an unset axis computes to `auto` when the
         // other axis is scrollable, and stays the sentinel otherwise.
         for v in keywords {
             for other in ALL_OVERFLOW {
                 let resolved = v.resolve_computed(&MultiValue::Exact(other));
-                let expected_upgrade = !matches!(
-                    other,
-                    LayoutOverflow::Visible | LayoutOverflow::Clip
-                );
+                let expected_upgrade =
+                    !matches!(other, LayoutOverflow::Visible | LayoutOverflow::Clip);
                 if expected_upgrade {
                     assert_eq!(
                         resolved,
@@ -7529,7 +7672,11 @@ mod autotest_generated {
     #[test]
     fn is_avoid_break_inside_is_true_for_every_variant_except_auto() {
         for bi in ALL_BREAK_INSIDE {
-            assert_eq!(is_avoid_break_inside(&bi), bi != BreakInside::Auto, "{bi:?}");
+            assert_eq!(
+                is_avoid_break_inside(&bi),
+                bi != BreakInside::Auto,
+                "{bi:?}"
+            );
         }
         assert!(!is_avoid_break_inside(&BreakInside::default()));
     }
@@ -7813,7 +7960,10 @@ mod autotest_generated {
             FontChainKeyOrRef::Chain(key.clone()),
             chain_with(Vec::new(), Vec::new()),
         );
-        let r = ResolvedFontChains { chains, ..Default::default() };
+        let r = ResolvedFontChains {
+            chains,
+            ..Default::default()
+        };
 
         assert!(r.get_by_chain_key(&key).is_some());
         assert!(r.get(&FontChainKeyOrRef::Chain(key.clone())).is_some());
@@ -7846,7 +7996,10 @@ mod autotest_generated {
             FontChainKeyOrRef::Ref(usize::MAX),
             chain_with(Vec::new(), Vec::new()),
         );
-        let r = ResolvedFontChains { chains, ..Default::default() };
+        let r = ResolvedFontChains {
+            chains,
+            ..Default::default()
+        };
 
         assert_eq!(r.len(), 3);
         assert!(!r.is_empty());
@@ -7875,7 +8028,10 @@ mod autotest_generated {
             FontChainKeyOrRef::Chain(key),
             chain_with(Vec::new(), Vec::new()),
         );
-        let r = ResolvedFontChains { chains, ..Default::default() };
+        let r = ResolvedFontChains {
+            chains,
+            ..Default::default()
+        };
 
         assert!(r.get_for_font_stack(&selectors).is_some());
         // An empty stack must not accidentally alias the "Arial" key.
@@ -7906,7 +8062,10 @@ mod autotest_generated {
                 vec![font_match(3, &[]), font_match(u128::MAX, &[])],
             ),
         );
-        let ids = collect_font_ids_from_chains(&ResolvedFontChains { chains, ..Default::default() });
+        let ids = collect_font_ids_from_chains(&ResolvedFontChains {
+            chains,
+            ..Default::default()
+        });
         assert_eq!(ids.len(), 4, "ids 1, 2, 3 and u128::MAX, each exactly once");
         for probe in [1_u128, 2, 3, u128::MAX] {
             assert!(ids.contains(&FontId(probe)), "missing FontId({probe})");
@@ -7930,7 +8089,11 @@ mod autotest_generated {
                 Vec::new(),
             ),
         );
-        assert!(collect_font_ids_from_chains(&ResolvedFontChains { chains, ..Default::default() }).is_empty());
+        assert!(collect_font_ids_from_chains(&ResolvedFontChains {
+            chains,
+            ..Default::default()
+        })
+        .is_empty());
     }
 
     #[test]
@@ -7971,7 +8134,11 @@ mod autotest_generated {
             vec![
                 CssFallbackGroup {
                     css_name: "A".to_string(),
-                    fonts: vec![font_match(1, &[(0, 0x10_FFFF)]), font_match(2, &[]), font_match(3, &[])],
+                    fonts: vec![
+                        font_match(1, &[(0, 0x10_FFFF)]),
+                        font_match(2, &[]),
+                        font_match(3, &[]),
+                    ],
                 },
                 CssFallbackGroup {
                     css_name: "B".to_string(),
@@ -7999,8 +8166,8 @@ mod autotest_generated {
             vec![CssFallbackGroup {
                 css_name: "A".to_string(),
                 fonts: vec![
-                    font_match(1, &[(0x20, 0x7F)]),   // ASCII only
-                    font_match(2, &[(0x80, 0x24F)]),  // Latin-1 supplement + extended
+                    font_match(1, &[(0x20, 0x7F)]),     // ASCII only
+                    font_match(2, &[(0x80, 0x24F)]),    // Latin-1 supplement + extended
                     font_match(3, &[(0x0, 0x10_FFFF)]), // everything (must be dropped)
                 ],
             }],
@@ -8023,7 +8190,10 @@ mod autotest_generated {
         let mut chain = chain_with(
             vec![CssFallbackGroup {
                 css_name: "A".to_string(),
-                fonts: vec![font_match(1, &[(0x20, 0x7F)]), font_match(2, &[(0x20, 0x7F)])],
+                fonts: vec![
+                    font_match(1, &[(0x20, 0x7F)]),
+                    font_match(2, &[(0x20, 0x7F)]),
+                ],
             }],
             vec![font_match(3, &[(0x20, 0x7F)])],
         );
@@ -8048,7 +8218,10 @@ mod autotest_generated {
         for probe in [0x4E00_u32, 0x9FFF] {
             let mut chain = chain_with(
                 Vec::new(),
-                vec![font_match(1, &[(0x4E00, 0x9FFF)]), font_match(2, &[(0x20, 0x7F)])],
+                vec![
+                    font_match(1, &[(0x4E00, 0x9FFF)]),
+                    font_match(2, &[(0x20, 0x7F)]),
+                ],
             );
             let used: std::collections::BTreeSet<u32> = [probe].into_iter().collect();
             prune_chain_to_used_chars(&mut chain, &used);
@@ -8157,10 +8330,7 @@ mod autotest_generated {
 
         fn resolve(css: &str) -> f32 {
             let mut dom = Dom::create_body().with_child(Dom::create_div());
-            let styled = StyledDom::create(
-                &mut dom,
-                Css::from_string(css.into()),
-            );
+            let styled = StyledDom::create(&mut dom, Css::from_string(css.into()));
             get_style_properties(
                 &styled,
                 NodeId::new(1),
@@ -8213,12 +8383,17 @@ mod autotest_generated {
         let families = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
             "Iosevka".to_string().into(),
         )]);
-        let direct = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
+        let direct =
+            build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
         // Twice: the first call fills the memo, the second must be served
         // from it — and both must equal the unmemoised build.
         for _ in 0..2 {
-            let memoed =
-                build_font_selector_stack_memo(&families, None, FcWeight::Normal, FontStyle::Normal);
+            let memoed = build_font_selector_stack_memo(
+                &families,
+                None,
+                FcWeight::Normal,
+                FontStyle::Normal,
+            );
             assert_eq!(memoed, direct, "the memo must not alter the stack");
         }
     }
@@ -8235,9 +8410,8 @@ mod autotest_generated {
         let iosevka = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
             "Iosevka".to_string().into(),
         )]);
-        let menlo = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
-            "Menlo".to_string().into(),
-        )]);
+        let menlo =
+            StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("Menlo".to_string().into())]);
 
         let base =
             build_font_selector_stack_memo(&iosevka, None, FcWeight::Normal, FontStyle::Normal);
@@ -8252,7 +8426,8 @@ mod autotest_generated {
         );
 
         // 2. different WEIGHT
-        let bold = build_font_selector_stack_memo(&iosevka, None, FcWeight::Bold, FontStyle::Normal);
+        let bold =
+            build_font_selector_stack_memo(&iosevka, None, FcWeight::Bold, FontStyle::Normal);
         assert_eq!(
             bold[0].weight,
             FcWeight::Bold,
@@ -8312,7 +8487,10 @@ mod autotest_generated {
 
         let typed_families: Vec<&str> = typed_stack.iter().map(|s| s.family.as_str()).collect();
         let magic_families: Vec<&str> = magic_stack.iter().map(|s| s.family.as_str()).collect();
-        assert_eq!(magic_families, typed_families, "both spellings expand identically");
+        assert_eq!(
+            magic_families, typed_families,
+            "both spellings expand identically"
+        );
         assert!(
             !magic_families.contains(&"system:ui"),
             "the literal magic string must never reach fontconfig: {magic_families:?}"
@@ -8330,8 +8508,9 @@ mod autotest_generated {
     #[test]
     fn build_font_selector_stack_does_not_duplicate_a_generic_the_author_already_listed() {
         // Case-insensitive: "MONOSPACE" must suppress the "monospace" fallback.
-        let families =
-            StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("MONOSPACE".to_string().into())]);
+        let families = StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
+            "MONOSPACE".to_string().into(),
+        )]);
         let stack = build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
 
         let stack = without_system_alias_prefs(&stack);
@@ -8546,7 +8725,10 @@ mod autotest_generated {
             MultiValue::Exact(LayoutDisplay::Inline),
             "a missing node is treated as anonymous inline content"
         );
-        assert_eq!(get_list_style_type(&sd, None), StyleListStyleType::default());
+        assert_eq!(
+            get_list_style_type(&sd, None),
+            StyleListStyleType::default()
+        );
         assert_eq!(
             get_list_style_position(&sd, None),
             StyleListStylePosition::default()
@@ -8604,15 +8786,29 @@ mod autotest_generated {
     #[test]
     fn selection_style_carries_the_css_text_colour_and_the_system_fallback() {
         let child = Some(NodeId::new(1));
-        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
-        let green = ColorU { r: 0, g: 255, b: 0, a: 255 };
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let green = ColorU {
+            r: 0,
+            g: 255,
+            b: 0,
+            a: 255,
+        };
 
         let sd = body_with_divs(
             1,
             "div { -azul-selection-color: #ff0000; -azul-selection-background-color: #00ff00; }",
         );
         let sel = get_selection_style(&sd, child, None);
-        assert_eq!(sel.text_color, Some(red), "the stylesheet is the top authority");
+        assert_eq!(
+            sel.text_color,
+            Some(red),
+            "the stylesheet is the top authority"
+        );
         assert_eq!(sel.bg_color, green);
         assert_eq!(sel.text_color_or(ColorU::BLACK), red);
 
@@ -8643,7 +8839,12 @@ mod autotest_generated {
         let sel = get_selection_style(&sd, Some(NodeId::new(1)), None);
         assert_eq!(sel.text_color, None);
 
-        let normal = ColorU { r: 17, g: 34, b: 51, a: 255 };
+        let normal = ColorU {
+            r: 17,
+            g: 34,
+            b: 51,
+            a: 255,
+        };
         assert_eq!(sel.text_color_or(normal), normal);
     }
 
@@ -8856,7 +9057,11 @@ mod autotest_generated {
         }
 
         // A mid-range value must actually take effect (i.e. differ from the 1.0 default).
-        let half = get_opacity(&body_with_divs(1, "div { opacity: 0.5; }"), NodeId::new(1), &normal());
+        let half = get_opacity(
+            &body_with_divs(1, "div { opacity: 0.5; }"),
+            NodeId::new(1),
+            &normal(),
+        );
         assert!(half < 1.0 && half > 0.0, "opacity: 0.5 read back as {half}");
     }
 
@@ -8964,8 +9169,9 @@ mod autotest_generated {
 
         // The same node under a NaN viewport: px lengths do not consult the viewport,
         // so the result must stay finite rather than turn into NaN.
-        let nan_vp = get_inline_border_info(&sd, id, &st, &info, PhysicalSize::new(f32::NAN, f32::NAN))
-            .expect("px borders do not depend on the viewport");
+        let nan_vp =
+            get_inline_border_info(&sd, id, &st, &info, PhysicalSize::new(f32::NAN, f32::NAN))
+                .expect("px borders do not depend on the viewport");
         assert!(nan_vp.top.is_finite() && nan_vp.padding_top.is_finite());
     }
 
@@ -9110,7 +9316,10 @@ mod autotest_generated {
 
         let cjk = body_with_text("漢字");
         let scripts = scripts_present_in_styled_dom(&cjk);
-        assert!(!scripts.is_empty(), "CJK text must report at least one script");
+        assert!(
+            !scripts.is_empty(),
+            "CJK text must report at least one script"
+        );
         assert!(
             scripts.len() <= DEFAULT_UNICODE_FALLBACK_SCRIPTS.len(),
             "the result is always a subset of the default script set"
@@ -9209,7 +9418,11 @@ mod memory_font_tier_tests {
         let (primary, disk, fallback) =
             split(&["sans-serif"], &[("sans-serif", MemoryFontTier::Fallback)]);
         assert!(primary.is_empty());
-        assert_eq!(disk, ["sans-serif"], "the disk must still get first refusal");
+        assert_eq!(
+            disk,
+            ["sans-serif"],
+            "the disk must still get first refusal"
+        );
         assert_eq!(fallback, ["sans-serif"]);
     }
 
@@ -9271,9 +9484,15 @@ mod style_interning_tests {
         // Three sibling texts with no styling of their own: identical
         // computed style, three different nodes.
         let dom = Dom::create_body()
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("one"))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("two"))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("three"));
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "one",
+            ))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "two",
+            ))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "three",
+            ));
         let sd = StyledDom::create_from_dom(dom);
         let viewport = PhysicalSize::new(800.0, 600.0);
 
@@ -9304,13 +9523,7 @@ mod style_interning_tests {
         );
 
         // Asking for the same node twice must not build anything new.
-        let again = get_style_properties_cached(
-            &mut cache,
-            &sd,
-            NodeId::new(0),
-            None,
-            viewport,
-        );
+        let again = get_style_properties_cached(&mut cache, &sd, NodeId::new(0), None, viewport);
         assert!(
             std::sync::Arc::ptr_eq(&arcs[0], &again),
             "a repeat query for the same node must hit the by-node memo"
@@ -9331,18 +9544,13 @@ mod style_interning_tests {
         use azul_core::styled_dom::StyledDom;
 
         let sd = StyledDom::create_from_dom(
-            Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x")),
+            Dom::create_body()
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x")),
         );
         let viewport = PhysicalSize::new(800.0, 600.0);
 
         let mut cache = StyleCache::default();
-        let real = get_style_properties_cached(
-            &mut cache,
-            &sd,
-            NodeId::new(0),
-            None,
-            viewport,
-        );
+        let real = get_style_properties_cached(&mut cache, &sd, NodeId::new(0), None, viewport);
 
         // A style that differs from `real`, planted in EVERY bucket so the
         // next lookup is guaranteed to meet a colliding entry.
@@ -9355,13 +9563,7 @@ mod style_interning_tests {
         }
         cache.by_node.clear();
 
-        let rebuilt = get_style_properties_cached(
-            &mut cache,
-            &sd,
-            NodeId::new(0),
-            None,
-            viewport,
-        );
+        let rebuilt = get_style_properties_cached(&mut cache, &sd, NodeId::new(0), None, viewport);
         assert_ne!(
             *rebuilt, *impostor,
             "a colliding bucket entry must be rejected by the equality \
@@ -9411,7 +9613,11 @@ mod alias_prune_tests {
         // AUTHORED families are never pruned, present or not: pruning a
         // missing one would also swallow its warning, which is the one
         // diagnostic worth keeping.
-        assert!(!should_prune_family("Liberation Sans", &aliases, &available));
+        assert!(!should_prune_family(
+            "Liberation Sans",
+            &aliases,
+            &available
+        ));
         assert!(
             !should_prune_family("Comic Sans MS", &aliases, &available),
             "a family the document asked for is not an alias candidate, so it \

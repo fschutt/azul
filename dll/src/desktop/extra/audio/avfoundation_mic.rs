@@ -223,12 +223,7 @@ define_class!(
             let bytes = unsafe { std::slice::from_raw_parts(data_ptr as *const u8, total_len) };
             if let Ok(mut slot) = self.ivars().slot.lock() {
                 if slot.len() < MAX_SAMPLES {
-                    convert_samples(
-                        bytes,
-                        asbd.as_ref(),
-                        self.ivars().want_channels,
-                        &mut slot,
-                    );
+                    convert_samples(bytes, asbd.as_ref(), self.ivars().want_channels, &mut slot);
                 }
             }
         }

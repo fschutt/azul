@@ -67,9 +67,7 @@ use anyhow::Result;
 use super::config::CodegenConfig;
 use super::generator::CodeBuilder;
 use super::ir::{ArgRefKind, CodegenIR, EnumDef, FunctionDef, StructDef, TypeCategory};
-use super::managed_host_invoker::{
-    has_return, host_invoker_kinds, managed_c_symbol, wrapper_name,
-};
+use super::managed_host_invoker::{has_return, host_invoker_kinds, managed_c_symbol, wrapper_name};
 
 /// Base library name (without extension). Resolved per-platform to
 /// `azul.dll` / `libazul.dylib` / `libazul.so` by the `#either OS` block.
@@ -183,9 +181,7 @@ fn should_emit_struct(s: &StructDef, config: &CodegenConfig) -> bool {
     }
     !matches!(
         s.category,
-        TypeCategory::Recursive
-            | TypeCategory::VecRef
-            | TypeCategory::GenericTemplate
+        TypeCategory::Recursive | TypeCategory::VecRef | TypeCategory::GenericTemplate
     )
 }
 
@@ -266,16 +262,16 @@ fn map_owned_type(rust_type: &str, ir: &CodegenIR, _as_field: bool) -> String {
         "bool" | "GLboolean" => "logic!".to_string(),
         "i8" | "u8" | "c_char" | "char" | "c_uchar" => "byte!".to_string(),
         // Red/System integer! is 32-bit; i16/u16/i32/u32 fit.
-        "i16" | "u16" | "i32" | "u32" | "c_int" | "c_uint" | "GLint" | "GLuint"
-        | "GLenum" | "GLbitfield" | "GLsizei" => "integer!".to_string(),
+        "i16" | "u16" | "i32" | "u32" | "c_int" | "c_uint" | "GLint" | "GLuint" | "GLenum"
+        | "GLbitfield" | "GLsizei" => "integer!".to_string(),
         // 64-bit ints: Red/System's integer! is 32-bit and it lacks a
         // portable int64. Represent as pointer-width so the ABI slot size is
         // right on LP64; VALUE access needs an int64 shim (see FINDINGS).
         "i64" | "u64" | "GLint64" | "GLuint64" => "byte-ptr!".to_string(),
         "f32" | "GLfloat" | "GLclampf" => "float32!".to_string(),
         "f64" | "GLdouble" | "GLclampd" => "float!".to_string(),
-        "usize" | "size_t" | "uintptr_t" | "isize" | "ssize_t" | "intptr_t"
-        | "GLsizeiptr" | "GLintptr" => "byte-ptr!".to_string(),
+        "usize" | "size_t" | "uintptr_t" | "isize" | "ssize_t" | "intptr_t" | "GLsizeiptr"
+        | "GLintptr" => "byte-ptr!".to_string(),
         "void" | "c_void" | "()" => "byte-ptr!".to_string(),
         _ => {
             // Known IR type → aliased struct passed by value, or an enum.
@@ -615,11 +611,17 @@ fn emit_kind_dispatcher(b: &mut CodeBuilder, cb: &super::ir::CallbackTypedefDef)
             .collect::<Vec<_>>()
             .join(" ")
     ));
-    b.line(&format!("    /local fp [azul-{s}-user!] iid [integer!]", s = snake));
+    b.line(&format!(
+        "    /local fp [azul-{s}-user!] iid [integer!]",
+        s = snake
+    ));
     b.line("][");
     b.indent();
     b.line("iid: as-integer id");
-    b.line(&format!("fp: as azul-{s}-user! azul-lookup-cb iid", s = snake));
+    b.line(&format!(
+        "fp: as azul-{s}-user! azul-lookup-cb iid",
+        s = snake
+    ));
     b.line("if null? as byte-ptr! fp [exit]");
     b.line(&format!("fp {}", user_args.join(" ")));
     b.dedent();

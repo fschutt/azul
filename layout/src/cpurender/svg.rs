@@ -1,13 +1,14 @@
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use super::*;
 
-use azul_core::resources::ImageRef;
 use agg_rust::basics::{FillingRule, PATH_FLAGS_NONE};
 use agg_rust::color::Rgba8;
 use agg_rust::conv_stroke::ConvStroke;
 use agg_rust::conv_transform::ConvTransform;
 use agg_rust::path_storage::PathStorage;
 use agg_rust::trans_affine::TransAffine;
+use azul_core::resources::ImageRef;
 
 /// Render raw SVG bytes to a PNG image.
 ///
@@ -152,8 +153,7 @@ fn parse_viewbox(node: &azul_core::xml::XmlNode) -> Option<(f64, f64, f64, f64)>
 
 /// Inherited SVG style (fill, stroke, stroke-width) that cascades from parent groups.
 #[cfg(all(feature = "std", feature = "xml"))]
-#[derive(Clone)]
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct SvgInheritedStyle {
     fill: Option<String>,   // None = not set (inherit default black)
     stroke: Option<String>, // None = not set (inherit default none)
@@ -186,11 +186,14 @@ fn render_svg_group_with_style(
     use agg_rust::math_stroke::{LineCap, LineJoin};
     use azul_core::xml::{XmlNode, XmlNodeChild};
 
-    let group_transform = node.attributes.get_key("transform").map_or(*parent_transform, |t| {
-        let mut tf = parse_svg_transform(t.as_str());
-        tf.premultiply(parent_transform);
-        tf
-    });
+    let group_transform = node
+        .attributes
+        .get_key("transform")
+        .map_or(*parent_transform, |t| {
+            let mut tf = parse_svg_transform(t.as_str());
+            tf.premultiply(parent_transform);
+            tf
+        });
 
     // Inherit style from this group's attributes
     let group_style = SvgInheritedStyle {
@@ -231,11 +234,15 @@ fn render_svg_group_with_style(
                 let mut curved = agg_rust::conv_curve::ConvCurve::new(path_storage);
 
                 // Per-element transform
-                let elem_transform = child_node.attributes.get_key("transform").map_or(group_transform, |t| {
-                    let mut tf = parse_svg_transform(t.as_str());
-                    tf.premultiply(&group_transform);
-                    tf
-                });
+                let elem_transform =
+                    child_node
+                        .attributes
+                        .get_key("transform")
+                        .map_or(group_transform, |t| {
+                            let mut tf = parse_svg_transform(t.as_str());
+                            tf.premultiply(&group_transform);
+                            tf
+                        });
 
                 // Fill: element overrides group
                 let fill_attr = child_node
@@ -313,8 +320,7 @@ fn render_svg_group_with_style(
                     conv_stroke.set_line_cap(LineCap::Round);
                     conv_stroke.set_line_join(LineJoin::Round);
 
-                    let mut transformed =
-                        ConvTransform::new(&mut conv_stroke, elem_transform);
+                    let mut transformed = ConvTransform::new(&mut conv_stroke, elem_transform);
                     agg_fill_path(pixmap, &mut transformed, &color, FillingRule::NonZero);
                 }
             }
@@ -357,7 +363,10 @@ fn build_agg_path(node: &azul_core::xml::XmlNode) -> Option<PathStorage> {
             let w = attr_f64(node, "width");
             let h = attr_f64(node, "height");
             let rx = attr_f64(node, "rx");
-            let ry = node.attributes.get_key("ry").map_or(rx, |v| v.as_str().parse().unwrap_or(rx));
+            let ry = node
+                .attributes
+                .get_key("ry")
+                .map_or(rx, |v| v.as_str().parse().unwrap_or(rx));
             if w <= 0.0 || h <= 0.0 {
                 return None;
             }
@@ -816,7 +825,11 @@ mod autotest_generated {
     fn parse_svg_color_leading_trailing_junk_is_rejected() {
         assert_eq!(parse_svg_color("red;garbage"), None);
         assert_eq!(parse_svg_color("#ff0000;"), None);
-        assert_eq!(parse_svg_color("rgb(255,0,0)"), None, "rgb() is unsupported");
+        assert_eq!(
+            parse_svg_color("rgb(255,0,0)"),
+            None,
+            "rgb() is unsupported"
+        );
         assert_eq!(parse_svg_color("url(#grad)"), None, "paint servers -> None");
     }
 
@@ -966,7 +979,11 @@ mod autotest_generated {
         let t = parse_svg_transform("rotate(90)");
         assert!((t.sx - 0.0).abs() < 1e-9, "cos(90deg) ~ 0, got {}", t.sx);
         assert!((t.shy - 1.0).abs() < 1e-9, "sin(90deg) == 1, got {}", t.shy);
-        assert!((t.shx + 1.0).abs() < 1e-9, "-sin(90deg) == -1, got {}", t.shx);
+        assert!(
+            (t.shx + 1.0).abs() < 1e-9,
+            "-sin(90deg) == -1, got {}",
+            t.shx
+        );
         assert!((t.sy - 0.0).abs() < 1e-9);
         assert_eq!((t.tx, t.ty), (0.0, 0.0));
         assert_identity(&parse_svg_transform("rotate(0)"));
@@ -1183,7 +1200,10 @@ mod autotest_generated {
             &[("viewBox", "9223372036854775807 -9223372036854775808 1 1")],
         ))
         .expect("4 numbers");
-        assert!(vb.0.is_finite() && vb.1.is_finite(), "i64 bounds fit in f64");
+        assert!(
+            vb.0.is_finite() && vb.1.is_finite(),
+            "i64 bounds fit in f64"
+        );
 
         let vb = parse_viewbox(&el("svg", &[("viewBox", "0 0 inf inf")])).expect("4 numbers");
         assert!(vb.2.is_infinite());
@@ -1273,7 +1293,10 @@ mod autotest_generated {
         let long = "9".repeat(1_000_000);
         let v = attr_f64(&el("rect", &[("width", long.as_str())]), "width");
         // Parses (saturating to +inf) then clamps to the finite ceiling.
-        assert_eq!(v, 1.0e6, "a 1e999999-ish literal is sanitized to the finite ceiling");
+        assert_eq!(
+            v, 1.0e6,
+            "a 1e999999-ish literal is sanitized to the finite ceiling"
+        );
     }
 
     // ==================================================================
@@ -2405,4 +2428,3 @@ mod autotest_generated {
         assert_eq!((size.width as u32, size.height as u32), (8, 8));
     }
 }
-

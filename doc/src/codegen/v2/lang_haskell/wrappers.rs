@@ -27,7 +27,9 @@ use std::collections::BTreeSet;
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind, StructDef, TypeCategory};
+use super::super::ir::{
+    ArgRefKind, CallbackTypedefDef, CodegenIR, FunctionKind, StructDef, TypeCategory,
+};
 use super::{haskell_data_name, sanitize_doc};
 
 // ============================================================================
@@ -116,11 +118,7 @@ pub fn emit_wrapper_bodies(
 /// `c_Az<X>_toDbgString_via` when TypeTraits.is_debug is set. The
 /// helper allocates an AzString out-buffer, calls the C-side debug
 /// formatter, decodes it back to a Haskell String.
-fn emit_show_instance_if_supported(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    ir: &CodegenIR,
-) {
+fn emit_show_instance_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if !s.traits.is_debug {
         return;
     }
@@ -134,7 +132,10 @@ fn emit_show_instance_if_supported(
     let wname = haskell_data_name(&s.name);
     builder.line(&format!("instance Show {} where", wname));
     builder.indent();
-    builder.line(&format!("show ({} p _) = System.IO.Unsafe.unsafePerformIO $", wname));
+    builder.line(&format!(
+        "show ({} p _) = System.IO.Unsafe.unsafePerformIO $",
+        wname
+    ));
     builder.indent();
     builder.line("Foreign.Marshal.Alloc.alloca $ \\__buf -> do");
     builder.indent();
@@ -149,11 +150,7 @@ fn emit_show_instance_if_supported(
 
 /// Emit `instance Eq <X> where (==) = ...` routed through
 /// `c_Az<X>_partialEq` when TypeTraits.is_partial_eq is set.
-fn emit_eq_instance_if_supported(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    ir: &CodegenIR,
-) {
+fn emit_eq_instance_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if !s.traits.is_partial_eq {
         return;
     }
@@ -307,15 +304,15 @@ fn emit_bracket_constructor(builder: &mut CodeBuilder, s: &StructDef, _ir: &Code
     ));
     builder.line("-- pointer, runs the continuation, and releases the resource on the way");
     builder.line("-- out (even on exception). Skipped automatically when the wrapper has");
-    builder.line(&format!("-- been consumed by a by-value C call (see '{}').", consume_name));
+    builder.line(&format!(
+        "-- been consumed by a by-value C call (see '{}').",
+        consume_name
+    ));
     builder.line(&format!(
         "{} :: Ptr ({}) -> ({} -> IO a) -> IO a",
         with_name, qualified_inner, wname
     ));
-    builder.line(&format!(
-        "{} raw action = do",
-        with_name
-    ));
+    builder.line(&format!("{} raw action = do", with_name));
     builder.indent();
     builder.line(&format!("h <- {} raw", mk_name));
     builder.line(&format!(
@@ -337,7 +334,9 @@ fn emit_dispose(builder: &mut CodeBuilder, s: &StructDef) {
         "-- | Explicit early disposal of '{}'. 'with{}' calls this for you on scope exit.",
         wname, wname
     ));
-    builder.line(&format!("-- Short-circuits when the wrapper has been consumed."));
+    builder.line(&format!(
+        "-- Short-circuits when the wrapper has been consumed."
+    ));
     builder.line(&format!("{} :: {} -> IO ()", dispose_name, wname));
     builder.line(&format!("{} h = do", dispose_name));
     builder.indent();
@@ -397,11 +396,7 @@ fn emit_haskell_method_wrappers(
 
         // ReturnShape is defined at module level (below this fn) so
         // Phase 6 helpers can construct values of it.
-        let return_shape: ReturnShape = match func
-            .return_type
-            .as_deref()
-            .map(|r| r.trim())
-        {
+        let return_shape: ReturnShape = match func.return_type.as_deref().map(|r| r.trim()) {
             None | Some("") | Some("void") | Some("()") | Some("c_void") => ReturnShape::Void,
             Some(rt) => {
                 // Reject pointer / *Ref returns (rare; complex).
@@ -432,14 +427,18 @@ fn emit_haskell_method_wrappers(
                         helper_name,
                     }
                 } else {
-                    let is_wrapper = ir.find_struct(rt).map(|s| {
-                        delete_set.contains(rt) && matches!(
-                            s.category,
-                            super::super::ir::TypeCategory::Regular
-                                | super::super::ir::TypeCategory::String
-                                | super::super::ir::TypeCategory::CallbackDataPair
-                        )
-                    }).unwrap_or(false);
+                    let is_wrapper = ir
+                        .find_struct(rt)
+                        .map(|s| {
+                            delete_set.contains(rt)
+                                && matches!(
+                                    s.category,
+                                    super::super::ir::TypeCategory::Regular
+                                        | super::super::ir::TypeCategory::String
+                                        | super::super::ir::TypeCategory::CallbackDataPair
+                                )
+                        })
+                        .unwrap_or(false);
                     if is_wrapper
                         || ir.find_enum(rt).is_some()
                         || ir.find_struct(rt).is_some()
@@ -470,9 +469,13 @@ fn emit_haskell_method_wrappers(
             // Reject Vec / Option / Result / String / pointer / VecRef / Ref
             // args. (Option/Result auto-unwrap, Vec iteration, String round-trip,
             // and pointer-typedef aliases are all Phase 2+ work.)
-            if t.starts_with("Vec") || t.starts_with("Option") || t.starts_with("Result")
-                || t == "String" || t.contains('*')
-                || t.ends_with("VecRef") || t.ends_with("Ref")
+            if t.starts_with("Vec")
+                || t.starts_with("Option")
+                || t.starts_with("Result")
+                || t == "String"
+                || t.contains('*')
+                || t.ends_with("VecRef")
+                || t.ends_with("Ref")
             {
                 method_args_ok = false;
                 break;
@@ -482,19 +485,35 @@ fn emit_haskell_method_wrappers(
             // proper "user-facing" one (Regular / String / CallbackDataPair),
             // not codegen scaffolding (VecRef / Boxed / Recursive /
             // DestructorOrClone / GenericTemplate).
-            let is_wrapper = ir.find_struct(t)
-                .map(|s| delete_set.contains(t) && matches!(
-                    s.category,
-                    super::super::ir::TypeCategory::Regular
-                        | super::super::ir::TypeCategory::String
-                        | super::super::ir::TypeCategory::CallbackDataPair
-                ))
+            let is_wrapper = ir
+                .find_struct(t)
+                .map(|s| {
+                    delete_set.contains(t)
+                        && matches!(
+                            s.category,
+                            super::super::ir::TypeCategory::Regular
+                                | super::super::ir::TypeCategory::String
+                                | super::super::ir::TypeCategory::CallbackDataPair
+                        )
+                })
                 .unwrap_or(false);
             let is_primitive = matches!(
                 t,
-                "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32"
-                | "u64" | "i64" | "usize" | "isize" | "f32" | "f64"
-                | "()" | "c_void"
+                "bool"
+                    | "u8"
+                    | "i8"
+                    | "u16"
+                    | "i16"
+                    | "u32"
+                    | "i32"
+                    | "u64"
+                    | "i64"
+                    | "usize"
+                    | "isize"
+                    | "f32"
+                    | "f64"
+                    | "()"
+                    | "c_void"
             );
             let is_enum = ir.find_enum(t).is_some();
             if !is_wrapper && !is_primitive && !is_enum {
@@ -543,7 +562,11 @@ fn emit_haskell_method_wrappers(
             ReturnShape::Primitive(hs) => format!("IO {}", hs),
             ReturnShape::StringDecoded => "IO String".to_string(),
             ReturnShape::VecToList { elem_type, .. } => format!("IO [{}]", elem_type),
-            ReturnShape::OptionPayload { payload_ty_qualified, payload_is_string, .. } => {
+            ReturnShape::OptionPayload {
+                payload_ty_qualified,
+                payload_is_string,
+                ..
+            } => {
                 let inner = if payload_is_string == &true {
                     "String".to_string()
                 } else {
@@ -551,9 +574,23 @@ fn emit_haskell_method_wrappers(
                 };
                 format!("IO (Maybe {})", inner)
             }
-            ReturnShape::ResultPayload { ok_ty_qualified, err_ty_qualified, ok_is_string, err_is_string, .. } => {
-                let ok = if ok_is_string == &true { "String".to_string() } else { ok_ty_qualified.clone() };
-                let err = if err_is_string == &true { "String".to_string() } else { err_ty_qualified.clone() };
+            ReturnShape::ResultPayload {
+                ok_ty_qualified,
+                err_ty_qualified,
+                ok_is_string,
+                err_is_string,
+                ..
+            } => {
+                let ok = if ok_is_string == &true {
+                    "String".to_string()
+                } else {
+                    ok_ty_qualified.clone()
+                };
+                let err = if err_is_string == &true {
+                    "String".to_string()
+                } else {
+                    err_ty_qualified.clone()
+                };
                 format!("IO (Either {} {})", err, ok)
             }
         };
@@ -579,9 +616,9 @@ fn emit_haskell_method_wrappers(
         //                     `alloca + poke` because the `_via` shim
         //                     takes `Ptr T.<X>` for the by-value arg.
         enum ArgEmit {
-            Wrapper(String),    // unWrapper(arg)
-            Passthrough,        // arg verbatim
-            Poke,               // alloca + poke, pass the alloca'd ptr
+            Wrapper(String), // unWrapper(arg)
+            Passthrough,     // arg verbatim
+            Poke,            // alloca + poke, pass the alloca'd ptr
         }
         let arg_emits: Vec<ArgEmit> = func
             .args
@@ -589,14 +626,18 @@ fn emit_haskell_method_wrappers(
             .skip(1)
             .map(|a| {
                 let t = a.type_name.trim();
-                let is_wrapper = ir.find_struct(t).map(|s| {
-                    delete_set.contains(t) && matches!(
-                        s.category,
-                        super::super::ir::TypeCategory::Regular
-                            | super::super::ir::TypeCategory::String
-                            | super::super::ir::TypeCategory::CallbackDataPair
-                    )
-                }).unwrap_or(false);
+                let is_wrapper = ir
+                    .find_struct(t)
+                    .map(|s| {
+                        delete_set.contains(t)
+                            && matches!(
+                                s.category,
+                                super::super::ir::TypeCategory::Regular
+                                    | super::super::ir::TypeCategory::String
+                                    | super::super::ir::TypeCategory::CallbackDataPair
+                            )
+                    })
+                    .unwrap_or(false);
                 // `cshim.rs::is_c_primitive` semantics — the C shim
                 // takes primitives by value (no pointer wrap) even when
                 // the function is shimmed for an aggregate arg/return.
@@ -604,10 +645,21 @@ fn emit_haskell_method_wrappers(
                 // marshalling matches the FFI binding signature.
                 let is_c_prim = matches!(
                     t,
-                    "u8" | "u16" | "u32" | "u64"
-                    | "i8" | "i16" | "i32" | "i64"
-                    | "usize" | "isize" | "f32" | "f64"
-                    | "bool" | "()" | "c_void" | "void"
+                    "u8" | "u16"
+                        | "u32"
+                        | "u64"
+                        | "i8"
+                        | "i16"
+                        | "i32"
+                        | "i64"
+                        | "usize"
+                        | "isize"
+                        | "f32"
+                        | "f64"
+                        | "bool"
+                        | "()"
+                        | "c_void"
+                        | "void"
                 );
                 if is_wrapper {
                     ArgEmit::Wrapper(haskell_data_name(t))
@@ -664,11 +716,7 @@ fn emit_haskell_method_wrappers(
             }
         }
         builder.line(&format!("{} :: {}", hs_fn_name, sig_parts.join(" -> ")));
-        builder.line(&format!(
-            "{} {} = do",
-            hs_fn_name,
-            param_names.join(" ")
-        ));
+        builder.line(&format!("{} {} = do", hs_fn_name, param_names.join(" ")));
         builder.indent();
 
         // Emit nested `alloca` wrappers for each Poke arg. Each adds
@@ -680,10 +728,7 @@ fn emit_haskell_method_wrappers(
             .map(|(i, _)| (i + 1, param_names[i + 1].as_str()))
             .collect();
         for (_, name) in &poke_args {
-            builder.line(&format!(
-                "alloca $ \\__p_{} -> do",
-                name
-            ));
+            builder.line(&format!("alloca $ \\__p_{} -> do", name));
             builder.indent();
             builder.line(&format!("poke __p_{} {}", name, name));
         }
@@ -704,8 +749,7 @@ fn emit_haskell_method_wrappers(
                 | ReturnShape::ResultPayload { .. }
         );
         let primitive_return = matches!(return_shape, ReturnShape::Primitive(_));
-        let has_consume_actions =
-            !owned_wrapper_indices.is_empty() || self_consumed;
+        let has_consume_actions = !owned_wrapper_indices.is_empty() || self_consumed;
         let needs_result_capture = primitive_return && has_consume_actions;
 
         if needs_return_alloca {
@@ -756,7 +800,9 @@ fn emit_haskell_method_wrappers(
                 builder.dedent();
             }
             ReturnShape::OptionPayload {
-                payload_ty_qualified, payload_is_string, ..
+                payload_ty_qualified,
+                payload_is_string,
+                ..
             } => {
                 emit_option_payload_decode(
                     builder,
@@ -766,13 +812,18 @@ fn emit_haskell_method_wrappers(
                 builder.dedent();
             }
             ReturnShape::ResultPayload {
-                ok_ty_qualified, err_ty_qualified,
-                ok_is_string, err_is_string, ..
+                ok_ty_qualified,
+                err_ty_qualified,
+                ok_is_string,
+                err_is_string,
+                ..
             } => {
                 emit_result_payload_decode(
                     builder,
-                    ok_ty_qualified, ok_is_string == &true,
-                    err_ty_qualified, err_is_string == &true,
+                    ok_ty_qualified,
+                    ok_is_string == &true,
+                    err_ty_qualified,
+                    err_is_string == &true,
                 );
                 builder.dedent();
             }
@@ -849,18 +900,11 @@ fn vec_struct_elem_type(type_name: &str, ir: &CodegenIR) -> Option<String> {
 /// Shared name-resolution for both arg and return types in the
 /// umbrella module emit. See `haskell_arg_type` for the qualification
 /// rules.
-fn umbrella_haskell_type(
-    t: &str,
-    ir: &CodegenIR,
-    delete_set: &BTreeSet<&str>,
-) -> String {
+fn umbrella_haskell_type(t: &str, ir: &CodegenIR, delete_set: &BTreeSet<&str>) -> String {
     if ir.find_struct(t).is_some() && delete_set.contains(t) {
         return haskell_data_name(t);
     }
-    if ir.find_struct(t).is_some()
-        || ir.find_enum(t).is_some()
-        || ir.find_type_alias(t).is_some()
-    {
+    if ir.find_struct(t).is_some() || ir.find_enum(t).is_some() || ir.find_type_alias(t).is_some() {
         return format!("T.{}", haskell_data_name(t));
     }
     super::types::haskell_field_type(t, super::super::ir::FieldRefKind::Owned, ir)
@@ -876,7 +920,9 @@ fn pascal_from_snake(s: &str) -> String {
         if c == '_' {
             next_upper = true;
         } else if next_upper {
-            for u in c.to_uppercase() { out.push(u); }
+            for u in c.to_uppercase() {
+                out.push(u);
+            }
             next_upper = false;
         } else {
             out.push(c);
@@ -889,7 +935,9 @@ fn upper_first(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
     if let Some(c) = chars.next() {
-        for u in c.to_uppercase() { out.push(u); }
+        for u in c.to_uppercase() {
+            out.push(u);
+        }
     }
     out.push_str(chars.as_str());
     out
@@ -900,19 +948,22 @@ fn upper_first(s: &str) -> String {
 /// return values of it from outside `emit_haskell_method_wrappers`.
 enum ReturnShape {
     Void,
-    Aggregate(String),       // T.<X> for IR-known type
-    Primitive(String),       // CSize / Word32 / CBool / ...
-    StringDecoded,           // → IO String via T.azStringToString
-    VecToList {              // → IO [<Elem>] via T.<lower>VecToList
+    Aggregate(String), // T.<X> for IR-known type
+    Primitive(String), // CSize / Word32 / CBool / ...
+    StringDecoded,     // → IO String via T.azStringToString
+    VecToList {
+        // → IO [<Elem>] via T.<lower>VecToList
         elem_type: String,
         helper_name: String,
     },
-    OptionPayload {          // → IO (Maybe <Payload>)
+    OptionPayload {
+        // → IO (Maybe <Payload>)
         option_ty_qualified: String,
         payload_ty_qualified: String,
         payload_is_string: bool,
     },
-    ResultPayload {          // → IO (Either Err Ok)
+    ResultPayload {
+        // → IO (Either Err Ok)
         result_ty_qualified: String,
         ok_ty_qualified: String,
         err_ty_qualified: String,
@@ -944,9 +995,11 @@ fn detect_option_shape(
     let (payload_ty, _) = types.first()?;
     let payload_ty = payload_ty.trim();
     // Reject Vec / nested Option / pointer payloads — Phase 7+.
-    if payload_ty.starts_with("Vec") || payload_ty.starts_with("Option")
+    if payload_ty.starts_with("Vec")
+        || payload_ty.starts_with("Option")
         || payload_ty.starts_with("Result")
-        || payload_ty.contains('*') || payload_ty.ends_with("Ref")
+        || payload_ty.contains('*')
+        || payload_ty.ends_with("Ref")
     {
         return None;
     }
@@ -991,11 +1044,7 @@ fn payload_storable_ty_qualified(
     {
         return format!("T.{}", haskell_data_name(payload_ty));
     }
-    super::types::haskell_field_type(
-        payload_ty,
-        super::super::ir::FieldRefKind::Owned,
-        ir,
-    )
+    super::types::haskell_field_type(payload_ty, super::super::ir::FieldRefKind::Owned, ir)
 }
 
 /// Phase 6: detect Result<T,E> return shape. Matches IR enums whose
@@ -1024,9 +1073,11 @@ fn detect_result_shape(
     let err_ty = payload(err_var)?;
     // Reject Vec / nested Option/Result / pointer payloads.
     let unsupported = |t: &str| {
-        t.starts_with("Vec") || t.starts_with("Option")
+        t.starts_with("Vec")
+            || t.starts_with("Option")
             || t.starts_with("Result")
-            || t.contains('*') || t.ends_with("Ref")
+            || t.contains('*')
+            || t.ends_with("Ref")
     };
     if unsupported(&ok_ty) || unsupported(&err_ty) {
         return None;
@@ -1131,11 +1182,11 @@ fn sanitize_haskell_ident(s: &str) -> String {
     let lowered = super::lower_first(s);
     match lowered.as_str() {
         // Reserved Haskell keywords.
-        "case" | "class" | "data" | "default" | "deriving" | "do" | "else"
-        | "if" | "import" | "in" | "infix" | "infixl" | "infixr" | "instance"
-        | "let" | "module" | "newtype" | "of" | "then" | "type" | "where"
-        | "as" | "hiding" | "qualified" => format!("{}_", lowered),
+        "case" | "class" | "data" | "default" | "deriving" | "do" | "else" | "if" | "import"
+        | "in" | "infix" | "infixl" | "infixr" | "instance" | "let" | "module" | "newtype"
+        | "of" | "then" | "type" | "where" | "as" | "hiding" | "qualified" => {
+            format!("{}_", lowered)
+        }
         _ => lowered,
     }
 }
-

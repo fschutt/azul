@@ -26,8 +26,8 @@ use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
 use super::types::class_header;
 use super::{
-    map_type_to_uffi, method_category_line, sanitize_identifier, snake_to_lower_camel,
-    FFI_MODULE, NATIVE_CLASS, PACKAGE_NATIVE,
+    map_type_to_uffi, method_category_line, sanitize_identifier, snake_to_lower_camel, FFI_MODULE,
+    NATIVE_CLASS, PACKAGE_NATIVE,
 };
 
 pub fn generate_native_methods(
@@ -42,7 +42,15 @@ pub fn generate_native_methods(
     builder.blank();
 
     // Emit the host class declaration once.
-    class_header(builder, NATIVE_CLASS, "Object", &[], &[], PACKAGE_NATIVE, &[]);
+    class_header(
+        builder,
+        NATIVE_CLASS,
+        "Object",
+        &[],
+        &[],
+        PACKAGE_NATIVE,
+        &[],
+    );
 
     // moduleName helpers — UFFI calls these on demand to resolve the
     // shared library across platforms.
@@ -62,22 +70,32 @@ fn emit_module_name_methods(builder: &mut CodeBuilder) {
     method_category_line(builder, "ffi-library-name");
     builder.line(&format!("{} class >> moduleName [", NATIVE_CLASS));
     builder.indent();
-    builder.line("\"UFFI default; OS-specific overrides below take precedence on those platforms.\"");
+    builder
+        .line("\"UFFI default; OS-specific overrides below take precedence on those platforms.\"");
     builder.line(&format!("^ '{}'", FFI_MODULE));
     builder.dedent();
     builder.line("]");
     builder.blank();
 
     method_category_line(builder, "ffi-library-name");
-    builder.line(&format!("{} class >> macModuleName [ ^ 'libazul.dylib' ]", NATIVE_CLASS));
+    builder.line(&format!(
+        "{} class >> macModuleName [ ^ 'libazul.dylib' ]",
+        NATIVE_CLASS
+    ));
     builder.blank();
 
     method_category_line(builder, "ffi-library-name");
-    builder.line(&format!("{} class >> unixModuleName [ ^ 'libazul.so' ]", NATIVE_CLASS));
+    builder.line(&format!(
+        "{} class >> unixModuleName [ ^ 'libazul.so' ]",
+        NATIVE_CLASS
+    ));
     builder.blank();
 
     method_category_line(builder, "ffi-library-name");
-    builder.line(&format!("{} class >> win32ModuleName [ ^ 'azul.dll' ]", NATIVE_CLASS));
+    builder.line(&format!(
+        "{} class >> win32ModuleName [ ^ 'azul.dll' ]",
+        NATIVE_CLASS
+    ));
     builder.blank();
 }
 
@@ -127,10 +145,9 @@ fn emit_ffi_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR
     for a in &func.args {
         let st_type = match a.ref_kind {
             ArgRefKind::Owned => map_type_to_uffi(&a.type_name, ir),
-            ArgRefKind::Ref
-            | ArgRefKind::RefMut
-            | ArgRefKind::Ptr
-            | ArgRefKind::PtrMut => format!("{}*", map_type_to_uffi(&a.type_name, ir)),
+            ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                format!("{}*", map_type_to_uffi(&a.type_name, ir))
+            }
         };
         sig_args.push(format!("{} {}", st_type, sanitize_identifier(&a.name)));
     }
@@ -170,10 +187,7 @@ fn emit_ffi_method(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR
 /// Build a Smalltalk keyword selector. With zero arguments the
 /// selector is the bare base; with one or more arguments each gets
 /// its own `name:` keyword. The first keyword is `<base>:`.
-fn build_keyword_selector(
-    base: &str,
-    args: &[super::super::ir::FunctionArg],
-) -> String {
+fn build_keyword_selector(base: &str, args: &[super::super::ir::FunctionArg]) -> String {
     if args.is_empty() {
         return base.to_string();
     }

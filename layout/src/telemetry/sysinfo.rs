@@ -43,7 +43,10 @@ impl SystemInfo {
         vec![
             ("sys.cpu_model".to_owned(), self.cpu_model.clone()),
             ("sys.cpu_count".to_owned(), self.cpu_count.to_string()),
-            ("sys.ram_total_bytes".to_owned(), self.ram_total_bytes.to_string()),
+            (
+                "sys.ram_total_bytes".to_owned(),
+                self.ram_total_bytes.to_string(),
+            ),
             ("sys.os".to_owned(), self.os.clone()),
             ("sys.windowing".to_owned(), self.windowing.clone()),
             ("sys.gpu".to_owned(), self.gpu.clone()),

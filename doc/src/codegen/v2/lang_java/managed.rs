@@ -74,7 +74,10 @@ pub fn emit_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> R
                 let wrapper = wrapper_name(cb);
                 let cb_has_return = has_return(cb);
                 // Inline JNA Callback interface for the per-kind invoker.
-                b.line(&format!("interface {}InvokerCallback extends Callback {{", wrapper));
+                b.line(&format!(
+                    "interface {}InvokerCallback extends Callback {{",
+                    wrapper
+                ));
                 b.indent();
                 let mut params = vec!["long id".to_string()];
                 for (i, a) in cb.args.iter().enumerate() {
@@ -342,7 +345,7 @@ fn emit_per_kind_init(
     b.line("// Dispatch is left to the user-side handler — JNA does not");
     b.line("// expose Method.invoke through Callback. The user passes a");
     b.line("// concrete <Wrapper>InvokerCallback to register*Callback.");
-    b.line("if (fn instanceof AzulNativeManaged." );
+    b.line("if (fn instanceof AzulNativeManaged.");
     let _ = wrapper; // future: refine dispatch
     b.line(&format!("    {}InvokerCallback) {{", wrapper));
     b.indent();
@@ -417,9 +420,11 @@ fn emit_typed_invoker_sam(
     let Some(ret_struct) = ir.find_struct(ret_ty) else {
         return;
     };
-    if !ir.functions.iter().any(|f| {
-        f.class_name == ret_ty && matches!(f.kind, FunctionKind::Delete)
-    }) {
+    if !ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == ret_ty && matches!(f.kind, FunctionKind::Delete))
+    {
         return;
     }
     if matches!(
@@ -458,9 +463,7 @@ fn emit_typed_invoker_sam(
         " * Typed {} SAM. Returns a `{}` wrapper directly; the host-invoker",
         wrapper, wrapper_class
     ));
-    b.line(
-        " * bridge handles the struct-byte splice into outPtr internally.",
-    );
+    b.line(" * bridge handles the struct-byte splice into outPtr internally.");
     b.line(" */");
     b.line("@FunctionalInterface");
     b.line(&format!("public interface {} {{", wrapper));
@@ -502,10 +505,7 @@ fn emit_typed_invoker_sam(
         typed_args.join(", ")
     ));
     b.line("if (result == null) return;");
-    b.line(&format!(
-        "{}.ByValue raw_struct =",
-        ffi_ret
-    ));
+    b.line(&format!("{}.ByValue raw_struct =", ffi_ret));
     b.indent();
     b.line(&format!(
         "({}.ByValue) Structure.newInstance({}.ByValue.class, result.rawPointer());",
@@ -640,10 +640,7 @@ fn emit_data_typed_invoker_sam(
     b.line(" * plumbing. Use this when you already know the concrete data type.");
     b.line(" */");
     b.line("@FunctionalInterface");
-    b.line(&format!(
-        "public interface {}WithData<T> {{",
-        wrapper
-    ));
+    b.line(&format!("public interface {}WithData<T> {{", wrapper));
     b.indent();
     let mut iface_params = vec!["T data".to_string()];
     for (kind, name) in &extra_args {
@@ -716,10 +713,7 @@ fn emit_data_typed_invoker_sam(
     for (kind, name) in &extra_args {
         match kind {
             ArgKind::Wrapper(ty) => {
-                b.line(&format!(
-                    "{} __{} = new {}({});",
-                    ty, name, ty, name
-                ));
+                b.line(&format!("{} __{} = new {}({});", ty, name, ty, name));
                 call_args.push(format!("__{}", name));
             }
             ArgKind::RawPointer => {
@@ -755,10 +749,7 @@ fn emit_data_typed_invoker_sam(
             ));
             b.line("if (__result == null) return;");
             let ffi_ret = super::ffi_type_name(&return_decl);
-            b.line(&format!(
-                "{}.ByValue __raw =",
-                ffi_ret
-            ));
+            b.line(&format!("{}.ByValue __raw =", ffi_ret));
             b.indent();
             b.line(&format!(
                 "({}.ByValue) Structure.newInstance({}.ByValue.class, __result.rawPointer());",
@@ -775,10 +766,7 @@ fn emit_data_typed_invoker_sam(
     }
     b.dedent();
     b.line("};");
-    b.line(&format!(
-        "return register{}((Object) raw);",
-        wrapper
-    ));
+    b.line(&format!("return register{}((Object) raw);", wrapper));
     b.dedent();
     b.line("}");
     b.blank();
@@ -786,10 +774,7 @@ fn emit_data_typed_invoker_sam(
 
 /// Mirror of `lang_java/wrappers.rs::has_wrapper_class` (kept local
 /// to avoid making the helper `pub` solely for this caller).
-fn managed_has_wrapper_class(
-    type_name: &str,
-    ir: &super::super::ir::CodegenIR,
-) -> bool {
+fn managed_has_wrapper_class(type_name: &str, ir: &super::super::ir::CodegenIR) -> bool {
     use super::super::ir::{FunctionKind, TypeCategory};
     let Some(s) = ir.find_struct(type_name) else {
         return false;

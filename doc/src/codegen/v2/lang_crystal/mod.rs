@@ -252,11 +252,7 @@ pub fn ptr_to_crystal(inner: &str, ir: &CodegenIR) -> String {
 }
 
 /// Map a `(type_name, FieldRefKind)` pair to the Crystal field/param type.
-pub fn field_type_for_ref_kind(
-    type_name: &str,
-    ref_kind: &FieldRefKind,
-    ir: &CodegenIR,
-) -> String {
+pub fn field_type_for_ref_kind(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
     match ref_kind {
         FieldRefKind::Owned => map_type_to_crystal(type_name, ir),
         FieldRefKind::Ref

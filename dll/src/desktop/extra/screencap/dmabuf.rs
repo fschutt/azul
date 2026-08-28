@@ -115,8 +115,7 @@ type EglQueryDmaBufModifiers =
 type GlGenObj = unsafe extern "C" fn(i32, *mut u32);
 type GlBind = unsafe extern "C" fn(u32, u32);
 type GlTexParameteri = unsafe extern "C" fn(u32, u32, i32);
-type GlTexImage2D =
-    unsafe extern "C" fn(u32, i32, i32, i32, i32, i32, u32, u32, *const c_void);
+type GlTexImage2D = unsafe extern "C" fn(u32, i32, i32, i32, i32, i32, u32, u32, *const c_void);
 type GlFramebufferTexture2D = unsafe extern "C" fn(u32, u32, u32, u32, i32);
 type GlCheckFramebufferStatus = unsafe extern "C" fn(u32) -> u32;
 type GlViewport = unsafe extern "C" fn(i32, i32, i32, i32);
@@ -251,8 +250,7 @@ impl EglBackend {
             let query_string: EglQueryString = egl_core!(EglQueryString, b"eglQueryString");
             let choose_config: EglChooseConfig = egl_core!(EglChooseConfig, b"eglChooseConfig");
             let bind_api: EglBindApi = egl_core!(EglBindApi, b"eglBindAPI");
-            let create_context: EglCreateContext =
-                egl_core!(EglCreateContext, b"eglCreateContext");
+            let create_context: EglCreateContext = egl_core!(EglCreateContext, b"eglCreateContext");
             let create_pbuffer_surface: EglCreatePbufferSurface =
                 egl_core!(EglCreatePbufferSurface, b"eglCreatePbufferSurface");
             let make_current: EglMakeCurrent = egl_core!(EglMakeCurrent, b"eglMakeCurrent");
@@ -271,7 +269,11 @@ impl EglBackend {
             // Surfaceless display preferred; fall back to the default display.
             let dpy = match get_platform_display {
                 Some(f) => {
-                    let d = f(EGL_PLATFORM_SURFACELESS_MESA, EGL_DEFAULT_DISPLAY, ptr::null());
+                    let d = f(
+                        EGL_PLATFORM_SURFACELESS_MESA,
+                        EGL_DEFAULT_DISPLAY,
+                        ptr::null(),
+                    );
                     if d.is_null() {
                         get_display(EGL_DEFAULT_DISPLAY)
                     } else {
@@ -426,8 +428,14 @@ impl EglBackend {
         unsafe {
             if let Some(qm) = self.egl.query_dmabuf_modifiers {
                 let mut n = 0i32;
-                if qm(self.dpy, fourcc as i32, 0, ptr::null_mut(), ptr::null_mut(), &mut n)
-                    == EGL_TRUE
+                if qm(
+                    self.dpy,
+                    fourcc as i32,
+                    0,
+                    ptr::null_mut(),
+                    ptr::null_mut(),
+                    &mut n,
+                ) == EGL_TRUE
                     && n > 0
                 {
                     let mut mods = vec![0u64; n as usize];
@@ -665,7 +673,11 @@ mod tests {
             ("XBGR8888", DRM_FORMAT_XBGR8888),
         ] {
             let mods = egl.query_modifiers(fourcc);
-            eprintln!("{name} ({fourcc:#010x}): {} modifier(s): {:#x?}", mods.len(), mods);
+            eprintln!(
+                "{name} ({fourcc:#010x}): {} modifier(s): {:#x?}",
+                mods.len(),
+                mods
+            );
             assert!(!mods.is_empty(), "{name} must offer at least MOD_INVALID");
         }
     }

@@ -219,21 +219,13 @@ impl SharedConfig {
             out.signals = SignalSet::from_value(v);
         }
         if let Some(list) = tele.get("disabled_metrics").and_then(Value::as_array) {
-            out.disabled_metrics.extend(
-                list.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned),
-            );
+            out.disabled_metrics
+                .extend(list.iter().filter_map(Value::as_str).map(str::to_owned));
         }
-        if let Some(ov) = tele
-            .get("overrides")
-            .and_then(|o| o.get(app))
-        {
+        if let Some(ov) = tele.get("overrides").and_then(|o| o.get(app)) {
             // An override may refine just the signals, just the disabled
             // list, or both. `signals` may also be keyed per channel.
-            let sig = ov
-                .get("signals")
-                .or_else(|| ov.get(channel));
+            let sig = ov.get("signals").or_else(|| ov.get(channel));
             if let Some(v) = sig {
                 if let Some(parsed) = SignalSet::from_value(v) {
                     out.signals = Some(parsed);
@@ -241,11 +233,8 @@ impl SharedConfig {
                 }
             }
             if let Some(list) = ov.get("disabled_metrics").and_then(Value::as_array) {
-                out.disabled_metrics.extend(
-                    list.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned),
-                );
+                out.disabled_metrics
+                    .extend(list.iter().filter_map(Value::as_str).map(str::to_owned));
                 out.from_override = true;
             }
         }
@@ -489,10 +478,7 @@ mod tests {
     use super::*;
 
     fn write_fixture(tag: &str, json: &str) -> (std::path::PathBuf, SharedConfig) {
-        let dir = std::env::temp_dir().join(format!(
-            "azul-sharedcfg-{tag}-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("azul-sharedcfg-{tag}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
         std::fs::write(&path, json).unwrap();
@@ -519,7 +505,10 @@ mod tests {
         let stable = cfg.telemetry_for("stable", "otherapp");
         assert_eq!(
             stable.signals,
-            Some(SignalSet { crashes: true, ..SignalSet::default() }),
+            Some(SignalSet {
+                crashes: true,
+                ..SignalSet::default()
+            }),
             "empty list = crash baseline"
         );
         assert_eq!(stable.signals.unwrap().tier(), TelemetryTier::Crashes);
@@ -533,7 +522,10 @@ mod tests {
         // override wins and carries the disabled metric
         let mine = cfg.telemetry_for("nightly", "myapp");
         let sig = mine.signals.unwrap();
-        assert!(sig.metrics && !sig.logs && !sig.appdata, "override replaced the channel default");
+        assert!(
+            sig.metrics && !sig.logs && !sig.appdata,
+            "override replaced the channel default"
+        );
         assert!(mine.from_override);
         assert_eq!(mine.disabled_metrics, vec!["app_frame_seconds".to_owned()]);
         drop(std::fs::remove_file(path));
@@ -583,13 +575,22 @@ mod tests {
         cfg.set_telemetry(
             "beta",
             None,
-            SignalSet { crashes: true, logs: true, metrics: true, appdata: false },
+            SignalSet {
+                crashes: true,
+                logs: true,
+                metrics: true,
+                appdata: false,
+            },
             None,
         );
         cfg.set_telemetry(
             "beta",
             Some("myapp"),
-            SignalSet { crashes: true, metrics: true, ..SignalSet::default() },
+            SignalSet {
+                crashes: true,
+                metrics: true,
+                ..SignalSet::default()
+            },
             Some(&["app_frame_seconds".to_owned()]),
         );
         cfg.set_autoupdate(None, true);
@@ -621,7 +622,10 @@ mod tests {
         let rule = "FREQ=DAILY;BYHOUR=2;DURATION=PT2H";
         assert!(!within_maintenance_window(rule, FRI_MIDNIGHT)); // 00:00
         assert!(within_maintenance_window(rule, FRI_MIDNIGHT + 2 * 3600)); // 02:00
-        assert!(within_maintenance_window(rule, FRI_MIDNIGHT + 3 * 3600 + 59 * 60)); // 03:59
+        assert!(within_maintenance_window(
+            rule,
+            FRI_MIDNIGHT + 3 * 3600 + 59 * 60
+        )); // 03:59
         assert!(!within_maintenance_window(rule, FRI_MIDNIGHT + 4 * 3600)); // 04:00
     }
 
@@ -636,7 +640,7 @@ mod tests {
         );
         assert!(!within_maintenance_window(rule, FRI_MIDNIGHT + 25 * 3600)); // Sat 01:00
         assert!(!within_maintenance_window(rule, FRI_MIDNIGHT + 12 * 3600)); // Fri noon
-        // Monday is outside BYDAY=FR entirely.
+                                                                             // Monday is outside BYDAY=FR entirely.
         let monday_noon = FRI_MIDNIGHT + 3 * 86_400 + 12 * 3600;
         assert!(!within_maintenance_window(rule, monday_noon));
     }
@@ -645,14 +649,23 @@ mod tests {
     fn unparseable_rules_fail_open() {
         assert!(within_maintenance_window("", FRI_MIDNIGHT));
         assert!(within_maintenance_window("garbage", FRI_MIDNIGHT));
-        assert!(within_maintenance_window("FREQ=MONTHLY;BYHOUR=2", FRI_MIDNIGHT));
+        assert!(within_maintenance_window(
+            "FREQ=MONTHLY;BYHOUR=2",
+            FRI_MIDNIGHT
+        ));
     }
 
     #[test]
     fn epoch_weekday_anchor_is_correct() {
         // 1970-01-01 (unix day 0) was a THURSDAY = weekday 3 with 0=Monday.
         // A weekly Thursday rule must therefore match unix time 0.
-        assert!(within_maintenance_window("FREQ=WEEKLY;BYDAY=TH;BYHOUR=0;DURATION=PT1H", 0));
-        assert!(!within_maintenance_window("FREQ=WEEKLY;BYDAY=FR;BYHOUR=0;DURATION=PT1H", 0));
+        assert!(within_maintenance_window(
+            "FREQ=WEEKLY;BYDAY=TH;BYHOUR=0;DURATION=PT1H",
+            0
+        ));
+        assert!(!within_maintenance_window(
+            "FREQ=WEEKLY;BYDAY=FR;BYHOUR=0;DURATION=PT1H",
+            0
+        ));
     }
 }

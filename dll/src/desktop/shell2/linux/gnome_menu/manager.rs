@@ -337,4 +337,3 @@ impl Drop for GnomeMenuManager {
         }
     }
 }
-

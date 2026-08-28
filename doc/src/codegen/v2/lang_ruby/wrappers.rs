@@ -165,15 +165,14 @@ fn emit_class_wrapper(
         };
         // Ruby method names are snake_case; the smart name is already
         // snake_case from the detector.
-        builder.line(&format!("# Smart builder: pass any Ruby object + a Proc/lambda/block."));
+        builder.line(&format!(
+            "# Smart builder: pass any Ruby object + a Proc/lambda/block."
+        ));
         builder.line(&format!(
             "# Delegates to {} which already auto-registers via _register_callback.",
             func.method_name
         ));
-        builder.line(&format!(
-            "def {}(data, fn_arg = nil, &block)",
-            smart_snake
-        ));
+        builder.line(&format!("def {}(data, fn_arg = nil, &block)", smart_snake));
         builder.indent();
         builder.line("fn = fn_arg || block");
         builder.line("raise ArgumentError, 'callback fn required' unless fn");
@@ -204,8 +203,7 @@ fn emit_class_wrapper(
     // IR-derived via [`layout_callback_factory_info`] — adding/
     // renaming the eligible class in api.json lights this up
     // without touching this emitter.
-    let factory_info =
-        super::super::managed_host_invoker::layout_callback_factory_info(s, ir);
+    let factory_info = super::super::managed_host_invoker::layout_callback_factory_info(s, ir);
     if let Some(info) = factory_info.as_ref() {
         let default_ruby = native_function_name(&info.default_c_name);
         builder.line("# Smart factory: pass a layout-callback Proc/lambda/block;");
@@ -321,11 +319,7 @@ fn emit_class_wrapper(
 /// codegen-emitted Vec shape (fields [ptr, len, cap, destructor]),
 /// `include Enumerable` and emit a `def each` that iterates via FFI
 /// pointer arithmetic. Pure type-driven (no name allowlist).
-fn emit_rb_each_if_vec(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    ir: &CodegenIR,
-) {
+fn emit_rb_each_if_vec(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     let Some(elem_rust) = detect_vec_elem_type(s) else {
         return;
     };
@@ -365,7 +359,10 @@ fn emit_rb_each_if_vec(
             "u32" | "i32" | "f32" => 4,
             _ => 8,
         };
-        builder.line(&format!("(0...n).each {{ |i| yield (buf + i * {}).{} }}", elem_size, read_method));
+        builder.line(&format!(
+            "(0...n).each {{ |i| yield (buf + i * {}).{} }}",
+            elem_size, read_method
+        ));
     } else {
         // Struct element. The naive `Native::Az<T>.new(buf + i*size)`
         // overlay would dangle the moment this Vec is closed —
@@ -377,10 +374,10 @@ fn emit_rb_each_if_vec(
         // pattern (commit 4edb65d7c).
         let elem_prefixed = format!("Az{}", elem_rust);
         let elem_snake = super::types::snake_case(&elem_rust);
-        let has_clone = ir.functions.iter().any(|f| {
-            f.class_name == elem_rust
-                && matches!(f.kind, FunctionKind::DeepCopy)
-        });
+        let has_clone = ir
+            .functions
+            .iter()
+            .any(|f| f.class_name == elem_rust && matches!(f.kind, FunctionKind::DeepCopy));
         builder.line(&format!("elem_size = Native::{}.size", elem_prefixed));
         builder.line("(0...n).each do |i|");
         builder.indent();
@@ -440,17 +437,12 @@ fn detect_vec_elem_type(s: &StructDef) -> Option<String> {
 /// Phase I.3.3 (Ruby): override `to_s` + `inspect` routed through
 /// `Az<X>_toDbgString` when TypeTraits.is_debug + helper exists. Skips
 /// AzString (its existing `to_s` vec-direct decoder).
-fn emit_rb_to_s_if_supported(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    ir: &CodegenIR,
-) {
+fn emit_rb_to_s_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return;
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug
-        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
     if !has_dbg {
         return;
     }
@@ -459,10 +451,7 @@ fn emit_rb_to_s_if_supported(
     builder.line("def to_s");
     builder.indent();
     builder.line("return '' if @ptr.nil?");
-    builder.line(&format!(
-        "az_str = Native.az_{}_to_dbg_string(@ptr)",
-        snake
-    ));
+    builder.line(&format!("az_str = Native.az_{}_to_dbg_string(@ptr)", snake));
     // az_str is an AzString::ByValue FFI::Struct. Decode via vec.ptr/.len.
     builder.line("vec_ptr = az_str[:vec][:ptr]");
     builder.line("vec_len = az_str[:vec][:len]");
@@ -479,17 +468,11 @@ fn emit_rb_to_s_if_supported(
 
 /// Phase I.2.5 (Ruby): override `==` / `eql?` / `hash` routed through
 /// the codegen-emitted `Az<X>_partialEq` / `Az<X>_hash` exports.
-fn emit_rb_eq_hash_if_supported(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    ir: &CodegenIR,
-) {
+fn emit_rb_eq_hash_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq
-        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
     let hash_sym = format!("Az{}_hash", s.name);
-    let has_hash = s.traits.is_hash
-        && ir.functions.iter().any(|f| f.c_name == hash_sym);
+    let has_hash = s.traits.is_hash && ir.functions.iter().any(|f| f.c_name == hash_sym);
     let snake = snake_case(&s.name);
 
     if has_eq {
@@ -498,10 +481,7 @@ fn emit_rb_eq_hash_if_supported(
         builder.indent();
         builder.line("return false unless other.is_a?(self.class)");
         builder.line("return @ptr == other.ptr if @ptr.nil? || other.ptr.nil?");
-        builder.line(&format!(
-            "Native.az_{}_partial_eq(@ptr, other.ptr)",
-            snake
-        ));
+        builder.line(&format!("Native.az_{}_partial_eq(@ptr, other.ptr)", snake));
         builder.dedent();
         builder.line("end");
         builder.line("alias_method :eql?, :==");
@@ -603,10 +583,7 @@ fn emit_method(
     let idiom = classify_return(func, ir);
     // `return_type` is the unprefixed IR name (e.g. "App"); `prefixed` is
     // "AzApp". Strip the leading prefix off `prefixed` for the comparison.
-    let owning_class = prefixed
-        .strip_prefix("Az")
-        .unwrap_or(prefixed)
-        .to_string();
+    let owning_class = prefixed.strip_prefix("Az").unwrap_or(prefixed).to_string();
     let returns_self_type = func
         .return_type
         .as_deref()
@@ -643,20 +620,20 @@ fn emit_method(
     // the receiver regardless of how api.json names it (`instance`,
     // lowercased class, etc.) — drop args[0] unconditionally. Same fix
     // the JVM/.NET/Go wrappers landed in earlier phases.
-    let visible_args: Vec<&_> = if matches!(func.kind, FunctionKind::DeepCopy)
-        && !func.args.is_empty()
-    {
-        func.args.iter().skip(1).collect()
-    } else {
-        func.args
-            .iter()
-            .filter(|a| {
-                a.name != "self" && a.name != type_snake
-            })
-            .collect()
-    };
+    let visible_args: Vec<&_> =
+        if matches!(func.kind, FunctionKind::DeepCopy) && !func.args.is_empty() {
+            func.args.iter().skip(1).collect()
+        } else {
+            func.args
+                .iter()
+                .filter(|a| a.name != "self" && a.name != type_snake)
+                .collect()
+        };
 
-    let arg_names: Vec<String> = visible_args.iter().map(|a| ruby_arg_name(&a.name)).collect();
+    let arg_names: Vec<String> = visible_args
+        .iter()
+        .map(|a| ruby_arg_name(&a.name))
+        .collect();
 
     // Names of args we should mark consumed after the C call: owned-by-
     // value wrapper-class instances. The C side moves them; the
@@ -668,8 +645,7 @@ fn emit_method(
         .iter()
         .zip(arg_names.iter())
         .filter(|(a, _)| {
-            a.callback_info.is_none()
-                && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+            a.callback_info.is_none() && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
         })
         .map(|(_, n)| n.clone())
         .collect();
@@ -723,9 +699,7 @@ fn emit_method(
         builder.line("end");
         // Phase I.4.4 (Ruby): alias `dup` to `clone` for DeepCopy
         // methods so user code matches Ruby's value-type idiom.
-        if matches!(func.kind, FunctionKind::DeepCopy)
-            && ruby_method == "clone"
-        {
+        if matches!(func.kind, FunctionKind::DeepCopy) && ruby_method == "clone" {
             builder.line("alias_method :dup, :clone");
         }
         builder.blank();
@@ -1039,8 +1013,7 @@ fn unwrap_expr(name: &str) -> String {
 /// (emitted from `managed.rs`). Pure type-driven; no method-name
 /// allowlist.
 fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
-    a.type_name.trim() == "String"
-        && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+    a.type_name.trim() == "String" && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
 }
 
 // ============================================================================
@@ -1120,4 +1093,3 @@ const RUBY_RESERVED: &[&str] = &[
     "rescue", "retry", "return", "self", "super", "then", "true", "undef", "unless", "until",
     "when", "while", "yield",
 ];
-

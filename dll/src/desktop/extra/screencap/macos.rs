@@ -102,19 +102,27 @@ fn ensure_screen_access() -> bool {
             // NotDetermined forever).
             azul_layout::managers::permission::push_async_result(
                 azul_layout::managers::permission::Capability::ScreenCapture,
-                azul_layout::managers::permission::PermissionState::Granted(azul_layout::managers::permission::PermissionQuality::Full),
+                azul_layout::managers::permission::PermissionState::Granted(
+                    azul_layout::managers::permission::PermissionQuality::Full,
+                ),
             );
             return true;
         }
         // Not granted yet — trigger the prompt (first time) / System-Settings
         // deep link. The user may grant asynchronously; report current state.
-        if let Ok(request) = cg.get::<unsafe extern "C" fn() -> bool>(b"CGRequestScreenCaptureAccess\0") {
+        if let Ok(request) =
+            cg.get::<unsafe extern "C" fn() -> bool>(b"CGRequestScreenCaptureAccess\0")
+        {
             let granted = request();
             crate::plog_warn!(
                 "[screencap] Screen-Recording permission {} — grant it under System Settings → \
                  Privacy & Security → Screen Recording (a terminal-launched binary is listed as \
                  the terminal app), then retry",
-                if granted { "granted" } else { "not yet granted" }
+                if granted {
+                    "granted"
+                } else {
+                    "not yet granted"
+                }
             );
             // MWA-C-permission: park the outcome for the manager. "Not yet
             // granted" after a request = the user must act in System
@@ -123,7 +131,9 @@ fn ensure_screen_access() -> bool {
             azul_layout::managers::permission::push_async_result(
                 azul_layout::managers::permission::Capability::ScreenCapture,
                 if granted {
-                    azul_layout::managers::permission::PermissionState::Granted(azul_layout::managers::permission::PermissionQuality::Full)
+                    azul_layout::managers::permission::PermissionState::Granted(
+                        azul_layout::managers::permission::PermissionQuality::Full,
+                    )
                 } else {
                     azul_layout::managers::permission::PermissionState::Denied
                 },
@@ -248,7 +258,12 @@ struct SckScreen {
 
 /// A fresh `SCStreamConfiguration`: BGRA, cursor on, `width` x `height`
 /// output, `fps` (0 -> 30). Shared by `open` and `reconfigure`.
-unsafe fn make_config(sc_config: &AnyClass, width: usize, height: usize, fps: u32) -> Option<Retained<AnyObject>> {
+unsafe fn make_config(
+    sc_config: &AnyClass,
+    width: usize,
+    height: usize,
+    fps: u32,
+) -> Option<Retained<AnyObject>> {
     let config: *mut AnyObject = msg_send![sc_config, new];
     let config = Retained::from_raw(config)?;
     let _: () = msg_send![&*config, setWidth: width];
@@ -347,8 +362,16 @@ pub fn open(request: &CaptureRequest) -> u64 {
         // Display size in points; SCK scales output to the config size.
         let disp_w: isize = msg_send![&*display, width];
         let disp_h: isize = msg_send![&*display, height];
-        let out_w = if width > 0 { width as usize } else { disp_w.max(1) as usize };
-        let out_h = if height > 0 { height as usize } else { disp_h.max(1) as usize };
+        let out_w = if width > 0 {
+            width as usize
+        } else {
+            disp_w.max(1) as usize
+        };
+        let out_h = if height > 0 {
+            height as usize
+        } else {
+            disp_h.max(1) as usize
+        };
 
         // -- 3. Filter + configuration ---------------------------------------
         //
@@ -397,8 +420,9 @@ pub fn open(request: &CaptureRequest) -> u64 {
                     let app: *mut AnyObject = msg_send![apps, objectAtIndex: i];
                     let pid: i32 = msg_send![&*app, processID];
                     if pid == me {
-                        let ours: Retained<NSArray<AnyObject>> =
-                            NSArray::from_retained_slice(&[Retained::retain(app).expect("non-null app")]);
+                        let ours: Retained<NSArray<AnyObject>> = NSArray::from_retained_slice(&[
+                            Retained::retain(app).expect("non-null app"),
+                        ]);
                         let f: *mut AnyObject = msg_send![sc_filter, alloc];
                         filter = msg_send![
                             f,
@@ -457,8 +481,7 @@ pub fn open(request: &CaptureRequest) -> u64 {
             isize,
             *mut AnyObject,
             *mut *mut AnyObject,
-        ) -> objc2::runtime::Bool =
-            core::mem::transmute(objc2::ffi::objc_msgSend as *const c_void);
+        ) -> objc2::runtime::Bool = core::mem::transmute(objc2::ffi::objc_msgSend as *const c_void);
         let ok = send(
             Retained::as_ptr(&stream) as *mut AnyObject,
             sel,
@@ -503,7 +526,11 @@ pub fn open(request: &CaptureRequest) -> u64 {
             out_h,
             request.fps_or(30),
             if request.window != 0 { " (window)" } else { "" },
-            if request.exclude_self { ", own windows excluded" } else { "" }
+            if request.exclude_self {
+                ", own windows excluded"
+            } else {
+                ""
+            }
         );
         Box::into_raw(Box::new(SckScreen {
             stream,
@@ -546,8 +573,16 @@ pub fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
     let Some(sc_config) = sck_class("SCStreamConfiguration") else {
         return false;
     };
-    let out_w = if request.width > 0 { request.width as usize } else { scr.source_size.0 };
-    let out_h = if request.height > 0 { request.height as usize } else { scr.source_size.1 };
+    let out_w = if request.width > 0 {
+        request.width as usize
+    } else {
+        scr.source_size.0
+    };
+    let out_h = if request.height > 0 {
+        request.height as usize
+    } else {
+        scr.source_size.1
+    };
     unsafe {
         let Some(config) = make_config(sc_config, out_w, out_h, request.fps) else {
             return false;
@@ -560,7 +595,8 @@ pub fn reconfigure(handle: u64, request: &CaptureRequest) -> bool {
                 error_desc(error)
             });
         });
-        let _: () = msg_send![&*scr.stream, updateConfiguration: &*config, completionHandler: &*block];
+        let _: () =
+            msg_send![&*scr.stream, updateConfiguration: &*config, completionHandler: &*block];
         match rx.recv_timeout(Duration::from_secs(5)) {
             Ok(e) if e.is_empty() => {
                 crate::plog_info!(

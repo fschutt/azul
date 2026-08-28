@@ -15,11 +15,14 @@ fn test_margin_collapsing() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
         .with_child(
-            Dom::create_h1_with_text("Heading").with_ids_and_classes(vec![IdOrClass::Class("my-h1".into())].into()),
+            Dom::create_h1_with_text("Heading")
+                .with_ids_and_classes(vec![IdOrClass::Class("my-h1".into())].into()),
         )
         .with_child(
             Dom::create_p()
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Paragraph"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Paragraph",
+                ))
                 .with_ids_and_classes(vec![IdOrClass::Class("my-p".into())].into()),
         );
 

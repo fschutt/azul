@@ -291,29 +291,31 @@ fn test_nested_margin_escape() {
     // escaped bottom margin into the root's height by design (canvas
     // semantics), which is a different question from CSS content height.
     // The Chrome oracle structure (and the .xht this cites) has a body.
-    let dom = Dom::create_body().with_child(Dom::create_div()
-        .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
-        .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
-                .with_child(
-                    Dom::create_div()
-                        .with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into()),
-                ),
-        )
-        .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("nested-container".into())].into())
-                .with_child(
-                    Dom::create_div()
-                        .with_ids_and_classes(vec![IdOrClass::Class("nested-box".into())].into())
-                        .with_child(
-                            Dom::create_div().with_ids_and_classes(
+    let dom = Dom::create_body().with_child(
+        Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("container".into())].into())
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
+                    .with_child(
+                        Dom::create_div()
+                            .with_ids_and_classes(vec![IdOrClass::Class("inner".into())].into()),
+                    ),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("nested-container".into())].into())
+                    .with_child(
+                        Dom::create_div()
+                            .with_ids_and_classes(
+                                vec![IdOrClass::Class("nested-box".into())].into(),
+                            )
+                            .with_child(Dom::create_div().with_ids_and_classes(
                                 vec![IdOrClass::Class("inner2".into())].into(),
-                            ),
-                        ),
-                ),
-        ));
+                            )),
+                    ),
+            ),
+    );
 
     let css_str = r#"
         .container {

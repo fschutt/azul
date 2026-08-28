@@ -47,27 +47,19 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
     // Foreign attachments for the host-invoker C exports.
     builder.line("$Azul::ffi->attach('AzApp_setHostHandleReleaser' => ['opaque'] => 'void');");
-    builder.line(
-        "$Azul::ffi->attach('AzRefAny_newHostHandle' => ['uint64'] => 'AzRefAny');",
-    );
+    builder.line("$Azul::ffi->attach('AzRefAny_newHostHandle' => ['uint64'] => 'AzRefAny');");
     // AzRefAny_getHostHandle takes a const AzRefAny*. Platypus passes
     // a record by-pointer when the arg type is the record name
     // itself, so this works whether the user supplies the record
     // value or its address.
-    builder.line(
-        "$Azul::ffi->attach('AzRefAny_getHostHandle' => ['AzRefAny'] => 'uint64');",
-    );
+    builder.line("$Azul::ffi->attach('AzRefAny_getHostHandle' => ['AzRefAny'] => 'uint64');");
     // Pointer-typed alias of the SAME C symbol: the per-kind invokers receive
     // `data` as a raw *const AzRefAny pointer (an integer address / opaque),
     // not a record object, so `refany_get` needs a variant that accepts an
     // opaque pointer directly (the record-typed attach above rejects a bare
     // integer address).
-    builder.line(
-        "# Pointer-typed alias of the same C symbol: the per-kind invokers receive",
-    );
-    builder.line(
-        "# `data` as a raw *const AzRefAny pointer (opaque), not a record object.",
-    );
+    builder.line("# Pointer-typed alias of the same C symbol: the per-kind invokers receive");
+    builder.line("# `data` as a raw *const AzRefAny pointer (opaque), not a record object.");
     builder.line(
         "$Azul::ffi->attach(['AzRefAny_getHostHandle' => 'Azul::FFI::AzRefAny_getHostHandlePtr'] => ['opaque'] => 'uint64');",
     );
@@ -134,7 +126,8 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("$bytes = substr($$rec, 0, $size);");
     builder.line("# Neutralize a high-level wrapper's destructor: the struct has moved");
     builder.line("# into libazul, so its _delete must not fire on scope exit.");
-    builder.line("if (Scalar::Util::blessed($ret) && $ret->can('ptr')) { eval { $$ret = undef }; }");
+    builder
+        .line("if (Scalar::Util::blessed($ret) && $ret->can('ptr')) { eval { $$ret = undef }; }");
     builder.dedent();
     builder.line("} else {");
     builder.indent();
@@ -253,8 +246,7 @@ fn emit_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypede
         wrapper
     ));
     builder.indent();
-    let user_args_list: Vec<String> =
-        (0..n_args).map(|i| format!("$_[{}]", i + 1)).collect();
+    let user_args_list: Vec<String> = (0..n_args).map(|i| format!("$_[{}]", i + 1)).collect();
     builder.line(&format!("my $id = $_[0];"));
     builder.line("my $sub = $_handles{$id};");
     builder.line("return unless defined $sub;");
@@ -264,8 +256,7 @@ fn emit_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypede
         // the return type's REAL C size — the user sub just returns a value
         // (a record for aggregate returns, an integer for AzUpdate enums).
         let out_arg = format!("$_[{}]", n_args + 1);
-        let ret_size = super::super::managed_host_invoker::return_c_size(cb)
-            .unwrap_or(4);
+        let ret_size = super::super::managed_host_invoker::return_c_size(cb).unwrap_or(4);
         builder.line(&format!(
             "my $ret = eval {{ $sub->({}) }};",
             user_args_list.join(", ")

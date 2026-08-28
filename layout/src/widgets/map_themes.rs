@@ -225,7 +225,10 @@ pub fn parse_hex_rgb(s: &str) -> Option<[u8; 3]> {
 #[must_use]
 pub fn luma(rgb: [u8; 3]) -> f32 {
     let [r, g, b] = rgb;
-    0.0722f32.mul_add(f32::from(b), 0.2126f32.mul_add(f32::from(r), 0.7152 * f32::from(g))) / 255.0
+    0.0722f32.mul_add(
+        f32::from(b),
+        0.2126f32.mul_add(f32::from(r), 0.7152 * f32::from(g)),
+    ) / 255.0
 }
 
 #[cfg(test)]
@@ -246,7 +249,15 @@ mod tests {
     #[test]
     fn every_preset_styles_the_layers_the_renderer_draws_with_hex_colours_only() {
         for (name, sheet, _) in ALL {
-            for key in ["canvas", "water", "park", "building", "transportation", "transportation.motorway", "boundary"] {
+            for key in [
+                "canvas",
+                "water",
+                "park",
+                "building",
+                "transportation",
+                "transportation.motorway",
+                "boundary",
+            ] {
                 assert!(
                     sheet.contains(&format!("\n{key} {{")),
                     "{name}: no rule for `{key}`"
@@ -273,7 +284,11 @@ mod tests {
         for (name, sheet, dark) in ALL {
             let canvas = canvas_fill(sheet).unwrap_or_else(|| panic!("{name}: no canvas fill"));
             let l = luma(canvas);
-            assert_eq!(l < 0.5, dark, "{name}: canvas luma {l} does not match dark = {dark}");
+            assert_eq!(
+                l < 0.5,
+                dark,
+                "{name}: canvas luma {l} does not match dark = {dark}"
+            );
         }
         assert_eq!(canvas_fill("water { fill: #000000; }"), None);
         assert_eq!(parse_hex_rgb("#0c0c0c"), Some([12, 12, 12]));

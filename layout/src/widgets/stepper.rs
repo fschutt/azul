@@ -30,28 +30,40 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
         basic::{color::ColorU, PixelValue, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutFlexGrow, LayoutFlexBasis, LayoutWidth, LayoutJustifyContent, LayoutHeight, LayoutMinWidth, LayoutPaddingTop},
+        layout::{
+            LayoutAlignItems, LayoutDisplay, LayoutFlexBasis, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutHeight, LayoutJustifyContent, LayoutMinWidth, LayoutPaddingTop, LayoutWidth,
+        },
         property::{CssProperty, LayoutFlexBasisValue, LayoutWidthValue},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleCursor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleUserSelect, StyleTextColor},
+        style::{
+            StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderBottomLeftRadius,
+            StyleBorderBottomRightRadius, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+            StyleCursor, StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString, StringVec,
+    AzString, StringVec,
 };
 
 use crate::callbacks::CallbackInfo;
 
 static STEPPER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-stepper"))];
-static STEPPER_STEP_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-stepper-step"))];
+static STEPPER_STEP_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-stepper-step",
+))];
 static STEPPER_ROW_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-stepper-row"))];
-static STEPPER_CIRCLE_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-stepper-circle"))];
-static STEPPER_CONNECTOR_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-stepper-connector"))];
-static STEPPER_LABEL_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-stepper-label"))];
+static STEPPER_CIRCLE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-stepper-circle",
+))];
+static STEPPER_CONNECTOR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-stepper-connector",
+))];
+static STEPPER_LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-stepper-label",
+))];
 
 /// Callback function type invoked when the current step changes.
 pub type StepperOnStepChangeCallbackType =
@@ -108,19 +120,54 @@ pub struct StepperState {
 
 // ---- colours ----
 /// Accent (reached/current) colour (#0d6efd).
-const ACCENT_COLOR: ColorU = ColorU { r: 13, g: 110, b: 253, a: 255 };
+const ACCENT_COLOR: ColorU = ColorU {
+    r: 13,
+    g: 110,
+    b: 253,
+    a: 255,
+};
 /// Accent text colour (white) — the number inside a reached circle.
-const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
+const WHITE: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
 /// Upcoming-circle background (#e9ecef, light grey).
-const MUTED_CIRCLE_COLOR: ColorU = ColorU { r: 233, g: 236, b: 239, a: 255 };
+const MUTED_CIRCLE_COLOR: ColorU = ColorU {
+    r: 233,
+    g: 236,
+    b: 239,
+    a: 255,
+};
 /// Muted text colour (#868e96) — upcoming numbers/labels.
-const MUTED_TEXT_COLOR: ColorU = ColorU { r: 134, g: 142, b: 150, a: 255 };
+const MUTED_TEXT_COLOR: ColorU = ColorU {
+    r: 134,
+    g: 142,
+    b: 150,
+    a: 255,
+};
 /// Reached-label text colour (#212529, dark).
-const DARK_TEXT_COLOR: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
+const DARK_TEXT_COLOR: ColorU = ColorU {
+    r: 33,
+    g: 37,
+    b: 41,
+    a: 255,
+};
 /// Upcoming-connector colour (#ced4da).
-const CONNECTOR_MUTED_COLOR: ColorU = ColorU { r: 206, g: 212, b: 218, a: 255 };
+const CONNECTOR_MUTED_COLOR: ColorU = ColorU {
+    r: 206,
+    g: 212,
+    b: 218,
+    a: 255,
+};
 /// Transparent — used for the (absent) connector at the row's two ends.
-const TRANSPARENT_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+const TRANSPARENT_COLOR: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 0,
+};
 
 const ACCENT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(ACCENT_COLOR)];
 const ACCENT_BG: StyleBackgroundContentVec =
@@ -175,7 +222,9 @@ static STEPPER_CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
 /// an equal share of the row (`flex-grow: 1; flex-basis: 0`).
 static STEPPER_STEP_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
     CssPropertyWithConditions::simple(CssProperty::FlexBasis(LayoutFlexBasisValue::Exact(
@@ -217,7 +266,9 @@ fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
             LayoutJustifyContent::Center,
         )),
         CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0,
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(
             CIRCLE_SIZE,
         ))),
@@ -239,7 +290,9 @@ fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
             StyleBorderBottomRightRadius::const_px(CIRCLE_RADIUS),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13,
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
         CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
@@ -253,7 +306,9 @@ fn circle_style(reached: bool) -> CssPropertyWithConditionsVec {
 /// Builds the style for one connector half-line (left or right of a circle).
 fn connector_style(fill: ConnFill) -> CssPropertyWithConditionsVec {
     CssPropertyWithConditionsVec::from_vec(vec![
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            1,
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
             CONNECTOR_HEIGHT,
         ))),
@@ -263,15 +318,21 @@ fn connector_style(fill: ConnFill) -> CssPropertyWithConditionsVec {
 
 /// Builds the style for one step label.
 fn label_style(reached: bool) -> CssPropertyWithConditionsVec {
-    let text = if reached { DARK_TEXT_COLOR } else { MUTED_TEXT_COLOR };
+    let text = if reached {
+        DARK_TEXT_COLOR
+    } else {
+        MUTED_TEXT_COLOR
+    };
     CssPropertyWithConditionsVec::from_vec(vec![
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(12))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            12,
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
         CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-            6,
-        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(6),
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: text,
         })),
@@ -302,7 +363,8 @@ const fn conn_right_fill(i: usize, last: usize, current: usize) -> ConnFill {
 
 impl Stepper {
     /// Creates a stepper from the given step labels, with the first step current.
-    #[must_use] pub fn create(labels: StringVec) -> Self {
+    #[must_use]
+    pub fn create(labels: StringVec) -> Self {
         let total_steps = labels.as_ref().len();
         Self {
             stepper_state: StepperStateWrapper {
@@ -332,13 +394,15 @@ impl Stepper {
 
     /// Builder-style setter for the current step.
     #[inline]
-    #[must_use] pub fn with_current_step(mut self, current_step: usize) -> Self {
+    #[must_use]
+    pub fn with_current_step(mut self, current_step: usize) -> Self {
         self.set_current_step(current_step);
         self
     }
 
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(StringVec::from_const_slice(&[]));
         core::mem::swap(&mut s, self);
         s
@@ -358,7 +422,8 @@ impl Stepper {
     }
 
     #[inline]
-    #[must_use] pub fn with_on_step_change<C: Into<StepperOnStepChangeCallback>>(
+    #[must_use]
+    pub fn with_on_step_change<C: Into<StepperOnStepChangeCallback>>(
         mut self,
         data: RefAny,
         on_step_change: C,
@@ -367,7 +432,8 @@ impl Stepper {
         self
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // Read before the state is moved into the callbacks below.
         let step_now = self.stepper_state.inner.current_step;
         let steps_total = self.stepper_state.inner.total_steps;
@@ -401,11 +467,11 @@ impl Stepper {
                                 STEPPER_CONNECTOR_CLASS,
                             ))
                             .with_css_props(connector_style(conn_left_fill(i, current))),
-                        crate::widgets::widget_p_with_text(AzString::from(format!("{}", i + 1).as_str()))
-                            .with_ids_and_classes(IdOrClassVec::from_const_slice(
-                                STEPPER_CIRCLE_CLASS,
-                            ))
-                            .with_css_props(circle_style(reached)),
+                        crate::widgets::widget_p_with_text(AzString::from(
+                            format!("{}", i + 1).as_str(),
+                        ))
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(STEPPER_CIRCLE_CLASS))
+                        .with_css_props(circle_style(reached)),
                         Dom::create_div()
                             .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                 STEPPER_CONNECTOR_CLASS,
@@ -565,7 +631,11 @@ extern "C" fn on_step_click(mut data: RefAny, mut info: CallbackInfo) -> Update 
             );
         }
         if let Some(label) = label {
-            let text = if reached { DARK_TEXT_COLOR } else { MUTED_TEXT_COLOR };
+            let text = if reached {
+                DARK_TEXT_COLOR
+            } else {
+                MUTED_TEXT_COLOR
+            };
             info.set_css_property(
                 label,
                 CssProperty::const_text_color(StyleTextColor { inner: text }),
@@ -676,7 +746,11 @@ mod autotest_generated {
 
     /// `n` distinct labels: `s0, s1, … s{n-1}`.
     fn n_labels(n: usize) -> StringVec {
-        StringVec::from_vec((0..n).map(|i| AzString::from(format!("s{i}"))).collect::<Vec<_>>())
+        StringVec::from_vec(
+            (0..n)
+                .map(|i| AzString::from(format!("s{i}")))
+                .collect::<Vec<_>>(),
+        )
     }
 
     fn stepper(v: &[&str]) -> Stepper {
@@ -692,7 +766,10 @@ mod autotest_generated {
     fn property_kinds(
         v: &CssPropertyWithConditionsVec,
     ) -> Vec<core::mem::Discriminant<CssProperty>> {
-        v.as_ref().iter().map(|p| core::mem::discriminant(&p.property)).collect()
+        v.as_ref()
+            .iter()
+            .map(|p| core::mem::discriminant(&p.property))
+            .collect()
     }
 
     /// Asserts a style vec declares each property kind at most once and attaches
@@ -713,13 +790,21 @@ mod autotest_generated {
                 p.property
             );
         }
-        assert_eq!(seen.len(), v.as_ref().len(), "{ctx}: declaration count / kind count disagree");
+        assert_eq!(
+            seen.len(),
+            v.as_ref().len(),
+            "{ctx}: declaration count / kind count disagree"
+        );
     }
 
     /// The single background layer of a background vec, asserting there is
     /// exactly one and that it is a flat colour (a gradient would not be `Color`).
     fn only_color(bg: &StyleBackgroundContentVec) -> ColorU {
-        assert_eq!(bg.as_ref().len(), 1, "a stepper fill must be a single background layer");
+        assert_eq!(
+            bg.as_ref().len(),
+            1,
+            "a stepper fill must be a single background layer"
+        );
         match &bg.as_ref()[0] {
             StyleBackgroundContent::Color(c) => *c,
             other => panic!("stepper background is not a flat colour: {other:?}"),
@@ -740,7 +825,10 @@ mod autotest_generated {
                 _ => None,
             })
             .collect();
-        assert!(found.len() <= 1, "a stepper node must declare at most one background");
+        assert!(
+            found.len() <= 1,
+            "a stepper node must declare at most one background"
+        );
         found.first().map(|bg| only_color(bg))
     }
 
@@ -752,7 +840,10 @@ mod autotest_generated {
                 _ => None,
             })
             .collect();
-        assert!(found.len() <= 1, "a stepper node must declare at most one text colour");
+        assert!(
+            found.len() <= 1,
+            "a stepper node must declare at most one text colour"
+        );
         found.first().copied()
     }
 
@@ -808,7 +899,14 @@ mod autotest_generated {
     }
 
     /// The four corner radii as `(top-left, top-right, bottom-left, bottom-right)`.
-    fn radii(props: &[CssProperty]) -> (Option<PixelValue>, Option<PixelValue>, Option<PixelValue>, Option<PixelValue>) {
+    fn radii(
+        props: &[CssProperty],
+    ) -> (
+        Option<PixelValue>,
+        Option<PixelValue>,
+        Option<PixelValue>,
+        Option<PixelValue>,
+    ) {
         let find = |f: &dyn Fn(&CssProperty) -> Option<PixelValue>| props.iter().find_map(f);
         (
             find(&|p| match p {
@@ -834,7 +932,12 @@ mod autotest_generated {
     /// `em`/`%` slipping into the circle geometry would resolve against the
     /// parent font/box instead of the intended fixed size.
     fn px(pv: PixelValue) -> f32 {
-        assert_eq!(pv.metric, SizeMetric::Px, "stepper geometry must be absolute px, got {:?}", pv.metric);
+        assert_eq!(
+            pv.metric,
+            SizeMetric::Px,
+            "stepper geometry must be absolute px, got {:?}",
+            pv.metric
+        );
         pv.number.get()
     }
 
@@ -863,14 +966,22 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
     }
 
     /// The true recursive descendant count of a `Dom` — what
     /// `estimated_total_children` is documented to cache. Under-counting makes
     /// `convert_dom_into_compact_dom` under-allocate and panic.
     fn recursive_descendants(node: &Dom) -> usize {
-        node.children.as_ref().iter().map(|c| 1 + recursive_descendants(c)).sum()
+        node.children
+            .as_ref()
+            .iter()
+            .map(|c| 1 + recursive_descendants(c))
+            .sum()
     }
 
     fn step_cell(dom: &Dom, i: usize) -> &Dom {
@@ -983,13 +1094,18 @@ mod autotest_generated {
         if let Some(mut probe) = data.downcast_mut::<ReentrantProbe>() {
             probe.calls += 1;
             let mut state = probe.state.clone();
-            probe.saw_step = state.downcast_ref::<StepperStateWrapper>().map(|w| w.inner.current_step);
+            probe.saw_step = state
+                .downcast_ref::<StepperStateWrapper>()
+                .map(|w| w.inner.current_step);
         }
         Update::DoNothing
     }
 
     fn logged(data: &mut RefAny) -> Vec<StepperState> {
-        data.downcast_ref::<StepLog>().expect("payload must still be a StepLog").seen.clone()
+        data.downcast_ref::<StepLog>()
+            .expect("payload must still be a StepLog")
+            .seen
+            .clone()
     }
 
     fn current_step_of(data: &mut RefAny) -> usize {
@@ -1073,7 +1189,9 @@ mod autotest_generated {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         if let Some(sd) = styled {
-            layout_window.layout_results.insert(DomId::ROOT_ID, layout_result(sd));
+            layout_window
+                .layout_results
+                .insert(DomId::ROOT_ID, layout_result(sd));
         }
 
         let renderer_resources = RendererResources::default();
@@ -1122,19 +1240,26 @@ mod autotest_generated {
     fn restyle_writes(changes: &[CallbackChange]) -> Vec<(usize, &'static str, ColorU)> {
         let mut out = Vec::new();
         for change in changes {
-            let CallbackChange::ChangeNodeCssProperties { node_id, properties, .. } = change else {
+            let CallbackChange::ChangeNodeCssProperties {
+                node_id,
+                properties,
+                ..
+            } = change
+            else {
                 panic!("the restyle must only emit ChangeNodeCssProperties, got {change:?}");
             };
             for p in properties.as_ref() {
                 match p {
                     CssProperty::BackgroundContent(v) => {
-                        let layers =
-                            v.get_property().expect("the restyle must write an exact background");
+                        let layers = v
+                            .get_property()
+                            .expect("the restyle must write an exact background");
                         out.push((node_id.index(), "bg", only_color(layers)));
                     }
                     CssProperty::TextColor(v) => {
-                        let c =
-                            v.get_property().expect("the restyle must write an exact text colour");
+                        let c = v
+                            .get_property()
+                            .expect("the restyle must write an exact text colour");
                         out.push((node_id.index(), "text", c.inner));
                     }
                     other => panic!("unexpected restyle property: {other:?}"),
@@ -1155,15 +1280,35 @@ mod autotest_generated {
             out.push((
                 circle_node(i),
                 "bg",
-                if reached { ACCENT_COLOR } else { MUTED_CIRCLE_COLOR },
+                if reached {
+                    ACCENT_COLOR
+                } else {
+                    MUTED_CIRCLE_COLOR
+                },
             ));
-            out.push((circle_node(i), "text", if reached { WHITE } else { MUTED_TEXT_COLOR }));
-            out.push((conn_left_node(i), "bg", fill_color(conn_left_fill(i, clicked))));
-            out.push((conn_right_node(i), "bg", fill_color(conn_right_fill(i, last, clicked))));
+            out.push((
+                circle_node(i),
+                "text",
+                if reached { WHITE } else { MUTED_TEXT_COLOR },
+            ));
+            out.push((
+                conn_left_node(i),
+                "bg",
+                fill_color(conn_left_fill(i, clicked)),
+            ));
+            out.push((
+                conn_right_node(i),
+                "bg",
+                fill_color(conn_right_fill(i, last, clicked)),
+            ));
             out.push((
                 label_node(i),
                 "text",
-                if reached { DARK_TEXT_COLOR } else { MUTED_TEXT_COLOR },
+                if reached {
+                    DARK_TEXT_COLOR
+                } else {
+                    MUTED_TEXT_COLOR
+                },
             ));
         }
         out
@@ -1186,13 +1331,25 @@ mod autotest_generated {
         let muted = fill_color(ConnFill::Muted);
         let hidden = fill_color(ConnFill::Hidden);
 
-        assert_ne!(accent, muted, "reached and unreached connectors must be distinguishable");
+        assert_ne!(
+            accent, muted,
+            "reached and unreached connectors must be distinguishable"
+        );
         assert_ne!(accent, hidden);
         assert_ne!(muted, hidden);
 
-        assert_eq!(accent.a, 255, "a translucent accent track lets the page bleed through");
-        assert_eq!(muted.a, 255, "a translucent muted track lets the page bleed through");
-        assert_eq!(hidden.a, 0, "the row-end connector must be fully transparent, not merely pale");
+        assert_eq!(
+            accent.a, 255,
+            "a translucent accent track lets the page bleed through"
+        );
+        assert_eq!(
+            muted.a, 255,
+            "a translucent muted track lets the page bleed through"
+        );
+        assert_eq!(
+            hidden.a, 0,
+            "the row-end connector must be fully transparent, not merely pale"
+        );
     }
 
     #[test]
@@ -1215,7 +1372,11 @@ mod autotest_generated {
     fn row_style_is_a_full_width_vertically_centred_flex_row() {
         let style = row_style();
         let props = properties(&style);
-        assert_eq!(props.len(), 4, "the indicator row declares exactly four properties");
+        assert_eq!(
+            props.len(),
+            4,
+            "the indicator row declares exactly four properties"
+        );
 
         assert!(
             props.iter().any(|p| matches!(
@@ -1242,7 +1403,11 @@ mod autotest_generated {
         // space to fill, collapsing the track to nothing at every cell width.
         let style = row_style();
         let w = width_value(&properties(&style)).expect("the indicator row must declare a width");
-        assert_eq!(w.metric, SizeMetric::Percent, "the row width must be relative to the cell");
+        assert_eq!(
+            w.metric,
+            SizeMetric::Percent,
+            "the row width must be relative to the cell"
+        );
         assert!(
             (w.number.get() - 100.0).abs() < f32::EPSILON,
             "the row must span the whole cell, got {}",
@@ -1253,7 +1418,11 @@ mod autotest_generated {
     #[test]
     fn row_style_is_unconditional_unique_and_pure() {
         assert_unconditional_and_unique(&row_style(), "row_style");
-        assert_eq!(properties(&row_style()), properties(&row_style()), "row_style is not pure");
+        assert_eq!(
+            properties(&row_style()),
+            properties(&row_style()),
+            "row_style is not pure"
+        );
     }
 
     // ==================================================================
@@ -1267,7 +1436,11 @@ mod autotest_generated {
         let reached = circle_style(true);
         let unreached = circle_style(false);
 
-        assert_eq!(reached.as_ref().len(), 18, "the circle declares eighteen properties");
+        assert_eq!(
+            reached.as_ref().len(),
+            18,
+            "the circle declares eighteen properties"
+        );
         assert_eq!(unreached.as_ref().len(), 18);
         assert_eq!(
             property_kinds(&reached),
@@ -1315,19 +1488,36 @@ mod autotest_generated {
             let h = px(height_value(&props).expect("height"));
             let mw = px(min_width_value(&props).expect("min-width"));
 
-            assert!((w - CIRCLE_SIZE as f32).abs() < f32::EPSILON, "{ctx}: width");
-            assert!((h - CIRCLE_SIZE as f32).abs() < f32::EPSILON, "{ctx}: height");
+            assert!(
+                (w - CIRCLE_SIZE as f32).abs() < f32::EPSILON,
+                "{ctx}: width"
+            );
+            assert!(
+                (h - CIRCLE_SIZE as f32).abs() < f32::EPSILON,
+                "{ctx}: height"
+            );
             assert!(
                 (mw - CIRCLE_SIZE as f32).abs() < f32::EPSILON,
                 "{ctx}: without a min-width the circle would squash in a tight flex row"
             );
-            assert!((w - h).abs() < f32::EPSILON, "{ctx}: a circle must be square");
+            assert!(
+                (w - h).abs() < f32::EPSILON,
+                "{ctx}: a circle must be square"
+            );
 
             let (tl, tr, bl, br) = radii(&props);
             let r = CIRCLE_RADIUS as f32;
-            for (corner, v) in [("top-left", tl), ("top-right", tr), ("bottom-left", bl), ("bottom-right", br)] {
+            for (corner, v) in [
+                ("top-left", tl),
+                ("top-right", tr),
+                ("bottom-left", bl),
+                ("bottom-right", br),
+            ] {
                 let v = px(v.unwrap_or_else(|| panic!("{ctx}: missing {corner} radius")));
-                assert!((v - r).abs() < f32::EPSILON, "{ctx}: {corner} radius is {v}, want {r}");
+                assert!(
+                    (v - r).abs() < f32::EPSILON,
+                    "{ctx}: {corner} radius is {v}, want {r}"
+                );
             }
 
             assert_eq!(
@@ -1392,9 +1582,15 @@ mod autotest_generated {
             let bg = background_color(&props).expect("background");
             let fg = text_color(&props).expect("text colour");
 
-            assert_eq!(bg.a, 255, "reached={reached}: a translucent circle lets the page bleed through");
+            assert_eq!(
+                bg.a, 255,
+                "reached={reached}: a translucent circle lets the page bleed through"
+            );
             assert_eq!(fg.a, 255, "reached={reached}: translucent number");
-            assert_ne!(bg, fg, "reached={reached}: an invisible number is not a step indicator");
+            assert_ne!(
+                bg, fg,
+                "reached={reached}: an invisible number is not a step indicator"
+            );
             assert!(
                 (luma(bg) - luma(fg)).abs() >= 60.0,
                 "reached={reached}: brightness gap {:.1} is too low to read",
@@ -1432,7 +1628,11 @@ mod autotest_generated {
         for f in [ConnFill::Accent, ConnFill::Muted, ConnFill::Hidden] {
             let style = connector_style(f);
             let props = properties(&style);
-            assert_eq!(props.len(), 3, "a connector half-line declares exactly three properties");
+            assert_eq!(
+                props.len(),
+                3,
+                "a connector half-line declares exactly three properties"
+            );
 
             assert_eq!(
                 flex_grow_value(&props),
@@ -1459,8 +1659,16 @@ mod autotest_generated {
                 .collect()
         };
         let accent = strip(ConnFill::Accent);
-        assert_eq!(accent, strip(ConnFill::Muted), "muted connectors changed shape");
-        assert_eq!(accent, strip(ConnFill::Hidden), "hidden connectors changed shape");
+        assert_eq!(
+            accent,
+            strip(ConnFill::Muted),
+            "muted connectors changed shape"
+        );
+        assert_eq!(
+            accent,
+            strip(ConnFill::Hidden),
+            "hidden connectors changed shape"
+        );
         assert_eq!(
             property_kinds(&connector_style(ConnFill::Accent)),
             property_kinds(&connector_style(ConnFill::Hidden)),
@@ -1470,9 +1678,11 @@ mod autotest_generated {
 
     #[test]
     fn connector_style_is_unconditional_unique_and_pure() {
-        for (name, f) in
-            [("accent", ConnFill::Accent), ("muted", ConnFill::Muted), ("hidden", ConnFill::Hidden)]
-        {
+        for (name, f) in [
+            ("accent", ConnFill::Accent),
+            ("muted", ConnFill::Muted),
+            ("hidden", ConnFill::Hidden),
+        ] {
             let ctx = format!("connector_style({name})");
             assert_unconditional_and_unique(&connector_style(f), &ctx);
             assert_eq!(
@@ -1491,7 +1701,11 @@ mod autotest_generated {
     fn label_style_declares_the_same_six_properties_for_both_states() {
         let reached = label_style(true);
         let unreached = label_style(false);
-        assert_eq!(reached.as_ref().len(), 6, "a step label declares exactly six properties");
+        assert_eq!(
+            reached.as_ref().len(),
+            6,
+            "a step label declares exactly six properties"
+        );
         assert_eq!(unreached.as_ref().len(), 6);
         assert_eq!(property_kinds(&reached), property_kinds(&unreached));
     }
@@ -1508,12 +1722,23 @@ mod autotest_generated {
             text_color(&unreached),
             "reached and upcoming labels must be distinguishable"
         );
-        assert_eq!(background_color(&reached), None, "a step label paints no background");
+        assert_eq!(
+            background_color(&reached),
+            None,
+            "a step label paints no background"
+        );
 
         let strip = |v: &[CssProperty]| -> Vec<CssProperty> {
-            v.iter().filter(|p| !matches!(p, CssProperty::TextColor(_))).cloned().collect()
+            v.iter()
+                .filter(|p| !matches!(p, CssProperty::TextColor(_)))
+                .cloned()
+                .collect()
         };
-        assert_eq!(strip(&reached), strip(&unreached), "reached-ness leaked past the colour");
+        assert_eq!(
+            strip(&reached),
+            strip(&unreached),
+            "reached-ness leaked past the colour"
+        );
     }
 
     #[test]
@@ -1597,7 +1822,11 @@ mod autotest_generated {
     fn conn_left_fill_is_accent_up_to_and_including_the_current_step() {
         for current in 0..6usize {
             for i in 1..8usize {
-                let want = if i <= current { ACCENT_COLOR } else { CONNECTOR_MUTED_COLOR };
+                let want = if i <= current {
+                    ACCENT_COLOR
+                } else {
+                    CONNECTOR_MUTED_COLOR
+                };
                 assert_eq!(
                     fill_color(conn_left_fill(i, current)),
                     want,
@@ -1620,7 +1849,11 @@ mod autotest_generated {
             (i64::MIN as usize, usize::MAX, ACCENT_COLOR),
         ];
         for (i, current, want) in cases {
-            assert_eq!(fill_color(conn_left_fill(i, current)), want, "i={i}, current={current}");
+            assert_eq!(
+                fill_color(conn_left_fill(i, current)),
+                want,
+                "i={i}, current={current}"
+            );
         }
     }
 
@@ -1633,7 +1866,10 @@ mod autotest_generated {
             for current in 0..12usize {
                 let accent = fill_color(conn_left_fill(i, current)) == ACCENT_COLOR;
                 if seen_accent {
-                    assert!(accent, "i={i}: the left connector un-filled at current={current}");
+                    assert!(
+                        accent,
+                        "i={i}: the left connector un-filled at current={current}"
+                    );
                 }
                 seen_accent |= accent;
             }
@@ -1676,7 +1912,11 @@ mod autotest_generated {
         let last = 7usize;
         for current in 0..8usize {
             for i in 0..last {
-                let want = if i < current { ACCENT_COLOR } else { CONNECTOR_MUTED_COLOR };
+                let want = if i < current {
+                    ACCENT_COLOR
+                } else {
+                    CONNECTOR_MUTED_COLOR
+                };
                 assert_eq!(
                     fill_color(conn_right_fill(i, last, current)),
                     want,
@@ -1754,7 +1994,10 @@ mod autotest_generated {
         ] {
             let s = Stepper::create(labels(&case));
             let got: Vec<&str> = s.labels.as_ref().iter().map(AzString::as_str).collect();
-            assert_eq!(got, case, "create must not reorder/drop/dedupe/rewrite labels");
+            assert_eq!(
+                got, case,
+                "create must not reorder/drop/dedupe/rewrite labels"
+            );
         }
     }
 
@@ -1781,9 +2024,15 @@ mod autotest_generated {
         for n in [0usize, 1, 2, 7, 4096] {
             let s = Stepper::create(n_labels(n));
             assert_eq!(s.stepper_state.inner.total_steps, n, "n={n}: total_steps");
-            assert_eq!(s.stepper_state.inner.current_step, 0, "n={n}: a fresh stepper starts at 0");
+            assert_eq!(
+                s.stepper_state.inner.current_step, 0,
+                "n={n}: a fresh stepper starts at 0"
+            );
             assert_eq!(s.labels.as_ref().len(), n, "n={n}: label count");
-            assert!(s.stepper_state.on_step_change.as_ref().is_none(), "n={n}: create wires no callback");
+            assert!(
+                s.stepper_state.on_step_change.as_ref().is_none(),
+                "n={n}: create wires no callback"
+            );
         }
     }
 
@@ -1832,9 +2081,19 @@ mod autotest_generated {
     #[test]
     fn create_with_no_labels_equals_default() {
         let empty = Stepper::create(StringVec::from_const_slice(&[]));
-        assert_eq!(empty, Stepper::default(), "Default must be the empty stepper");
+        assert_eq!(
+            empty,
+            Stepper::default(),
+            "Default must be the empty stepper"
+        );
         assert_eq!(empty.labels.as_ref().len(), 0);
-        assert_eq!(empty.stepper_state.inner, StepperState { current_step: 0, total_steps: 0 });
+        assert_eq!(
+            empty.stepper_state.inner,
+            StepperState {
+                current_step: 0,
+                total_steps: 0
+            }
+        );
     }
 
     #[test]
@@ -1870,7 +2129,10 @@ mod autotest_generated {
         let mut s = Stepper::default();
         for i in boundary_indices() {
             s.set_current_step(i);
-            assert_eq!(s.stepper_state.inner.current_step, 0, "index {i} on an empty stepper");
+            assert_eq!(
+                s.stepper_state.inner.current_step, 0,
+                "index {i} on an empty stepper"
+            );
             assert_eq!(s.stepper_state.inner.total_steps, 0);
         }
     }
@@ -1882,9 +2144,17 @@ mod autotest_generated {
             s.set_current_step(0);
             assert_eq!(s.stepper_state.inner.current_step, 0, "n={n}: zero");
             s.set_current_step(n - 1);
-            assert_eq!(s.stepper_state.inner.current_step, n - 1, "n={n}: last index is in range");
+            assert_eq!(
+                s.stepper_state.inner.current_step,
+                n - 1,
+                "n={n}: last index is in range"
+            );
             s.set_current_step(n);
-            assert_eq!(s.stepper_state.inner.current_step, n - 1, "n={n}: one past the end clamps");
+            assert_eq!(
+                s.stepper_state.inner.current_step,
+                n - 1,
+                "n={n}: one past the end clamps"
+            );
         }
     }
 
@@ -1893,7 +2163,10 @@ mod autotest_generated {
         let mut s = stepper(&["only"]);
         for i in boundary_indices() {
             s.set_current_step(i);
-            assert_eq!(s.stepper_state.inner.current_step, 0, "index {i} on a one-step stepper");
+            assert_eq!(
+                s.stepper_state.inner.current_step, 0,
+                "index {i} on a one-step stepper"
+            );
         }
     }
 
@@ -1908,24 +2181,32 @@ mod autotest_generated {
         for i in [0usize, usize::MAX, 2, 0] {
             s.set_current_step(i);
         }
-        assert_eq!(s.stepper_state.inner.current_step, 0, "the last write must win");
+        assert_eq!(
+            s.stepper_state.inner.current_step, 0,
+            "the last write must win"
+        );
     }
 
     #[test]
     fn set_current_step_leaves_every_other_field_alone() {
-        let mut s =
-            stepper(&["a", "b"]).with_on_step_change(RefAny::new(7u8), cb(step_do_nothing));
+        let mut s = stepper(&["a", "b"]).with_on_step_change(RefAny::new(7u8), cb(step_do_nothing));
         let before = s.clone();
 
         s.set_current_step(usize::MAX);
 
         assert_eq!(s.labels, before.labels, "labels changed");
-        assert_eq!(s.container_style, before.container_style, "container style changed");
+        assert_eq!(
+            s.container_style, before.container_style,
+            "container style changed"
+        );
         assert_eq!(
             s.stepper_state.inner.total_steps, before.stepper_state.inner.total_steps,
             "total_steps changed"
         );
-        assert!(s.stepper_state.on_step_change.as_ref().is_some(), "the callback was dropped");
+        assert!(
+            s.stepper_state.on_step_change.as_ref().is_some(),
+            "the callback was dropped"
+        );
     }
 
     #[test]
@@ -1941,7 +2222,11 @@ mod autotest_generated {
         );
         s.set_current_step(usize::MAX);
         assert_eq!(s.stepper_state.inner.current_step, 99);
-        assert_eq!(s.labels.as_ref().len(), 3, "the setter must not touch the labels");
+        assert_eq!(
+            s.labels.as_ref().len(),
+            3,
+            "the setter must not touch the labels"
+        );
     }
 
     // ==================================================================
@@ -1955,7 +2240,10 @@ mod autotest_generated {
             let mut via_setter = stepper(&["a", "b", "c"]);
             via_setter.set_current_step(i);
 
-            assert_eq!(via_builder, via_setter, "index {i}: builder and setter diverge");
+            assert_eq!(
+                via_builder, via_setter,
+                "index {i}: builder and setter diverge"
+            );
             assert_eq!(via_builder.stepper_state.inner.current_step, i.min(2));
         }
     }
@@ -1966,7 +2254,10 @@ mod autotest_generated {
         let n = 6;
         for i in 0..n {
             let s = Stepper::create(n_labels(n)).with_current_step(i);
-            assert_eq!(s.stepper_state.inner.current_step, i, "step {i} did not round-trip");
+            assert_eq!(
+                s.stepper_state.inner.current_step, i,
+                "step {i} did not round-trip"
+            );
             assert_eq!(s.stepper_state.inner.total_steps, n);
         }
     }
@@ -1992,7 +2283,11 @@ mod autotest_generated {
 
         assert_eq!(built.labels, base.labels);
         assert_eq!(built.container_style, base.container_style);
-        assert_eq!(built.labels.as_ref().len(), 3, "len/contents must stay consistent");
+        assert_eq!(
+            built.labels.as_ref().len(),
+            3,
+            "len/contents must stay consistent"
+        );
         assert_eq!(built.stepper_state.inner.total_steps, 3);
         assert!(built.stepper_state.on_step_change.as_ref().is_none());
     }
@@ -2017,10 +2312,19 @@ mod autotest_generated {
 
         let taken = s.swap_with_default();
 
-        assert_eq!(taken, expected, "the caller must get the original widget back");
+        assert_eq!(
+            taken, expected,
+            "the caller must get the original widget back"
+        );
         assert_eq!(s, Stepper::default(), "a default must be left in its place");
         assert_eq!(s.labels.as_ref().len(), 0);
-        assert_eq!(s.stepper_state.inner, StepperState { current_step: 0, total_steps: 0 });
+        assert_eq!(
+            s.stepper_state.inner,
+            StepperState {
+                current_step: 0,
+                total_steps: 0
+            }
+        );
     }
 
     #[test]
@@ -2055,7 +2359,11 @@ mod autotest_generated {
 
         assert_eq!(first.labels.as_ref().len(), 2);
         assert_eq!(first.stepper_state.inner.current_step, 1);
-        assert_eq!(second, Stepper::default(), "the second take is the default we left behind");
+        assert_eq!(
+            second,
+            Stepper::default(),
+            "the second take is the default we left behind"
+        );
         assert_eq!(s, Stepper::default());
     }
 
@@ -2086,7 +2394,10 @@ mod autotest_generated {
             .on_step_change
             .as_ref()
             .expect("set_on_step_change must install a callback");
-        assert_eq!(installed.callback.cb as usize, record_step as usize, "wrong function installed");
+        assert_eq!(
+            installed.callback.cb as usize, record_step as usize,
+            "wrong function installed"
+        );
         assert!(
             matches!(installed.callback.ctx, OptionRefAny::None),
             "a native Rust callback carries no FFI context"
@@ -2096,12 +2407,20 @@ mod autotest_generated {
         // writing through the widget's handle must be visible to the caller.
         let mut stored = installed.refany.clone();
         {
-            let mut log = stored.downcast_mut::<StepLog>().expect("payload type must survive");
-            log.seen.push(StepperState { current_step: 42, total_steps: 43 });
+            let mut log = stored
+                .downcast_mut::<StepLog>()
+                .expect("payload type must survive");
+            log.seen.push(StepperState {
+                current_step: 42,
+                total_steps: 43,
+            });
         }
         assert_eq!(
             logged(&mut payload),
-            vec![StepperState { current_step: 42, total_steps: 43 }],
+            vec![StepperState {
+                current_step: 42,
+                total_steps: 43
+            }],
             "the payload was copied, not shared"
         );
     }
@@ -2128,14 +2447,21 @@ mod autotest_generated {
         assert_eq!(s.labels.as_ref().len(), 3);
         assert_eq!(
             s.stepper_state.inner,
-            StepperState { current_step: 2, total_steps: 3 },
+            StepperState {
+                current_step: 2,
+                total_steps: 3
+            },
             "installing a callback moved the current step"
         );
     }
 
     #[test]
     fn set_on_step_change_accepts_an_arbitrary_payload_without_reading_it() {
-        for payload in [RefAny::new(0u8), RefAny::new(String::new()), RefAny::new([0u64; 64])] {
+        for payload in [
+            RefAny::new(0u8),
+            RefAny::new(String::new()),
+            RefAny::new([0u64; 64]),
+        ] {
             let mut s = stepper(&["a"]);
             s.set_on_step_change(payload, cb(step_do_nothing));
             assert!(s.stepper_state.on_step_change.as_ref().is_some());
@@ -2150,7 +2476,10 @@ mod autotest_generated {
         let mut via_setter = stepper(&["a", "b"]);
         via_setter.set_on_step_change(payload, cb(step_do_nothing));
 
-        assert_eq!(via_builder, via_setter, "builder and setter must produce the same widget");
+        assert_eq!(
+            via_builder, via_setter,
+            "builder and setter must produce the same widget"
+        );
     }
 
     #[test]
@@ -2159,10 +2488,17 @@ mod autotest_generated {
             .with_current_step(3)
             .with_on_step_change(RefAny::new(0u8), cb(step_refresh_all));
 
-        assert_eq!(s.labels.as_ref().len(), 5, "label count must survive the builder chain");
+        assert_eq!(
+            s.labels.as_ref().len(),
+            5,
+            "label count must survive the builder chain"
+        );
         assert_eq!(
             s.stepper_state.inner,
-            StepperState { current_step: 3, total_steps: 5 },
+            StepperState {
+                current_step: 3,
+                total_steps: 5
+            },
             "the state must survive"
         );
         assert_eq!(
@@ -2192,7 +2528,10 @@ mod autotest_generated {
         let case = ["Account", "Address", "Payment", "Review"];
         let dom = Stepper::create(labels(&case)).dom();
 
-        assert!(matches!(dom.root.get_node_type(), NodeType::Div), "the stepper is a div");
+        assert!(
+            matches!(dom.root.get_node_type(), NodeType::Div),
+            "the stepper is a div"
+        );
         assert!(dom.root.has_class("__azul-native-stepper"));
         assert!(
             dom.root.get_callbacks().as_ref().is_empty(),
@@ -2202,30 +2541,54 @@ mod autotest_generated {
         let children = dom.children.as_ref();
         assert_eq!(children.len(), case.len());
         for (i, cell) in children.iter().enumerate() {
-            assert!(cell.root.has_class("__azul-native-stepper-step"), "step {i}: cell class");
-            assert_eq!(cell.children.as_ref().len(), 2, "step {i}: cell holds a row + a label");
+            assert!(
+                cell.root.has_class("__azul-native-stepper-step"),
+                "step {i}: cell class"
+            );
+            assert_eq!(
+                cell.children.as_ref().len(),
+                2,
+                "step {i}: cell holds a row + a label"
+            );
 
             let row = row_of(cell);
-            assert!(row.root.has_class("__azul-native-stepper-row"), "step {i}: row class");
-            assert_eq!(row.children.as_ref().len(), 3, "step {i}: connector, circle, connector");
+            assert!(
+                row.root.has_class("__azul-native-stepper-row"),
+                "step {i}: row class"
+            );
+            assert_eq!(
+                row.children.as_ref().len(),
+                3,
+                "step {i}: connector, circle, connector"
+            );
 
             assert!(
-                conn_left_of(row).root.has_class("__azul-native-stepper-connector"),
+                conn_left_of(row)
+                    .root
+                    .has_class("__azul-native-stepper-connector"),
                 "step {i}: left connector class"
             );
             assert!(
-                conn_right_of(row).root.has_class("__azul-native-stepper-connector"),
+                conn_right_of(row)
+                    .root
+                    .has_class("__azul-native-stepper-connector"),
                 "step {i}: right connector class"
             );
             assert!(
-                circle_of(row).root.has_class("__azul-native-stepper-circle"),
+                circle_of(row)
+                    .root
+                    .has_class("__azul-native-stepper-circle"),
                 "step {i}: circle class"
             );
             assert!(
                 label_of(cell).root.has_class("__azul-native-stepper-label"),
                 "step {i}: label class"
             );
-            assert_eq!(text_of(label_of(cell)), Some(case[i]), "step {i}: wrong caption");
+            assert_eq!(
+                text_of(label_of(cell)),
+                Some(case[i]),
+                "step {i}: wrong caption"
+            );
         }
     }
 
@@ -2255,14 +2618,20 @@ mod autotest_generated {
         assert!(dom.root.has_class("__azul-native-stepper"));
 
         let styled = StyledDom::create_from_dom(dom);
-        assert_eq!(styled.node_hierarchy.as_ref().len(), 1, "just the container");
+        assert_eq!(
+            styled.node_hierarchy.as_ref().len(),
+            1,
+            "just the container"
+        );
     }
 
     #[test]
     fn dom_styles_every_circle_and_label_by_reached_ness() {
         for n in [1usize, 2, 3, 5] {
             for current in 0..n {
-                let dom = Stepper::create(n_labels(n)).with_current_step(current).dom();
+                let dom = Stepper::create(n_labels(n))
+                    .with_current_step(current)
+                    .dom();
                 for (i, cell) in dom.children.as_ref().iter().enumerate() {
                     let reached = i <= current;
                     assert_eq!(
@@ -2285,7 +2654,9 @@ mod autotest_generated {
         for n in [1usize, 2, 3, 6] {
             let last = n - 1;
             for current in 0..n {
-                let dom = Stepper::create(n_labels(n)).with_current_step(current).dom();
+                let dom = Stepper::create(n_labels(n))
+                    .with_current_step(current)
+                    .dom();
                 for (i, cell) in dom.children.as_ref().iter().enumerate() {
                     let row = row_of(cell);
                     assert_eq!(
@@ -2307,7 +2678,9 @@ mod autotest_generated {
     fn dom_hides_the_two_outer_connectors_of_every_stepper() {
         for n in [1usize, 2, 5] {
             for current in 0..n {
-                let dom = Stepper::create(n_labels(n)).with_current_step(current).dom();
+                let dom = Stepper::create(n_labels(n))
+                    .with_current_step(current)
+                    .dom();
                 let children = dom.children.as_ref();
 
                 let first_row = row_of(&children[0]);
@@ -2352,7 +2725,9 @@ mod autotest_generated {
         // circles, all at the front.
         for n in [1usize, 4, 9] {
             for current in 0..n {
-                let dom = Stepper::create(n_labels(n)).with_current_step(current).dom();
+                let dom = Stepper::create(n_labels(n))
+                    .with_current_step(current)
+                    .dom();
                 let accent: Vec<usize> = dom
                     .children
                     .as_ref()
@@ -2383,7 +2758,11 @@ mod autotest_generated {
             s.stepper_state.inner.current_step = current;
             let dom = s.dom();
 
-            assert_eq!(dom.children.as_ref().len(), 3, "current={current}: child count changed");
+            assert_eq!(
+                dom.children.as_ref().len(),
+                3,
+                "current={current}: child count changed"
+            );
             for (i, cell) in dom.children.as_ref().iter().enumerate() {
                 assert_eq!(
                     inline_properties(circle_of(row_of(cell))),
@@ -2415,7 +2794,9 @@ mod autotest_generated {
         let dom = s.dom();
         assert_eq!(dom.children.as_ref().len(), 3);
         assert_eq!(
-            background_color(&inline_properties(conn_right_of(row_of(step_cell(&dom, 2))))),
+            background_color(&inline_properties(conn_right_of(row_of(step_cell(
+                &dom, 2
+            ))))),
             Some(TRANSPARENT_COLOR),
             "`last` must come from the rendered label count, not from total_steps"
         );
@@ -2428,7 +2809,10 @@ mod autotest_generated {
         for (i, cell) in dom.children.as_ref().iter().enumerate() {
             let cbs = cell.root.get_callbacks();
             assert_eq!(cbs.as_ref().len(), 1, "step {i}: exactly one handler");
-            assert_eq!(cbs.as_ref()[0].event, EventFilter::Hover(HoverEventFilter::MouseUp));
+            assert_eq!(
+                cbs.as_ref()[0].event,
+                EventFilter::Hover(HoverEventFilter::MouseUp)
+            );
             assert_eq!(cbs.as_ref()[0].callback.cb, on_step_click as usize);
             assert!(matches!(cbs.as_ref()[0].callback.ctx, OptionRefAny::None));
             assert_eq!(
@@ -2472,7 +2856,11 @@ mod autotest_generated {
 
         for i in 1..4 {
             let mut other = step_state(&dom, i);
-            assert_eq!(current_step_of(&mut other), 3, "step {i} does not share step 0's state");
+            assert_eq!(
+                current_step_of(&mut other),
+                3,
+                "step {i} does not share step 0's state"
+            );
         }
     }
 
@@ -2483,10 +2871,21 @@ mod autotest_generated {
             .with_on_step_change(RefAny::new(0u8), cb(step_refresh_all))
             .dom();
         let mut state = step_state(&dom, 0);
-        let wrapper = state.downcast_ref::<StepperStateWrapper>().expect("StepperStateWrapper");
+        let wrapper = state
+            .downcast_ref::<StepperStateWrapper>()
+            .expect("StepperStateWrapper");
 
-        assert_eq!(wrapper.inner, StepperState { current_step: 2, total_steps: 4 });
-        let installed = wrapper.on_step_change.as_ref().expect("the callback must reach the DOM");
+        assert_eq!(
+            wrapper.inner,
+            StepperState {
+                current_step: 2,
+                total_steps: 4
+            }
+        );
+        let installed = wrapper
+            .on_step_change
+            .as_ref()
+            .expect("the callback must reach the DOM");
         assert_eq!(installed.callback.cb as usize, step_refresh_all as usize);
     }
 
@@ -2499,8 +2898,16 @@ mod autotest_generated {
             match label_of(&children[0]).children.as_ref() {
                 [only] => match only.root.get_node_type() {
                     NodeType::Text(t) => {
-                        assert_eq!(t.as_ref().as_str(), s.as_str(), "the caption changed inside dom()");
-                        assert_eq!(t.as_ref().len(), s.len(), "byte length changed (NUL truncation?)");
+                        assert_eq!(
+                            t.as_ref().as_str(),
+                            s.as_str(),
+                            "the caption changed inside dom()"
+                        );
+                        assert_eq!(
+                            t.as_ref().len(),
+                            s.len(),
+                            "byte length changed (NUL truncation?)"
+                        );
                     }
                     other => panic!("expected a text node, got {other:?}"),
                 },
@@ -2571,16 +2978,26 @@ mod autotest_generated {
             }
             assert!(
                 matches!(
-                    data.get(NodeId::new(circle_node(i))).expect("circle").get_node_type(),
+                    data.get(NodeId::new(circle_node(i)))
+                        .expect("circle")
+                        .get_node_type(),
                     NodeType::P
                 ),
                 "step {i}: the circle box must be a <p> — a text node owns no rect, so \
                  width/height/border-radius could never make it a circle"
             );
             let want = format!("{}", i + 1);
-            match data.get(NodeId::new(circle_node(i) + 1)).expect("circle text").get_node_type() {
+            match data
+                .get(NodeId::new(circle_node(i) + 1))
+                .expect("circle text")
+                .get_node_type()
+            {
                 NodeType::Text(t) => {
-                    assert_eq!(t.as_ref().as_str(), want.as_str(), "step {i}: circle number");
+                    assert_eq!(
+                        t.as_ref().as_str(),
+                        want.as_str(),
+                        "step {i}: circle number"
+                    );
                 }
                 other => panic!("step {i}: the circle does not wrap a text node: {other:?}"),
             }
@@ -2593,12 +3010,22 @@ mod autotest_generated {
         let via_into: Dom = build().into();
         let via_dom = build().dom();
 
-        assert_eq!(via_into.children.as_ref().len(), via_dom.children.as_ref().len());
-        assert_eq!(via_into.estimated_total_children, via_dom.estimated_total_children);
+        assert_eq!(
+            via_into.children.as_ref().len(),
+            via_dom.children.as_ref().len()
+        );
+        assert_eq!(
+            via_into.estimated_total_children,
+            via_dom.estimated_total_children
+        );
         for i in 0..via_dom.children.as_ref().len() {
             let a = step_cell(&via_into, i);
             let b = step_cell(&via_dom, i);
-            assert_eq!(inline_properties(a), inline_properties(b), "`From` diverges at cell {i}");
+            assert_eq!(
+                inline_properties(a),
+                inline_properties(b),
+                "`From` diverges at cell {i}"
+            );
             assert_eq!(
                 inline_properties(circle_of(row_of(a))),
                 inline_properties(circle_of(row_of(b))),
@@ -2611,7 +3038,9 @@ mod autotest_generated {
     #[test]
     fn dom_with_duplicate_labels_still_produces_distinct_positional_steps() {
         // Position, not caption, decides reached-ness.
-        let dom = stepper(&["same", "same", "same"]).with_current_step(1).dom();
+        let dom = stepper(&["same", "same", "same"])
+            .with_current_step(1)
+            .dom();
         for (i, cell) in dom.children.as_ref().iter().enumerate() {
             assert_eq!(text_of(label_of(cell)), Some("same"));
             assert_eq!(
@@ -2635,7 +3064,9 @@ mod autotest_generated {
             let props = inline_properties(cell);
             assert_eq!(
                 props,
-                properties(&CssPropertyWithConditionsVec::from_const_slice(STEPPER_STEP_STYLE)),
+                properties(&CssPropertyWithConditionsVec::from_const_slice(
+                    STEPPER_STEP_STYLE
+                )),
                 "cell {i} does not carry the shared step style"
             );
             assert_eq!(
@@ -2671,7 +3102,11 @@ mod autotest_generated {
                 Update::DoNothing,
                 "with no on_step_change installed the handler reports nothing to redraw"
             );
-            assert_eq!(current_step_of(&mut probe), clicked, "the stored step did not move");
+            assert_eq!(
+                current_step_of(&mut probe),
+                clicked,
+                "the stored step did not move"
+            );
             assert_eq!(
                 restyle_writes(&changes),
                 expected_restyle(n, clicked),
@@ -2689,9 +3124,15 @@ mod autotest_generated {
             let (styled, state) = flatten(Stepper::create(n_labels(n)));
             let (_, changes) = run_click(Some(styled), node(cell_node(clicked)), state);
             let writes = restyle_writes(&changes);
-            assert_eq!(writes.len(), 5 * n, "clicked={clicked}: five writes per step");
+            assert_eq!(
+                writes.len(),
+                5 * n,
+                "clicked={clicked}: five writes per step"
+            );
 
-            let rebuilt = Stepper::create(n_labels(n)).with_current_step(clicked).dom();
+            let rebuilt = Stepper::create(n_labels(n))
+                .with_current_step(clicked)
+                .dom();
             for i in 0..n {
                 let cell = step_cell(&rebuilt, i);
                 let row = row_of(cell);
@@ -2700,12 +3141,20 @@ mod autotest_generated {
 
                 assert_eq!(
                     writes[5 * i],
-                    (circle_node(i), "bg", background_color(&circle).expect("circle bg")),
+                    (
+                        circle_node(i),
+                        "bg",
+                        background_color(&circle).expect("circle bg")
+                    ),
                     "clicked={clicked}: circle {i} background"
                 );
                 assert_eq!(
                     writes[5 * i + 1],
-                    (circle_node(i), "text", text_color(&circle).expect("circle text")),
+                    (
+                        circle_node(i),
+                        "text",
+                        text_color(&circle).expect("circle text")
+                    ),
                     "clicked={clicked}: circle {i} number colour"
                 );
                 assert_eq!(
@@ -2730,7 +3179,11 @@ mod autotest_generated {
                 );
                 assert_eq!(
                     writes[5 * i + 4],
-                    (label_node(i), "text", text_color(&label).expect("label text")),
+                    (
+                        label_node(i),
+                        "text",
+                        text_color(&label).expect("label text")
+                    ),
                     "clicked={clicked}: label {i} colour"
                 );
             }
@@ -2752,9 +3205,19 @@ mod autotest_generated {
             let (update, changes) = run_click(Some(styled), node(cell_node(current)), state);
 
             assert_eq!(update, Update::DoNothing, "current={current}");
-            assert!(changes.is_empty(), "current={current}: a no-op click restyled the row");
-            assert_eq!(current_step_of(&mut probe), current, "current={current}: state moved");
-            assert!(logged(&mut log).is_empty(), "current={current}: the callback was invoked");
+            assert!(
+                changes.is_empty(),
+                "current={current}: a no-op click restyled the row"
+            );
+            assert_eq!(
+                current_step_of(&mut probe),
+                current,
+                "current={current}: state moved"
+            );
+            assert!(
+                logged(&mut log).is_empty(),
+                "current={current}: the callback was invoked"
+            );
         }
     }
 
@@ -2765,13 +3228,24 @@ mod autotest_generated {
         let (styled, state) = flatten(s);
 
         let (update, changes) = run_click(Some(styled), node(cell_node(2)), state.clone());
-        assert_eq!(update, Update::RefreshDom, "the user's Update must propagate");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user's Update must propagate"
+        );
         assert_eq!(
             logged(&mut log),
-            vec![StepperState { current_step: 2, total_steps: 4 }],
+            vec![StepperState {
+                current_step: 2,
+                total_steps: 4
+            }],
             "the callback must see the *new* step, with the total intact"
         );
-        assert_eq!(restyle_writes(&changes).len(), 20, "the restyle must still run");
+        assert_eq!(
+            restyle_writes(&changes).len(),
+            20,
+            "the restyle must still run"
+        );
 
         // A second click moves the shared state again — the step is not sticky.
         let (styled2, _) = flatten(Stepper::create(n_labels(4)));
@@ -2779,13 +3253,23 @@ mod autotest_generated {
         assert_eq!(
             logged(&mut log),
             vec![
-                StepperState { current_step: 2, total_steps: 4 },
-                StepperState { current_step: 1, total_steps: 4 },
+                StepperState {
+                    current_step: 2,
+                    total_steps: 4
+                },
+                StepperState {
+                    current_step: 1,
+                    total_steps: 4
+                },
             ]
         );
 
         let mut state = state;
-        assert_eq!(current_step_of(&mut state), 1, "the state holds the *last* clicked step");
+        assert_eq!(
+            current_step_of(&mut state),
+            1,
+            "the state holds the *last* clicked step"
+        );
     }
 
     #[test]
@@ -2826,7 +3310,10 @@ mod autotest_generated {
         let (update, changes) = run_click(Some(styled), node(cell_node(0)), state);
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a one-step stepper has nothing to restyle");
+        assert!(
+            changes.is_empty(),
+            "a one-step stepper has nothing to restyle"
+        );
         assert_eq!(current_step_of(&mut probe), 0);
     }
 
@@ -2844,8 +3331,7 @@ mod autotest_generated {
         assert_eq!(restyle_writes(&changes), expected_restyle(n, 1));
         // Steps 2..4 must have been actively reset, not merely left alone.
         assert!(
-            restyle_writes(&changes)
-                .contains(&(circle_node(4), "bg", MUTED_CIRCLE_COLOR)),
+            restyle_writes(&changes).contains(&(circle_node(4), "bg", MUTED_CIRCLE_COLOR)),
             "walking back left a stale accent circle behind"
         );
     }
@@ -2860,7 +3346,11 @@ mod autotest_generated {
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty(), "a parentless hit pushed a DOM change");
-        assert_eq!(current_step_of(&mut probe), 0, "the state must be untouched");
+        assert_eq!(
+            current_step_of(&mut probe),
+            0,
+            "the state must be untouched"
+        );
     }
 
     #[test]
@@ -2874,9 +3364,20 @@ mod autotest_generated {
 
             let (update, changes) = run_click(Some(styled), hit, state);
 
-            assert_eq!(update, Update::DoNothing, "{hit:?}: a stale hit was acted on");
-            assert!(changes.is_empty(), "{hit:?}: a stale hit pushed a DOM change");
-            assert_eq!(current_step_of(&mut probe), 1, "{hit:?}: a stale hit moved the step");
+            assert_eq!(
+                update,
+                Update::DoNothing,
+                "{hit:?}: a stale hit was acted on"
+            );
+            assert!(
+                changes.is_empty(),
+                "{hit:?}: a stale hit pushed a DOM change"
+            );
+            assert_eq!(
+                current_step_of(&mut probe),
+                1,
+                "{hit:?}: a stale hit moved the step"
+            );
         }
     }
 
@@ -2911,7 +3412,9 @@ mod autotest_generated {
         );
         let mut foreign = foreign;
         assert_eq!(
-            *foreign.downcast_ref::<u32>().expect("the foreign payload was reinterpreted"),
+            *foreign
+                .downcast_ref::<u32>()
+                .expect("the foreign payload was reinterpreted"),
             0xDEAD_BEEF,
             "the handler corrupted a RefAny it did not understand"
         );
@@ -2924,12 +3427,17 @@ mod autotest_generated {
         // A live mutable borrow on a sibling clone: the `downcast_ref` inside the
         // handler must fail (returning DoNothing) instead of aliasing `&mut`.
         let mut held = state.clone();
-        let guard = held.downcast_mut::<StepperStateWrapper>().expect("first borrow succeeds");
+        let guard = held
+            .downcast_mut::<StepperStateWrapper>()
+            .expect("first borrow succeeds");
 
         let (update, changes) = run_click(Some(styled), node(cell_node(1)), state);
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "the handler restyled after failing to read the state");
+        assert!(
+            changes.is_empty(),
+            "the handler restyled after failing to read the state"
+        );
         drop(guard);
     }
 
@@ -2958,7 +3466,11 @@ mod autotest_generated {
         let (update, changes) = run_click(Some(styled), node(cell_node(2)), state);
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(restyle_writes(&changes).len(), 15, "the restyle must still run");
+        assert_eq!(
+            restyle_writes(&changes).len(),
+            15,
+            "the restyle must still run"
+        );
 
         let p = probe.downcast_ref::<ReentrantProbe>().expect("probe");
         assert_eq!(p.calls, 1, "the user callback must run exactly once");
@@ -2978,11 +3490,11 @@ mod autotest_generated {
         // hit resolves against *its own* siblings, so it can move the stored step
         // without any visual feedback.)
         for (hit, expected_step) in [
-            (row_node(0), 0usize),      // row is child 0 of its cell -> no change
-            (row_node(1), 0),           // ditto, whichever cell it belongs to
-            (conn_left_node(0), 0),     // connector-left is child 0 of its row
-            (circle_node(0), 1),        // circle is child 1 of its row
-            (conn_right_node(0), 2),    // connector-right is child 2 of its row
+            (row_node(0), 0usize),   // row is child 0 of its cell -> no change
+            (row_node(1), 0),        // ditto, whichever cell it belongs to
+            (conn_left_node(0), 0),  // connector-left is child 0 of its row
+            (circle_node(0), 1),     // circle is child 1 of its row
+            (conn_right_node(0), 2), // connector-right is child 2 of its row
         ] {
             let (styled, state) = flatten(Stepper::create(n_labels(3)));
             let mut probe = state.clone();
@@ -2990,7 +3502,10 @@ mod autotest_generated {
             let (update, changes) = run_click(Some(styled), node(hit), state);
 
             assert_eq!(update, Update::DoNothing, "node {hit}");
-            assert!(changes.is_empty(), "node {hit}: an inner hit pushed a partial restyle");
+            assert!(
+                changes.is_empty(),
+                "node {hit}: an inner hit pushed a partial restyle"
+            );
             assert_eq!(current_step_of(&mut probe), expected_step, "node {hit}");
         }
     }
@@ -3034,10 +3549,15 @@ mod autotest_generated {
         let (_, _) = run_click(Some(styled), node(cell_node(3)), state.clone());
 
         let mut state = state;
-        let wrapper = state.downcast_ref::<StepperStateWrapper>().expect("StepperStateWrapper");
+        let wrapper = state
+            .downcast_ref::<StepperStateWrapper>()
+            .expect("StepperStateWrapper");
         assert_eq!(
             wrapper.inner,
-            StepperState { current_step: 3, total_steps: n },
+            StepperState {
+                current_step: 3,
+                total_steps: n
+            },
             "a click must move the current step and nothing else"
         );
     }

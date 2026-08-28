@@ -29,10 +29,7 @@ use azul_layout::{
 /// offset. That identity IS the cache key's promise, and it is what
 /// makes sharing the shaped data sound in the first place: if this
 /// fails, the runs were shaped separately and the cache never fired.
-fn assert_geometry_identical(
-    a: &[(u32, f32, f32)],
-    b: &[(u32, f32, f32)],
-) -> Result<(), String> {
+fn assert_geometry_identical(a: &[(u32, f32, f32)], b: &[(u32, f32, f32)]) -> Result<(), String> {
     if a.is_empty() || a.len() != b.len() {
         return Err(format!("glyph counts differ: {} vs {}", a.len(), b.len()));
     }
@@ -61,12 +58,16 @@ fn layout_two_same_text_nodes() -> Vec<RunIdentity> {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("a".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Layout")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Layout",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("b".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Layout")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Layout",
+                )),
         );
     let css_str = r#"
         .a { color: rgb(200, 30, 30); }
@@ -170,7 +171,9 @@ fn same_text_different_nodes_keep_their_colour_and_identity() {
 /// segment of `module_path!()` (`all::`) and keep the rest.
 fn positive_pin_test_name() -> String {
     let module = module_path!();
-    let relative = module.split_once("::").map_or(module, |(_crate, rest)| rest);
+    let relative = module
+        .split_once("::")
+        .map_or(module, |(_crate, rest)| rest);
     format!("{relative}::same_text_different_nodes_keep_their_colour_and_identity")
 }
 

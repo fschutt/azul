@@ -39,15 +39,9 @@ use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper
 /// `interface` block, after the regular external function imports.
 pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
-    builder.line(
-        "{ -------------------------------------------------------------------- }",
-    );
-    builder.line(
-        "{ Managed-FFI runtime helpers (host-invoker pattern).                 }",
-    );
-    builder.line(
-        "{ -------------------------------------------------------------------- }",
-    );
+    builder.line("{ -------------------------------------------------------------------- }");
+    builder.line("{ Managed-FFI runtime helpers (host-invoker pattern).                 }");
+    builder.line("{ -------------------------------------------------------------------- }");
     builder.blank();
 
     builder.line("type");
@@ -80,9 +74,8 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line(
         "procedure AzApp_setHostHandleReleaser(releaser: TAzHostHandleReleaserProc); cdecl; external AzulLib;",
     );
-    builder.line(
-        "function AzRefAny_newHostHandle(id: cuint64): TAzRefAny; cdecl; external AzulLib;",
-    );
+    builder
+        .line("function AzRefAny_newHostHandle(id: cuint64): TAzRefAny; cdecl; external AzulLib;");
     builder.line(
         "function AzRefAny_getHostHandle(refany: PAzRefAny): cuint64; cdecl; external AzulLib;",
     );
@@ -157,15 +150,9 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
 /// `implementation` block.
 pub fn emit_managed_implementation(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
-    builder.line(
-        "{ -------------------------------------------------------------------- }",
-    );
-    builder.line(
-        "{ Managed-FFI runtime helpers (implementation).                        }",
-    );
-    builder.line(
-        "{ -------------------------------------------------------------------- }",
-    );
+    builder.line("{ -------------------------------------------------------------------- }");
+    builder.line("{ Managed-FFI runtime helpers (implementation).                        }");
+    builder.line("{ -------------------------------------------------------------------- }");
     builder.blank();
 
     // Handle table. Uses contnrs / fgl interchangeably; we go with

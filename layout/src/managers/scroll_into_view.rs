@@ -120,7 +120,7 @@ pub(crate) fn scroll_rect_into_view(
     hop: NestedDomHop<'_>,
 ) -> Vec<ScrollAdjustment> {
     let mut adjustments = Vec::new();
-    
+
     // Find scrollable ancestors from target to root
     let scroll_ancestors = find_scrollable_ancestors(
         target_dom_id,
@@ -129,14 +129,14 @@ pub(crate) fn scroll_rect_into_view(
         scroll_manager,
         hop,
     );
-    
+
     if scroll_ancestors.is_empty() {
         return adjustments;
     }
-    
+
     // Transform target_rect relative to each scroll container and calculate deltas
     let mut current_rect = target_rect;
-    
+
     for ancestor in scroll_ancestors {
         // Express the target in THIS ancestor's dom before comparing. Zero
         // within one dom; non-zero once the walk has left a nested one.
@@ -153,7 +153,7 @@ pub(crate) fn scroll_rect_into_view(
             ancestor.scroll_x,
             ancestor.scroll_y,
         );
-        
+
         // Only add adjustment if there's actual scrolling to do
         if delta.x.abs() > SCROLL_DELTA_THRESHOLD || delta.y.abs() > SCROLL_DELTA_THRESHOLD {
             // Resolve scroll behavior
@@ -163,7 +163,7 @@ pub(crate) fn scroll_rect_into_view(
                 ancestor.node_id,
                 layout_results,
             );
-            
+
             // Apply the scroll adjustment
             apply_scroll_adjustment(
                 scroll_manager,
@@ -173,20 +173,20 @@ pub(crate) fn scroll_rect_into_view(
                 behavior,
                 now.clone(),
             );
-            
+
             adjustments.push(ScrollAdjustment {
                 scroll_container_dom_id: ancestor.dom_id,
                 scroll_container_node_id: ancestor.node_id,
                 delta,
                 behavior,
             });
-            
+
             // Adjust current_rect for next iteration (relative to new scroll position)
             current_rect.origin.x -= delta.x;
             current_rect.origin.y -= delta.y;
         }
     }
-    
+
     adjustments
 }
 
@@ -210,7 +210,7 @@ pub fn scroll_node_into_view(
     let Some(target_rect) = get_node_rect(node_id, layout_results) else {
         return Vec::new();
     };
-    
+
     let Some(internal_node_id) = node_id.node.into_crate_internal() else {
         return Vec::new();
     };
@@ -245,7 +245,7 @@ pub fn scroll_cursor_into_view(
     let Some(node_rect) = get_node_rect(node_id, layout_results) else {
         return Vec::new();
     };
-    
+
     // Transform cursor rect to absolute coordinates
     let absolute_cursor_rect = LogicalRect {
         origin: LogicalPosition {
@@ -254,7 +254,7 @@ pub fn scroll_cursor_into_view(
         },
         size: cursor_rect.size,
     };
-    
+
     let Some(internal_node_id) = node_id.node.into_crate_internal() else {
         return Vec::new();
     };
@@ -313,12 +313,9 @@ fn find_scrollable_ancestors(
         };
 
         while let Some(current_node_id) = node {
-            if let Some(mut ancestor) = check_if_scrollable(
-                current_dom,
-                current_node_id,
-                layout_result,
-                scroll_manager,
-            ) {
+            if let Some(mut ancestor) =
+                check_if_scrollable(current_dom, current_node_id, layout_result, scroll_manager)
+            {
                 ancestor.target_lift = lift;
                 ancestors.push(ancestor);
             }
@@ -363,7 +360,7 @@ fn check_if_scrollable(
 ) -> Option<ScrollableAncestor> {
     let styled_nodes = layout_result.styled_dom.styled_nodes.as_container();
     let styled_node = styled_nodes.get(node_id)?;
-    
+
     let overflow_x = get_overflow_x(
         &layout_result.styled_dom,
         node_id,
@@ -374,7 +371,7 @@ fn check_if_scrollable(
         node_id,
         &styled_node.styled_node_state,
     );
-    
+
     // Programmatic scrolling reaches EVERY scroll container - including
     // overflow:hidden, whose user scrolling is disabled but which css
     // overflow-3 §3.1 keeps programmatically scrollable (scrollIntoView
@@ -386,21 +383,25 @@ fn check_if_scrollable(
     if !scroll_x && !scroll_y {
         return None;
     }
-    
+
     // Check if the scroll manager has scroll state for this node
     // (which means it actually has overflowing content)
     let scroll_state = scroll_manager.get_scroll_state(dom_id, node_id)?;
-    
+
     // Check if content actually overflows (use virtual_scroll_size when set, e.g. for VirtualView)
-    let effective_width = scroll_state.virtual_scroll_size.map_or(scroll_state.content_rect.size.width, |s| s.width);
-    let effective_height = scroll_state.virtual_scroll_size.map_or(scroll_state.content_rect.size.height, |s| s.height);
+    let effective_width = scroll_state
+        .virtual_scroll_size
+        .map_or(scroll_state.content_rect.size.width, |s| s.width);
+    let effective_height = scroll_state
+        .virtual_scroll_size
+        .map_or(scroll_state.content_rect.size.height, |s| s.height);
     let has_overflow_x = effective_width > scroll_state.container_rect.size.width;
     let has_overflow_y = effective_height > scroll_state.container_rect.size.height;
-    
+
     if !has_overflow_x && !has_overflow_y {
         return None;
     }
-    
+
     // The visible rect = the SCROLLPORT (padding box, static layout coords —
     // see `managers::scroll_registration`) shifted by the current scroll
     // offset. Origin and size both come off the one box the manager published,
@@ -413,7 +414,7 @@ fn check_if_scrollable(
         },
         size: scroll_state.container_rect.size,
     };
-    
+
     Some(ScrollableAncestor {
         dom_id,
         node_id,
@@ -463,7 +464,8 @@ fn calculate_scroll_delta(
 }
 
 /// Calculate scroll delta for a single axis
-#[must_use] pub fn calculate_axis_delta(
+#[must_use]
+pub fn calculate_axis_delta(
     target_start: f32,
     target_size: f32,
     container_start: f32,
@@ -472,7 +474,7 @@ fn calculate_scroll_delta(
 ) -> f32 {
     let target_end = target_start + target_size;
     let container_end = container_start + container_size;
-    
+
     match position {
         ScrollLogicalPosition::Start => {
             // Align target start with container start
@@ -539,16 +541,16 @@ fn apply_scroll_adjustment(
 ) {
     use azul_core::events::EasingFunction;
     use azul_core::task::SystemTimeDiff;
-    
+
     let current = scroll_manager
         .get_current_offset(dom_id, node_id)
         .unwrap_or_default();
-    
+
     let new_position = LogicalPosition {
         x: current.x + delta.x,
         y: current.y + delta.y,
     };
-    
+
     match behavior {
         ScrollIntoViewBehavior::Instant | ScrollIntoViewBehavior::Auto => {
             scroll_manager.set_scroll_position(dom_id, node_id, new_position, now);
@@ -575,16 +577,18 @@ fn get_node_rect(
 ) -> Option<LogicalRect> {
     let layout_result = layout_results.get(&node_id.dom)?;
     let nid = node_id.node.into_crate_internal()?;
-    
+
     // Get position
     let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
     let layout_index = *layout_indices.first()?;
-    let position = *layout_result.calculated_positions.get(layout_index.index())?;
-    
+    let position = *layout_result
+        .calculated_positions
+        .get(layout_index.index())?;
+
     // Get size
     let layout_node = layout_result.layout_tree.get(layout_index)?;
     let size = layout_node.used_size?;
-    
+
     Some(LogicalRect::new(position, size))
 }
 
@@ -936,7 +940,10 @@ mod autotest_generated {
             ScrollLogicalPosition::Center,
         ] {
             let delta = calculate_axis_delta(f32::NAN, 10.0, 0.0, 100.0, position);
-            assert!(delta.is_nan(), "{position:?} should propagate NaN, got {delta}");
+            assert!(
+                delta.is_nan(),
+                "{position:?} should propagate NaN, got {delta}"
+            );
         }
     }
 
@@ -945,7 +952,8 @@ mod autotest_generated {
         // Every NaN comparison is false, so `Nearest` falls through to the
         // "already fully visible" branch and returns exactly 0.0 — the safe
         // choice (no scroll) rather than a NaN leaking into the scroll offset.
-        let delta = calculate_axis_delta(f32::NAN, 10.0, 0.0, 100.0, ScrollLogicalPosition::Nearest);
+        let delta =
+            calculate_axis_delta(f32::NAN, 10.0, 0.0, 100.0, ScrollLogicalPosition::Nearest);
         assert_eq!(delta, 0.0);
     }
 
@@ -967,8 +975,13 @@ mod autotest_generated {
 
     #[test]
     fn axis_delta_infinite_target_start_saturates_to_infinity() {
-        let delta =
-            calculate_axis_delta(f32::INFINITY, 10.0, 0.0, 100.0, ScrollLogicalPosition::Start);
+        let delta = calculate_axis_delta(
+            f32::INFINITY,
+            10.0,
+            0.0,
+            100.0,
+            ScrollLogicalPosition::Start,
+        );
         assert!(delta.is_infinite() && delta.is_sign_positive());
 
         let delta = calculate_axis_delta(
@@ -1018,8 +1031,13 @@ mod autotest_generated {
 
         // Nearest sees target_end == +inf > container_end, and the (infinite)
         // target does not fit, so it start-aligns to a finite f32::MAX.
-        let delta =
-            calculate_axis_delta(f32::MAX, f32::MAX, 0.0, 100.0, ScrollLogicalPosition::Nearest);
+        let delta = calculate_axis_delta(
+            f32::MAX,
+            f32::MAX,
+            0.0,
+            100.0,
+            ScrollLogicalPosition::Nearest,
+        );
         assert_eq!(delta, f32::MAX);
     }
 
@@ -1032,7 +1050,10 @@ mod autotest_generated {
             ScrollLogicalPosition::Nearest,
         ] {
             let delta = calculate_axis_delta(f32::MIN, 1.0, f32::MAX, 1.0, position);
-            assert!(!delta.is_nan(), "{position:?} produced NaN from finite input");
+            assert!(
+                !delta.is_nan(),
+                "{position:?} produced NaN from finite input"
+            );
         }
     }
 
@@ -1084,8 +1105,16 @@ mod autotest_generated {
             true,
             true,
         );
-        assert!(close(delta.x, -85.0), "x used the wrong axis/position: {}", delta.x);
-        assert!(close(delta.y, 200.0), "y used the wrong axis/position: {}", delta.y);
+        assert!(
+            close(delta.x, -85.0),
+            "x used the wrong axis/position: {}",
+            delta.x
+        );
+        assert!(
+            close(delta.y, 200.0),
+            "y used the wrong axis/position: {}",
+            delta.y
+        );
     }
 
     #[test]
@@ -1124,12 +1153,7 @@ mod autotest_generated {
     fn resolve_behavior_maps_auto_to_instant_and_passes_the_rest_through() {
         let empty: BTreeMap<DomId, DomLayoutResult> = BTreeMap::new();
         assert_eq!(
-            resolve_scroll_behavior(
-                ScrollIntoViewBehavior::Auto,
-                dom_id(0),
-                nid(TARGET),
-                &empty
-            ),
+            resolve_scroll_behavior(ScrollIntoViewBehavior::Auto, dom_id(0), nid(TARGET), &empty),
             ScrollIntoViewBehavior::Instant
         );
         assert_eq!(
@@ -1162,7 +1186,10 @@ mod autotest_generated {
         ] {
             let once = resolve_scroll_behavior(behavior, dom_id(0), nid(0), &empty);
             let twice = resolve_scroll_behavior(once, dom_id(0), nid(0), &empty);
-            assert_eq!(once, twice, "resolving {behavior:?} twice changed the result");
+            assert_eq!(
+                once, twice,
+                "resolving {behavior:?} twice changed the result"
+            );
         }
     }
 
@@ -1257,7 +1284,10 @@ mod autotest_generated {
             now(),
         );
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
-        assert!(close(offset.x, 400.0) && close(offset.y, 400.0), "{offset:?}");
+        assert!(
+            close(offset.x, 400.0) && close(offset.y, 400.0),
+            "{offset:?}"
+        );
     }
 
     #[test]
@@ -1339,7 +1369,10 @@ mod autotest_generated {
             );
         }
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
-        assert!(close(offset.x, 300.0) && close(offset.y, 300.0), "{offset:?}");
+        assert!(
+            close(offset.x, 300.0) && close(offset.y, 300.0),
+            "{offset:?}"
+        );
     }
 
     // ==================================================================
@@ -1399,7 +1432,9 @@ mod autotest_generated {
         );
         // Stale mapping pointing past the end of both `calculated_positions` and
         // `layout_tree.nodes` — must be a None, not an out-of-bounds index panic.
-        lr.layout_tree.dom_to_layout.insert(nid(TARGET), vec![LayoutNodeId::new(7)]);
+        lr.layout_tree
+            .dom_to_layout
+            .insert(nid(TARGET), vec![LayoutNodeId::new(7)]);
         assert!(get_node_rect(dnid(0, TARGET), &window(lr)).is_none());
     }
 
@@ -1486,7 +1521,10 @@ mod autotest_generated {
             .expect("an overflowing scroll container");
         assert_eq!(ancestor.node_id, nid(INNER));
         assert_eq!(ancestor.dom_id, dom_id(0));
-        assert!(!ancestor.scroll_x, "x does not overflow, so it is not scrollable");
+        assert!(
+            !ancestor.scroll_x,
+            "x does not overflow, so it is not scrollable"
+        );
         assert!(ancestor.scroll_y);
         // visible_rect = container origin + current scroll offset, container size.
         assert!(close(ancestor.visible_rect.origin.x, 5.0));
@@ -1561,7 +1599,9 @@ mod autotest_generated {
     #[test]
     fn find_ancestors_out_of_range_node_is_empty() {
         let (lrs, sm) = inner_only();
-        assert!(find_scrollable_ancestors(dom_id(0), nid(OUT_OF_RANGE), &lrs, &sm, &no_hop).is_empty());
+        assert!(
+            find_scrollable_ancestors(dom_id(0), nid(OUT_OF_RANGE), &lrs, &sm, &no_hop).is_empty()
+        );
     }
 
     #[test]
@@ -1654,7 +1694,11 @@ mod autotest_generated {
 
         let ancestors = find_scrollable_ancestors(dom_id(0), nid(TARGET), &lrs, &sm, &no_hop);
         assert_eq!(ancestors.len(), 2);
-        assert_eq!(ancestors[0].node_id, nid(INNER), "innermost must come first");
+        assert_eq!(
+            ancestors[0].node_id,
+            nid(INNER),
+            "innermost must come first"
+        );
         assert_eq!(ancestors[1].node_id, nid(OUTER));
     }
 
@@ -1857,7 +1901,11 @@ mod autotest_generated {
         );
         assert_eq!(adjustments.len(), 1);
         // visible rect starts at y = 0 + 300, so the reported delta is unclamped...
-        assert!(close(adjustments[0].delta.y, -800.0), "{:?}", adjustments[0]);
+        assert!(
+            close(adjustments[0].delta.y, -800.0),
+            "{:?}",
+            adjustments[0]
+        );
         // ...while the stored offset is clamped into [0, max_scroll].
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
         assert_eq!(offset.y, 0.0);
@@ -2176,7 +2224,11 @@ mod autotest_generated {
         );
         assert_eq!(adjustments.len(), 1);
         // visible rect starts at 300, cursor at 50 => delta -250 => offset 50
-        assert!(close(adjustments[0].delta.y, -250.0), "{:?}", adjustments[0]);
+        assert!(
+            close(adjustments[0].delta.y, -250.0),
+            "{:?}",
+            adjustments[0]
+        );
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
         assert!(close(offset.y, 50.0), "{offset:?}");
     }
@@ -2223,7 +2275,10 @@ mod autotest_generated {
         assert_eq!(adjustments.len(), 1);
         let offset = sm.get_current_offset(dom_id(0), nid(INNER)).unwrap();
         assert!(offset.x.is_finite() && offset.y.is_finite(), "{offset:?}");
-        assert!(close(offset.x, 400.0) && close(offset.y, 900.0), "{offset:?}");
+        assert!(
+            close(offset.x, 400.0) && close(offset.y, 900.0),
+            "{offset:?}"
+        );
     }
 
     #[test]

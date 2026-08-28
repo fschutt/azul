@@ -1,6 +1,3 @@
-/// Test inline-block text rendering
-/// Verifies that text inside inline-block elements generates TextLayout / Text items
-use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -10,6 +7,9 @@ use azul_layout::paged::FragmentationContext;
 use azul_layout::solver3::display_list::DisplayListItem;
 use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
 use azul_layout::solver3::pagination::FakePageConfig;
+/// Test inline-block text rendering
+/// Verifies that text inside inline-block elements generates TextLayout / Text items
+use azul_layout::solver3::LayoutNodeId;
 use azul_layout::text3::default::PathLoader;
 use azul_layout::xml::DomXmlExt;
 use azul_layout::Solver3LayoutCache;
@@ -96,7 +96,9 @@ fn test_inline_block_text_generates_text_items() {
         font_loader,
         page_config,
         &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
     )
     .expect("Layout should succeed");
@@ -319,7 +321,9 @@ fn test_text_wraps_at_constrained_width() {
         font_loader,
         page_config,
         &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
     )
     .expect("Layout should succeed");
@@ -341,7 +345,11 @@ fn test_text_wraps_at_constrained_width() {
     for (i, bounds) in text_layouts.iter().enumerate() {
         println!(
             "TextLayout[{}]: {}x{} @ ({}, {})",
-            i, bounds.size().width, bounds.size().height, bounds.origin().x, bounds.origin().y
+            i,
+            bounds.size().width,
+            bounds.size().height,
+            bounds.origin().x,
+            bounds.origin().y
         );
     }
 
@@ -371,7 +379,11 @@ fn test_text_wraps_at_constrained_width() {
     for (i, rect) in rectangles.iter().enumerate() {
         println!(
             "Rectangle[{}]: {}x{} @ ({}, {})",
-            i, rect.size().width, rect.size().height, rect.origin().x, rect.origin().y
+            i,
+            rect.size().width,
+            rect.size().height,
+            rect.origin().x,
+            rect.origin().y
         );
     }
 
@@ -402,7 +414,8 @@ fn test_text_wraps_at_constrained_width() {
 
     println!(
         "SUCCESS: Box size = {}x{}",
-        box_rect.size().width, box_rect.size().height
+        box_rect.size().width,
+        box_rect.size().height
     );
     println!("Text appears to wrap correctly (height indicates multiple lines)");
 }
@@ -499,7 +512,9 @@ fn test_inline_text_and_inline_block_on_same_line() {
         font_loader,
         page_config,
         &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
     )
     .expect("Layout should succeed");
@@ -524,10 +539,18 @@ fn test_inline_text_and_inline_block_on_same_line() {
         println!("\n=== Layout Tree ===");
         for (idx, node) in tree.nodes.iter().enumerate() {
             let dom_idx = node.dom_node_id.map(|id| id.index() as i64).unwrap_or(-1);
-            let rel_pos = tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.relative_position).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
-            let abs_pos = layout_cache.calculated_positions.get(idx).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
+            let rel_pos = tree
+                .warm(LayoutNodeId::new(idx))
+                .and_then(|w| w.relative_position)
+                .map(|p| format!("({:.2}, {:.2})", p.x, p.y))
+                .unwrap_or("None".to_string());
+            let abs_pos = layout_cache
+                .calculated_positions
+                .get(idx)
+                .map(|p| format!("({:.2}, {:.2})", p.x, p.y))
+                .unwrap_or("None".to_string());
             let fc = format!("{:?}", node.formatting_context);
-            
+
             println!(
                 "  [{idx}] dom={dom_idx:2}, fc={fc:20}, rel_pos={rel_pos:15}, ABS_pos={abs_pos}"
             );
@@ -539,7 +562,13 @@ fn test_inline_text_and_inline_block_on_same_line() {
         .iter()
         .flat_map(|dl| dl.items.iter())
         .filter_map(|item| {
-            if let DisplayListItem::Text { glyphs, clip_rect, font_size_px, .. } = item {
+            if let DisplayListItem::Text {
+                glyphs,
+                clip_rect,
+                font_size_px,
+                ..
+            } = item
+            {
                 Some((glyphs.len(), *clip_rect, *font_size_px))
             } else {
                 None
@@ -551,9 +580,13 @@ fn test_inline_text_and_inline_block_on_same_line() {
     for (i, (glyph_count, clip_rect, font_size)) in text_items.iter().enumerate() {
         println!(
             "Text[{}]: {} glyphs, font_size={}, clip_rect=({}, {}) {}x{}",
-            i, glyph_count, font_size, 
-            clip_rect.origin().x, clip_rect.origin().y,
-            clip_rect.size().width, clip_rect.size().height
+            i,
+            glyph_count,
+            font_size,
+            clip_rect.origin().x,
+            clip_rect.origin().y,
+            clip_rect.size().width,
+            clip_rect.size().height
         );
     }
 
@@ -574,42 +607,54 @@ fn test_inline_text_and_inline_block_on_same_line() {
     for (i, (bounds, color)) in rect_items.iter().enumerate() {
         println!(
             "Rect[{}]: ({}, {}) {}x{} color=#{:02x}{:02x}{:02x}",
-            i, bounds.origin().x, bounds.origin().y,
-            bounds.size().width, bounds.size().height,
-            color.r, color.g, color.b
+            i,
+            bounds.origin().x,
+            bounds.origin().y,
+            bounds.size().width,
+            bounds.size().height,
+            color.r,
+            color.g,
+            color.b
         );
     }
 
     // The counter text (font-size 50px) and button should be on the same line
     // "Same line" means they should have overlapping Y ranges or be very close
-    
-    assert!(text_items.len() >= 2, "Should have at least 2 text items (counter '5' and button text)");
-    
+
+    assert!(
+        text_items.len() >= 2,
+        "Should have at least 2 text items (counter '5' and button text)"
+    );
+
     // The first text should be the counter "5" (1 glyph, font-size 50)
     // The second should be "Increase counter" (16 glyphs, font-size ~16)
     let counter_text = &text_items[0];
     let button_text = &text_items[1];
-    
+
     println!("\nCounter text: y={}", counter_text.1.origin().y);
     println!("Button text: y={}", button_text.1.origin().y);
-    
+
     // Find the button background (should be #efefef)
-    let button_bg = rect_items.iter().find(|(_, color)| {
-        color.r == 0xef && color.g == 0xef && color.b == 0xef
-    });
-    
+    let button_bg = rect_items
+        .iter()
+        .find(|(_, color)| color.r == 0xef && color.g == 0xef && color.b == 0xef);
+
     if let Some((button_bounds, _)) = button_bg {
-        println!("Button background: x={}, y={}", button_bounds.origin().x, button_bounds.origin().y);
-        
+        println!(
+            "Button background: x={}, y={}",
+            button_bounds.origin().x,
+            button_bounds.origin().y
+        );
+
         // The button's X position should be after the counter text
         // Counter is at body margin (8px) + counter width
         // If inline/inline-block works correctly, button.x should be > 8 + counter_width
         // NOT at x=8 which would indicate a new line
-        
+
         // The counter "5" at 50px font size is roughly 25-35px wide
         // So the button should be at x > 30 if on same line
         // If button is at x < 20, it's on a new line (just body margin)
-        
+
         // CRITICAL ASSERTION: Button should NOT be at the left margin
         // If it is, the inline-block is being placed on a new line incorrectly
         assert!(
@@ -618,7 +663,7 @@ fn test_inline_text_and_inline_block_on_same_line() {
              The inline-block is being placed on a NEW LINE instead of inline with the text!",
             button_bounds.origin().x
         );
-        
+
         // Also check that button is NOT below the counter's baseline
         // The counter at 50px has a line height of ~50px, starting at y=8 (margin)
         // So counter occupies roughly y=8 to y=58
@@ -626,14 +671,15 @@ fn test_inline_text_and_inline_block_on_same_line() {
         let counter_y_start = 8.0; // body margin
         let counter_line_height = 50.0;
         let counter_y_end = counter_y_start + counter_line_height;
-        
+
         assert!(
             button_bounds.origin().y < counter_y_end + 10.0, // allow small tolerance
             "FAIL: Button is at y={}, should be < {} (within counter's line). \
              The inline-block is being placed BELOW the inline text!",
-            button_bounds.origin().y, counter_y_end
+            button_bounds.origin().y,
+            counter_y_end
         );
-        
+
         println!("\nSUCCESS: Button is positioned inline with the counter text!");
     } else {
         panic!("Could not find button background rect");
@@ -659,9 +705,7 @@ fn test_body_as_root_inline_block_positioning() {
     let button = Dom::create_text_do_not_use_without_block_level_wrapper("Increase counter")
         .with_ids_and_classes(vec![IdOrClass::Class("button".into())].into());
 
-    let mut body_dom = Dom::create_body()
-        .with_child(label)
-        .with_child(button);
+    let mut body_dom = Dom::create_body().with_child(label).with_child(button);
     let (css, _) = azul_css::parser2::new_from_str(
         ".label { font-size: 50px; display: inline; } \
          .button { display: inline-block; padding: 5px 10px; background: #efefef; }",
@@ -726,7 +770,9 @@ fn test_body_as_root_inline_block_positioning() {
         font_loader,
         page_config,
         &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
     )
     .expect("Layout should succeed");
@@ -750,10 +796,18 @@ fn test_body_as_root_inline_block_positioning() {
         println!("\n=== Layout Tree (Body as Root) ===");
         for (idx, node) in tree.nodes.iter().enumerate() {
             let dom_idx = node.dom_node_id.map(|id| id.index() as i64).unwrap_or(-1);
-            let rel_pos = tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.relative_position).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
-            let abs_pos = layout_cache.calculated_positions.get(idx).map(|p| format!("({:.2}, {:.2})", p.x, p.y)).unwrap_or("None".to_string());
+            let rel_pos = tree
+                .warm(LayoutNodeId::new(idx))
+                .and_then(|w| w.relative_position)
+                .map(|p| format!("({:.2}, {:.2})", p.x, p.y))
+                .unwrap_or("None".to_string());
+            let abs_pos = layout_cache
+                .calculated_positions
+                .get(idx)
+                .map(|p| format!("({:.2}, {:.2})", p.x, p.y))
+                .unwrap_or("None".to_string());
             let fc = format!("{:?}", node.formatting_context);
-            
+
             println!(
                 "  [{idx}] dom={dom_idx:2}, fc={fc:20}, rel_pos={rel_pos:15}, ABS_pos={abs_pos}"
             );
@@ -777,19 +831,28 @@ fn test_body_as_root_inline_block_positioning() {
     for (i, (bounds, color)) in rect_items.iter().enumerate() {
         println!(
             "Rect[{}]: ({}, {}) {}x{} color=#{:02x}{:02x}{:02x}",
-            i, bounds.origin().x, bounds.origin().y,
-            bounds.size().width, bounds.size().height,
-            color.r, color.g, color.b
+            i,
+            bounds.origin().x,
+            bounds.origin().y,
+            bounds.size().width,
+            bounds.size().height,
+            color.r,
+            color.g,
+            color.b
         );
     }
 
     // Find button background (#efefef)
-    let button_bg = rect_items.iter().find(|(_, color)| {
-        color.r == 0xef && color.g == 0xef && color.b == 0xef
-    });
+    let button_bg = rect_items
+        .iter()
+        .find(|(_, color)| color.r == 0xef && color.g == 0xef && color.b == 0xef);
 
     if let Some((button_bounds, _)) = button_bg {
-        println!("\nButton background: x={}, y={}", button_bounds.origin().x, button_bounds.origin().y);
+        println!(
+            "\nButton background: x={}, y={}",
+            button_bounds.origin().x,
+            button_bounds.origin().y
+        );
 
         // CRITICAL: Button should be at x > 15 (after margin 8 + text ~25, minus padding ~10)
         // The background rect now correctly includes the padding area, so its origin
@@ -808,9 +871,15 @@ fn test_body_as_root_inline_block_positioning() {
         if let Some(tree) = &layout_cache.tree {
             // Find the inline-block node
             for (idx, node) in tree.nodes.iter().enumerate() {
-                if matches!(node.formatting_context, azul_core::dom::FormattingContext::InlineBlock) {
+                if matches!(
+                    node.formatting_context,
+                    azul_core::dom::FormattingContext::InlineBlock
+                ) {
                     if let Some(pos) = layout_cache.calculated_positions.get(idx) {
-                        println!("InlineBlock at layout idx {}: x={:.1}, y={:.1}", idx, pos.x, pos.y);
+                        println!(
+                            "InlineBlock at layout idx {}: x={:.1}, y={:.1}",
+                            idx, pos.x, pos.y
+                        );
                         assert!(
                             pos.x > 30.0,
                             "BUG: InlineBlock is at x={:.1}, expected > 30. Body margin not applied!",

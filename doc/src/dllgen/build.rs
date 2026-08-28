@@ -98,13 +98,40 @@ pub fn build_all_configs(version: &str, output_dir: &Path, cfg: &Config) -> Resu
     // and kept out of the normal ~25 MB deploy. Emitted as `*.remill.*`.
     if cfg.build_remill {
         if cfg.build_windows {
-            all_configs.push(("windows", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "azul.dll", "azul.remill.dll"));
+            all_configs.push((
+                "windows",
+                vec![
+                    "--no-default-features",
+                    "--features",
+                    "build-dll,web-transpiler-static",
+                ],
+                "azul.dll",
+                "azul.remill.dll",
+            ));
         }
         if cfg.build_linux {
-            all_configs.push(("linux", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "libazul.so", "libazul.remill.so"));
+            all_configs.push((
+                "linux",
+                vec![
+                    "--no-default-features",
+                    "--features",
+                    "build-dll,web-transpiler-static",
+                ],
+                "libazul.so",
+                "libazul.remill.so",
+            ));
         }
         if cfg.build_macos {
-            all_configs.push(("macos", vec!["--no-default-features", "--features", "build-dll,web-transpiler-static"], "libazul.dylib", "libazul.remill.dylib"));
+            all_configs.push((
+                "macos",
+                vec![
+                    "--no-default-features",
+                    "--features",
+                    "build-dll,web-transpiler-static",
+                ],
+                "libazul.dylib",
+                "libazul.remill.dylib",
+            ));
         }
     }
 

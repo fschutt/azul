@@ -121,8 +121,10 @@ impl Zip {
         #[cfg(feature = "zip")]
         {
             use azul_layout::zip::ZipReadConfig;
-            match ZipFile::from_file(std::path::Path::new(path.as_str()), &ZipReadConfig::default())
-            {
+            match ZipFile::from_file(
+                std::path::Path::new(path.as_str()),
+                &ZipReadConfig::default(),
+            ) {
                 Ok(z) => Self::from_archive(z),
                 Err(_) => Self::new(),
             }

@@ -54,10 +54,20 @@ struct CMTime {
 
 impl CMTime {
     fn new(value: i64, timescale: i32) -> Self {
-        CMTime { value, timescale, flags: 1, epoch: 0 }
+        CMTime {
+            value,
+            timescale,
+            flags: 1,
+            epoch: 0,
+        }
     }
     fn invalid() -> Self {
-        CMTime { value: 0, timescale: 0, flags: 0, epoch: 0 }
+        CMTime {
+            value: 0,
+            timescale: 0,
+            flags: 0,
+            epoch: 0,
+        }
     }
 }
 
@@ -235,8 +245,7 @@ impl VtLib {
             let vt = open("/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox")?;
             let cm = open("/System/Library/Frameworks/CoreMedia.framework/CoreMedia")?;
             let cv = open("/System/Library/Frameworks/CoreVideo.framework/CoreVideo")?;
-            let cf =
-                open("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")?;
+            let cf = open("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")?;
 
             // fn symbol, from the right library (VT fns in vt, CM in cm, …).
             macro_rules! f {
@@ -285,30 +294,34 @@ impl VtLib {
             Some(VtLib {
                 VTCompressionSessionCreate: f!(vt, b"VTCompressionSessionCreate\0"),
                 VTSessionSetProperty: f!(vt, b"VTSessionSetProperty\0"),
-                VTCompressionSessionPrepareToEncodeFrames:
-                    f!(vt, b"VTCompressionSessionPrepareToEncodeFrames\0"),
+                VTCompressionSessionPrepareToEncodeFrames: f!(
+                    vt,
+                    b"VTCompressionSessionPrepareToEncodeFrames\0"
+                ),
                 VTCompressionSessionEncodeFrame: f!(vt, b"VTCompressionSessionEncodeFrame\0"),
-                VTCompressionSessionCompleteFrames:
-                    f!(vt, b"VTCompressionSessionCompleteFrames\0"),
+                VTCompressionSessionCompleteFrames: f!(vt, b"VTCompressionSessionCompleteFrames\0"),
                 VTCompressionSessionInvalidate: f!(vt, b"VTCompressionSessionInvalidate\0"),
                 VTDecompressionSessionCreate: f!(vt, b"VTDecompressionSessionCreate\0"),
-                VTDecompressionSessionDecodeFrame:
-                    f!(vt, b"VTDecompressionSessionDecodeFrame\0"),
+                VTDecompressionSessionDecodeFrame: f!(vt, b"VTDecompressionSessionDecodeFrame\0"),
                 VTDecompressionSessionInvalidate: f!(vt, b"VTDecompressionSessionInvalidate\0"),
-                CMVideoFormatDescriptionCreateFromH264ParameterSets:
-                    f!(cm, b"CMVideoFormatDescriptionCreateFromH264ParameterSets\0"),
-                CMVideoFormatDescriptionGetH264ParameterSetAtIndex:
-                    f!(cm, b"CMVideoFormatDescriptionGetH264ParameterSetAtIndex\0"),
-                CMBlockBufferCreateWithMemoryBlock:
-                    f!(cm, b"CMBlockBufferCreateWithMemoryBlock\0"),
+                CMVideoFormatDescriptionCreateFromH264ParameterSets: f!(
+                    cm,
+                    b"CMVideoFormatDescriptionCreateFromH264ParameterSets\0"
+                ),
+                CMVideoFormatDescriptionGetH264ParameterSetAtIndex: f!(
+                    cm,
+                    b"CMVideoFormatDescriptionGetH264ParameterSetAtIndex\0"
+                ),
+                CMBlockBufferCreateWithMemoryBlock: f!(cm, b"CMBlockBufferCreateWithMemoryBlock\0"),
                 CMBlockBufferReplaceDataBytes: f!(cm, b"CMBlockBufferReplaceDataBytes\0"),
                 CMBlockBufferGetDataPointer: f!(cm, b"CMBlockBufferGetDataPointer\0"),
                 CMSampleBufferCreateReady: f!(cm, b"CMSampleBufferCreateReady\0"),
                 CMSampleBufferGetDataBuffer: f!(cm, b"CMSampleBufferGetDataBuffer\0"),
-                CMSampleBufferGetFormatDescription:
-                    f!(cm, b"CMSampleBufferGetFormatDescription\0"),
-                CMSampleBufferGetSampleAttachmentsArray:
-                    f!(cm, b"CMSampleBufferGetSampleAttachmentsArray\0"),
+                CMSampleBufferGetFormatDescription: f!(cm, b"CMSampleBufferGetFormatDescription\0"),
+                CMSampleBufferGetSampleAttachmentsArray: f!(
+                    cm,
+                    b"CMSampleBufferGetSampleAttachmentsArray\0"
+                ),
                 CVPixelBufferCreate: f!(cv, b"CVPixelBufferCreate\0"),
                 CVPixelBufferLockBaseAddress: f!(cv, b"CVPixelBufferLockBaseAddress\0"),
                 CVPixelBufferUnlockBaseAddress: f!(cv, b"CVPixelBufferUnlockBaseAddress\0"),
@@ -324,23 +337,33 @@ impl VtLib {
                 CFArrayGetCount: f!(cf, b"CFArrayGetCount\0"),
                 CFArrayGetValueAtIndex: f!(cf, b"CFArrayGetValueAtIndex\0"),
                 CFBooleanGetValue: f!(cf, b"CFBooleanGetValue\0"),
-                kVTCompressionPropertyKey_RealTime:
-                    d!(vt, b"kVTCompressionPropertyKey_RealTime\0"),
-                kVTCompressionPropertyKey_AverageBitRate:
-                    d!(vt, b"kVTCompressionPropertyKey_AverageBitRate\0"),
-                kVTCompressionPropertyKey_AllowFrameReordering:
-                    d!(vt, b"kVTCompressionPropertyKey_AllowFrameReordering\0"),
-                kVTCompressionPropertyKey_MaxKeyFrameInterval:
-                    d!(vt, b"kVTCompressionPropertyKey_MaxKeyFrameInterval\0"),
-                kVTCompressionPropertyKey_ProfileLevel:
-                    d!(vt, b"kVTCompressionPropertyKey_ProfileLevel\0"),
-                kVTProfileLevel_H264_Main_AutoLevel:
-                    d!(vt, b"kVTProfileLevel_H264_Main_AutoLevel\0"),
-                kVTEncodeFrameOptionKey_ForceKeyFrame:
-                    d!(vt, b"kVTEncodeFrameOptionKey_ForceKeyFrame\0"),
+                kVTCompressionPropertyKey_RealTime: d!(vt, b"kVTCompressionPropertyKey_RealTime\0"),
+                kVTCompressionPropertyKey_AverageBitRate: d!(
+                    vt,
+                    b"kVTCompressionPropertyKey_AverageBitRate\0"
+                ),
+                kVTCompressionPropertyKey_AllowFrameReordering: d!(
+                    vt,
+                    b"kVTCompressionPropertyKey_AllowFrameReordering\0"
+                ),
+                kVTCompressionPropertyKey_MaxKeyFrameInterval: d!(
+                    vt,
+                    b"kVTCompressionPropertyKey_MaxKeyFrameInterval\0"
+                ),
+                kVTCompressionPropertyKey_ProfileLevel: d!(
+                    vt,
+                    b"kVTCompressionPropertyKey_ProfileLevel\0"
+                ),
+                kVTProfileLevel_H264_Main_AutoLevel: d!(
+                    vt,
+                    b"kVTProfileLevel_H264_Main_AutoLevel\0"
+                ),
+                kVTEncodeFrameOptionKey_ForceKeyFrame: d!(
+                    vt,
+                    b"kVTEncodeFrameOptionKey_ForceKeyFrame\0"
+                ),
                 kCMSampleAttachmentKey_NotSync: d!(cm, b"kCMSampleAttachmentKey_NotSync\0"),
-                kCVPixelBufferPixelFormatTypeKey:
-                    d!(cv, b"kCVPixelBufferPixelFormatTypeKey\0"),
+                kCVPixelBufferPixelFormatTypeKey: d!(cv, b"kCVPixelBufferPixelFormatTypeKey\0"),
                 kCFBooleanTrue: d!(cf, b"kCFBooleanTrue\0"),
                 kCFBooleanFalse: d!(cf, b"kCFBooleanFalse\0"),
                 kCFTypeDictionaryKeyCallBacks: a!(cf, b"kCFTypeDictionaryKeyCallBacks\0"),
@@ -466,7 +489,12 @@ extern "C" fn enc_output(
                     let mut count = 0usize;
                     let mut nal_hdr = 0i32;
                     let st = (lib.CMVideoFormatDescriptionGetH264ParameterSetAtIndex)(
-                        desc, idx, &mut ptr, &mut size, &mut count, &mut nal_hdr,
+                        desc,
+                        idx,
+                        &mut ptr,
+                        &mut size,
+                        &mut count,
+                        &mut nal_hdr,
                     );
                     if st == 0 && !ptr.is_null() && size > 0 {
                         chunk.extend_from_slice(&[0, 0, 0, 1]);
@@ -492,8 +520,9 @@ extern "C" fn enc_output(
         let bytes = std::slice::from_raw_parts(data, total);
         let mut off = 0usize;
         while off + 4 <= bytes.len() {
-            let len = u32::from_be_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
-                as usize;
+            let len =
+                u32::from_be_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
+                    as usize;
             off += 4;
             if len == 0 || off + len > bytes.len() {
                 break;
@@ -515,7 +544,9 @@ impl VtEncoder {
     /// unavailable or the session can't be created (caller keeps the stub).
     pub fn open(width: u32, height: u32, bitrate_kbps: u32) -> Option<VtEncoder> {
         let lib = VtLib::get()?;
-        let shared = Arc::new(EncShared { chunks: Mutex::new(VecDeque::new()) });
+        let shared = Arc::new(EncShared {
+            chunks: Mutex::new(VecDeque::new()),
+        });
         unsafe {
             let mut session: *mut c_void = core::ptr::null_mut();
             let refcon = Arc::as_ptr(&shared) as *mut c_void;
@@ -537,10 +568,14 @@ impl VtEncoder {
             }
             // Realtime + no B-frames (low latency for azul-meet) + bitrate.
             let _ = (lib.VTSessionSetProperty)(
-                session, lib.kVTCompressionPropertyKey_RealTime, lib.kCFBooleanTrue,
+                session,
+                lib.kVTCompressionPropertyKey_RealTime,
+                lib.kCFBooleanTrue,
             );
             let _ = (lib.VTSessionSetProperty)(
-                session, lib.kVTCompressionPropertyKey_AllowFrameReordering, lib.kCFBooleanFalse,
+                session,
+                lib.kVTCompressionPropertyKey_AllowFrameReordering,
+                lib.kCFBooleanFalse,
             );
             let _ = (lib.VTSessionSetProperty)(
                 session,
@@ -549,31 +584,47 @@ impl VtEncoder {
             );
             let bits: i32 = (bitrate_kbps.max(64) as i32).saturating_mul(1000);
             let n = (lib.CFNumberCreate)(
-                core::ptr::null(), CF_NUMBER_SINT32, &bits as *const i32 as *const c_void,
+                core::ptr::null(),
+                CF_NUMBER_SINT32,
+                &bits as *const i32 as *const c_void,
             );
             if !n.is_null() {
                 let _ = (lib.VTSessionSetProperty)(
-                    session, lib.kVTCompressionPropertyKey_AverageBitRate, n,
+                    session,
+                    lib.kVTCompressionPropertyKey_AverageBitRate,
+                    n,
                 );
                 (lib.CFRelease)(n);
             }
             let key_interval: i32 = 60;
             let n = (lib.CFNumberCreate)(
-                core::ptr::null(), CF_NUMBER_SINT32,
+                core::ptr::null(),
+                CF_NUMBER_SINT32,
                 &key_interval as *const i32 as *const c_void,
             );
             if !n.is_null() {
                 let _ = (lib.VTSessionSetProperty)(
-                    session, lib.kVTCompressionPropertyKey_MaxKeyFrameInterval, n,
+                    session,
+                    lib.kVTCompressionPropertyKey_MaxKeyFrameInterval,
+                    n,
                 );
                 (lib.CFRelease)(n);
             }
             let _ = (lib.VTCompressionSessionPrepareToEncodeFrames)(session);
             crate::plog_info!(
                 "[video] VideoToolbox H.264 encoder open: {}x{} @{}kbps (realtime)",
-                width, height, bitrate_kbps
+                width,
+                height,
+                bitrate_kbps
             );
-            Some(VtEncoder { session, shared, width, height, frame_idx: 0, fps: 30 })
+            Some(VtEncoder {
+                session,
+                shared,
+                width,
+                height,
+                frame_idx: 0,
+                fps: 30,
+            })
         }
     }
 
@@ -591,8 +642,15 @@ impl VtEncoder {
             // RGBA → BGRA CVPixelBuffer (the Apple encoders take 32BGRA
             // directly; VT converts to 4:2:0 internally).
             let mut pb: *mut c_void = core::ptr::null_mut();
-            if (lib.CVPixelBufferCreate)(core::ptr::null(), w, h, PIXFMT_BGRA,
-                core::ptr::null(), &mut pb) != 0 || pb.is_null()
+            if (lib.CVPixelBufferCreate)(
+                core::ptr::null(),
+                w,
+                h,
+                PIXFMT_BGRA,
+                core::ptr::null(),
+                &mut pb,
+            ) != 0
+                || pb.is_null()
             {
                 return Vec::new();
             }
@@ -622,7 +680,8 @@ impl VtEncoder {
             let mut props_owned: *mut c_void = core::ptr::null_mut();
             if force_keyframe {
                 props_owned = (lib.CFDictionaryCreateMutable)(
-                    core::ptr::null(), 1,
+                    core::ptr::null(),
+                    1,
                     lib.kCFTypeDictionaryKeyCallBacks,
                     lib.kCFTypeDictionaryValueCallBacks,
                 );
@@ -636,8 +695,13 @@ impl VtEncoder {
                 }
             }
             let st = (lib.VTCompressionSessionEncodeFrame)(
-                self.session, pb, pts, CMTime::invalid(), props,
-                core::ptr::null_mut(), core::ptr::null_mut(),
+                self.session,
+                pb,
+                pts,
+                CMTime::invalid(),
+                props,
+                core::ptr::null_mut(),
+                core::ptr::null_mut(),
             );
             if !props_owned.is_null() {
                 (lib.CFRelease)(props_owned);
@@ -752,7 +816,9 @@ impl VtDecoder {
         Some(VtDecoder {
             session: core::ptr::null_mut(),
             format_desc: core::ptr::null_mut(),
-            shared: Arc::new(DecShared { frames: Mutex::new(VecDeque::new()) }),
+            shared: Arc::new(DecShared {
+                frames: Mutex::new(VecDeque::new()),
+            }),
             sps: None,
             pps: None,
             frame_idx: 0,
@@ -773,7 +839,12 @@ impl VtDecoder {
             let sizes = [sps.len(), pps.len()];
             let mut desc: *mut c_void = core::ptr::null_mut();
             let st = (lib.CMVideoFormatDescriptionCreateFromH264ParameterSets)(
-                core::ptr::null(), 2, ptrs.as_ptr(), sizes.as_ptr(), 4, &mut desc,
+                core::ptr::null(),
+                2,
+                ptrs.as_ptr(),
+                sizes.as_ptr(),
+                4,
+                &mut desc,
             );
             if st != 0 || desc.is_null() {
                 crate::plog_warn!("[video] H264 format description failed: {}", st);
@@ -781,13 +852,16 @@ impl VtDecoder {
             }
             // Request BGRA output (VT does hardware YUV→RGB for us).
             let attrs = (lib.CFDictionaryCreateMutable)(
-                core::ptr::null(), 1,
+                core::ptr::null(),
+                1,
                 lib.kCFTypeDictionaryKeyCallBacks,
                 lib.kCFTypeDictionaryValueCallBacks,
             );
             let fmt: i32 = PIXFMT_BGRA as i32;
             let n = (lib.CFNumberCreate)(
-                core::ptr::null(), CF_NUMBER_SINT32, &fmt as *const i32 as *const c_void,
+                core::ptr::null(),
+                CF_NUMBER_SINT32,
+                &fmt as *const i32 as *const c_void,
             );
             if !attrs.is_null() && !n.is_null() {
                 (lib.CFDictionarySetValue)(attrs, lib.kCVPixelBufferPixelFormatTypeKey, n);
@@ -798,7 +872,12 @@ impl VtDecoder {
             };
             let mut session: *mut c_void = core::ptr::null_mut();
             let st = (lib.VTDecompressionSessionCreate)(
-                core::ptr::null(), desc, core::ptr::null(), attrs, &record, &mut session,
+                core::ptr::null(),
+                desc,
+                core::ptr::null(),
+                attrs,
+                &record,
+                &mut session,
             );
             if !n.is_null() {
                 (lib.CFRelease)(n);
@@ -858,16 +937,21 @@ impl VtDecoder {
             // Copy the AU into a CMBlockBuffer.
             let mut bb: *mut c_void = core::ptr::null_mut();
             let st = (lib.CMBlockBufferCreateWithMemoryBlock)(
-                core::ptr::null(), core::ptr::null_mut(), au.len(),
+                core::ptr::null(),
+                core::ptr::null_mut(),
+                au.len(),
                 core::ptr::null(), // kCFAllocatorDefault → CM allocates
-                core::ptr::null(), 0, au.len(), 0, &mut bb,
+                core::ptr::null(),
+                0,
+                au.len(),
+                0,
+                &mut bb,
             );
             if st != 0 || bb.is_null() {
                 return self.drain();
             }
-            if (lib.CMBlockBufferReplaceDataBytes)(
-                au.as_ptr() as *const c_void, bb, 0, au.len(),
-            ) != 0
+            if (lib.CMBlockBufferReplaceDataBytes)(au.as_ptr() as *const c_void, bb, 0, au.len())
+                != 0
             {
                 (lib.CFRelease)(bb);
                 return self.drain();
@@ -881,13 +965,24 @@ impl VtDecoder {
             let sizes = [au.len()];
             let mut sample: *mut c_void = core::ptr::null_mut();
             let st = (lib.CMSampleBufferCreateReady)(
-                core::ptr::null(), bb, self.format_desc, 1, 1, &timing, 1,
-                sizes.as_ptr(), &mut sample,
+                core::ptr::null(),
+                bb,
+                self.format_desc,
+                1,
+                1,
+                &timing,
+                1,
+                sizes.as_ptr(),
+                &mut sample,
             );
             if st == 0 && !sample.is_null() {
                 // flags = 0 → synchronous decode (callback fires inline).
                 let st = (lib.VTDecompressionSessionDecodeFrame)(
-                    self.session, sample, 0, core::ptr::null_mut(), core::ptr::null_mut(),
+                    self.session,
+                    sample,
+                    0,
+                    core::ptr::null_mut(),
+                    core::ptr::null_mut(),
                 );
                 if st != 0 {
                     crate::plog_warn!("[video] VT decode failed: {}", st);
@@ -984,6 +1079,10 @@ mod vt_tests {
             encoded_total, decoded
         );
         assert!(encoded_total > 0, "encoder produced no bytes");
-        assert!(decoded >= 20, "decoder produced too few frames ({})", decoded);
+        assert!(
+            decoded >= 20,
+            "decoder produced too few frames ({})",
+            decoded
+        );
     }
 }

@@ -8,7 +8,6 @@
 //! Fake metrics @ size 20: 'a' 600u => 12px · Hebrew א/ב/ג 550u => 11px · digit
 //! 500u => 10px · space/'.' 250u => 5px. Hebrew chars are 2 UTF-8 bytes each.
 
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -17,9 +16,9 @@ use azul_layout::font::parsed::ParsedFont;
 use azul_layout::parsed_font_to_font_ref;
 use azul_layout::text3::cache::{
     create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent, LoadedFonts,
-    OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints,
-    UnifiedLayout,
+    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
+    LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
+    UnifiedConstraints, UnifiedLayout,
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
@@ -67,7 +66,10 @@ fn layout_bidi(text: &str, base: Option<BidiDirection>, width: AvailableSpace) -
 
     let logical = create_logical_items(&content, &[], &mut None);
     if logical.is_empty() {
-        return UnifiedLayout { items: Vec::new(), overflow: OverflowInfo::default() };
+        return UnifiedLayout {
+            items: Vec::new(),
+            overflow: OverflowInfo::default(),
+        };
     }
     let base_dir = base.unwrap_or(BidiDirection::Ltr);
     let visual = reorder_logical_items(&logical, base_dir, UnicodeBidi::Normal, &mut None)
@@ -124,7 +126,11 @@ fn total_width(layout: &UnifiedLayout) -> f32 {
             mx = mx.max(it.position.x + c.advance);
         }
     }
-    if mx < mn { 0.0 } else { mx - mn }
+    if mx < mn {
+        0.0
+    } else {
+        mx - mn
+    }
 }
 
 // ===========================================================================

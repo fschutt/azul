@@ -51,11 +51,36 @@ impl Semantic {
     /// the rest are pen colours.
     pub const fn color(self) -> ColorU {
         match self {
-            Self::Scope => ColorU { r: 255, g: 64, b: 152, a: 255 },
-            Self::Issue => ColorU { r: 214, g: 45, b: 32, a: 255 },
-            Self::Question => ColorU { r: 32, g: 92, b: 214, a: 255 },
-            Self::Duplicate => ColorU { r: 150, g: 60, b: 200, a: 255 },
-            Self::Praise => ColorU { r: 24, g: 140, b: 70, a: 255 },
+            Self::Scope => ColorU {
+                r: 255,
+                g: 64,
+                b: 152,
+                a: 255,
+            },
+            Self::Issue => ColorU {
+                r: 214,
+                g: 45,
+                b: 32,
+                a: 255,
+            },
+            Self::Question => ColorU {
+                r: 32,
+                g: 92,
+                b: 214,
+                a: 255,
+            },
+            Self::Duplicate => ColorU {
+                r: 150,
+                g: 60,
+                b: 200,
+                a: 255,
+            },
+            Self::Praise => ColorU {
+                r: 24,
+                g: 140,
+                b: 70,
+                a: 255,
+            },
         }
     }
 

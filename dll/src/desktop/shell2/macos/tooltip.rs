@@ -132,8 +132,10 @@ impl TooltipWindow {
         let text_width = text_width.min(TOOLTIP_MAX_WIDTH).max(TOOLTIP_MIN_WIDTH);
 
         // Update panel and text field sizes
-        let panel_frame =
-            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(text_width, TOOLTIP_HEIGHT));
+        let panel_frame = NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(text_width, TOOLTIP_HEIGHT),
+        );
         unsafe { self.panel.setFrame_display(panel_frame, false) };
 
         let text_field_frame = NSRect::new(

@@ -47,7 +47,8 @@ pub fn emit_internal_bindings(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line(";;; ────────────────────────────────────────────────────────────────");
     builder.blank();
 
-    builder.line("(defcfun (\"AzApp_setHostHandleReleaser\" %az-app-set-host-handle-releaser) :void");
+    builder
+        .line("(defcfun (\"AzApp_setHostHandleReleaser\" %az-app-set-host-handle-releaser) :void");
     builder.line("  (releaser :pointer))");
     builder.blank();
     builder.line("(defcfun (\"AzRefAny_newHostHandle\" %az-ref-any-new-host-handle)");
@@ -73,10 +74,7 @@ pub fn emit_internal_bindings(builder: &mut CodeBuilder, ir: &CodegenIR) {
             w = wrapper,
             k = kebab
         ));
-        builder.line(&format!(
-            "    (:struct az-{k})",
-            k = kebab
-        ));
+        builder.line(&format!("    (:struct az-{k})", k = kebab));
         builder.line("  (id :uint64))");
         builder.blank();
     }
@@ -126,7 +124,11 @@ pub fn emit_internal_bindings(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
 }
 
-fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::CallbackTypedefDef, ir: &CodegenIR) {
+fn emit_per_kind_invoker(
+    builder: &mut CodeBuilder,
+    cb: &super::super::ir::CallbackTypedefDef,
+    ir: &CodegenIR,
+) {
     let wrapper = wrapper_name(cb);
     let kebab = to_kebab_case(wrapper);
     let cb_has_return = has_return(cb);
@@ -218,10 +220,7 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &super::super::ir::Callb
         }
         builder.line("              (t nil)))");
     } else {
-        builder.line(&format!(
-            "          (funcall fn {})",
-            user_args.join(" ")
-        ));
+        builder.line(&format!("          (funcall fn {})", user_args.join(" ")));
     }
     // Closing parens (count carefully — off-by-one here was the
     // bug that "leaked" each defcallback across all following forms,

@@ -14,7 +14,6 @@
 //! - CSS 2.1 §8.3.1 (margin collapsing), §9.2.2.1 (anonymous boxes),
 //!   §10.3 (containing block), §14.2 (canvas background)
 
-use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -23,6 +22,7 @@ use azul_layout::font_traits::{FontManager, TextLayoutCache};
 use azul_layout::paged::FragmentationContext;
 use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
 use azul_layout::solver3::pagination::FakePageConfig;
+use azul_layout::solver3::LayoutNodeId;
 use azul_layout::text3::default::PathLoader;
 use azul_layout::xml::DomXmlExt;
 use azul_layout::Solver3LayoutCache;
@@ -85,8 +85,8 @@ impl TestEnv {
 
         let loader = PathLoader::new();
         let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
-        loader.load_font_shared(bytes, index)
-    };
+            loader.load_font_shared(bytes, index)
+        };
         let page_config = FakePageConfig::new();
 
         let _display_lists = layout_document_paged_with_config(
@@ -104,8 +104,11 @@ impl TestEnv {
             DomId::ROOT_ID,
             font_loader,
             page_config,
-        &azul_core::resources::ImageCache::default(),            azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
-        false,
+            &azul_core::resources::ImageCache::default(),
+            azul_core::task::GetSystemTimeCallback {
+                cb: azul_core::task::get_system_time_libstd,
+            },
+            false,
         )
         .expect("layout should succeed");
 
@@ -136,8 +139,8 @@ impl TestEnv {
 
         let loader = PathLoader::new();
         let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
-        loader.load_font_shared(bytes, index)
-    };
+            loader.load_font_shared(bytes, index)
+        };
         let page_config = FakePageConfig::new();
 
         let start = std::time::Instant::now();
@@ -156,8 +159,11 @@ impl TestEnv {
             DomId::ROOT_ID,
             font_loader,
             page_config,
-        &azul_core::resources::ImageCache::default(),            azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
-        false,
+            &azul_core::resources::ImageCache::default(),
+            azul_core::task::GetSystemTimeCallback {
+                cb: azul_core::task::get_system_time_libstd,
+            },
+            false,
         )
         .expect("relayout should succeed");
 
@@ -182,23 +188,106 @@ fn run_layout(
 fn test_node_cache_slot_index_deterministic() {
     use azul_layout::solver3::cache::{AvailableWidthType, NodeCache};
     // Taffy's 9-slot scheme: each constraint combo maps to exactly one slot
-    assert_eq!(NodeCache::slot_index(true, true, AvailableWidthType::Definite, AvailableWidthType::Definite), 0);
-    assert_eq!(NodeCache::slot_index(true, false, AvailableWidthType::Definite, AvailableWidthType::Definite), 1);
-    assert_eq!(NodeCache::slot_index(true, false, AvailableWidthType::MinContent, AvailableWidthType::Definite), 2);
-    assert_eq!(NodeCache::slot_index(false, true, AvailableWidthType::Definite, AvailableWidthType::Definite), 3);
-    assert_eq!(NodeCache::slot_index(false, true, AvailableWidthType::Definite, AvailableWidthType::MinContent), 4);
-    assert_eq!(NodeCache::slot_index(false, false, AvailableWidthType::Definite, AvailableWidthType::Definite), 5);
-    assert_eq!(NodeCache::slot_index(false, false, AvailableWidthType::Definite, AvailableWidthType::MinContent), 6);
-    assert_eq!(NodeCache::slot_index(false, false, AvailableWidthType::MinContent, AvailableWidthType::Definite), 7);
-    assert_eq!(NodeCache::slot_index(false, false, AvailableWidthType::MinContent, AvailableWidthType::MinContent), 8);
+    assert_eq!(
+        NodeCache::slot_index(
+            true,
+            true,
+            AvailableWidthType::Definite,
+            AvailableWidthType::Definite
+        ),
+        0
+    );
+    assert_eq!(
+        NodeCache::slot_index(
+            true,
+            false,
+            AvailableWidthType::Definite,
+            AvailableWidthType::Definite
+        ),
+        1
+    );
+    assert_eq!(
+        NodeCache::slot_index(
+            true,
+            false,
+            AvailableWidthType::MinContent,
+            AvailableWidthType::Definite
+        ),
+        2
+    );
+    assert_eq!(
+        NodeCache::slot_index(
+            false,
+            true,
+            AvailableWidthType::Definite,
+            AvailableWidthType::Definite
+        ),
+        3
+    );
+    assert_eq!(
+        NodeCache::slot_index(
+            false,
+            true,
+            AvailableWidthType::Definite,
+            AvailableWidthType::MinContent
+        ),
+        4
+    );
+    assert_eq!(
+        NodeCache::slot_index(
+            false,
+            false,
+            AvailableWidthType::Definite,
+            AvailableWidthType::Definite
+        ),
+        5
+    );
+    assert_eq!(
+        NodeCache::slot_index(
+            false,
+            false,
+            AvailableWidthType::Definite,
+            AvailableWidthType::MinContent
+        ),
+        6
+    );
+    assert_eq!(
+        NodeCache::slot_index(
+            false,
+            false,
+            AvailableWidthType::MinContent,
+            AvailableWidthType::Definite
+        ),
+        7
+    );
+    assert_eq!(
+        NodeCache::slot_index(
+            false,
+            false,
+            AvailableWidthType::MinContent,
+            AvailableWidthType::MinContent
+        ),
+        8
+    );
     // No collisions: all indices are unique
     let mut seen = std::collections::HashSet::new();
     for wk in [true, false] {
         for hk in [true, false] {
-            for wt in [AvailableWidthType::Definite, AvailableWidthType::MinContent, AvailableWidthType::MaxContent] {
-                for ht in [AvailableWidthType::Definite, AvailableWidthType::MinContent, AvailableWidthType::MaxContent] {
+            for wt in [
+                AvailableWidthType::Definite,
+                AvailableWidthType::MinContent,
+                AvailableWidthType::MaxContent,
+            ] {
+                for ht in [
+                    AvailableWidthType::Definite,
+                    AvailableWidthType::MinContent,
+                    AvailableWidthType::MaxContent,
+                ] {
                     let idx = NodeCache::slot_index(wk, hk, wt, ht);
-                    assert!(idx < 9, "slot index {idx} out of bounds for ({wk}, {hk}, {wt:?}, {ht:?})");
+                    assert!(
+                        idx < 9,
+                        "slot index {idx} out of bounds for ({wk}, {hk}, {wt:?}, {ht:?})"
+                    );
                     // Not all combos are unique (MaxContent == Definite for slot mapping)
                     // but all are < 9
                     seen.insert(idx);
@@ -212,8 +301,8 @@ fn test_node_cache_slot_index_deterministic() {
 
 #[test]
 fn test_node_cache_sizing_store_and_retrieve() {
-    use azul_layout::solver3::cache::{NodeCache, SizingCacheEntry};
     use azul_core::geom::LogicalSize;
+    use azul_layout::solver3::cache::{NodeCache, SizingCacheEntry};
 
     let mut cache = NodeCache::default();
     assert!(cache.is_empty);
@@ -249,9 +338,9 @@ fn test_node_cache_sizing_store_and_retrieve() {
 
 #[test]
 fn test_node_cache_layout_store_and_retrieve() {
-    use azul_layout::solver3::cache::{NodeCache, LayoutCacheEntry};
-    use azul_layout::solver3::scrollbar::ScrollbarRequirements;
     use azul_core::geom::{LogicalPosition, LogicalSize};
+    use azul_layout::solver3::cache::{LayoutCacheEntry, NodeCache};
+    use azul_layout::solver3::scrollbar::ScrollbarRequirements;
 
     let mut cache = NodeCache::default();
 
@@ -343,7 +432,10 @@ fn test_dirty_propagation_via_layout() {
     );
 
     // Count filled entries
-    let filled_before = cache.cache_map.entries.iter()
+    let filled_before = cache
+        .cache_map
+        .entries
+        .iter()
         .filter(|e| !e.is_empty)
         .count();
     assert!(
@@ -354,7 +446,10 @@ fn test_dirty_propagation_via_layout() {
     // Relayout with identical DOM — reconciliation should preserve cache
     let _ = env.run_relayout(html, &mut cache, 400.0, 300.0);
 
-    let filled_after = cache.cache_map.entries.iter()
+    let filled_after = cache
+        .cache_map
+        .entries
+        .iter()
         .filter(|e| !e.is_empty)
         .count();
     assert!(
@@ -386,13 +481,23 @@ fn test_simple_block_layout_cache_populated() {
     let (cache, _) = run_layout(html, 800.0, 600.0);
 
     // Cache should have a tree
-    assert!(cache.tree.is_some(), "tree should be populated after layout");
+    assert!(
+        cache.tree.is_some(),
+        "tree should be populated after layout"
+    );
 
     let tree = cache.tree.as_ref().unwrap();
-    assert!(tree.nodes.len() >= 5, "should have at least html + body + 3 divs, got {}", tree.nodes.len());
+    assert!(
+        tree.nodes.len() >= 5,
+        "should have at least html + body + 3 divs, got {}",
+        tree.nodes.len()
+    );
 
     // All nodes should have positions
-    assert!(!cache.calculated_positions.is_empty(), "positions should be populated");
+    assert!(
+        !cache.calculated_positions.is_empty(),
+        "positions should be populated"
+    );
 
     // Cache map should have entries for all nodes
     assert_eq!(
@@ -428,7 +533,6 @@ fn test_three_blocks_vertical_stacking() {
 
     let positions = &cache.calculated_positions;
 
-
     // Find the three div nodes by looking at the tree
     let tree = cache.tree.as_ref().unwrap();
     let mut div_positions: Vec<LogicalPosition> = Vec::new();
@@ -443,7 +547,11 @@ fn test_three_blocks_vertical_stacking() {
     }
 
     // Should have exactly 3 divs with height 50
-    assert!(div_positions.len() >= 3, "expected 3 divs, found {}", div_positions.len());
+    assert!(
+        div_positions.len() >= 3,
+        "expected 3 divs, found {}",
+        div_positions.len()
+    );
 
     // Blocks should be stacked vertically
     if div_positions.len() >= 3 {
@@ -453,7 +561,10 @@ fn test_three_blocks_vertical_stacking() {
             assert!(
                 y_values[i] >= y_values[i - 1] + 49.0,
                 "block {} (y={}) should be below block {} (y={}) by at least 50px",
-                i, y_values[i], i - 1, y_values[i - 1]
+                i,
+                y_values[i],
+                i - 1,
+                y_values[i - 1]
             );
         }
     }
@@ -484,7 +595,9 @@ fn test_whitespace_between_blocks_no_spurious_ifc() {
     for (idx, node) in tree.nodes.iter().enumerate() {
         if node.dom_node_id.is_none() {
             if let Some(cold) = tree.cold(LayoutNodeId::new(idx)) {
-                if let Some(azul_layout::solver3::layout_tree::AnonymousBoxType::InlineWrapper) = cold.anonymous_type {
+                if let Some(azul_layout::solver3::layout_tree::AnonymousBoxType::InlineWrapper) =
+                    cold.anonymous_type
+                {
                     anonymous_ifc_count += 1;
                 }
             }
@@ -531,7 +644,11 @@ fn test_relayout_same_dom_is_fast() {
             assert!(
                 (pos1.x - pos2.x).abs() < 0.01 && (pos1.y - pos2.y).abs() < 0.01,
                 "position mismatch for node {}: first=({:.2},{:.2}), second=({:.2},{:.2})",
-                idx, pos1.x, pos1.y, pos2.x, pos2.y
+                idx,
+                pos1.x,
+                pos1.y,
+                pos2.x,
+                pos2.y
             );
         }
     }
@@ -672,9 +789,9 @@ fn test_canvas_background_propagation_present() {
     let (_cache, debug_msgs) = run_layout(html, 800.0, 600.0);
 
     // Check debug messages for canvas background propagation
-    let has_canvas_bg = debug_msgs.iter().any(|m| {
-        m.message.as_str().contains("Canvas background")
-    });
+    let has_canvas_bg = debug_msgs
+        .iter()
+        .any(|m| m.message.as_str().contains("Canvas background"));
     assert!(
         has_canvas_bg,
         "should emit canvas background debug message (CSS 2.1 §14.2)"
@@ -688,10 +805,12 @@ fn test_canvas_background_propagation_present() {
 #[test]
 fn test_performance_100_blocks() {
     // 100 blocks should complete in reasonable time (< 5 seconds)
-    let mut html = String::from(r#"<html><head><style>
+    let mut html = String::from(
+        r#"<html><head><style>
         * { margin: 0; padding: 0; }
         div { height: 20px; }
-    </style></head><body>"#);
+    </style></head><body>"#,
+    );
     for i in 0..100 {
         html.push_str(&format!("<div>Block {i}</div>"));
     }
@@ -725,10 +844,12 @@ fn test_performance_100_blocks() {
 #[test]
 fn test_relayout_100_blocks_cache_speedup() {
     // Second layout of same DOM should be faster than first due to cache hits.
-    let mut html = String::from(r#"<html><head><style>
+    let mut html = String::from(
+        r#"<html><head><style>
         * { margin: 0; padding: 0; }
         div { height: 20px; }
-    </style></head><body>"#);
+    </style></head><body>"#,
+    );
     for i in 0..100 {
         html.push_str(&format!("<div>Block {i}</div>"));
     }
@@ -754,10 +875,12 @@ fn test_relayout_100_blocks_cache_speedup() {
 fn test_deeply_nested_blocks_cache() {
     // Inspired by Taffy's caching test: 100 levels of nesting.
     // Each node should only be measured a bounded number of times.
-    let mut html = String::from(r#"<html><head><style>
+    let mut html = String::from(
+        r#"<html><head><style>
         * { margin: 0; padding: 0; }
-    </style></head><body>"#);
-    
+    </style></head><body>"#,
+    );
+
     // Create 50 levels of nesting
     for _ in 0..50 {
         html.push_str("<div>");
@@ -787,7 +910,10 @@ fn test_deeply_nested_blocks_cache() {
     );
 
     // All cache entries should be filled (not empty/dirty)
-    let filled_count = cache.cache_map.entries.iter()
+    let filled_count = cache
+        .cache_map
+        .entries
+        .iter()
         .filter(|e| !e.is_empty)
         .count();
     assert!(

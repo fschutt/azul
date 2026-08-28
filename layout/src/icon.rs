@@ -13,8 +13,8 @@
 //! let provider = IconProviderHandle::with_resolver(default_icon_resolver);
 //!
 //! // Register an image icon
-//! provider.register_icon("app-images", "logo", RefAny::new(ImageIconData { 
-//!     image: image_ref, width: 32.0, height: 32.0 
+//! provider.register_icon("app-images", "logo", RefAny::new(ImageIconData {
+//!     image: image_ref, width: 32.0, height: 32.0
 //! }));
 //!
 //! // Register a font icon
@@ -29,15 +29,15 @@ use alloc::{
 };
 
 use azul_css::{
-    system::SystemStyle,
-    props::basic::{FontRef, StyleFontFamily, StyleFontFamilyVec},
-    props::basic::length::FloatValue,
-    props::layout::{LayoutWidth, LayoutHeight},
-    props::property::CssProperty,
-    props::style::filter::{StyleFilter, StyleFilterVec, StyleColorMatrix},
-    props::style::text::StyleTextColor,
-    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     css::{Css, CssPropertyValue},
+    dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+    props::basic::length::FloatValue,
+    props::basic::{FontRef, StyleFontFamily, StyleFontFamilyVec},
+    props::layout::{LayoutHeight, LayoutWidth},
+    props::property::CssProperty,
+    props::style::filter::{StyleColorMatrix, StyleFilter, StyleFilterVec},
+    props::style::text::StyleTextColor,
+    system::SystemStyle,
 };
 
 use azul_core::{
@@ -113,7 +113,8 @@ impl DomIconData {
 ///
 /// Styles from the original icon DOM are copied to the result,
 /// filtered based on `SystemStyle` preferences.
-#[must_use] pub extern "C" fn default_icon_resolver(
+#[must_use]
+pub extern "C" fn default_icon_resolver(
     icon_data: OptionRefAny,
     original_icon_node: &NodeData,
     system_style: &SystemStyle,
@@ -179,38 +180,43 @@ fn create_image_icon_from_original(
     system_style: &SystemStyle,
 ) -> Dom {
     let mut dom = Dom::create_image(img.image.clone());
-    
+
     // Copy appropriate styles from original
     {
         let original_node = original;
         let mut props_vec = copy_appropriate_styles_vec(original_node);
-        
+
         // Add default dimensions if not specified in original styles
-        let has_width = props_vec.iter().any(|p| matches!(&p.property, CssProperty::Width(_)));
-        let has_height = props_vec.iter().any(|p| matches!(&p.property, CssProperty::Height(_)));
-        
+        let has_width = props_vec
+            .iter()
+            .any(|p| matches!(&p.property, CssProperty::Width(_)));
+        let has_height = props_vec
+            .iter()
+            .any(|p| matches!(&p.property, CssProperty::Height(_)));
+
         if !has_width {
-            props_vec.push(CssPropertyWithConditions::simple(
-                CssProperty::width(LayoutWidth::px(img.width))
-            ));
+            props_vec.push(CssPropertyWithConditions::simple(CssProperty::width(
+                LayoutWidth::px(img.width),
+            )));
         }
         if !has_height {
-            props_vec.push(CssPropertyWithConditions::simple(
-                CssProperty::height(LayoutHeight::px(img.height))
-            ));
+            props_vec.push(CssPropertyWithConditions::simple(CssProperty::height(
+                LayoutHeight::px(img.height),
+            )));
         }
-        
+
         // Apply SystemStyle-aware filters
         apply_icon_style_filters(&mut props_vec, system_style);
-        
-        dom.root.set_css_props(CssPropertyWithConditionsVec::from_vec(props_vec));
-        
+
+        dom.root
+            .set_css_props(CssPropertyWithConditionsVec::from_vec(props_vec));
+
         // Copy accessibility info
         if let Some(a11y) = original_node.get_accessibility_info() {
             dom = dom.with_accessibility_info(a11y.clone());
         }
     }
-    
+
     dom
 }
 
@@ -234,38 +240,35 @@ fn create_font_icon_from_original(
     // flow wrong: an icon belongs INLINE inside its label, not as a block
     // paragraph beside it. `span` is the one that is both boxed and inline.
     let mut dom = Dom::create_span_with_text(font_icon.icon_char.clone());
-    
+
     // Add font family
-    let font_prop = CssPropertyWithConditions::simple(
-        CssProperty::font_family(StyleFontFamilyVec::from_vec(vec![
-            StyleFontFamily::Ref(font_icon.font.clone())
-        ]))
-    );
-    
+    let font_prop = CssPropertyWithConditions::simple(CssProperty::font_family(
+        StyleFontFamilyVec::from_vec(vec![StyleFontFamily::Ref(font_icon.font.clone())]),
+    ));
+
     {
         let original_node = original;
         let mut props_vec = copy_appropriate_styles_vec(original_node);
         props_vec.push(font_prop);
-        
+
         // Apply SystemStyle-aware color modifications for font icons
         apply_font_icon_color(&mut props_vec, system_style);
-        
-        dom.root.set_css_props(CssPropertyWithConditionsVec::from_vec(props_vec));
-        
+
+        dom.root
+            .set_css_props(CssPropertyWithConditionsVec::from_vec(props_vec));
+
         // Copy accessibility info
         if let Some(a11y) = original_node.get_accessibility_info() {
             dom = dom.with_accessibility_info(a11y.clone());
         }
     }
-    
+
     dom
 }
 
 /// Copy styles from original node
 /// Returns a Vec for easier manipulation
-fn copy_appropriate_styles_vec(
-    original_node: &NodeData,
-) -> Vec<CssPropertyWithConditions> {
+fn copy_appropriate_styles_vec(original_node: &NodeData) -> Vec<CssPropertyWithConditions> {
     // Reconstruct the legacy flat list from the unified Css store.
     original_node
         .get_style()
@@ -286,10 +289,10 @@ fn apply_icon_style_filters(
     system_style: &SystemStyle,
 ) {
     let icon_style = &system_style.icon_style;
-    
+
     // Collect filters to apply
     let mut filters = Vec::new();
-    
+
     // Grayscale filter: Uses a color matrix that converts to grayscale
     // Standard luminance weights: R*0.2126 + G*0.7152 + B*0.0722
     if icon_style.prefer_grayscale {
@@ -322,17 +325,17 @@ fn apply_icon_style_filters(
         };
         filters.push(StyleFilter::ColorMatrix(grayscale_matrix));
     }
-    
+
     // Apply tint color as a flood filter if specified
     if let azul_css::props::basic::color::OptionColorU::Some(tint) = &icon_style.tint_color {
         filters.push(StyleFilter::Flood(*tint));
     }
-    
+
     // Add filters if any were collected
     if !filters.is_empty() {
-        props_vec.push(CssPropertyWithConditions::simple(
-            CssProperty::Filter(CssPropertyValue::Exact(StyleFilterVec::from_vec(filters)))
-        ));
+        props_vec.push(CssPropertyWithConditions::simple(CssProperty::Filter(
+            CssPropertyValue::Exact(StyleFilterVec::from_vec(filters)),
+        )));
     }
 }
 
@@ -346,12 +349,12 @@ fn apply_font_icon_color(
     system_style: &SystemStyle,
 ) {
     let icon_style = &system_style.icon_style;
-    
+
     // If tint color is specified, use it as the text color
     if let azul_css::props::basic::color::OptionColorU::Some(tint) = &icon_style.tint_color {
-        props_vec.push(CssPropertyWithConditions::simple(
-            CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor { inner: *tint }))
-        ));
+        props_vec.push(CssPropertyWithConditions::simple(CssProperty::TextColor(
+            CssPropertyValue::Exact(StyleTextColor { inner: *tint }),
+        )));
     }
     // Note: inherit_text_color doesn't need explicit handling - text color
     // is inherited by default in CSS. We only need to NOT override it.
@@ -360,12 +363,17 @@ fn apply_font_icon_color(
 // IconProviderHandle Helper Functions
 
 /// Register an image icon in a pack
-pub fn register_image_icon(provider: &mut IconProviderHandle, pack_name: &str, icon_name: &str, image: ImageRef) {
+pub fn register_image_icon(
+    provider: &mut IconProviderHandle,
+    pack_name: &str,
+    icon_name: &str,
+    image: ImageRef,
+) {
     // Get dimensions from ImageRef
     let size = image.get_size();
-    let data = ImageIconData { 
-        image, 
-        width: size.width, 
+    let data = ImageIconData {
+        image,
+        width: size.width,
         height: size.height,
     };
     provider.register_icon(pack_name, icon_name, RefAny::new(data));
@@ -373,15 +381,27 @@ pub fn register_image_icon(provider: &mut IconProviderHandle, pack_name: &str, i
 
 /// Register icons from a ZIP file (file names become icon names)
 #[cfg(feature = "zip")]
-pub fn register_icons_from_zip(provider: &mut IconProviderHandle, pack_name: &str, zip_bytes: &[u8]) {
+pub fn register_icons_from_zip(
+    provider: &mut IconProviderHandle,
+    pack_name: &str,
+    zip_bytes: &[u8],
+) {
     for (icon_name, image, width, height) in load_images_from_zip(zip_bytes) {
-        let data = ImageIconData { image, width, height };
+        let data = ImageIconData {
+            image,
+            width,
+            height,
+        };
         provider.register_icon(pack_name, &icon_name, RefAny::new(data));
     }
 }
 
 #[cfg(not(feature = "zip"))]
-pub fn register_icons_from_zip(_provider: &mut IconProviderHandle, _pack_name: &str, _zip_bytes: &[u8]) {
+pub fn register_icons_from_zip(
+    _provider: &mut IconProviderHandle,
+    _pack_name: &str,
+    _zip_bytes: &[u8],
+) {
     // ZIP support not enabled — the caller explicitly handed us an icon pack
     // and NOTHING got registered; every later lookup will just miss. Say so
     // once (this gate is hit by DEFAULT builds: `zip` is not a default
@@ -409,14 +429,25 @@ pub fn register_icons_from_zip(_provider: &mut IconProviderHandle, _pack_name: &
 /// be red says so itself, once, instead of every call site having to thread a
 /// colour down to the renderer. Sizing still comes from the call site, since the
 /// caller is the one who knows how big the icon has to be.
-pub fn register_dom_icon(provider: &mut IconProviderHandle, pack_name: &str, icon_name: &str, dom: Dom) {
+pub fn register_dom_icon(
+    provider: &mut IconProviderHandle,
+    pack_name: &str,
+    icon_name: &str,
+    dom: Dom,
+) {
     provider.register_icon(pack_name, icon_name, RefAny::new(DomIconData::new(dom)));
 }
 
-pub fn register_font_icon(provider: &mut IconProviderHandle, pack_name: &str, icon_name: &str, font: FontRef, icon_char: &str) {
-    let data = FontIconData { 
-        font, 
-        icon_char: icon_char.to_string() 
+pub fn register_font_icon(
+    provider: &mut IconProviderHandle,
+    pack_name: &str,
+    icon_name: &str,
+    font: FontRef,
+    icon_char: &str,
+) {
+    let data = FontIconData {
+        font,
+        icon_char: icon_char.to_string(),
     };
     provider.register_icon(pack_name, icon_name, RefAny::new(data));
 }
@@ -429,41 +460,46 @@ pub fn register_font_icon(provider: &mut IconProviderHandle, pack_name: &str, ic
 #[cfg(all(feature = "zip", feature = "image_decoding"))]
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
 fn load_images_from_zip(zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> {
-    use crate::zip::{ZipFile, ZipReadConfig};
     use crate::image::decode::{decode_raw_image_from_any_bytes, ResultRawImageDecodeImageError};
+    use crate::zip::{ZipFile, ZipReadConfig};
     use std::path::Path;
-    
+
     let mut result = Vec::new();
     let config = ZipReadConfig::default();
     let Ok(entries) = ZipFile::list(zip_bytes, &config) else {
         return result;
     };
-    
+
     for entry in &entries {
-        if entry.path.ends_with('/') { continue; } // Skip directories
-        
+        if entry.path.ends_with('/') {
+            continue;
+        } // Skip directories
+
         let Ok(Some(file_bytes)) = ZipFile::get_single_file(zip_bytes, entry, &config) else {
             continue;
         };
-        
+
         // Decode as image
-        if let ResultRawImageDecodeImageError::Ok(raw_image) = decode_raw_image_from_any_bytes(&file_bytes) {
+        if let ResultRawImageDecodeImageError::Ok(raw_image) =
+            decode_raw_image_from_any_bytes(&file_bytes)
+        {
             // Icon name = filename without extension
             let path = Path::new(&entry.path);
-            let icon_name = path.file_stem()
+            let icon_name = path
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_string();
-            
+
             let width = raw_image.width as f32;
             let height = raw_image.height as f32;
-            
+
             if let Some(image) = ImageRef::new_rawimage(raw_image) {
                 result.push((icon_name, image, width, height));
             }
         }
     }
-    
+
     result
 }
 
@@ -486,21 +522,21 @@ fn load_images_from_zip(_zip_bytes: &[u8]) -> Vec<(String, ImageRef, f32, f32)> 
 // ============================================================================
 
 /// Register all Material Icons in the provider.
-/// 
+///
 /// This registers all 2234 Material Icons from the `material-icons` crate.
 /// Each icon is registered under the "material-icons" pack with its HTML name
 /// (e.g., "home", "settings", "`arrow_back`", etc.).
-/// 
+///
 /// Requires the "icons" feature with material-icons crate.
 #[cfg(feature = "icons")]
 pub fn register_material_icons(provider: &mut IconProviderHandle, font: &FontRef) {
-    use material_icons::{ALL_ICONS, icon_to_char, icon_to_html_name};
-    
+    use material_icons::{icon_to_char, icon_to_html_name, ALL_ICONS};
+
     // Register all Material Icons with their Unicode codepoints
     for icon in &ALL_ICONS {
         let icon_char = icon_to_char(*icon);
         let name = icon_to_html_name(icon);
-        
+
         let data = FontIconData {
             font: font.clone(),
             icon_char: icon_char.to_string(),
@@ -523,10 +559,10 @@ pub fn register_material_icons(_provider: &mut IconProviderHandle, _font: FontRe
 }
 
 /// Load the embedded Material Icons font and register all standard icons.
-/// 
+///
 /// This uses the `material-icons` crate which embeds the Material Icons TTF font.
 /// The font is Apache 2.0 licensed by Google.
-/// 
+///
 /// Returns true if registration was successful.
 /// Register all Material Icons from caller-supplied TTF bytes.
 ///
@@ -602,11 +638,11 @@ mod tests {
         let original = Dom::create_div().root;
 
         let result = default_icon_resolver(OptionRefAny::None, &original, &style);
-        
+
         // Without data, should return empty div StyledDom
         assert_eq!(result.children.as_ref().len(), 0);
     }
-    
+
     #[test]
     fn test_create_default_provider() {
         let provider = create_default_icon_provider();
@@ -632,11 +668,7 @@ mod tests {
     private_interfaces
 )] // pedantic lints are noise in adversarial test code
 mod autotest_generated {
-    use azul_core::{
-        a11y::SmallAriaInfo,
-        dom::NodeType,
-        resources::RawImageFormat,
-    };
+    use azul_core::{a11y::SmallAriaInfo, dom::NodeType, resources::RawImageFormat};
     use azul_css::props::basic::color::{ColorU, OptionColorU};
 
     use super::*;
@@ -728,7 +760,9 @@ mod autotest_generated {
 
     fn width_px(dom: &Dom) -> Option<f32> {
         all_props(dom).into_iter().find_map(|p| match p.property {
-            CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(px))) => Some(px.number.get()),
+            CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(px))) => {
+                Some(px.number.get())
+            }
             _ => None,
         })
     }
@@ -763,10 +797,12 @@ mod autotest_generated {
     }
 
     fn text_of(dom: &Dom) -> Option<String> {
-        all_nodes(dom).iter().find_map(|nd| match nd.get_node_type() {
-            NodeType::Text(t) => Some(t.as_str().to_string()),
-            _ => None,
-        })
+        all_nodes(dom)
+            .iter()
+            .find_map(|nd| match nd.get_node_type() {
+                NodeType::Text(t) => Some(t.as_str().to_string()),
+                _ => None,
+            })
     }
 
     fn has_image_node(dom: &Dom) -> bool {
@@ -810,10 +846,7 @@ mod autotest_generated {
             &SystemStyle::default(),
         );
         assert_eq!(all_nodes(&out).len(), 1);
-        assert!(matches!(
-            out.root.get_node_type(),
-            NodeType::Div
-        ));
+        assert!(matches!(out.root.get_node_type(), NodeType::Div));
         // The "not found" placeholder must carry no styling at all — in particular
         // it must not inherit the original's width/height.
         assert!(all_props(&out).is_empty());
@@ -830,10 +863,7 @@ mod autotest_generated {
         let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
 
         assert_eq!(all_nodes(&out).len(), 1);
-        assert!(matches!(
-            out.root.get_node_type(),
-            NodeType::Div
-        ));
+        assert!(matches!(out.root.get_node_type(), NodeType::Div));
         assert!(!has_image_node(&out));
         assert!(text_of(&out).is_none());
     }
@@ -867,10 +897,7 @@ mod autotest_generated {
         assert_eq!(all_nodes(&out).len(), 2);
         assert_eq!(text_of(&out).as_deref(), Some("\u{e88a}"));
         assert!(
-            matches!(
-                out.root.get_node_type(),
-                azul_core::dom::NodeType::Span
-            ),
+            matches!(out.root.get_node_type(), azul_core::dom::NodeType::Span),
             "the icon must be wrapped in a span — inline, and boxed"
         );
 
@@ -907,7 +934,11 @@ mod autotest_generated {
     #[test]
     fn font_icon_with_node_less_original_still_gets_font() {
         let original = original_without_nodes();
-        let out = resolve(RefAny::new(font_icon("A")), &original, &SystemStyle::default());
+        let out = resolve(
+            RefAny::new(font_icon("A")),
+            &original,
+            &SystemStyle::default(),
+        );
         assert_eq!(text_of(&out).as_deref(), Some("A"));
         assert!(all_props(&out)
             .iter()
@@ -931,7 +962,10 @@ mod autotest_generated {
             width_px(&out).expect("width emitted"),
             height_px(&out).expect("height emitted"),
         );
-        assert!(w.is_finite() && h.is_finite(), "NaN must not survive into CSS");
+        assert!(
+            w.is_finite() && h.is_finite(),
+            "NaN must not survive into CSS"
+        );
         assert_eq!(w, 0.0);
         assert_eq!(h, 0.0);
     }
@@ -978,7 +1012,10 @@ mod autotest_generated {
         let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
 
         let w = width_px(&out).expect("width emitted");
-        assert!(w.is_finite() && w > 0.0, "usize::MAX size must saturate finitely, got {w}");
+        assert!(
+            w.is_finite() && w > 0.0,
+            "usize::MAX size must saturate finitely, got {w}"
+        );
     }
 
     #[test]
@@ -1081,7 +1118,10 @@ mod autotest_generated {
     fn icon_filters_default_style_adds_nothing() {
         let mut props = Vec::new();
         apply_icon_style_filters(&mut props, &SystemStyle::default());
-        assert!(props.is_empty(), "default SystemStyle must not synthesise a filter");
+        assert!(
+            props.is_empty(),
+            "default SystemStyle must not synthesise a filter"
+        );
     }
 
     #[test]
@@ -1092,7 +1132,10 @@ mod autotest_generated {
         let filters = filters_of(&props);
         assert_eq!(filters.len(), 1);
         let StyleFilter::ColorMatrix(m) = &filters[0] else {
-            panic!("prefer_grayscale must emit a ColorMatrix filter, got {:?}", filters[0]);
+            panic!(
+                "prefer_grayscale must emit a ColorMatrix filter, got {:?}",
+                filters[0]
+            );
         };
 
         // Rec.709 luminance weights, rounded through FloatValue's 1/1000 fixed point.
@@ -1117,7 +1160,12 @@ mod autotest_generated {
     #[test]
     fn icon_filters_tint_emits_flood_even_when_fully_transparent() {
         // a == 0 is still forwarded — the resolver does not treat it as "no tint".
-        let transparent = ColorU { r: 1, g: 2, b: 3, a: 0 };
+        let transparent = ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 0,
+        };
         let mut props = Vec::new();
         apply_icon_style_filters(&mut props, &tint_style(transparent));
 
@@ -1128,7 +1176,12 @@ mod autotest_generated {
 
     #[test]
     fn icon_filters_grayscale_and_tint_are_ordered_matrix_then_flood() {
-        let tint = ColorU { r: 255, g: 0, b: 128, a: 255 };
+        let tint = ColorU {
+            r: 255,
+            g: 0,
+            b: 128,
+            a: 255,
+        };
         let mut style = grayscale_style();
         style.icon_style.tint_color = OptionColorU::Some(tint);
 
@@ -1157,7 +1210,10 @@ mod autotest_generated {
         apply_icon_style_filters(&mut props, &grayscale_style());
 
         assert_eq!(props.len(), 2);
-        assert!(matches!(props[0].property, CssProperty::Width(_)), "existing props must not be clobbered");
+        assert!(
+            matches!(props[0].property, CssProperty::Width(_)),
+            "existing props must not be clobbered"
+        );
         assert!(matches!(props[1].property, CssProperty::Filter(_)));
     }
 
@@ -1197,7 +1253,12 @@ mod autotest_generated {
 
     #[test]
     fn font_icon_color_tint_becomes_text_color() {
-        let tint = ColorU { r: 9, g: 8, b: 7, a: 6 };
+        let tint = ColorU {
+            r: 9,
+            g: 8,
+            b: 7,
+            a: 6,
+        };
         let mut props = Vec::new();
         apply_font_icon_color(&mut props, &tint_style(tint));
 
@@ -1207,7 +1268,12 @@ mod autotest_generated {
 
     #[test]
     fn font_icon_color_tint_wins_over_inherit_text_color() {
-        let tint = ColorU { r: 1, g: 1, b: 1, a: 255 };
+        let tint = ColorU {
+            r: 1,
+            g: 1,
+            b: 1,
+            a: 255,
+        };
         let mut style = tint_style(tint);
         style.icon_style.inherit_text_color = true;
 
@@ -1259,7 +1325,11 @@ mod autotest_generated {
                 &Dom::create_div().root,
                 &SystemStyle::default(),
             );
-            assert_eq!(text_of(&out).as_deref(), Some(s), "icon_char {s:?} was altered");
+            assert_eq!(
+                text_of(&out).as_deref(),
+                Some(s),
+                "icon_char {s:?} was altered"
+            );
         }
     }
 
@@ -1305,7 +1375,9 @@ mod autotest_generated {
 
         assert_eq!(provider.list_packs(), vec![String::new()]);
         assert!(provider.has_icon(""));
-        let data = provider.lookup("").expect("empty-named icon is still addressable");
+        let data = provider
+            .lookup("")
+            .expect("empty-named icon is still addressable");
         let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
         assert_eq!(text_of(&out).as_deref(), Some(""));
     }
@@ -1356,7 +1428,10 @@ mod autotest_generated {
 
         provider.unregister_icon("p", "IcOn");
         assert!(!provider.has_icon("icon"));
-        assert!(provider.list_packs().is_empty(), "empty pack must be removed");
+        assert!(
+            provider.list_packs().is_empty(),
+            "empty pack must be removed"
+        );
     }
 
     #[test]
@@ -1432,7 +1507,11 @@ mod autotest_generated {
 
         assert_eq!(provider.list_packs(), vec![String::from("material-icons")]);
         let names = provider.list_icons_in_pack("material-icons");
-        assert!(names.len() > 1000, "expected the full icon set, got {}", names.len());
+        assert!(
+            names.len() > 1000,
+            "expected the full icon set, got {}",
+            names.len()
+        );
         assert!(
             names.iter().all(|n| *n == n.to_lowercase()),
             "every registered icon name must be normalised to lowercase"
@@ -1442,6 +1521,9 @@ mod autotest_generated {
 
         let data = provider.lookup("home").expect("material 'home' icon");
         let out = resolve(data, &Dom::create_div().root, &SystemStyle::default());
-        assert!(text_of(&out).is_some(), "a material icon must resolve to a text node");
+        assert!(
+            text_of(&out).is_some(),
+            "a material icon must resolve to a text node"
+        );
     }
 }

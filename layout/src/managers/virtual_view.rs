@@ -99,7 +99,8 @@ struct EdgeFlags {
 
 impl VirtualViewManager {
     /// Creates a new `VirtualViewManager` with no tracked `VirtualViews`
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             next_dom_id: 1, // 0 is root
             ..Default::default()
@@ -107,7 +108,8 @@ impl VirtualViewManager {
     }
 
     /// Number of tracked `VirtualView` states. Used by `AZ_E2E_TEST` to watch growth.
-    #[must_use] pub fn debug_counts(&self) -> usize {
+    #[must_use]
+    pub fn debug_counts(&self) -> usize {
         self.states.len()
     }
 
@@ -142,17 +144,20 @@ impl VirtualViewManager {
         };
         self.next_dom_id += 1;
 
-        self.states.insert(key, VirtualViewState::new(nested_dom_id));
+        self.states
+            .insert(key, VirtualViewState::new(nested_dom_id));
         nested_dom_id
     }
 
     /// Gets the nested DOM ID for a `VirtualView` if it exists
-    #[must_use] pub fn get_nested_dom_id(&self, dom_id: DomId, node_id: NodeId) -> Option<DomId> {
+    #[must_use]
+    pub fn get_nested_dom_id(&self, dom_id: DomId, node_id: NodeId) -> Option<DomId> {
         self.states.get(&(dom_id, node_id)).map(|s| s.nested_dom_id)
     }
 
     /// Returns whether the `VirtualView` has ever been invoked
-    #[must_use] pub fn was_virtual_view_invoked(&self, dom_id: DomId, node_id: NodeId) -> bool {
+    #[must_use]
+    pub fn was_virtual_view_invoked(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.states
             .get(&(dom_id, node_id))
             .is_some_and(|s| s.virtual_view_was_invoked)
@@ -166,7 +171,8 @@ impl VirtualViewManager {
     /// The sizes the view's LAST invoke declared (`scroll_size`,
     /// `virtual_scroll_size`) — the reinvoke signal feeds these back so the
     /// callback's page math sees its own declared virtual extent (#16).
-    #[must_use] pub fn get_declared_sizes(
+    #[must_use]
+    pub fn get_declared_sizes(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -305,7 +311,8 @@ impl VirtualViewManager {
             .map(|((dom_id, node_id), _)| (*dom_id, *node_id))
     }
 
-    #[must_use] pub fn all_view_keys(&self) -> Vec<(DomId, NodeId)> {
+    #[must_use]
+    pub fn all_view_keys(&self) -> Vec<(DomId, NodeId)> {
         self.states.keys().copied().collect()
     }
 
@@ -375,7 +382,8 @@ impl VirtualViewManager {
     ///
     /// Each entry contains: (`parent_dom_id`, `parent_node_id`, `nested_dom_id`,
     /// `scroll_size`, `virtual_scroll_size`, `was_invoked`, `last_bounds`)
-    #[must_use] pub fn get_all_virtual_view_infos(&self) -> Vec<VirtualViewDebugInfo> {
+    #[must_use]
+    pub fn get_all_virtual_view_infos(&self) -> Vec<VirtualViewDebugInfo> {
         self.states
             .iter()
             .map(|((dom_id, node_id), state)| VirtualViewDebugInfo {
@@ -606,9 +614,7 @@ mod autotest_generated {
 
     const DOM: DomId = DomId::ROOT_ID;
     const DOM1: DomId = DomId { inner: 1 };
-    const DOM_MAX: DomId = DomId {
-        inner: usize::MAX,
-    };
+    const DOM_MAX: DomId = DomId { inner: usize::MAX };
 
     fn n(i: usize) -> NodeId {
         NodeId::new(i)
@@ -854,7 +860,10 @@ mod autotest_generated {
             for node in 0..32_usize {
                 let id = m.get_or_create_nested_dom_id(DomId { inner: dom }, n(node));
                 assert!(id.inner >= 1, "nested id must never collide with the root");
-                assert!(seen.insert(id.inner), "nested DOM id {id:?} handed out twice");
+                assert!(
+                    seen.insert(id.inner),
+                    "nested DOM id {id:?} handed out twice"
+                );
             }
         }
 
@@ -890,7 +899,13 @@ mod autotest_generated {
         let mut m = VirtualViewManager::new();
 
         assert_eq!(
-            m.update_virtual_view_info(DOM, n(3), LogicalPosition::zero(), sz(1.0, 1.0), sz(1.0, 1.0)),
+            m.update_virtual_view_info(
+                DOM,
+                n(3),
+                LogicalPosition::zero(),
+                sz(1.0, 1.0),
+                sz(1.0, 1.0)
+            ),
             None
         );
         assert_eq!(
@@ -899,7 +914,13 @@ mod autotest_generated {
         );
         assert_eq!(m.force_reinvoke(DOM, n(3)), None);
         assert_eq!(
-            m.update_virtual_view_info(DOM_MAX, n(usize::MAX), LogicalPosition::zero(), sz(0.0, 0.0), sz(0.0, 0.0)),
+            m.update_virtual_view_info(
+                DOM_MAX,
+                n(usize::MAX),
+                LogicalPosition::zero(),
+                sz(0.0, 0.0),
+                sz(0.0, 0.0)
+            ),
             None
         );
 
@@ -1005,15 +1026,18 @@ mod autotest_generated {
                 "size {size:?} must be recorded without panicking"
             );
             assert_eq!(st(&m, DOM, n(1)).materialized.map(|r| r.size), Some(size));
-            assert_eq!(
-                st(&m, DOM, n(1)).virtual_rect.map(|r| r.size),
-                Some(size)
-            );
+            assert_eq!(st(&m, DOM, n(1)).virtual_rect.map(|r| r.size), Some(size));
         }
 
         // NaN is stored verbatim (no normalization, no panic).
         assert_eq!(
-            m.update_virtual_view_info(DOM, n(1), LogicalPosition::zero(), sz(f32::NAN, f32::NAN), sz(f32::NAN, 1.0)),
+            m.update_virtual_view_info(
+                DOM,
+                n(1),
+                LogicalPosition::zero(),
+                sz(f32::NAN, f32::NAN),
+                sz(f32::NAN, 1.0)
+            ),
             Some(())
         );
         let stored = st(&m, DOM, n(1)).materialized.map(|r| r.size).unwrap();
@@ -1171,7 +1195,12 @@ mod autotest_generated {
             n(1),
             VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom),
         );
-        mark(&mut m, DOM1, n(4), VirtualViewCallbackReason::BoundsExpanded);
+        mark(
+            &mut m,
+            DOM1,
+            n(4),
+            VirtualViewCallbackReason::BoundsExpanded,
+        );
 
         // Record a non-zero last_bounds through the normal path.
         let sm = scrolled(DOM, n(1), 0.0, 900.0);
@@ -1429,12 +1458,7 @@ mod autotest_generated {
         let sm = ScrollManager::new();
 
         assert_eq!(
-            m.check_reinvoke(
-                DOM,
-                n(1),
-                &sm,
-                rect(f32::INFINITY, f32::INFINITY)
-            ),
+            m.check_reinvoke(DOM, n(1), &sm, rect(f32::INFINITY, f32::INFINITY)),
             Some(VirtualViewCallbackReason::BoundsExpanded)
         );
     }
@@ -1473,8 +1497,8 @@ mod autotest_generated {
         // window spans the document's full width, so left/right have nothing to
         // load and correctly never fire whatever the distance.
         let s2 = invoked_state_2d(sz(1000.0, 1000.0)); // window 1000..2000 of a 0..3000 doc, both axes
-        // y is parked dead centre of the window (450 px from either vertical
-        // edge) so that only the x axis can speak.
+                                                       // y is parked dead centre of the window (450 px from either vertical
+                                                       // edge) so that only the x axis can speak.
         let quiet_y = FIXTURE_WINDOW_ORIGIN_Y + 450.0;
 
         // Left edge: vis_min_x - mat_min_x == 1200 - 1000 == 200 → inclusive hit.
@@ -1544,7 +1568,10 @@ mod autotest_generated {
         // is no expansion, and the offset is exactly the resting
         // `initial_scroll_offset`, so no edge may fire either.
         let s = invoked_state(sz(0.0, 0.0));
-        assert_eq!(s.check_reinvoke_condition(pos(0.0, 0.0), sz(0.0, 0.0)), None);
+        assert_eq!(
+            s.check_reinvoke_condition(pos(0.0, 0.0), sz(0.0, 0.0)),
+            None
+        );
 
         // Zero-size content inside a real container *is* an expansion.
         assert_eq!(
@@ -1583,7 +1610,10 @@ mod autotest_generated {
         );
 
         // (2) NaN offset AND NaN sizes: nothing is left that can compare true.
-        assert_eq!(s.check_reinvoke_condition(pos(nan, nan), sz(nan, nan)), None);
+        assert_eq!(
+            s.check_reinvoke_condition(pos(nan, nan), sz(nan, nan)),
+            None
+        );
 
         // (3) NaN CONTAINER size against real content. The container size only
         // enters the bottom/right distances, so Top survives again...
@@ -1713,10 +1743,7 @@ mod autotest_generated {
         // far past the window) — still <= EDGE_THRESHOLD, so the bottom edge
         // reports instead of overflowing.
         let huge = windowed_state(
-            LogicalRect::new(
-                LogicalPosition::zero(),
-                sz(f32::MAX / 2.0, f32::MAX / 2.0),
-            ),
+            LogicalRect::new(LogicalPosition::zero(), sz(f32::MAX / 2.0, f32::MAX / 2.0)),
             LogicalRect::new(LogicalPosition::zero(), sz(f32::MAX, f32::MAX)),
         );
         assert_eq!(
@@ -1838,7 +1865,10 @@ mod autotest_generated {
             LogicalRect::new(LogicalPosition::zero(), sz(100.0, 1000.0)),
             LogicalRect::new(LogicalPosition::zero(), sz(100.0, 3000.0)),
         );
-        assert_eq!(head.check_reinvoke_condition(pos(0.0, 1.0), container), None);
+        assert_eq!(
+            head.check_reinvoke_condition(pos(0.0, 1.0), container),
+            None
+        );
         assert_eq!(
             head.check_reinvoke_condition(pos(0.0, 900.0), container),
             Some(VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom))

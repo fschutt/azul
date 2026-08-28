@@ -212,7 +212,8 @@ pub const unsafe fn az_mark(_addr: u32, _val: u32) {}
 /// the feature this is a no-op that returns 0 and is always safe.
 #[cfg(feature = "web_lift")]
 #[inline]
-#[must_use] pub unsafe fn az_mark_read(_addr: u32) -> u32 {
+#[must_use]
+pub unsafe fn az_mark_read(_addr: u32) -> u32 {
     // Volatile isn't const-callable, so this variant is a plain (non-const) fn.
     core::ptr::read_volatile(_addr as usize as *const u32)
 }
@@ -224,16 +225,56 @@ pub const unsafe fn az_mark(_addr: u32, _val: u32) {}
 /// to keep the signature identical to the `web_lift` variant.
 #[cfg(not(feature = "web_lift"))]
 #[inline]
-#[must_use] pub const unsafe fn az_mark_read(_addr: u32) -> u32 {
+#[must_use]
+pub const unsafe fn az_mark_read(_addr: u32) -> u32 {
     0
 }
 
+/// Process-wide `AppConfig` snapshot (app name/version, update manifest,
+/// changelog + support-mailbox URLs) published by `App::run`, read by the
+/// updater and the system dialogs.
+#[cfg(feature = "std")]
+pub mod appenv;
+/// Built-in system dialogs (`SysDialogType`): report-a-problem, update
+/// checker with Markdown changelog, crash reporter. ALWAYS CPU-rendered.
+#[cfg(all(feature = "std", feature = "widgets", feature = "text_layout"))]
+pub mod dialogs;
 /// Font traits available regardless of text layout feature.
 pub mod font_traits;
-pub mod resource_handles;
+/// Image decoding and encoding (wraps the `image` crate).
+#[cfg(feature = "image_decoding")]
+pub mod image;
+/// Pure-functional image resampling (area downscale / bilinear upscale): the
+/// golden-reference scaler shared by the CPU rasterizer, the capture pipeline
+/// and any `RawImage` resize. No `image`-crate or platform dependency.
+pub mod image_scale;
+/// The ACTION JOURNAL: a bounded breadcrumb trail of dispatched callbacks,
+/// for problem reports and crash dumps. Off until enabled.
+#[cfg(feature = "std")]
+pub mod journal;
+/// Scroll, hover, clipboard, cursor, and focus managers.
+#[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): internal manager types exposed for tests.
+#[allow(private_interfaces)]
+pub mod managers;
 /// Optional probe instrumentation. With the `probe` feature off this
 /// is a tiny module of no-op stubs and pays zero cost.
 pub mod probe;
+pub mod resource_handles;
+/// CSS layout solver: block, inline, flex, grid, and table formatting.
+#[cfg(feature = "text_layout")]
+// Scoped (was crate-wide): solver internals — intentional `drop(&_)` scope
+// markers, internal types exposed for tests, incremental-relayout assignments,
+// generated/parenthesized property code, and exhaustive generated matches.
+#[allow(
+    dropping_references,
+    private_interfaces,
+    unreachable_patterns,
+    unused_parens,
+    unused_doc_comments,
+    unused_assignments
+)]
+pub mod solver3;
 /// Opt-in telemetry client: consent tiers, OTLP/HTTP JSON encoding, a
 /// disk-backed ping queue and an uploader. Requires the `telemetry`
 /// feature (std-only); collection stays *off* at runtime until a consent
@@ -260,51 +301,12 @@ pub mod telemetry;
 /// cooldown/suspend state. Requires the `updater` feature.
 #[cfg(feature = "updater")]
 pub mod updater;
-/// Process-wide `AppConfig` snapshot (app name/version, update manifest,
-/// changelog + support-mailbox URLs) published by `App::run`, read by the
-/// updater and the system dialogs.
-#[cfg(feature = "std")]
-pub mod appenv;
-/// Built-in system dialogs (`SysDialogType`): report-a-problem, update
-/// checker with Markdown changelog, crash reporter. ALWAYS CPU-rendered.
-#[cfg(all(feature = "std", feature = "widgets", feature = "text_layout"))]
-pub mod dialogs;
-/// The ACTION JOURNAL: a bounded breadcrumb trail of dispatched callbacks,
-/// for problem reports and crash dumps. Off until enabled.
-#[cfg(feature = "std")]
-pub mod journal;
-/// Image decoding and encoding (wraps the `image` crate).
-#[cfg(feature = "image_decoding")]
-pub mod image;
-/// Pure-functional image resampling (area downscale / bilinear upscale): the
-/// golden-reference scaler shared by the CPU rasterizer, the capture pipeline
-/// and any `RawImage` resize. No `image`-crate or platform dependency.
-pub mod image_scale;
-/// Scroll, hover, clipboard, cursor, and focus managers.
-#[cfg(feature = "text_layout")]
-// Scoped (was crate-wide): internal manager types exposed for tests.
-#[allow(private_interfaces)]
-pub mod managers;
-/// CSS layout solver: block, inline, flex, grid, and table formatting.
-#[cfg(feature = "text_layout")]
-// Scoped (was crate-wide): solver internals — intentional `drop(&_)` scope
-// markers, internal types exposed for tests, incremental-relayout assignments,
-// generated/parenthesized property code, and exhaustive generated matches.
-#[allow(
-    dropping_references,
-    private_interfaces,
-    unreachable_patterns,
-    unused_parens,
-    unused_doc_comments,
-    unused_assignments
-)]
-pub mod solver3;
 
 /// C-compatible string formatting via `strfmt`.
 #[cfg(feature = "strfmt")]
 pub mod fmt;
 #[cfg(feature = "strfmt")]
-pub use fmt::{FmtArg, FmtArgVec, FmtArgVecDestructor, FmtValue, fmt_string};
+pub use fmt::{fmt_string, FmtArg, FmtArgVec, FmtArgVecDestructor, FmtValue};
 
 /// Built-in widgets: button, text input, tabs, tree view, node graph, etc.
 #[cfg(feature = "widgets")]
@@ -330,9 +332,9 @@ pub mod icu;
     all(target_os = "windows", feature = "icu_windows"),
 ))]
 pub use icu::{
-    DateTimeFieldSet, FormatLength, IcuDate, IcuDateTime, IcuError,
-    IcuLocalizer, IcuLocalizerHandle, IcuResult, IcuStringVec, IcuTime,
-    LayoutCallbackInfoIcuExt, ListType, PluralCategory,
+    DateTimeFieldSet, FormatLength, IcuDate, IcuDateTime, IcuError, IcuLocalizer,
+    IcuLocalizerHandle, IcuResult, IcuStringVec, IcuTime, LayoutCallbackInfoIcuExt, ListType,
+    PluralCategory,
 };
 
 /// Project Fluent localization: message bundles, argument formatting, ZIP I/O.
@@ -341,10 +343,9 @@ pub mod fluent;
 #[cfg(feature = "fluent")]
 pub use fluent::{
     check_fluent_syntax, check_fluent_syntax_bytes, create_fluent_zip,
-    create_fluent_zip_from_strings, export_to_zip, FluentError,
-    FluentLanguageInfo, FluentLanguageInfoVec, FluentLoadError, FluentLoadErrorVec,
-    FluentLocalizerHandle, FluentSyntaxCheckResult,
-    FluentZipLoadResult,
+    create_fluent_zip_from_strings, export_to_zip, FluentError, FluentLanguageInfo,
+    FluentLanguageInfoVec, FluentLoadError, FluentLoadErrorVec, FluentLocalizerHandle,
+    FluentSyntaxCheckResult, FluentZipLoadResult,
 };
 
 /// URL parsing (RFC 3986 compliant). Pure-Rust, always present (no TLS deps).
@@ -352,7 +353,7 @@ pub use fluent::{
 /// keeps resolving. `Url::parse`/`join` are enabled via the `http` feature
 /// (which turns on `azul-core/url`).
 pub use azul_core::url;
-pub use azul_core::url::{Url, UrlParseError, ResultUrlUrlParseError};
+pub use azul_core::url::{ResultUrlUrlParseError, Url, UrlParseError};
 
 /// File system operations (C-compatible wrappers for `std::fs`).
 // Scoped (was crate-wide): `///` doc comments before `impl_vec!`/`impl_option!`
@@ -361,13 +362,11 @@ pub use azul_core::url::{Url, UrlParseError, ResultUrlUrlParseError};
 #[allow(unused_doc_comments, clippy::should_implement_trait)]
 pub mod file;
 pub use file::{
-    dir_create, dir_create_all, dir_list, dir_delete, dir_delete_all,
-    file_append, file_copy, path_exists, file_metadata, file_read, file_read_string,
-    file_delete, file_rename, file_write, file_write_string,
-    path_canonicalize, path_extension, path_file_name, path_is_dir, path_is_file,
-    path_join, path_parent, temp_dir,
-    DirEntry, DirEntryVec, DirEntryVecDestructor, DirEntryVecDestructorType,
-    FileError, FileErrorKind, FileMetadata, FilePath, OptionFilePath,
+    dir_create, dir_create_all, dir_delete, dir_delete_all, dir_list, file_append, file_copy,
+    file_delete, file_metadata, file_read, file_read_string, file_rename, file_write,
+    file_write_string, path_canonicalize, path_exists, path_extension, path_file_name, path_is_dir,
+    path_is_file, path_join, path_parent, temp_dir, DirEntry, DirEntryVec, DirEntryVecDestructor,
+    DirEntryVecDestructorType, FileError, FileErrorKind, FileMetadata, FilePath, OptionFilePath,
 };
 
 /// HTTP client: GET/POST requests with pure-Rust TLS.
@@ -375,10 +374,9 @@ pub use file::{
 /// API surface always present (stub when off); ureq/rustls only pulled in with `http`.
 pub mod http;
 pub use http::{
-    download_bytes, download_bytes_with_config, http_get,
-    http_get_with_config, http_post, http_post_with_config, http_put_with_config,
-    http_request_with_config, is_url_reachable, HttpError, HttpHeader,
-    HttpMethod, HttpRequestConfig, HttpResponse, HttpResponseTooLargeError,
+    download_bytes, download_bytes_with_config, http_get, http_get_with_config, http_post,
+    http_post_with_config, http_put_with_config, http_request_with_config, is_url_reachable,
+    HttpError, HttpHeader, HttpMethod, HttpRequestConfig, HttpResponse, HttpResponseTooLargeError,
     HttpResult, HttpStatusError,
 };
 
@@ -387,10 +385,9 @@ pub use http::{
 pub mod json;
 #[cfg(feature = "json")]
 pub use json::{
-    json_parse, json_stringify,
-    Json, JsonInternal, JsonKeyValue, JsonKeyValueVec, JsonKeyValueVecDestructor, JsonKeyValueVecDestructorType,
-    JsonParseError, JsonType, JsonVec,
-    ResultJsonJsonParseError, OptionJson, OptionJsonVec, OptionJsonKeyValueVec,
+    json_parse, json_stringify, Json, JsonInternal, JsonKeyValue, JsonKeyValueVec,
+    JsonKeyValueVecDestructor, JsonKeyValueVecDestructorType, JsonParseError, JsonType, JsonVec,
+    OptionJson, OptionJsonKeyValueVec, OptionJsonVec, ResultJsonJsonParseError,
 };
 
 /// ZIP file creation, extraction, and listing.
@@ -398,30 +395,30 @@ pub use json::{
 pub mod zip;
 #[cfg(feature = "zip")]
 pub use zip::{
-    zip_create, zip_create_from_files, zip_extract_all, zip_list_contents,
-    ZipFile, ZipFileEntry, ZipFileEntryVec, ZipPathEntry, ZipPathEntryVec,
-    ZipReadConfig, ZipWriteConfig, ZipReadError, ZipWriteError,
+    zip_create, zip_create_from_files, zip_extract_all, zip_list_contents, ZipFile, ZipFileEntry,
+    ZipFileEntryVec, ZipPathEntry, ZipPathEntryVec, ZipReadConfig, ZipReadError, ZipWriteConfig,
+    ZipWriteError,
 };
 
 /// Icon provider: resolves icons from Material Icons font, images, or ZIP packs.
 pub mod icon;
 pub use icon::{
+    create_default_icon_provider,
     // Resolver
     default_icon_resolver,
-    // Data types for RefAny
-    ImageIconData, FontIconData,
-    // Helpers
-    register_image_icon,
+    register_embedded_material_icons,
     register_font_icon,
     register_icons_from_zip,
-    create_default_icon_provider,
+    // Helpers
+    register_image_icon,
     register_material_icons,
-    register_embedded_material_icons,
+    FontIconData,
+    // Data types for RefAny
+    ImageIconData,
 };
 // Re-export core icon types
 pub use azul_core::icon::{
-    IconProviderHandle, IconResolverCallbackType,
-    resolve_icons_in_dom, OptionIconProviderHandle,
+    resolve_icons_in_dom, IconProviderHandle, IconResolverCallbackType, OptionIconProviderHandle,
 };
 
 /// Callback handling for layout events (invocation, result processing).
@@ -432,12 +429,15 @@ pub mod callbacks;
 // Scoped (was crate-wide): complex rasterizer signatures.
 #[allow(clippy::type_complexity)]
 pub mod cpurender;
-/// Glyph path and cell cache for CPU text rendering.
-#[cfg(feature = "cpurender")]
-pub mod glyph_cache;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
+/// Apply structural `DocumentOperation`s to a plain XML tree.
+///
+/// The Path-2 helper for apps without their own document model (the PDF
+/// editor).
+#[cfg(all(feature = "text_layout", feature = "xml"))]
+pub mod document_edit;
 /// Post-layout developer warnings for raw text nodes used without a
 /// containing block (azul does not auto-wrap them the way browsers do).
 ///
@@ -446,12 +446,6 @@ pub mod default_actions;
 /// `default_actions`, its only caller being inside `window`.
 #[cfg(feature = "text_layout")]
 pub mod dom_lint;
-/// Apply structural `DocumentOperation`s to a plain XML tree.
-///
-/// The Path-2 helper for apps without their own document model (the PDF
-/// editor).
-#[cfg(all(feature = "text_layout", feature = "xml"))]
-pub mod document_edit;
 /// Event determination: maps raw input to DOM node callbacks.
 #[cfg(feature = "text_layout")]
 pub mod event_determination;
@@ -460,6 +454,9 @@ pub mod event_determination;
 // Scoped (was crate-wide): complex font-table signatures.
 #[allow(clippy::type_complexity)]
 pub mod font;
+/// Glyph path and cell cache for CPU text rendering.
+#[cfg(feature = "cpurender")]
+pub mod glyph_cache;
 
 /// Headless backend for CPU-only rendering without a display server.
 ///
@@ -484,6 +481,15 @@ pub mod hit_test;
 /// The primitive types live in `azul_core::paged`; re-exported here so existing
 /// `azul_layout::paged::*` / `crate::paged::*` paths keep resolving.
 pub use azul_core::paged;
+/// Content overlay + journal for quickly-mutable content.
+///
+/// The single write chokepoint and overlay→DOM read order (images now,
+/// text/structural next).
+#[cfg(feature = "text_layout")]
+pub mod overlay;
+/// Scroll physics timer for momentum-based smooth scrolling.
+#[cfg(feature = "text_layout")]
+pub mod scroll_timer;
 /// Text shaping, line breaking (Knuth-Plass), and inline formatting.
 #[cfg(feature = "text_layout")]
 // Scoped (was crate-wide): internal types exposed for tests, a labelled
@@ -498,21 +504,12 @@ pub mod thread;
 // Scoped (was crate-wide): hand-written `Ord`/`PartialOrd` on a timer type.
 #[allow(clippy::non_canonical_partial_ord_impl)]
 pub mod timer;
+pub mod transient;
 /// Render an icon-registry entry to RGBA pixels, for the system tray.
 /// Goes through the same `<icon>` resolution + CPU renderer, so every icon
 /// kind (and any future DOM-expressible one) works without a special case.
 #[cfg(all(feature = "text_layout", feature = "std"))]
 pub mod tray_icon;
-/// Scroll physics timer for momentum-based smooth scrolling.
-#[cfg(feature = "text_layout")]
-pub mod scroll_timer;
-pub mod transient;
-/// Content overlay + journal for quickly-mutable content.
-///
-/// The single write chokepoint and overlay→DOM read order (images now,
-/// text/structural next).
-#[cfg(feature = "text_layout")]
-pub mod overlay;
 /// Window layout management: relayout, event processing, state sync.
 #[cfg(feature = "text_layout")]
 // Scoped (was crate-wide): parenthesized layout expressions.
@@ -533,10 +530,14 @@ pub mod xml;
 pub mod e2e;
 
 // Export the main layout function and window management
-/// Canonical paged-media page margins (defined in [`paged`]).
-pub use paged::PageMargins;
 #[cfg(feature = "text_layout")]
 pub use hit_test::{CursorTypeHitTest, FullHitTest};
+#[cfg(feature = "text_layout")]
+pub use managers::text_input::{OptionPendingTextEdit, PendingTextEdit};
+/// Canonical paged-media page margins (defined in [`paged`]).
+pub use paged::PageMargins;
+#[cfg(feature = "font_async_registry")]
+pub use rust_fontconfig::registry::FcFontRegistry;
 #[cfg(feature = "text_layout")]
 pub use solver3::cache::LayoutCache as Solver3LayoutCache;
 #[cfg(feature = "text_layout")]
@@ -558,28 +559,23 @@ pub use solver3::{
     display_list::paginate_single_page,
     page_breaks::{
         compute_page_breaks, compute_page_breaks_from_display_list,
-        compute_page_breaks_with_report, compute_page_breaks_with_sequence,
-        page_of_y, page_spans, recompute_page_breaks_from, BreakKind,
-        BreakPolicy, MonolithReason, MonolithWarning, PageBreakPosition,
-        PageBreakInput, PageConstraints, PaginationInfo,
+        compute_page_breaks_with_report, compute_page_breaks_with_sequence, page_of_y, page_spans,
+        recompute_page_breaks_from, BreakKind, BreakPolicy, MonolithReason, MonolithWarning,
+        PageBreakInput, PageBreakPosition, PageConstraints, PaginationInfo,
     },
     pagination::{PageSequence, PageSetup},
 };
 #[cfg(feature = "text_layout")]
 pub use solver3::{LayoutContext, LayoutError, Result as LayoutResult3};
-#[cfg(feature = "text_layout")]
-pub use text3::cache::{FontContext, FontManager, TextShapingCache};
 /// Backwards-compat alias for the old `TextLayoutCache` name.
 /// Will be dropped at the next API revision; new code should use
 /// [`TextShapingCache`] directly.
 #[cfg(feature = "text_layout")]
 pub use text3::cache::TextShapingCache as TextLayoutCache;
-#[cfg(feature = "font_async_registry")]
-pub use rust_fontconfig::registry::FcFontRegistry;
+#[cfg(feature = "text_layout")]
+pub use text3::cache::{FontContext, FontManager, TextShapingCache};
 #[cfg(feature = "text_layout")]
 pub use window::{CursorBlinkTimerAction, LayoutWindow, ScrollbarDragState, TooltipTimerAction};
-#[cfg(feature = "text_layout")]
-pub use managers::text_input::{PendingTextEdit, OptionPendingTextEdit};
 
 #[cfg(feature = "text_layout")]
 /// Parses raw font bytes into a [`FontRef`](azul_css::props::basic::FontRef)
@@ -603,9 +599,7 @@ pub fn parse_font_fn(
 #[cfg(feature = "text_layout")]
 /// Wraps a [`ParsedFont`] in a [`FontRef`](azul_css::props::basic::FontRef),
 /// transferring ownership to the returned handle.
-pub fn parsed_font_to_font_ref(
-    parsed_font: ParsedFont,
-) -> azul_css::props::basic::FontRef {
+pub fn parsed_font_to_font_ref(parsed_font: ParsedFont) -> azul_css::props::basic::FontRef {
     use core::ffi::c_void;
 
     extern "C" fn parsed_font_destructor(ptr: *mut c_void) {
@@ -625,9 +619,8 @@ pub fn parsed_font_to_font_ref(
 /// # Safety contract
 /// The `font_ref` must have been created by [`parsed_font_to_font_ref`],
 /// so that `font_ref.parsed` points to a valid `ParsedFont`.
-#[must_use] pub const fn font_ref_to_parsed_font(
-    font_ref: &azul_css::props::basic::FontRef,
-) -> &ParsedFont {
+#[must_use]
+pub const fn font_ref_to_parsed_font(font_ref: &azul_css::props::basic::FontRef) -> &ParsedFont {
     // SAFETY: `font_ref.parsed` was created by `parsed_font_to_font_ref`
     // via `Box::into_raw`, so it points to a valid, aligned `ParsedFont`.
     unsafe { &*font_ref.parsed.cast::<ParsedFont>() }
@@ -664,13 +657,13 @@ mod autotest_generated {
         let addresses = [
             0u32,
             1,
-            0x3_FFFF,          // one below the diagnostic band
-            0x4_0000,          // band start
-            0x6_0758,          // a real marker counter from the docs
-            0xF_0000,          // band end
-            0xF_0001,          // one past the band
-            i32::MIN as u32,   // "negative" input, reinterpreted
-            (-1i32) as u32,    // == u32::MAX
+            0x3_FFFF,        // one below the diagnostic band
+            0x4_0000,        // band start
+            0x6_0758,        // a real marker counter from the docs
+            0xF_0000,        // band end
+            0xF_0001,        // one past the band
+            i32::MIN as u32, // "negative" input, reinterpreted
+            (-1i32) as u32,  // == u32::MAX
             u32::MAX - 1,
             u32::MAX,
             u32::MAX.wrapping_add(1), // wraps to 0, must not panic
@@ -696,7 +689,14 @@ mod autotest_generated {
     #[test]
     fn az_mark_writes_are_unobservable_without_web_lift() {
         let addresses = [0u32, 0x4_0000, 0x6_0758, 0xF_0000, u32::MAX];
-        let values = [0u32, 1, u32::MAX / 2, u32::MAX - 1, u32::MAX, i32::MIN as u32];
+        let values = [
+            0u32,
+            1,
+            u32::MAX / 2,
+            u32::MAX - 1,
+            u32::MAX,
+            i32::MIN as u32,
+        ];
         for addr in addresses {
             for val in values {
                 unsafe { az_mark(addr, val) };
@@ -770,10 +770,16 @@ mod autotest_generated {
             ("header_only", MOCK_MONO[..12].to_vec()),
             ("truncated_font", MOCK_MONO[..64].to_vec()),
             ("half_a_font", MOCK_MONO[..MOCK_MONO.len() / 2].to_vec()),
-            ("unicode_emoji", "\u{1F600}\u{1F600}".repeat(1_000).into_bytes()),
+            (
+                "unicode_emoji",
+                "\u{1F600}\u{1F600}".repeat(1_000).into_bytes(),
+            ),
             ("combining_marks", "e\u{0301}".repeat(10_000).into_bytes()),
             ("nested_brackets", vec![b'['; 10_000]),
-            ("boundary_numbers", b"0 -0 9223372036854775807 NaN inf -inf 1e309".to_vec()),
+            (
+                "boundary_numbers",
+                b"0 -0 9223372036854775807 NaN inf -inf 1e309".to_vec(),
+            ),
             ("leading_junk_then_font", {
                 let mut v = b"garbage".to_vec();
                 v.extend_from_slice(MOCK_MONO);
@@ -890,7 +896,10 @@ mod autotest_generated {
     fn parse_font_fn_mints_a_fresh_identity_per_call() {
         let a = parse_font_fn(loaded_source(MOCK_MONO.to_vec(), 0)).expect("parses");
         let b = parse_font_fn(loaded_source(MOCK_MONO.to_vec(), 0)).expect("parses");
-        assert_ne!(a, b, "two parses of the same bytes are two distinct handles");
+        assert_ne!(
+            a, b,
+            "two parses of the same bytes are two distinct handles"
+        );
         assert_ne!(a.id, b.id);
         assert!(b > a, "ids are monotonically assigned");
         // …but the *content* is identical.
@@ -941,8 +950,14 @@ mod autotest_generated {
         assert!(!font_ref.parsed.is_null());
         assert!(!font_ref.copies.is_null());
         assert!(font_ref.run_destructor);
-        assert_ne!(font_ref.id, 0, "id 0 is reserved for un-initialised handles");
-        assert_eq!(unsafe { (*font_ref.copies).load(AtomicOrdering::SeqCst) }, 1);
+        assert_ne!(
+            font_ref.id, 0,
+            "id 0 is reserved for un-initialised handles"
+        );
+        assert_eq!(
+            unsafe { (*font_ref.copies).load(AtomicOrdering::SeqCst) },
+            1
+        );
         assert_eq!(font_ref.get_parsed(), font_ref.parsed);
     }
 
@@ -975,10 +990,16 @@ mod autotest_generated {
         assert_eq!(clone.id, original.id, "a clone is the same font");
         assert_eq!(clone, original);
         assert!(core::ptr::eq(clone.parsed, original.parsed));
-        assert_eq!(unsafe { (*original.copies).load(AtomicOrdering::SeqCst) }, 2);
+        assert_eq!(
+            unsafe { (*original.copies).load(AtomicOrdering::SeqCst) },
+            2
+        );
 
         drop(clone);
-        assert_eq!(unsafe { (*original.copies).load(AtomicOrdering::SeqCst) }, 1);
+        assert_eq!(
+            unsafe { (*original.copies).load(AtomicOrdering::SeqCst) },
+            1
+        );
         assert_eq!(
             font_ref_to_parsed_font(&original).hash,
             expected_hash,
@@ -1009,7 +1030,10 @@ mod autotest_generated {
             1_001
         );
         drop(batch);
-        assert_eq!(unsafe { (*original.copies).load(AtomicOrdering::SeqCst) }, 1);
+        assert_eq!(
+            unsafe { (*original.copies).load(AtomicOrdering::SeqCst) },
+            1
+        );
         assert_eq!(font_ref_to_parsed_font(&original).hash, expected_hash);
     }
 
@@ -1045,7 +1069,9 @@ mod autotest_generated {
     #[cfg(feature = "text_layout")]
     #[test]
     fn many_font_refs_do_not_alias_each_other() {
-        let refs: Vec<_> = (0..16).map(|_| parsed_font_to_font_ref(parse_mock())).collect();
+        let refs: Vec<_> = (0..16)
+            .map(|_| parsed_font_to_font_ref(parse_mock()))
+            .collect();
         for (i, a) in refs.iter().enumerate() {
             assert_eq!(font_ref_to_parsed_font(a).num_glyphs(), 96);
             for b in refs.iter().skip(i + 1) {

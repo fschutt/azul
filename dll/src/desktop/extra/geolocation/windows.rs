@@ -126,8 +126,7 @@ mod imp {
         query_interface: unsafe extern "system" fn(ComPtr, *const Guid, *mut ComPtr) -> Hresult,
         add_ref: unsafe extern "system" fn(ComPtr) -> u32,
         release: unsafe extern "system" fn(ComPtr) -> u32,
-        register_for_report:
-            unsafe extern "system" fn(ComPtr, ComPtr, *const Guid, u32) -> Hresult,
+        register_for_report: unsafe extern "system" fn(ComPtr, ComPtr, *const Guid, u32) -> Hresult,
         unregister_for_report: unsafe extern "system" fn(ComPtr, *const Guid) -> Hresult,
         get_report: unsafe extern "system" fn(ComPtr, *const Guid, *mut ComPtr) -> Hresult,
         get_report_status: unsafe extern "system" fn(ComPtr, *const Guid, *mut u32) -> Hresult,
@@ -180,8 +179,7 @@ mod imp {
     const S_OK: Hresult = 0;
 
     fn location_poll_loop(stop: &Arc<AtomicBool>) {
-        type CoInitializeEx =
-            unsafe extern "system" fn(*mut core::ffi::c_void, u32) -> Hresult;
+        type CoInitializeEx = unsafe extern "system" fn(*mut core::ffi::c_void, u32) -> Hresult;
         type CoUninitialize = unsafe extern "system" fn();
         type CoCreateInstance = unsafe extern "system" fn(
             *const Guid,
@@ -276,7 +274,11 @@ mod imp {
                             } else {
                                 f32::NAN
                             },
-                            altitude_m: if alt.is_finite() { alt as f32 } else { f32::NAN },
+                            altitude_m: if alt.is_finite() {
+                                alt as f32
+                            } else {
+                                f32::NAN
+                            },
                             altitude_accuracy_m: if alt_err.is_finite() {
                                 alt_err as f32
                             } else {

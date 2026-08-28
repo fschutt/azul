@@ -39,7 +39,6 @@ pub enum LayoutTableLayout {
     Fixed,
 }
 
-
 impl PrintAsCssValue for LayoutTableLayout {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -77,7 +76,6 @@ pub enum StyleBorderCollapse {
     /// Border conflict resolution rules apply when borders differ.
     Collapse,
 }
-
 
 impl PrintAsCssValue for StyleBorderCollapse {
     fn print_as_css_value(&self) -> String {
@@ -128,7 +126,8 @@ impl Default for LayoutBorderSpacing {
 
 impl LayoutBorderSpacing {
     /// Creates a new border spacing with the same value for horizontal and vertical
-    #[must_use] pub const fn new(spacing: PixelValue) -> Self {
+    #[must_use]
+    pub const fn new(spacing: PixelValue) -> Self {
         Self {
             horizontal: spacing,
             vertical: spacing,
@@ -136,7 +135,8 @@ impl LayoutBorderSpacing {
     }
 
     /// Creates a new border spacing with different horizontal and vertical values
-    #[must_use] pub const fn new_separate(horizontal: PixelValue, vertical: PixelValue) -> Self {
+    #[must_use]
+    pub const fn new_separate(horizontal: PixelValue, vertical: PixelValue) -> Self {
         Self {
             horizontal,
             vertical,
@@ -183,7 +183,6 @@ pub enum StyleCaptionSide {
     Bottom,
 }
 
-
 impl PrintAsCssValue for StyleCaptionSide {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -218,7 +217,6 @@ pub enum StyleEmptyCells {
     /// Hide borders and background on empty cells
     Hide,
 }
-
 
 impl PrintAsCssValue for StyleEmptyCells {
     fn print_as_css_value(&self) -> String {
@@ -461,10 +459,8 @@ mod autotest_generated {
     fn new_separate_preserves_argument_order() {
         // Asymmetric on purpose: a swapped assignment would still pass if both
         // axes shared a metric *and* a value.
-        let s = LayoutBorderSpacing::new_separate(
-            PixelValue::const_px(3),
-            PixelValue::percent(50.0),
-        );
+        let s =
+            LayoutBorderSpacing::new_separate(PixelValue::const_px(3), PixelValue::percent(50.0));
         assert_eq!(s.horizontal, PixelValue::const_px(3));
         assert_eq!(s.vertical, PixelValue::percent(50.0));
         assert_ne!(s.horizontal, s.vertical);
@@ -492,8 +488,7 @@ mod autotest_generated {
             assert_eq!(same.horizontal, same.vertical, "new({v}) must be symmetric");
 
             for w in extremes {
-                let sep =
-                    LayoutBorderSpacing::new_separate(PixelValue::px(v), PixelValue::em(w));
+                let sep = LayoutBorderSpacing::new_separate(PixelValue::px(v), PixelValue::em(w));
                 assert_eq!(sep.horizontal.metric, SizeMetric::Px);
                 assert_eq!(sep.vertical.metric, SizeMetric::Em);
                 // Whatever the input float was, the stored value is a plain isize,
@@ -567,7 +562,10 @@ mod autotest_generated {
     #[test]
     fn defaults_are_the_css_initial_values() {
         assert_eq!(LayoutTableLayout::default(), LayoutTableLayout::Auto);
-        assert_eq!(StyleBorderCollapse::default(), StyleBorderCollapse::Separate);
+        assert_eq!(
+            StyleBorderCollapse::default(),
+            StyleBorderCollapse::Separate
+        );
         assert_eq!(StyleCaptionSide::default(), StyleCaptionSide::Top);
         assert_eq!(StyleEmptyCells::default(), StyleEmptyCells::Show);
 
@@ -586,7 +584,10 @@ mod autotest_generated {
     fn keyword_parsers_accept_every_variant() {
         // Positive controls -- exhaustive over the variants of each enum.
         assert_eq!(parse_table_layout("auto").unwrap(), LayoutTableLayout::Auto);
-        assert_eq!(parse_table_layout("fixed").unwrap(), LayoutTableLayout::Fixed);
+        assert_eq!(
+            parse_table_layout("fixed").unwrap(),
+            LayoutTableLayout::Fixed
+        );
         assert_eq!(
             parse_border_collapse("separate").unwrap(),
             StyleBorderCollapse::Separate
@@ -596,7 +597,10 @@ mod autotest_generated {
             StyleBorderCollapse::Collapse
         );
         assert_eq!(parse_caption_side("top").unwrap(), StyleCaptionSide::Top);
-        assert_eq!(parse_caption_side("bottom").unwrap(), StyleCaptionSide::Bottom);
+        assert_eq!(
+            parse_caption_side("bottom").unwrap(),
+            StyleCaptionSide::Bottom
+        );
         assert_eq!(parse_empty_cells("show").unwrap(), StyleEmptyCells::Show);
         assert_eq!(parse_empty_cells("hide").unwrap(), StyleEmptyCells::Hide);
     }
@@ -649,7 +653,10 @@ mod autotest_generated {
             parse_caption_side("\t bottom \t").unwrap(),
             StyleCaptionSide::Bottom
         );
-        assert_eq!(parse_empty_cells("\n hide \n").unwrap(), StyleEmptyCells::Hide);
+        assert_eq!(
+            parse_empty_cells("\n hide \n").unwrap(),
+            StyleEmptyCells::Hide
+        );
     }
 
     #[test]
@@ -698,8 +705,8 @@ mod autotest_generated {
         // keywords are ASCII case-insensitive, so `table-layout: AUTO` is valid CSS
         // -- but the match arms only cover the lowercase spelling.
         for input in [
-            "AUTO", "Auto", "aUtO", "FIXED", "SEPARATE", "Collapse", "TOP", "Bottom",
-            "SHOW", "Hide",
+            "AUTO", "Auto", "aUtO", "FIXED", "SEPARATE", "Collapse", "TOP", "Bottom", "SHOW",
+            "Hide",
         ] {
             assert_all_keyword_parsers_reject(input, "keyword matching is case-sensitive");
         }
@@ -766,21 +773,24 @@ mod autotest_generated {
         assert_all_keyword_parsers_reject("(fixed)", "wrapped in parens");
         assert_all_keyword_parsers_reject("collapse,", "trailing comma");
         // Trailing/leading *whitespace* is the one thing that is trimmed away.
-        assert_eq!(parse_table_layout("auto ").unwrap(), LayoutTableLayout::Auto);
+        assert_eq!(
+            parse_table_layout("auto ").unwrap(),
+            LayoutTableLayout::Auto
+        );
     }
 
     #[test]
     fn keyword_parsers_survive_unicode_input() {
         for input in [
-            "\u{1F600}",             // emoji
-            "auto\u{0301}",          // combining acute on the final char
+            "\u{1F600}",                        // emoji
+            "auto\u{0301}",                     // combining acute on the final char
             "\u{FF41}\u{FF55}\u{FF54}\u{FF4F}", // fullwidth "auto"
-            "\u{202E}auto",          // RTL override prefix
-            "\u{FEFF}auto",          // BOM prefix (not Unicode whitespace)
-            "аuto",                  // leading CYRILLIC A homoglyph
-            "🇩🇪",                    // regional indicator pair
+            "\u{202E}auto",                     // RTL override prefix
+            "\u{FEFF}auto",                     // BOM prefix (not Unicode whitespace)
+            "аuto",                             // leading CYRILLIC A homoglyph
+            "🇩🇪",                               // regional indicator pair
             "e\u{0301}\u{0301}\u{0301}",
-            "\u{10FFFF}",            // highest scalar value
+            "\u{10FFFF}", // highest scalar value
         ] {
             assert_all_keyword_parsers_reject(input, "non-ASCII input");
         }
@@ -806,7 +816,10 @@ mod autotest_generated {
 
         // Padding a valid keyword with a megabyte of whitespace still parses.
         let padded = format!("{}auto{}", " ".repeat(500_000), "\n".repeat(500_000));
-        assert_eq!(parse_table_layout(&padded).unwrap(), LayoutTableLayout::Auto);
+        assert_eq!(
+            parse_table_layout(&padded).unwrap(),
+            LayoutTableLayout::Auto
+        );
     }
 
     #[test]
@@ -857,7 +870,10 @@ mod autotest_generated {
         );
         // ...and "vmax"/"vmin" over "vw"/"vh".
         assert_eq!(
-            parse_border_spacing("2vmax 3vmin").unwrap().horizontal.metric,
+            parse_border_spacing("2vmax 3vmin")
+                .unwrap()
+                .horizontal
+                .metric,
             SizeMetric::Vmax
         );
     }
@@ -887,10 +903,8 @@ mod autotest_generated {
 
     #[test]
     fn border_spacing_collapses_arbitrary_internal_whitespace() {
-        let expected = LayoutBorderSpacing::new_separate(
-            PixelValue::const_px(5),
-            PixelValue::const_px(10),
-        );
+        let expected =
+            LayoutBorderSpacing::new_separate(PixelValue::const_px(5), PixelValue::const_px(10));
         for input in [
             "5px 10px",
             "  5px   10px  ",
@@ -997,12 +1011,18 @@ mod autotest_generated {
         for input in ["infpx", "infinitypx", "1e40px", "3.5e38px"] {
             let s = parse_border_spacing(input).unwrap();
             assert_eq!(raw(s.horizontal), isize::MAX, "{input} must saturate high");
-            assert!(s.horizontal.number.get().is_finite(), "{input} must be finite");
+            assert!(
+                s.horizontal.number.get().is_finite(),
+                "{input} must be finite"
+            );
         }
         for input in ["-infpx", "-1e40px", "-3.5e38px"] {
             let s = parse_border_spacing(input).unwrap();
             assert_eq!(raw(s.horizontal), isize::MIN, "{input} must saturate low");
-            assert!(s.horizontal.number.get().is_finite(), "{input} must be finite");
+            assert!(
+                s.horizontal.number.get().is_finite(),
+                "{input} must be finite"
+            );
         }
         // Saturation is per-axis, and the high/low bounds do not collapse together.
         let s = parse_border_spacing("infpx -infpx").unwrap();
@@ -1016,8 +1036,14 @@ mod autotest_generated {
         // FloatValue is fixed-point with 3 decimals and truncates (does not round)
         // toward zero, so sub-millipixel input silently becomes 0.
         assert_eq!(raw(parse_border_spacing("0.0005px").unwrap().horizontal), 0);
-        assert_eq!(raw(parse_border_spacing("0.9999px").unwrap().horizontal), 999);
-        assert_eq!(raw(parse_border_spacing("1.9999px").unwrap().horizontal), 1999);
+        assert_eq!(
+            raw(parse_border_spacing("0.9999px").unwrap().horizontal),
+            999
+        );
+        assert_eq!(
+            raw(parse_border_spacing("1.9999px").unwrap().horizontal),
+            1999
+        );
         // Denormal input must not panic or produce a non-finite stored value.
         let denormal = parse_border_spacing("1.17549435e-38px").unwrap();
         assert_eq!(raw(denormal.horizontal), 0);
@@ -1060,7 +1086,7 @@ mod autotest_generated {
             "\u{1F600}",
             "5\u{1F600}px",
             "5px \u{1F600}",
-            "５px",       // fullwidth digit
+            "５px",        // fullwidth digit
             "5\u{0301}px", // combining mark between number and unit
             "\u{FEFF}5px", // BOM prefix (not whitespace -> part of the token)
         ] {
@@ -1162,20 +1188,14 @@ mod autotest_generated {
             "5px"
         );
         assert_eq!(
-            LayoutBorderSpacing::new_separate(
-                PixelValue::const_px(5),
-                PixelValue::const_px(10)
-            )
-            .print_as_css_value(),
+            LayoutBorderSpacing::new_separate(PixelValue::const_px(5), PixelValue::const_px(10))
+                .print_as_css_value(),
             "5px 10px"
         );
         // Same number, different unit -> still two values (the metric is part of Eq).
         assert_eq!(
-            LayoutBorderSpacing::new_separate(
-                PixelValue::const_px(0),
-                PixelValue::percent(0.0)
-            )
-            .print_as_css_value(),
+            LayoutBorderSpacing::new_separate(PixelValue::const_px(0), PixelValue::percent(0.0))
+                .print_as_css_value(),
             "0px 0%"
         );
         assert_eq!(
@@ -1210,7 +1230,11 @@ mod autotest_generated {
             let printed = once.print_as_css_value();
             let twice = parse_border_spacing(&printed).unwrap();
             assert_eq!(once, twice, "not idempotent for {input:?}");
-            assert_eq!(printed, twice.print_as_css_value(), "not stable for {input:?}");
+            assert_eq!(
+                printed,
+                twice.print_as_css_value(),
+                "not stable for {input:?}"
+            );
         }
     }
 
@@ -1232,7 +1256,10 @@ mod autotest_generated {
             StyleCaptionSide::Bottom.format_as_rust_code(0),
             "StyleCaptionSide::Bottom"
         );
-        assert_eq!(StyleEmptyCells::Hide.format_as_rust_code(0), "StyleEmptyCells::Hide");
+        assert_eq!(
+            StyleEmptyCells::Hide.format_as_rust_code(0),
+            "StyleEmptyCells::Hide"
+        );
 
         // The indent argument is ignored -- it must not change the output.
         assert_eq!(
@@ -1251,7 +1278,14 @@ mod autotest_generated {
         );
 
         // Extreme / degenerate values must still format without panicking.
-        for v in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN, -2.5] {
+        for v in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MAX,
+            f32::MIN,
+            -2.5,
+        ] {
             let code = LayoutBorderSpacing::new(PixelValue::px(v)).format_as_rust_code(0);
             assert!(code.starts_with("LayoutBorderSpacing {"), "{v}: {code}");
             assert!(code.ends_with('}'), "{v}: {code}");

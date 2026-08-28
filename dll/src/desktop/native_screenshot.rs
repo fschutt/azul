@@ -14,8 +14,12 @@ fn encode_rgba_png(pixels: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, 
         let mut encoder = png::Encoder::new(&mut buf, width, height);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().map_err(|e| format!("PNG header error: {}", e))?;
-        writer.write_image_data(&pixels).map_err(|e| format!("PNG write error: {}", e))?;
+        let mut writer = encoder
+            .write_header()
+            .map_err(|e| format!("PNG header error: {}", e))?;
+        writer
+            .write_image_data(&pixels)
+            .map_err(|e| format!("PNG write error: {}", e))?;
     }
     Ok(buf)
 }
@@ -192,8 +196,7 @@ fn take_native_screenshot_macos_bytes(
 
     unsafe {
         let sel = sel_registerName(b"windowNumber\0".as_ptr() as *const i8);
-        let msg_send: ObjcMsgSendWindowNumberFn =
-            std::mem::transmute(objc_msgSend as *const ());
+        let msg_send: ObjcMsgSendWindowNumberFn = std::mem::transmute(objc_msgSend as *const ());
         let window_id = msg_send(ns_window, sel);
 
         if window_id <= 0 {
@@ -263,9 +266,7 @@ fn take_native_screenshot_macos_bytes(
                     for x in 0..width {
                         let pixel_off = row_start + x * 4;
                         if pixel_off + 3 >= length {
-                            return Err(AzString::from(
-                                "CGImage pixel data shorter than expected",
-                            ));
+                            return Err(AzString::from("CGImage pixel data shorter than expected"));
                         }
                         // CGWindowListCreateImage returns BGRA in host byte
                         // order with kCGImageAlphaPremultipliedFirst. Window
@@ -296,9 +297,7 @@ fn take_native_screenshot_macos_bytes(
 
 /// Take a native screenshot on Windows using PrintWindow API
 #[cfg(target_os = "windows")]
-fn take_native_screenshot_windows_bytes(
-    hwnd: *mut core::ffi::c_void,
-) -> Result<Vec<u8>, AzString> {
+fn take_native_screenshot_windows_bytes(hwnd: *mut core::ffi::c_void) -> Result<Vec<u8>, AzString> {
     if hwnd.is_null() {
         return Err(AzString::from("Invalid window handle"));
     }

@@ -12,7 +12,9 @@ use azul_core::{
     menu::{Menu, OptionMenu},
     refany::{OptionRefAny, RefAny},
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+use azul_css::css::BoxOrStatic;
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     corety::OptionUsize,
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
@@ -24,7 +26,6 @@ use azul_css::{
     },
     *,
 };
-use azul_css::css::BoxOrStatic;
 
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -252,8 +253,8 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
         )),
     )),
     // .__azul_native-list-header-item:active
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-        StyleBoxShadow {
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(0),
             },
@@ -273,10 +274,10 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
                 inner: PixelValue::const_px(0),
             },
             clip_mode: BoxShadowClipMode::Inset,
-        },
-    )))),
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-        StyleBoxShadow {
+        }),
+    ))),
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(0),
             },
@@ -296,10 +297,10 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
                 inner: PixelValue::const_px(0),
             },
             clip_mode: BoxShadowClipMode::Inset,
-        },
-    )))),
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-        StyleBoxShadow {
+        }),
+    ))),
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(0),
             },
@@ -319,10 +320,10 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
                 inner: PixelValue::const_px(0),
             },
             clip_mode: BoxShadowClipMode::Inset,
-        },
-    )))),
-    CssPropertyWithConditions::on_active(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-        StyleBoxShadow {
+        }),
+    ))),
+    CssPropertyWithConditions::on_active(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(0),
             },
@@ -342,8 +343,8 @@ const CSS_MATCH_12498280255863106397_PROPERTIES: &[CssPropertyWithConditions] = 
                 inner: PixelValue::const_px(0),
             },
             clip_mode: BoxShadowClipMode::Inset,
-        },
-    )))),
+        }),
+    ))),
     CssPropertyWithConditions::on_active(CssProperty::BorderBottomWidth(
         LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
             inner: PixelValue::const_px(1),
@@ -590,8 +591,8 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &
     CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
         LayoutHeight::Px(PixelValue::const_px(12)),
     ))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-        StyleBoxShadow {
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(3),
             },
@@ -611,10 +612,10 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &
                 inner: PixelValue::const_px(0),
             },
             clip_mode: BoxShadowClipMode::Inset,
-        },
-    )))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-        StyleBoxShadow {
+        }),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(3),
             },
@@ -634,10 +635,10 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &
                 inner: PixelValue::const_px(0),
             },
             clip_mode: BoxShadowClipMode::Inset,
-        },
-    )))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-        StyleBoxShadow {
+        }),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(3),
             },
@@ -657,10 +658,10 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &
                 inner: PixelValue::const_px(0),
             },
             clip_mode: BoxShadowClipMode::Inset,
-        },
-    )))),
-    CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-        StyleBoxShadow {
+        }),
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+        BoxOrStatic::Static(&StyleBoxShadow {
             offset_x: PixelValueNoPercent {
                 inner: PixelValue::const_px(3),
             },
@@ -680,8 +681,8 @@ const CSS_MATCH_1574792189506859253_PROPERTIES: &[CssPropertyWithConditions] = &
                 inner: PixelValue::const_px(0),
             },
             clip_mode: BoxShadowClipMode::Inset,
-        },
-    )))),
+        }),
+    ))),
 ];
 const CSS_MATCH_1574792189506859253: CssPropertyWithConditionsVec =
     CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_1574792189506859253_PROPERTIES);
@@ -1508,13 +1509,21 @@ pub struct ListViewRow {
 }
 
 impl_option!(ListViewRow, OptionListViewRow, copy = false, [Debug, Clone]);
-impl_vec!(ListViewRow, ListViewRowVec, ListViewRowVecDestructor, ListViewRowVecDestructorType, ListViewRowVecSlice, OptionListViewRow);
+impl_vec!(
+    ListViewRow,
+    ListViewRowVec,
+    ListViewRowVecDestructor,
+    ListViewRowVecDestructorType,
+    ListViewRowVecSlice,
+    OptionListViewRow
+);
 impl_vec_clone!(ListViewRow, ListViewRowVec, ListViewRowVecDestructor);
 impl_vec_mut!(ListViewRow, ListViewRowVec);
 impl_vec_debug!(ListViewRow, ListViewRowVec);
 
 impl ListView {
-    #[must_use] pub fn create(columns: StringVec) -> Self {
+    #[must_use]
+    pub fn create(columns: StringVec) -> Self {
         Self {
             columns,
             ..Default::default()
@@ -1528,7 +1537,8 @@ impl ListView {
         m
     }
 
-    #[must_use] pub fn with_columns(mut self, columns: StringVec) -> Self {
+    #[must_use]
+    pub fn with_columns(mut self, columns: StringVec) -> Self {
         self.set_columns(columns);
         self
     }
@@ -1537,7 +1547,8 @@ impl ListView {
         self.columns = columns;
     }
 
-    #[must_use] pub fn with_rows(mut self, rows: ListViewRowVec) -> Self {
+    #[must_use]
+    pub fn with_rows(mut self, rows: ListViewRowVec) -> Self {
         self.set_rows(rows);
         self
     }
@@ -1556,7 +1567,8 @@ impl ListView {
     /// non-positive/non-finite height, or non-finite scroll), and an empty range
     /// `(total, total)` once scrolled past the end.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
-    #[must_use] pub fn visible_row_range(
+    #[must_use]
+    pub fn visible_row_range(
         scroll_y: f32,
         viewport_height: f32,
         row_height: f32,
@@ -1584,7 +1596,8 @@ impl ListView {
         (first, last)
     }
 
-    #[must_use] pub const fn with_sorted_by(mut self, sorted_by: OptionUsize) -> Self {
+    #[must_use]
+    pub const fn with_sorted_by(mut self, sorted_by: OptionUsize) -> Self {
         self.set_sorted_by(sorted_by);
         self
     }
@@ -1593,7 +1606,8 @@ impl ListView {
         self.sorted_by = sorted_by;
     }
 
-    #[must_use] pub const fn with_scroll_offset(mut self, scroll_offset: PixelValueNoPercent) -> Self {
+    #[must_use]
+    pub const fn with_scroll_offset(mut self, scroll_offset: PixelValueNoPercent) -> Self {
         self.set_scroll_offset(scroll_offset);
         self
     }
@@ -1602,7 +1616,8 @@ impl ListView {
         self.scroll_offset = scroll_offset;
     }
 
-    #[must_use] pub fn with_content_height(mut self, content_height: PixelValueNoPercent) -> Self {
+    #[must_use]
+    pub fn with_content_height(mut self, content_height: PixelValueNoPercent) -> Self {
         self.set_content_height(content_height);
         self
     }
@@ -1611,7 +1626,8 @@ impl ListView {
         self.content_height = Some(content_height).into();
     }
 
-    #[must_use] pub fn with_column_context_menu(mut self, context_menu: Menu) -> Self {
+    #[must_use]
+    pub fn with_column_context_menu(mut self, context_menu: Menu) -> Self {
         self.set_column_context_menu(context_menu);
         self
     }
@@ -1664,7 +1680,8 @@ impl ListView {
         .into();
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // Snapshot the state handed to row/column click callbacks. Runtime-only
         // fields (scroll position / content height) aren't known at build time,
         // so they default to zero; columns/sorted_by/row-count/scroll-offset are.
@@ -1802,9 +1819,10 @@ extern "C" fn on_list_view_row_click(mut refany: RefAny, info: CallbackInfo) -> 
         return Update::DoNothing;
     };
     match data.on_row_click.as_ref() {
-        Some(ListViewOnRowClick { refany: user_data, callback }) => {
-            (callback.cb)(user_data.clone(), info, data.state.clone(), data.row_index)
-        }
+        Some(ListViewOnRowClick {
+            refany: user_data,
+            callback,
+        }) => (callback.cb)(user_data.clone(), info, data.state.clone(), data.row_index),
         None => Update::DoNothing,
     }
 }
@@ -1815,9 +1833,10 @@ extern "C" fn on_list_view_column_click(mut refany: RefAny, info: CallbackInfo) 
         return Update::DoNothing;
     };
     match data.on_column_click.as_ref() {
-        Some(ListViewOnColumnClick { refany: user_data, callback }) => {
-            (callback.cb)(user_data.clone(), info, data.state.clone(), data.col_index)
-        }
+        Some(ListViewOnColumnClick {
+            refany: user_data,
+            callback,
+        }) => (callback.cb)(user_data.clone(), info, data.state.clone(), data.col_index),
         None => Update::DoNothing,
     }
 }
@@ -1836,13 +1855,22 @@ mod list_view_click_tests {
         // Scrolled 50px → first row = floor(50/20) = 2.
         assert_eq!(ListView::visible_row_range(50.0, 200.0, 20.0, 100), (2, 13));
         // Near the end → clamped to the row count.
-        assert_eq!(ListView::visible_row_range(1900.0, 200.0, 20.0, 100), (95, 100));
+        assert_eq!(
+            ListView::visible_row_range(1900.0, 200.0, 20.0, 100),
+            (95, 100)
+        );
         // Scrolled past the end → empty range at the tail.
-        assert_eq!(ListView::visible_row_range(5000.0, 200.0, 20.0, 100), (100, 100));
+        assert_eq!(
+            ListView::visible_row_range(5000.0, 200.0, 20.0, 100),
+            (100, 100)
+        );
         // Degenerate inputs → empty.
         assert_eq!(ListView::visible_row_range(0.0, 200.0, 20.0, 0), (0, 0));
         assert_eq!(ListView::visible_row_range(0.0, 200.0, 0.0, 100), (0, 0));
-        assert_eq!(ListView::visible_row_range(f32::NAN, 200.0, 20.0, 100), (0, 0));
+        assert_eq!(
+            ListView::visible_row_range(f32::NAN, 200.0, 20.0, 100),
+            (0, 0)
+        );
     }
 
     extern "C" fn noop_row(_: RefAny, _: CallbackInfo, _: ListViewState, _: usize) -> Update {
@@ -1913,7 +1941,9 @@ mod autotest_generated {
         ListViewRow {
             cells: DomVec::from_vec(
                 (0..n)
-                    .map(|i| Dom::create_text_do_not_use_without_block_level_wrapper(format!("c{i}")))
+                    .map(|i| {
+                        Dom::create_text_do_not_use_without_block_level_wrapper(format!("c{i}"))
+                    })
                     .collect::<Vec<_>>(),
             ),
             height: None.into(),

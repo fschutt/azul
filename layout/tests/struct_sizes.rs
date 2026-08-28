@@ -182,7 +182,6 @@ fn layout_tree_node_struct_sizes_are_pinned() {
          NodeDataFingerprint gained `dataset_hash` so a dataset's allocation \
          is no longer a LAYOUT change (the TextArea-over-Slider fix)."
     );
-
 }
 
 // ---------------------------------------------------------------------------
@@ -241,4 +240,3 @@ fn shaped_item_arm_count_is_pinned_for_the_memory_walk() {
          up as a compile error there — update both together."
     );
 }
-

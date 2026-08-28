@@ -16,10 +16,9 @@ use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
 use objc2_av_foundation::{
     AVCaptureConnection, AVCaptureDevice, AVCaptureDeviceDiscoverySession, AVCaptureDeviceInput,
     AVCaptureDevicePosition, AVCaptureDeviceType, AVCaptureOutput, AVCaptureSession,
-    AVCaptureVideoDataOutput, AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaType,
-    AVMediaTypeVideo,
     AVCaptureSessionPreset1280x720, AVCaptureSessionPreset640x480, AVCaptureSessionPreset960x540,
-    AVCaptureSessionPresetHigh,
+    AVCaptureSessionPresetHigh, AVCaptureVideoDataOutput,
+    AVCaptureVideoDataOutputSampleBufferDelegate, AVMediaType, AVMediaTypeVideo,
 };
 use objc2_core_media::{CMSampleBuffer, CMTime, CMTimeFlags};
 
@@ -72,7 +71,9 @@ define_class!(
                 // Log the very first frame only (the callback is hot).
                 crate::plog_info!(
                     "[camera] avfoundation: first frame {}x{} stride={} BGRA→RGBA ok",
-                    w, h, stride
+                    w,
+                    h,
+                    stride
                 );
             }
             CVPixelBufferUnlockBaseAddress(pb, CVPixelBufferLockFlags(0));
@@ -183,12 +184,12 @@ unsafe fn devtype_opt(
 /// device 0 → `defaultDeviceWithMediaType`. Logs the enumerated device names
 /// (localizedName) once per process.
 unsafe fn select_device(media: &AVMediaType, index: u32) -> Option<Retained<AVCaptureDevice>> {
+    #[allow(deprecated)] // pre-macOS-14 synonym for AVCaptureDeviceTypeExternal
+    use objc2_av_foundation::AVCaptureDeviceTypeExternalUnknown;
     use objc2_av_foundation::{
         AVCaptureDeviceTypeBuiltInWideAngleCamera, AVCaptureDeviceTypeContinuityCamera,
         AVCaptureDeviceTypeExternal,
     };
-    #[allow(deprecated)] // pre-macOS-14 synonym for AVCaptureDeviceTypeExternal
-    use objc2_av_foundation::AVCaptureDeviceTypeExternalUnknown;
 
     #[allow(deprecated)]
     let external_unknown = core::ptr::addr_of!(AVCaptureDeviceTypeExternalUnknown);
@@ -212,11 +213,12 @@ unsafe fn select_device(media: &AVMediaType, index: u32) -> Option<Retained<AVCa
         None
     } else {
         let type_array = NSArray::from_slice(&types);
-        let session = AVCaptureDeviceDiscoverySession::discoverySessionWithDeviceTypes_mediaType_position(
-            &type_array,
-            Some(media),
-            AVCaptureDevicePosition::Unspecified,
-        );
+        let session =
+            AVCaptureDeviceDiscoverySession::discoverySessionWithDeviceTypes_mediaType_position(
+                &type_array,
+                Some(media),
+                AVCaptureDevicePosition::Unspecified,
+            );
         Some(session.devices())
     };
 
@@ -348,10 +350,11 @@ pub fn read(handle: u64, out: &mut Vec<u8>) -> CaptureRead {
         Some(c) => c,
         None => return CaptureRead::Ended,
     };
-    match cam
-        .slot
-        .read_newer(&mut cam.last_seq, out, std::time::Duration::from_millis(1000))
-    {
+    match cam.slot.read_newer(
+        &mut cam.last_seq,
+        out,
+        std::time::Duration::from_millis(1000),
+    ) {
         Some((width, height)) => CaptureRead::Frame { width, height },
         None => CaptureRead::Idle,
     }

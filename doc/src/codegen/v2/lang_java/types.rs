@@ -42,11 +42,7 @@ use super::{emit_file, ffi_type_name, map_jvm_type, sanitize_identifier, user_en
 
 /// Append all type-related source files to `out`. Each top-level Java
 /// public class becomes its own `// ==FILE: Foo.java ==` chunk.
-pub fn emit_all_type_files(
-    out: &mut String,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) -> Result<()> {
+pub fn emit_all_type_files(out: &mut String, ir: &CodegenIR, config: &CodegenConfig) -> Result<()> {
     // Enums
     for enum_def in &ir.enums {
         if !should_include_enum(enum_def, config) {
@@ -162,7 +158,10 @@ fn emit_monomorphized_alias_files(
                     b.line(&format!("{}(int v) {{ this.value = v; }}", name));
                     b.line(&format!("public static {} fromInt(int v) {{", name));
                     b.indent();
-                    b.line(&format!("for ({} t : values()) if (t.value == v) return t;", name));
+                    b.line(&format!(
+                        "for ({} t : values()) if (t.value == v) return t;",
+                        name
+                    ));
                     b.line(&format!(
                         "throw new IllegalArgumentException(\"Unknown {} ordinal: \" + v);",
                         name
@@ -222,12 +221,7 @@ fn emit_monomorphized_alias_files(
                     let last = variants.len().saturating_sub(1);
                     for (idx, v) in variants.iter().enumerate() {
                         let sep = if idx == last { ";" } else { "," };
-                        b.line(&format!(
-                            "{}({}){}",
-                            sanitize_identifier(&v.name),
-                            idx,
-                            sep
-                        ));
+                        b.line(&format!("{}({}){}", sanitize_identifier(&v.name), idx, sep));
                     }
                     b.line("public final int value;");
                     b.line(&format!("{}_Tag(int v) {{ this.value = v; }}", name));
@@ -255,9 +249,9 @@ fn emit_monomorphized_alias_files(
                         ));
                         b.indent();
                         // C-ABI `#[repr(C, u8)]` tag is 1 byte. Using Java `byte` (8-bit)
-// matches that; `int` would be 4 bytes and shift every payload
-// offset on small-aligned variants.
-b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
+                        // matches that; `int` would be 4 bytes and shift every payload
+                        // offset on small-aligned variants.
+                        b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
                         let mut field_names: Vec<String> = vec!["\"tag\"".to_string()];
                         emit_monomorphized_payload(b, v, ir, &mut field_names);
                         emit_field_order_override(b, &field_names);
@@ -307,11 +301,8 @@ b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
                         let some = variants.iter().find(|v| v.name == "Some");
                         if let (Some(_), Some(sv)) = (none, some) {
                             if let Some(ref payload_ty) = sv.payload_type {
-                                let payload_java = ref_kind_field_type(
-                                    payload_ty,
-                                    &sv.payload_ref_kind,
-                                    ir,
-                                );
+                                let payload_java =
+                                    ref_kind_field_type(payload_ty, &sv.payload_ref_kind, ir);
                                 let boxed = java_boxed(&payload_java);
                                 b.line("/**");
                                 b.line(" * Decode this Option as a host-language nullable.");
@@ -320,12 +311,8 @@ b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
                                 b.line(" */");
                                 b.line(&format!("public {} toNullable() {{", boxed));
                                 b.indent();
-                                b.line(
-                                    "if (getPointer() == null) return null;",
-                                );
-                                b.line(
-                                    "byte tag = getPointer().getByte(0);",
-                                );
+                                b.line("if (getPointer() == null) return null;");
+                                b.line("byte tag = getPointer().getByte(0);");
                                 b.line("if (tag == 0) return null;");
                                 b.line(&format!(
                                     "{}Variant_Some __s = Structure.newInstance({}Variant_Some.class, getPointer());",
@@ -445,7 +432,10 @@ fn emit_unit_enum(builder: &mut CodeBuilder, enum_def: &EnumDef) {
     builder.line(&format!("{}(int v) {{ this.value = v; }}", name));
     builder.line(&format!("public static {} fromInt(int v) {{", name));
     builder.indent();
-    builder.line(&format!("for ({} t : values()) if (t.value == v) return t;", name));
+    builder.line(&format!(
+        "for ({} t : values()) if (t.value == v) return t;",
+        name
+    ));
     builder.line(&format!(
         "throw new IllegalArgumentException(\"Unknown {} ordinal: \" + v);",
         name
@@ -508,9 +498,9 @@ fn emit_tagged_union_files(
                 ));
                 b.indent();
                 // C-ABI `#[repr(C, u8)]` tag is 1 byte. Using Java `byte` (8-bit)
-// matches that; `int` would be 4 bytes and shift every payload
-// offset on small-aligned variants.
-b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
+                // matches that; `int` would be 4 bytes and shift every payload
+                // offset on small-aligned variants.
+                b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
 
                 let mut field_names: Vec<String> = vec!["\"tag\"".to_string()];
                 match &v.kind {
@@ -810,10 +800,7 @@ fn emit_vec_to_list_java(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenI
     ));
     builder.line(" * Each element overlays a slice of the native buffer via JNA.");
     builder.line(" */");
-    builder.line(&format!(
-        "public java.util.List<{}> toList() {{",
-        elem_java
-    ));
+    builder.line(&format!("public java.util.List<{}> toList() {{", elem_java));
     builder.indent();
     builder.line(&format!(
         "if (ptr == null || len == 0) return new java.util.ArrayList<{}>();",
@@ -877,11 +864,7 @@ fn emit_field(
 // Callback typedef
 // ============================================================================
 
-fn emit_callback_interface(
-    builder: &mut CodeBuilder,
-    cb: &CallbackTypedefDef,
-    ir: &CodegenIR,
-) {
+fn emit_callback_interface(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
     let name = ffi_type_name(&cb.name);
 
     if !cb.doc.is_empty() {
@@ -911,10 +894,9 @@ fn emit_callback_interface(
         .map(|(i, arg)| {
             let jt = match arg.ref_kind {
                 ArgRefKind::Owned => super::map_jvm_type_byvalue(&arg.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "Pointer".to_string(),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    "Pointer".to_string()
+                }
             };
             // Arg-name fallback: the IR sometimes carries empty arg names
             // (e.g., destructor-shaped callback typedefs whose api.json
@@ -930,11 +912,7 @@ fn emit_callback_interface(
         })
         .collect();
 
-    builder.line(&format!(
-        "{} callback({});",
-        return_type,
-        args.join(", ")
-    ));
+    builder.line(&format!("{} callback({});", return_type, args.join(", ")));
 
     builder.dedent();
     builder.line("}");
@@ -954,7 +932,10 @@ pub(crate) fn emit_field_order_override(builder: &mut CodeBuilder, field_names: 
     // `List<com.azul.String>` and breaking the override).
     builder.line("protected java.util.List<java.lang.String> getFieldOrder() {");
     builder.indent();
-    builder.line(&format!("return Arrays.asList({});", field_names.join(", ")));
+    builder.line(&format!(
+        "return Arrays.asList({});",
+        field_names.join(", ")
+    ));
     builder.dedent();
     builder.line("}");
 }
@@ -972,7 +953,11 @@ pub(crate) fn emit_byvalue_byref(builder: &mut CodeBuilder, type_name: &str) {
 }
 
 /// Map a `(type_name, FieldRefKind)` pair to the Java field type.
-pub(super) fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
+pub(super) fn ref_kind_field_type(
+    type_name: &str,
+    ref_kind: &FieldRefKind,
+    ir: &CodegenIR,
+) -> String {
     match ref_kind {
         FieldRefKind::Owned => map_jvm_type(type_name, ir),
         FieldRefKind::Ref

@@ -1,6 +1,6 @@
+use azul::css::ColorU;
 use azul::prelude::*;
 use azul::widgets::*;
-use azul::css::ColorU;
 
 #[derive(Default, Clone)]
 struct WidgetShowcase {
@@ -63,7 +63,11 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
         .dom()
         .with_css(margin);
     let selected_label = Dom::create_div_with_text(
-        format!("Selected: {}", CHOICES[showcase.selected_choice.min(CHOICES.len() - 1)]).as_str(),
+        format!(
+            "Selected: {}",
+            CHOICES[showcase.selected_choice.min(CHOICES.len() - 1)]
+        )
+        .as_str(),
     )
     .with_css("margin-bottom: 10px; color: #2a6;");
 
@@ -99,11 +103,19 @@ fn large(icon: &str, label: &str, arrow: RibbonArrow) -> RibbonItem {
 }
 
 fn row(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Row(items.into_iter().fold(RibbonRow::new(), |r, it| r.with_item(it)))
+    RibbonItem::Row(
+        items
+            .into_iter()
+            .fold(RibbonRow::new(), |r, it| r.with_item(it)),
+    )
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(items.into_iter().fold(RibbonColumn::new(), |c, it| c.with_item(it)))
+    RibbonItem::Column(
+        items
+            .into_iter()
+            .fold(RibbonColumn::new(), |c, it| c.with_item(it)),
+    )
 }
 
 fn home_tab() -> RibbonTab {
@@ -164,7 +176,11 @@ fn home_tab() -> RibbonTab {
 
 fn insert_tab() -> RibbonTab {
     RibbonTab::new("INSERT")
-        .with_group(RibbonGroup::new("Tables").with_item(large("grid_on", "Table", RibbonArrow::Menu)))
+        .with_group(RibbonGroup::new("Tables").with_item(large(
+            "grid_on",
+            "Table",
+            RibbonArrow::Menu,
+        )))
         .with_group(
             RibbonGroup::new("Illustrations")
                 .with_item(large("image", "Pictures", RibbonArrow::None))

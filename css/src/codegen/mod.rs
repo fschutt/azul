@@ -39,7 +39,8 @@ pub trait CodegenBackend {
 }
 
 /// Look up a backend by its [`CodegenBackend::lang`] identifier.
-#[must_use] pub fn backend_for(lang: &str) -> Option<Box<dyn CodegenBackend>> {
+#[must_use]
+pub fn backend_for(lang: &str) -> Option<Box<dyn CodegenBackend>> {
     match lang {
         "rust" => Some(Box::new(rust::RustBackend)),
         "cpp" | "c++" => Some(Box::new(cpp::CppBackend)),

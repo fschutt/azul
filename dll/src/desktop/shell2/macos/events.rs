@@ -32,7 +32,7 @@ use super::MacOSWindow;
 pub use crate::desktop::shell2::common::event::HitTestNode;
 // Import V2 cross-platform event processing trait
 use crate::desktop::shell2::common::event::{
-    PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_RIGHT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE,
+    PlatformWindow, BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
 };
 // The keycode table lives in `common` so it is tested on every host: nothing in
 // CI compiles this module, so a test next to the table would never run.
@@ -155,7 +155,8 @@ impl MacOSWindow {
                     continue; // self is handled by the returned result
                 }
                 let w = unsafe { &mut *wptr };
-                w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                w.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 w.request_redraw();
             }
         }
@@ -179,8 +180,7 @@ impl MacOSWindow {
 
         // Check for scrollbar hit FIRST (before state changes)
         // Use trait method from PlatformWindow
-        if let Some(scrollbar_hit_id) = PlatformWindow::perform_scrollbar_hit_test(self, position)
-        {
+        if let Some(scrollbar_hit_id) = PlatformWindow::perform_scrollbar_hit_test(self, position) {
             // The scrollbar consumes the press, but the button is still
             // PHYSICALLY DOWN: returning before writing the mouse state left
             // `left_down == false` and `cursor_position` stale for the whole
@@ -298,7 +298,10 @@ impl MacOSWindow {
             if let Some(dn) = deepest {
                 if let Some(nid) = dn.node.into_crate_internal() {
                     self.resolve_context_menu(
-                        HitTestNode { dom_id: dn.dom.inner as u64, node_id: nid.index() as u64 },
+                        HitTestNode {
+                            dom_id: dn.dom.inner as u64,
+                            node_id: nid.index() as u64,
+                        },
                         position,
                     );
                 }
@@ -440,8 +443,7 @@ impl MacOSWindow {
         self.snapshot_window_state_baseline("macos.handle_mouse_exited");
 
         // Update mouse state - cursor left window
-        self.common.mouse_state_mut().cursor_position =
-            CursorPosition::OutOfWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::OutOfWindow(position);
 
         // Clear last hit test since mouse is out
         if let Some(ref mut layout_window) = self.common.layout_window {
@@ -515,7 +517,10 @@ impl MacOSWindow {
             crate::log_debug!(
                 crate::desktop::shell2::common::debug_server::LogCategory::Input,
                 "[scrollWheel] hit test at ({:.1},{:.1}): {} hovered, {} scrollable",
-                position.x, position.y, hovered, scrollable
+                position.x,
+                position.y,
+                hovered,
+                scrollable
             );
         }
 
@@ -564,8 +569,8 @@ impl MacOSWindow {
         // overshoot. Gating it behind the delta threshold dropped it on every
         // gesture end (the Wayland backend sends the equivalent explicit
         // 0-delta TrackpadEnd from wl_pointer.axis_stop for the same reason).
-        let is_trackpad_end = source
-            == azul_layout::managers::scroll_state::ScrollInputSource::TrackpadEnd;
+        let is_trackpad_end =
+            source == azul_layout::managers::scroll_state::ScrollInputSource::TrackpadEnd;
         if delta_x.abs() > 0.01 || delta_y.abs() > 0.01 || is_trackpad_end {
             let mut should_start_timer = false;
             let mut input_queue_clone = None;
@@ -631,13 +636,18 @@ impl MacOSWindow {
             // (must be done outside the borrow of layout_window)
             if should_start_timer {
                 if let Some(queue) = input_queue_clone {
-                    use azul_core::task::{TimerId, SCROLL_MOMENTUM_TIMER_ID};
-                    use azul_layout::scroll_timer::{ScrollPhysicsState, scroll_physics_timer_callback};
-                    use azul_layout::timer::{Timer, TimerCallbackType};
                     use azul_core::refany::RefAny;
                     use azul_core::task::Duration;
+                    use azul_core::task::{TimerId, SCROLL_MOMENTUM_TIMER_ID};
+                    use azul_layout::scroll_timer::{
+                        scroll_physics_timer_callback, ScrollPhysicsState,
+                    };
+                    use azul_layout::timer::{Timer, TimerCallbackType};
 
-                    let physics_state = ScrollPhysicsState::new(queue, self.common.system_style.scroll_physics.clone());
+                    let physics_state = ScrollPhysicsState::new(
+                        queue,
+                        self.common.system_style.scroll_physics.clone(),
+                    );
                     let interval_ms = self.common.system_style.scroll_physics.timer_interval_ms;
                     let data = RefAny::new(physics_state);
                     let timer = Timer::create(
@@ -673,7 +683,10 @@ impl MacOSWindow {
             })
         };
 
-        let focused = self.common.layout_window.as_ref()
+        let focused = self
+            .common
+            .layout_window
+            .as_ref()
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
         crate::log_debug!(
             crate::desktop::shell2::common::debug_server::LogCategory::Input,
@@ -732,7 +745,8 @@ impl MacOSWindow {
                 let text_input = ch.to_string();
                 crate::log_debug!(
                     crate::desktop::shell2::common::debug_server::LogCategory::Input,
-                    "[handle_key_down] recording text '{}' for this pass", text_input
+                    "[handle_key_down] recording text '{}' for this pass",
+                    text_input
                 );
                 if let Some(layout_window) = self.get_layout_window_mut() {
                     layout_window.record_text_input(&text_input);
@@ -747,7 +761,8 @@ impl MacOSWindow {
         let result = self.process_window_events(0);
         crate::log_debug!(
             crate::desktop::shell2::common::debug_server::LogCategory::Input,
-            "[handle_key_down] process_window_events result={:?}", result
+            "[handle_key_down] process_window_events result={:?}",
+            result
         );
         self.convert_result_with_fanout(result)
     }
@@ -786,14 +801,23 @@ impl MacOSWindow {
     pub fn handle_text_input(&mut self, text: &str) {
         use azul_layout::callbacks::CallbackChange;
 
-        let focused = self.common.layout_window.as_ref()
+        let focused = self
+            .common
+            .layout_window
+            .as_ref()
             .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-        let has_cursor = self.common.layout_window.as_ref()
+        let has_cursor = self
+            .common
+            .layout_window
+            .as_ref()
             .map(|lw| lw.text_edit_manager.has_active_editing())
             .unwrap_or(false);
         crate::log_debug!(
             crate::desktop::shell2::common::debug_server::LogCategory::Input,
-            "[handle_text_input] text='{}', focused={:?}, has_cursor={}", text, focused, has_cursor
+            "[handle_text_input] text='{}', focused={:?}, has_cursor={}",
+            text,
+            focused,
+            has_cursor
         );
 
         // Save previous state BEFORE making changes: the arm dispatches its own
@@ -801,9 +825,7 @@ impl MacOSWindow {
         // re-enter `process_window_events`, which needs a baseline.
         self.snapshot_window_state_baseline("macos.handle_text_input");
 
-        let result = self.apply_user_change(&CallbackChange::CreateTextInput {
-            text: text.into(),
-        });
+        let result = self.apply_user_change(&CallbackChange::CreateTextInput { text: text.into() });
 
         // Apply the result: text edits go through the incremental path
         // (display_list_dirty / incremental_relayout), NOT the full DOM rebuild
@@ -813,7 +835,8 @@ impl MacOSWindow {
         let event_result = self.convert_result_with_fanout(result);
         match event_result {
             EventProcessResult::RegenerateDisplayList => {
-                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }
             EventProcessResult::UpdateDisplayList => {
@@ -869,7 +892,13 @@ impl MacOSWindow {
         let Some(vk) = self.convert_keycode(key_code) else {
             return EventProcessResult::DoNothing;
         };
-        if self.common.current_window_state().keyboard_state.is_key_down(vk) == is_down {
+        if self
+            .common
+            .current_window_state()
+            .keyboard_state
+            .is_key_down(vk)
+            == is_down
+        {
             return EventProcessResult::DoNothing;
         }
 
@@ -1028,8 +1057,7 @@ impl MacOSWindow {
         // MWA-B7: the OS drag location is the ONLY fresh position — no
         // mouse-move events arrive during an OS drag, so the cached cursor
         // is stale (wherever the pointer was before the drag started).
-        self.common.mouse_state_mut().cursor_position =
-            CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
 
         // Update cursor manager with dropped file
         if !paths.is_empty() {
@@ -1079,8 +1107,7 @@ impl MacOSWindow {
         }
 
         // Update hit test at the OS-provided drag location (MWA-B7).
-        self.common.mouse_state_mut().cursor_position =
-            CursorPosition::InWindow(position);
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(position);
         self.update_hit_test(position);
 
         // V2 system detects FileHover from the file_drop_manager state.
@@ -1194,10 +1221,14 @@ impl MacOSWindow {
                 let document_id = crate::desktop::wr_translate2::wr_translate_document_id(
                     layout_window.document_id,
                 );
-                crate::plog_trace!("[compositor] macOS resize: sending WebRender set_document_view txn");
+                crate::plog_trace!(
+                    "[compositor] macOS resize: sending WebRender set_document_view txn"
+                );
                 render_api.send_transaction(document_id, txn);
             } else {
-                crate::plog_trace!("[compositor] macOS resize: CPU backend, skipping WebRender txn");
+                crate::plog_trace!(
+                    "[compositor] macOS resize: CPU backend, skipping WebRender txn"
+                );
             }
         }
 
@@ -1237,11 +1268,7 @@ impl MacOSWindow {
     ///
     /// Presentation is deliberately not done here — see `pending_context_menu`
     /// and `take_pending_context_menu` in `macos/mod.rs`.
-    fn resolve_context_menu(
-        &mut self,
-        node: HitTestNode,
-        position: LogicalPosition,
-    ) -> Option<()> {
+    fn resolve_context_menu(&mut self, node: HitTestNode, position: LogicalPosition) -> Option<()> {
         use azul_core::dom::DomId;
 
         let layout_window = self.common.layout_window.as_ref()?;
@@ -1266,7 +1293,10 @@ impl MacOSWindow {
         let mut context_menu = None;
         for _ in 0..256 {
             let Some(n) = current else { break };
-            if let Some(menu) = binding.get(n).and_then(azul_core::dom::NodeData::get_context_menu) {
+            if let Some(menu) = binding
+                .get(n)
+                .and_then(azul_core::dom::NodeData::get_context_menu)
+            {
                 context_menu = Some(menu.clone());
                 break;
             }
@@ -1285,7 +1315,12 @@ impl MacOSWindow {
         );
 
         // Check if native context menus are enabled
-        if self.common.current_window_state().flags.use_native_context_menus {
+        if self
+            .common
+            .current_window_state()
+            .flags
+            .use_native_context_menus
+        {
             self.queue_native_context_menu_at_position(&context_menu, position);
         } else {
             self.show_window_based_context_menu(&context_menu, position);
@@ -1444,7 +1479,8 @@ impl MacOSWindow {
     /// Get the first hovered node from current mouse hit test.
     fn get_first_hovered_node(&self) -> Option<HitTestNode> {
         use azul_layout::managers::hover::InputPointId;
-        self.common.layout_window
+        self.common
+            .layout_window
             .as_ref()?
             .hover_manager
             .get_current(&InputPointId::Mouse)?

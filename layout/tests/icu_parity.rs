@@ -126,18 +126,27 @@ fn numbers() {
     // format_integer — grouping separators, incl. a negative.
     assert_eq!(h.format_integer("en-US", 1234567).as_str(), "1,234,567");
     assert_eq!(h.format_integer("de-DE", 1234567).as_str(), "1.234.567");
-    assert_eq!(h.format_integer("fr-FR", 1234567).as_str(), "1\u{202f}234\u{202f}567");
+    assert_eq!(
+        h.format_integer("fr-FR", 1234567).as_str(),
+        "1\u{202f}234\u{202f}567"
+    );
     assert_eq!(h.format_integer("ja-JP", 1234567).as_str(), "1,234,567");
 
     assert_eq!(h.format_integer("en-US", -1000000).as_str(), "-1,000,000");
     assert_eq!(h.format_integer("de-DE", -1000000).as_str(), "-1.000.000");
-    assert_eq!(h.format_integer("fr-FR", -1000000).as_str(), "-1\u{202f}000\u{202f}000");
+    assert_eq!(
+        h.format_integer("fr-FR", -1000000).as_str(),
+        "-1\u{202f}000\u{202f}000"
+    );
     assert_eq!(h.format_integer("ja-JP", -1000000).as_str(), "-1,000,000");
 
     // format_decimal(integer_part, decimal_places): 12345 @ 1 dp = 1234.5
     assert_eq!(h.format_decimal("en-US", 12345, 1).as_str(), "1,234.5");
     assert_eq!(h.format_decimal("de-DE", 12345, 1).as_str(), "1.234,5");
-    assert_eq!(h.format_decimal("fr-FR", 12345, 1).as_str(), "1\u{202f}234,5");
+    assert_eq!(
+        h.format_decimal("fr-FR", 12345, 1).as_str(),
+        "1\u{202f}234,5"
+    );
     assert_eq!(h.format_decimal("ja-JP", 12345, 1).as_str(), "1,234.5");
 
     // 5 @ 1 dp = 0.5
@@ -155,21 +164,57 @@ fn dates() {
     let h = handle();
     let d = fixed_date();
 
-    assert_eq!(ok(h.format_date("en-US", d, FormatLength::Short)), "1/15/25");
-    assert_eq!(ok(h.format_date("en-US", d, FormatLength::Medium)), "Jan 15, 2025");
-    assert_eq!(ok(h.format_date("en-US", d, FormatLength::Long)), "January 15, 2025");
+    assert_eq!(
+        ok(h.format_date("en-US", d, FormatLength::Short)),
+        "1/15/25"
+    );
+    assert_eq!(
+        ok(h.format_date("en-US", d, FormatLength::Medium)),
+        "Jan 15, 2025"
+    );
+    assert_eq!(
+        ok(h.format_date("en-US", d, FormatLength::Long)),
+        "January 15, 2025"
+    );
 
-    assert_eq!(ok(h.format_date("de-DE", d, FormatLength::Short)), "15.01.25");
-    assert_eq!(ok(h.format_date("de-DE", d, FormatLength::Medium)), "15.01.2025");
-    assert_eq!(ok(h.format_date("de-DE", d, FormatLength::Long)), "15. Januar 2025");
+    assert_eq!(
+        ok(h.format_date("de-DE", d, FormatLength::Short)),
+        "15.01.25"
+    );
+    assert_eq!(
+        ok(h.format_date("de-DE", d, FormatLength::Medium)),
+        "15.01.2025"
+    );
+    assert_eq!(
+        ok(h.format_date("de-DE", d, FormatLength::Long)),
+        "15. Januar 2025"
+    );
 
-    assert_eq!(ok(h.format_date("fr-FR", d, FormatLength::Short)), "15/01/2025");
-    assert_eq!(ok(h.format_date("fr-FR", d, FormatLength::Medium)), "15 janv. 2025");
-    assert_eq!(ok(h.format_date("fr-FR", d, FormatLength::Long)), "15 janvier 2025");
+    assert_eq!(
+        ok(h.format_date("fr-FR", d, FormatLength::Short)),
+        "15/01/2025"
+    );
+    assert_eq!(
+        ok(h.format_date("fr-FR", d, FormatLength::Medium)),
+        "15 janv. 2025"
+    );
+    assert_eq!(
+        ok(h.format_date("fr-FR", d, FormatLength::Long)),
+        "15 janvier 2025"
+    );
 
-    assert_eq!(ok(h.format_date("ja-JP", d, FormatLength::Short)), "2025/01/15");
-    assert_eq!(ok(h.format_date("ja-JP", d, FormatLength::Medium)), "2025/01/15");
-    assert_eq!(ok(h.format_date("ja-JP", d, FormatLength::Long)), "2025年1月15日");
+    assert_eq!(
+        ok(h.format_date("ja-JP", d, FormatLength::Short)),
+        "2025/01/15"
+    );
+    assert_eq!(
+        ok(h.format_date("ja-JP", d, FormatLength::Medium)),
+        "2025/01/15"
+    );
+    assert_eq!(
+        ok(h.format_date("ja-JP", d, FormatLength::Long)),
+        "2025年1月15日"
+    );
 }
 
 // ─── Time formatting ────────────────────────────────────────────────────────
@@ -196,9 +241,24 @@ fn times() {
         "4:30:45\u{202f}PM", // ICU4X reference (seconds NOT dropped)
         "4:30\u{202f}PM",    // macOS Foundation (seconds dropped, correct)
     );
-    assert_divergent("time_nosec de-DE", &ok(h.format_time("de-DE", t, false)), "16:30:45", "16:30");
-    assert_divergent("time_nosec fr-FR", &ok(h.format_time("fr-FR", t, false)), "16:30:45", "16:30");
-    assert_divergent("time_nosec ja-JP", &ok(h.format_time("ja-JP", t, false)), "16:30:45", "16:30");
+    assert_divergent(
+        "time_nosec de-DE",
+        &ok(h.format_time("de-DE", t, false)),
+        "16:30:45",
+        "16:30",
+    );
+    assert_divergent(
+        "time_nosec fr-FR",
+        &ok(h.format_time("fr-FR", t, false)),
+        "16:30:45",
+        "16:30",
+    );
+    assert_divergent(
+        "time_nosec ja-JP",
+        &ok(h.format_time("ja-JP", t, false)),
+        "16:30:45",
+        "16:30",
+    );
 }
 
 // ─── Date+time formatting ───────────────────────────────────────────────────
@@ -209,22 +269,28 @@ fn datetimes() {
     let dt = IcuDateTime::new(fixed_date(), fixed_time());
 
     // de-DE and ja-JP are identical across ICU4X and macOS.
-    assert_eq!(ok(h.format_datetime("de-DE", dt, FormatLength::Medium)), "15.01.2025, 16:30");
-    assert_eq!(ok(h.format_datetime("ja-JP", dt, FormatLength::Medium)), "2025/01/15 16:30");
+    assert_eq!(
+        ok(h.format_datetime("de-DE", dt, FormatLength::Medium)),
+        "15.01.2025, 16:30"
+    );
+    assert_eq!(
+        ok(h.format_datetime("ja-JP", dt, FormatLength::Medium)),
+        "2025/01/15 16:30"
+    );
 
     // DIVERGENCE 2: Foundation joins date+time with a locale connector word
     // ("at" / "à"); ICU4X uses a plain comma.
     assert_divergent(
         "datetime_medium en-US",
         &ok(h.format_datetime("en-US", dt, FormatLength::Medium)),
-        "Jan 15, 2025, 4:30\u{202f}PM",       // ICU4X reference (comma)
-        "Jan 15, 2025 at 4:30\u{202f}PM",     // macOS Foundation ("at")
+        "Jan 15, 2025, 4:30\u{202f}PM",   // ICU4X reference (comma)
+        "Jan 15, 2025 at 4:30\u{202f}PM", // macOS Foundation ("at")
     );
     assert_divergent(
         "datetime_medium fr-FR",
         &ok(h.format_datetime("fr-FR", dt, FormatLength::Medium)),
-        "15 janv. 2025, 16:30",   // ICU4X reference (comma)
-        "15 janv. 2025 à 16:30",  // macOS Foundation ("à")
+        "15 janv. 2025, 16:30",  // ICU4X reference (comma)
+        "15 janv. 2025 à 16:30", // macOS Foundation ("à")
     );
 }
 
@@ -236,10 +302,26 @@ fn lists() {
     let items = ["a", "b", "c"];
 
     // And + Unit are identical across ICU4X and macOS.
-    assert_eq!(h.format_list_strings("en-US", &items, ListType::And).as_str(), "a, b, and c");
-    assert_eq!(h.format_list_strings("de-DE", &items, ListType::And).as_str(), "a, b und c");
-    assert_eq!(h.format_list_strings("fr-FR", &items, ListType::And).as_str(), "a, b et c");
-    assert_eq!(h.format_list_strings("ja-JP", &items, ListType::And).as_str(), "a、b、c");
+    assert_eq!(
+        h.format_list_strings("en-US", &items, ListType::And)
+            .as_str(),
+        "a, b, and c"
+    );
+    assert_eq!(
+        h.format_list_strings("de-DE", &items, ListType::And)
+            .as_str(),
+        "a, b und c"
+    );
+    assert_eq!(
+        h.format_list_strings("fr-FR", &items, ListType::And)
+            .as_str(),
+        "a, b et c"
+    );
+    assert_eq!(
+        h.format_list_strings("ja-JP", &items, ListType::And)
+            .as_str(),
+        "a、b、c"
+    );
 
     for loc in LOCALES {
         assert_eq!(
@@ -253,25 +335,29 @@ fn lists() {
     // backend returns the conjunction ("and") output for Or as well.
     assert_divergent(
         "list_or en-US",
-        h.format_list_strings("en-US", &items, ListType::Or).as_str(),
+        h.format_list_strings("en-US", &items, ListType::Or)
+            .as_str(),
         "a, b, or c",  // ICU4X reference
         "a, b, and c", // macOS Foundation (falls back to "and")
     );
     assert_divergent(
         "list_or de-DE",
-        h.format_list_strings("de-DE", &items, ListType::Or).as_str(),
+        h.format_list_strings("de-DE", &items, ListType::Or)
+            .as_str(),
         "a, b oder c",
         "a, b und c",
     );
     assert_divergent(
         "list_or fr-FR",
-        h.format_list_strings("fr-FR", &items, ListType::Or).as_str(),
+        h.format_list_strings("fr-FR", &items, ListType::Or)
+            .as_str(),
         "a, b ou c",
         "a, b et c",
     );
     assert_divergent(
         "list_or ja-JP",
-        h.format_list_strings("ja-JP", &items, ListType::Or).as_str(),
+        h.format_list_strings("ja-JP", &items, ListType::Or)
+            .as_str(),
         "a、b、またはc",
         "a、b、c",
     );
@@ -287,12 +373,23 @@ fn plurals() {
     // Cardinal plural category for n = 1, 2, 5, 0. Agnostic across ALL backends
     // EXCEPT ja-JP n=1 (DIVERGENCE 4, handled separately below).
     let agnostic: &[(&str, i64, PluralCategory)] = &[
-        ("en-US", 1, One), ("en-US", 2, Other), ("en-US", 5, Other), ("en-US", 0, Other),
-        ("de-DE", 1, One), ("de-DE", 2, Other), ("de-DE", 5, Other), ("de-DE", 0, Other),
+        ("en-US", 1, One),
+        ("en-US", 2, Other),
+        ("en-US", 5, Other),
+        ("en-US", 0, Other),
+        ("de-DE", 1, One),
+        ("de-DE", 2, Other),
+        ("de-DE", 5, Other),
+        ("de-DE", 0, Other),
         // French: 0 and 1 are both "one".
-        ("fr-FR", 1, One), ("fr-FR", 2, Other), ("fr-FR", 5, Other), ("fr-FR", 0, One),
+        ("fr-FR", 1, One),
+        ("fr-FR", 2, Other),
+        ("fr-FR", 5, Other),
+        ("fr-FR", 0, One),
         // Japanese: no plural distinction → "other" (n=1 excluded; see below).
-        ("ja-JP", 2, Other), ("ja-JP", 5, Other), ("ja-JP", 0, Other),
+        ("ja-JP", 2, Other),
+        ("ja-JP", 5, Other),
+        ("ja-JP", 0, Other),
     ];
     for (loc, n, cat) in agnostic {
         assert_eq!(
@@ -310,7 +407,10 @@ fn plurals() {
     if IS_ICU4X {
         assert_eq!(ja1, Other, "[plural ja-JP n=1] ICU4X reference is Other");
     } else {
-        assert_eq!(ja1, One, "[plural ja-JP n=1] macOS/Windows plural_for falls back to One");
+        assert_eq!(
+            ja1, One,
+            "[plural ja-JP n=1] macOS/Windows plural_for falls back to One"
+        );
     }
 }
 
@@ -333,25 +433,87 @@ fn capture_reference() -> String {
     let t = fixed_time();
     let dt = IcuDateTime::new(d, t);
     let list = ["a", "b", "c"];
-    let backend = if IS_ICU4X { "icu4x" } else if IS_MACOS { "macos" } else { "windows" };
+    let backend = if IS_ICU4X {
+        "icu4x"
+    } else if IS_MACOS {
+        "macos"
+    } else {
+        "windows"
+    };
 
     let mut out = String::new();
     for loc in LOCALES {
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tint_1234567\t{:?}", h.format_integer(loc, 1234567).as_str());
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tint_neg1000000\t{:?}", h.format_integer(loc, -1000000).as_str());
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdec_1234_5\t{:?}", h.format_decimal(loc, 12345, 1).as_str());
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdec_0_5\t{:?}", h.format_decimal(loc, 5, 1).as_str());
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdate_short\t{:?}", ok(h.format_date(loc, d, FormatLength::Short)));
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdate_medium\t{:?}", ok(h.format_date(loc, d, FormatLength::Medium)));
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdate_long\t{:?}", ok(h.format_date(loc, d, FormatLength::Long)));
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\ttime_nosec\t{:?}", ok(h.format_time(loc, t, false)));
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\ttime_sec\t{:?}", ok(h.format_time(loc, t, true)));
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tdatetime_medium\t{:?}", ok(h.format_datetime(loc, dt, FormatLength::Medium)));
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tlist_and\t{:?}", h.format_list_strings(loc, &list, ListType::And).as_str());
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tlist_or\t{:?}", h.format_list_strings(loc, &list, ListType::Or).as_str());
-        let _ = writeln!(out, "CAP[{backend}]\t{loc}\tlist_unit\t{:?}", h.format_list_strings(loc, &list, ListType::Unit).as_str());
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tint_1234567\t{:?}",
+            h.format_integer(loc, 1234567).as_str()
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tint_neg1000000\t{:?}",
+            h.format_integer(loc, -1000000).as_str()
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tdec_1234_5\t{:?}",
+            h.format_decimal(loc, 12345, 1).as_str()
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tdec_0_5\t{:?}",
+            h.format_decimal(loc, 5, 1).as_str()
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tdate_short\t{:?}",
+            ok(h.format_date(loc, d, FormatLength::Short))
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tdate_medium\t{:?}",
+            ok(h.format_date(loc, d, FormatLength::Medium))
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tdate_long\t{:?}",
+            ok(h.format_date(loc, d, FormatLength::Long))
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\ttime_nosec\t{:?}",
+            ok(h.format_time(loc, t, false))
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\ttime_sec\t{:?}",
+            ok(h.format_time(loc, t, true))
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tdatetime_medium\t{:?}",
+            ok(h.format_datetime(loc, dt, FormatLength::Medium))
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tlist_and\t{:?}",
+            h.format_list_strings(loc, &list, ListType::And).as_str()
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tlist_or\t{:?}",
+            h.format_list_strings(loc, &list, ListType::Or).as_str()
+        );
+        let _ = writeln!(
+            out,
+            "CAP[{backend}]\t{loc}\tlist_unit\t{:?}",
+            h.format_list_strings(loc, &list, ListType::Unit).as_str()
+        );
         for n in [1_i64, 2, 5, 0] {
-            let _ = writeln!(out, "CAP[{backend}]\t{loc}\tplural_{n}\t{:?}", h.get_plural_category(loc, n));
+            let _ = writeln!(
+                out,
+                "CAP[{backend}]\t{loc}\tplural_{n}\t{:?}",
+                h.get_plural_category(loc, n)
+            );
         }
     }
     out
@@ -368,7 +530,11 @@ fn capture_reference() -> String {
 fn reference_matrix_is_complete_and_deterministic() {
     let dump = capture_reference();
     // Determinism: a second capture must be byte-for-byte identical.
-    assert_eq!(dump, capture_reference(), "capture_reference is not deterministic");
+    assert_eq!(
+        dump,
+        capture_reference(),
+        "capture_reference is not deterministic"
+    );
 
     // Print for manual re-capture under `--nocapture`.
     println!("{dump}");

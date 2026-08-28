@@ -188,12 +188,7 @@ fn emit_skipped_struct(builder: &mut CodeBuilder, s: &StructDef) {
 /// byte size. Field-level access is impossible (Fortran has no unions),
 /// but embedding-by-value and pass-by-value are layout-exact — which is
 /// all the generated wrappers ever need for these types.
-fn emit_opaque_blob(
-    builder: &mut CodeBuilder,
-    name: &str,
-    l: super::layout::AbiLayout,
-    why: &str,
-) {
+fn emit_opaque_blob(builder: &mut CodeBuilder, name: &str, l: super::layout::AbiLayout, why: &str) {
     let ffi = truncate_identifier(&ffi_type_name(name));
     builder.line(&format!(
         "! ABI-opaque stand-in for {} ({}): exact C size/alignment ({} bytes, align {}).",
@@ -462,7 +457,11 @@ fn emit_callback_typedef(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
             arg_names.join(", ")
         )
     } else {
-        format!("subroutine {}({}) bind(C)", alias_ifname, arg_names.join(", "))
+        format!(
+            "subroutine {}({}) bind(C)",
+            alias_ifname,
+            arg_names.join(", ")
+        )
     };
     builder.line(&header);
     builder.indent();
@@ -531,15 +530,13 @@ fn emit_monomorphized_alias(
             builder.line("enum, bind(C)");
             builder.indent();
             for (i, v) in variants.iter().enumerate() {
-                let vname =
-                    truncate_identifier(&format!("{}_{}", ffi, sanitize_identifier(v)));
+                let vname = truncate_identifier(&format!("{}_{}", ffi, sanitize_identifier(v)));
                 builder.line(&format!("enumerator :: {} = {}", vname, i));
             }
             builder.dedent();
             builder.line("end enum");
             for v in variants {
-                let vname =
-                    truncate_identifier(&format!("{}_{}", ffi, sanitize_identifier(v)));
+                let vname = truncate_identifier(&format!("{}_{}", ffi, sanitize_identifier(v)));
                 builder.line(&format!("public :: {}", vname));
             }
             builder.blank();
@@ -579,21 +576,15 @@ fn emit_monomorphized_alias(
             builder.line("enum, bind(C)");
             builder.indent();
             for (i, v) in variants.iter().enumerate() {
-                let vname = truncate_identifier(&format!(
-                    "{}_{}",
-                    tag_alias,
-                    sanitize_identifier(&v.name)
-                ));
+                let vname =
+                    truncate_identifier(&format!("{}_{}", tag_alias, sanitize_identifier(&v.name)));
                 builder.line(&format!("enumerator :: {} = {}", vname, i));
             }
             builder.dedent();
             builder.line("end enum");
             for v in variants {
-                let vname = truncate_identifier(&format!(
-                    "{}_{}",
-                    tag_alias,
-                    sanitize_identifier(&v.name)
-                ));
+                let vname =
+                    truncate_identifier(&format!("{}_{}", tag_alias, sanitize_identifier(&v.name)));
                 builder.line(&format!("public :: {}", vname));
             }
             // ABI-opaque blob body — same rationale as emit_tagged_union.

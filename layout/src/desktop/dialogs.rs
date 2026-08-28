@@ -131,7 +131,8 @@ impl MsgBox {
     /// Returns a zero-initialised namespace handle. The struct itself carries
     /// no state — instances exist only so the FFI layer can hang static
     /// methods off the type.
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { _reserved: 0 }
     }
 
@@ -160,7 +161,8 @@ impl MsgBox {
     /// "Ok / Cancel" message box — title, message, icon, default button.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
-    #[must_use] pub fn ok_cancel(
+    #[must_use]
+    pub fn ok_cancel(
         title: AzString,
         message: AzString,
         icon: MsgBoxIcon,
@@ -183,12 +185,8 @@ impl MsgBox {
     /// "Yes / No" message box — title, message, icon, default button.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
-    #[must_use] pub fn yes_no(
-        title: AzString,
-        message: AzString,
-        icon: MsgBoxIcon,
-        default: YesNo,
-    ) -> YesNo {
+    #[must_use]
+    pub fn yes_no(title: AzString, message: AzString, icon: MsgBoxIcon, default: YesNo) -> YesNo {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             tfd::MessageBox::new(title.as_str(), message.as_str())
@@ -218,14 +216,16 @@ impl Default for ColorPickerDialog {
 impl ColorPickerDialog {
     /// Returns a zero-initialised namespace handle. Static-only — the struct
     /// is just a hook for the FFI layer.
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { _reserved: 0 }
     }
 
     /// Opens the default color picker dialog. Returns `None` if cancelled.
     // owned C-ABI dialog types passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
-    #[must_use] pub fn open(title: AzString, default_value: OptionColorU) -> OptionColorU {
+    #[must_use]
+    pub fn open(title: AzString, default_value: OptionColorU) -> OptionColorU {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let rgb = default_value
@@ -287,7 +287,8 @@ impl Default for FileDialog {
 impl FileDialog {
     /// Returns a zero-initialised namespace handle. Static-only — the struct
     /// is just a hook for the FFI layer.
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { _reserved: 0 }
     }
 
@@ -346,8 +347,7 @@ impl FileDialog {
     ) -> OptionStringVec {
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
-            let mut dialog =
-                tfd::FileDialog::new(title.as_str()).with_multiple_selection(true);
+            let mut dialog = tfd::FileDialog::new(title.as_str()).with_multiple_selection(true);
             if let Some(path) = default_path.as_option() {
                 dialog = dialog.with_path(path.as_str());
             }
@@ -626,7 +626,12 @@ impl FileDialog {
         allow_multiple: bool,
     ) -> FilePickerHandle {
         if let Some(backend) = FILE_PICKER_BACKEND.get() {
-            return (backend.open_file)(title, default_path, filter_patterns(filter_list), allow_multiple);
+            return (backend.open_file)(
+                title,
+                default_path,
+                filter_patterns(filter_list),
+                allow_multiple,
+            );
         }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
@@ -703,9 +708,9 @@ impl FileDialog {
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn no_backend_error() -> FilePickerStatus {
     FilePickerStatus::Error(AzString::from(
-            "no file picker backend is registered on this platform (the shell must call \
+        "no file picker backend is registered on this platform (the shell must call \
              register_file_picker_backend at startup)",
-        ))
+    ))
 }
 
 /// Convenience shim: show a default "Info" message box.
@@ -875,7 +880,11 @@ mod autotest_generated {
             (MsgBoxIcon::Question, MessageBoxIcon::Question),
         ];
         for (ours, theirs) in mapping {
-            assert_eq!(MessageBoxIcon::from(ours), theirs, "wrong icon for {ours:?}");
+            assert_eq!(
+                MessageBoxIcon::from(ours),
+                theirs,
+                "wrong icon for {ours:?}"
+            );
         }
 
         // Injective: four distinct inputs must not collapse onto three icons.
@@ -932,11 +941,11 @@ mod autotest_generated {
     #[test]
     fn apply_filter_preserves_unicode_patterns() {
         let patterns = [
-            "*.图片",          // CJK
-            "*.🎨",            // astral-plane emoji
-            "*.مِلَف",           // RTL with combining marks
-            "*.e\u{0301}xt",   // decomposed é — must not be normalised away
-            "*.\u{200B}zwsp",  // zero-width space
+            "*.图片",         // CJK
+            "*.🎨",           // astral-plane emoji
+            "*.مِلَف",          // RTL with combining marks
+            "*.e\u{0301}xt",  // decomposed é — must not be normalised away
+            "*.\u{200B}zwsp", // zero-width space
         ];
         let filter = file_type_list(&patterns, "Ünïcödé — файлы 🎨");
         let dialog = apply_filter(tfd::FileDialog::new("title"), filter);
@@ -955,7 +964,10 @@ mod autotest_generated {
         let filter = file_type_list(&["*.pn\0g", "\0", "a\u{1}b\u{7f}"], "desc\0ription");
         let dialog = apply_filter(tfd::FileDialog::new("title"), filter);
 
-        assert_eq!(dialog.filter_patterns(), &["*.pn\0g", "\0", "a\u{1}b\u{7f}"]);
+        assert_eq!(
+            dialog.filter_patterns(),
+            &["*.pn\0g", "\0", "a\u{1}b\u{7f}"]
+        );
         assert_eq!(dialog.filter_description(), "desc\0ription");
         assert_eq!(dialog.filter_patterns()[0].len(), 6); // bytes kept, not cut at the NUL
     }
@@ -1091,7 +1103,8 @@ mod autotest_generated {
         // shapes, so an argument reorder or a changed return type must not slip
         // through unnoticed just because no test can safely call them.
         let _ok: fn(AzString, AzString, MsgBoxIcon) = MsgBox::ok;
-        let _ok_cancel: fn(AzString, AzString, MsgBoxIcon, OkCancel) -> OkCancel = MsgBox::ok_cancel;
+        let _ok_cancel: fn(AzString, AzString, MsgBoxIcon, OkCancel) -> OkCancel =
+            MsgBox::ok_cancel;
         let _yes_no: fn(AzString, AzString, MsgBoxIcon, YesNo) -> YesNo = MsgBox::yes_no;
         let _info: fn(AzString) = MsgBox::info;
         let _color: fn(AzString, OptionColorU) -> OptionColorU = ColorPickerDialog::open;
@@ -1102,10 +1115,16 @@ mod autotest_generated {
             FileDialog::open_multiple_files;
         let _save_file: fn(AzString, OptionString) -> OptionString = FileDialog::save_file;
         let _msg_box: fn(&str) = msg_box;
-        let _open_file_async: fn(AzString, OptionString, OptionFileTypeList, bool) -> FilePickerHandle =
-            FileDialog::open_file_async;
-        let _save_file_async: fn(AzString, OptionString) -> FilePickerHandle = FileDialog::save_file_async;
-        let _open_dir_async: fn(AzString, OptionString) -> FilePickerHandle = FileDialog::open_directory_async;
+        let _open_file_async: fn(
+            AzString,
+            OptionString,
+            OptionFileTypeList,
+            bool,
+        ) -> FilePickerHandle = FileDialog::open_file_async;
+        let _save_file_async: fn(AzString, OptionString) -> FilePickerHandle =
+            FileDialog::save_file_async;
+        let _open_dir_async: fn(AzString, OptionString) -> FilePickerHandle =
+            FileDialog::open_directory_async;
     }
 
     // ---------------------------------------------------------------------
@@ -1133,8 +1152,13 @@ mod autotest_generated {
         user_side.set_status(FilePickerStatus::Cancelled);
         assert_eq!(user_side.poll(), FilePickerStatus::Cancelled);
 
-        let answered = FilePickerHandle::with_status(FilePickerStatus::SelectedMultiple(StringVec::from_vec(vec![s("a"), s("b")])));
-        assert!(answered.is_done(), "a pre-answered handle is done on its first poll");
+        let answered = FilePickerHandle::with_status(FilePickerStatus::SelectedMultiple(
+            StringVec::from_vec(vec![s("a"), s("b")]),
+        ));
+        assert!(
+            answered.is_done(),
+            "a pre-answered handle is done on its first poll"
+        );
 
         // The backend answering AFTER the user dropped their handle must be
         // sound: the clone owns its own strong count. And the null `Default`
@@ -1160,10 +1184,15 @@ mod autotest_generated {
     fn filter_patterns_keep_the_types_and_drop_the_descriptor() {
         let list = file_type_list(&["*.png", "*.jpg"], "Images");
         let patterns = filter_patterns(OptionFileTypeList::Some(list));
-        let v = patterns.into_option().expect("patterns present").into_library_owned_vec();
+        let v = patterns
+            .into_option()
+            .expect("patterns present")
+            .into_library_owned_vec();
         let got: Vec<&str> = v.iter().map(AzString::as_str).collect();
         assert_eq!(got, vec!["*.png", "*.jpg"]);
-        assert!(filter_patterns(OptionFileTypeList::None).into_option().is_none());
+        assert!(filter_patterns(OptionFileTypeList::None)
+            .into_option()
+            .is_none());
     }
 
     // ---------------------------------------------------------------------
@@ -1217,12 +1246,16 @@ mod autotest_generated {
     #[cfg(any(target_os = "android", target_os = "ios"))]
     #[test]
     fn mobile_file_dialogs_report_cancellation() {
-        assert!(FileDialog::open_file(s("t"), OptionString::None, OptionFileTypeList::None).is_none());
+        assert!(
+            FileDialog::open_file(s("t"), OptionString::None, OptionFileTypeList::None).is_none()
+        );
         assert!(FileDialog::open_directory(s("t"), OptionString::None).is_none());
         assert!(FileDialog::save_file(s("t"), OptionString::Some(s("/tmp"))).is_none());
-        assert!(
-            FileDialog::open_multiple_files(s("t"), OptionString::None, OptionFileTypeList::None)
-                .is_none()
-        );
+        assert!(FileDialog::open_multiple_files(
+            s("t"),
+            OptionString::None,
+            OptionFileTypeList::None
+        )
+        .is_none());
     }
 }

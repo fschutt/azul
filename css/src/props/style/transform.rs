@@ -1,12 +1,12 @@
 //! CSS properties for 2D and 3D transformations.
 
+use crate::corety::AzString;
 use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
 use core::fmt;
 use std::num::ParseFloatError;
-use crate::corety::AzString;
 
 #[cfg(feature = "parser")]
 use crate::props::basic::{
@@ -44,7 +44,8 @@ pub struct StylePerspectiveOrigin {
 }
 
 impl StylePerspectiveOrigin {
-    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             x: self.x.interpolate(&other.x, t),
             y: self.y.interpolate(&other.y, t),
@@ -76,7 +77,8 @@ impl Default for StyleTransformOrigin {
 }
 
 impl StyleTransformOrigin {
-    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             x: self.x.interpolate(&other.x, t),
             y: self.y.interpolate(&other.y, t),
@@ -203,7 +205,14 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
 
-impl_vec!(StyleTransform, StyleTransformVec, StyleTransformVecDestructor, StyleTransformVecDestructorType, StyleTransformVecSlice, OptionStyleTransform);
+impl_vec!(
+    StyleTransform,
+    StyleTransformVec,
+    StyleTransformVecDestructor,
+    StyleTransformVecDestructorType,
+    StyleTransformVecSlice,
+    OptionStyleTransform
+);
 impl_vec_debug!(StyleTransform, StyleTransformVec);
 impl_vec_partialord!(StyleTransform, StyleTransformVec);
 impl_vec_ord!(StyleTransform, StyleTransformVec);
@@ -467,7 +476,8 @@ pub enum CssStyleTransformParseErrorOwned {
 }
 
 impl CssStyleTransformParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssStyleTransformParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssStyleTransformParseErrorOwned {
         match self {
             Self::InvalidTransform(s) => {
                 CssStyleTransformParseErrorOwned::InvalidTransform((*s).to_string().into())
@@ -479,11 +489,13 @@ impl CssStyleTransformParseError<'_> {
                 expected,
                 got,
                 input,
-            } => CssStyleTransformParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
-                expected: *expected,
-                got: *got,
-                input: (*input).to_string().into(),
-            }),
+            } => CssStyleTransformParseErrorOwned::WrongNumberOfComponents(
+                WrongComponentCountError {
+                    expected: *expected,
+                    got: *got,
+                    input: (*input).to_string().into(),
+                },
+            ),
             Self::NumberParseError(e) => {
                 CssStyleTransformParseErrorOwned::NumberParseError(e.clone().into())
             }
@@ -501,17 +513,20 @@ impl CssStyleTransformParseError<'_> {
 }
 
 impl CssStyleTransformParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssStyleTransformParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssStyleTransformParseError<'_> {
         match self {
             Self::InvalidTransform(s) => CssStyleTransformParseError::InvalidTransform(s),
             Self::InvalidParenthesis(e) => {
                 CssStyleTransformParseError::InvalidParenthesis(e.to_shared())
             }
-            Self::WrongNumberOfComponents(e) => CssStyleTransformParseError::WrongNumberOfComponents {
-                expected: e.expected,
-                got: e.got,
-                input: e.input.as_str(),
-            },
+            Self::WrongNumberOfComponents(e) => {
+                CssStyleTransformParseError::WrongNumberOfComponents {
+                    expected: e.expected,
+                    got: e.got,
+                    input: e.input.as_str(),
+                }
+            }
             Self::NumberParseError(e) => CssStyleTransformParseError::NumberParseError(e.to_std()),
             Self::PixelValueParseError(e) => {
                 CssStyleTransformParseError::PixelValueParseError(e.to_shared())
@@ -551,17 +566,20 @@ pub enum CssStyleTransformOriginParseErrorOwned {
 }
 
 impl CssStyleTransformOriginParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssStyleTransformOriginParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssStyleTransformOriginParseErrorOwned {
         match self {
             Self::WrongNumberOfComponents {
                 expected,
                 got,
                 input,
-            } => CssStyleTransformOriginParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
-                expected: *expected,
-                got: *got,
-                input: (*input).to_string().into(),
-            }),
+            } => CssStyleTransformOriginParseErrorOwned::WrongNumberOfComponents(
+                WrongComponentCountError {
+                    expected: *expected,
+                    got: *got,
+                    input: (*input).to_string().into(),
+                },
+            ),
             Self::PixelValueParseError(e) => {
                 CssStyleTransformOriginParseErrorOwned::PixelValueParseError(e.to_contained())
             }
@@ -570,13 +588,16 @@ impl CssStyleTransformOriginParseError<'_> {
 }
 
 impl CssStyleTransformOriginParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssStyleTransformOriginParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssStyleTransformOriginParseError<'_> {
         match self {
-            Self::WrongNumberOfComponents(e) => CssStyleTransformOriginParseError::WrongNumberOfComponents {
-                expected: e.expected,
-                got: e.got,
-                input: e.input.as_str(),
-            },
+            Self::WrongNumberOfComponents(e) => {
+                CssStyleTransformOriginParseError::WrongNumberOfComponents {
+                    expected: e.expected,
+                    got: e.got,
+                    input: e.input.as_str(),
+                }
+            }
             Self::PixelValueParseError(e) => {
                 CssStyleTransformOriginParseError::PixelValueParseError(e.to_shared())
             }
@@ -609,17 +630,20 @@ pub enum CssStylePerspectiveOriginParseErrorOwned {
 }
 
 impl CssStylePerspectiveOriginParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssStylePerspectiveOriginParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssStylePerspectiveOriginParseErrorOwned {
         match self {
             Self::WrongNumberOfComponents {
                 expected,
                 got,
                 input,
-            } => CssStylePerspectiveOriginParseErrorOwned::WrongNumberOfComponents(WrongComponentCountError {
-                expected: *expected,
-                got: *got,
-                input: (*input).to_string().into(),
-            }),
+            } => CssStylePerspectiveOriginParseErrorOwned::WrongNumberOfComponents(
+                WrongComponentCountError {
+                    expected: *expected,
+                    got: *got,
+                    input: (*input).to_string().into(),
+                },
+            ),
             Self::PixelValueParseError(e) => {
                 CssStylePerspectiveOriginParseErrorOwned::PixelValueParseError(e.to_contained())
             }
@@ -628,13 +652,16 @@ impl CssStylePerspectiveOriginParseError<'_> {
 }
 
 impl CssStylePerspectiveOriginParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssStylePerspectiveOriginParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssStylePerspectiveOriginParseError<'_> {
         match self {
-            Self::WrongNumberOfComponents(e) => CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
-                expected: e.expected,
-                got: e.got,
-                input: e.input.as_str(),
-            },
+            Self::WrongNumberOfComponents(e) => {
+                CssStylePerspectiveOriginParseError::WrongNumberOfComponents {
+                    expected: e.expected,
+                    got: e.got,
+                    input: e.input.as_str(),
+                }
+            }
             Self::PixelValueParseError(e) => {
                 CssStylePerspectiveOriginParseError::PixelValueParseError(e.to_shared())
             }
@@ -676,7 +703,8 @@ pub enum CssAppRegionParseErrorOwned {
 }
 
 impl CssAppRegionParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssAppRegionParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssAppRegionParseErrorOwned {
         match self {
             Self::InvalidValue(s) => CssAppRegionParseErrorOwned::InvalidValue((*s).into()),
         }
@@ -684,7 +712,8 @@ impl CssAppRegionParseError<'_> {
 }
 
 impl CssAppRegionParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssAppRegionParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssAppRegionParseError<'_> {
         match self {
             Self::InvalidValue(s) => CssAppRegionParseError::InvalidValue(s.as_str()),
         }
@@ -692,7 +721,8 @@ impl CssAppRegionParseErrorOwned {
 }
 
 impl CssBackfaceVisibilityParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssBackfaceVisibilityParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssBackfaceVisibilityParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
                 CssBackfaceVisibilityParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -702,7 +732,8 @@ impl CssBackfaceVisibilityParseError<'_> {
 }
 
 impl CssBackfaceVisibilityParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssBackfaceVisibilityParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssBackfaceVisibilityParseError<'_> {
         match self {
             Self::InvalidValue(s) => CssBackfaceVisibilityParseError::InvalidValue(s),
         }
@@ -726,7 +757,8 @@ pub fn parse_style_transform_vec(
 }
 
 #[cfg(feature = "parser")]
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+#[allow(clippy::too_many_lines)]
+// large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `transform` value.
@@ -825,7 +857,8 @@ pub fn parse_style_transform(
             }
 
             let x = parse_pixel_value(
-                components.first()
+                components
+                    .first()
                     .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
                         expected: 2,
                         got: 0,
@@ -845,7 +878,8 @@ pub fn parse_style_transform(
         "translate3d" => {
             let components: Vec<_> = transform_values.split(',').collect();
             let x = parse_pixel_value(
-                components.first()
+                components
+                    .first()
                     .ok_or(CssStyleTransformParseError::WrongNumberOfComponents {
                         expected: 3,
                         got: 0,
@@ -1045,9 +1079,7 @@ pub fn parse_style_perspective_origin(
 ///
 /// Electron writes `-webkit-app-region: drag`; both spellings map here, so CSS
 /// written for Electron works unchanged.
-pub fn parse_style_app_region(
-    input: &str,
-) -> Result<StyleAppRegion, CssAppRegionParseError<'_>> {
+pub fn parse_style_app_region(input: &str) -> Result<StyleAppRegion, CssAppRegionParseError<'_>> {
     match input.trim() {
         "drag" => Ok(StyleAppRegion::Drag),
         "no-drag" | "none" => Ok(StyleAppRegion::NoDrag),
@@ -1346,8 +1378,18 @@ mod autotest_generated {
         // long as parse_parentheses can never hand back a non-listed stopword.
         // Probe names that are prefixes/suffixes/case-variants of real ones.
         for name in [
-            "translat", "translateXX", "xtranslateX", "rotate3", "rotate3D", "scale4d", "skewZ",
-            "perspectives", "matrix2d", "MATRIX", "", " rotate",
+            "translat",
+            "translateXX",
+            "xtranslateX",
+            "rotate3",
+            "rotate3D",
+            "scale4d",
+            "skewZ",
+            "perspectives",
+            "matrix2d",
+            "MATRIX",
+            "",
+            " rotate",
         ] {
             let input = alloc::format!("{name}(1)");
             let res = parse_style_transform(&input);
@@ -1412,7 +1454,11 @@ mod autotest_generated {
         assert_encodable(nan_px);
 
         // Infinities (literal, and via decimal overflow) saturate to isize::MAX/MIN.
-        for input in ["translateX(inf)", "translateX(1e400)", "translateX(1e400px)"] {
+        for input in [
+            "translateX(inf)",
+            "translateX(1e400)",
+            "translateX(1e400px)",
+        ] {
             let StyleTransform::TranslateX(px) = parse_style_transform(input).unwrap() else {
                 panic!("expected TranslateX for {input}");
             };
@@ -2013,7 +2059,10 @@ mod autotest_generated {
         // The match is on `input.trim()` but the error is built from `input`,
         // so the original (untrimmed) slice is what shows up in the message.
         let err = parse_style_backface_visibility("  bogus  ").unwrap_err();
-        assert_eq!(err, CssBackfaceVisibilityParseError::InvalidValue("  bogus  "));
+        assert_eq!(
+            err,
+            CssBackfaceVisibilityParseError::InvalidValue("  bogus  ")
+        );
         assert!(alloc::format!("{err}").contains("  bogus  "));
     }
 
@@ -2275,9 +2324,7 @@ mod autotest_generated {
             CssStyleTransformParseError::InvalidTransform(""),
             CssStyleTransformParseError::InvalidTransform("\u{1F600}"),
             CssStyleTransformParseError::InvalidParenthesis(ParenthesisParseError::EmptyInput),
-            CssStyleTransformParseError::InvalidParenthesis(
-                ParenthesisParseError::UnclosedBraces,
-            ),
+            CssStyleTransformParseError::InvalidParenthesis(ParenthesisParseError::UnclosedBraces),
             CssStyleTransformParseError::InvalidParenthesis(
                 ParenthesisParseError::NoOpeningBraceFound,
             ),
@@ -2305,18 +2352,14 @@ mod autotest_generated {
             },
             CssStyleTransformParseError::NumberParseError("x".parse::<f32>().unwrap_err()),
             CssStyleTransformParseError::NumberParseError("".parse::<f32>().unwrap_err()),
-            CssStyleTransformParseError::PixelValueParseError(
-                CssPixelValueParseError::EmptyString,
-            ),
+            CssStyleTransformParseError::PixelValueParseError(CssPixelValueParseError::EmptyString),
             CssStyleTransformParseError::PixelValueParseError(
                 CssPixelValueParseError::InvalidPixelValue("auto"),
             ),
+            CssStyleTransformParseError::AngleValueParseError(CssAngleValueParseError::EmptyString),
             CssStyleTransformParseError::AngleValueParseError(
-                CssAngleValueParseError::EmptyString,
+                CssAngleValueParseError::InvalidAngle(""),
             ),
-            CssStyleTransformParseError::AngleValueParseError(CssAngleValueParseError::InvalidAngle(
-                "",
-            )),
             CssStyleTransformParseError::PercentageValueParseError(
                 PercentageParseError::NoPercentSign,
             ),
@@ -2512,7 +2555,10 @@ mod app_region_tests {
     #[test]
     fn drag_and_no_drag_parse_and_round_trip() {
         assert_eq!(parse_style_app_region("drag"), Ok(StyleAppRegion::Drag));
-        assert_eq!(parse_style_app_region(" no-drag "), Ok(StyleAppRegion::NoDrag));
+        assert_eq!(
+            parse_style_app_region(" no-drag "),
+            Ok(StyleAppRegion::NoDrag)
+        );
         // `none` is what someone reaches for after writing `-webkit-app-region:
         // none` out of habit; accept it rather than silently dropping the rule.
         assert_eq!(parse_style_app_region("none"), Ok(StyleAppRegion::NoDrag));

@@ -2,7 +2,8 @@
 
 use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     props::{
         basic::*,
@@ -78,7 +79,8 @@ static LABEL_STYLE_OTHER: &[CssPropertyWithConditions] = &[];
 impl Label {
     /// Creates a new label with the given text and platform-specific default styling.
     #[inline]
-    #[must_use] pub fn create(string: AzString) -> Self {
+    #[must_use]
+    pub fn create(string: AzString) -> Self {
         Self {
             string,
             #[cfg(target_os = "windows")]
@@ -108,7 +110,8 @@ impl Label {
     /// inline-level and owns no rect, so every box-model property here would
     /// be inert on a raw text node.
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         static LABEL_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-label"))];
 
@@ -184,7 +187,12 @@ mod autotest_generated {
     /// font size declared in `em`/`%` would resolve against the *parent* font
     /// and make the "platform default" scale with whatever it is dropped into.
     fn px(pv: &PixelValue) -> f32 {
-        assert_eq!(pv.metric, SizeMetric::Px, "label lengths must be absolute px, got {:?}", pv.metric);
+        assert_eq!(
+            pv.metric,
+            SizeMetric::Px,
+            "label lengths must be absolute px, got {:?}",
+            pv.metric
+        );
         pv.number.get()
     }
 
@@ -227,7 +235,11 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
     }
 
     /// The text carried by a text node, looking through the `<p>` block
@@ -294,8 +306,16 @@ mod autotest_generated {
         // up as a shortened or mangled label here first.
         for s in adversarial_strings() {
             let label = Label::create(AzString::from(s.clone()));
-            assert_eq!(label.string.as_str(), s.as_str(), "the string was rewritten");
-            assert_eq!(label.string.len(), s.len(), "byte length changed (NUL truncation?)");
+            assert_eq!(
+                label.string.as_str(),
+                s.as_str(),
+                "the string was rewritten"
+            );
+            assert_eq!(
+                label.string.len(),
+                s.len(),
+                "byte length changed (NUL truncation?)"
+            );
             assert_eq!(
                 label.string.chars().count(),
                 s.chars().count(),
@@ -311,8 +331,15 @@ mod autotest_generated {
         // merge them and break byte-exact round-trips through FFI.
         let angstrom = Label::create(AzString::from("\u{212B}".to_string()));
         let a_ring = Label::create(AzString::from("\u{C5}".to_string()));
-        assert_ne!(angstrom.string, a_ring.string, "the two forms were normalised into one");
-        assert_eq!(angstrom.string.len(), 3, "U+212B must stay a 3-byte sequence");
+        assert_ne!(
+            angstrom.string, a_ring.string,
+            "the two forms were normalised into one"
+        );
+        assert_eq!(
+            angstrom.string.len(),
+            3,
+            "U+212B must stay a 3-byte sequence"
+        );
         assert_eq!(a_ring.string.len(), 2, "U+00C5 must stay a 2-byte sequence");
     }
 
@@ -321,7 +348,10 @@ mod autotest_generated {
         let label = Label::create(AzString::from_const_str("hello"));
         assert_eq!(
             properties(&label.label_style),
-            expected_table().iter().map(|p| p.property.clone()).collect::<Vec<_>>(),
+            expected_table()
+                .iter()
+                .map(|p| p.property.clone())
+                .collect::<Vec<_>>(),
             "the constructor picked the wrong platform style table"
         );
         assert_eq!(font_size_px(&label.label_style), expected_font_size());
@@ -333,19 +363,38 @@ mod autotest_generated {
         // different strings must carry byte-identical styling.
         let a = Label::create(AzString::from_const_str(""));
         let b = Label::create(AzString::from("x".repeat(100_000)));
-        assert_eq!(a.label_style, b.label_style, "the style varies with the label text");
-        assert_same_label(&a, &Label::create(AzString::from_const_str("")), "repeat construction");
+        assert_eq!(
+            a.label_style, b.label_style,
+            "the style varies with the label text"
+        );
+        assert_same_label(
+            &a,
+            &Label::create(AzString::from_const_str("")),
+            "repeat construction",
+        );
     }
 
     #[test]
     fn constructed_style_vec_has_consistent_length_and_capacity() {
         let v = Label::create(AzString::from_const_str("hi")).label_style;
-        assert_eq!(v.len(), v.as_ref().len(), "len() disagrees with the slice view");
-        assert!(v.capacity() >= v.len(), "capacity {} < len {}", v.capacity(), v.len());
+        assert_eq!(
+            v.len(),
+            v.as_ref().len(),
+            "len() disagrees with the slice view"
+        );
+        assert!(
+            v.capacity() >= v.len(),
+            "capacity {} < len {}",
+            v.capacity(),
+            v.len()
+        );
         if target_is_styled() {
             assert_eq!(v.len(), DECL_COUNT, "unexpected number of declarations");
         } else {
-            assert!(v.is_empty(), "unsupported platforms are documented to get no styling");
+            assert!(
+                v.is_empty(),
+                "unsupported platforms are documented to get no styling"
+            );
         }
     }
 
@@ -359,12 +408,28 @@ mod autotest_generated {
         let expected_props = properties(&base.label_style);
         for round in 0..1000 {
             let c = base.clone();
-            assert_eq!(c.string.as_str(), "churn \u{1F600}", "clone {round}: the string diverged");
-            assert_eq!(properties(&c.label_style), expected_props, "clone {round}: the style diverged");
+            assert_eq!(
+                c.string.as_str(),
+                "churn \u{1F600}",
+                "clone {round}: the string diverged"
+            );
+            assert_eq!(
+                properties(&c.label_style),
+                expected_props,
+                "clone {round}: the style diverged"
+            );
             drop(c);
         }
-        assert_eq!(base.string.as_str(), "churn \u{1F600}", "the original string was damaged");
-        assert_eq!(properties(&base.label_style), expected_props, "the original style was damaged");
+        assert_eq!(
+            base.string.as_str(),
+            "churn \u{1F600}",
+            "the original string was damaged"
+        );
+        assert_eq!(
+            properties(&base.label_style),
+            expected_props,
+            "the original style was damaged"
+        );
         assert_eq!(
             properties(&Label::create(AzString::from_const_str("x")).label_style),
             expected_props,
@@ -380,7 +445,11 @@ mod autotest_generated {
         let base = Label::create(AzString::from_const_str(LABEL_CLASS_NAME));
         for round in 0..1000 {
             let c = base.clone();
-            assert_eq!(c.string.as_str(), LABEL_CLASS_NAME, "clone {round}: static backing corrupted");
+            assert_eq!(
+                c.string.as_str(),
+                LABEL_CLASS_NAME,
+                "clone {round}: static backing corrupted"
+            );
             drop(c);
         }
         assert_eq!(base.string.as_str(), LABEL_CLASS_NAME);
@@ -395,17 +464,31 @@ mod autotest_generated {
         // They are hand-duplicated blocks: a fix applied to one and not the
         // other is the failure mode this file is most exposed to.
         assert_eq!(LABEL_STYLE_DEFAULT.len(), DECL_COUNT);
-        assert_eq!(LABEL_STYLE_MAC.len(), DECL_COUNT, "the two tables have diverged in length");
-        for (i, (d, m)) in LABEL_STYLE_DEFAULT.iter().zip(LABEL_STYLE_MAC.iter()).enumerate() {
+        assert_eq!(
+            LABEL_STYLE_MAC.len(),
+            DECL_COUNT,
+            "the two tables have diverged in length"
+        );
+        for (i, (d, m)) in LABEL_STYLE_DEFAULT
+            .iter()
+            .zip(LABEL_STYLE_MAC.iter())
+            .enumerate()
+        {
             assert_eq!(
                 core::mem::discriminant(&d.property),
                 core::mem::discriminant(&m.property),
                 "declaration {i} is a different property on the two platforms"
             );
             if matches!(d.property, CssProperty::FontSize(_)) {
-                assert_ne!(d.property, m.property, "the two tables were expected to differ in font size");
+                assert_ne!(
+                    d.property, m.property,
+                    "the two tables were expected to differ in font size"
+                );
             } else {
-                assert_eq!(d.property, m.property, "declaration {i} drifted between the two tables");
+                assert_eq!(
+                    d.property, m.property,
+                    "declaration {i} drifted between the two tables"
+                );
             }
         }
     }
@@ -415,7 +498,10 @@ mod autotest_generated {
         // The doc comment promises "no default styling on unsupported
         // platforms"; a stray declaration here would style WASM/FreeBSD
         // differently from everything the other two tables were tuned against.
-        assert!(LABEL_STYLE_OTHER.is_empty(), "the fallback table is no longer empty");
+        assert!(
+            LABEL_STYLE_OTHER.is_empty(),
+            "the fallback table is no longer empty"
+        );
     }
 
     #[test]
@@ -454,14 +540,35 @@ mod autotest_generated {
     fn the_text_colour_is_the_documented_opaque_grey() {
         // The doc comment pins it to #4C4C4C; a translucent label would let the
         // background bleed through the glyphs.
-        assert_eq!(COLOR_4C4C4C, ColorU { r: 76, g: 76, b: 76, a: 255 });
-        assert_eq!(COLOR_4C4C4C.a, 255, "a translucent label lets the background bleed through");
-        assert_eq!(COLOR_4C4C4C.r, COLOR_4C4C4C.g, "the label colour is not neutral grey");
-        assert_eq!(COLOR_4C4C4C.g, COLOR_4C4C4C.b, "the label colour is not neutral grey");
+        assert_eq!(
+            COLOR_4C4C4C,
+            ColorU {
+                r: 76,
+                g: 76,
+                b: 76,
+                a: 255
+            }
+        );
+        assert_eq!(
+            COLOR_4C4C4C.a, 255,
+            "a translucent label lets the background bleed through"
+        );
+        assert_eq!(
+            COLOR_4C4C4C.r, COLOR_4C4C4C.g,
+            "the label colour is not neutral grey"
+        );
+        assert_eq!(
+            COLOR_4C4C4C.g, COLOR_4C4C4C.b,
+            "the label colour is not neutral grey"
+        );
 
         for (name, table) in [("default", LABEL_STYLE_DEFAULT), ("mac", LABEL_STYLE_MAC)] {
             let v = CssPropertyWithConditionsVec::from_const_slice(table);
-            assert_eq!(text_color(&v), Some(COLOR_4C4C4C), "{name}: wrong text colour");
+            assert_eq!(
+                text_color(&v),
+                Some(COLOR_4C4C4C),
+                "{name}: wrong text colour"
+            );
         }
     }
 
@@ -469,13 +576,19 @@ mod autotest_generated {
     fn every_font_size_is_a_finite_positive_absolute_px() {
         // Guard the `isize` -> `PixelValue` fixed-point conversion: a NaN, an
         // infinity, a zero or a negative size must never reach the shaper.
-        for (name, table, want) in [("default", LABEL_STYLE_DEFAULT, 13.0), ("mac", LABEL_STYLE_MAC, 12.0)] {
+        for (name, table, want) in [
+            ("default", LABEL_STYLE_DEFAULT, 13.0),
+            ("mac", LABEL_STYLE_MAC, 12.0),
+        ] {
             let v = CssPropertyWithConditionsVec::from_const_slice(table);
             let size = font_size_px(&v).expect("a label must declare a font size");
             assert!(size.is_finite(), "{name}: non-finite font size {size}");
             assert!(!size.is_nan(), "{name}: NaN font size");
             assert!(size > 0.0, "{name}: a {size}px label is invisible");
-            assert!(size <= 128.0, "{name}: {size}px is implausible for a UI label");
+            assert!(
+                size <= 128.0,
+                "{name}: {size}px is implausible for a UI label"
+            );
             assert_eq!(size, want, "{name}: unexpected font size");
         }
     }
@@ -491,7 +604,10 @@ mod autotest_generated {
 
         // ...and the values that actually landed in the tables are the ones the
         // declarations asked for.
-        let d: Vec<CssProperty> = LABEL_STYLE_DEFAULT.iter().map(|p| p.property.clone()).collect();
+        let d: Vec<CssProperty> = LABEL_STYLE_DEFAULT
+            .iter()
+            .map(|p| p.property.clone())
+            .collect();
         assert!(d.contains(&CssProperty::const_font_size(StyleFontSize::const_px(13))));
         let m: Vec<CssProperty> = LABEL_STYLE_MAC.iter().map(|p| p.property.clone()).collect();
         assert!(m.contains(&CssProperty::const_font_size(StyleFontSize::const_px(12))));
@@ -518,10 +634,22 @@ mod autotest_generated {
         let family_vec: StyleFontFamilyVec = SANS_SERIF_FAMILY;
 
         assert_eq!(SANS_SERIF_STR, "system:ui");
-        assert_eq!(sentinel.as_str(), SANS_SERIF_STR, "the const AzString lost its backing str");
+        assert_eq!(
+            sentinel.as_str(),
+            SANS_SERIF_STR,
+            "the const AzString lost its backing str"
+        );
         assert_eq!(sentinel.as_str().len(), SANS_SERIF_STR.len());
-        assert_eq!(SANS_SERIF_FAMILIES.len(), 1, "the fallback chain changed length");
-        assert_eq!(family_vec.as_ref().len(), 1, "the const vec disagrees with its slice");
+        assert_eq!(
+            SANS_SERIF_FAMILIES.len(),
+            1,
+            "the fallback chain changed length"
+        );
+        assert_eq!(
+            family_vec.as_ref().len(),
+            1,
+            "the const vec disagrees with its slice"
+        );
 
         for (name, table) in [("default", LABEL_STYLE_DEFAULT), ("mac", LABEL_STYLE_MAC)] {
             let v = CssPropertyWithConditionsVec::from_const_slice(table);
@@ -531,7 +659,9 @@ mod autotest_generated {
                 // Pinned as-is: this file spells the UI font as a *named*
                 // family whose name happens to be the `system:ui` sentinel,
                 // not as `StyleFontFamily::SystemType(SystemFontType::Ui)`.
-                StyleFontFamily::System(s) => assert_eq!(s.as_str(), "system:ui", "{name}: wrong family name"),
+                StyleFontFamily::System(s) => {
+                    assert_eq!(s.as_str(), "system:ui", "{name}: wrong family name")
+                }
                 other => panic!("{name}: unexpected font family variant {other:?}"),
             }
         }
@@ -544,13 +674,20 @@ mod autotest_generated {
         for (name, table) in [("default", LABEL_STYLE_DEFAULT), ("mac", LABEL_STYLE_MAC)] {
             let props: Vec<CssProperty> = table.iter().map(|p| p.property.clone()).collect();
             let has = |p: &CssProperty| props.contains(p);
-            assert!(has(&CssProperty::const_display(LayoutDisplay::Flex)), "{name}: not a flex box");
             assert!(
-                has(&CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+                has(&CssProperty::const_display(LayoutDisplay::Flex)),
+                "{name}: not a flex box"
+            );
+            assert!(
+                has(&CssProperty::const_flex_direction(
+                    LayoutFlexDirection::Column
+                )),
                 "{name}: not a column"
             );
             assert!(
-                has(&CssProperty::const_justify_content(LayoutJustifyContent::Center)),
+                has(&CssProperty::const_justify_content(
+                    LayoutJustifyContent::Center
+                )),
                 "{name}: not centred on the main axis"
             );
             assert!(
@@ -575,14 +712,29 @@ mod autotest_generated {
         let taken = label.swap_with_default();
 
         // The returned value is the *original*, intact.
-        assert_eq!(taken.string.as_str(), "original \u{1F600}", "the wrong value was returned");
-        assert_eq!(taken.label_style, expected_style, "the returned label lost its style");
+        assert_eq!(
+            taken.string.as_str(),
+            "original \u{1F600}",
+            "the wrong value was returned"
+        );
+        assert_eq!(
+            taken.label_style, expected_style,
+            "the returned label lost its style"
+        );
 
         // What is left behind is a freshly created empty label — not a hollowed
         // out husk with a dangling string or an empty style vec.
-        assert_eq!(label.string.as_str(), "", "what was left behind is not empty");
+        assert_eq!(
+            label.string.as_str(),
+            "",
+            "what was left behind is not empty"
+        );
         assert!(label.string.is_empty());
-        assert_same_label(&label, &Label::create(AzString::from_const_str("")), "left-behind label");
+        assert_same_label(
+            &label,
+            &Label::create(AzString::from_const_str("")),
+            "left-behind label",
+        );
     }
 
     #[test]
@@ -592,7 +744,11 @@ mod autotest_generated {
         let second = label.swap_with_default();
         assert_eq!(first.string.as_str(), "");
         assert_eq!(second.string.as_str(), "");
-        assert_same_label(&label, &Label::create(AzString::from_const_str("")), "after two swaps");
+        assert_same_label(
+            &label,
+            &Label::create(AzString::from_const_str("")),
+            "after two swaps",
+        );
     }
 
     #[test]
@@ -603,34 +759,63 @@ mod autotest_generated {
         for round in 0..200 {
             let taken = label.swap_with_default();
             if round == 0 {
-                assert_eq!(taken.string.as_str(), "swap me", "round 0: wrong value returned");
+                assert_eq!(
+                    taken.string.as_str(),
+                    "swap me",
+                    "round 0: wrong value returned"
+                );
             } else {
-                assert_eq!(taken.string.as_str(), "", "round {round}: the emptied slot was not empty");
+                assert_eq!(
+                    taken.string.as_str(),
+                    "",
+                    "round {round}: the emptied slot was not empty"
+                );
             }
-            assert_eq!(properties(&taken.label_style), properties(&label.label_style), "round {round}");
-            assert_eq!(label.string.as_str(), "", "round {round}: what was left behind is not empty");
+            assert_eq!(
+                properties(&taken.label_style),
+                properties(&label.label_style),
+                "round {round}"
+            );
+            assert_eq!(
+                label.string.as_str(),
+                "",
+                "round {round}: what was left behind is not empty"
+            );
             drop(taken);
         }
-        assert_same_label(&label, &Label::create(AzString::from_const_str("")), "after 200 swaps");
+        assert_same_label(
+            &label,
+            &Label::create(AzString::from_const_str("")),
+            "after 200 swaps",
+        );
     }
 
     #[test]
     fn swap_with_default_returns_a_custom_style_untouched() {
         // Both fields are `pub`, so a caller can hand-build a label. The swap
         // must hand that style back rather than rewriting it on the way out.
-        let custom = CssPropertyWithConditionsVec::from_vec(vec![CssPropertyWithConditions::simple(
-            CssProperty::const_font_size(StyleFontSize::const_px(42)),
-        )]);
+        let custom =
+            CssPropertyWithConditionsVec::from_vec(vec![CssPropertyWithConditions::simple(
+                CssProperty::const_font_size(StyleFontSize::const_px(42)),
+            )]);
         let mut label = Label {
             string: AzString::from_const_str("custom"),
             label_style: custom,
         };
         let taken = label.swap_with_default();
         assert_eq!(taken.string.as_str(), "custom");
-        assert_eq!(taken.label_style.len(), 1, "the custom style was rewritten on the way out");
+        assert_eq!(
+            taken.label_style.len(),
+            1,
+            "the custom style was rewritten on the way out"
+        );
         assert_eq!(font_size_px(&taken.label_style), Some(42.0));
         // ...and the slot is refilled with the platform default, not the custom one.
-        assert_eq!(font_size_px(&label.label_style), expected_font_size(), "the 42px override survived");
+        assert_eq!(
+            font_size_px(&label.label_style),
+            expected_font_size(),
+            "the 42px override survived"
+        );
     }
 
     #[test]
@@ -638,7 +823,11 @@ mod autotest_generated {
         let huge = "\u{1F600}".repeat(50_000);
         let mut label = Label::create(AzString::from(huge.clone()));
         let taken = label.swap_with_default();
-        assert_eq!(taken.string.len(), huge.len(), "the huge string was truncated on the way out");
+        assert_eq!(
+            taken.string.len(),
+            huge.len(),
+            "the huge string was truncated on the way out"
+        );
         assert_eq!(taken.string.as_str(), huge.as_str());
         assert!(label.string.is_empty());
     }
@@ -653,8 +842,15 @@ mod autotest_generated {
         let expected = properties(&label.label_style);
         let dom = label.dom();
 
-        assert_eq!(text_of(&dom), Some("Hello"), "the label is not a text node, or was mangled");
-        assert!(has_class(&dom, LABEL_CLASS_NAME), "missing the widget class");
+        assert_eq!(
+            text_of(&dom),
+            Some("Hello"),
+            "the label is not a text node, or was mangled"
+        );
+        assert!(
+            has_class(&dom, LABEL_CLASS_NAME),
+            "missing the widget class"
+        );
         assert_eq!(
             dom.root.get_ids_and_classes().as_ref().len(),
             1,
@@ -669,7 +865,10 @@ mod autotest_generated {
             dom.children.as_ref()[0].children.as_ref().is_empty(),
             "the text node itself is a leaf, not a subtree"
         );
-        assert_eq!(dom.estimated_total_children, 1, "the <p> owns exactly its text node");
+        assert_eq!(
+            dom.estimated_total_children, 1,
+            "the <p> owns exactly its text node"
+        );
         // The ONLY sheet a <p> widget carries is the UA-margin reset
         // (`widgets::widget_p_margin_reset`), scoped to the node itself.
         assert_eq!(
@@ -677,8 +876,15 @@ mod autotest_generated {
             1,
             "a label attaches exactly the <p> margin reset, nothing else"
         );
-        assert!(dom.root.callbacks.as_ref().is_empty(), "a static widget must not bind callbacks");
-        assert_eq!(inline_properties(&dom), expected, "the label lost its computed style");
+        assert!(
+            dom.root.callbacks.as_ref().is_empty(),
+            "a static widget must not bind callbacks"
+        );
+        assert_eq!(
+            inline_properties(&dom),
+            expected,
+            "the label lost its computed style"
+        );
     }
 
     #[test]
@@ -688,10 +894,17 @@ mod autotest_generated {
             let t = text_of(&dom).expect("expected a text node");
             assert_eq!(t, s.as_str(), "the label changed on its way into the DOM");
             assert_eq!(t.len(), s.len(), "byte length changed (NUL truncation?)");
-            assert!(has_class(&dom, LABEL_CLASS_NAME), "the class was lost for {s:?}");
+            assert!(
+                has_class(&dom, LABEL_CLASS_NAME),
+                "the class was lost for {s:?}"
+            );
             // The text must never leak into the style, and the style must never
             // vary with the text.
-            assert_eq!(inline_properties(&dom).len(), expected_table().len(), "style varies with the text");
+            assert_eq!(
+                inline_properties(&dom).len(),
+                expected_table().len(),
+                "style varies with the text"
+            );
         }
     }
 
@@ -700,7 +913,11 @@ mod autotest_generated {
         // The empty label is what `swap_with_default` leaves behind, so it is
         // the one input guaranteed to be rendered somewhere.
         let dom = Label::create(AzString::from_const_str("")).dom();
-        assert_eq!(text_of(&dom), Some(""), "the empty label is not a text node");
+        assert_eq!(
+            text_of(&dom),
+            Some(""),
+            "the empty label is not a text node"
+        );
         assert!(has_class(&dom, LABEL_CLASS_NAME));
         assert_eq!(inline_properties(&dom).len(), expected_table().len());
     }
@@ -710,7 +927,9 @@ mod autotest_generated {
         // `dom()` consumes `label_style` as-is. A hand-built label must be
         // rendered with exactly the style it was given — no re-derivation.
         let custom = CssPropertyWithConditionsVec::from_vec(vec![
-            CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(99))),
+            CssPropertyWithConditions::simple(CssProperty::const_font_size(
+                StyleFontSize::const_px(99),
+            )),
             CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Left)),
         ]);
         let dom = Label {
@@ -718,8 +937,15 @@ mod autotest_generated {
             label_style: custom.clone(),
         }
         .dom();
-        assert_eq!(inline_properties(&dom), properties(&custom), "the custom style was rewritten");
-        assert!(has_class(&dom, LABEL_CLASS_NAME), "a hand-built label lost the widget class");
+        assert_eq!(
+            inline_properties(&dom),
+            properties(&custom),
+            "the custom style was rewritten"
+        );
+        assert!(
+            has_class(&dom, LABEL_CLASS_NAME),
+            "a hand-built label lost the widget class"
+        );
         assert_eq!(text_of(&dom), Some("hand built"));
     }
 
@@ -732,7 +958,10 @@ mod autotest_generated {
             label_style: CssPropertyWithConditionsVec::from_const_slice(LABEL_STYLE_OTHER),
         }
         .dom();
-        assert!(inline_properties(&dom).is_empty(), "an empty style vec produced declarations");
+        assert!(
+            inline_properties(&dom).is_empty(),
+            "an empty style vec produced declarations"
+        );
         assert!(has_class(&dom, LABEL_CLASS_NAME));
         assert_eq!(text_of(&dom), Some("bare"));
     }
@@ -753,10 +982,14 @@ mod autotest_generated {
         assert_eq!(name, LABEL_CLASS_NAME);
         assert!(!name.is_empty(), "empty class name");
         assert!(name.is_ascii(), "non-ASCII class name {name:?}");
-        assert!(name.starts_with("__azul-native-"), "unnamespaced class {name:?}");
+        assert!(
+            name.starts_with("__azul-native-"),
+            "unnamespaced class {name:?}"
+        );
         // A space, a dot or a `#` would silently split/re-target the selector.
         assert!(
-            name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+            name.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
             "class name {name:?} contains a CSS-significant character"
         );
     }
@@ -766,7 +999,11 @@ mod autotest_generated {
         // `dom()` sets ids-and-classes *after* the text node is built; a
         // confusion between the two would show up as an extra attribute here.
         let dom = Label::create(AzString::from_const_str(LABEL_CLASS_NAME)).dom();
-        assert_eq!(dom.root.get_ids_and_classes().as_ref().len(), 1, "the text leaked into the class list");
+        assert_eq!(
+            dom.root.get_ids_and_classes().as_ref().len(),
+            1,
+            "the text leaked into the class list"
+        );
         assert_eq!(text_of(&dom), Some(LABEL_CLASS_NAME));
     }
 
@@ -786,11 +1023,17 @@ mod autotest_generated {
         // builds; 1000 build-and-drop rounds would surface a double free.
         for round in 0..1000 {
             let dom = Label::create(AzString::from_const_str("churn")).dom();
-            assert!(has_class(&dom, LABEL_CLASS_NAME), "round {round}: the static class list was corrupted");
+            assert!(
+                has_class(&dom, LABEL_CLASS_NAME),
+                "round {round}: the static class list was corrupted"
+            );
             drop(dom);
         }
         let dom = Label::create(AzString::from_const_str("churn")).dom();
-        assert!(has_class(&dom, LABEL_CLASS_NAME), "the static class list did not survive the churn");
+        assert!(
+            has_class(&dom, LABEL_CLASS_NAME),
+            "the static class list did not survive the churn"
+        );
         assert_eq!(inline_properties(&dom).len(), expected_table().len());
     }
 }

@@ -51,7 +51,7 @@ use crate::{
     timer::TimerCallbackInfo,
 };
 
-use azul_css::props::style::scrollbar::{ScrollPhysics, OverflowScrolling, OverscrollBehavior};
+use azul_css::props::style::scrollbar::{OverflowScrolling, OverscrollBehavior, ScrollPhysics};
 
 /// Maximum number of scroll events processed per timer tick.
 /// Older events beyond this limit are discarded to keep the physics
@@ -217,7 +217,8 @@ pub struct NodeScrollPhysics {
 
 impl ScrollPhysicsState {
     /// Create a new physics state with the shared input queue and global config
-    #[must_use] pub const fn new(input_queue: ScrollInputQueue, scroll_physics: ScrollPhysics) -> Self {
+    #[must_use]
+    pub const fn new(input_queue: ScrollInputQueue, scroll_physics: ScrollPhysics) -> Self {
         Self {
             input_queue,
             node_velocities: BTreeMap::new(),
@@ -283,7 +284,11 @@ impl ScrollPhysicsState {
 pub fn scroll_debug_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var("AZ_SCROLL_DEBUG").map(|v| v == "1").unwrap_or(false))
+    *ON.get_or_init(|| {
+        std::env::var("AZ_SCROLL_DEBUG")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(not(feature = "std"))]
@@ -346,7 +351,8 @@ pub extern "C" fn scroll_physics_timer_callback(
         let elapsed = physics.last_tick.as_ref().map(|prev| {
             // `Duration` here is azul's own (tick- or nanos-backed), so go
             // through `as_nanos` rather than std's `as_secs_f32`.
-            #[allow(clippy::cast_precision_loss)] // a frame gap is far below f32's exact-integer range
+            #[allow(clippy::cast_precision_loss)]
+            // a frame gap is far below f32's exact-integer range
             let ns = timer_info.frame_start.duration_since(prev).as_nanos() as f32;
             ns / 1_000_000_000.0
         });
@@ -517,8 +523,16 @@ pub extern "C" fn scroll_physics_timer_callback(
                                 .entry(key)
                                 .or_insert_with(NodeScrollPhysics::default);
                             np.velocity = LogicalPosition {
-                                x: if over_x.abs() > 0.01 { delta.x / dt } else { 0.0 },
-                                y: if over_y.abs() > 0.01 { delta.y / dt } else { 0.0 },
+                                x: if over_x.abs() > 0.01 {
+                                    delta.x / dt
+                                } else {
+                                    0.0
+                                },
+                                y: if over_y.abs() > 0.01 {
+                                    delta.y / dt
+                                } else {
+                                    0.0
+                                },
                             };
                             np.is_rubber_banding = true;
                             handed_to_spring = true;
@@ -561,8 +575,7 @@ pub extern "C" fn scroll_physics_timer_callback(
                     input.device,
                     ScrollInputDevice::MouseWheel | ScrollInputDevice::Unknown
                 ) {
-                    if let Some(info) =
-                        timer_info.get_scroll_node_info(input.dom_id, input.node_id)
+                    if let Some(info) = timer_info.get_scroll_node_info(input.dom_id, input.node_id)
                     {
                         let base = physics
                             .animate_targets
@@ -600,8 +613,10 @@ pub extern "C" fn scroll_physics_timer_callback(
                     node_physics.velocity.y += input.delta.y * wheel_multiplier * ASSUMED_FPS;
 
                     // Clamp to max velocity
-                    node_physics.velocity.x = node_physics.velocity.x.clamp(-max_velocity, max_velocity);
-                    node_physics.velocity.y = node_physics.velocity.y.clamp(-max_velocity, max_velocity);
+                    node_physics.velocity.x =
+                        node_physics.velocity.x.clamp(-max_velocity, max_velocity);
+                    node_physics.velocity.y =
+                        node_physics.velocity.y.clamp(-max_velocity, max_velocity);
                 }
             }
             ScrollInputSource::Programmatic => {
@@ -659,17 +674,21 @@ pub extern "C" fn scroll_physics_timer_callback(
                     .copied()
                     .or_else(|| physics.pending_positions.get(&key).copied());
                 let already_staged = staged.is_some();
-                let pos = staged
-                    .or_else(|| timer_info.get_scroll_node_info(input.dom_id, input.node_id)
-                        .map(|info| info.current_offset));
+                let pos = staged.or_else(|| {
+                    timer_info
+                        .get_scroll_node_info(input.dom_id, input.node_id)
+                        .map(|info| info.current_offset)
+                });
 
                 if let Some(pos) = pos {
-                    if let Some(info) = timer_info.get_scroll_node_info(input.dom_id, input.node_id) {
+                    if let Some(info) = timer_info.get_scroll_node_info(input.dom_id, input.node_id)
+                    {
                         let overshoot_x = calculate_overshoot(pos.x, 0.0, info.max_scroll_x);
                         let overshoot_y = calculate_overshoot(pos.y, 0.0, info.max_scroll_y);
 
                         if overshoot_x.abs() > 0.01 || overshoot_y.abs() > 0.01 {
-                            let node_phys = physics.node_velocities
+                            let node_phys = physics
+                                .node_velocities
                                 .entry(key)
                                 .or_insert_with(NodeScrollPhysics::default);
                             // A fresh arm starts from rest — the spring-back
@@ -790,8 +809,18 @@ pub extern "C" fn scroll_physics_timer_callback(
         }
 
         // Determine if this node allows rubber-banding
-        let rubber_band_x = node_allows_rubber_band(info.max_scroll_x, info.overscroll_behavior_x, info.overflow_scrolling, overscroll_elasticity);
-        let rubber_band_y = node_allows_rubber_band(info.max_scroll_y, info.overscroll_behavior_y, info.overflow_scrolling, overscroll_elasticity);
+        let rubber_band_x = node_allows_rubber_band(
+            info.max_scroll_x,
+            info.overscroll_behavior_x,
+            info.overflow_scrolling,
+            overscroll_elasticity,
+        );
+        let rubber_band_y = node_allows_rubber_band(
+            info.max_scroll_y,
+            info.overscroll_behavior_y,
+            info.overflow_scrolling,
+            overscroll_elasticity,
+        );
 
         // Calculate current overshoot amounts
         let overshoot_x = calculate_overshoot(info.current_offset.x, 0.0, info.max_scroll_x);
@@ -853,13 +882,19 @@ pub extern "C" fn scroll_physics_timer_callback(
             std::eprintln!(
                 "[az-scroll] TICK node=({:?},{:?}) read=({:.3},{:.3}) vel=({:.3},{:.3}) \
                  disp=({:.3},{:.3}) -> commit=({:.3},{:.3}) target={:?} max=({:.1},{:.1})",
-                dom_id, node_id,
-                info.current_offset.x, info.current_offset.y,
-                node_physics.velocity.x, node_physics.velocity.y,
-                displacement.x, displacement.y,
-                raw_new_x, raw_new_y,
+                dom_id,
+                node_id,
+                info.current_offset.x,
+                info.current_offset.y,
+                node_physics.velocity.x,
+                node_physics.velocity.y,
+                displacement.x,
+                displacement.y,
+                raw_new_x,
+                raw_new_y,
                 seek_target.map(|(t, _)| (t.x, t.y)),
-                info.max_scroll_x, info.max_scroll_y,
+                info.max_scroll_x,
+                info.max_scroll_y,
             );
         }
 
@@ -882,7 +917,13 @@ pub extern "C" fn scroll_physics_timer_callback(
             ),
             None if rubber_band_x && max_overscroll_distance > 0.0 => {
                 // Allow overshoot with diminishing returns (elasticity)
-                rubber_band_clamp(raw_new_x, 0.0, info.max_scroll_x, max_overscroll_distance, overscroll_elasticity)
+                rubber_band_clamp(
+                    raw_new_x,
+                    0.0,
+                    info.max_scroll_x,
+                    max_overscroll_distance,
+                    overscroll_elasticity,
+                )
             }
             None => raw_new_x.clamp(0.0, info.max_scroll_x),
         };
@@ -895,9 +936,13 @@ pub extern "C" fn scroll_physics_timer_callback(
                 max_overscroll_distance,
                 &mut node_physics.velocity.y,
             ),
-            None if rubber_band_y && max_overscroll_distance > 0.0 => {
-                rubber_band_clamp(raw_new_y, 0.0, info.max_scroll_y, max_overscroll_distance, overscroll_elasticity)
-            }
+            None if rubber_band_y && max_overscroll_distance > 0.0 => rubber_band_clamp(
+                raw_new_y,
+                0.0,
+                info.max_scroll_y,
+                max_overscroll_distance,
+                overscroll_elasticity,
+            ),
             None => raw_new_y.clamp(0.0, info.max_scroll_y),
         };
 
@@ -923,7 +968,10 @@ pub extern "C" fn scroll_physics_timer_callback(
             {
                 momentum_handoffs.push((
                     (*dom_id, *node_id),
-                    LogicalPosition { x: node_physics.velocity.x, y: 0.0 },
+                    LogicalPosition {
+                        x: node_physics.velocity.x,
+                        y: 0.0,
+                    },
                 ));
             }
             node_physics.velocity.x = 0.0;
@@ -937,7 +985,10 @@ pub extern "C" fn scroll_physics_timer_callback(
             {
                 momentum_handoffs.push((
                     (*dom_id, *node_id),
-                    LogicalPosition { x: 0.0, y: node_physics.velocity.y },
+                    LogicalPosition {
+                        x: 0.0,
+                        y: node_physics.velocity.y,
+                    },
                 ));
             }
             node_physics.velocity.y = 0.0;
@@ -1046,10 +1097,16 @@ pub extern "C" fn scroll_physics_timer_callback(
     let mut any_changes = false;
 
     // Apply programmatic position changes (hard-clamped to bounds)
-    let direct_positions: Vec<_> = physics.pending_positions.iter().map(|(k, v)| (*k, *v)).collect();
+    let direct_positions: Vec<_> = physics
+        .pending_positions
+        .iter()
+        .map(|(k, v)| (*k, *v))
+        .collect();
     physics.pending_positions.clear();
     for ((dom_id, node_id), position) in direct_positions {
-        let clamped = timer_info.get_scroll_node_info(dom_id, node_id).map_or(position, |info| LogicalPosition {
+        let clamped = timer_info
+            .get_scroll_node_info(dom_id, node_id)
+            .map_or(position, |info| LogicalPosition {
                 x: position.x.clamp(0.0, info.max_scroll_x),
                 y: position.y.clamp(0.0, info.max_scroll_y),
             });
@@ -1060,12 +1117,28 @@ pub extern "C" fn scroll_physics_timer_callback(
 
     // Apply trackpad position changes (rubber-band clamped for elastic overshoot)
     // Uses scroll_to_unclamped because the physics timer does its own rubber-band clamping.
-    let trackpad_positions: Vec<_> = physics.pending_trackpad_positions.iter().map(|(k, v)| (*k, *v)).collect();
+    let trackpad_positions: Vec<_> = physics
+        .pending_trackpad_positions
+        .iter()
+        .map(|(k, v)| (*k, *v))
+        .collect();
     physics.pending_trackpad_positions.clear();
     for ((dom_id, node_id), position) in trackpad_positions {
-        let clamped = timer_info.get_scroll_node_info(dom_id, node_id).map_or(position, |info| {
-                let rubber_x = node_allows_rubber_band(info.max_scroll_x, info.overscroll_behavior_x, info.overflow_scrolling, physics.scroll_physics.overscroll_elasticity);
-                let rubber_y = node_allows_rubber_band(info.max_scroll_y, info.overscroll_behavior_y, info.overflow_scrolling, physics.scroll_physics.overscroll_elasticity);
+        let clamped = timer_info
+            .get_scroll_node_info(dom_id, node_id)
+            .map_or(position, |info| {
+                let rubber_x = node_allows_rubber_band(
+                    info.max_scroll_x,
+                    info.overscroll_behavior_x,
+                    info.overflow_scrolling,
+                    physics.scroll_physics.overscroll_elasticity,
+                );
+                let rubber_y = node_allows_rubber_band(
+                    info.max_scroll_y,
+                    info.overscroll_behavior_y,
+                    info.overflow_scrolling,
+                    physics.scroll_physics.overscroll_elasticity,
+                );
                 let max_over = physics.scroll_physics.max_overscroll_distance;
                 let elasticity = physics.scroll_physics.overscroll_elasticity;
                 LogicalPosition {
@@ -1250,7 +1323,11 @@ fn commit_spring_back(
     max_overscroll: f32,
     velocity: &mut f32,
 ) -> f32 {
-    let boundary = if overshoot_before > 0.0 { max_scroll } else { 0.0 };
+    let boundary = if overshoot_before > 0.0 {
+        max_scroll
+    } else {
+        0.0
+    };
     let crossed = overshoot_after != 0.0 && overshoot_after.signum() != overshoot_before.signum();
     if crossed || overshoot_after.abs() < 0.5 {
         *velocity = 0.0;
@@ -1605,7 +1682,10 @@ mod autotest_generated {
         // and a NaN position is reported as "not overshooting" rather than
         // propagating NaN into the spring force.
         let out = calculate_overshoot(f32::NAN, 0.0, 100.0);
-        assert!(!out.is_nan(), "NaN must not leak out of calculate_overshoot");
+        assert!(
+            !out.is_nan(),
+            "NaN must not leak out of calculate_overshoot"
+        );
         assert_eq!(out, 0.0);
         // A NaN bound, however, does make every position look "in range".
         assert_eq!(calculate_overshoot(1e9, 0.0, f32::NAN), 0.0);
@@ -1614,7 +1694,10 @@ mod autotest_generated {
 
     #[test]
     fn calculate_overshoot_infinite_position_saturates_without_panicking() {
-        assert_eq!(calculate_overshoot(f32::INFINITY, 0.0, 100.0), f32::INFINITY);
+        assert_eq!(
+            calculate_overshoot(f32::INFINITY, 0.0, 100.0),
+            f32::INFINITY
+        );
         assert_eq!(
             calculate_overshoot(f32::NEG_INFINITY, 0.0, 100.0),
             f32::NEG_INFINITY
@@ -1707,12 +1790,12 @@ mod autotest_generated {
         for raw in [110.0_f32, 120.0, 200.0, 400.0, 800.0] {
             let out = rubber_band_clamp(raw, min, max, max_over, elast);
             // Monotonically increasing...
-            assert!(out > previous, "not monotonic at raw={raw}: {out} <= {previous}");
-            // ...but always giving back less than the raw pull (springy resistance).
             assert!(
-                out < raw,
-                "raw={raw} was not resisted at all (got {out})"
+                out > previous,
+                "not monotonic at raw={raw}: {out} <= {previous}"
             );
+            // ...but always giving back less than the raw pull (springy resistance).
+            assert!(out < raw, "raw={raw} was not resisted at all (got {out})");
             previous = out;
         }
     }
@@ -1818,7 +1901,10 @@ mod autotest_generated {
             );
             // This is exactly how the callback uses it: exp(-friction*dt*60).
             let decay = (-friction * dt * ASSUMED_FPS).exp();
-            assert!(decay.is_finite() && decay > 0.0 && decay < 1.0, "rate={rate} -> decay {decay}");
+            assert!(
+                decay.is_finite() && decay > 0.0 && decay < 1.0,
+                "rate={rate} -> decay {decay}"
+            );
         }
     }
 
@@ -1842,7 +1928,10 @@ mod autotest_generated {
         for ms in [50_u32, 100, 200, 300, 400, 500, 1000, 10_000] {
             let k = spring_constant_from_bounce_duration(ms);
             assert!(k.is_finite() && k > 0.0, "ms={ms} -> {k}");
-            assert!(k < previous, "ms={ms}: {k} did not decrease below {previous}");
+            assert!(
+                k < previous,
+                "ms={ms}: {k} did not decrease below {previous}"
+            );
             previous = k;
         }
     }
@@ -1861,10 +1950,22 @@ mod autotest_generated {
     fn spring_constant_damping_term_is_always_finite() {
         // The callback computes `2.0 * spring_k.sqrt()`; a negative or NaN k
         // would make the critical-damping coefficient NaN.
-        for ms in [0_u32, 1, 50, 400, 1000, u32::MAX / 2, u32::MAX - 1, u32::MAX] {
+        for ms in [
+            0_u32,
+            1,
+            50,
+            400,
+            1000,
+            u32::MAX / 2,
+            u32::MAX - 1,
+            u32::MAX,
+        ] {
             let k = spring_constant_from_bounce_duration(ms);
             let damping = 2.0 * k.sqrt();
-            assert!(damping.is_finite() && damping > 0.0, "ms={ms} -> damping {damping}");
+            assert!(
+                damping.is_finite() && damping > 0.0,
+                "ms={ms} -> damping {damping}"
+            );
         }
     }
 
@@ -2069,7 +2170,10 @@ mod autotest_generated {
         state
             .node_velocities
             .insert(key(0), at(LogicalPosition::new(0.0, threshold)));
-        assert!(!state.is_active(), "velocity == threshold must not be active");
+        assert!(
+            !state.is_active(),
+            "velocity == threshold must not be active"
+        );
 
         // A hair above it is.
         state
@@ -2161,26 +2265,32 @@ mod autotest_generated {
     #[test]
     fn callback_with_a_foreign_refany_terminates_instead_of_panicking() {
         let data = RefAny::new(42_u32);
-        with_env(|_| {}, |env| {
-            let ret = env.tick(&data);
-            assert_eq!(ret.should_terminate, TerminateTimer::Terminate);
-            assert_eq!(ret.should_update, Update::DoNothing);
-            assert!(env.take_changes().is_empty());
-        });
+        with_env(
+            |_| {},
+            |env| {
+                let ret = env.tick(&data);
+                assert_eq!(ret.should_terminate, TerminateTimer::Terminate);
+                assert_eq!(ret.should_update, Update::DoNothing);
+                assert!(env.take_changes().is_empty());
+            },
+        );
     }
 
     #[test]
     fn callback_with_nothing_to_do_terminates_the_timer() {
         let (data, _queue) = state_with(ScrollPhysics::default());
-        with_env(|_| {}, |env| {
-            let ret = env.tick(&data);
-            assert_eq!(
-                ret.should_terminate,
-                TerminateTimer::Terminate,
-                "an idle physics timer must not keep spinning"
-            );
-            assert!(env.take_changes().is_empty());
-        });
+        with_env(
+            |_| {},
+            |env| {
+                let ret = env.tick(&data);
+                assert_eq!(
+                    ret.should_terminate,
+                    TerminateTimer::Terminate,
+                    "an idle physics timer must not keep spinning"
+                );
+                assert!(env.take_changes().is_empty());
+            },
+        );
     }
 
     #[test]
@@ -2278,12 +2388,19 @@ mod autotest_generated {
         let (mut data, queue) = state_with(physics);
         // delta * wheel_multiplier * 60 would be 6e10 / -inf without the clamp.
         queue.push(input(0, (1e9, -1e9), ScrollInputSource::WheelDiscrete));
-        queue.push(input(1, (f32::INFINITY, f32::NEG_INFINITY), ScrollInputSource::WheelDiscrete));
+        queue.push(input(
+            1,
+            (f32::INFINITY, f32::NEG_INFINITY),
+            ScrollInputSource::WheelDiscrete,
+        ));
 
-        with_env(|_| {}, |env| {
-            let ret = env.tick(&data);
-            assert_eq!(ret.should_terminate, TerminateTimer::Continue);
-        });
+        with_env(
+            |_| {},
+            |env| {
+                let ret = env.tick(&data);
+                assert_eq!(ret.should_terminate, TerminateTimer::Continue);
+            },
+        );
 
         with_state(&mut data, |state| {
             for idx in [0_usize, 1] {
@@ -2349,25 +2466,28 @@ mod autotest_generated {
             queue.push(input(i, (0.0, 1.0), ScrollInputSource::Programmatic));
         }
 
-        with_env(|_| {}, |env| {
-            let ret = env.tick(&data);
-            assert_eq!(ret.should_terminate, TerminateTimer::Continue);
+        with_env(
+            |_| {},
+            |env| {
+                let ret = env.tick(&data);
+                assert_eq!(ret.should_terminate, TerminateTimer::Continue);
 
-            let scrolls = env.take_scroll_tos();
-            assert_eq!(
-                scrolls.len(),
-                MAX_SCROLL_EVENTS_PER_TICK,
-                "the per-tick event budget must be enforced"
-            );
-            // take_recent keeps the NEWEST events, so the surviving nodes are the
-            // last MAX_SCROLL_EVENTS_PER_TICK that were pushed.
-            for (idx, _, _) in &scrolls {
-                assert!(
-                    *idx >= total - MAX_SCROLL_EVENTS_PER_TICK,
-                    "node {idx} is a stale event that should have been dropped"
+                let scrolls = env.take_scroll_tos();
+                assert_eq!(
+                    scrolls.len(),
+                    MAX_SCROLL_EVENTS_PER_TICK,
+                    "the per-tick event budget must be enforced"
                 );
-            }
-        });
+                // take_recent keeps the NEWEST events, so the surviving nodes are the
+                // last MAX_SCROLL_EVENTS_PER_TICK that were pushed.
+                for (idx, _, _) in &scrolls {
+                    assert!(
+                        *idx >= total - MAX_SCROLL_EVENTS_PER_TICK,
+                        "node {idx} is a stale event that should have been dropped"
+                    );
+                }
+            },
+        );
 
         assert!(
             !queue.has_pending(),
@@ -2380,15 +2500,22 @@ mod autotest_generated {
         // Programmatic: the NaN reaches the change log (the change processor
         // sanitises it via AnimatedScrollState::clamp) but nothing panics.
         let (data, queue) = state_with(ScrollPhysics::default());
-        queue.push(input(0, (f32::NAN, f32::NAN), ScrollInputSource::Programmatic));
+        queue.push(input(
+            0,
+            (f32::NAN, f32::NAN),
+            ScrollInputSource::Programmatic,
+        ));
 
-        with_env(|_| {}, |env| {
-            let ret = env.tick(&data);
-            assert_eq!(ret.should_terminate, TerminateTimer::Continue);
-            let scrolls = env.take_scroll_tos();
-            assert_eq!(scrolls.len(), 1);
-            assert!(scrolls[0].1.x.is_nan() && scrolls[0].1.y.is_nan());
-        });
+        with_env(
+            |_| {},
+            |env| {
+                let ret = env.tick(&data);
+                assert_eq!(ret.should_terminate, TerminateTimer::Continue);
+                let scrolls = env.take_scroll_tos();
+                assert_eq!(scrolls.len(), 1);
+                assert!(scrolls[0].1.x.is_nan() && scrolls[0].1.y.is_nan());
+            },
+        );
     }
 
     #[test]
@@ -2397,13 +2524,20 @@ mod autotest_generated {
         // NaN) so the node is dropped and the timer terminates. Asserted so that a
         // regression into an un-killable NaN velocity loop is caught.
         let (mut data, queue) = state_with(ScrollPhysics::default());
-        queue.push(input(0, (f32::NAN, f32::NAN), ScrollInputSource::WheelDiscrete));
+        queue.push(input(
+            0,
+            (f32::NAN, f32::NAN),
+            ScrollInputSource::WheelDiscrete,
+        ));
 
-        with_env(|_| {}, |env| {
-            let ret = env.tick(&data);
-            assert_eq!(ret.should_terminate, TerminateTimer::Terminate);
-            assert!(env.take_changes().is_empty());
-        });
+        with_env(
+            |_| {},
+            |env| {
+                let ret = env.tick(&data);
+                assert_eq!(ret.should_terminate, TerminateTimer::Terminate);
+                assert!(env.take_changes().is_empty());
+            },
+        );
 
         with_state(&mut data, |state| {
             assert!(state.node_velocities.is_empty());
@@ -2415,11 +2549,14 @@ mod autotest_generated {
         let (data, queue) = state_with(ScrollPhysics::ios());
         queue.push(input(7, (0.0, 0.0), ScrollInputSource::TrackpadEnd));
 
-        with_env(|_| {}, |env| {
-            let ret = env.tick(&data);
-            assert_eq!(ret.should_terminate, TerminateTimer::Terminate);
-            assert!(env.take_changes().is_empty());
-        });
+        with_env(
+            |_| {},
+            |env| {
+                let ret = env.tick(&data);
+                assert_eq!(ret.should_terminate, TerminateTimer::Terminate);
+                assert!(env.take_changes().is_empty());
+            },
+        );
     }
 
     #[test]
@@ -2453,7 +2590,11 @@ mod autotest_generated {
         // `known_bug` tests for why a NaN/negative max_velocity panics).
         let (data, queue) = state_with(nan_physics());
         queue.push(input(0, (10.0, 10.0), ScrollInputSource::WheelDiscrete));
-        queue.push(input(1, (10.0, 10.0), ScrollInputSource::TrackpadContinuous));
+        queue.push(input(
+            1,
+            (10.0, 10.0),
+            ScrollInputSource::TrackpadContinuous,
+        ));
         queue.push(input(2, (10.0, 10.0), ScrollInputSource::Programmatic));
         queue.push(input(3, (10.0, 10.0), ScrollInputSource::TrackpadEnd));
 
@@ -2516,10 +2657,13 @@ mod autotest_generated {
             queue.push(input(0, (0.0, 1e6), ScrollInputSource::WheelDiscrete));
         }
 
-        with_env(|_| {}, |env| {
-            let ret = env.tick(&data);
-            assert_eq!(ret.should_terminate, TerminateTimer::Continue);
-        });
+        with_env(
+            |_| {},
+            |env| {
+                let ret = env.tick(&data);
+                assert_eq!(ret.should_terminate, TerminateTimer::Continue);
+            },
+        );
 
         assert!(!queue.has_pending());
         with_state(&mut data, |state| {
@@ -3365,7 +3509,10 @@ mod autotest_generated {
             ));
             let _ = closed_loop_tick(&mut layout_window, &data);
             let start = offset_of(&layout_window, 1).y;
-            assert!(start > 100.0, "[{name}] the gesture overshoots first: {start}");
+            assert!(
+                start > 100.0,
+                "[{name}] the gesture overshoots first: {start}"
+            );
 
             let mut trace = vec![start];
             for _ in 0..240 {
@@ -3412,28 +3559,50 @@ mod autotest_generated {
 
     /// A (100×100) viewport over (100×200) content — `max_scroll_y = 100` —
     /// parked exactly at its bottom edge by one in-range programmatic scroll.
-    fn window_at_the_bottom_edge(physics: ScrollPhysics) -> (LayoutWindow, RefAny, ScrollInputQueue) {
+    fn window_at_the_bottom_edge(
+        physics: ScrollPhysics,
+    ) -> (LayoutWindow, RefAny, ScrollInputQueue) {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         register_node(&mut layout_window, 1, (100.0, 100.0), (100.0, 200.0));
         let queue = layout_window.scroll_manager.get_input_queue();
         let data = RefAny::new(ScrollPhysicsState::new(queue.clone(), physics));
-        queue.push(input_dev(1, (0.0, 100.0), ScrollInputSource::Programmatic, ScrollInputDevice::Touchpad));
+        queue.push(input_dev(
+            1,
+            (0.0, 100.0),
+            ScrollInputSource::Programmatic,
+            ScrollInputDevice::Touchpad,
+        ));
         let _ = closed_loop_tick(&mut layout_window, &data);
         assert_eq!(offset_of(&layout_window, 1).y, 100.0, "seeded at the edge");
         (layout_window, data, queue)
     }
 
     fn finger(delta_y: f32) -> ScrollInput {
-        input_dev(1, (0.0, delta_y), ScrollInputSource::TrackpadContinuous, ScrollInputDevice::Touchpad)
+        input_dev(
+            1,
+            (0.0, delta_y),
+            ScrollInputSource::TrackpadContinuous,
+            ScrollInputDevice::Touchpad,
+        )
     }
 
     fn momentum(delta_y: f32) -> ScrollInput {
-        input_dev(1, (0.0, delta_y), ScrollInputSource::TrackpadMomentum, ScrollInputDevice::Touchpad)
+        input_dev(
+            1,
+            (0.0, delta_y),
+            ScrollInputSource::TrackpadMomentum,
+            ScrollInputDevice::Touchpad,
+        )
     }
 
     fn lift() -> ScrollInput {
-        input_dev(1, (0.0, 0.0), ScrollInputSource::TrackpadEnd, ScrollInputDevice::Touchpad)
+        input_dev(
+            1,
+            (0.0, 0.0),
+            ScrollInputSource::TrackpadEnd,
+            ScrollInputDevice::Touchpad,
+        )
     }
 
     /// REPORTED (macOS trackpad, 2026-08-25): "it's almost as if the overscroll
@@ -3498,9 +3667,13 @@ mod autotest_generated {
             }
         }
 
-        let rounded: Vec<f32> = overshoots.iter().map(|o| (o * 100.0).round() / 100.0).collect();
+        let rounded: Vec<f32> = overshoots
+            .iter()
+            .map(|o| (o * 100.0).round() / 100.0)
+            .collect();
         assert_eq!(
-            bounces, 1,
+            bounces,
+            1,
             "one flick must bounce exactly ONCE — the momentum tail restarted a \
              landed bounce {} more time(s). overshoot per tick: {rounded:?}",
             bounces - 1
@@ -3527,13 +3700,16 @@ mod autotest_generated {
     /// never terminates or rebuilds the state.
     #[test]
     fn a_held_momentum_latch_keeps_the_physics_timer_alive() {
-        let mut state =
-            ScrollPhysicsState::new(ScrollInputQueue::new(), ScrollPhysics::macos());
+        let mut state = ScrollPhysicsState::new(ScrollInputQueue::new(), ScrollPhysics::macos());
         assert!(!state.is_active(), "an empty state is idle");
 
         state.momentum_latched.insert(
             key(1),
-            MomentumLatch { x: false, y: true, idle: 0 },
+            MomentumLatch {
+                x: false,
+                y: true,
+                idle: 0,
+            },
         );
         assert!(
             state.is_active(),
@@ -3544,7 +3720,10 @@ mod autotest_generated {
         // Once it ages out the timer is free to stop again: the latch cannot
         // pin the pump indefinitely.
         state.momentum_latched.clear();
-        assert!(!state.is_active(), "an expired latch must not pin the timer");
+        assert!(
+            !state.is_active(),
+            "an expired latch must not pin the timer"
+        );
     }
 
     /// The latch must not outlive the tail: a genuinely NEW fling, after the
@@ -3595,11 +3774,17 @@ mod autotest_generated {
         let patterns: [(&str, Vec<usize>); 3] = [
             ("1/tick", vec![1; 20]),
             ("2/tick", vec![2; 10]),
-            ("2,1,2,1", (0..13).map(|i| if i % 2 == 0 { 2 } else { 1 }).collect()),
+            (
+                "2,1,2,1",
+                (0..13).map(|i| if i % 2 == 0 { 2 } else { 1 }).collect(),
+            ),
         ];
         for (name, per_tick) in patterns {
             let total: usize = per_tick.iter().sum();
-            assert_eq!(total, 20, "{name}: every pattern carries the same 20 deltas");
+            assert_eq!(
+                total, 20,
+                "{name}: every pattern carries the same 20 deltas"
+            );
             let (mut lw, data, queue) = window_at_the_bottom_edge(physics);
             let mut trace = vec![offset_of(&lw, 1).y];
             for n in per_tick {
@@ -3625,7 +3810,10 @@ mod autotest_generated {
         }
         let spread = finals.iter().cloned().fold(f32::MIN, f32::max)
             - finals.iter().cloned().fold(f32::MAX, f32::min);
-        assert!(spread < 0.05, "batching must not change the stretch: {finals:?}");
+        assert!(
+            spread < 0.05,
+            "batching must not change the stretch: {finals:?}"
+        );
     }
 
     #[test]
@@ -3655,7 +3843,10 @@ mod autotest_generated {
             step(&mut lw, &[10.0], &mut trace);
         }
         let held = *trace.last().unwrap();
-        assert!((held - (100.0 + band(&physics, 60.0))).abs() < 0.05, "{held}");
+        assert!(
+            (held - (100.0 + band(&physics, 60.0))).abs() < 0.05,
+            "{held}"
+        );
         // The finger rests: empty ticks...
         for _ in 0..3 {
             step(&mut lw, &[], &mut trace);
@@ -3672,7 +3863,10 @@ mod autotest_generated {
             step(&mut lw, &[10.0], &mut trace);
         }
         let end = *trace.last().unwrap();
-        assert!((end - (100.0 + band(&physics, 90.06))).abs() < 0.05, "{end} (trace {trace:?})");
+        assert!(
+            (end - (100.0 + band(&physics, 90.06))).abs() < 0.05,
+            "{end} (trace {trace:?})"
+        );
     }
 
     /// Regression: a rubber-band bounce on ONE axis must not freeze the OTHER
@@ -3688,8 +3882,7 @@ mod autotest_generated {
     #[test]
     fn a_rubber_band_on_one_axis_does_not_freeze_the_other_axis_fling() {
         let physics = ScrollPhysics::macos();
-        let mut lw =
-            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         // Both axes scrollable: a 100x100 viewport over 200x200 content, so
         // max_scroll_x = max_scroll_y = 100.
         register_node(&mut lw, 1, (100.0, 100.0), (200.0, 200.0));
@@ -3891,7 +4084,10 @@ mod autotest_generated {
         }
         let start = offset_of(&lw, 1).y - 100.0;
         assert!((start - band(&physics, 190.0)).abs() < 0.05, "{start}");
-        assert!(start > 35.0, "the stretch must reach tens of px now: {start}");
+        assert!(
+            start > 35.0,
+            "the stretch must reach tens of px now: {start}"
+        );
 
         queue.push(lift());
         let mut trace = Vec::new();
@@ -3900,14 +4096,21 @@ mod autotest_generated {
             trace.push(offset_of(&lw, 1).y - 100.0);
         }
         for (i, w) in trace.windows(2).enumerate() {
-            assert!(w[1] <= w[0] + 1e-3, "not monotone at tick {}: {trace:?}", i + 1);
+            assert!(
+                w[1] <= w[0] + 1e-3,
+                "not monotone at tick {}: {trace:?}",
+                i + 1
+            );
         }
         assert!(
             trace[2] > 0.5 * start,
             "the bounce is {} ms, not a 3-frame snap: {trace:?}",
             physics.bounce_back_duration_ms
         );
-        let landed_at = trace.iter().position(|o| o.abs() < 0.5).expect("the spring lands");
+        let landed_at = trace
+            .iter()
+            .position(|o| o.abs() < 0.5)
+            .expect("the spring lands");
         assert!(
             (10..=36).contains(&landed_at),
             "a {} ms critically-damped bounce lands after ~27 ticks, not {landed_at}: {trace:?}",
@@ -3918,7 +4121,11 @@ mod autotest_generated {
             "the spring must never cross into the content (the old crossing velocity became ~60 px \
              of drift): {trace:?}"
         );
-        assert_eq!(trace[trace.len() - 1], 0.0, "lands EXACTLY on the boundary: {trace:?}");
+        assert_eq!(
+            trace[trace.len() - 1],
+            0.0,
+            "lands EXACTLY on the boundary: {trace:?}"
+        );
     }
 
     #[test]

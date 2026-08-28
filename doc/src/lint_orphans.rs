@@ -72,7 +72,14 @@ fn rs_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
 /// api.json (whose `fn_body` strings are call sites the compiler never sees).
 fn haystack(root: &Path) -> String {
     let mut buf = String::new();
-    for dir in ["dll/src", "layout/src", "core/src", "css/src", "doc/src", "examples"] {
+    for dir in [
+        "dll/src",
+        "layout/src",
+        "core/src",
+        "css/src",
+        "doc/src",
+        "examples",
+    ] {
         let mut files = Vec::new();
         rs_files(&root.join(dir), &mut files);
         for f in files {

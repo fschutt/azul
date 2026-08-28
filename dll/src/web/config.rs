@@ -115,9 +115,15 @@ pub fn parse_web_config(s: &str) -> Result<WebConfig, WebConfigError> {
 
     // `web-prelift://` warms the lift cache then exits before serving; same URL
     // + query syntax as `web://` otherwise.
-    let (rest, prelift) = if s.get(..14).map_or(false, |p| p.eq_ignore_ascii_case("web-prelift://")) {
+    let (rest, prelift) = if s
+        .get(..14)
+        .map_or(false, |p| p.eq_ignore_ascii_case("web-prelift://"))
+    {
         (&s[14..], true)
-    } else if s.get(..6).map_or(false, |p| p.eq_ignore_ascii_case("web://")) {
+    } else if s
+        .get(..6)
+        .map_or(false, |p| p.eq_ignore_ascii_case("web://"))
+    {
         (&s[6..], false)
     } else {
         return Err(WebConfigError::NotWebUrl);
@@ -153,8 +159,7 @@ pub fn parse_web_config(s: &str) -> Result<WebConfig, WebConfigError> {
             if !seen.insert(k.to_string()) {
                 return Err(WebConfigError::DuplicateKey(k.to_string()));
             }
-            let decoded =
-                percent_decode(v).ok_or(WebConfigError::InvalidPercentEncoding)?;
+            let decoded = percent_decode(v).ok_or(WebConfigError::InvalidPercentEncoding)?;
             match k {
                 "tls_cert" => cfg.tls_cert = Some(PathBuf::from(decoded)),
                 "tls_key" => cfg.tls_key = Some(PathBuf::from(decoded)),
@@ -169,9 +174,7 @@ pub fn parse_web_config(s: &str) -> Result<WebConfig, WebConfigError> {
                 }
                 "auth_token" => {
                     if decoded.bytes().any(|b| matches!(b, 0 | b'\n' | b'\r')) {
-                        return Err(WebConfigError::InvalidControlChar(
-                            "auth_token".into(),
-                        ));
+                        return Err(WebConfigError::InvalidControlChar("auth_token".into()));
                     }
                     cfg.auth_token = Some(decoded);
                 }
@@ -336,10 +339,8 @@ mod tests {
 
     #[test]
     fn parse_tls_pair() {
-        let cfg = parse_web_config(
-            "web://127.0.0.1:8443?tls_cert=cert.pem&tls_key=key.pem",
-        )
-        .unwrap();
+        let cfg =
+            parse_web_config("web://127.0.0.1:8443?tls_cert=cert.pem&tls_key=key.pem").unwrap();
         assert_eq!(cfg.tls_cert, Some(PathBuf::from("cert.pem")));
         assert_eq!(cfg.tls_key, Some(PathBuf::from("key.pem")));
     }
@@ -369,8 +370,7 @@ mod tests {
             Err(WebConfigError::MaxBodyOutOfRange)
         );
         // Valid value accepted.
-        let cfg =
-            parse_web_config("web://127.0.0.1:8080?max_body=4194304").unwrap();
+        let cfg = parse_web_config("web://127.0.0.1:8080?max_body=4194304").unwrap();
         assert_eq!(cfg.max_body_bytes, 4 * 1024 * 1024);
         // Default applies when absent.
         let cfg = parse_web_config("web://127.0.0.1:8080").unwrap();
@@ -394,17 +394,14 @@ mod tests {
             Err(WebConfigError::InvalidControlChar("auth_token".into()))
         );
         // Plain printable token accepted.
-        let cfg =
-            parse_web_config("web://127.0.0.1:8080?auth_token=s3cr3t").unwrap();
+        let cfg = parse_web_config("web://127.0.0.1:8080?auth_token=s3cr3t").unwrap();
         assert_eq!(cfg.auth_token.as_deref(), Some("s3cr3t"));
     }
 
     #[test]
     fn parse_duplicate_keys_rejected() {
         assert_eq!(
-            parse_web_config(
-                "web://127.0.0.1:8080?max_body=1024&max_body=2048"
-            ),
+            parse_web_config("web://127.0.0.1:8080?max_body=1024&max_body=2048"),
             Err(WebConfigError::DuplicateKey("max_body".into()))
         );
     }

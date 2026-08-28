@@ -1,12 +1,12 @@
 // In a new file, layout/src/text3/tests4.rs
 
-use azul_core::{
-    geom::LogicalPosition,
-    selection::*,
-};
+use azul_core::{geom::LogicalPosition, selection::*};
 
 use super::{create_mock_font_manager, default_style, MockFontManager};
-use azul_layout::text3::{cache::*, edit::{edit_text, TextEdit}};
+use azul_layout::text3::{
+    cache::*,
+    edit::{edit_text, TextEdit},
+};
 
 #[test]
 fn test_hittest_simple_ltr() {
@@ -15,7 +15,7 @@ fn test_hittest_simple_ltr() {
         text: std::sync::Arc::from("hello"), // h=9, e=8, l=4, l=4, o=9
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(200.0),
@@ -28,8 +28,8 @@ fn test_hittest_simple_ltr() {
         constraints,
     }];
 
-    let layout = super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager)
-        .unwrap();
+    let layout =
+        super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager).unwrap();
     let main_layout = layout.fragment_layouts.get("main").unwrap();
 
     // Hit test near the 'e' character (h is 9px wide)
@@ -63,7 +63,7 @@ fn test_get_selection_rects_single_line() {
         text: std::sync::Arc::from("hello world"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(200.0),
@@ -76,8 +76,8 @@ fn test_get_selection_rects_single_line() {
         constraints,
     }];
 
-    let layout = super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager)
-        .unwrap();
+    let layout =
+        super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager).unwrap();
     let main_layout = layout.fragment_layouts.get("main").unwrap();
 
     let selection = SelectionRange {
@@ -114,7 +114,7 @@ fn create_test_layout() -> (UnifiedLayout, MockFontManager) {
         text: std::sync::Arc::from("hello world second line"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(60.0), // "hello " fits, "world" wraps to next line
@@ -127,8 +127,8 @@ fn create_test_layout() -> (UnifiedLayout, MockFontManager) {
         id: "main".into(),
         constraints,
     }];
-    let layout_result = super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager)
-        .unwrap();
+    let layout_result =
+        super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager).unwrap();
     (
         layout_result
             .fragment_layouts
@@ -250,7 +250,7 @@ fn test_edit_insert_char() {
         text: std::sync::Arc::from("helo"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
 
     let cursor = Selection::Cursor(TextCursor {
@@ -277,7 +277,7 @@ fn test_edit_delete_backward() {
         text: std::sync::Arc::from("hel lo"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
 
     let cursor = Selection::Cursor(TextCursor {
@@ -306,7 +306,7 @@ fn create_test_layout_2() -> (UnifiedLayout, MockFontManager) {
         text: std::sync::Arc::from("hello beautiful world"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(60.0), // "hello " fits, "beautiful" wraps
@@ -319,8 +319,8 @@ fn create_test_layout_2() -> (UnifiedLayout, MockFontManager) {
         id: "main".into(),
         constraints,
     }];
-    let layout_result = super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager)
-        .unwrap();
+    let layout_result =
+        super::layout_flow_compat(&mut cache, &content, &[], &flow_chain, &manager).unwrap();
     (
         layout_result
             .fragment_layouts
@@ -380,7 +380,7 @@ fn test_edit_text_multi_cursor_insert() {
         text: std::sync::Arc::from("cat hat"),
         style: default_style(),
         logical_start_byte: 0,
-            source_node_id: None,
+        source_node_id: None,
     })];
     let selections = vec![
         Selection::Cursor(TextCursor {

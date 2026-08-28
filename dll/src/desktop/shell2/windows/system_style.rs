@@ -15,10 +15,10 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use azul_css::corety::AzString;
 use azul_css::css::Css;
-use azul_css::dynamic_selector::{OsVersion, BoolCondition};
+use azul_css::dynamic_selector::{BoolCondition, OsVersion};
 use azul_css::parser2::new_from_str;
 use azul_css::props::basic::color::{ColorU, OptionColorU};
-use azul_css::system::{defaults, InputMetrics, TextRenderingHints, SubpixelType, Platform, Theme};
+use azul_css::system::{defaults, InputMetrics, Platform, SubpixelType, TextRenderingHints, Theme};
 
 // ── kernel32 functions (always linked on Windows) ────────────────────────
 
@@ -59,11 +59,11 @@ type FnDwmGetColorizationColor = unsafe extern "system" fn(*mut u32, *mut i32) -
 // ── Library wrapper ──────────────────────────────────────────────────────
 
 struct User32 {
-    GetSystemMetrics:      FnGetSystemMetrics,
-    GetDoubleClickTime:    FnGetDoubleClickTime,
-    GetCaretBlinkTime:     FnGetCaretBlinkTime,
+    GetSystemMetrics: FnGetSystemMetrics,
+    GetDoubleClickTime: FnGetDoubleClickTime,
+    GetCaretBlinkTime: FnGetCaretBlinkTime,
     SystemParametersInfoW: FnSystemParametersInfoW,
-    GetSysColor:           FnGetSysColor,
+    GetSysColor: FnGetSysColor,
     _handle: *mut c_void,
 }
 
@@ -71,22 +71,27 @@ impl User32 {
     fn load() -> Option<Self> {
         unsafe {
             let h = LoadLibraryA(b"User32.dll\0".as_ptr());
-            if h.is_null() { return None; }
+            if h.is_null() {
+                return None;
+            }
 
             macro_rules! sym {
                 ($name:ident, $ty:ty) => {{
                     let p = GetProcAddress(h, concat!(stringify!($name), "\0").as_ptr());
-                    if p.is_null() { FreeLibrary(h); return None; }
+                    if p.is_null() {
+                        FreeLibrary(h);
+                        return None;
+                    }
                     core::mem::transmute::<_, $ty>(p)
                 }};
             }
 
             Some(User32 {
-                GetSystemMetrics:      sym!(GetSystemMetrics, FnGetSystemMetrics),
-                GetDoubleClickTime:    sym!(GetDoubleClickTime, FnGetDoubleClickTime),
-                GetCaretBlinkTime:     sym!(GetCaretBlinkTime, FnGetCaretBlinkTime),
+                GetSystemMetrics: sym!(GetSystemMetrics, FnGetSystemMetrics),
+                GetDoubleClickTime: sym!(GetDoubleClickTime, FnGetDoubleClickTime),
+                GetCaretBlinkTime: sym!(GetCaretBlinkTime, FnGetCaretBlinkTime),
                 SystemParametersInfoW: sym!(SystemParametersInfoW, FnSystemParametersInfoW),
-                GetSysColor:           sym!(GetSysColor, FnGetSysColor),
+                GetSysColor: sym!(GetSysColor, FnGetSysColor),
                 _handle: h,
             })
         }
@@ -94,7 +99,11 @@ impl User32 {
 }
 
 impl Drop for User32 {
-    fn drop(&mut self) { unsafe { FreeLibrary(self._handle); } }
+    fn drop(&mut self) {
+        unsafe {
+            FreeLibrary(self._handle);
+        }
+    }
 }
 
 struct Dwmapi {
@@ -106,9 +115,14 @@ impl Dwmapi {
     fn load() -> Option<Self> {
         unsafe {
             let h = LoadLibraryA(b"Dwmapi.dll\0".as_ptr());
-            if h.is_null() { return None; }
+            if h.is_null() {
+                return None;
+            }
             let p = GetProcAddress(h, b"DwmGetColorizationColor\0".as_ptr());
-            if p.is_null() { FreeLibrary(h); return None; }
+            if p.is_null() {
+                FreeLibrary(h);
+                return None;
+            }
             Some(Dwmapi {
                 DwmGetColorizationColor: core::mem::transmute(p),
                 _handle: h,
@@ -118,7 +132,11 @@ impl Dwmapi {
 }
 
 impl Drop for Dwmapi {
-    fn drop(&mut self) { unsafe { FreeLibrary(self._handle); } }
+    fn drop(&mut self) {
+        unsafe {
+            FreeLibrary(self._handle);
+        }
+    }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -148,31 +166,37 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
     unsafe {
         // ── Input metrics ────────────────────────────────────────────
         style.input = InputMetrics {
-            double_click_time_ms:    (u32_lib.GetDoubleClickTime)(),
+            double_click_time_ms: (u32_lib.GetDoubleClickTime)(),
             double_click_distance_px: (u32_lib.GetSystemMetrics)(SM_CXDOUBLECLK) as f32,
-            drag_threshold_px:       (u32_lib.GetSystemMetrics)(SM_CXDRAG) as f32,
-            caret_blink_rate_ms:     (u32_lib.GetCaretBlinkTime)(),
+            drag_threshold_px: (u32_lib.GetSystemMetrics)(SM_CXDRAG) as f32,
+            caret_blink_rate_ms: (u32_lib.GetCaretBlinkTime)(),
             caret_width_px: {
                 let mut w: u32 = 1;
                 (u32_lib.SystemParametersInfoW)(
-                    SPI_GETCARETWIDTH, 0,
-                    &mut w as *mut u32 as *mut c_void, 0,
+                    SPI_GETCARETWIDTH,
+                    0,
+                    &mut w as *mut u32 as *mut c_void,
+                    0,
                 );
                 w as f32
             },
             wheel_scroll_lines: {
                 let mut lines: u32 = 3;
                 (u32_lib.SystemParametersInfoW)(
-                    SPI_GETWHEELSCROLLLINES, 0,
-                    &mut lines as *mut u32 as *mut c_void, 0,
+                    SPI_GETWHEELSCROLLLINES,
+                    0,
+                    &mut lines as *mut u32 as *mut c_void,
+                    0,
                 );
                 lines
             },
             hover_time_ms: {
                 let mut hover: u32 = 400;
                 (u32_lib.SystemParametersInfoW)(
-                    SPI_GETMOUSEHOVERTIME, 0,
-                    &mut hover as *mut u32 as *mut c_void, 0,
+                    SPI_GETMOUSEHOVERTIME,
+                    0,
+                    &mut hover as *mut u32 as *mut c_void,
+                    0,
                 );
                 hover
             },
@@ -182,25 +206,31 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         // COLOR_WINDOW = 5, COLOR_WINDOWTEXT = 8, COLOR_HIGHLIGHT = 13,
         // COLOR_HIGHLIGHTTEXT = 14, COLOR_BTNFACE = 15, COLOR_BTNTEXT = 18,
         // COLOR_GRAYTEXT = 17
-        style.colors.window_background = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 5));
-        style.colors.text              = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 8));
-        style.colors.selection_background = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 13));
-        style.colors.selection_text    = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 14));
-        style.colors.button_face       = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 15));
-        style.colors.button_text       = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 18));
-        style.colors.disabled_text     = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 17));
+        style.colors.window_background =
+            OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 5));
+        style.colors.text = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 8));
+        style.colors.selection_background =
+            OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 13));
+        style.colors.selection_text = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 14));
+        style.colors.button_face = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 15));
+        style.colors.button_text = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 18));
+        style.colors.disabled_text = OptionColorU::Some(color_from_sys(&u32_lib.GetSysColor, 17));
 
         // ── Text rendering hints ─────────────────────────────────────
         {
             let mut smoothing: i32 = 0;
             (u32_lib.SystemParametersInfoW)(
-                SPI_GETFONTSMOOTHING, 0,
-                &mut smoothing as *mut i32 as *mut c_void, 0,
+                SPI_GETFONTSMOOTHING,
+                0,
+                &mut smoothing as *mut i32 as *mut c_void,
+                0,
             );
             let mut smooth_type: u32 = 0;
             (u32_lib.SystemParametersInfoW)(
-                SPI_GETFONTSMOOTHINGTYPE, 0,
-                &mut smooth_type as *mut u32 as *mut c_void, 0,
+                SPI_GETFONTSMOOTHINGTYPE,
+                0,
+                &mut smooth_type as *mut u32 as *mut c_void,
+                0,
             );
             style.text_rendering = TextRenderingHints {
                 font_smoothing_enabled: smoothing != 0,
@@ -223,8 +253,8 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
                 // DwmGetColorizationColor returns 0xAARRGGBB
                 let a = ((colorization >> 24) & 0xFF) as u8;
                 let r = ((colorization >> 16) & 0xFF) as u8;
-                let g = ((colorization >> 8)  & 0xFF) as u8;
-                let b = ( colorization        & 0xFF) as u8;
+                let g = ((colorization >> 8) & 0xFF) as u8;
+                let b = (colorization & 0xFF) as u8;
                 style.colors.accent = OptionColorU::Some(ColorU::new(r, g, b, a));
             }
         }
@@ -245,13 +275,17 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         {
             let mut anim: i32 = 1;
             (u32_lib.SystemParametersInfoW)(
-                SPI_GETCLIENTAREAANIMATION, 0,
-                &mut anim as *mut i32 as *mut c_void, 0,
+                SPI_GETCLIENTAREAANIMATION,
+                0,
+                &mut anim as *mut i32 as *mut c_void,
+                0,
             );
             let mut kb_cues: i32 = 0;
             (u32_lib.SystemParametersInfoW)(
-                SPI_GETKEYBOARDCUES, 0,
-                &mut kb_cues as *mut i32 as *mut c_void, 0,
+                SPI_GETKEYBOARDCUES,
+                0,
+                &mut kb_cues as *mut i32 as *mut c_void,
+                0,
             );
             style.animation = azul_css::system::AnimationMetrics {
                 animations_enabled: anim != 0,
@@ -263,8 +297,7 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
                 },
             };
             if anim == 0 {
-                style.prefers_reduced_motion =
-                    azul_css::dynamic_selector::BoolCondition::True;
+                style.prefers_reduced_motion = azul_css::dynamic_selector::BoolCondition::True;
                 style.accessibility.prefers_reduced_motion = true;
             }
         }
@@ -273,8 +306,10 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
         {
             let mut beep: i32 = 1;
             (u32_lib.SystemParametersInfoW)(
-                SPI_GETBEEP, 0,
-                &mut beep as *mut i32 as *mut c_void, 0,
+                SPI_GETBEEP,
+                0,
+                &mut beep as *mut i32 as *mut c_void,
+                0,
             );
             style.audio = azul_css::system::AudioMetrics {
                 event_sounds_enabled: beep != 0,
@@ -314,11 +349,7 @@ pub(crate) fn discover() -> azul_css::system::SystemStyle {
 
 /// Spawn a subprocess and capture its stdout, returning `Err(())` on
 /// timeout or any other failure.
-fn run_command_with_timeout(
-    program: &str,
-    args: &[&str],
-    timeout_ms: u64,
-) -> Result<String, ()> {
+fn run_command_with_timeout(program: &str, args: &[&str], timeout_ms: u64) -> Result<String, ()> {
     use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
 
@@ -391,7 +422,11 @@ fn discover_windows_cli_extras(style: &mut azul_css::system::SystemStyle) {
             let hex_str = &output[hex_start + 2..];
             let hex_str = hex_str.trim();
             // Take only the hex digits (up to 8 characters)
-            let hex_digits: String = hex_str.chars().take(8).filter(|c| c.is_ascii_hexdigit()).collect();
+            let hex_digits: String = hex_str
+                .chars()
+                .take(8)
+                .filter(|c| c.is_ascii_hexdigit())
+                .collect();
             if let Ok(val) = u32::from_str_radix(&hex_digits, 16) {
                 let a = ((val >> 24) & 0xFF) as u8;
                 let b = ((val >> 16) & 0xFF) as u8;
@@ -432,29 +467,29 @@ fn detect_windows_version() -> OsVersion {
 
     match build {
         22631..=u32::MAX => OsVersion::WIN_11_24H2,
-        22621..=22630    => OsVersion::WIN_11_23H2,
-        22500..=22620    => OsVersion::WIN_11_22H2,
-        22000..=22499    => OsVersion::WIN_11_21H2,
-        19045            => OsVersion::WIN_10_22H2,
-        19044            => OsVersion::WIN_10_21H2,
-        19043            => OsVersion::WIN_10_21H1,
-        19042            => OsVersion::WIN_10_20H2,
-        19041            => OsVersion::WIN_10_2004,
-        18363            => OsVersion::WIN_10_1909,
-        18362            => OsVersion::WIN_10_1903,
-        17763            => OsVersion::WIN_10_1809,
-        17134            => OsVersion::WIN_10_1803,
-        16299            => OsVersion::WIN_10_1709,
-        15063            => OsVersion::WIN_10_1703,
-        14393            => OsVersion::WIN_10_1607,
-        10586            => OsVersion::WIN_10_1511,
-        10240            => OsVersion::WIN_10_1507,
-        9600             => OsVersion::WIN_8_1,
-        9200             => OsVersion::WIN_8,
-        7601             => OsVersion::WIN_7,
-        6002             => OsVersion::WIN_VISTA,
-        2600             => OsVersion::WIN_XP,
-        _                => OsVersion::WIN_10,
+        22621..=22630 => OsVersion::WIN_11_23H2,
+        22500..=22620 => OsVersion::WIN_11_22H2,
+        22000..=22499 => OsVersion::WIN_11_21H2,
+        19045 => OsVersion::WIN_10_22H2,
+        19044 => OsVersion::WIN_10_21H2,
+        19043 => OsVersion::WIN_10_21H1,
+        19042 => OsVersion::WIN_10_20H2,
+        19041 => OsVersion::WIN_10_2004,
+        18363 => OsVersion::WIN_10_1909,
+        18362 => OsVersion::WIN_10_1903,
+        17763 => OsVersion::WIN_10_1809,
+        17134 => OsVersion::WIN_10_1803,
+        16299 => OsVersion::WIN_10_1709,
+        15063 => OsVersion::WIN_10_1703,
+        14393 => OsVersion::WIN_10_1607,
+        10586 => OsVersion::WIN_10_1511,
+        10240 => OsVersion::WIN_10_1507,
+        9600 => OsVersion::WIN_8_1,
+        9200 => OsVersion::WIN_8,
+        7601 => OsVersion::WIN_7,
+        6002 => OsVersion::WIN_VISTA,
+        2600 => OsVersion::WIN_XP,
+        _ => OsVersion::WIN_10,
     }
 }
 
@@ -491,7 +526,11 @@ fn detect_windows_high_contrast() -> BoolCondition {
         2000,
     ) {
         // Flags is a REG_SZ decimal string.  Bit 0 set = high contrast on.
-        if let Some(val) = output.split_whitespace().rev().find_map(|tok| tok.parse::<u32>().ok()) {
+        if let Some(val) = output
+            .split_whitespace()
+            .rev()
+            .find_map(|tok| tok.parse::<u32>().ok())
+        {
             if val & 1 != 0 {
                 return BoolCondition::True;
             }
@@ -558,7 +597,11 @@ fn load_app_specific_stylesheet() -> Option<Css> {
 
     let css_text = std::fs::read_to_string(&css_path).ok()?;
     let (css, _warnings) = new_from_str(&css_text);
-    if css.is_empty() { None } else { Some(css) }
+    if css.is_empty() {
+        None
+    } else {
+        Some(css)
+    }
 }
 
 /// Check for "riced" style overrides from popular Windows customisation tools.
@@ -599,10 +642,7 @@ fn discover_windows_riced_style(style: &mut azul_css::system::SystemStyle) {
 
 /// Minimal JSON-free parser for Windows Terminal settings.json.
 /// Looks for `"background"` and `"foreground"` keys in scheme blocks.
-fn parse_windows_terminal_colors(
-    text: &str,
-    style: &mut azul_css::system::SystemStyle,
-) {
+fn parse_windows_terminal_colors(text: &str, style: &mut azul_css::system::SystemStyle) {
     // Very simple: find "background": "#rrggbb" and "foreground": "#rrggbb"
     if let Some(bg) = extract_json_color(text, "background") {
         style.colors.window_background = OptionColorU::Some(bg);
@@ -614,10 +654,7 @@ fn parse_windows_terminal_colors(
 
 /// Minimal JSON-free parser for pywal colors.json.
 /// Looks for `"background"` and `"foreground"` keys.
-fn parse_pywal_colors(
-    text: &str,
-    style: &mut azul_css::system::SystemStyle,
-) {
+fn parse_pywal_colors(text: &str, style: &mut azul_css::system::SystemStyle) {
     if let Some(bg) = extract_json_color(text, "background") {
         style.colors.window_background = OptionColorU::Some(bg);
     }

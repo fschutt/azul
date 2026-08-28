@@ -171,10 +171,7 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
 
     let takes_self = matches!(func.kind, FunctionKind::Method | FunctionKind::MethodMut);
 
-    let owning_class = prefixed
-        .strip_prefix("Az")
-        .unwrap_or(prefixed)
-        .to_string();
+    let owning_class = prefixed.strip_prefix("Az").unwrap_or(prefixed).to_string();
     let returns_self_type = func
         .return_type
         .as_deref()
@@ -188,7 +185,10 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
         .iter()
         .filter(|a| a.name != "self" && a.name != type_snake)
         .collect();
-    let arg_names: Vec<String> = visible_args.iter().map(|a| perl_arg_name(&a.name)).collect();
+    let arg_names: Vec<String> = visible_args
+        .iter()
+        .map(|a| perl_arg_name(&a.name))
+        .collect();
 
     if takes_self {
         builder.line(&format!("sub {} {{", perl_method));
@@ -222,11 +222,7 @@ fn emit_method(builder: &mut CodeBuilder, func: &FunctionDef, prefixed: &str, ty
             .first()
             .map(|a| matches!(a.ref_kind, ArgRefKind::Owned))
             .unwrap_or(false);
-        let consume_self = if self_by_value {
-            "$$self = undef;"
-        } else {
-            ""
-        };
+        let consume_self = if self_by_value { "$$self = undef;" } else { "" };
         emit_method_body_with_consume(
             builder,
             &call,

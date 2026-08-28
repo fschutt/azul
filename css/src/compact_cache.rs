@@ -18,29 +18,33 @@
 // it for this codec module (false positive for the intent here).
 #![allow(clippy::match_same_arms)]
 
+use crate::css::CssPropertyValue;
+use crate::props::basic::color::ColorU;
+use crate::props::basic::font::{StyleFontStyle, StyleFontWeight};
 use crate::props::basic::length::{FloatValue, SizeMetric};
 use crate::props::basic::pixel::PixelValue;
+use crate::props::layout::dimensions::LayoutBoxSizing;
+use crate::props::layout::display::LayoutFloat;
 use crate::props::layout::{
+    dimensions::{
+        LayoutHeight, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth, LayoutWidth,
+    },
     display::LayoutDisplay,
-    dimensions::{LayoutHeight, LayoutWidth, LayoutMaxHeight, LayoutMaxWidth, LayoutMinHeight, LayoutMinWidth},
     flex::{
         LayoutAlignContent, LayoutAlignItems, LayoutAlignSelf, LayoutFlexDirection, LayoutFlexWrap,
         LayoutJustifyContent,
     },
-    grid::{LayoutGridAutoFlow, LayoutJustifySelf, LayoutJustifyItems},
+    grid::{LayoutGridAutoFlow, LayoutJustifyItems, LayoutJustifySelf},
     overflow::LayoutOverflow,
     position::LayoutPosition,
-    wrapping::{LayoutClear, LayoutWritingMode},
     table::StyleBorderCollapse,
+    wrapping::{LayoutClear, LayoutWritingMode},
 };
-use crate::props::layout::display::LayoutFloat;
-use crate::props::layout::dimensions::LayoutBoxSizing;
-use crate::props::basic::font::{StyleFontStyle, StyleFontWeight};
-use crate::props::basic::color::ColorU;
-use crate::props::style::{StyleTextAlign, StyleVerticalAlign, StyleVisibility, StyleWhiteSpace, StyleDirection};
-use crate::props::style::border::BorderStyle;
 use crate::props::property::{CssProperty, CssPropertyType};
-use crate::css::CssPropertyValue;
+use crate::props::style::border::BorderStyle;
+use crate::props::style::{
+    StyleDirection, StyleTextAlign, StyleVerticalAlign, StyleVisibility, StyleWhiteSpace,
+};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
@@ -54,10 +58,10 @@ pub const U16_SENTINEL: u16 = 0xFFFF;
 pub const U16_SENTINEL_THRESHOLD: u16 = 0xFFF9;
 
 /// i16 sentinel values (for signed resolved-px ×10)
-pub const I16_SENTINEL: i16 = 0x7FFF;       // 32767
-pub const I16_AUTO: i16 = 0x7FFE;           // 32766
-pub const I16_INHERIT: i16 = 0x7FFD;        // 32765
-pub const I16_INITIAL: i16 = 0x7FFC;        // 32764
+pub const I16_SENTINEL: i16 = 0x7FFF; // 32767
+pub const I16_AUTO: i16 = 0x7FFE; // 32766
+pub const I16_INHERIT: i16 = 0x7FFD; // 32765
+pub const I16_INITIAL: i16 = 0x7FFC; // 32764
 /// Any i16 value >= this threshold is a sentinel
 pub const I16_SENTINEL_THRESHOLD: i16 = 0x7FFC; // 32764
 
@@ -124,23 +128,23 @@ pub const VERTICAL_ALIGN_SHIFT: u32 = 49;
 pub const BORDER_COLLAPSE_SHIFT: u32 = 52;
 
 // Bit masks
-pub const DISPLAY_MASK: u64 = 0x1F;     // 5 bits
-pub const POSITION_MASK: u64 = 0x07;    // 3 bits
-pub const FLOAT_MASK: u64 = 0x03;       // 2 bits
-pub const OVERFLOW_MASK: u64 = 0x07;    // 3 bits
-pub const BOX_SIZING_MASK: u64 = 0x01;  // 1 bit
-pub const FLEX_DIR_MASK: u64 = 0x03;    // 2 bits
-pub const FLEX_WRAP_MASK: u64 = 0x03;   // 2 bits
-pub const JUSTIFY_MASK: u64 = 0x07;     // 3 bits
-pub const ALIGN_MASK: u64 = 0x07;       // 3 bits
-pub const WRITING_MODE_MASK: u64 = 0x03;// 2 bits
-pub const CLEAR_MASK: u64 = 0x03;       // 2 bits
+pub const DISPLAY_MASK: u64 = 0x1F; // 5 bits
+pub const POSITION_MASK: u64 = 0x07; // 3 bits
+pub const FLOAT_MASK: u64 = 0x03; // 2 bits
+pub const OVERFLOW_MASK: u64 = 0x07; // 3 bits
+pub const BOX_SIZING_MASK: u64 = 0x01; // 1 bit
+pub const FLEX_DIR_MASK: u64 = 0x03; // 2 bits
+pub const FLEX_WRAP_MASK: u64 = 0x03; // 2 bits
+pub const JUSTIFY_MASK: u64 = 0x07; // 3 bits
+pub const ALIGN_MASK: u64 = 0x07; // 3 bits
+pub const WRITING_MODE_MASK: u64 = 0x03; // 2 bits
+pub const CLEAR_MASK: u64 = 0x03; // 2 bits
 pub const FONT_WEIGHT_MASK: u64 = 0x0F; // 4 bits
-pub const FONT_STYLE_MASK: u64 = 0x03;  // 2 bits
-pub const TEXT_ALIGN_MASK: u64 = 0x07;  // 3 bits
-pub const VISIBILITY_MASK: u64 = 0x03;  // 2 bits
+pub const FONT_STYLE_MASK: u64 = 0x03; // 2 bits
+pub const TEXT_ALIGN_MASK: u64 = 0x07; // 3 bits
+pub const VISIBILITY_MASK: u64 = 0x03; // 2 bits
 pub const WHITE_SPACE_MASK: u64 = 0x07; // 3 bits
-pub const DIRECTION_MASK: u64 = 0x01;   // 1 bit
+pub const DIRECTION_MASK: u64 = 0x01; // 1 bit
 pub const VERTICAL_ALIGN_MASK: u64 = 0x07; // 3 bits
 pub const BORDER_COLLAPSE_MASK: u64 = 0x01; // 1 bit
 
@@ -148,10 +152,10 @@ pub const ALIGN_SELF_SHIFT: u32 = 53;
 pub const JUSTIFY_SELF_SHIFT: u32 = 56;
 pub const GRID_AUTO_FLOW_SHIFT: u32 = 59;
 pub const JUSTIFY_ITEMS_SHIFT: u32 = 61;
-pub const ALIGN_SELF_MASK: u64 = 0x07;     // 3 bits
-pub const JUSTIFY_SELF_MASK: u64 = 0x07;   // 3 bits
+pub const ALIGN_SELF_MASK: u64 = 0x07; // 3 bits
+pub const JUSTIFY_SELF_MASK: u64 = 0x07; // 3 bits
 pub const GRID_AUTO_FLOW_MASK: u64 = 0x03; // 2 bits (row/col × dense)
-pub const JUSTIFY_ITEMS_MASK: u64 = 0x03;  // 2 bits (start/center/end/stretch)
+pub const JUSTIFY_ITEMS_MASK: u64 = 0x03; // 2 bits (start/center/end/stretch)
 
 /// Special value stored in the spare bits [63:51] to indicate this node has
 /// NO tier-1 data (i.e., all defaults).
@@ -170,9 +174,10 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 /// Value 31 (0x1F) = sentinel: look up in slow path for uncommon values.
 /// Returns default (Block) on invalid input.
 #[inline]
-#[must_use] pub const fn layout_display_from_u8(v: u8) -> LayoutDisplay {
+#[must_use]
+pub const fn layout_display_from_u8(v: u8) -> LayoutDisplay {
     match v {
-        0 => LayoutDisplay::Block,        // default when bits are 0
+        0 => LayoutDisplay::Block, // default when bits are 0
         1 => LayoutDisplay::Inline,
         2 => LayoutDisplay::InlineBlock,
         3 => LayoutDisplay::Flex,
@@ -201,9 +206,10 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Encode display to u8. **0 = Block** (most common HTML default).
 #[inline]
-#[must_use] pub const fn layout_display_to_u8(v: LayoutDisplay) -> u8 {
+#[must_use]
+pub const fn layout_display_to_u8(v: LayoutDisplay) -> u8 {
     match v {
-        LayoutDisplay::Block => 0,         // 0 = default when bits unset
+        LayoutDisplay::Block => 0, // 0 = default when bits unset
         LayoutDisplay::Inline => 1,
         LayoutDisplay::InlineBlock => 2,
         LayoutDisplay::Flex => 3,
@@ -230,7 +236,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_position_from_u8(v: u8) -> LayoutPosition {
+#[must_use]
+pub const fn layout_position_from_u8(v: u8) -> LayoutPosition {
     match v {
         0 => LayoutPosition::Static,
         1 => LayoutPosition::Relative,
@@ -242,7 +249,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_position_to_u8(v: LayoutPosition) -> u8 {
+#[must_use]
+pub const fn layout_position_to_u8(v: LayoutPosition) -> u8 {
     match v {
         LayoutPosition::Static => 0,
         LayoutPosition::Relative => 1,
@@ -254,9 +262,10 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Decode float from u8. **0 = None** (CSS initial value).
 #[inline]
-#[must_use] pub const fn layout_float_from_u8(v: u8) -> LayoutFloat {
+#[must_use]
+pub const fn layout_float_from_u8(v: u8) -> LayoutFloat {
     match v {
-        0 => LayoutFloat::None,            // default when bits unset
+        0 => LayoutFloat::None, // default when bits unset
         1 => LayoutFloat::Left,
         2 => LayoutFloat::Right,
         _ => LayoutFloat::None,
@@ -265,7 +274,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Encode float to u8. **0 = None** (CSS initial value).
 #[inline]
-#[must_use] pub const fn layout_float_to_u8(v: LayoutFloat) -> u8 {
+#[must_use]
+pub const fn layout_float_to_u8(v: LayoutFloat) -> u8 {
     match v {
         LayoutFloat::None => 0,
         LayoutFloat::Left => 1,
@@ -275,9 +285,10 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Decode overflow from u8. **0 = Visible** (CSS initial value).
 #[inline]
-#[must_use] pub const fn layout_overflow_from_u8(v: u8) -> LayoutOverflow {
+#[must_use]
+pub const fn layout_overflow_from_u8(v: u8) -> LayoutOverflow {
     match v {
-        0 => LayoutOverflow::Visible,      // default when bits unset
+        0 => LayoutOverflow::Visible, // default when bits unset
         1 => LayoutOverflow::Hidden,
         2 => LayoutOverflow::Scroll,
         3 => LayoutOverflow::Auto,
@@ -288,9 +299,10 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Encode overflow to u8. **0 = Visible** (CSS initial value).
 #[inline]
-#[must_use] pub const fn layout_overflow_to_u8(v: LayoutOverflow) -> u8 {
+#[must_use]
+pub const fn layout_overflow_to_u8(v: LayoutOverflow) -> u8 {
     match v {
-        LayoutOverflow::Visible => 0,      // 0 = default when bits unset
+        LayoutOverflow::Visible => 0, // 0 = default when bits unset
         LayoutOverflow::Hidden => 1,
         LayoutOverflow::Scroll => 2,
         LayoutOverflow::Auto => 3,
@@ -299,7 +311,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_box_sizing_from_u8(v: u8) -> LayoutBoxSizing {
+#[must_use]
+pub const fn layout_box_sizing_from_u8(v: u8) -> LayoutBoxSizing {
     match v {
         0 => LayoutBoxSizing::ContentBox,
         1 => LayoutBoxSizing::BorderBox,
@@ -308,7 +321,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_box_sizing_to_u8(v: LayoutBoxSizing) -> u8 {
+#[must_use]
+pub const fn layout_box_sizing_to_u8(v: LayoutBoxSizing) -> u8 {
     match v {
         LayoutBoxSizing::ContentBox => 0,
         LayoutBoxSizing::BorderBox => 1,
@@ -316,7 +330,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_flex_direction_from_u8(v: u8) -> LayoutFlexDirection {
+#[must_use]
+pub const fn layout_flex_direction_from_u8(v: u8) -> LayoutFlexDirection {
     match v {
         0 => LayoutFlexDirection::Row,
         1 => LayoutFlexDirection::RowReverse,
@@ -327,7 +342,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_flex_direction_to_u8(v: LayoutFlexDirection) -> u8 {
+#[must_use]
+pub const fn layout_flex_direction_to_u8(v: LayoutFlexDirection) -> u8 {
     match v {
         LayoutFlexDirection::Row => 0,
         LayoutFlexDirection::RowReverse => 1,
@@ -338,9 +354,10 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// 0 = `NoWrap` (CSS initial value for flex-wrap)
 #[inline]
-#[must_use] pub const fn layout_flex_wrap_from_u8(v: u8) -> LayoutFlexWrap {
+#[must_use]
+pub const fn layout_flex_wrap_from_u8(v: u8) -> LayoutFlexWrap {
     match v {
-        0 => LayoutFlexWrap::NoWrap,       // CSS initial
+        0 => LayoutFlexWrap::NoWrap, // CSS initial
         1 => LayoutFlexWrap::Wrap,
         2 => LayoutFlexWrap::WrapReverse,
         _ => LayoutFlexWrap::NoWrap,
@@ -348,7 +365,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_flex_wrap_to_u8(v: LayoutFlexWrap) -> u8 {
+#[must_use]
+pub const fn layout_flex_wrap_to_u8(v: LayoutFlexWrap) -> u8 {
     match v {
         LayoutFlexWrap::NoWrap => 0,
         LayoutFlexWrap::Wrap => 1,
@@ -357,7 +375,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_justify_content_from_u8(v: u8) -> LayoutJustifyContent {
+#[must_use]
+pub const fn layout_justify_content_from_u8(v: u8) -> LayoutJustifyContent {
     match v {
         0 => LayoutJustifyContent::FlexStart,
         1 => LayoutJustifyContent::FlexEnd,
@@ -372,7 +391,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_justify_content_to_u8(v: LayoutJustifyContent) -> u8 {
+#[must_use]
+pub const fn layout_justify_content_to_u8(v: LayoutJustifyContent) -> u8 {
     match v {
         LayoutJustifyContent::FlexStart => 0,
         LayoutJustifyContent::FlexEnd => 1,
@@ -386,7 +406,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_align_items_from_u8(v: u8) -> LayoutAlignItems {
+#[must_use]
+pub const fn layout_align_items_from_u8(v: u8) -> LayoutAlignItems {
     match v {
         0 => LayoutAlignItems::Stretch,
         1 => LayoutAlignItems::Center,
@@ -398,7 +419,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_align_items_to_u8(v: LayoutAlignItems) -> u8 {
+#[must_use]
+pub const fn layout_align_items_to_u8(v: LayoutAlignItems) -> u8 {
     match v {
         LayoutAlignItems::Stretch => 0,
         LayoutAlignItems::Center => 1,
@@ -409,7 +431,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_align_self_to_u8(v: LayoutAlignSelf) -> u8 {
+#[must_use]
+pub const fn layout_align_self_to_u8(v: LayoutAlignSelf) -> u8 {
     match v {
         LayoutAlignSelf::Auto => 0,
         LayoutAlignSelf::Stretch => 1,
@@ -421,7 +444,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_align_self_from_u8(v: u8) -> LayoutAlignSelf {
+#[must_use]
+pub const fn layout_align_self_from_u8(v: u8) -> LayoutAlignSelf {
     match v {
         0 => LayoutAlignSelf::Auto,
         1 => LayoutAlignSelf::Stretch,
@@ -434,7 +458,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_justify_self_to_u8(v: LayoutJustifySelf) -> u8 {
+#[must_use]
+pub const fn layout_justify_self_to_u8(v: LayoutJustifySelf) -> u8 {
     match v {
         LayoutJustifySelf::Auto => 0,
         LayoutJustifySelf::Start => 1,
@@ -445,7 +470,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_justify_self_from_u8(v: u8) -> LayoutJustifySelf {
+#[must_use]
+pub const fn layout_justify_self_from_u8(v: u8) -> LayoutJustifySelf {
     match v {
         0 => LayoutJustifySelf::Auto,
         1 => LayoutJustifySelf::Start,
@@ -463,7 +489,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 // forces taffy to content-size items instead of stretching them across
 // their column tracks — exactly the calc.c regression.
 #[inline]
-#[must_use] pub const fn layout_justify_items_to_u8(v: LayoutJustifyItems) -> u8 {
+#[must_use]
+pub const fn layout_justify_items_to_u8(v: LayoutJustifyItems) -> u8 {
     match v {
         LayoutJustifyItems::Stretch => 0,
         LayoutJustifyItems::Start => 1,
@@ -473,7 +500,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_justify_items_from_u8(v: u8) -> LayoutJustifyItems {
+#[must_use]
+pub const fn layout_justify_items_from_u8(v: u8) -> LayoutJustifyItems {
     match v {
         0 => LayoutJustifyItems::Stretch,
         1 => LayoutJustifyItems::Start,
@@ -484,7 +512,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_grid_auto_flow_to_u8(v: LayoutGridAutoFlow) -> u8 {
+#[must_use]
+pub const fn layout_grid_auto_flow_to_u8(v: LayoutGridAutoFlow) -> u8 {
     match v {
         LayoutGridAutoFlow::Row => 0,
         LayoutGridAutoFlow::Column => 1,
@@ -494,7 +523,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_grid_auto_flow_from_u8(v: u8) -> LayoutGridAutoFlow {
+#[must_use]
+pub const fn layout_grid_auto_flow_from_u8(v: u8) -> LayoutGridAutoFlow {
     match v {
         0 => LayoutGridAutoFlow::Row,
         1 => LayoutGridAutoFlow::Column,
@@ -505,7 +535,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_align_content_from_u8(v: u8) -> LayoutAlignContent {
+#[must_use]
+pub const fn layout_align_content_from_u8(v: u8) -> LayoutAlignContent {
     match v {
         0 => LayoutAlignContent::Stretch,
         1 => LayoutAlignContent::Center,
@@ -518,7 +549,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_align_content_to_u8(v: LayoutAlignContent) -> u8 {
+#[must_use]
+pub const fn layout_align_content_to_u8(v: LayoutAlignContent) -> u8 {
     match v {
         LayoutAlignContent::Stretch => 0,
         LayoutAlignContent::Center => 1,
@@ -530,7 +562,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_writing_mode_from_u8(v: u8) -> LayoutWritingMode {
+#[must_use]
+pub const fn layout_writing_mode_from_u8(v: u8) -> LayoutWritingMode {
     match v {
         0 => LayoutWritingMode::HorizontalTb,
         1 => LayoutWritingMode::VerticalRl,
@@ -540,7 +573,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_writing_mode_to_u8(v: LayoutWritingMode) -> u8 {
+#[must_use]
+pub const fn layout_writing_mode_to_u8(v: LayoutWritingMode) -> u8 {
     match v {
         LayoutWritingMode::HorizontalTb => 0,
         LayoutWritingMode::VerticalRl => 1,
@@ -549,7 +583,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_clear_from_u8(v: u8) -> LayoutClear {
+#[must_use]
+pub const fn layout_clear_from_u8(v: u8) -> LayoutClear {
     match v {
         0 => LayoutClear::None,
         1 => LayoutClear::Left,
@@ -560,7 +595,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn layout_clear_to_u8(v: LayoutClear) -> u8 {
+#[must_use]
+pub const fn layout_clear_to_u8(v: LayoutClear) -> u8 {
     match v {
         LayoutClear::None => 0,
         LayoutClear::Left => 1,
@@ -571,15 +607,16 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 #[inline]
 /// 0 = Normal/400 (CSS initial value for font-weight)
-#[must_use] pub const fn style_font_weight_from_u8(v: u8) -> StyleFontWeight {
+#[must_use]
+pub const fn style_font_weight_from_u8(v: u8) -> StyleFontWeight {
     match v {
-        0 => StyleFontWeight::Normal,     // CSS initial (400)
+        0 => StyleFontWeight::Normal, // CSS initial (400)
         1 => StyleFontWeight::W100,
         2 => StyleFontWeight::W200,
         3 => StyleFontWeight::W300,
         4 => StyleFontWeight::W500,
         5 => StyleFontWeight::W600,
-        6 => StyleFontWeight::Bold,       // 700
+        6 => StyleFontWeight::Bold, // 700
         7 => StyleFontWeight::W800,
         8 => StyleFontWeight::W900,
         9 => StyleFontWeight::Lighter,
@@ -590,15 +627,16 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 #[inline]
 /// 0 = Normal/400 (CSS initial value for font-weight)
-#[must_use] pub const fn style_font_weight_to_u8(v: StyleFontWeight) -> u8 {
+#[must_use]
+pub const fn style_font_weight_to_u8(v: StyleFontWeight) -> u8 {
     match v {
-        StyleFontWeight::Normal => 0,     // CSS initial (400)
+        StyleFontWeight::Normal => 0, // CSS initial (400)
         StyleFontWeight::W100 => 1,
         StyleFontWeight::W200 => 2,
         StyleFontWeight::W300 => 3,
         StyleFontWeight::W500 => 4,
         StyleFontWeight::W600 => 5,
-        StyleFontWeight::Bold => 6,       // 700
+        StyleFontWeight::Bold => 6, // 700
         StyleFontWeight::W800 => 7,
         StyleFontWeight::W900 => 8,
         StyleFontWeight::Lighter => 9,
@@ -607,7 +645,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_font_style_from_u8(v: u8) -> StyleFontStyle {
+#[must_use]
+pub const fn style_font_style_from_u8(v: u8) -> StyleFontStyle {
     match v {
         0 => StyleFontStyle::Normal,
         1 => StyleFontStyle::Italic,
@@ -617,7 +656,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_font_style_to_u8(v: StyleFontStyle) -> u8 {
+#[must_use]
+pub const fn style_font_style_to_u8(v: StyleFontStyle) -> u8 {
     match v {
         StyleFontStyle::Normal => 0,
         StyleFontStyle::Italic => 1,
@@ -626,7 +666,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_text_align_from_u8(v: u8) -> StyleTextAlign {
+#[must_use]
+pub const fn style_text_align_from_u8(v: u8) -> StyleTextAlign {
     // Code 0 must decode to the CSS-initial value so an un-written tier1 field (all
     // zero) yields `start`, not physical `left` — otherwise direction:rtl never
     // right-aligns (start→right needs the value to actually be `start`). `left`
@@ -643,7 +684,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_text_align_to_u8(v: StyleTextAlign) -> u8 {
+#[must_use]
+pub const fn style_text_align_to_u8(v: StyleTextAlign) -> u8 {
     // `start` encodes to 0 (the CSS-initial / zero-baseline code); `left` takes 4.
     match v {
         StyleTextAlign::Start => 0,
@@ -656,7 +698,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_visibility_from_u8(v: u8) -> StyleVisibility {
+#[must_use]
+pub const fn style_visibility_from_u8(v: u8) -> StyleVisibility {
     match v {
         0 => StyleVisibility::Visible,
         1 => StyleVisibility::Hidden,
@@ -666,7 +709,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_visibility_to_u8(v: StyleVisibility) -> u8 {
+#[must_use]
+pub const fn style_visibility_to_u8(v: StyleVisibility) -> u8 {
     match v {
         StyleVisibility::Visible => 0,
         StyleVisibility::Hidden => 1,
@@ -675,7 +719,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_white_space_from_u8(v: u8) -> StyleWhiteSpace {
+#[must_use]
+pub const fn style_white_space_from_u8(v: u8) -> StyleWhiteSpace {
     match v {
         0 => StyleWhiteSpace::Normal,
         1 => StyleWhiteSpace::Pre,
@@ -688,7 +733,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_white_space_to_u8(v: StyleWhiteSpace) -> u8 {
+#[must_use]
+pub const fn style_white_space_to_u8(v: StyleWhiteSpace) -> u8 {
     match v {
         StyleWhiteSpace::Normal => 0,
         StyleWhiteSpace::Pre => 1,
@@ -700,7 +746,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_direction_from_u8(v: u8) -> StyleDirection {
+#[must_use]
+pub const fn style_direction_from_u8(v: u8) -> StyleDirection {
     match v {
         0 => StyleDirection::Ltr,
         1 => StyleDirection::Rtl,
@@ -709,7 +756,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_direction_to_u8(v: StyleDirection) -> u8 {
+#[must_use]
+pub const fn style_direction_to_u8(v: StyleDirection) -> u8 {
     match v {
         StyleDirection::Ltr => 0,
         StyleDirection::Rtl => 1,
@@ -717,7 +765,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_vertical_align_from_u8(v: u8) -> StyleVerticalAlign {
+#[must_use]
+pub const fn style_vertical_align_from_u8(v: u8) -> StyleVerticalAlign {
     match v {
         0 => StyleVerticalAlign::Baseline,
         1 => StyleVerticalAlign::Top,
@@ -732,7 +781,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn style_vertical_align_to_u8(v: StyleVerticalAlign) -> u8 {
+#[must_use]
+pub const fn style_vertical_align_to_u8(v: StyleVerticalAlign) -> u8 {
     match v {
         StyleVerticalAlign::Baseline => 0,
         StyleVerticalAlign::Top => 1,
@@ -750,7 +800,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn border_collapse_from_u8(v: u8) -> StyleBorderCollapse {
+#[must_use]
+pub const fn border_collapse_from_u8(v: u8) -> StyleBorderCollapse {
     match v {
         0 => StyleBorderCollapse::Separate,
         1 => StyleBorderCollapse::Collapse,
@@ -759,7 +810,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn border_collapse_to_u8(v: StyleBorderCollapse) -> u8 {
+#[must_use]
+pub const fn border_collapse_to_u8(v: StyleBorderCollapse) -> u8 {
     match v {
         StyleBorderCollapse::Separate => 0,
         StyleBorderCollapse::Collapse => 1,
@@ -767,7 +819,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn border_style_from_u8(v: u8) -> BorderStyle {
+#[must_use]
+pub const fn border_style_from_u8(v: u8) -> BorderStyle {
     match v {
         0 => BorderStyle::None,
         1 => BorderStyle::Solid,
@@ -784,7 +837,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 }
 
 #[inline]
-#[must_use] pub const fn border_style_to_u8(v: BorderStyle) -> u8 {
+#[must_use]
+pub const fn border_style_to_u8(v: BorderStyle) -> u8 {
     match v {
         BorderStyle::None => 0,
         BorderStyle::Solid => 1,
@@ -801,7 +855,13 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Encode 4 border styles into a u16: [3:0]=top, [7:4]=right, [11:8]=bottom, [15:12]=left
 #[inline]
-#[must_use] pub const fn encode_border_styles_packed(top: BorderStyle, right: BorderStyle, bottom: BorderStyle, left: BorderStyle) -> u16 {
+#[must_use]
+pub const fn encode_border_styles_packed(
+    top: BorderStyle,
+    right: BorderStyle,
+    bottom: BorderStyle,
+    left: BorderStyle,
+) -> u16 {
     (border_style_to_u8(top) as u16)
         | ((border_style_to_u8(right) as u16) << 4)
         | ((border_style_to_u8(bottom) as u16) << 8)
@@ -810,31 +870,36 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Decode border-top-style from packed u16
 #[inline]
-#[must_use] pub const fn decode_border_top_style(packed: u16) -> BorderStyle {
+#[must_use]
+pub const fn decode_border_top_style(packed: u16) -> BorderStyle {
     border_style_from_u8((packed & 0x0F) as u8)
 }
 
 /// Decode border-right-style from packed u16
 #[inline]
-#[must_use] pub const fn decode_border_right_style(packed: u16) -> BorderStyle {
+#[must_use]
+pub const fn decode_border_right_style(packed: u16) -> BorderStyle {
     border_style_from_u8(((packed >> 4) & 0x0F) as u8)
 }
 
 /// Decode border-bottom-style from packed u16
 #[inline]
-#[must_use] pub const fn decode_border_bottom_style(packed: u16) -> BorderStyle {
+#[must_use]
+pub const fn decode_border_bottom_style(packed: u16) -> BorderStyle {
     border_style_from_u8(((packed >> 8) & 0x0F) as u8)
 }
 
 /// Decode border-left-style from packed u16
 #[inline]
-#[must_use] pub const fn decode_border_left_style(packed: u16) -> BorderStyle {
+#[must_use]
+pub const fn decode_border_left_style(packed: u16) -> BorderStyle {
     border_style_from_u8(((packed >> 12) & 0x0F) as u8)
 }
 
 /// Encode a `ColorU` as u32 (0xRRGGBBAA). Returns 0 for sentinel/unset.
 #[inline]
-#[must_use] pub const fn encode_color_u32(c: &ColorU) -> u32 {
+#[must_use]
+pub const fn encode_color_u32(c: &ColorU) -> u32 {
     ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32)
 }
 
@@ -844,8 +909,11 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 /// `0x00000000` and will be decoded as `None` (unset). This is acceptable
 /// because fully transparent black is visually indistinguishable from unset.
 #[inline]
-#[must_use] pub const fn decode_color_u32(v: u32) -> Option<ColorU> {
-    if v == 0 { return None; }
+#[must_use]
+pub const fn decode_color_u32(v: u32) -> Option<ColorU> {
+    if v == 0 {
+        return None;
+    }
     Some(ColorU {
         r: ((v >> 24) & 0xFF) as u8,
         g: ((v >> 16) & 0xFF) as u8,
@@ -860,7 +928,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Pack all 21 enum properties into a single u64.
 #[inline]
-#[must_use] pub const fn encode_tier1(
+#[must_use]
+pub const fn encode_tier1(
     display: LayoutDisplay,
     position: LayoutPosition,
     float: LayoutFloat,
@@ -912,114 +981,136 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 // Each function is `#[inline]` for zero-cost extraction.
 
 #[inline]
-#[must_use] pub const fn decode_display(t1: u64) -> LayoutDisplay {
+#[must_use]
+pub const fn decode_display(t1: u64) -> LayoutDisplay {
     layout_display_from_u8(((t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_position(t1: u64) -> LayoutPosition {
+#[must_use]
+pub const fn decode_position(t1: u64) -> LayoutPosition {
     layout_position_from_u8(((t1 >> POSITION_SHIFT) & POSITION_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_float(t1: u64) -> LayoutFloat {
+#[must_use]
+pub const fn decode_float(t1: u64) -> LayoutFloat {
     layout_float_from_u8(((t1 >> FLOAT_SHIFT) & FLOAT_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_overflow_x(t1: u64) -> LayoutOverflow {
+#[must_use]
+pub const fn decode_overflow_x(t1: u64) -> LayoutOverflow {
     layout_overflow_from_u8(((t1 >> OVERFLOW_X_SHIFT) & OVERFLOW_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_overflow_y(t1: u64) -> LayoutOverflow {
+#[must_use]
+pub const fn decode_overflow_y(t1: u64) -> LayoutOverflow {
     layout_overflow_from_u8(((t1 >> OVERFLOW_Y_SHIFT) & OVERFLOW_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_box_sizing(t1: u64) -> LayoutBoxSizing {
+#[must_use]
+pub const fn decode_box_sizing(t1: u64) -> LayoutBoxSizing {
     layout_box_sizing_from_u8(((t1 >> BOX_SIZING_SHIFT) & BOX_SIZING_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_flex_direction(t1: u64) -> LayoutFlexDirection {
+#[must_use]
+pub const fn decode_flex_direction(t1: u64) -> LayoutFlexDirection {
     layout_flex_direction_from_u8(((t1 >> FLEX_DIRECTION_SHIFT) & FLEX_DIR_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_flex_wrap(t1: u64) -> LayoutFlexWrap {
+#[must_use]
+pub const fn decode_flex_wrap(t1: u64) -> LayoutFlexWrap {
     layout_flex_wrap_from_u8(((t1 >> FLEX_WRAP_SHIFT) & FLEX_WRAP_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_justify_content(t1: u64) -> LayoutJustifyContent {
+#[must_use]
+pub const fn decode_justify_content(t1: u64) -> LayoutJustifyContent {
     layout_justify_content_from_u8(((t1 >> JUSTIFY_CONTENT_SHIFT) & JUSTIFY_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_align_items(t1: u64) -> LayoutAlignItems {
+#[must_use]
+pub const fn decode_align_items(t1: u64) -> LayoutAlignItems {
     layout_align_items_from_u8(((t1 >> ALIGN_ITEMS_SHIFT) & ALIGN_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_align_content(t1: u64) -> LayoutAlignContent {
+#[must_use]
+pub const fn decode_align_content(t1: u64) -> LayoutAlignContent {
     layout_align_content_from_u8(((t1 >> ALIGN_CONTENT_SHIFT) & ALIGN_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_writing_mode(t1: u64) -> LayoutWritingMode {
+#[must_use]
+pub const fn decode_writing_mode(t1: u64) -> LayoutWritingMode {
     layout_writing_mode_from_u8(((t1 >> WRITING_MODE_SHIFT) & WRITING_MODE_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_clear(t1: u64) -> LayoutClear {
+#[must_use]
+pub const fn decode_clear(t1: u64) -> LayoutClear {
     layout_clear_from_u8(((t1 >> CLEAR_SHIFT) & CLEAR_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_font_weight(t1: u64) -> StyleFontWeight {
+#[must_use]
+pub const fn decode_font_weight(t1: u64) -> StyleFontWeight {
     style_font_weight_from_u8(((t1 >> FONT_WEIGHT_SHIFT) & FONT_WEIGHT_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_font_style(t1: u64) -> StyleFontStyle {
+#[must_use]
+pub const fn decode_font_style(t1: u64) -> StyleFontStyle {
     style_font_style_from_u8(((t1 >> FONT_STYLE_SHIFT) & FONT_STYLE_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_text_align(t1: u64) -> StyleTextAlign {
+#[must_use]
+pub const fn decode_text_align(t1: u64) -> StyleTextAlign {
     style_text_align_from_u8(((t1 >> TEXT_ALIGN_SHIFT) & TEXT_ALIGN_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_visibility(t1: u64) -> StyleVisibility {
+#[must_use]
+pub const fn decode_visibility(t1: u64) -> StyleVisibility {
     style_visibility_from_u8(((t1 >> VISIBILITY_SHIFT) & VISIBILITY_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_white_space(t1: u64) -> StyleWhiteSpace {
+#[must_use]
+pub const fn decode_white_space(t1: u64) -> StyleWhiteSpace {
     style_white_space_from_u8(((t1 >> WHITE_SPACE_SHIFT) & WHITE_SPACE_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_direction(t1: u64) -> StyleDirection {
+#[must_use]
+pub const fn decode_direction(t1: u64) -> StyleDirection {
     style_direction_from_u8(((t1 >> DIRECTION_SHIFT) & DIRECTION_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_vertical_align(t1: u64) -> StyleVerticalAlign {
+#[must_use]
+pub const fn decode_vertical_align(t1: u64) -> StyleVerticalAlign {
     style_vertical_align_from_u8(((t1 >> VERTICAL_ALIGN_SHIFT) & VERTICAL_ALIGN_MASK) as u8)
 }
 
 #[inline]
-#[must_use] pub const fn decode_border_collapse(t1: u64) -> StyleBorderCollapse {
+#[must_use]
+pub const fn decode_border_collapse(t1: u64) -> StyleBorderCollapse {
     border_collapse_from_u8(((t1 >> BORDER_COLLAPSE_SHIFT) & BORDER_COLLAPSE_MASK) as u8)
 }
 
 /// Returns true if the tier1 u64 was actually populated by `encode_tier1`.
 #[inline]
 #[cfg(test)]
-#[must_use] pub const fn tier1_is_populated(t1: u64) -> bool {
+#[must_use]
+pub const fn tier1_is_populated(t1: u64) -> bool {
     (t1 & TIER1_POPULATED_BIT) != 0
 }
 
@@ -1038,10 +1129,11 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 ///
 /// Encode a `PixelValue` into u32 with `SizeMetric`. Returns `U32_SENTINEL` if out of range.
 #[inline]
-#[must_use] pub fn encode_pixel_value_u32(pv: &PixelValue) -> u32 {
+#[must_use]
+pub fn encode_pixel_value_u32(pv: &PixelValue) -> u32 {
     let metric = u32::from(size_metric_to_u8(pv.metric));
     let raw = pv.number.number; // already × 1000 (FloatValue internal repr)
-    // 28-bit signed range: -134_217_728 ..= +134_217_727
+                                // 28-bit signed range: -134_217_728 ..= +134_217_727
     if !(-134_217_728..=134_217_727).contains(&raw) {
         return U32_SENTINEL; // overflow → tier 3
     }
@@ -1061,7 +1153,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Decode a u32 back to `PixelValue`. Returns None for sentinel values.
 #[inline]
-#[must_use] pub const fn decode_pixel_value_u32(encoded: u32) -> Option<PixelValue> {
+#[must_use]
+pub const fn decode_pixel_value_u32(encoded: u32) -> Option<PixelValue> {
     if encoded >= U32_SENTINEL_THRESHOLD {
         return None; // sentinel
     }
@@ -1078,7 +1171,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 /// Encode an i16 resolved px value (×10). Returns `I16_SENTINEL` if out of range.
 /// Range: -3276.8 ..= +3276.3 px at 0.1px precision.
 #[inline]
-#[must_use] pub fn encode_resolved_px_i16(px: f32) -> i16 {
+#[must_use]
+pub fn encode_resolved_px_i16(px: f32) -> i16 {
     let scaled = crate::cast::f32_to_i32((px * 10.0).round());
     if scaled < -32768 || scaled > i32::from(I16_SENTINEL_THRESHOLD) - 1 {
         return I16_SENTINEL; // overflow or too large → tier 3
@@ -1088,7 +1182,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Decode an i16 back to resolved px. Returns None for sentinel values.
 #[inline]
-#[must_use] pub fn decode_resolved_px_i16(v: i16) -> Option<f32> {
+#[must_use]
+pub fn decode_resolved_px_i16(v: i16) -> Option<f32> {
     if v >= I16_SENTINEL_THRESHOLD {
         return None;
     }
@@ -1098,7 +1193,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 /// Encode a u16 flex value (×100). Returns `U16_SENTINEL` if out of range.
 /// Range: 0.00 ..= 655.27 at 0.01 precision.
 #[inline]
-#[must_use] pub fn encode_flex_u16(value: f32) -> u16 {
+#[must_use]
+pub fn encode_flex_u16(value: f32) -> u16 {
     let scaled = crate::cast::f32_to_i32((value * 100.0).round());
     if scaled < 0 || scaled >= i32::from(U16_SENTINEL_THRESHOLD) {
         return U16_SENTINEL;
@@ -1108,7 +1204,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// Decode a u16 flex value back to f32. Returns None for sentinel values.
 #[inline]
-#[must_use] pub fn decode_flex_u16(v: u16) -> Option<f32> {
+#[must_use]
+pub fn decode_flex_u16(v: u16) -> Option<f32> {
     if v >= U16_SENTINEL_THRESHOLD {
         return None;
     }
@@ -1117,7 +1214,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// `SizeMetric` → u8 (4 bits, 12 variants)
 #[inline]
-#[must_use] pub const fn size_metric_to_u8(m: SizeMetric) -> u8 {
+#[must_use]
+pub const fn size_metric_to_u8(m: SizeMetric) -> u8 {
     match m {
         SizeMetric::Px => 0,
         SizeMetric::Pt => 1,
@@ -1136,7 +1234,8 @@ pub const TIER1_POPULATED_BIT: u64 = 1 << 63;
 
 /// u8 → `SizeMetric`
 #[inline]
-#[must_use] pub const fn size_metric_from_u8(v: u8) -> SizeMetric {
+#[must_use]
+pub const fn size_metric_from_u8(v: u8) -> SizeMetric {
     match v {
         0 => SizeMetric::Px,
         1 => SizeMetric::Pt,
@@ -1215,7 +1314,7 @@ pub struct CompactNodePropsCold {
     pub border_bottom_right_radius: i16,
 
     // --- Other ---
-    pub z_index: i16,   // range ±32764, sentinel = 0x7FFF
+    pub z_index: i16, // range ±32764, sentinel = 0x7FFF
     /// Border styles packed: [3:0]=top, [7:4]=right, [11:8]=bottom, [15:12]=left
     pub border_styles_packed: u16,
     pub border_spacing_h: i16,
@@ -1397,9 +1496,9 @@ pub struct CompactTextProps {
     /// positive = unitless multiple x 1000 (1.2 / 120% -> 1200).
     /// `I16_SENTINEL` = unset ("normal").
     pub line_height: i16,
-    pub letter_spacing: i16,   // px × 10
-    pub word_spacing: i16,     // px × 10
-    pub text_indent: i16,      // px × 10
+    pub letter_spacing: i16, // px × 10
+    pub word_spacing: i16,   // px × 10
+    pub text_indent: i16,    // px × 10
 }
 
 impl Default for CompactTextProps {
@@ -1482,7 +1581,8 @@ pub struct CompactLayoutCache {
     /// Consumers use this to look up font family names from the compact cache hash
     /// without going through `get_property_slow()` (which fails for inherited values
     /// on text nodes).
-    pub font_hash_to_families: alloc::collections::BTreeMap<u64, crate::props::basic::font::StyleFontFamilyVec>,
+    pub font_hash_to_families:
+        alloc::collections::BTreeMap<u64, crate::props::basic::font::StyleFontFamilyVec>,
     /// True when any node's inline style carries a NON-pseudo dynamic
     /// condition (viewport/@media, theme, OS, container...). The window uses
     /// this to decide whether a `DynamicSelectorContext` change (a resize
@@ -1511,7 +1611,8 @@ pub struct CompactLayoutCache {
 
 impl CompactLayoutCache {
     /// Create an empty cache (no nodes).
-    #[must_use] pub const fn empty() -> Self {
+    #[must_use]
+    pub const fn empty() -> Self {
         Self {
             uses_viewport_units: false,
             tier1_enums: Vec::new(),
@@ -1529,7 +1630,8 @@ impl CompactLayoutCache {
     }
 
     /// Create a cache pre-allocated for `node_count` nodes, filled with defaults.
-    #[must_use] pub fn with_capacity(node_count: usize) -> Self {
+    #[must_use]
+    pub fn with_capacity(node_count: usize) -> Self {
         Self {
             uses_viewport_units: false,
             tier1_enums: vec![0u64; node_count],
@@ -1548,114 +1650,136 @@ impl CompactLayoutCache {
 
     /// Number of nodes in this cache.
     #[inline]
-    #[must_use] pub const fn node_count(&self) -> usize {
+    #[must_use]
+    pub const fn node_count(&self) -> usize {
         self.tier1_enums.len()
     }
 
     // -- Tier 1 getters (enum properties) --
 
     #[inline]
-    #[must_use] pub fn get_display(&self, node_idx: usize) -> LayoutDisplay {
+    #[must_use]
+    pub fn get_display(&self, node_idx: usize) -> LayoutDisplay {
         decode_display(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_position(&self, node_idx: usize) -> LayoutPosition {
+    #[must_use]
+    pub fn get_position(&self, node_idx: usize) -> LayoutPosition {
         decode_position(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_float(&self, node_idx: usize) -> LayoutFloat {
+    #[must_use]
+    pub fn get_float(&self, node_idx: usize) -> LayoutFloat {
         decode_float(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_overflow_x(&self, node_idx: usize) -> LayoutOverflow {
+    #[must_use]
+    pub fn get_overflow_x(&self, node_idx: usize) -> LayoutOverflow {
         decode_overflow_x(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_overflow_y(&self, node_idx: usize) -> LayoutOverflow {
+    #[must_use]
+    pub fn get_overflow_y(&self, node_idx: usize) -> LayoutOverflow {
         decode_overflow_y(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_box_sizing(&self, node_idx: usize) -> LayoutBoxSizing {
+    #[must_use]
+    pub fn get_box_sizing(&self, node_idx: usize) -> LayoutBoxSizing {
         decode_box_sizing(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_flex_direction(&self, node_idx: usize) -> LayoutFlexDirection {
+    #[must_use]
+    pub fn get_flex_direction(&self, node_idx: usize) -> LayoutFlexDirection {
         decode_flex_direction(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_flex_wrap(&self, node_idx: usize) -> LayoutFlexWrap {
+    #[must_use]
+    pub fn get_flex_wrap(&self, node_idx: usize) -> LayoutFlexWrap {
         decode_flex_wrap(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_justify_content(&self, node_idx: usize) -> LayoutJustifyContent {
+    #[must_use]
+    pub fn get_justify_content(&self, node_idx: usize) -> LayoutJustifyContent {
         decode_justify_content(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_align_items(&self, node_idx: usize) -> LayoutAlignItems {
+    #[must_use]
+    pub fn get_align_items(&self, node_idx: usize) -> LayoutAlignItems {
         decode_align_items(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_align_content(&self, node_idx: usize) -> LayoutAlignContent {
+    #[must_use]
+    pub fn get_align_content(&self, node_idx: usize) -> LayoutAlignContent {
         decode_align_content(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_writing_mode(&self, node_idx: usize) -> LayoutWritingMode {
+    #[must_use]
+    pub fn get_writing_mode(&self, node_idx: usize) -> LayoutWritingMode {
         decode_writing_mode(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_clear(&self, node_idx: usize) -> LayoutClear {
+    #[must_use]
+    pub fn get_clear(&self, node_idx: usize) -> LayoutClear {
         decode_clear(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_font_weight(&self, node_idx: usize) -> StyleFontWeight {
+    #[must_use]
+    pub fn get_font_weight(&self, node_idx: usize) -> StyleFontWeight {
         decode_font_weight(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_font_style(&self, node_idx: usize) -> StyleFontStyle {
+    #[must_use]
+    pub fn get_font_style(&self, node_idx: usize) -> StyleFontStyle {
         decode_font_style(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_text_align(&self, node_idx: usize) -> StyleTextAlign {
+    #[must_use]
+    pub fn get_text_align(&self, node_idx: usize) -> StyleTextAlign {
         decode_text_align(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_visibility(&self, node_idx: usize) -> StyleVisibility {
+    #[must_use]
+    pub fn get_visibility(&self, node_idx: usize) -> StyleVisibility {
         decode_visibility(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_white_space(&self, node_idx: usize) -> StyleWhiteSpace {
+    #[must_use]
+    pub fn get_white_space(&self, node_idx: usize) -> StyleWhiteSpace {
         decode_white_space(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_direction(&self, node_idx: usize) -> StyleDirection {
+    #[must_use]
+    pub fn get_direction(&self, node_idx: usize) -> StyleDirection {
         decode_direction(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_vertical_align(&self, node_idx: usize) -> StyleVerticalAlign {
+    #[must_use]
+    pub fn get_vertical_align(&self, node_idx: usize) -> StyleVerticalAlign {
         decode_vertical_align(self.tier1_enums[node_idx])
     }
 
     #[inline]
-    #[must_use] pub fn get_border_collapse(&self, node_idx: usize) -> StyleBorderCollapse {
+    #[must_use]
+    pub fn get_border_collapse(&self, node_idx: usize) -> StyleBorderCollapse {
         decode_border_collapse(self.tier1_enums[node_idx])
     }
 
@@ -1663,319 +1787,386 @@ impl CompactLayoutCache {
 
     /// Get width as encoded u32 (use `decode_pixel_value_u32` or check sentinel).
     #[inline]
-    #[must_use] pub fn get_width_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_width_raw(&self, node_idx: usize) -> u32 {
         self.tier2_dims[node_idx].width
     }
 
     #[inline]
-    #[must_use] pub fn get_height_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_height_raw(&self, node_idx: usize) -> u32 {
         self.tier2_dims[node_idx].height
     }
 
     #[inline]
-    #[must_use] pub fn get_min_width_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_min_width_raw(&self, node_idx: usize) -> u32 {
         self.tier2_dims[node_idx].min_width
     }
 
     #[inline]
-    #[must_use] pub fn get_max_width_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_max_width_raw(&self, node_idx: usize) -> u32 {
         self.tier2_dims[node_idx].max_width
     }
 
     #[inline]
-    #[must_use] pub fn get_min_height_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_min_height_raw(&self, node_idx: usize) -> u32 {
         self.tier2_dims[node_idx].min_height
     }
 
     #[inline]
-    #[must_use] pub fn get_max_height_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_max_height_raw(&self, node_idx: usize) -> u32 {
         self.tier2_dims[node_idx].max_height
     }
 
     #[inline]
-    #[must_use] pub fn get_font_size_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_font_size_raw(&self, node_idx: usize) -> u32 {
         self.tier2_dims[node_idx].font_size
     }
 
     #[inline]
-    #[must_use] pub fn get_flex_basis_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_flex_basis_raw(&self, node_idx: usize) -> u32 {
         self.tier2_dims[node_idx].flex_basis
     }
 
     /// Get padding-top as resolved px. Returns None if sentinel (needs slow path).
     #[inline]
-    #[must_use] pub fn get_padding_top(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_padding_top(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2_dims[node_idx].padding_top)
     }
 
     #[inline]
-    #[must_use] pub fn get_padding_right(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_padding_right(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2_dims[node_idx].padding_right)
     }
 
     #[inline]
-    #[must_use] pub fn get_padding_bottom(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_padding_bottom(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2_dims[node_idx].padding_bottom)
     }
 
     #[inline]
-    #[must_use] pub fn get_padding_left(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_padding_left(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2_dims[node_idx].padding_left)
     }
 
     #[inline]
-    #[must_use] pub fn get_margin_top(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_margin_top(&self, node_idx: usize) -> Option<f32> {
         let v = self.tier2_dims[node_idx].margin_top;
-        if v == I16_AUTO { return None; } // Auto for margin is special
+        if v == I16_AUTO {
+            return None;
+        } // Auto for margin is special
         decode_resolved_px_i16(v)
     }
 
     #[inline]
-    #[must_use] pub fn get_margin_right(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_margin_right(&self, node_idx: usize) -> Option<f32> {
         let v = self.tier2_dims[node_idx].margin_right;
-        if v == I16_AUTO { return None; }
+        if v == I16_AUTO {
+            return None;
+        }
         decode_resolved_px_i16(v)
     }
 
     #[inline]
-    #[must_use] pub fn get_margin_bottom(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_margin_bottom(&self, node_idx: usize) -> Option<f32> {
         let v = self.tier2_dims[node_idx].margin_bottom;
-        if v == I16_AUTO { return None; }
+        if v == I16_AUTO {
+            return None;
+        }
         decode_resolved_px_i16(v)
     }
 
     #[inline]
-    #[must_use] pub fn get_margin_left(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_margin_left(&self, node_idx: usize) -> Option<f32> {
         let v = self.tier2_dims[node_idx].margin_left;
-        if v == I16_AUTO { return None; }
+        if v == I16_AUTO {
+            return None;
+        }
         decode_resolved_px_i16(v)
     }
 
     /// Check if margin is Auto (important for centering logic).
     #[inline]
-    #[must_use] pub fn is_margin_top_auto(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn is_margin_top_auto(&self, node_idx: usize) -> bool {
         self.tier2_dims[node_idx].margin_top == I16_AUTO
     }
 
     #[inline]
-    #[must_use] pub fn is_margin_right_auto(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn is_margin_right_auto(&self, node_idx: usize) -> bool {
         self.tier2_dims[node_idx].margin_right == I16_AUTO
     }
 
     #[inline]
-    #[must_use] pub fn is_margin_bottom_auto(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn is_margin_bottom_auto(&self, node_idx: usize) -> bool {
         self.tier2_dims[node_idx].margin_bottom == I16_AUTO
     }
 
     #[inline]
-    #[must_use] pub fn is_margin_left_auto(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn is_margin_left_auto(&self, node_idx: usize) -> bool {
         self.tier2_dims[node_idx].margin_left == I16_AUTO
     }
 
     #[inline]
-    #[must_use] pub fn get_border_top_width(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_border_top_width(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2_dims[node_idx].border_top_width)
     }
 
     #[inline]
-    #[must_use] pub fn get_border_right_width(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_border_right_width(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2_dims[node_idx].border_right_width)
     }
 
     #[inline]
-    #[must_use] pub fn get_border_bottom_width(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_border_bottom_width(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2_dims[node_idx].border_bottom_width)
     }
 
     #[inline]
-    #[must_use] pub fn get_border_left_width(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_border_left_width(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2_dims[node_idx].border_left_width)
     }
 
     // -- Raw i16 getters for macro fast paths --
 
     #[inline]
-    #[must_use] pub fn get_padding_top_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_padding_top_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].padding_top
     }
 
     #[inline]
-    #[must_use] pub fn get_padding_right_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_padding_right_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].padding_right
     }
 
     #[inline]
-    #[must_use] pub fn get_padding_bottom_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_padding_bottom_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].padding_bottom
     }
 
     #[inline]
-    #[must_use] pub fn get_padding_left_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_padding_left_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].padding_left
     }
 
     #[inline]
-    #[must_use] pub fn get_margin_top_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_margin_top_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].margin_top
     }
 
     #[inline]
-    #[must_use] pub fn get_margin_right_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_margin_right_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].margin_right
     }
 
     #[inline]
-    #[must_use] pub fn get_margin_bottom_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_margin_bottom_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].margin_bottom
     }
 
     #[inline]
-    #[must_use] pub fn get_margin_left_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_margin_left_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].margin_left
     }
 
     #[inline]
-    #[must_use] pub fn get_border_top_width_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_border_top_width_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].border_top_width
     }
 
     #[inline]
-    #[must_use] pub fn get_border_right_width_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_border_right_width_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].border_right_width
     }
 
     #[inline]
-    #[must_use] pub fn get_border_bottom_width_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_border_bottom_width_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].border_bottom_width
     }
 
     #[inline]
-    #[must_use] pub fn get_border_left_width_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_border_left_width_raw(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].border_left_width
     }
 
     #[inline]
-    #[must_use] pub fn get_top(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_top(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].top
     }
 
     #[inline]
-    #[must_use] pub fn get_right(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_right(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].right
     }
 
     #[inline]
-    #[must_use] pub fn get_bottom(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_bottom(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].bottom
     }
 
     #[inline]
-    #[must_use] pub fn get_left(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_left(&self, node_idx: usize) -> i16 {
         self.tier2_dims[node_idx].left
     }
 
     #[inline]
-    #[must_use] pub fn get_flex_grow(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_flex_grow(&self, node_idx: usize) -> Option<f32> {
         decode_flex_u16(self.tier2_dims[node_idx].flex_grow)
     }
 
     #[inline]
-    #[must_use] pub fn get_flex_shrink(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_flex_shrink(&self, node_idx: usize) -> Option<f32> {
         decode_flex_u16(self.tier2_dims[node_idx].flex_shrink)
     }
 
     #[inline]
-    #[must_use] pub fn get_z_index(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_z_index(&self, node_idx: usize) -> i16 {
         self.tier2_cold[node_idx].z_index
     }
 
     // -- Border colors (u32 RGBA) — cold tier --
 
     #[inline]
-    #[must_use] pub fn get_border_top_color_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_border_top_color_raw(&self, node_idx: usize) -> u32 {
         self.tier2_cold[node_idx].border_top_color
     }
 
     #[inline]
-    #[must_use] pub fn get_border_right_color_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_border_right_color_raw(&self, node_idx: usize) -> u32 {
         self.tier2_cold[node_idx].border_right_color
     }
 
     #[inline]
-    #[must_use] pub fn get_border_bottom_color_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_border_bottom_color_raw(&self, node_idx: usize) -> u32 {
         self.tier2_cold[node_idx].border_bottom_color
     }
 
     #[inline]
-    #[must_use] pub fn get_border_left_color_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_border_left_color_raw(&self, node_idx: usize) -> u32 {
         self.tier2_cold[node_idx].border_left_color
     }
 
     // -- Border styles (packed u16) — cold tier --
 
     #[inline]
-    #[must_use] pub fn get_border_styles_packed(&self, node_idx: usize) -> u16 {
+    #[must_use]
+    pub fn get_border_styles_packed(&self, node_idx: usize) -> u16 {
         self.tier2_cold[node_idx].border_styles_packed
     }
 
     #[inline]
-    #[must_use] pub fn get_border_top_style(&self, node_idx: usize) -> BorderStyle {
+    #[must_use]
+    pub fn get_border_top_style(&self, node_idx: usize) -> BorderStyle {
         decode_border_top_style(self.tier2_cold[node_idx].border_styles_packed)
     }
 
     #[inline]
-    #[must_use] pub fn get_border_right_style(&self, node_idx: usize) -> BorderStyle {
+    #[must_use]
+    pub fn get_border_right_style(&self, node_idx: usize) -> BorderStyle {
         decode_border_right_style(self.tier2_cold[node_idx].border_styles_packed)
     }
 
     #[inline]
-    #[must_use] pub fn get_border_bottom_style(&self, node_idx: usize) -> BorderStyle {
+    #[must_use]
+    pub fn get_border_bottom_style(&self, node_idx: usize) -> BorderStyle {
         decode_border_bottom_style(self.tier2_cold[node_idx].border_styles_packed)
     }
 
     #[inline]
-    #[must_use] pub fn get_border_left_style(&self, node_idx: usize) -> BorderStyle {
+    #[must_use]
+    pub fn get_border_left_style(&self, node_idx: usize) -> BorderStyle {
         decode_border_left_style(self.tier2_cold[node_idx].border_styles_packed)
     }
 
     // -- Border spacing — cold tier --
 
     #[inline]
-    #[must_use] pub fn get_border_spacing_h_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_border_spacing_h_raw(&self, node_idx: usize) -> i16 {
         self.tier2_cold[node_idx].border_spacing_h
     }
 
     #[inline]
-    #[must_use] pub fn get_border_spacing_v_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_border_spacing_v_raw(&self, node_idx: usize) -> i16 {
         self.tier2_cold[node_idx].border_spacing_v
     }
 
     // -- Tab size — cold tier --
 
     #[inline]
-    #[must_use] pub fn get_tab_size_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_tab_size_raw(&self, node_idx: usize) -> i16 {
         self.tier2_cold[node_idx].tab_size
     }
 
     // -- Border radii — cold tier (i16 px × 10, I16_SENTINEL = unset = 0) --
 
     #[inline]
-    #[must_use] pub fn get_border_top_left_radius_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_border_top_left_radius_raw(&self, node_idx: usize) -> i16 {
         self.tier2_cold[node_idx].border_top_left_radius
     }
 
     #[inline]
-    #[must_use] pub fn get_border_top_right_radius_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_border_top_right_radius_raw(&self, node_idx: usize) -> i16 {
         self.tier2_cold[node_idx].border_top_right_radius
     }
 
     #[inline]
-    #[must_use] pub fn get_border_bottom_left_radius_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_border_bottom_left_radius_raw(&self, node_idx: usize) -> i16 {
         self.tier2_cold[node_idx].border_bottom_left_radius
     }
 
     #[inline]
-    #[must_use] pub fn get_border_bottom_right_radius_raw(&self, node_idx: usize) -> i16 {
+    #[must_use]
+    pub fn get_border_bottom_right_radius_raw(&self, node_idx: usize) -> i16 {
         self.tier2_cold[node_idx].border_bottom_right_radius
     }
 
@@ -1984,95 +2175,113 @@ impl CompactLayoutCache {
     /// Raw opacity byte. `OPACITY_SENTINEL` (255) = unset (default = 1.0).
     /// Otherwise value / 254.0 yields the opacity in [0.0, 1.0].
     #[inline]
-    #[must_use] pub fn get_opacity_raw(&self, node_idx: usize) -> u8 {
+    #[must_use]
+    pub fn get_opacity_raw(&self, node_idx: usize) -> u8 {
         self.tier2_cold[node_idx].opacity
     }
 
     #[inline]
-    #[must_use] pub fn get_hot_flags(&self, node_idx: usize) -> u8 {
+    #[must_use]
+    pub fn get_hot_flags(&self, node_idx: usize) -> u8 {
         self.tier2_cold[node_idx].hot_flags
     }
 
     #[inline]
-    #[must_use] pub fn has_transform(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_transform(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_TRANSFORM != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_transform_origin(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_transform_origin(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_TRANSFORM_ORIGIN != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_box_shadow(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_box_shadow(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_BOX_SHADOW != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_text_decoration(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_text_decoration(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_TEXT_DECORATION != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_background(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_background(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_BACKGROUND != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_clip_path(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_clip_path(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].hot_flags & HOT_FLAG_HAS_CLIP_PATH != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_scrollbar_css(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_scrollbar_css(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_SCROLLBAR_CSS != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_counter(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_counter(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_COUNTER != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_break(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_break(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_BREAK != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_text_orientation(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_text_orientation(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_TEXT_ORIENTATION != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_text_shadow(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_text_shadow(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_TEXT_SHADOW != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_backdrop_filter(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_backdrop_filter(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_BACKDROP_FILTER != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_filter(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_filter(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_FILTER != 0
     }
 
     #[inline]
-    #[must_use] pub fn has_mix_blend_mode(&self, node_idx: usize) -> bool {
+    #[must_use]
+    pub fn has_mix_blend_mode(&self, node_idx: usize) -> bool {
         self.tier2_cold[node_idx].extra_flags & EXTRA_FLAG_HAS_MIX_BLEND_MODE != 0
     }
 
     /// DOM-level fast-path check: returns `true` if the given flag bit is set
     /// (some node in this DOM declared the corresponding property).
     #[inline]
-    #[must_use] pub const fn dom_declared(&self, flag: u32) -> bool {
+    #[must_use]
+    pub const fn dom_declared(&self, flag: u32) -> bool {
         self.dom_declared_flags & flag != 0
     }
 
     /// Scrollbar-gutter: 0 = auto (default), 1 = stable, 2 = both-edges, 3 = mirror.
     #[inline]
-    #[must_use] pub fn get_scrollbar_gutter_bits(&self, node_idx: usize) -> u8 {
+    #[must_use]
+    pub fn get_scrollbar_gutter_bits(&self, node_idx: usize) -> u8 {
         (self.tier2_cold[node_idx].hot_flags & HOT_FLAG_SCROLLBAR_GUTTER_MASK)
             >> HOT_FLAG_SCROLLBAR_GUTTER_SHIFT
     }
@@ -2080,35 +2289,40 @@ impl CompactLayoutCache {
     // -- Tier 2b getters (text props) --
 
     #[inline]
-    #[must_use] pub fn get_text_color_raw(&self, node_idx: usize) -> u32 {
+    #[must_use]
+    pub fn get_text_color_raw(&self, node_idx: usize) -> u32 {
         self.tier2b_text[node_idx].text_color
     }
 
     #[inline]
-    #[must_use] pub fn get_font_family_hash(&self, node_idx: usize) -> u64 {
+    #[must_use]
+    pub fn get_font_family_hash(&self, node_idx: usize) -> u64 {
         self.tier2b_text[node_idx].font_family_hash
     }
 
     #[inline]
-    #[must_use] pub fn get_line_height(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_line_height(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2b_text[node_idx].line_height)
     }
 
     #[inline]
-    #[must_use] pub fn get_letter_spacing(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_letter_spacing(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2b_text[node_idx].letter_spacing)
     }
 
     #[inline]
-    #[must_use] pub fn get_word_spacing(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_word_spacing(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2b_text[node_idx].word_spacing)
     }
 
     #[inline]
-    #[must_use] pub fn get_text_indent(&self, node_idx: usize) -> Option<f32> {
+    #[must_use]
+    pub fn get_text_indent(&self, node_idx: usize) -> Option<f32> {
         decode_resolved_px_i16(self.tier2b_text[node_idx].text_indent)
     }
-
 }
 
 // =============================================================================
@@ -2121,7 +2335,8 @@ impl CompactLayoutCache {
 /// For the compact cache builder, we only pre-resolve absolute pixel values.
 /// Relative units (em, %, etc.) get sentinel and fall back to the slow path.
 #[inline]
-#[must_use] pub fn encode_css_pixel_as_i16(prop: &CssPropertyValue<PixelValue>) -> i16 {
+#[must_use]
+pub fn encode_css_pixel_as_i16(prop: &CssPropertyValue<PixelValue>) -> i16 {
     match prop {
         CssPropertyValue::Exact(pv) => {
             if pv.metric == SizeMetric::Px {
@@ -2176,7 +2391,10 @@ mod tests {
         assert_eq!(decode_box_sizing(t1), LayoutBoxSizing::BorderBox);
         assert_eq!(decode_flex_direction(t1), LayoutFlexDirection::Column);
         assert_eq!(decode_flex_wrap(t1), LayoutFlexWrap::Wrap);
-        assert_eq!(decode_justify_content(t1), LayoutJustifyContent::SpaceBetween);
+        assert_eq!(
+            decode_justify_content(t1),
+            LayoutJustifyContent::SpaceBetween
+        );
         assert_eq!(decode_align_items(t1), LayoutAlignItems::Center);
         assert_eq!(decode_align_content(t1), LayoutAlignContent::End);
         assert_eq!(decode_writing_mode(t1), LayoutWritingMode::VerticalRl);
@@ -2331,14 +2549,20 @@ mod tests {
         assert_eq!(layout_box_sizing_from_u8(0), LayoutBoxSizing::ContentBox);
         assert_eq!(layout_flex_direction_from_u8(0), LayoutFlexDirection::Row);
         assert_eq!(layout_flex_wrap_from_u8(0), LayoutFlexWrap::NoWrap);
-        assert_eq!(layout_justify_content_from_u8(0), LayoutJustifyContent::FlexStart);
+        assert_eq!(
+            layout_justify_content_from_u8(0),
+            LayoutJustifyContent::FlexStart
+        );
         assert_eq!(layout_align_items_from_u8(0), LayoutAlignItems::Stretch);
         assert_eq!(layout_align_content_from_u8(0), LayoutAlignContent::Stretch);
         assert_eq!(layout_align_self_from_u8(0), LayoutAlignSelf::Auto);
         assert_eq!(layout_justify_self_from_u8(0), LayoutJustifySelf::Auto);
         assert_eq!(layout_justify_items_from_u8(0), LayoutJustifyItems::Stretch);
         assert_eq!(layout_grid_auto_flow_from_u8(0), LayoutGridAutoFlow::Row);
-        assert_eq!(layout_writing_mode_from_u8(0), LayoutWritingMode::HorizontalTb);
+        assert_eq!(
+            layout_writing_mode_from_u8(0),
+            LayoutWritingMode::HorizontalTb
+        );
         assert_eq!(layout_clear_from_u8(0), LayoutClear::None);
         assert_eq!(style_font_weight_from_u8(0), StyleFontWeight::Normal);
         assert_eq!(style_font_style_from_u8(0), StyleFontStyle::Normal);
@@ -2348,7 +2572,10 @@ mod tests {
         assert_eq!(style_visibility_from_u8(0), StyleVisibility::Visible);
         assert_eq!(style_white_space_from_u8(0), StyleWhiteSpace::Normal);
         assert_eq!(style_direction_from_u8(0), StyleDirection::Ltr);
-        assert_eq!(style_vertical_align_from_u8(0), StyleVerticalAlign::Baseline);
+        assert_eq!(
+            style_vertical_align_from_u8(0),
+            StyleVerticalAlign::Baseline
+        );
         assert_eq!(border_collapse_from_u8(0), StyleBorderCollapse::Separate);
     }
 
@@ -2365,14 +2592,20 @@ mod tests {
         assert_eq!(layout_box_sizing_to_u8(LayoutBoxSizing::ContentBox), 0);
         assert_eq!(layout_flex_direction_to_u8(LayoutFlexDirection::Row), 0);
         assert_eq!(layout_flex_wrap_to_u8(LayoutFlexWrap::NoWrap), 0);
-        assert_eq!(layout_justify_content_to_u8(LayoutJustifyContent::FlexStart), 0);
+        assert_eq!(
+            layout_justify_content_to_u8(LayoutJustifyContent::FlexStart),
+            0
+        );
         assert_eq!(layout_align_items_to_u8(LayoutAlignItems::Stretch), 0);
         assert_eq!(layout_align_content_to_u8(LayoutAlignContent::Stretch), 0);
         assert_eq!(layout_align_self_to_u8(LayoutAlignSelf::Auto), 0);
         assert_eq!(layout_justify_self_to_u8(LayoutJustifySelf::Auto), 0);
         assert_eq!(layout_justify_items_to_u8(LayoutJustifyItems::Stretch), 0);
         assert_eq!(layout_grid_auto_flow_to_u8(LayoutGridAutoFlow::Row), 0);
-        assert_eq!(layout_writing_mode_to_u8(LayoutWritingMode::HorizontalTb), 0);
+        assert_eq!(
+            layout_writing_mode_to_u8(LayoutWritingMode::HorizontalTb),
+            0
+        );
         assert_eq!(layout_clear_to_u8(LayoutClear::None), 0);
         assert_eq!(style_font_weight_to_u8(StyleFontWeight::Normal), 0);
         assert_eq!(style_font_style_to_u8(StyleFontStyle::Normal), 0);
@@ -2403,130 +2636,315 @@ mod tests {
         };
     }
 
-    roundtrip_all!(rt_display, layout_display_to_u8, layout_display_from_u8, [
-        LayoutDisplay::Block, LayoutDisplay::Inline, LayoutDisplay::InlineBlock,
-        LayoutDisplay::Flex, LayoutDisplay::None, LayoutDisplay::InlineFlex,
-        LayoutDisplay::Table, LayoutDisplay::InlineTable, LayoutDisplay::TableRowGroup,
-        LayoutDisplay::TableHeaderGroup, LayoutDisplay::TableFooterGroup,
-        LayoutDisplay::TableRow, LayoutDisplay::TableColumnGroup,
-        LayoutDisplay::TableColumn, LayoutDisplay::TableCell,
-        LayoutDisplay::TableCaption, LayoutDisplay::FlowRoot,
-        LayoutDisplay::ListItem, LayoutDisplay::RunIn, LayoutDisplay::Marker,
-        LayoutDisplay::Grid, LayoutDisplay::InlineGrid, LayoutDisplay::Contents,
-    ]);
+    roundtrip_all!(
+        rt_display,
+        layout_display_to_u8,
+        layout_display_from_u8,
+        [
+            LayoutDisplay::Block,
+            LayoutDisplay::Inline,
+            LayoutDisplay::InlineBlock,
+            LayoutDisplay::Flex,
+            LayoutDisplay::None,
+            LayoutDisplay::InlineFlex,
+            LayoutDisplay::Table,
+            LayoutDisplay::InlineTable,
+            LayoutDisplay::TableRowGroup,
+            LayoutDisplay::TableHeaderGroup,
+            LayoutDisplay::TableFooterGroup,
+            LayoutDisplay::TableRow,
+            LayoutDisplay::TableColumnGroup,
+            LayoutDisplay::TableColumn,
+            LayoutDisplay::TableCell,
+            LayoutDisplay::TableCaption,
+            LayoutDisplay::FlowRoot,
+            LayoutDisplay::ListItem,
+            LayoutDisplay::RunIn,
+            LayoutDisplay::Marker,
+            LayoutDisplay::Grid,
+            LayoutDisplay::InlineGrid,
+            LayoutDisplay::Contents,
+        ]
+    );
 
-    roundtrip_all!(rt_position, layout_position_to_u8, layout_position_from_u8, [
-        LayoutPosition::Static, LayoutPosition::Relative, LayoutPosition::Absolute,
-        LayoutPosition::Fixed, LayoutPosition::Sticky,
-    ]);
+    roundtrip_all!(
+        rt_position,
+        layout_position_to_u8,
+        layout_position_from_u8,
+        [
+            LayoutPosition::Static,
+            LayoutPosition::Relative,
+            LayoutPosition::Absolute,
+            LayoutPosition::Fixed,
+            LayoutPosition::Sticky,
+        ]
+    );
 
-    roundtrip_all!(rt_float, layout_float_to_u8, layout_float_from_u8, [
-        LayoutFloat::None, LayoutFloat::Left, LayoutFloat::Right,
-    ]);
+    roundtrip_all!(
+        rt_float,
+        layout_float_to_u8,
+        layout_float_from_u8,
+        [LayoutFloat::None, LayoutFloat::Left, LayoutFloat::Right,]
+    );
 
-    roundtrip_all!(rt_overflow, layout_overflow_to_u8, layout_overflow_from_u8, [
-        LayoutOverflow::Visible, LayoutOverflow::Hidden, LayoutOverflow::Scroll,
-        LayoutOverflow::Auto, LayoutOverflow::Clip,
-    ]);
+    roundtrip_all!(
+        rt_overflow,
+        layout_overflow_to_u8,
+        layout_overflow_from_u8,
+        [
+            LayoutOverflow::Visible,
+            LayoutOverflow::Hidden,
+            LayoutOverflow::Scroll,
+            LayoutOverflow::Auto,
+            LayoutOverflow::Clip,
+        ]
+    );
 
-    roundtrip_all!(rt_box_sizing, layout_box_sizing_to_u8, layout_box_sizing_from_u8, [
-        LayoutBoxSizing::ContentBox, LayoutBoxSizing::BorderBox,
-    ]);
+    roundtrip_all!(
+        rt_box_sizing,
+        layout_box_sizing_to_u8,
+        layout_box_sizing_from_u8,
+        [LayoutBoxSizing::ContentBox, LayoutBoxSizing::BorderBox,]
+    );
 
-    roundtrip_all!(rt_flex_direction, layout_flex_direction_to_u8, layout_flex_direction_from_u8, [
-        LayoutFlexDirection::Row, LayoutFlexDirection::RowReverse,
-        LayoutFlexDirection::Column, LayoutFlexDirection::ColumnReverse,
-    ]);
+    roundtrip_all!(
+        rt_flex_direction,
+        layout_flex_direction_to_u8,
+        layout_flex_direction_from_u8,
+        [
+            LayoutFlexDirection::Row,
+            LayoutFlexDirection::RowReverse,
+            LayoutFlexDirection::Column,
+            LayoutFlexDirection::ColumnReverse,
+        ]
+    );
 
-    roundtrip_all!(rt_flex_wrap, layout_flex_wrap_to_u8, layout_flex_wrap_from_u8, [
-        LayoutFlexWrap::NoWrap, LayoutFlexWrap::Wrap, LayoutFlexWrap::WrapReverse,
-    ]);
+    roundtrip_all!(
+        rt_flex_wrap,
+        layout_flex_wrap_to_u8,
+        layout_flex_wrap_from_u8,
+        [
+            LayoutFlexWrap::NoWrap,
+            LayoutFlexWrap::Wrap,
+            LayoutFlexWrap::WrapReverse,
+        ]
+    );
 
-    roundtrip_all!(rt_justify_content, layout_justify_content_to_u8, layout_justify_content_from_u8, [
-        LayoutJustifyContent::FlexStart, LayoutJustifyContent::FlexEnd,
-        LayoutJustifyContent::Start, LayoutJustifyContent::End,
-        LayoutJustifyContent::Center, LayoutJustifyContent::SpaceBetween,
-        LayoutJustifyContent::SpaceAround, LayoutJustifyContent::SpaceEvenly,
-    ]);
+    roundtrip_all!(
+        rt_justify_content,
+        layout_justify_content_to_u8,
+        layout_justify_content_from_u8,
+        [
+            LayoutJustifyContent::FlexStart,
+            LayoutJustifyContent::FlexEnd,
+            LayoutJustifyContent::Start,
+            LayoutJustifyContent::End,
+            LayoutJustifyContent::Center,
+            LayoutJustifyContent::SpaceBetween,
+            LayoutJustifyContent::SpaceAround,
+            LayoutJustifyContent::SpaceEvenly,
+        ]
+    );
 
-    roundtrip_all!(rt_align_items, layout_align_items_to_u8, layout_align_items_from_u8, [
-        LayoutAlignItems::Stretch, LayoutAlignItems::Center, LayoutAlignItems::Start,
-        LayoutAlignItems::End, LayoutAlignItems::Baseline,
-    ]);
+    roundtrip_all!(
+        rt_align_items,
+        layout_align_items_to_u8,
+        layout_align_items_from_u8,
+        [
+            LayoutAlignItems::Stretch,
+            LayoutAlignItems::Center,
+            LayoutAlignItems::Start,
+            LayoutAlignItems::End,
+            LayoutAlignItems::Baseline,
+        ]
+    );
 
-    roundtrip_all!(rt_align_self, layout_align_self_to_u8, layout_align_self_from_u8, [
-        LayoutAlignSelf::Auto, LayoutAlignSelf::Stretch, LayoutAlignSelf::Center,
-        LayoutAlignSelf::Start, LayoutAlignSelf::End, LayoutAlignSelf::Baseline,
-    ]);
+    roundtrip_all!(
+        rt_align_self,
+        layout_align_self_to_u8,
+        layout_align_self_from_u8,
+        [
+            LayoutAlignSelf::Auto,
+            LayoutAlignSelf::Stretch,
+            LayoutAlignSelf::Center,
+            LayoutAlignSelf::Start,
+            LayoutAlignSelf::End,
+            LayoutAlignSelf::Baseline,
+        ]
+    );
 
-    roundtrip_all!(rt_justify_self, layout_justify_self_to_u8, layout_justify_self_from_u8, [
-        LayoutJustifySelf::Auto, LayoutJustifySelf::Start, LayoutJustifySelf::End,
-        LayoutJustifySelf::Center, LayoutJustifySelf::Stretch,
-    ]);
+    roundtrip_all!(
+        rt_justify_self,
+        layout_justify_self_to_u8,
+        layout_justify_self_from_u8,
+        [
+            LayoutJustifySelf::Auto,
+            LayoutJustifySelf::Start,
+            LayoutJustifySelf::End,
+            LayoutJustifySelf::Center,
+            LayoutJustifySelf::Stretch,
+        ]
+    );
 
-    roundtrip_all!(rt_justify_items, layout_justify_items_to_u8, layout_justify_items_from_u8, [
-        LayoutJustifyItems::Stretch, LayoutJustifyItems::Start,
-        LayoutJustifyItems::End, LayoutJustifyItems::Center,
-    ]);
+    roundtrip_all!(
+        rt_justify_items,
+        layout_justify_items_to_u8,
+        layout_justify_items_from_u8,
+        [
+            LayoutJustifyItems::Stretch,
+            LayoutJustifyItems::Start,
+            LayoutJustifyItems::End,
+            LayoutJustifyItems::Center,
+        ]
+    );
 
-    roundtrip_all!(rt_grid_auto_flow, layout_grid_auto_flow_to_u8, layout_grid_auto_flow_from_u8, [
-        LayoutGridAutoFlow::Row, LayoutGridAutoFlow::Column,
-        LayoutGridAutoFlow::RowDense, LayoutGridAutoFlow::ColumnDense,
-    ]);
+    roundtrip_all!(
+        rt_grid_auto_flow,
+        layout_grid_auto_flow_to_u8,
+        layout_grid_auto_flow_from_u8,
+        [
+            LayoutGridAutoFlow::Row,
+            LayoutGridAutoFlow::Column,
+            LayoutGridAutoFlow::RowDense,
+            LayoutGridAutoFlow::ColumnDense,
+        ]
+    );
 
-    roundtrip_all!(rt_align_content, layout_align_content_to_u8, layout_align_content_from_u8, [
-        LayoutAlignContent::Stretch, LayoutAlignContent::Center,
-        LayoutAlignContent::Start, LayoutAlignContent::End,
-        LayoutAlignContent::SpaceBetween, LayoutAlignContent::SpaceAround,
-    ]);
+    roundtrip_all!(
+        rt_align_content,
+        layout_align_content_to_u8,
+        layout_align_content_from_u8,
+        [
+            LayoutAlignContent::Stretch,
+            LayoutAlignContent::Center,
+            LayoutAlignContent::Start,
+            LayoutAlignContent::End,
+            LayoutAlignContent::SpaceBetween,
+            LayoutAlignContent::SpaceAround,
+        ]
+    );
 
-    roundtrip_all!(rt_writing_mode, layout_writing_mode_to_u8, layout_writing_mode_from_u8, [
-        LayoutWritingMode::HorizontalTb, LayoutWritingMode::VerticalRl,
-        LayoutWritingMode::VerticalLr,
-    ]);
+    roundtrip_all!(
+        rt_writing_mode,
+        layout_writing_mode_to_u8,
+        layout_writing_mode_from_u8,
+        [
+            LayoutWritingMode::HorizontalTb,
+            LayoutWritingMode::VerticalRl,
+            LayoutWritingMode::VerticalLr,
+        ]
+    );
 
-    roundtrip_all!(rt_clear, layout_clear_to_u8, layout_clear_from_u8, [
-        LayoutClear::None, LayoutClear::Left, LayoutClear::Right, LayoutClear::Both,
-    ]);
+    roundtrip_all!(
+        rt_clear,
+        layout_clear_to_u8,
+        layout_clear_from_u8,
+        [
+            LayoutClear::None,
+            LayoutClear::Left,
+            LayoutClear::Right,
+            LayoutClear::Both,
+        ]
+    );
 
-    roundtrip_all!(rt_font_weight, style_font_weight_to_u8, style_font_weight_from_u8, [
-        StyleFontWeight::Normal, StyleFontWeight::W100, StyleFontWeight::W200,
-        StyleFontWeight::W300, StyleFontWeight::W500, StyleFontWeight::W600,
-        StyleFontWeight::Bold, StyleFontWeight::W800, StyleFontWeight::W900,
-        StyleFontWeight::Lighter, StyleFontWeight::Bolder,
-    ]);
+    roundtrip_all!(
+        rt_font_weight,
+        style_font_weight_to_u8,
+        style_font_weight_from_u8,
+        [
+            StyleFontWeight::Normal,
+            StyleFontWeight::W100,
+            StyleFontWeight::W200,
+            StyleFontWeight::W300,
+            StyleFontWeight::W500,
+            StyleFontWeight::W600,
+            StyleFontWeight::Bold,
+            StyleFontWeight::W800,
+            StyleFontWeight::W900,
+            StyleFontWeight::Lighter,
+            StyleFontWeight::Bolder,
+        ]
+    );
 
-    roundtrip_all!(rt_font_style, style_font_style_to_u8, style_font_style_from_u8, [
-        StyleFontStyle::Normal, StyleFontStyle::Italic, StyleFontStyle::Oblique,
-    ]);
+    roundtrip_all!(
+        rt_font_style,
+        style_font_style_to_u8,
+        style_font_style_from_u8,
+        [
+            StyleFontStyle::Normal,
+            StyleFontStyle::Italic,
+            StyleFontStyle::Oblique,
+        ]
+    );
 
-    roundtrip_all!(rt_text_align, style_text_align_to_u8, style_text_align_from_u8, [
-        StyleTextAlign::Left, StyleTextAlign::Center, StyleTextAlign::Right,
-        StyleTextAlign::Justify, StyleTextAlign::Start, StyleTextAlign::End,
-    ]);
+    roundtrip_all!(
+        rt_text_align,
+        style_text_align_to_u8,
+        style_text_align_from_u8,
+        [
+            StyleTextAlign::Left,
+            StyleTextAlign::Center,
+            StyleTextAlign::Right,
+            StyleTextAlign::Justify,
+            StyleTextAlign::Start,
+            StyleTextAlign::End,
+        ]
+    );
 
-    roundtrip_all!(rt_visibility, style_visibility_to_u8, style_visibility_from_u8, [
-        StyleVisibility::Visible, StyleVisibility::Hidden, StyleVisibility::Collapse,
-    ]);
+    roundtrip_all!(
+        rt_visibility,
+        style_visibility_to_u8,
+        style_visibility_from_u8,
+        [
+            StyleVisibility::Visible,
+            StyleVisibility::Hidden,
+            StyleVisibility::Collapse,
+        ]
+    );
 
-    roundtrip_all!(rt_white_space, style_white_space_to_u8, style_white_space_from_u8, [
-        StyleWhiteSpace::Normal, StyleWhiteSpace::Pre, StyleWhiteSpace::Nowrap,
-        StyleWhiteSpace::PreWrap, StyleWhiteSpace::PreLine, StyleWhiteSpace::BreakSpaces,
-    ]);
+    roundtrip_all!(
+        rt_white_space,
+        style_white_space_to_u8,
+        style_white_space_from_u8,
+        [
+            StyleWhiteSpace::Normal,
+            StyleWhiteSpace::Pre,
+            StyleWhiteSpace::Nowrap,
+            StyleWhiteSpace::PreWrap,
+            StyleWhiteSpace::PreLine,
+            StyleWhiteSpace::BreakSpaces,
+        ]
+    );
 
-    roundtrip_all!(rt_direction, style_direction_to_u8, style_direction_from_u8, [
-        StyleDirection::Ltr, StyleDirection::Rtl,
-    ]);
+    roundtrip_all!(
+        rt_direction,
+        style_direction_to_u8,
+        style_direction_from_u8,
+        [StyleDirection::Ltr, StyleDirection::Rtl,]
+    );
 
-    roundtrip_all!(rt_vertical_align, style_vertical_align_to_u8, style_vertical_align_from_u8, [
-        StyleVerticalAlign::Baseline, StyleVerticalAlign::Top, StyleVerticalAlign::Middle,
-        StyleVerticalAlign::Bottom, StyleVerticalAlign::Sub, StyleVerticalAlign::Superscript,
-        StyleVerticalAlign::TextTop, StyleVerticalAlign::TextBottom,
-    ]);
+    roundtrip_all!(
+        rt_vertical_align,
+        style_vertical_align_to_u8,
+        style_vertical_align_from_u8,
+        [
+            StyleVerticalAlign::Baseline,
+            StyleVerticalAlign::Top,
+            StyleVerticalAlign::Middle,
+            StyleVerticalAlign::Bottom,
+            StyleVerticalAlign::Sub,
+            StyleVerticalAlign::Superscript,
+            StyleVerticalAlign::TextTop,
+            StyleVerticalAlign::TextBottom,
+        ]
+    );
 
-    roundtrip_all!(rt_border_collapse, border_collapse_to_u8, border_collapse_from_u8, [
-        StyleBorderCollapse::Separate, StyleBorderCollapse::Collapse,
-    ]);
+    roundtrip_all!(
+        rt_border_collapse,
+        border_collapse_to_u8,
+        border_collapse_from_u8,
+        [StyleBorderCollapse::Separate, StyleBorderCollapse::Collapse,]
+    );
 
     // ========================================================================
     // Bit-layout safety: every encoder must produce a u8 whose bits all
@@ -2545,30 +2963,118 @@ mod tests {
             );
         }
 
-        assert_fits("display", layout_display_to_u8(LayoutDisplay::Contents), DISPLAY_MASK);
-        assert_fits("position", layout_position_to_u8(LayoutPosition::Sticky), POSITION_MASK);
+        assert_fits(
+            "display",
+            layout_display_to_u8(LayoutDisplay::Contents),
+            DISPLAY_MASK,
+        );
+        assert_fits(
+            "position",
+            layout_position_to_u8(LayoutPosition::Sticky),
+            POSITION_MASK,
+        );
         assert_fits("float", layout_float_to_u8(LayoutFloat::Right), FLOAT_MASK);
-        assert_fits("overflow", layout_overflow_to_u8(LayoutOverflow::Clip), OVERFLOW_MASK);
-        assert_fits("box_sizing", layout_box_sizing_to_u8(LayoutBoxSizing::BorderBox), BOX_SIZING_MASK);
-        assert_fits("flex_direction", layout_flex_direction_to_u8(LayoutFlexDirection::ColumnReverse), FLEX_DIR_MASK);
-        assert_fits("flex_wrap", layout_flex_wrap_to_u8(LayoutFlexWrap::WrapReverse), FLEX_WRAP_MASK);
-        assert_fits("justify_content", layout_justify_content_to_u8(LayoutJustifyContent::SpaceEvenly), JUSTIFY_MASK);
-        assert_fits("align_items", layout_align_items_to_u8(LayoutAlignItems::Baseline), ALIGN_MASK);
-        assert_fits("align_self", layout_align_self_to_u8(LayoutAlignSelf::Baseline), ALIGN_SELF_MASK);
-        assert_fits("justify_self", layout_justify_self_to_u8(LayoutJustifySelf::Stretch), JUSTIFY_SELF_MASK);
-        assert_fits("justify_items", layout_justify_items_to_u8(LayoutJustifyItems::Center), JUSTIFY_ITEMS_MASK);
-        assert_fits("grid_auto_flow", layout_grid_auto_flow_to_u8(LayoutGridAutoFlow::ColumnDense), GRID_AUTO_FLOW_MASK);
-        assert_fits("align_content", layout_align_content_to_u8(LayoutAlignContent::SpaceAround), ALIGN_MASK);
-        assert_fits("writing_mode", layout_writing_mode_to_u8(LayoutWritingMode::VerticalLr), WRITING_MODE_MASK);
+        assert_fits(
+            "overflow",
+            layout_overflow_to_u8(LayoutOverflow::Clip),
+            OVERFLOW_MASK,
+        );
+        assert_fits(
+            "box_sizing",
+            layout_box_sizing_to_u8(LayoutBoxSizing::BorderBox),
+            BOX_SIZING_MASK,
+        );
+        assert_fits(
+            "flex_direction",
+            layout_flex_direction_to_u8(LayoutFlexDirection::ColumnReverse),
+            FLEX_DIR_MASK,
+        );
+        assert_fits(
+            "flex_wrap",
+            layout_flex_wrap_to_u8(LayoutFlexWrap::WrapReverse),
+            FLEX_WRAP_MASK,
+        );
+        assert_fits(
+            "justify_content",
+            layout_justify_content_to_u8(LayoutJustifyContent::SpaceEvenly),
+            JUSTIFY_MASK,
+        );
+        assert_fits(
+            "align_items",
+            layout_align_items_to_u8(LayoutAlignItems::Baseline),
+            ALIGN_MASK,
+        );
+        assert_fits(
+            "align_self",
+            layout_align_self_to_u8(LayoutAlignSelf::Baseline),
+            ALIGN_SELF_MASK,
+        );
+        assert_fits(
+            "justify_self",
+            layout_justify_self_to_u8(LayoutJustifySelf::Stretch),
+            JUSTIFY_SELF_MASK,
+        );
+        assert_fits(
+            "justify_items",
+            layout_justify_items_to_u8(LayoutJustifyItems::Center),
+            JUSTIFY_ITEMS_MASK,
+        );
+        assert_fits(
+            "grid_auto_flow",
+            layout_grid_auto_flow_to_u8(LayoutGridAutoFlow::ColumnDense),
+            GRID_AUTO_FLOW_MASK,
+        );
+        assert_fits(
+            "align_content",
+            layout_align_content_to_u8(LayoutAlignContent::SpaceAround),
+            ALIGN_MASK,
+        );
+        assert_fits(
+            "writing_mode",
+            layout_writing_mode_to_u8(LayoutWritingMode::VerticalLr),
+            WRITING_MODE_MASK,
+        );
         assert_fits("clear", layout_clear_to_u8(LayoutClear::Both), CLEAR_MASK);
-        assert_fits("font_weight", style_font_weight_to_u8(StyleFontWeight::Bolder), FONT_WEIGHT_MASK);
-        assert_fits("font_style", style_font_style_to_u8(StyleFontStyle::Oblique), FONT_STYLE_MASK);
-        assert_fits("text_align", style_text_align_to_u8(StyleTextAlign::End), TEXT_ALIGN_MASK);
-        assert_fits("visibility", style_visibility_to_u8(StyleVisibility::Collapse), VISIBILITY_MASK);
-        assert_fits("white_space", style_white_space_to_u8(StyleWhiteSpace::BreakSpaces), WHITE_SPACE_MASK);
-        assert_fits("direction", style_direction_to_u8(StyleDirection::Rtl), DIRECTION_MASK);
-        assert_fits("vertical_align", style_vertical_align_to_u8(StyleVerticalAlign::TextBottom), VERTICAL_ALIGN_MASK);
-        assert_fits("border_collapse", border_collapse_to_u8(StyleBorderCollapse::Collapse), BORDER_COLLAPSE_MASK);
+        assert_fits(
+            "font_weight",
+            style_font_weight_to_u8(StyleFontWeight::Bolder),
+            FONT_WEIGHT_MASK,
+        );
+        assert_fits(
+            "font_style",
+            style_font_style_to_u8(StyleFontStyle::Oblique),
+            FONT_STYLE_MASK,
+        );
+        assert_fits(
+            "text_align",
+            style_text_align_to_u8(StyleTextAlign::End),
+            TEXT_ALIGN_MASK,
+        );
+        assert_fits(
+            "visibility",
+            style_visibility_to_u8(StyleVisibility::Collapse),
+            VISIBILITY_MASK,
+        );
+        assert_fits(
+            "white_space",
+            style_white_space_to_u8(StyleWhiteSpace::BreakSpaces),
+            WHITE_SPACE_MASK,
+        );
+        assert_fits(
+            "direction",
+            style_direction_to_u8(StyleDirection::Rtl),
+            DIRECTION_MASK,
+        );
+        assert_fits(
+            "vertical_align",
+            style_vertical_align_to_u8(StyleVerticalAlign::TextBottom),
+            VERTICAL_ALIGN_MASK,
+        );
+        assert_fits(
+            "border_collapse",
+            border_collapse_to_u8(StyleBorderCollapse::Collapse),
+            BORDER_COLLAPSE_MASK,
+        );
     }
 
     // ========================================================================
@@ -2846,9 +3352,19 @@ mod autotest_generated {
     #[test]
     fn out_of_range_u8_falls_back_to_css_initial_for_every_enum() {
         assert_u8_fallback("display", layout_display_from_u8, 23, LayoutDisplay::Block);
-        assert_u8_fallback("position", layout_position_from_u8, 5, LayoutPosition::Static);
+        assert_u8_fallback(
+            "position",
+            layout_position_from_u8,
+            5,
+            LayoutPosition::Static,
+        );
         assert_u8_fallback("float", layout_float_from_u8, 3, LayoutFloat::None);
-        assert_u8_fallback("overflow", layout_overflow_from_u8, 5, LayoutOverflow::Visible);
+        assert_u8_fallback(
+            "overflow",
+            layout_overflow_from_u8,
+            5,
+            LayoutOverflow::Visible,
+        );
         assert_u8_fallback(
             "box_sizing",
             layout_box_sizing_from_u8,
@@ -2861,7 +3377,12 @@ mod autotest_generated {
             4,
             LayoutFlexDirection::Row,
         );
-        assert_u8_fallback("flex_wrap", layout_flex_wrap_from_u8, 3, LayoutFlexWrap::NoWrap);
+        assert_u8_fallback(
+            "flex_wrap",
+            layout_flex_wrap_from_u8,
+            3,
+            LayoutFlexWrap::NoWrap,
+        );
         assert_u8_fallback(
             "justify_content",
             layout_justify_content_from_u8,
@@ -2874,7 +3395,12 @@ mod autotest_generated {
             5,
             LayoutAlignItems::Stretch,
         );
-        assert_u8_fallback("align_self", layout_align_self_from_u8, 6, LayoutAlignSelf::Auto);
+        assert_u8_fallback(
+            "align_self",
+            layout_align_self_from_u8,
+            6,
+            LayoutAlignSelf::Auto,
+        );
         assert_u8_fallback(
             "justify_self",
             layout_justify_self_from_u8,
@@ -2912,8 +3438,18 @@ mod autotest_generated {
             11,
             StyleFontWeight::Normal,
         );
-        assert_u8_fallback("font_style", style_font_style_from_u8, 3, StyleFontStyle::Normal);
-        assert_u8_fallback("text_align", style_text_align_from_u8, 6, StyleTextAlign::Start);
+        assert_u8_fallback(
+            "font_style",
+            style_font_style_from_u8,
+            3,
+            StyleFontStyle::Normal,
+        );
+        assert_u8_fallback(
+            "text_align",
+            style_text_align_from_u8,
+            6,
+            StyleTextAlign::Start,
+        );
         assert_u8_fallback(
             "visibility",
             style_visibility_from_u8,
@@ -2999,7 +3535,11 @@ mod autotest_generated {
             LayoutFlexDirection::Column,
             LayoutFlexDirection::ColumnReverse,
         ] {
-            fits("flex_direction", layout_flex_direction_to_u8(v), FLEX_DIR_MASK);
+            fits(
+                "flex_direction",
+                layout_flex_direction_to_u8(v),
+                FLEX_DIR_MASK,
+            );
         }
         for v in [
             LayoutFlexWrap::NoWrap,
@@ -3018,7 +3558,11 @@ mod autotest_generated {
             LayoutJustifyContent::SpaceAround,
             LayoutJustifyContent::SpaceEvenly,
         ] {
-            fits("justify_content", layout_justify_content_to_u8(v), JUSTIFY_MASK);
+            fits(
+                "justify_content",
+                layout_justify_content_to_u8(v),
+                JUSTIFY_MASK,
+            );
         }
         for v in [
             LayoutAlignItems::Stretch,
@@ -3046,7 +3590,11 @@ mod autotest_generated {
             LayoutJustifySelf::Center,
             LayoutJustifySelf::Stretch,
         ] {
-            fits("justify_self", layout_justify_self_to_u8(v), JUSTIFY_SELF_MASK);
+            fits(
+                "justify_self",
+                layout_justify_self_to_u8(v),
+                JUSTIFY_SELF_MASK,
+            );
         }
         for v in [
             LayoutJustifyItems::Stretch,
@@ -3054,7 +3602,11 @@ mod autotest_generated {
             LayoutJustifyItems::End,
             LayoutJustifyItems::Center,
         ] {
-            fits("justify_items", layout_justify_items_to_u8(v), JUSTIFY_ITEMS_MASK);
+            fits(
+                "justify_items",
+                layout_justify_items_to_u8(v),
+                JUSTIFY_ITEMS_MASK,
+            );
         }
         for v in [
             LayoutGridAutoFlow::Row,
@@ -3062,7 +3614,11 @@ mod autotest_generated {
             LayoutGridAutoFlow::RowDense,
             LayoutGridAutoFlow::ColumnDense,
         ] {
-            fits("grid_auto_flow", layout_grid_auto_flow_to_u8(v), GRID_AUTO_FLOW_MASK);
+            fits(
+                "grid_auto_flow",
+                layout_grid_auto_flow_to_u8(v),
+                GRID_AUTO_FLOW_MASK,
+            );
         }
         for v in [
             LayoutAlignContent::Stretch,
@@ -3079,7 +3635,11 @@ mod autotest_generated {
             LayoutWritingMode::VerticalRl,
             LayoutWritingMode::VerticalLr,
         ] {
-            fits("writing_mode", layout_writing_mode_to_u8(v), WRITING_MODE_MASK);
+            fits(
+                "writing_mode",
+                layout_writing_mode_to_u8(v),
+                WRITING_MODE_MASK,
+            );
         }
         for v in [
             LayoutClear::None,
@@ -3153,10 +3713,18 @@ mod autotest_generated {
             StyleVerticalAlign::Percentage(PercentageValue::new(50.0)),
             StyleVerticalAlign::Length(PixelValue::px(4.0)),
         ] {
-            fits("vertical_align", style_vertical_align_to_u8(v), VERTICAL_ALIGN_MASK);
+            fits(
+                "vertical_align",
+                style_vertical_align_to_u8(v),
+                VERTICAL_ALIGN_MASK,
+            );
         }
         for v in [StyleBorderCollapse::Separate, StyleBorderCollapse::Collapse] {
-            fits("border_collapse", border_collapse_to_u8(v), BORDER_COLLAPSE_MASK);
+            fits(
+                "border_collapse",
+                border_collapse_to_u8(v),
+                BORDER_COLLAPSE_MASK,
+            );
         }
         // border-style gets a 4-bit nibble inside the packed u16, not a tier1 mask.
         for v in ALL_BORDER_STYLE {
@@ -3194,7 +3762,10 @@ mod autotest_generated {
         t.border_collapse = StyleBorderCollapse::Collapse;
         let encoded = t.encode();
         assert_eq!(decode_vertical_align(encoded), StyleVerticalAlign::Baseline);
-        assert_eq!(decode_border_collapse(encoded), StyleBorderCollapse::Collapse);
+        assert_eq!(
+            decode_border_collapse(encoded),
+            StyleBorderCollapse::Collapse
+        );
     }
 
     // =========================================================================
@@ -3331,27 +3902,27 @@ mod autotest_generated {
         assert_eq!(
             T1::decode(m),
             T1 {
-                display: LayoutDisplay::Block,          // 31 → fallback
-                position: LayoutPosition::Static,       // 7  → fallback
-                float: LayoutFloat::None,               // 3  → fallback
-                overflow_x: LayoutOverflow::Visible,    // 7  → fallback
-                overflow_y: LayoutOverflow::Visible,    // 7  → fallback
-                box_sizing: LayoutBoxSizing::BorderBox, // 1  → real variant
+                display: LayoutDisplay::Block,                      // 31 → fallback
+                position: LayoutPosition::Static,                   // 7  → fallback
+                float: LayoutFloat::None,                           // 3  → fallback
+                overflow_x: LayoutOverflow::Visible,                // 7  → fallback
+                overflow_y: LayoutOverflow::Visible,                // 7  → fallback
+                box_sizing: LayoutBoxSizing::BorderBox,             // 1  → real variant
                 flex_direction: LayoutFlexDirection::ColumnReverse, // 3 → real
-                flex_wrap: LayoutFlexWrap::NoWrap,      // 3  → fallback
+                flex_wrap: LayoutFlexWrap::NoWrap,                  // 3  → fallback
                 justify_content: LayoutJustifyContent::SpaceEvenly, // 7 → real
-                align_items: LayoutAlignItems::Stretch, // 7  → fallback
-                align_content: LayoutAlignContent::Stretch, // 7 → fallback
-                writing_mode: LayoutWritingMode::HorizontalTb, // 3 → fallback
-                clear: LayoutClear::Both,               // 3  → real variant
-                font_weight: StyleFontWeight::Normal,   // 15 → fallback
-                font_style: StyleFontStyle::Normal,     // 3  → fallback
-                text_align: StyleTextAlign::Start,      // 7  → fallback
-                visibility: StyleVisibility::Visible,   // 3  → fallback
-                white_space: StyleWhiteSpace::Normal,   // 7  → fallback
-                direction: StyleDirection::Rtl,         // 1  → real variant
-                vertical_align: StyleVerticalAlign::TextBottom, // 7 → real
-                border_collapse: StyleBorderCollapse::Collapse, // 1 → real
+                align_items: LayoutAlignItems::Stretch,             // 7  → fallback
+                align_content: LayoutAlignContent::Stretch,         // 7 → fallback
+                writing_mode: LayoutWritingMode::HorizontalTb,      // 3 → fallback
+                clear: LayoutClear::Both,                           // 3  → real variant
+                font_weight: StyleFontWeight::Normal,               // 15 → fallback
+                font_style: StyleFontStyle::Normal,                 // 3  → fallback
+                text_align: StyleTextAlign::Start,                  // 7  → fallback
+                visibility: StyleVisibility::Visible,               // 3  → fallback
+                white_space: StyleWhiteSpace::Normal,               // 7  → fallback
+                direction: StyleDirection::Rtl,                     // 1  → real variant
+                vertical_align: StyleVerticalAlign::TextBottom,     // 7 → real
+                border_collapse: StyleBorderCollapse::Collapse,     // 1 → real
             },
         );
 
@@ -3360,9 +3931,17 @@ mod autotest_generated {
         for _ in 0..4096 {
             let _ = T1::decode(x);
             let _ = tier1_is_populated(x);
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
         }
-        for x in [0u64, 1, u64::MAX, 0xAAAA_AAAA_AAAA_AAAA, 0x5555_5555_5555_5555] {
+        for x in [
+            0u64,
+            1,
+            u64::MAX,
+            0xAAAA_AAAA_AAAA_AAAA,
+            0x5555_5555_5555_5555,
+        ] {
             let _ = T1::decode(x);
         }
     }
@@ -3638,7 +4217,10 @@ mod autotest_generated {
         for metric in [SizeMetric::Vh, SizeMetric::Vmin, SizeMetric::Vmax] {
             let pv = pv_raw(metric, -1);
             let encoded = encode_pixel_value_u32(&pv);
-            assert_eq!(encoded, U32_SENTINEL, "{metric:?}: raw -1 must escape to tier 3");
+            assert_eq!(
+                encoded, U32_SENTINEL,
+                "{metric:?}: raw -1 must escape to tier 3"
+            );
             assert_eq!(
                 decode_pixel_value_u32(encoded),
                 None,
@@ -3689,7 +4271,10 @@ mod autotest_generated {
             }
         }
         assert_eq!(decode_resolved_px_i16(I16_SENTINEL_THRESHOLD), None);
-        assert_eq!(decode_resolved_px_i16(I16_SENTINEL_THRESHOLD - 1), Some(3276.3));
+        assert_eq!(
+            decode_resolved_px_i16(I16_SENTINEL_THRESHOLD - 1),
+            Some(3276.3)
+        );
     }
 
     #[test]
@@ -3740,7 +4325,11 @@ mod autotest_generated {
     #[test]
     fn flex_u16_sentinel_band_decodes_to_none() {
         for v in U16_SENTINEL_THRESHOLD..=u16::MAX {
-            assert_eq!(decode_flex_u16(v), None, "u16 {v} is reserved and must decode as None");
+            assert_eq!(
+                decode_flex_u16(v),
+                None,
+                "u16 {v} is reserved and must decode as None"
+            );
         }
         assert_eq!(U16_SENTINEL, u16::MAX);
         assert!(decode_flex_u16(U16_SENTINEL_THRESHOLD - 1).is_some());
@@ -3750,7 +4339,11 @@ mod autotest_generated {
     fn flex_u16_every_non_sentinel_value_roundtrips() {
         for v in 0..U16_SENTINEL_THRESHOLD {
             let f = decode_flex_u16(v).unwrap_or_else(|| panic!("{v} decoded as a sentinel"));
-            assert_eq!(encode_flex_u16(f), v, "u16 {v} → {f} → re-encoded differently");
+            assert_eq!(
+                encode_flex_u16(f),
+                v,
+                "u16 {v} → {f} → re-encoded differently"
+            );
         }
     }
 
@@ -3760,10 +4353,7 @@ mod autotest_generated {
 
     #[test]
     fn css_pixel_as_i16_maps_every_keyword_to_its_own_sentinel() {
-        assert_eq!(
-            encode_css_pixel_as_i16(&CssPropertyValue::Auto),
-            I16_AUTO,
-        );
+        assert_eq!(encode_css_pixel_as_i16(&CssPropertyValue::Auto), I16_AUTO,);
         assert_eq!(
             encode_css_pixel_as_i16(&CssPropertyValue::Initial),
             I16_INITIAL,
@@ -4150,7 +4740,10 @@ mod autotest_generated {
         for f in flags {
             assert_eq!(c.dom_declared(f), f == DOM_HAS_LINE_HEIGHT);
         }
-        assert!(!c.dom_declared(0), "an empty flag query must never report declared");
+        assert!(
+            !c.dom_declared(0),
+            "an empty flag query must never report declared"
+        );
         assert!(c.dom_declared(u32::MAX));
 
         // Everything declared: every query is true.

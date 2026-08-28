@@ -110,7 +110,8 @@ pub struct ScreenCaptureWidget {
 
 impl ScreenCaptureWidget {
     /// Create a screencap widget for the given config.
-    #[must_use] pub const fn create(config: ScreenCaptureConfig) -> Self {
+    #[must_use]
+    pub const fn create(config: ScreenCaptureConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnVideoFrame::None,
@@ -138,7 +139,11 @@ impl ScreenCaptureWidget {
 
     /// Set the hook that receives every consumer's cut of every captured
     /// frame (route on `frame.consumer.id`).
-    pub fn set_on_consumer_frame<C: Into<OnConsumerFrameCallback>>(&mut self, data: RefAny, on_consumer_frame: C) {
+    pub fn set_on_consumer_frame<C: Into<OnConsumerFrameCallback>>(
+        &mut self,
+        data: RefAny,
+        on_consumer_frame: C,
+    ) {
         self.on_consumer_frame = Some(OnConsumerFrame {
             refany: data,
             callback: on_consumer_frame.into(),
@@ -181,7 +186,8 @@ impl ScreenCaptureWidget {
 
     /// Build the widget's DOM: a single `<img>` node, fed by a background
     /// capture thread started on mount.
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         let state = ScreenCaptureWidgetState {
             config: self.config,
             started: false,
@@ -268,7 +274,11 @@ extern "C" fn screencap_on_after_mount(mut data: RefAny, mut info: CallbackInfo)
         }
     };
     let tid = ThreadId::unique();
-    let thread = Thread::create(RefAny::new(init), data.clone(), ThreadCallback::new(screencap_worker));
+    let thread = Thread::create(
+        RefAny::new(init),
+        data.clone(),
+        ThreadCallback::new(screencap_worker),
+    );
     let control = thread.clone_sender();
     info.add_thread(tid, thread);
     if let Some(mut s) = data.downcast_mut::<ScreenCaptureWidgetState>() {
@@ -310,7 +320,11 @@ extern "C" fn screencap_worker(
 ) {
     let (targets, request, floor) = match init.downcast_ref::<ScreencapThreadInit>() {
         Some(i) => (i.targets.clone(), i.request, i.floor),
-        None => (CaptureTargets::default(), CaptureRequest::new(0, 0, 0), None),
+        None => (
+            CaptureTargets::default(),
+            CaptureRequest::new(0, 0, 0),
+            None,
+        ),
     };
     let session = CaptureSession {
         backend: screen_backend(),
@@ -341,7 +355,13 @@ extern "C" fn screencap_writeback(
     let Some(mut captured) = frame_data.downcast_mut::<CapturedFrames>() else {
         return Update::DoNothing;
     };
-    present_captured(&mut info, writeback_data.clone(), &on_frame, &on_consumer_frame, &mut captured)
+    present_captured(
+        &mut info,
+        writeback_data.clone(),
+        &on_frame,
+        &on_consumer_frame,
+        &mut captured,
+    )
 }
 
 /// Carry live state forward across relayout.
@@ -423,7 +443,9 @@ mod autotest_generated {
     use crate::icu::IcuLocalizerHandle;
     use crate::{
         callbacks::{CallbackChange, CallbackInfoRefData, ExternalSystemCallbacks},
-        thread::{ThreadReceiveMsg, ThreadSendCallback, ThreadSenderDestructorCallback, ThreadSenderInner},
+        thread::{
+            ThreadReceiveMsg, ThreadSendCallback, ThreadSenderDestructorCallback, ThreadSenderInner,
+        },
         widgets::capture_common::OnVideoFrameCallbackType,
         window::LayoutWindow,
         window_state::FullWindowState,
@@ -449,7 +471,11 @@ mod autotest_generated {
     /// carrying `ScreenCaptureSource` variant, `fps` at 0 / 1 / `u32::MAX`, and
     /// a format that is deliberately *not* the widget's placeholder format.
     const ALL_CONFIGS: [ScreenCaptureConfig; 8] = [
-        cfg(ScreenCaptureSource::PrimaryDisplay, 0, RawImageFormat::BGRA8),
+        cfg(
+            ScreenCaptureSource::PrimaryDisplay,
+            0,
+            RawImageFormat::BGRA8,
+        ),
         cfg(
             ScreenCaptureSource::PrimaryDisplay,
             u32::MAX,
@@ -489,11 +515,7 @@ mod autotest_generated {
     // ------------------------------------------------------------------
 
     /// A `ScreenCaptureWidgetState` payload with no `on_frame` hook.
-    fn state(
-        config: ScreenCaptureConfig,
-        started: bool,
-        gl_texture_id: Option<u32>,
-    ) -> RefAny {
+    fn state(config: ScreenCaptureConfig, started: bool, gl_texture_id: Option<u32>) -> RefAny {
         RefAny::new(ScreenCaptureWidgetState {
             config,
             started,
@@ -700,7 +722,10 @@ mod autotest_generated {
     /// thread is gone", the only signal `screencap_worker` has to stop. A worker
     /// that ignored it would hang this test binary forever (and grow ~3.7 MB per
     /// 33 ms while doing so).
-    extern "C" fn record_and_stop(_sender: *const core::ffi::c_void, msg: ThreadReceiveMsg) -> bool {
+    extern "C" fn record_and_stop(
+        _sender: *const core::ffi::c_void,
+        msg: ThreadReceiveMsg,
+    ) -> bool {
         if let ThreadReceiveMsg::WriteBack(mut wb) = msg {
             if let Some(c) = wb.refany.downcast_ref::<CapturedFrames>() {
                 let Some(f) = c.preview.as_ref().or(c.source.as_ref()) else {
@@ -745,7 +770,9 @@ mod autotest_generated {
         let (tx, rx) = channel::<ThreadReceiveMsg>();
         let sender = ThreadSender::new(ThreadSenderInner {
             ptr: Box::new(tx),
-            send_fn: ThreadSendCallback { cb: record_and_stop },
+            send_fn: ThreadSendCallback {
+                cb: record_and_stop,
+            },
             destructor: ThreadSenderDestructorCallback {
                 cb: sender_drop_noop,
             },
@@ -870,8 +897,7 @@ mod autotest_generated {
                 panic!("set_on_frame must install a hook");
             };
             assert_eq!(
-                hook.callback.cb as usize,
-                record_frame as OnVideoFrameCallbackType as usize,
+                hook.callback.cb as usize, record_frame as OnVideoFrameCallbackType as usize,
                 "the stored fn pointer must be exactly the one that was passed in"
             );
         }
@@ -893,8 +919,7 @@ mod autotest_generated {
             panic!("hook must still be set");
         };
         assert_eq!(
-            hook.callback.cb as usize,
-            frame_do_nothing as OnVideoFrameCallbackType as usize,
+            hook.callback.cb as usize, frame_do_nothing as OnVideoFrameCallbackType as usize,
             "the second set_on_frame must replace the first, not stack"
         );
         assert_eq!(
@@ -942,7 +967,10 @@ mod autotest_generated {
                 record_frame as OnVideoFrameCallbackType,
             );
 
-            assert_eq!(built.config, config, "the builder must not touch the config");
+            assert_eq!(
+                built.config, config,
+                "the builder must not touch the config"
+            );
             assert_eq!(built.config, manual.config);
 
             let (OptionOnVideoFrame::Some(a), OptionOnVideoFrame::Some(b)) =
@@ -997,7 +1025,11 @@ mod autotest_generated {
     fn dom_wires_exactly_one_after_mount_callback_a_dataset_and_a_merge_callback() {
         let dom = ScreenCaptureWidget::create(DEFAULT_CFG).dom();
 
-        assert_eq!(dom.children.as_ref().len(), 0, "the widget is a single node");
+        assert_eq!(
+            dom.children.as_ref().len(),
+            0,
+            "the widget is a single node"
+        );
 
         let callbacks = dom.root.get_callbacks();
         assert_eq!(
@@ -1021,8 +1053,7 @@ mod autotest_generated {
             .get_merge_callback()
             .expect("state must survive relayout");
         assert_eq!(
-            merge.cb as usize,
-            merge_screencap_state as DatasetMergeCallbackType as usize,
+            merge.cb as usize, merge_screencap_state as DatasetMergeCallbackType as usize,
             "the merge callback must be merge_screencap_state"
         );
     }
@@ -1169,7 +1200,10 @@ mod autotest_generated {
         }
 
         let (config, started, texture, has_hook) = read_state(&mut data);
-        assert_eq!(config, DEFAULT_CFG, "a re-mount must not rewrite the config");
+        assert_eq!(
+            config, DEFAULT_CFG,
+            "a re-mount must not rewrite the config"
+        );
         assert!(started);
         assert_eq!(texture, Some(3), "a re-mount must not drop the texture");
         assert!(has_hook, "a re-mount must not drop the user hook");
@@ -1191,12 +1225,19 @@ mod autotest_generated {
         };
         let r = capture_request(&cfg);
         assert_eq!((r.index, r.window, r.fps), (2, 0, 15));
-        assert!(r.exclude_self, "a share never shows the sharing app to itself");
+        assert!(
+            r.exclude_self,
+            "a share never shows the sharing app to itself"
+        );
         cfg.source = ScreenCaptureSource::Window(0xABCD);
         assert_eq!(capture_request(&cfg).window, 0xABCD);
         cfg.source = ScreenCaptureSource::PrimaryDisplay;
         assert_eq!(capture_request(&cfg).index, 0);
-        assert_eq!(capture_floor(false), None, "no hook: the tile + consumers size the stream");
+        assert_eq!(
+            capture_floor(false),
+            None,
+            "no hook: the tile + consumers size the stream"
+        );
         assert_eq!(capture_floor(true), Some((DEFAULT_W, DEFAULT_H)));
     }
 
@@ -1306,7 +1347,10 @@ mod autotest_generated {
                 screencap_writeback(data.clone(), frame_data.clone(), info)
             });
 
-            assert_eq!(update, reply, "the user hook's Update must be returned as-is");
+            assert_eq!(
+                update, reply,
+                "the user hook's Update must be returned as-is"
+            );
             assert_eq!(logged_frames(&mut log), vec![(2, 2, 16)]);
             let (_, _, texture, _) = read_state(&mut data);
             assert_eq!(
@@ -1391,7 +1435,10 @@ mod autotest_generated {
                 bytes.len()
             );
             let (_, _, texture, _) = read_state(&mut data);
-            assert_eq!(texture, None, "a rejected frame must not invent a texture id");
+            assert_eq!(
+                texture, None,
+                "a rejected frame must not invent a texture id"
+            );
         }
     }
 
@@ -1512,7 +1559,10 @@ mod autotest_generated {
         let mut merged = merge_screencap_state(new_data, old_data);
         let (_, started, texture, _) = read_state(&mut merged);
 
-        assert!(!started, "the old state wins for `started`, in both directions");
+        assert!(
+            !started,
+            "the old state wins for `started`, in both directions"
+        );
         assert_eq!(texture, None, "and for the texture id too");
     }
 

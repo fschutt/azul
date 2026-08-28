@@ -78,9 +78,7 @@ pub fn has_motion_hardware() -> bool {
                 || mgr.isMagnetometerAvailable();
         }
         let mgr = CMMotionManager::new();
-        mgr.isAccelerometerAvailable()
-            || mgr.isGyroAvailable()
-            || mgr.isMagnetometerAvailable()
+        mgr.isAccelerometerAvailable() || mgr.isGyroAvailable() || mgr.isMagnetometerAvailable()
     }
 }
 

@@ -1,7 +1,7 @@
 //! CSS properties for `display` and `float`.
 
-use alloc::string::{String, ToString};
 use crate::corety::AzString;
+use alloc::string::{String, ToString};
 
 use crate::props::formatter::PrintAsCssValue;
 
@@ -60,33 +60,32 @@ pub enum LayoutDisplay {
 
 impl LayoutDisplay {
     /// Returns true if this display type establishes a block formatting context.
-    #[must_use] pub const fn creates_block_context(&self) -> bool {
+    #[must_use]
+    pub const fn creates_block_context(&self) -> bool {
         matches!(
             self,
-            Self::Block
-                | Self::FlowRoot
-                | Self::Flex
-                | Self::Grid
-                | Self::Table
-                | Self::ListItem
+            Self::Block | Self::FlowRoot | Self::Flex | Self::Grid | Self::Table | Self::ListItem
         )
     }
 
     /// Returns true if this display type establishes a flex formatting context.
-    #[must_use] pub const fn creates_flex_context(&self) -> bool {
+    #[must_use]
+    pub const fn creates_flex_context(&self) -> bool {
         matches!(self, Self::Flex | Self::InlineFlex)
     }
 
     // +spec:display-property:798b4f - table box establishes table formatting context (CSS 2.2 §17.4)
     /// Returns true if this display type establishes a table formatting context.
-    #[must_use] pub const fn creates_table_context(&self) -> bool {
+    #[must_use]
+    pub const fn creates_table_context(&self) -> bool {
         matches!(self, Self::Table | Self::InlineTable)
     }
 
     /// Returns true for layout-internal display types (CSS Display 3 §2.4):
     /// table-row-group, table-header-group, table-footer-group, table-row,
     /// table-column-group, table-column, table-cell, table-caption.
-    #[must_use] pub const fn is_layout_internal(&self) -> bool {
+    #[must_use]
+    pub const fn is_layout_internal(&self) -> bool {
         matches!(
             self,
             Self::TableRowGroup
@@ -104,7 +103,8 @@ impl LayoutDisplay {
     // +spec:display-property:18e77e - inner-only display keywords (flex, grid, table, flow-root) are not inline-level, defaulting outer display to block
     // +spec:display-property:a43e48 - inline-table is inline-level per CSS 2.2 §17.4
     /// Returns true if this display type generates an inline-level box.
-    #[must_use] pub const fn is_inline_level(&self) -> bool {
+    #[must_use]
+    pub const fn is_inline_level(&self) -> bool {
         matches!(
             self,
             Self::Inline
@@ -123,7 +123,8 @@ impl LayoutDisplay {
     /// IFC. `is_inline_level` covers both; this predicate is the distinction
     /// between them (which the enum has variants for but previously had no way to
     /// query).
-    #[must_use] pub const fn is_atomic_inline(&self) -> bool {
+    #[must_use]
+    pub const fn is_atomic_inline(&self) -> bool {
         matches!(
             self,
             Self::InlineBlock | Self::InlineFlex | Self::InlineTable | Self::InlineGrid
@@ -207,16 +208,20 @@ pub enum LayoutDisplayParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl LayoutDisplayParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> LayoutDisplayParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> LayoutDisplayParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => LayoutDisplayParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                LayoutDisplayParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl LayoutDisplayParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> LayoutDisplayParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> LayoutDisplayParseError<'_> {
         match self {
             Self::InvalidValue(s) => LayoutDisplayParseError::InvalidValue(s.as_str()),
         }
@@ -227,9 +232,7 @@ impl LayoutDisplayParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `display` value.
-pub fn parse_layout_display(
-    input: &str,
-) -> Result<LayoutDisplay, LayoutDisplayParseError<'_>> {
+pub fn parse_layout_display(input: &str) -> Result<LayoutDisplay, LayoutDisplayParseError<'_>> {
     let input = input.trim();
     match input {
         "none" => Ok(LayoutDisplay::None),
@@ -283,16 +286,20 @@ pub enum LayoutFloatParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl LayoutFloatParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> LayoutFloatParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> LayoutFloatParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => LayoutFloatParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                LayoutFloatParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl LayoutFloatParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> LayoutFloatParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> LayoutFloatParseError<'_> {
         match self {
             Self::InvalidValue(s) => LayoutFloatParseError::InvalidValue(s.as_str()),
         }
@@ -613,10 +620,17 @@ mod autotest_generated {
             LayoutDisplay::InlineGrid,
         ];
         for d in ALL_DISPLAY {
-            assert_eq!(d.is_atomic_inline(), EXPECTED.contains(&d), "is_atomic_inline({d:?})");
+            assert_eq!(
+                d.is_atomic_inline(),
+                EXPECTED.contains(&d),
+                "is_atomic_inline({d:?})"
+            );
             // An atomic inline is always inline-level.
             if d.is_atomic_inline() {
-                assert!(d.is_inline_level(), "atomic-inline must be inline-level ({d:?})");
+                assert!(
+                    d.is_inline_level(),
+                    "atomic-inline must be inline-level ({d:?})"
+                );
             }
         }
         assert!(!LayoutDisplay::Inline.is_atomic_inline());
@@ -748,9 +762,7 @@ mod autotest_generated {
             assert!(!printed.is_empty(), "{a:?} serializes to the empty string");
             assert_eq!(printed.trim(), printed, "{a:?} serializes with padding");
             assert!(
-                printed
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c == '-'),
+                printed.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "{a:?} serializes to a non-ident {printed:?}"
             );
             // A duplicate keyword would make the round-trip above lossy.
@@ -808,7 +820,9 @@ mod autotest_generated {
 
     #[test]
     fn parsers_reject_empty_and_whitespace_only_input() {
-        for blank in ["", " ", "   ", "\t", "\n", "\r\n", "\t\n\r ", "\u{c}", "\u{b}"] {
+        for blank in [
+            "", " ", "   ", "\t", "\n", "\r\n", "\t\n\r ", "\u{c}", "\u{b}",
+        ] {
             assert!(
                 parse_layout_display(blank).is_err(),
                 "display accepted blank {blank:?}"
@@ -845,7 +859,7 @@ mod autotest_generated {
             "-inline-block",
             "inline-block-",
             "-webkit-box",
-            "block flow",     // CSS Display 3 two-value syntax is not supported
+            "block flow", // CSS Display 3 two-value syntax is not supported
             "inline flow-root",
             "table-column-groups",
             "tablerow",
@@ -942,7 +956,10 @@ mod autotest_generated {
             parse_layout_display("\u{3000}flex\u{2028}"),
             Ok(LayoutDisplay::Flex)
         );
-        assert_eq!(parse_layout_float("\u{a0}left\u{a0}"), Ok(LayoutFloat::Left));
+        assert_eq!(
+            parse_layout_float("\u{a0}left\u{a0}"),
+            Ok(LayoutFloat::Left)
+        );
 
         // U+200B ZERO WIDTH SPACE and U+FEFF are *not* `White_Space`, so they
         // survive the trim and must make the value invalid.
@@ -959,7 +976,7 @@ mod autotest_generated {
             "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}", // ZWJ emoji sequence
             "blocke\u{301}",                      // combining acute accent
             "\u{202E}block",                      // RTL override
-            "ｂｌｏｃｋ",                          // fullwidth latin
+            "ｂｌｏｃｋ",                         // fullwidth latin
             "блок",
             "块",
             "\u{0}\u{1}\u{2}",
@@ -1004,7 +1021,10 @@ mod autotest_generated {
                 parse_layout_display(n).is_err(),
                 "display accepted number {n:?}"
             );
-            assert!(parse_layout_float(n).is_err(), "float accepted number {n:?}");
+            assert!(
+                parse_layout_float(n).is_err(),
+                "float accepted number {n:?}"
+            );
         }
     }
 
@@ -1160,7 +1180,10 @@ mod autotest_generated {
     #[test]
     fn valid_minimal_inputs_parse() {
         assert_eq!(parse_layout_display("none"), Ok(LayoutDisplay::None));
-        assert_eq!(parse_layout_display("contents"), Ok(LayoutDisplay::Contents));
+        assert_eq!(
+            parse_layout_display("contents"),
+            Ok(LayoutDisplay::Contents)
+        );
         assert_eq!(parse_layout_display("run-in"), Ok(LayoutDisplay::RunIn));
         assert_eq!(parse_layout_display("marker"), Ok(LayoutDisplay::Marker));
         assert_eq!(parse_layout_float("none"), Ok(LayoutFloat::None));

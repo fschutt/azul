@@ -19,21 +19,30 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
         basic::{color::ColorU, *},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutWidth, LayoutHeight, LayoutMarginLeft},
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutHeight, LayoutMarginLeft, LayoutWidth,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleCursor},
+        style::{
+            StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderBottomLeftRadius,
+            StyleBorderBottomRightRadius, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+            StyleCursor,
+        },
     },
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
 
 static SLIDER_TRACK_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-slider"))];
-static SLIDER_THUMB_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-slider-thumb"))];
+static SLIDER_THUMB_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-slider-thumb",
+))];
 
 /// Callback function type invoked when the slider value changes.
 pub type SliderOnValueChangeCallbackType =
@@ -261,7 +270,8 @@ impl Slider {
         self
     }
 
-    #[must_use] pub fn create(value: f32, min: f32, max: f32) -> Self {
+    #[must_use]
+    pub fn create(value: f32, min: f32, max: f32) -> Self {
         let value = clamp_to_range(value, min, max);
         Self {
             slider_state: SliderStateWrapper {
@@ -288,13 +298,15 @@ impl Slider {
 
     /// Builder-style setter for the current value.
     #[inline]
-    #[must_use] pub fn with_value(mut self, value: f32) -> Self {
+    #[must_use]
+    pub fn with_value(mut self, value: f32) -> Self {
         self.set_value(value);
         self
     }
 
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(0.0, 0.0, 100.0);
         core::mem::swap(&mut s, self);
         s
@@ -314,7 +326,8 @@ impl Slider {
     }
 
     #[inline]
-    #[must_use] pub fn with_on_value_change<C: Into<SliderOnValueChangeCallback>>(
+    #[must_use]
+    pub fn with_on_value_change<C: Into<SliderOnValueChangeCallback>>(
         mut self,
         data: RefAny,
         on_value_change: C,
@@ -324,7 +337,8 @@ impl Slider {
     }
 
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // Read the value BEFORE the fields are moved into the DOM below.
         let value_now = self.slider_state.inner.value;
 
@@ -460,7 +474,9 @@ fn apply_cursor_value(slider: &mut SliderStateWrapper, info: &mut CallbackInfo) 
 
     let inner = slider.inner;
     match slider.on_value_change.as_mut() {
-        Some(SliderOnValueChange { callback, refany }) => (callback.cb)(refany.clone(), *info, inner),
+        Some(SliderOnValueChange { callback, refany }) => {
+            (callback.cb)(refany.clone(), *info, inner)
+        }
         None => Update::DoNothing,
     }
 }
@@ -812,7 +828,11 @@ mod autotest_generated {
         let mut result = unlaid(styled_dom);
         result.layout_tree.nodes = vec![
             hot(0, track, None),
-            hot(1, LogicalSize::new(THUMB_SIZE as f32, THUMB_SIZE as f32), Some(0)),
+            hot(
+                1,
+                LogicalSize::new(THUMB_SIZE as f32, THUMB_SIZE as f32),
+                Some(0),
+            ),
         ];
         result.layout_tree.dom_to_layout = dom_to_layout;
         result.calculated_positions = vec![LogicalPosition::zero(), LogicalPosition::zero()];
@@ -925,7 +945,9 @@ mod autotest_generated {
             .iter()
             .filter_map(|c| match c {
                 CallbackChange::ChangeNodeCssProperties {
-                    node_id, properties, ..
+                    node_id,
+                    properties,
+                    ..
                 } => properties
                     .as_ref()
                     .iter()
@@ -1246,7 +1268,11 @@ mod autotest_generated {
         for fraction in REACHABLE_FRACTIONS {
             let v = build_thumb_style(fraction);
             assert_eq!(width_px(&v), Some(THUMB_SIZE as f32), "fraction {fraction}");
-            assert_eq!(height_px(&v), Some(THUMB_SIZE as f32), "fraction {fraction}");
+            assert_eq!(
+                height_px(&v),
+                Some(THUMB_SIZE as f32),
+                "fraction {fraction}"
+            );
             assert_eq!(background(&v), Some(THUMB_COLOR), "fraction {fraction}");
         }
     }
@@ -1263,7 +1289,11 @@ mod autotest_generated {
         };
         let reference = strip(0.0);
         for fraction in REACHABLE_FRACTIONS {
-            assert_eq!(strip(fraction), reference, "fraction {fraction} restyled the thumb");
+            assert_eq!(
+                strip(fraction),
+                reference,
+                "fraction {fraction} restyled the thumb"
+            );
         }
     }
 
@@ -1327,11 +1357,26 @@ mod autotest_generated {
 
     #[test]
     fn create_clamps_the_value_into_the_range() {
-        assert_eq!(Slider::create(150.0, 0.0, 100.0).slider_state.inner.value, 100.0);
-        assert_eq!(Slider::create(-50.0, 0.0, 100.0).slider_state.inner.value, 0.0);
-        assert_eq!(Slider::create(50.0, 0.0, 100.0).slider_state.inner.value, 50.0);
-        assert_eq!(Slider::create(f32::MAX, -1.0, 1.0).slider_state.inner.value, 1.0);
-        assert_eq!(Slider::create(f32::MIN, -1.0, 1.0).slider_state.inner.value, -1.0);
+        assert_eq!(
+            Slider::create(150.0, 0.0, 100.0).slider_state.inner.value,
+            100.0
+        );
+        assert_eq!(
+            Slider::create(-50.0, 0.0, 100.0).slider_state.inner.value,
+            0.0
+        );
+        assert_eq!(
+            Slider::create(50.0, 0.0, 100.0).slider_state.inner.value,
+            50.0
+        );
+        assert_eq!(
+            Slider::create(f32::MAX, -1.0, 1.0).slider_state.inner.value,
+            1.0
+        );
+        assert_eq!(
+            Slider::create(f32::MIN, -1.0, 1.0).slider_state.inner.value,
+            -1.0
+        );
     }
 
     #[test]
@@ -1351,8 +1396,11 @@ mod autotest_generated {
         for (min, max) in SANE_RANGES {
             for value in [min, max, (min + max) / 2.0, min - 1.0, max + 1.0, 0.0] {
                 let s = Slider::create(value, min, max);
-                let expected =
-                    margin_left(&build_thumb_style(value_to_fraction(value.clamp(min, max), min, max)));
+                let expected = margin_left(&build_thumb_style(value_to_fraction(
+                    value.clamp(min, max),
+                    min,
+                    max,
+                )));
                 assert_eq!(
                     margin_left(&s.thumb_style),
                     expected,
@@ -1380,7 +1428,11 @@ mod autotest_generated {
         for bound in [0.0_f32, 5.0, -5.0, 1.0e9] {
             let s = Slider::create(bound, bound, bound);
             assert_eq!(s.slider_state.inner.value, bound);
-            assert_eq!(thumb_margin(&s), 0.0, "a [{bound}, {bound}] range must pin left");
+            assert_eq!(
+                thumb_margin(&s),
+                0.0,
+                "a [{bound}, {bound}] range must pin left"
+            );
         }
     }
 
@@ -1390,7 +1442,10 @@ mod autotest_generated {
         // straight through — and the NaN fraction has to degrade to a 0 margin
         // rather than an arbitrary offset.
         let s = Slider::create(f32::NAN, 0.0, 100.0);
-        assert!(s.slider_state.inner.value.is_nan(), "the NaN value was silently rewritten");
+        assert!(
+            s.slider_state.inner.value.is_nan(),
+            "the NaN value was silently rewritten"
+        );
         assert_eq!(thumb_margin(&s), 0.0);
     }
 
@@ -1442,10 +1497,16 @@ mod autotest_generated {
         for (min, max) in SANE_RANGES {
             assert_eq!(Slider::create(min, min, max), Slider::create(min, min, max));
         }
-        assert_ne!(Slider::create(0.0, 0.0, 100.0), Slider::create(100.0, 0.0, 100.0));
+        assert_ne!(
+            Slider::create(0.0, 0.0, 100.0),
+            Slider::create(100.0, 0.0, 100.0)
+        );
         // Same value, different range: the states differ even though the thumb
         // ends up in the same place.
-        assert_ne!(Slider::create(0.0, 0.0, 100.0), Slider::create(0.0, 0.0, 200.0));
+        assert_ne!(
+            Slider::create(0.0, 0.0, 100.0),
+            Slider::create(0.0, 0.0, 200.0)
+        );
     }
 
     #[test]
@@ -1455,7 +1516,10 @@ mod autotest_generated {
             s.slider_state.on_value_change.as_ref().is_none(),
             "create invented a value-change hook out of nowhere",
         );
-        assert!(!s.slider_state.dragging, "a fresh slider must not be mid-drag");
+        assert!(
+            !s.slider_state.dragging,
+            "a fresh slider must not be mid-drag"
+        );
     }
 
     #[test]
@@ -1520,11 +1584,18 @@ mod autotest_generated {
             (0.0, 0.0),
         ] {
             s.set_value(input);
-            assert_eq!(s.slider_state.inner.value, expected_value, "set_value({input})");
+            assert_eq!(
+                s.slider_state.inner.value, expected_value,
+                "set_value({input})"
+            );
             assert_eq!(
                 thumb_margin(&s),
-                margin_left(&build_thumb_style(value_to_fraction(expected_value, 0.0, 100.0)))
-                    .expect("margin"),
+                margin_left(&build_thumb_style(value_to_fraction(
+                    expected_value,
+                    0.0,
+                    100.0
+                )))
+                .expect("margin"),
                 "set_value({input}) did not move the thumb with the value",
             );
         }
@@ -1549,7 +1620,10 @@ mod autotest_generated {
         for i in 0..=100 {
             let v = i as f32;
             s.set_value(v);
-            assert_eq!(s.slider_state.inner.value, v, "{v} did not survive set_value");
+            assert_eq!(
+                s.slider_state.inner.value, v,
+                "{v} did not survive set_value"
+            );
             assert_eq!(
                 thumb_margin(&s),
                 (v / 100.0 * TRAVEL).round(),
@@ -1620,7 +1694,10 @@ mod autotest_generated {
         // The builder moves `self`; dropping the callback on the way through
         // would silently disconnect a slider that still looks correct.
         let s = Slider::create(0.0, 0.0, 100.0)
-            .with_on_value_change(log_refany(), record_value as SliderOnValueChangeCallbackType)
+            .with_on_value_change(
+                log_refany(),
+                record_value as SliderOnValueChangeCallbackType,
+            )
             .with_value(80.0);
         assert_eq!(hook_ptr(&s), Some(record_value as *const () as usize));
         assert_eq!(s.slider_state.inner.value, 80.0);
@@ -1647,13 +1724,19 @@ mod autotest_generated {
         assert_eq!(old.slider_state.inner.value, 75.0);
         assert_eq!(old.slider_state.inner.min, 50.0);
         assert_eq!(old.slider_state.inner.max, 200.0);
-        assert_eq!(s, Slider::default(), "the hole was not filled with a default");
+        assert_eq!(
+            s,
+            Slider::default(),
+            "the hole was not filled with a default"
+        );
     }
 
     #[test]
     fn swap_with_default_moves_the_hook_out_with_the_old_widget() {
-        let mut s = Slider::create(10.0, 0.0, 100.0)
-            .with_on_value_change(log_refany(), record_value as SliderOnValueChangeCallbackType);
+        let mut s = Slider::create(10.0, 0.0, 100.0).with_on_value_change(
+            log_refany(),
+            record_value as SliderOnValueChangeCallbackType,
+        );
         let old = s.swap_with_default();
         assert_eq!(hook_ptr(&old), Some(record_value as *const () as usize));
         assert_eq!(hook_ptr(&s), None, "the hook survived the swap");
@@ -1692,17 +1775,25 @@ mod autotest_generated {
     fn set_on_value_change_stores_the_pointer_and_the_payload() {
         let probe = RefAny::new(0xDEAD_BEEF_u32);
         let mut s = Slider::create(0.0, 0.0, 100.0);
-        s.set_on_value_change(probe.clone(), record_value as SliderOnValueChangeCallbackType);
+        s.set_on_value_change(
+            probe.clone(),
+            record_value as SliderOnValueChangeCallbackType,
+        );
 
         let hook = s
             .slider_state
             .on_value_change
             .as_ref()
             .expect("the hook was dropped");
-        assert_eq!(hook.callback.cb as *const () as usize, record_value as *const () as usize);
+        assert_eq!(
+            hook.callback.cb as *const () as usize,
+            record_value as *const () as usize
+        );
         let mut stored = hook.refany.clone();
         assert_eq!(
-            *stored.downcast_ref::<u32>().expect("the payload changed type"),
+            *stored
+                .downcast_ref::<u32>()
+                .expect("the payload changed type"),
             0xDEAD_BEEF,
         );
     }
@@ -1712,8 +1803,14 @@ mod autotest_generated {
         // The setter writes `Some(..)` unconditionally; a caller re-registering
         // must end up with exactly one (the newest) hook, not the first one.
         let mut s = Slider::create(0.0, 0.0, 100.0);
-        s.set_on_value_change(RefAny::new(1u8), record_value as SliderOnValueChangeCallbackType);
-        s.set_on_value_change(RefAny::new(2u8), value_refresh_all as SliderOnValueChangeCallbackType);
+        s.set_on_value_change(
+            RefAny::new(1u8),
+            record_value as SliderOnValueChangeCallbackType,
+        );
+        s.set_on_value_change(
+            RefAny::new(2u8),
+            value_refresh_all as SliderOnValueChangeCallbackType,
+        );
         assert_eq!(hook_ptr(&s), Some(value_refresh_all as *const () as usize));
         let mut stored = s
             .slider_state
@@ -1729,7 +1826,10 @@ mod autotest_generated {
     fn set_on_value_change_leaves_the_value_and_both_styles_untouched() {
         let before = Slider::create(60.0, 0.0, 100.0);
         let mut after = before.clone();
-        after.set_on_value_change(log_refany(), record_value as SliderOnValueChangeCallbackType);
+        after.set_on_value_change(
+            log_refany(),
+            record_value as SliderOnValueChangeCallbackType,
+        );
         assert_eq!(after.slider_state.inner, before.slider_state.inner);
         assert_eq!(after.track_style, before.track_style);
         assert_eq!(after.thumb_style, before.thumb_style);
@@ -1737,10 +1837,15 @@ mod autotest_generated {
 
     #[test]
     fn with_on_value_change_matches_the_setter() {
-        let a = Slider::create(60.0, 0.0, 100.0)
-            .with_on_value_change(RefAny::new(9u8), record_value as SliderOnValueChangeCallbackType);
+        let a = Slider::create(60.0, 0.0, 100.0).with_on_value_change(
+            RefAny::new(9u8),
+            record_value as SliderOnValueChangeCallbackType,
+        );
         let mut b = Slider::create(60.0, 0.0, 100.0);
-        b.set_on_value_change(RefAny::new(9u8), record_value as SliderOnValueChangeCallbackType);
+        b.set_on_value_change(
+            RefAny::new(9u8),
+            record_value as SliderOnValueChangeCallbackType,
+        );
         assert_eq!(hook_ptr(&a), hook_ptr(&b));
         assert_eq!(a.slider_state.inner, b.slider_state.inner);
     }
@@ -1787,9 +1892,19 @@ mod autotest_generated {
         assert_eq!(classes(&dom), vec!["__azul-native-slider".to_string()]);
         assert!(matches!(dom.root.get_node_type(), NodeType::Div));
         let kids = dom.children.as_ref();
-        assert_eq!(kids.len(), 1, "the track must have exactly one child (the thumb)");
-        assert_eq!(classes(&kids[0]), vec!["__azul-native-slider-thumb".to_string()]);
-        assert!(kids[0].children.as_ref().is_empty(), "the thumb must be a leaf");
+        assert_eq!(
+            kids.len(),
+            1,
+            "the track must have exactly one child (the thumb)"
+        );
+        assert_eq!(
+            classes(&kids[0]),
+            vec!["__azul-native-slider-thumb".to_string()]
+        );
+        assert!(
+            kids[0].children.as_ref().is_empty(),
+            "the thumb must be a leaf"
+        );
     }
 
     #[test]
@@ -1803,13 +1918,34 @@ mod autotest_generated {
     fn dom_registers_every_pointer_filter_exactly_once_in_order() {
         let dom = Slider::create(0.0, 0.0, 100.0).dom();
         let expected: [(EventFilter, usize); 7] = [
-            (EventFilter::Hover(HoverEventFilter::MouseDown), on_slider_pointer_down as usize),
-            (EventFilter::Hover(HoverEventFilter::MouseOver), on_slider_pointer_move as usize),
-            (EventFilter::Hover(HoverEventFilter::MouseUp), on_slider_pointer_up as usize),
-            (EventFilter::Hover(HoverEventFilter::MouseLeave), on_slider_pointer_leave as usize),
-            (EventFilter::Hover(HoverEventFilter::TouchStart), on_slider_pointer_down as usize),
-            (EventFilter::Hover(HoverEventFilter::TouchMove), on_slider_pointer_move as usize),
-            (EventFilter::Hover(HoverEventFilter::TouchEnd), on_slider_pointer_up as usize),
+            (
+                EventFilter::Hover(HoverEventFilter::MouseDown),
+                on_slider_pointer_down as usize,
+            ),
+            (
+                EventFilter::Hover(HoverEventFilter::MouseOver),
+                on_slider_pointer_move as usize,
+            ),
+            (
+                EventFilter::Hover(HoverEventFilter::MouseUp),
+                on_slider_pointer_up as usize,
+            ),
+            (
+                EventFilter::Hover(HoverEventFilter::MouseLeave),
+                on_slider_pointer_leave as usize,
+            ),
+            (
+                EventFilter::Hover(HoverEventFilter::TouchStart),
+                on_slider_pointer_down as usize,
+            ),
+            (
+                EventFilter::Hover(HoverEventFilter::TouchMove),
+                on_slider_pointer_move as usize,
+            ),
+            (
+                EventFilter::Hover(HoverEventFilter::TouchEnd),
+                on_slider_pointer_up as usize,
+            ),
         ];
         let got: Vec<(EventFilter, usize)> = dom
             .root
@@ -1864,41 +2000,70 @@ mod autotest_generated {
             "dataset and callbacks must share ONE allocation, or the reconciler cannot \
              re-point the fresh callbacks at the merged state"
         );
-        assert!(dom.root.get_merge_callback().is_some(), "no merge callback registered");
+        assert!(
+            dom.root.get_merge_callback().is_some(),
+            "no merge callback registered"
+        );
 
         // Old build: a drag in flight at 73. New build: the app re-rendered
         // with its stored (stale) 40.
         let old = RefAny::new(SliderStateWrapper {
-            inner: SliderState { value: 73.0, min: 0.0, max: 100.0 },
+            inner: SliderState {
+                value: 73.0,
+                min: 0.0,
+                max: 100.0,
+            },
             dragging: true,
             ..Default::default()
         });
         let fresh = RefAny::new(SliderStateWrapper {
-            inner: SliderState { value: 40.0, min: 0.0, max: 100.0 },
+            inner: SliderState {
+                value: 40.0,
+                min: 0.0,
+                max: 100.0,
+            },
             dragging: false,
             ..Default::default()
         });
         let mut merged = merge_slider_state(fresh, old);
-        let w = merged.downcast_ref::<SliderStateWrapper>().expect("type kept");
+        let w = merged
+            .downcast_ref::<SliderStateWrapper>()
+            .expect("type kept");
         assert!(w.dragging, "the drag must survive the rebuild");
-        assert_eq!(w.inner.value, 73.0, "mid-drag the pointer's value wins over the app's");
+        assert_eq!(
+            w.inner.value, 73.0,
+            "mid-drag the pointer's value wins over the app's"
+        );
         drop(w);
 
         // Pointer up: the app's value is the truth again.
         let old_idle = RefAny::new(SliderStateWrapper {
-            inner: SliderState { value: 73.0, min: 0.0, max: 100.0 },
+            inner: SliderState {
+                value: 73.0,
+                min: 0.0,
+                max: 100.0,
+            },
             dragging: false,
             ..Default::default()
         });
         let fresh2 = RefAny::new(SliderStateWrapper {
-            inner: SliderState { value: 40.0, min: 0.0, max: 100.0 },
+            inner: SliderState {
+                value: 40.0,
+                min: 0.0,
+                max: 100.0,
+            },
             dragging: false,
             ..Default::default()
         });
         let mut merged2 = merge_slider_state(fresh2, old_idle);
-        let w2 = merged2.downcast_ref::<SliderStateWrapper>().expect("type kept");
+        let w2 = merged2
+            .downcast_ref::<SliderStateWrapper>()
+            .expect("type kept");
         assert!(!w2.dragging);
-        assert_eq!(w2.inner.value, 40.0, "idle: the fresh build's (app's) value is kept");
+        assert_eq!(
+            w2.inner.value, 40.0,
+            "idle: the fresh build's (app's) value is kept"
+        );
     }
 
     /// End-to-end through the reconciler: a slider mid-drag in the OLD DOM,
@@ -1931,7 +2096,9 @@ mod autotest_generated {
                 .find(|nd| nd.get_merge_callback().is_some())
                 .expect("a slider track with a merge callback");
             let mut r = track.callbacks.as_ref()[0].refany.clone();
-            let w = r.downcast_ref::<SliderStateWrapper>().expect("slider state");
+            let w = r
+                .downcast_ref::<SliderStateWrapper>()
+                .expect("slider state");
             w.clone()
         }
 
@@ -1945,7 +2112,9 @@ mod autotest_generated {
                 .find(|nd| nd.get_merge_callback().is_some())
                 .expect("track");
             let mut r = track.callbacks.as_ref()[0].refany.clone();
-            let mut w = r.downcast_mut::<SliderStateWrapper>().expect("slider state");
+            let mut w = r
+                .downcast_mut::<SliderStateWrapper>()
+                .expect("slider state");
             w.dragging = true;
             w.inner.value = 73.0;
         }
@@ -1968,8 +2137,12 @@ mod autotest_generated {
         );
         assert!(
             diff.node_moves.iter().any(|m| {
-                old_data[m.old_node_id.index()].get_merge_callback().is_some()
-                    && new_data[m.new_node_id.index()].get_merge_callback().is_some()
+                old_data[m.old_node_id.index()]
+                    .get_merge_callback()
+                    .is_some()
+                    && new_data[m.new_node_id.index()]
+                        .get_merge_callback()
+                        .is_some()
             }),
             "the reconciler must match the old track to the new track: {:?}",
             diff.node_moves
@@ -1983,7 +2156,11 @@ mod autotest_generated {
 
     #[test]
     fn dom_carries_the_widgets_own_state_not_a_default() {
-        let mut state = Slider::create(42.0, -10.0, 90.0).dom().root.callbacks.as_ref()[0]
+        let mut state = Slider::create(42.0, -10.0, 90.0)
+            .dom()
+            .root
+            .callbacks
+            .as_ref()[0]
             .refany
             .clone();
         let wrapper = state
@@ -1992,7 +2169,10 @@ mod autotest_generated {
         assert_eq!(wrapper.inner.value, 42.0);
         assert_eq!(wrapper.inner.min, -10.0);
         assert_eq!(wrapper.inner.max, 90.0);
-        assert!(!wrapper.dragging, "a freshly rendered slider must not be mid-drag");
+        assert!(
+            !wrapper.dragging,
+            "a freshly rendered slider must not be mid-drag"
+        );
     }
 
     #[test]
@@ -2040,11 +2220,13 @@ mod autotest_generated {
         ] {
             let (_, _, state) = press_at(Slider::create(0.0, 0.0, 100.0), x);
             assert_eq!(
-                state.inner.value,
-                expected,
+                state.inner.value, expected,
                 "a press at x = {x} produced the wrong value",
             );
-            assert_eq!(state.inner.value, expected_value(x, DESIGN_WIDTH, 0.0, 100.0));
+            assert_eq!(
+                state.inner.value,
+                expected_value(x, DESIGN_WIDTH, 0.0, 100.0)
+            );
         }
     }
 
@@ -2059,20 +2241,30 @@ mod autotest_generated {
             (f32::NEG_INFINITY, 0.0),
         ] {
             let (_, _, state) = press_at(Slider::create(50.0, 0.0, 100.0), x);
-            assert_eq!(state.inner.value, expected, "a press at x = {x} escaped the range");
+            assert_eq!(
+                state.inner.value, expected,
+                "a press at x = {x} escaped the range"
+            );
         }
     }
 
     #[test]
     fn a_press_maps_onto_a_negative_range_too() {
         let (_, _, state) = press_at(Slider::create(-100.0, -100.0, -50.0), 100.0);
-        assert_eq!(state.inner.value, -75.0, "the midpoint of [-100, -50] is -75");
+        assert_eq!(
+            state.inner.value, -75.0,
+            "the midpoint of [-100, -50] is -75"
+        );
     }
 
     #[test]
     fn a_press_slides_the_thumb_by_writing_margin_left_on_the_first_child() {
         let (update, changes, _) = press_at(Slider::create(0.0, 0.0, 100.0), 100.0);
-        assert_eq!(update, Update::DoNothing, "no hook is installed, so nothing to redraw");
+        assert_eq!(
+            update,
+            Update::DoNothing,
+            "no hook is installed, so nothing to redraw"
+        );
         let margins = pushed_margins(&changes);
         assert_eq!(
             margins.len(),
@@ -2080,13 +2272,30 @@ mod autotest_generated {
             "exactly one thumb move per press, got {changes:?}",
         );
         let (node_id, margin) = margins[0];
-        assert_eq!(node_id, NodeId::new(1), "the margin landed on the track, not the thumb");
-        assert_eq!(margin, (0.5 * TRAVEL).round(), "the thumb went to the wrong pixel");
+        assert_eq!(
+            node_id,
+            NodeId::new(1),
+            "the margin landed on the track, not the thumb"
+        );
+        assert_eq!(
+            margin,
+            (0.5 * TRAVEL).round(),
+            "the thumb went to the wrong pixel"
+        );
     }
 
     #[test]
     fn a_press_never_slides_the_thumb_off_the_rail() {
-        for x in [-1.0e9_f32, -1.0, 0.0, 37.0, 199.0, 200.0, 1.0e9, f32::INFINITY] {
+        for x in [
+            -1.0e9_f32,
+            -1.0,
+            0.0,
+            37.0,
+            199.0,
+            200.0,
+            1.0e9,
+            f32::INFINITY,
+        ] {
             let (_, changes, _) = press_at(Slider::create(0.0, 0.0, 100.0), x);
             for (_, margin) in pushed_margins(&changes) {
                 assert!(
@@ -2146,7 +2355,10 @@ mod autotest_generated {
             |info| on_slider_pointer_down(state.clone(), *info),
         );
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "the thumb moved without a cursor: {changes:?}");
+        assert!(
+            changes.is_empty(),
+            "the thumb moved without a cursor: {changes:?}"
+        );
         let s = read_state(&state);
         assert_eq!(s.inner.value, 60.0, "the value changed without a cursor");
         assert!(s.dragging, "the press must still arm the drag");
@@ -2196,7 +2408,11 @@ mod autotest_generated {
         });
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty(), "a hover moved the thumb: {changes:?}");
-        assert_eq!(read_state(&state).inner.value, 10.0, "a hover changed the value");
+        assert_eq!(
+            read_state(&state).inner.value,
+            10.0,
+            "a hover changed the value"
+        );
     }
 
     #[test]
@@ -2206,15 +2422,25 @@ mod autotest_generated {
         with_info(unlaid(styled), node(0), cursor(0.0, 8.0), |info| {
             on_slider_pointer_down(state.clone(), *info)
         });
-        assert!(read_state(&state).dragging, "the press did not arm the drag");
+        assert!(
+            read_state(&state).dragging,
+            "the press did not arm the drag"
+        );
 
         let styled2 = StyledDom::create_from_dom(slider.dom());
         let (update, changes) = with_info(unlaid(styled2), node(0), cursor(150.0, 8.0), |info| {
             on_slider_pointer_move(state.clone(), *info)
         });
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(read_state(&state).inner.value, 75.0, "the drag did not track the cursor");
-        assert_eq!(pushed_margins(&changes), vec![(NodeId::new(1), (0.75 * TRAVEL).round())]);
+        assert_eq!(
+            read_state(&state).inner.value,
+            75.0,
+            "the drag did not track the cursor"
+        );
+        assert_eq!(
+            pushed_margins(&changes),
+            vec![(NodeId::new(1), (0.75 * TRAVEL).round())]
+        );
     }
 
     #[test]
@@ -2230,7 +2456,10 @@ mod autotest_generated {
             on_slider_pointer_up(state.clone(), *info)
         });
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "the release moved the thumb: {changes:?}");
+        assert!(
+            changes.is_empty(),
+            "the release moved the thumb: {changes:?}"
+        );
         let s = read_state(&state);
         assert!(!s.dragging, "the drag outlived the release");
         assert_eq!(s.inner.value, 50.0, "the release rewrote the value");
@@ -2239,14 +2468,20 @@ mod autotest_generated {
     #[test]
     fn a_release_is_idempotent_and_safe_before_any_press() {
         let (styled, state) = wired(Slider::create(0.0, 0.0, 100.0));
-        with_info(unlaid(styled), node(0), OptionLogicalPosition::None, |info| {
-            on_slider_pointer_up(state.clone(), *info)
-        });
+        with_info(
+            unlaid(styled),
+            node(0),
+            OptionLogicalPosition::None,
+            |info| on_slider_pointer_up(state.clone(), *info),
+        );
         assert!(!read_state(&state).dragging);
         let styled2 = StyledDom::create_from_dom(Slider::create(0.0, 0.0, 100.0).dom());
-        with_info(unlaid(styled2), node(0), OptionLogicalPosition::None, |info| {
-            on_slider_pointer_up(state.clone(), *info)
-        });
+        with_info(
+            unlaid(styled2),
+            node(0),
+            OptionLogicalPosition::None,
+            |info| on_slider_pointer_up(state.clone(), *info),
+        );
         assert!(!read_state(&state).dragging);
     }
 
@@ -2266,10 +2501,15 @@ mod autotest_generated {
                     handler(foreign.clone(), *info)
                 });
             assert_eq!(update, Update::DoNothing);
-            assert!(changes.is_empty(), "a foreign payload still mutated the DOM: {changes:?}");
+            assert!(
+                changes.is_empty(),
+                "a foreign payload still mutated the DOM: {changes:?}"
+            );
             let mut foreign = foreign;
             assert_eq!(
-                *foreign.downcast_ref::<u32>().expect("the payload was replaced"),
+                *foreign
+                    .downcast_ref::<u32>()
+                    .expect("the payload was replaced"),
                 0xABCD,
             );
         }
@@ -2278,9 +2518,18 @@ mod autotest_generated {
     #[test]
     fn a_press_forwards_the_hooks_update_verbatim() {
         for (cb, expected) in [
-            (value_do_nothing as SliderOnValueChangeCallbackType, Update::DoNothing),
-            (record_value as SliderOnValueChangeCallbackType, Update::RefreshDom),
-            (value_refresh_all as SliderOnValueChangeCallbackType, Update::RefreshDomAllWindows),
+            (
+                value_do_nothing as SliderOnValueChangeCallbackType,
+                Update::DoNothing,
+            ),
+            (
+                record_value as SliderOnValueChangeCallbackType,
+                Update::RefreshDom,
+            ),
+            (
+                value_refresh_all as SliderOnValueChangeCallbackType,
+                Update::RefreshDomAllWindows,
+            ),
         ] {
             let (styled, state) =
                 wired(Slider::create(0.0, 0.0, 100.0).with_on_value_change(log_refany(), cb));
@@ -2321,10 +2570,16 @@ mod autotest_generated {
             probe.clone(),
             record_value as SliderOnValueChangeCallbackType,
         ));
-        with_info(unlaid(styled), node(0), OptionLogicalPosition::None, |info| {
-            on_slider_pointer_down(state.clone(), *info)
-        });
-        assert!(read_log(&probe).seen.is_empty(), "the hook fired without a cursor");
+        with_info(
+            unlaid(styled),
+            node(0),
+            OptionLogicalPosition::None,
+            |info| on_slider_pointer_down(state.clone(), *info),
+        );
+        assert!(
+            read_log(&probe).seen.is_empty(),
+            "the hook fired without a cursor"
+        );
     }
 
     #[test]
@@ -2337,7 +2592,10 @@ mod autotest_generated {
         with_info(unlaid(styled), node(0), cursor(100.0, 8.0), |info| {
             on_slider_pointer_up(state.clone(), *info)
         });
-        assert!(read_log(&probe).seen.is_empty(), "the release reported a value change");
+        assert!(
+            read_log(&probe).seen.is_empty(),
+            "the release reported a value change"
+        );
     }
 
     #[test]
@@ -2348,7 +2606,11 @@ mod autotest_generated {
         // the constructor is worth fixing rather than accepting.
         for (min, max) in DEGENERATE_RANGES {
             let mut wrapper = SliderStateWrapper {
-                inner: SliderState { value: 0.0, min, max },
+                inner: SliderState {
+                    value: 0.0,
+                    min,
+                    max,
+                },
                 ..Default::default()
             };
             let styled = StyledDom::create_from_dom(Slider::create(0.0, 0.0, 100.0).dom());
@@ -2381,7 +2643,11 @@ mod autotest_generated {
         for (min, max) in SANE_RANGES {
             for x in [-1.0e9_f32, -1.0, 0.0, 73.0, 200.0, 1.0e9] {
                 let mut wrapper = SliderStateWrapper {
-                    inner: SliderState { value: min, min, max },
+                    inner: SliderState {
+                        value: min,
+                        min,
+                        max,
+                    },
                     ..Default::default()
                 };
                 let styled = StyledDom::create_from_dom(Slider::create(0.0, 0.0, 100.0).dom());
@@ -2400,7 +2666,11 @@ mod autotest_generated {
     #[test]
     fn apply_cursor_value_is_idempotent_for_a_stationary_cursor() {
         let mut wrapper = SliderStateWrapper {
-            inner: SliderState { value: 0.0, min: 0.0, max: 100.0 },
+            inner: SliderState {
+                value: 0.0,
+                min: 0.0,
+                max: 100.0,
+            },
             ..Default::default()
         };
         for _ in 0..3 {
@@ -2422,7 +2692,11 @@ mod autotest_generated {
             on_slider_pointer_move,
             on_slider_pointer_up,
         ] {
-            for track in [None, Some(LogicalSize::new(0.0, 0.0)), Some(LogicalSize::new(1.0e9, 16.0))] {
+            for track in [
+                None,
+                Some(LogicalSize::new(0.0, 0.0)),
+                Some(LogicalSize::new(1.0e9, 16.0)),
+            ] {
                 for at in [
                     OptionLogicalPosition::None,
                     cursor(0.0, 0.0),
@@ -2432,8 +2706,7 @@ mod autotest_generated {
                 ] {
                     let slider = Slider::create(0.0, 0.0, 100.0);
                     let (_, state) = wired(slider.clone());
-                    let (_, changes) =
-                        deliver(slider, &state, node(0), at, track, handler);
+                    let (_, changes) = deliver(slider, &state, node(0), at, track, handler);
                     // Whatever happened, the shared state must still be readable.
                     let _ = read_state(&state);
                     for (_, margin) in pushed_margins(&changes) {

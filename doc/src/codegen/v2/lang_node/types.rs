@@ -152,11 +152,7 @@ fn emit_monomorphized_alias(
             } else {
                 for f in fields {
                     let spec = ref_kind_spec(&f.type_name, &f.ref_kind, ir);
-                    b.line(&format!(
-                        "{}: '{}',",
-                        sanitize_js_identifier(&f.name),
-                        spec
-                    ));
+                    b.line(&format!("{}: '{}',", sanitize_js_identifier(&f.name), spec));
                 }
             }
             b.dedent();
@@ -168,21 +164,14 @@ fn emit_monomorphized_alias(
             b.line(&format!("Enums.{}_Tag = Object.freeze({{", ta.name));
             b.indent();
             for (idx, v) in variants.iter().enumerate() {
-                b.line(&format!(
-                    "{}: {},",
-                    sanitize_js_identifier(&v.name),
-                    idx
-                ));
+                b.line(&format!("{}: {},", sanitize_js_identifier(&v.name), idx));
             }
             b.dedent();
             b.line("});");
 
             // Per-variant payload structs.
             for v in variants {
-                b.line(&format!(
-                    "azulFFI.struct('{}Variant_{}', {{",
-                    name, v.name
-                ));
+                b.line(&format!("azulFFI.struct('{}Variant_{}', {{", name, v.name));
                 b.indent();
                 b.line(&format!("tag: '{}_Tag',", name));
                 if let Some(ref payload_type) = v.payload_type {
@@ -228,9 +217,7 @@ fn should_emit(c: TypeCategory) -> bool {
     // emit, koffi rejects "Unknown or invalid type name".
     !matches!(
         c,
-        TypeCategory::Recursive
-            | TypeCategory::GenericTemplate
-            | TypeCategory::CallbackTypedef
+        TypeCategory::Recursive | TypeCategory::GenericTemplate | TypeCategory::CallbackTypedef
     )
 }
 
@@ -280,10 +267,7 @@ fn emit_tag_enum(b: &mut CodeBuilder, e: &EnumDef) {
     // (C-ABI `#[repr(C, u8)]`; uint32 would shift every payload offset
     // on small-aligned variants — same family of bug Java/C#/Kotlin
     // fixed last week).
-    b.line(&format!(
-        "azulFFI.alias('{}_Tag', 'uint8_t');",
-        ffi
-    ));
+    b.line(&format!("azulFFI.alias('{}_Tag', 'uint8_t');", ffi));
     b.line(&format!("Enums.{}_Tag = Object.freeze({{", e.name));
     b.indent();
     for (idx, v) in e.variants.iter().enumerate() {
@@ -331,11 +315,7 @@ fn emit_variant_payload_structs(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR
             EnumVariantKind::Struct(fields) => {
                 for f in fields {
                     let spec = ref_kind_spec(&f.type_name, &f.ref_kind, ir);
-                    b.line(&format!(
-                        "{}: '{}',",
-                        sanitize_js_identifier(&f.name),
-                        spec
-                    ));
+                    b.line(&format!("{}: '{}',", sanitize_js_identifier(&f.name), spec));
                 }
             }
         }
@@ -380,11 +360,7 @@ fn emit_struct_registration(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) 
             continue;
         }
         let spec = ref_kind_spec(&f.type_name, &f.ref_kind, ir);
-        b.line(&format!(
-            "{}: '{}',",
-            sanitize_js_identifier(&f.name),
-            spec
-        ));
+        b.line(&format!("{}: '{}',", sanitize_js_identifier(&f.name), spec));
     }
     b.dedent();
     b.line("});");

@@ -141,7 +141,9 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
                     "' SKIPPED: {} returns a UDT ByVal — VB6 Declare cannot return UDTs.",
                     func.c_name
                 ));
-                builder.line("' Workaround: write a C-side shim that writes the struct via an out-pointer.");
+                builder.line(
+                    "' Workaround: write a C-side shim that writes the struct via an out-pointer.",
+                );
             }
             builder.line(&format!(
                 "Public Declare Function {} Lib \"{}\" Alias \"{}\" ({}) As {}",
@@ -166,7 +168,11 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
 ///     (VB6 cannot pass UDTs ByVal in Declare; the C side must accept
 ///     them ByRef — the externals layer flags this as SKIPPED if the
 ///     C side really does want by-value).
-fn arg_clause_and_type(ref_kind: &ArgRefKind, type_name: &str, ir: &CodegenIR) -> (&'static str, String) {
+fn arg_clause_and_type(
+    ref_kind: &ArgRefKind,
+    type_name: &str,
+    ir: &CodegenIR,
+) -> (&'static str, String) {
     match ref_kind {
         ArgRefKind::Owned => {
             let vb_ty = map_type_to_vb6(type_name, ir);

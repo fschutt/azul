@@ -119,6 +119,8 @@ pub mod extra;
 pub mod file {
     pub use azul_layout::desktop::file::*;
 }
+/// Application / dock / taskbar icon, set at runtime from an icon-registry spec
+pub mod app_icon;
 /// OpenGL texture cache for external image support
 pub mod gl_texture_cache;
 /// Integration layer for OpenGL texture management
@@ -132,16 +134,14 @@ pub mod material_icons;
 pub mod menu;
 /// Menu rendering - Converts Menu structures to StyledDom
 pub mod menu_renderer;
+/// Shader disk cache for WebRender program binaries
+pub mod shader_cache;
 /// New windowing backend (shell2) - modern, clean architecture
 pub mod shell2;
-/// Application / dock / taskbar icon, set at runtime from an icon-registry spec
-pub mod app_icon;
 /// System tray / status icon — NSStatusItem, Shell_NotifyIcon, StatusNotifierItem
 pub mod tray;
 /// WebRender type translations and hit-testing for shell2
 pub mod wr_translate2;
-/// Shader disk cache for WebRender program binaries
-pub mod shader_cache;
 /// Font & image resource handling, lookup and caching
 pub mod resources {
     pub use azul_core::resources::*;

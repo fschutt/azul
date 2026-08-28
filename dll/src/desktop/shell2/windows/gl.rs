@@ -4,8 +4,8 @@
 use alloc::rc::Rc;
 use core::{fmt, mem, ptr};
 
-use gl_context_loader::GenericGlContext;
 use crate::desktop::shell2::common::gl_loader::load_gl_context;
+use gl_context_loader::GenericGlContext;
 use winapi::shared::{
     minwindef::{BOOL, HINSTANCE, LOWORD, TRUE},
     windef::{HDC, HGLRC},
@@ -24,7 +24,9 @@ pub struct GlFunctions {
 
 impl fmt::Debug for GlFunctions {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self._opengl32_dll_handle.map(|s| s as *const () as usize).fmt(f)?;
+        self._opengl32_dll_handle
+            .map(|s| s as *const () as usize)
+            .fmt(f)?;
         Ok(())
     }
 }
@@ -86,9 +88,15 @@ pub struct ExtraWglFunctions {
 
 impl fmt::Debug for ExtraWglFunctions {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.wglCreateContextAttribsARB.map(|p| p as *const () as usize).fmt(f)?;
-        self.wglSwapIntervalEXT.map(|p| p as *const () as usize).fmt(f)?;
-        self.wglChoosePixelFormatARB.map(|p| p as *const () as usize).fmt(f)?;
+        self.wglCreateContextAttribsARB
+            .map(|p| p as *const () as usize)
+            .fmt(f)?;
+        self.wglSwapIntervalEXT
+            .map(|p| p as *const () as usize)
+            .fmt(f)?;
+        self.wglChoosePixelFormatARB
+            .map(|p| p as *const () as usize)
+            .fmt(f)?;
         Ok(())
     }
 }

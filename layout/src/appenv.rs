@@ -57,7 +57,9 @@ impl AppEnv {
     #[must_use]
     pub fn from_config(config: &azul_core::resources::AppConfig) -> Self {
         let opt = |s: &azul_css::OptionString| {
-            s.as_ref().map(|v| v.as_str().to_owned()).filter(|v| !v.is_empty())
+            s.as_ref()
+                .map(|v| v.as_str().to_owned())
+                .filter(|v| !v.is_empty())
         };
         Self {
             app_name: config.updates.app_name.as_str().to_owned(),
@@ -66,14 +68,22 @@ impl AppEnv {
             update_manifest: opt(&config.updates.manifest_url),
             update_root_public_key: {
                 let k = config.updates.root_public_key.as_str();
-                if k.is_empty() { None } else { Some(k.to_owned()) }
+                if k.is_empty() {
+                    None
+                } else {
+                    Some(k.to_owned())
+                }
             },
             update_channel: config.updates.channel.as_str().to_owned(),
             changelog_md: opt(&config.changelog_md),
             report_problem: match &config.report_problem {
                 azul_core::resources::OptionEmailAddress::Some(e) => {
                     let a = e.address.as_str();
-                    if a.is_empty() { None } else { Some(a.to_owned()) }
+                    if a.is_empty() {
+                        None
+                    } else {
+                        Some(a.to_owned())
+                    }
                 }
                 azul_core::resources::OptionEmailAddress::None => None,
             },
@@ -114,7 +124,8 @@ mod tests {
         config.updates.mode = UpdateMode::SelfUpdate;
         config.updates.manifest_url =
             azul_css::OptionString::Some("http://localhost:1/manifest.json".into());
-        config.changelog_md = azul_css::OptionString::Some("http://localhost:1/CHANGELOG.md".into());
+        config.changelog_md =
+            azul_css::OptionString::Some("http://localhost:1/CHANGELOG.md".into());
         config.report_problem = azul_core::resources::OptionEmailAddress::Some(
             azul_core::resources::EmailAddress::new("support@example.test".into()),
         );
@@ -122,8 +133,14 @@ mod tests {
         assert_eq!(env.app_name, "testapp");
         assert_eq!(env.current_version, "1.2.3");
         assert_eq!(env.update_mode, UpdateMode::SelfUpdate);
-        assert_eq!(env.update_manifest.as_deref(), Some("http://localhost:1/manifest.json"));
-        assert_eq!(env.changelog_md.as_deref(), Some("http://localhost:1/CHANGELOG.md"));
+        assert_eq!(
+            env.update_manifest.as_deref(),
+            Some("http://localhost:1/manifest.json")
+        );
+        assert_eq!(
+            env.changelog_md.as_deref(),
+            Some("http://localhost:1/CHANGELOG.md")
+        );
         assert_eq!(env.report_problem.as_deref(), Some("support@example.test"));
     }
 

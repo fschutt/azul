@@ -7,16 +7,20 @@
 //! EVERY width. This walks the real `Ribbon` widget (adaptive chrome,
 //! the production `dom()` path) and asserts exactly that.
 
-use azul_css::AzString;
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
+use azul_css::AzString;
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
-    widgets::ribbon::{Ribbon, RibbonButton, RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonTab},
+    callbacks::ExternalSystemCallbacks,
+    widgets::ribbon::{
+        Ribbon, RibbonButton, RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonTab,
+    },
+    window::LayoutWindow,
+    window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -62,7 +66,8 @@ fn word_like_ribbon() -> Dom {
     // the real gallery, not plain buttons.
     let cell = |sample: &str, name: &str| {
         RibbonGalleryCell::new(
-            Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from(sample)).with_css("font-size: 14px;"),
+            Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from(sample))
+                .with_css("font-size: 14px;"),
             name.into(),
         )
     };
@@ -77,8 +82,7 @@ fn word_like_ribbon() -> Dom {
         ]
         .into(),
     );
-    let mut styles = RibbonGroup::new("Styles".into())
-        .with_item(RibbonItem::Gallery(gallery));
+    let mut styles = RibbonGroup::new("Styles".into()).with_item(RibbonItem::Gallery(gallery));
     styles.fills_space = true;
 
     let tab = RibbonTab::new("HOME".into())
@@ -232,9 +236,9 @@ fn probe_gallery_strip_overflow_geometry() {
     };
     for i in 0..node_data.len() {
         let cls = classes_of(i);
-        let interesting = cls.iter().any(|c| {
-            c.contains("ribbon-group") || c.contains("gallery")
-        });
+        let interesting = cls
+            .iter()
+            .any(|c| c.contains("ribbon-group") || c.contains("gallery"));
         if !interesting {
             continue;
         }
@@ -339,20 +343,14 @@ fn gallery_overflow_is_clipped_at_paint_time() {
                     b.origin.y + b.size.height,
                 );
                 let eff = clip_stack.last().map_or(nb, |c| {
-                    (
-                        c.0.max(nb.0),
-                        c.1.max(nb.1),
-                        c.2.min(nb.2),
-                        c.3.min(nb.3),
-                    )
+                    (c.0.max(nb.0), c.1.max(nb.1), c.2.min(nb.2), c.3.min(nb.3))
                 });
                 clip_stack.push(eff);
             }
             DisplayListItem::PopClip => {
                 clip_stack.pop();
             }
-            DisplayListItem::Rect { bounds, .. }
-            | DisplayListItem::Border { bounds, .. } => {
+            DisplayListItem::Rect { bounds, .. } | DisplayListItem::Border { bounds, .. } => {
                 let b = bounds.0;
                 let x1 = b.origin.x + b.size.width;
                 let y0 = b.origin.y;

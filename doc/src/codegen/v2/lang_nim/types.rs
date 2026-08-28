@@ -43,9 +43,7 @@ use super::super::ir::{
     ArgRefKind, CallbackTypedefDef, CodegenIR, EnumDef, EnumVariantKind, FieldDef, FieldRefKind,
     FunctionArg, MonomorphizedKind, StructDef, TypeAliasDef,
 };
-use super::{
-    ffi_type_name, map_type_to_nim, ptr_type_for, sanitize_comment, sanitize_identifier,
-};
+use super::{ffi_type_name, map_type_to_nim, ptr_type_for, sanitize_comment, sanitize_identifier};
 
 pub fn generate_types(
     builder: &mut CodeBuilder,
@@ -348,7 +346,10 @@ fn emit_tagged_union(builder: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
             EnumVariantKind::Tuple(types) => {
                 if types.len() == 1 {
                     let (ty, rk) = &types[0];
-                    builder.line(&format!("payload*: {}", field_type_for_ref_kind(ty, rk, ir)));
+                    builder.line(&format!(
+                        "payload*: {}",
+                        field_type_for_ref_kind(ty, rk, ir)
+                    ));
                 } else {
                     for (i, (ty, rk)) in types.iter().enumerate() {
                         builder.line(&format!(

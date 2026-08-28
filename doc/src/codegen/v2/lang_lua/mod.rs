@@ -60,7 +60,9 @@ pub fn generate(ir: &CodegenIR, _config: &CodegenConfig) -> Result<String> {
 
     // Runtime guard: bail out clearly if loaded under stock Lua.
     builder.line("if not jit then");
-    builder.line("    error('azul.lua requires LuaJIT (the `ffi` module is not available in standard Lua)')");
+    builder.line(
+        "    error('azul.lua requires LuaJIT (the `ffi` module is not available in standard Lua)')",
+    );
     builder.line("end");
     builder.blank();
 

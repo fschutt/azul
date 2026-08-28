@@ -55,16 +55,14 @@ pub struct FocusManager {
     pub focused_node: Option<DomNodeId>,
     /// Pending focus request from callback
     pub pending_focus_request: Option<FocusTarget>,
-    
+
     // --- W3C "flag and defer" pattern fields ---
-    
     /// Flag indicating that cursor initialization is pending (set during focus, consumed after layout)
     pub cursor_needs_initialization: bool,
     /// Information about the pending contenteditable focus
     pub pending_contenteditable_focus: Option<PendingContentEditableFocus>,
 
     // --- focus-before-first-layout retry queue ---
-
     /// A [`FocusTarget`] that could not be resolved because no layout existed
     /// yet, kept so it can be re-resolved as soon as one does.
     ///
@@ -107,7 +105,8 @@ impl Default for FocusManager {
 
 impl FocusManager {
     /// Create a new focus manager
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             focused_node: None,
             pending_focus_request: None,
@@ -119,7 +118,8 @@ impl FocusManager {
     }
 
     /// Get the currently focused node
-    #[must_use] pub const fn get_focused_node(&self) -> Option<&DomNodeId> {
+    #[must_use]
+    pub const fn get_focused_node(&self) -> Option<&DomNodeId> {
         self.focused_node.as_ref()
     }
 
@@ -148,12 +148,13 @@ impl FocusManager {
     }
 
     /// Check if a specific node has focus
-    #[must_use] pub fn has_focus(&self, node: &DomNodeId) -> bool {
+    #[must_use]
+    pub fn has_focus(&self, node: &DomNodeId) -> bool {
         self.focused_node.as_ref() == Some(node)
     }
-    
+
     // --- W3C "flag and defer" pattern methods ---
-    
+
     /// Mark that cursor initialization is needed for a contenteditable element.
     ///
     /// This is called during focus event handling. The actual cursor initialization
@@ -205,12 +206,14 @@ impl FocusManager {
         self.pending_focus_retries = 0;
         self.pending_contenteditable_focus = None;
     }
-    
+
     /// Take the pending contenteditable focus (consumes the flag).
     ///
     /// Returns `Some(info)` if cursor initialization is pending, `None` otherwise.
     /// After calling this, `cursor_needs_initialization` is set to `false`.
-    pub const fn take_pending_contenteditable_focus(&mut self) -> Option<PendingContentEditableFocus> {
+    pub const fn take_pending_contenteditable_focus(
+        &mut self,
+    ) -> Option<PendingContentEditableFocus> {
         if self.cursor_needs_initialization {
             self.cursor_needs_initialization = false;
             self.pending_contenteditable_focus.take()
@@ -218,9 +221,10 @@ impl FocusManager {
             None
         }
     }
-    
+
     /// Check if cursor initialization is pending.
-    #[must_use] pub const fn needs_cursor_initialization(&self) -> bool {
+    #[must_use]
+    pub const fn needs_cursor_initialization(&self) -> bool {
         self.cursor_needs_initialization
     }
 
@@ -236,7 +240,8 @@ impl FocusManager {
     }
 
     /// Whether a focus target is waiting for the first layout.
-    #[must_use] pub const fn has_deferred_focus_target(&self) -> bool {
+    #[must_use]
+    pub const fn has_deferred_focus_target(&self) -> bool {
         self.deferred_focus_target.is_some()
     }
 
@@ -326,10 +331,7 @@ fn collect_tab_order(layout_results: &BTreeMap<DomId, DomLayoutResult>) -> Vec<D
 }
 
 /// Pure merge of the two tab-order sections (split out for unit testing).
-fn order_tab_entries(
-    mut positive: Vec<(u32, DomNodeId)>,
-    auto: Vec<DomNodeId>,
-) -> Vec<DomNodeId> {
+fn order_tab_entries(mut positive: Vec<(u32, DomNodeId)>, auto: Vec<DomNodeId>) -> Vec<DomNodeId> {
     positive.sort_by_key(|(n, _)| *n); // stable: document order within equal n
     positive.into_iter().map(|(_, id)| id).chain(auto).collect()
 }
@@ -484,10 +486,7 @@ fn find_first_matching_focusable_node(
 /// only host→child link available to a function that is handed nothing but
 /// `layout_results`. Bounded by the number of layout results, so a cyclic or
 /// self-referential item cannot spin.
-fn nested_dom_ids(
-    layout_results: &BTreeMap<DomId, DomLayoutResult>,
-    host: DomId,
-) -> Vec<DomId> {
+fn nested_dom_ids(layout_results: &BTreeMap<DomId, DomLayoutResult>, host: DomId) -> Vec<DomId> {
     use crate::solver3::display_list::DisplayListItem;
 
     let mut out: Vec<DomId> = Vec::new();
@@ -554,7 +553,7 @@ pub fn resolve_focus_target(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     current_focus: Option<DomNodeId>,
 ) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
-    use azul_core::callbacks::FocusTarget::{Path, Id, Previous, Next, First, Last, NoFocus};
+    use azul_core::callbacks::FocusTarget::{First, Id, Last, Next, NoFocus, Path, Previous};
 
     if layout_results.is_empty() {
         return Ok(None);
@@ -602,9 +601,7 @@ pub fn resolve_focus_target(
             if is_valid {
                 Ok(Some(*dom_node_id))
             } else {
-                Err(UpdateFocusWarning::FocusInvalidNodeId(
-                    dom_node_id.node,
-                ))
+                Err(UpdateFocusWarning::FocusInvalidNodeId(dom_node_id.node))
             }
         }
 
@@ -666,9 +663,18 @@ mod tab_order_tests {
     #[test]
     fn next_wraps_and_previous_wraps() {
         let order = vec![nid(0, 1), nid(0, 4), nid(0, 6)];
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 6)), true), Some(nid(0, 1)));
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 1)), false), Some(nid(0, 6)));
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 4)), true), Some(nid(0, 6)));
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 6)), true),
+            Some(nid(0, 1))
+        );
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 1)), false),
+            Some(nid(0, 6))
+        );
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 4)), true),
+            Some(nid(0, 6))
+        );
     }
 
     #[test]
@@ -683,11 +689,23 @@ mod tab_order_tests {
         // Focus sits on a tabindex=-1 node (0,5): Tab goes to the next tab
         // stop in document order (0,6); Shift+Tab to the previous one (0,4).
         let order = vec![nid(0, 1), nid(0, 4), nid(0, 6)];
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 5)), true), Some(nid(0, 6)));
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 5)), false), Some(nid(0, 4)));
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 5)), true),
+            Some(nid(0, 6))
+        );
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 5)), false),
+            Some(nid(0, 4))
+        );
         // Past the last stop: wraps to first / last respectively.
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 9)), true), Some(nid(0, 1)));
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 0)), false), Some(nid(0, 6)));
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 9)), true),
+            Some(nid(0, 1))
+        );
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 0)), false),
+            Some(nid(0, 6))
+        );
     }
 
     #[test]
@@ -1131,7 +1149,10 @@ mod autotest_generated {
         // DOM index dominates: a huge node index in DOM 0 still precedes node 0
         // of DOM 1.
         assert!(doc_order_key(&nid(0, usize::MAX - 1)) < doc_order_key(&nid(1, 0)));
-        assert_eq!(doc_order_key(&nid(usize::MAX, usize::MAX - 1)), (usize::MAX, usize::MAX - 1));
+        assert_eq!(
+            doc_order_key(&nid(usize::MAX, usize::MAX - 1)),
+            (usize::MAX, usize::MAX - 1)
+        );
     }
 
     // ==================================================================
@@ -1142,8 +1163,14 @@ mod autotest_generated {
     fn next_in_tab_order_single_entry_wraps_onto_itself() {
         // `(0 + 1) % 1 == 0` — must terminate on itself, not loop or panic.
         let order = vec![nid(0, 1)];
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 1)), true), Some(nid(0, 1)));
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 1)), false), Some(nid(0, 1)));
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 1)), true),
+            Some(nid(0, 1))
+        );
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 1)), false),
+            Some(nid(0, 1))
+        );
     }
 
     #[test]
@@ -1152,26 +1179,44 @@ mod autotest_generated {
         // the trailing copy unreachable by stepping. Pin it (a dedup in
         // `collect_tab_order` would change this).
         let order = vec![nid(0, 1), nid(0, 2), nid(0, 1)];
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 1)), true), Some(nid(0, 2)));
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 1)), true),
+            Some(nid(0, 2))
+        );
         // Backward from index 0 wraps to the last element.
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 1)), false), Some(nid(0, 1)));
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 1)), false),
+            Some(nid(0, 1))
+        );
     }
 
     #[test]
     fn next_in_tab_order_unknown_current_uses_cross_dom_document_order() {
         // Current node lives in DOM 1; the tab order is split across DOM 0 and 2.
         let order = vec![nid(0, 5), nid(2, 1)];
-        assert_eq!(next_in_tab_order(&order, Some(nid(1, 0)), true), Some(nid(2, 1)));
-        assert_eq!(next_in_tab_order(&order, Some(nid(1, 9)), false), Some(nid(0, 5)));
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(1, 0)), true),
+            Some(nid(2, 1))
+        );
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(1, 9)), false),
+            Some(nid(0, 5))
+        );
     }
 
     #[test]
     fn next_in_tab_order_unknown_current_past_both_ends_wraps() {
         let order = vec![nid(1, 2), nid(1, 4)];
         // Nothing greater -> wrap to first.
-        assert_eq!(next_in_tab_order(&order, Some(nid(9, 9)), true), Some(nid(1, 2)));
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(9, 9)), true),
+            Some(nid(1, 2))
+        );
         // Nothing smaller -> wrap to last.
-        assert_eq!(next_in_tab_order(&order, Some(nid(0, 0)), false), Some(nid(1, 4)));
+        assert_eq!(
+            next_in_tab_order(&order, Some(nid(0, 0)), false),
+            Some(nid(1, 4))
+        );
     }
 
     #[test]
@@ -1179,8 +1224,14 @@ mod autotest_generated {
         // The sentinel keys as (dom, 0); it is not in the order, so the re-entry
         // path runs. It must produce a stable answer, not panic.
         let order = vec![nid(0, 1), nid(0, 3)];
-        assert_eq!(next_in_tab_order(&order, Some(null_nid(0)), true), Some(nid(0, 1)));
-        assert_eq!(next_in_tab_order(&order, Some(null_nid(0)), false), Some(nid(0, 3)));
+        assert_eq!(
+            next_in_tab_order(&order, Some(null_nid(0)), true),
+            Some(nid(0, 1))
+        );
+        assert_eq!(
+            next_in_tab_order(&order, Some(null_nid(0)), false),
+            Some(nid(0, 3))
+        );
     }
 
     #[test]
@@ -1228,7 +1279,10 @@ mod autotest_generated {
         // The tabindex=-1 node (index 4) is click/API focusable but must NEVER be
         // a tab stop.
         let order = tab_order_of(tab_fixture());
-        assert!(!order.contains(&nid(0, 4)), "tabindex=-1 must not be a tab stop");
+        assert!(
+            !order.contains(&nid(0, 4)),
+            "tabindex=-1 must not be a tab stop"
+        );
         // ...and the plain, non-focusable div is absent too.
         assert!(!order.contains(&nid(0, 1)));
         // ...while the body itself is never a tab stop.
@@ -1525,19 +1579,14 @@ mod autotest_generated {
         let host = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_div()));
         let mut page = Dom::create_div();
         page.set_contenteditable(true);
-        let nested = StyledDom::create_from_dom(
-            Dom::create_body().with_child(
-                page.with_ids_and_classes(
-                    vec![azul_core::dom::IdOrClass::Class("mw-doc".into())].into(),
-                ),
-            ),
-        );
+        let nested =
+            StyledDom::create_from_dom(Dom::create_body().with_child(page.with_ids_and_classes(
+                vec![azul_core::dom::IdOrClass::Class("mw-doc".into())].into(),
+            )));
 
         let mut results = window(vec![(dom(0), host), (dom(1), nested)]);
-        results
-            .get_mut(&dom(0))
-            .unwrap()
-            .display_list = std::sync::Arc::new(virtual_view_display_list(dom(1)));
+        results.get_mut(&dom(0)).unwrap().display_list =
+            std::sync::Arc::new(virtual_view_display_list(dom(1)));
 
         let target = FocusTarget::Path(FocusTargetPath {
             dom: dom(0),
@@ -1575,10 +1624,8 @@ mod autotest_generated {
             ),
         );
         let mut results = window(vec![(dom(0), host), (dom(1), nested)]);
-        results
-            .get_mut(&dom(0))
-            .unwrap()
-            .display_list = std::sync::Arc::new(virtual_view_display_list(dom(1)));
+        results.get_mut(&dom(0)).unwrap().display_list =
+            std::sync::Arc::new(virtual_view_display_list(dom(1)));
 
         let target = FocusTarget::Path(FocusTargetPath {
             dom: dom(0),
@@ -1623,9 +1670,18 @@ mod autotest_generated {
     fn resolve_focus_target_first_and_last_on_unfocusable_dom_are_none() {
         let sd = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_div()));
         let results = window(vec![(dom(0), sd)]);
-        assert_eq!(resolve_focus_target(&FocusTarget::First, &results, None), Ok(None));
-        assert_eq!(resolve_focus_target(&FocusTarget::Last, &results, None), Ok(None));
-        assert_eq!(resolve_focus_target(&FocusTarget::Next, &results, None), Ok(None));
+        assert_eq!(
+            resolve_focus_target(&FocusTarget::First, &results, None),
+            Ok(None)
+        );
+        assert_eq!(
+            resolve_focus_target(&FocusTarget::Last, &results, None),
+            Ok(None)
+        );
+        assert_eq!(
+            resolve_focus_target(&FocusTarget::Next, &results, None),
+            Ok(None)
+        );
         assert_eq!(
             resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 0))),
             Ok(None)
@@ -1766,9 +1822,9 @@ mod autotest_generated {
         // versa): keeping half of the pair would place a cursor in the wrong
         // node, so BOTH the value and the flag must be dropped.
         for pairs in [
-            vec![(NodeId::new(3), NodeId::new(10))],  // text node unmapped
-            vec![(NodeId::new(4), NodeId::new(11))],  // container unmapped
-            vec![],                                   // neither survives
+            vec![(NodeId::new(3), NodeId::new(10))], // text node unmapped
+            vec![(NodeId::new(4), NodeId::new(11))], // container unmapped
+            vec![],                                  // neither survives
         ] {
             let mut fm = FocusManager::new();
             fm.set_pending_contenteditable_focus(dom(0), NodeId::new(3), NodeId::new(4));

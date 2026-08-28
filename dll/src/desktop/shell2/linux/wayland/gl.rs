@@ -81,7 +81,10 @@ impl GlContext {
                     std::ptr::null(),
                 );
                 if !d.is_null() {
-                    log_debug!(LogCategory::Platform, "[EGL] Using Wayland platform display");
+                    log_debug!(
+                        LogCategory::Platform,
+                        "[EGL] Using Wayland platform display"
+                    );
                 }
             }
             if d.is_null() {
@@ -91,7 +94,9 @@ impl GlContext {
             }
         };
         if egl_display.is_null() {
-            return Err(WindowError::PlatformError("eglGetDisplay/PlatformDisplay failed".into()));
+            return Err(WindowError::PlatformError(
+                "eglGetDisplay/PlatformDisplay failed".into(),
+            ));
         }
 
         let mut major = 0;
@@ -345,9 +350,8 @@ impl GlContext {
             _ => return 0,
         };
         let mut age: i32 = 0;
-        let ok = unsafe {
-            (egl.eglQuerySurface)(display, surface, EGL_BUFFER_AGE_EXT as i32, &mut age)
-        };
+        let ok =
+            unsafe { (egl.eglQuerySurface)(display, surface, EGL_BUFFER_AGE_EXT as i32, &mut age) };
         if ok == 0 || age < 0 {
             0
         } else {

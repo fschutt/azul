@@ -4,9 +4,9 @@
 //! handles the two-stage review process (architecture → implementation),
 //! and saves results for later holistic analysis.
 
-use std::path::{Path, PathBuf};
-use super::skill_tree::{SkillNode, SkillTree, VerificationStatus};
 use super::extractor::ExtractedParagraph;
+use super::skill_tree::{SkillNode, SkillTree, VerificationStatus};
+use std::path::{Path, PathBuf};
 
 /// Review stage
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -35,23 +35,25 @@ pub fn generate_review_prompt(
     source_code: &[(String, String)], // (filename, content) pairs
 ) -> String {
     let mut prompt = String::new();
-    
+
     // Header
-    prompt.push_str(&format!(
-        "# CSS Layout Verification: {}\n\n",
-        node.name
-    ));
-    
+    prompt.push_str(&format!("# CSS Layout Verification: {}\n\n", node.name));
+
     // Stage-specific instructions
     match stage {
         ReviewStage::Architecture => {
             prompt.push_str("## Review Stage: ARCHITECTURE\n\n");
-            prompt.push_str("Please review the **overall architecture** of this implementation.\n\n");
+            prompt
+                .push_str("Please review the **overall architecture** of this implementation.\n\n");
             prompt.push_str("Focus on:\n");
-            prompt.push_str("1. Does the code structure match the conceptual model in the W3C spec?\n");
+            prompt.push_str(
+                "1. Does the code structure match the conceptual model in the W3C spec?\n",
+            );
             prompt.push_str("2. Are the right abstractions being used?\n");
             prompt.push_str("3. Is the algorithm structured correctly at a high level?\n");
-            prompt.push_str("4. Are edge cases mentioned in the spec accounted for structurally?\n\n");
+            prompt.push_str(
+                "4. Are edge cases mentioned in the spec accounted for structurally?\n\n",
+            );
             prompt.push_str("Do NOT focus on:\n");
             prompt.push_str("- Exact numerical calculations\n");
             prompt.push_str("- Minor implementation details\n");
@@ -68,31 +70,30 @@ pub fn generate_review_prompt(
             prompt.push_str("Provide specific line-by-line analysis where issues are found.\n\n");
         }
     }
-    
+
     // Feature description
     prompt.push_str("## Feature Description\n\n");
     prompt.push_str(&format!("**{}**: {}\n\n", node.name, node.description));
-    
+
     // W3C Spec References
     prompt.push_str("## W3C Specification References\n\n");
     for url in &node.spec_urls {
         prompt.push_str(&format!("- {}\n", url));
     }
     prompt.push_str("\n");
-    
+
     // Extracted spec paragraphs
     if !spec_paragraphs.is_empty() {
         prompt.push_str("## Relevant Specification Text\n\n");
         for para in spec_paragraphs.iter().take(30) {
             prompt.push_str(&format!(
                 "### {} (from {})\n\n",
-                para.section,
-                para.source_file
+                para.section, para.source_file
             ));
             prompt.push_str(&format!("> {}\n\n", para.text));
         }
     }
-    
+
     // Source code to review
     prompt.push_str("## Source Code to Review\n\n");
     for (filename, content) in source_code {
@@ -104,7 +105,7 @@ pub fn generate_review_prompt(
         }
         prompt.push_str("```\n\n");
     }
-    
+
     // Response format
     prompt.push_str("## Expected Response Format\n\n");
     prompt.push_str("Please respond with:\n\n");
@@ -125,10 +126,12 @@ pub fn generate_review_prompt(
     prompt.push_str("   - Magic numbers or unexplained constants\n");
     prompt.push_str("   - Conditional logic that seems like a workaround\n");
     prompt.push_str("   For each, explain if it's a potential source of bugs.\n\n");
-    prompt.push_str("5. **MISSING_CSS_PROPERTIES**: Are there CSS properties mentioned in the spec\n");
+    prompt.push_str(
+        "5. **MISSING_CSS_PROPERTIES**: Are there CSS properties mentioned in the spec\n",
+    );
     prompt.push_str("   sections above that are NOT implemented in this code? List them.\n\n");
     prompt.push_str("6. **SPEC_COMPLIANCE_SCORE**: 0-100\n\n");
-    
+
     prompt
 }
 
@@ -171,11 +174,13 @@ pub fn extract_paragraph_context(
     total_paragraphs: usize,
     workspace_root: &Path,
 ) -> SpecParagraphContext {
-    let source_files = node.source_files.iter()
+    let source_files = node
+        .source_files
+        .iter()
         .filter(|f| {
             (node.needs_text_engine || !f.contains("text3"))
-            && (node.needs_css_source || !f.starts_with("css/"))
-            && (node.needs_core_source || !f.starts_with("core/"))
+                && (node.needs_css_source || !f.starts_with("css/"))
+                && (node.needs_core_source || !f.starts_with("core/"))
         })
         .map(|file_path| {
             let full_path = workspace_root.join(file_path);
@@ -273,8 +278,11 @@ impl SpecParagraphContext {
         prompt.push_str("## Response Format\n\n");
         prompt.push_str("**IMPLEMENTED**: yes | partially | no\n\n");
         prompt.push_str("**LOCATION**: file:line where this is (or should be) implemented\n\n");
-        prompt.push_str("**VERDICT**: `PASS` | `MINOR_ISSUES` | `NEEDS_CHANGES` | `NOT_IMPLEMENTED`\n\n");
-        prompt.push_str("**DETAILS**: Explain what the code does vs what the paragraph requires.\n");
+        prompt.push_str(
+            "**VERDICT**: `PASS` | `MINOR_ISSUES` | `NEEDS_CHANGES` | `NOT_IMPLEMENTED`\n\n",
+        );
+        prompt
+            .push_str("**DETAILS**: Explain what the code does vs what the paragraph requires.\n");
         prompt.push_str("Quote specific lines. If there are issues, describe the fix.\n\n");
 
         prompt
@@ -293,23 +301,26 @@ pub fn generate_paragraph_prompt(
     total_paragraphs: usize,
     workspace_root: &Path,
 ) -> String {
-    let ctx = extract_paragraph_context(node, paragraph, para_index, total_paragraphs, workspace_root);
+    let ctx = extract_paragraph_context(
+        node,
+        paragraph,
+        para_index,
+        total_paragraphs,
+        workspace_root,
+    );
     ctx.format_review_prompt()
 }
 
 /// Read source files for a skill node
-pub fn read_source_files(
-    node: &SkillNode,
-    workspace_root: &Path,
-) -> Vec<(String, String)> {
+pub fn read_source_files(node: &SkillNode, workspace_root: &Path) -> Vec<(String, String)> {
     let mut sources = Vec::new();
-    
+
     for file_path in &node.source_files {
         // Skip text3 files if not needed
         if !node.needs_text_engine && file_path.contains("text3") {
             continue;
         }
-        
+
         let full_path = workspace_root.join(file_path);
         match std::fs::read_to_string(&full_path) {
             Ok(content) => {
@@ -320,62 +331,44 @@ pub fn read_source_files(
             }
         }
     }
-    
+
     sources
 }
 
 /// Save a review result
-pub fn save_review_result(
-    result: &ReviewResult,
-    output_dir: &Path,
-) -> std::io::Result<PathBuf> {
+pub fn save_review_result(result: &ReviewResult, output_dir: &Path) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(output_dir)?;
-    
-    let filename = format!(
-        "{}_{}.json",
-        result.node_id,
-        result.stage.to_lowercase()
-    );
+
+    let filename = format!("{}_{}.json", result.node_id, result.stage.to_lowercase());
     let output_path = output_dir.join(&filename);
-    
+
     let json = serde_json::to_string_pretty(result)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
-    
+
     std::fs::write(&output_path, &json)?;
-    
+
     // Also save markdown version for easy reading
-    let md_filename = format!(
-        "{}_{}.md",
-        result.node_id,
-        result.stage.to_lowercase()
-    );
+    let md_filename = format!("{}_{}.md", result.node_id, result.stage.to_lowercase());
     let md_path = output_dir.join(&md_filename);
-    
+
     let markdown = format!(
         "# Review: {} ({})\n\n**Date**: {}\n\n## Prompt\n\n{}\n\n## Response\n\n{}\n",
-        result.node_id,
-        result.stage,
-        result.timestamp,
-        result.prompt,
-        result.response
+        result.node_id, result.stage, result.timestamp, result.prompt, result.response
     );
-    
+
     std::fs::write(&md_path, markdown)?;
-    
+
     Ok(output_path)
 }
 
 /// Load all review results for a node
-pub fn load_review_results(
-    node_id: &str,
-    results_dir: &Path,
-) -> Vec<ReviewResult> {
+pub fn load_review_results(node_id: &str, results_dir: &Path) -> Vec<ReviewResult> {
     let mut results = Vec::new();
-    
+
     for stage in ["architecture", "implementation"] {
         let filename = format!("{}_{}.json", node_id, stage);
         let path = results_dir.join(&filename);
-        
+
         if path.exists() {
             if let Ok(json) = std::fs::read_to_string(&path) {
                 if let Ok(result) = serde_json::from_str(&json) {
@@ -384,15 +377,12 @@ pub fn load_review_results(
             }
         }
     }
-    
+
     results
 }
 
 /// Update skill tree node status based on review result
-pub fn update_node_status(
-    tree: &mut SkillTree,
-    result: &ReviewResult,
-) {
+pub fn update_node_status(tree: &mut SkillTree, result: &ReviewResult) {
     if let Some(node) = tree.nodes.get_mut(&result.node_id) {
         // When we receive a response from Gemini, update to PromptSent
         node.status = VerificationStatus::PromptSent {
@@ -402,12 +392,9 @@ pub fn update_node_status(
 }
 
 /// Generate a holistic analysis prompt from all review results
-pub fn generate_holistic_prompt(
-    tree: &SkillTree,
-    results_dir: &Path,
-) -> String {
+pub fn generate_holistic_prompt(tree: &SkillTree, results_dir: &Path) -> String {
     let mut prompt = String::new();
-    
+
     prompt.push_str("# Holistic CSS Layout Implementation Analysis\n\n");
     prompt.push_str("You are reviewing all the verification results for a CSS layout engine.\n");
     prompt.push_str("Please provide a comprehensive analysis identifying:\n\n");
@@ -415,45 +402,53 @@ pub fn generate_holistic_prompt(
     prompt.push_str("2. **Priority Order**: Which issues should be fixed first\n");
     prompt.push_str("3. **Architectural Recommendations**: High-level improvements\n");
     prompt.push_str("4. **Test Coverage Gaps**: What tests should be added\n\n");
-    
+
     prompt.push_str("## Skill Tree Status\n\n");
     prompt.push_str("```\n");
     for node in tree.get_ordered_nodes() {
         let status = match &node.status {
             VerificationStatus::NotStarted => "[ ] Not started",
             VerificationStatus::PromptBuilt => "[P] Prompt built",
-            VerificationStatus::PromptSent { needs_changes: false } => "[S] Sent (OK)",
-            VerificationStatus::PromptSent { needs_changes: true } => "[!] Needs changes",
+            VerificationStatus::PromptSent {
+                needs_changes: false,
+            } => "[S] Sent (OK)",
+            VerificationStatus::PromptSent {
+                needs_changes: true,
+            } => "[!] Needs changes",
             VerificationStatus::Implemented => "[I] Implemented",
             VerificationStatus::Verified => "[✓] Verified",
         };
-        prompt.push_str(&format!("{}: {} - {}\n", status, node.name, node.description));
+        prompt.push_str(&format!(
+            "{}: {} - {}\n",
+            status, node.name, node.description
+        ));
     }
     prompt.push_str("```\n\n");
-    
+
     prompt.push_str("## Individual Review Summaries\n\n");
-    
+
     for node in tree.get_ordered_nodes() {
         let results = load_review_results(&node.id, results_dir);
         if !results.is_empty() {
             prompt.push_str(&format!("### {}\n\n", node.name));
-            
+
             for result in results {
                 prompt.push_str(&format!("**{} Review**:\n", result.stage));
-                
+
                 // Extract just the summary from the response (first paragraph)
-                let summary = result.response
+                let summary = result
+                    .response
                     .lines()
                     .skip_while(|l| !l.contains("SUMMARY"))
                     .skip(1)
                     .take_while(|l| !l.starts_with('#') && !l.starts_with('*'))
                     .collect::<Vec<_>>()
                     .join(" ");
-                
+
                 if !summary.is_empty() {
                     prompt.push_str(&format!("> {}\n\n", summary.trim()));
                 }
-                
+
                 if !result.issues.is_empty() {
                     prompt.push_str("Issues found:\n");
                     for issue in &result.issues {
@@ -464,7 +459,7 @@ pub fn generate_holistic_prompt(
             }
         }
     }
-    
+
     prompt
 }
 
@@ -521,10 +516,12 @@ fn extract_type_hints(
                             });
                             match line_num {
                                 Some(n) => hints.push_str(&format!(
-                                    "- `{}:{}` — {} {}\n", path, n, kind_str, type_name,
+                                    "- `{}:{}` — {} {}\n",
+                                    path, n, kind_str, type_name,
                                 )),
                                 None => hints.push_str(&format!(
-                                    "- `{}` — {} {}\n", path, kind_str, type_name,
+                                    "- `{}` — {} {}\n",
+                                    path, kind_str, type_name,
                                 )),
                             }
                         }
@@ -533,8 +530,7 @@ fn extract_type_hints(
             }
         } else {
             // Fallback: grep-based extraction when no index available
-            let content = std::fs::read_to_string(&full_path)
-                .unwrap_or_default();
+            let content = std::fs::read_to_string(&full_path).unwrap_or_default();
             for line in content.lines() {
                 let trimmed = line.trim();
                 if trimmed.contains('$') || trimmed.contains("ParseError") {
@@ -587,11 +583,13 @@ pub fn generate_grouped_prompt(
     workspace_root: &Path,
     ws_index: Option<&crate::patch::index::WorkspaceIndex>,
 ) -> String {
-    let source_files: Vec<(String, usize)> = node.source_files.iter()
+    let source_files: Vec<(String, usize)> = node
+        .source_files
+        .iter()
         .filter(|f| {
             (node.needs_text_engine || !f.contains("text3"))
-            && (node.needs_css_source || !f.starts_with("css/"))
-            && (node.needs_core_source || !f.starts_with("core/"))
+                && (node.needs_css_source || !f.starts_with("css/"))
+                && (node.needs_core_source || !f.starts_with("core/"))
         })
         .map(|file_path| {
             let full_path = workspace_root.join(file_path);
@@ -682,7 +680,8 @@ pub fn generate_grouped_prompt(
     prompt.push_str("**PARAGRAPH N** (tag: `<tag>`):\n\n");
     prompt.push_str("**IMPLEMENTED**: yes | partially | no\n\n");
     prompt.push_str("**LOCATION**: file:line where this is (or should be) implemented\n\n");
-    prompt.push_str("**VERDICT**: `PASS` | `MINOR_ISSUES` | `NEEDS_CHANGES` | `NOT_IMPLEMENTED`\n\n");
+    prompt
+        .push_str("**VERDICT**: `PASS` | `MINOR_ISSUES` | `NEEDS_CHANGES` | `NOT_IMPLEMENTED`\n\n");
     prompt.push_str("**DETAILS**: Explain what the code does vs what the paragraph requires.\n");
     prompt.push_str("Quote specific lines. If there are issues, describe the fix.\n\n");
 
@@ -691,13 +690,12 @@ pub fn generate_grouped_prompt(
 
 /// Parse verdict from Gemini response
 pub fn parse_verdict(response: &str) -> (bool, Vec<String>) {
-    let needs_changes = response.contains("NEEDS_CHANGES") 
-        || response.contains("MAJOR_REWRITE");
-    
+    let needs_changes = response.contains("NEEDS_CHANGES") || response.contains("MAJOR_REWRITE");
+
     // Extract issues
     let mut issues = Vec::new();
     let mut in_issues_section = false;
-    
+
     for line in response.lines() {
         if line.contains("**ISSUES**") || line.contains("## Issues") {
             in_issues_section = true;
@@ -711,6 +709,6 @@ pub fn parse_verdict(response: &str) -> (bool, Vec<String>) {
             }
         }
     }
-    
+
     (needs_changes, issues)
 }

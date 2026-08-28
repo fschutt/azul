@@ -421,10 +421,7 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
                 builder.line(&format!("public {}? AsNullable()", payload_cs));
                 builder.line("{");
                 builder.indent();
-                builder.line(&format!(
-                    "if (None.tag == {}_Tag.None) return null;",
-                    name
-                ));
+                builder.line(&format!("if (None.tag == {}_Tag.None) return null;", name));
                 builder.line("return Some.payload;");
                 builder.dedent();
                 builder.line("}");
@@ -464,10 +461,7 @@ fn generate_tagged_union(builder: &mut CodeBuilder, enum_def: &EnumDef, ir: &Cod
                 builder.dedent();
                 builder.line("}");
                 builder.line("/// <summary>True when the tag is Ok.</summary>");
-                builder.line(&format!(
-                    "public bool IsOk() => Ok.tag == {}_Tag.Ok;",
-                    name
-                ));
+                builder.line(&format!("public bool IsOk() => Ok.tag == {}_Tag.Ok;", name));
                 builder.line("/// <summary>True when the tag is Err.</summary>");
                 builder.line("public bool IsErr() => !IsOk();");
             }
@@ -575,30 +569,23 @@ fn emit_vec_to_list_cs(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
             "sbyte" => {
                 // Marshal has no Copy(IntPtr, sbyte[], ...). Use a byte buffer and reinterpret.
                 builder.line("var __buf = new byte[__n];");
-                builder.line(
-                    "System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);",
-                );
+                builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
                 builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (sbyte)__buf[__i];");
             }
             "ushort" => {
                 builder.line("var __buf = new short[__n];");
-                builder.line(
-                    "System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);",
-                );
-                builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (ushort)__buf[__i];");
+                builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
+                builder
+                    .line("for (int __i = 0; __i < __n; __i++) __out[__i] = (ushort)__buf[__i];");
             }
             "uint" => {
                 builder.line("var __buf = new int[__n];");
-                builder.line(
-                    "System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);",
-                );
+                builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
                 builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (uint)__buf[__i];");
             }
             "ulong" => {
                 builder.line("var __buf = new long[__n];");
-                builder.line(
-                    "System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);",
-                );
+                builder.line("System.Runtime.InteropServices.Marshal.Copy(ptr, __buf, 0, __n);");
                 builder.line("for (int __i = 0; __i < __n; __i++) __out[__i] = (ulong)__buf[__i];");
             }
             _ => unreachable!(),
@@ -612,9 +599,7 @@ fn emit_vec_to_list_cs(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
         ));
         builder.line("for (int __i = 0; __i < __n; __i++) {");
         builder.indent();
-        builder.line(
-            "var __ep = System.IntPtr.Add(ptr, __i * __size);",
-        );
+        builder.line("var __ep = System.IntPtr.Add(ptr, __i * __size);");
         builder.line(&format!(
             "__out[__i] = System.Runtime.InteropServices.Marshal.PtrToStructure<{}>(__ep);",
             elem_cs
@@ -673,11 +658,7 @@ fn generate_field(builder: &mut CodeBuilder, f: &FieldDef, ir: &CodegenIR) {
 // Callback delegate
 // ============================================================================
 
-fn generate_callback_delegate(
-    builder: &mut CodeBuilder,
-    cb: &CallbackTypedefDef,
-    ir: &CodegenIR,
-) {
+fn generate_callback_delegate(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir: &CodegenIR) {
     let name = ffi_type_name(&cb.name);
 
     if !cb.doc.is_empty() {
@@ -736,7 +717,11 @@ fn generate_callback_delegate(
 // ============================================================================
 
 /// Map a `(type_name, FieldRefKind)` pair to the C# field type string.
-pub(super) fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
+pub(super) fn ref_kind_field_type(
+    type_name: &str,
+    ref_kind: &FieldRefKind,
+    ir: &CodegenIR,
+) -> String {
     match ref_kind {
         FieldRefKind::Owned => {
             // Callback typedefs are .NET delegate types (managed object
@@ -750,7 +735,11 @@ pub(super) fn ref_kind_field_type(type_name: &str, ref_kind: &FieldRefKind, ir: 
             // (where the marshaler can handle the conversion) still keep
             // the delegate type via the general `map_type_to_csharp`
             // mapping.
-            if ir.callback_typedefs.iter().any(|c| c.name == type_name.trim()) {
+            if ir
+                .callback_typedefs
+                .iter()
+                .any(|c| c.name == type_name.trim())
+            {
                 "IntPtr".to_string()
             } else {
                 map_type_to_csharp(type_name, ir)

@@ -1,8 +1,8 @@
 //! CSS properties for flexbox layout.
 
+use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::num::ParseFloatError;
-use crate::corety::AzString;
 
 use crate::{
     codegen::format::FormatAsRustCode,
@@ -47,19 +47,22 @@ impl PrintAsCssValue for LayoutFlexGrow {
 }
 
 impl LayoutFlexGrow {
-    #[must_use] pub fn new(value: isize) -> Self {
+    #[must_use]
+    pub fn new(value: isize) -> Self {
         Self {
             inner: FloatValue::new(crate::cast::isize_to_f32(value)),
         }
     }
 
-    #[must_use] pub const fn const_new(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_new(value: isize) -> Self {
         Self {
             inner: FloatValue::const_new(value),
         }
     }
 
-    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),
         }
@@ -91,10 +94,14 @@ pub enum FlexGrowParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl FlexGrowParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> FlexGrowParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> FlexGrowParseErrorOwned {
         match self {
             FlexGrowParseError::ParseFloat(e, s) => {
-                FlexGrowParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: (*s).to_string().into() })
+                FlexGrowParseErrorOwned::ParseFloat(ParseFloatErrorWithInput {
+                    error: e.clone().into(),
+                    input: (*s).to_string().into(),
+                })
             }
             FlexGrowParseError::NegativeValue(s) => {
                 FlexGrowParseErrorOwned::NegativeValue((*s).to_string().into())
@@ -105,14 +112,13 @@ impl FlexGrowParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl FlexGrowParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> FlexGrowParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> FlexGrowParseError<'_> {
         match self {
             Self::ParseFloat(e) => {
                 FlexGrowParseError::ParseFloat(e.error.to_std(), e.input.as_str())
             }
-            Self::NegativeValue(s) => {
-                FlexGrowParseError::NegativeValue(s.as_str())
-            }
+            Self::NegativeValue(s) => FlexGrowParseError::NegativeValue(s.as_str()),
         }
     }
 }
@@ -121,9 +127,7 @@ impl FlexGrowParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `flex-grow` value.
-pub fn parse_layout_flex_grow(
-    input: &str,
-) -> Result<LayoutFlexGrow, FlexGrowParseError<'_>> {
+pub fn parse_layout_flex_grow(input: &str) -> Result<LayoutFlexGrow, FlexGrowParseError<'_>> {
     match parse_float_value(input) {
         Ok(o) => {
             if o.get() < 0.0 {
@@ -168,7 +172,8 @@ impl PrintAsCssValue for LayoutFlexShrink {
 }
 
 impl LayoutFlexShrink {
-    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),
         }
@@ -200,10 +205,14 @@ pub enum FlexShrinkParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl FlexShrinkParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> FlexShrinkParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> FlexShrinkParseErrorOwned {
         match self {
             FlexShrinkParseError::ParseFloat(e, s) => {
-                FlexShrinkParseErrorOwned::ParseFloat(ParseFloatErrorWithInput { error: e.clone().into(), input: (*s).to_string().into() })
+                FlexShrinkParseErrorOwned::ParseFloat(ParseFloatErrorWithInput {
+                    error: e.clone().into(),
+                    input: (*s).to_string().into(),
+                })
             }
             FlexShrinkParseError::NegativeValue(s) => {
                 FlexShrinkParseErrorOwned::NegativeValue((*s).to_string().into())
@@ -214,14 +223,13 @@ impl FlexShrinkParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl FlexShrinkParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> FlexShrinkParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> FlexShrinkParseError<'_> {
         match self {
             Self::ParseFloat(e) => {
                 FlexShrinkParseError::ParseFloat(e.error.to_std(), e.input.as_str())
             }
-            Self::NegativeValue(s) => {
-                FlexShrinkParseError::NegativeValue(s.as_str())
-            }
+            Self::NegativeValue(s) => FlexShrinkParseError::NegativeValue(s.as_str()),
         }
     }
 }
@@ -230,9 +238,7 @@ impl FlexShrinkParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `flex-shrink` value.
-pub fn parse_layout_flex_shrink(
-    input: &str,
-) -> Result<LayoutFlexShrink, FlexShrinkParseError<'_>> {
+pub fn parse_layout_flex_shrink(input: &str) -> Result<LayoutFlexShrink, FlexShrinkParseError<'_>> {
     match parse_float_value(input) {
         Ok(o) => {
             if o.get() < 0.0 {
@@ -261,7 +267,6 @@ pub enum LayoutFlexDirection {
     ColumnReverse,
 }
 
-
 /// Represents the main or cross axis of a flex container.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -271,14 +276,16 @@ pub enum LayoutAxis {
 }
 
 impl LayoutFlexDirection {
-    #[must_use] pub const fn get_axis(&self) -> LayoutAxis {
+    #[must_use]
+    pub const fn get_axis(&self) -> LayoutAxis {
         match self {
             Self::Row | Self::RowReverse => LayoutAxis::Horizontal,
             Self::Column | Self::ColumnReverse => LayoutAxis::Vertical,
         }
     }
 
-    #[must_use] pub const fn is_reverse(&self) -> bool {
+    #[must_use]
+    pub const fn is_reverse(&self) -> bool {
         matches!(self, Self::RowReverse | Self::ColumnReverse)
     }
 }
@@ -316,16 +323,20 @@ pub enum FlexDirectionParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl FlexDirectionParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> FlexDirectionParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> FlexDirectionParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => FlexDirectionParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                FlexDirectionParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl FlexDirectionParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> FlexDirectionParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> FlexDirectionParseError<'_> {
         match self {
             Self::InvalidValue(s) => FlexDirectionParseError::InvalidValue(s.as_str()),
         }
@@ -363,7 +374,6 @@ pub enum LayoutFlexWrap {
     WrapReverse,
 }
 
-
 impl PrintAsCssValue for LayoutFlexWrap {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
@@ -396,7 +406,8 @@ pub enum FlexWrapParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl FlexWrapParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> FlexWrapParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> FlexWrapParseErrorOwned {
         match self {
             Self::InvalidValue(s) => FlexWrapParseErrorOwned::InvalidValue((*s).to_string().into()),
         }
@@ -405,7 +416,8 @@ impl FlexWrapParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl FlexWrapParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> FlexWrapParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> FlexWrapParseError<'_> {
         match self {
             Self::InvalidValue(s) => FlexWrapParseError::InvalidValue(s.as_str()),
         }
@@ -416,9 +428,7 @@ impl FlexWrapParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `flex-wrap` value.
-pub fn parse_layout_flex_wrap(
-    input: &str,
-) -> Result<LayoutFlexWrap, FlexWrapParseError<'_>> {
+pub fn parse_layout_flex_wrap(input: &str) -> Result<LayoutFlexWrap, FlexWrapParseError<'_>> {
     match input.trim() {
         "wrap" => Ok(LayoutFlexWrap::Wrap),
         "nowrap" => Ok(LayoutFlexWrap::NoWrap),
@@ -446,7 +456,6 @@ pub enum LayoutJustifyContent {
     SpaceAround,
     SpaceEvenly,
 }
-
 
 impl PrintAsCssValue for LayoutJustifyContent {
     fn print_as_css_value(&self) -> String {
@@ -485,16 +494,20 @@ pub enum JustifyContentParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl JustifyContentParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> JustifyContentParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> JustifyContentParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => JustifyContentParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                JustifyContentParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl JustifyContentParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> JustifyContentParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> JustifyContentParseError<'_> {
         match self {
             Self::InvalidValue(s) => JustifyContentParseError::InvalidValue(s.as_str()),
         }
@@ -538,7 +551,6 @@ pub enum LayoutAlignItems {
     Baseline,
 }
 
-
 impl PrintAsCssValue for LayoutAlignItems {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
@@ -573,16 +585,20 @@ pub enum AlignItemsParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl AlignItemsParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> AlignItemsParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> AlignItemsParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => AlignItemsParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                AlignItemsParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl AlignItemsParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> AlignItemsParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> AlignItemsParseError<'_> {
         match self {
             Self::InvalidValue(s) => AlignItemsParseError::InvalidValue(s.as_str()),
         }
@@ -593,9 +609,7 @@ impl AlignItemsParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `align-items` value.
-pub fn parse_layout_align_items(
-    input: &str,
-) -> Result<LayoutAlignItems, AlignItemsParseError<'_>> {
+pub fn parse_layout_align_items(input: &str) -> Result<LayoutAlignItems, AlignItemsParseError<'_>> {
     match input.trim() {
         "stretch" => Ok(LayoutAlignItems::Stretch),
         "center" => Ok(LayoutAlignItems::Center),
@@ -623,7 +637,6 @@ pub enum LayoutAlignContent {
     SpaceBetween,
     SpaceAround,
 }
-
 
 impl PrintAsCssValue for LayoutAlignContent {
     fn print_as_css_value(&self) -> String {
@@ -660,16 +673,20 @@ pub enum AlignContentParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl AlignContentParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> AlignContentParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> AlignContentParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => AlignContentParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                AlignContentParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl AlignContentParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> AlignContentParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> AlignContentParseError<'_> {
         match self {
             Self::InvalidValue(s) => AlignContentParseError::InvalidValue(s.as_str()),
         }
@@ -711,7 +728,6 @@ pub enum LayoutAlignSelf {
     End,
     Baseline,
 }
-
 
 impl PrintAsCssValue for LayoutAlignSelf {
     fn print_as_css_value(&self) -> String {
@@ -764,16 +780,20 @@ pub enum AlignSelfParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl AlignSelfParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> AlignSelfParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> AlignSelfParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => AlignSelfParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                AlignSelfParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl AlignSelfParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> AlignSelfParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> AlignSelfParseError<'_> {
         match self {
             Self::InvalidValue(s) => AlignSelfParseError::InvalidValue(s.as_str()),
         }
@@ -784,9 +804,7 @@ impl AlignSelfParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `align-self` value.
-pub fn parse_layout_align_self(
-    input: &str,
-) -> Result<LayoutAlignSelf, AlignSelfParseError<'_>> {
+pub fn parse_layout_align_self(input: &str) -> Result<LayoutAlignSelf, AlignSelfParseError<'_>> {
     match input.trim() {
         "auto" => Ok(LayoutAlignSelf::Auto),
         "stretch" => Ok(LayoutAlignSelf::Stretch),
@@ -799,7 +817,8 @@ pub fn parse_layout_align_self(
 }
 
 // --- flex-basis ---
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents a `flex-basis` attribute
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -817,7 +836,6 @@ impl core::fmt::Debug for LayoutFlexBasis {
         write!(f, "{}", self.print_as_css_value())
     }
 }
-
 
 impl PrintAsCssValue for LayoutFlexBasis {
     fn print_as_css_value(&self) -> String {
@@ -864,7 +882,8 @@ pub enum FlexBasisParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl FlexBasisParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> FlexBasisParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> FlexBasisParseErrorOwned {
         match self {
             FlexBasisParseError::InvalidValue(s) => {
                 FlexBasisParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -875,11 +894,10 @@ impl FlexBasisParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl FlexBasisParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> FlexBasisParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> FlexBasisParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                FlexBasisParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => FlexBasisParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -888,9 +906,7 @@ impl FlexBasisParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `flex-basis` value.
-pub fn parse_layout_flex_basis(
-    input: &str,
-) -> Result<LayoutFlexBasis, FlexBasisParseError<'_>> {
+pub fn parse_layout_flex_basis(input: &str) -> Result<LayoutFlexBasis, FlexBasisParseError<'_>> {
     use crate::props::basic::pixel::parse_pixel_value;
 
     match input.trim() {
@@ -1139,8 +1155,16 @@ mod autotest_generated {
         let max = LayoutFlexGrow::new(isize::MAX);
         let min = LayoutFlexGrow::new(isize::MIN);
 
-        assert_eq!(max.inner.number(), isize::MAX, "MAX must saturate, not wrap");
-        assert_eq!(min.inner.number(), isize::MIN, "MIN must saturate, not wrap");
+        assert_eq!(
+            max.inner.number(),
+            isize::MAX,
+            "MAX must saturate, not wrap"
+        );
+        assert_eq!(
+            min.inner.number(),
+            isize::MIN,
+            "MIN must saturate, not wrap"
+        );
         assert!(max.inner.get().is_finite());
         assert!(min.inner.get().is_finite());
         assert!(max.inner.get() > 0.0);
@@ -1221,7 +1245,10 @@ mod autotest_generated {
         let b = grow(8.0);
 
         let out = a.interpolate(&b, f32::NAN);
-        assert!(out.inner.get().is_finite(), "NaN must not leak into the value");
+        assert!(
+            out.inner.get().is_finite(),
+            "NaN must not leak into the value"
+        );
         assert_eq!(out.inner.get(), 0.0);
         assert_eq!(out.inner.number(), 0);
     }
@@ -1334,7 +1361,10 @@ mod autotest_generated {
             LayoutFlexDirection::ColumnReverse.get_axis()
         );
         // Default (`row`) must be the horizontal, non-reversed axis.
-        assert_eq!(LayoutFlexDirection::default().get_axis(), LayoutAxis::Horizontal);
+        assert_eq!(
+            LayoutFlexDirection::default().get_axis(),
+            LayoutAxis::Horizontal
+        );
         assert!(!LayoutFlexDirection::default().is_reverse());
     }
 
@@ -1397,13 +1427,13 @@ mod autotest_generated {
             "+-1",
             "1e",
             "e1",
-            "\u{1F600}",             // emoji
-            "1\u{1F600}",            // digit + emoji
-            "e\u{0301}",             // combining acute accent
-            "\u{0661}\u{0662}",      // arabic-indic digits
-            "１",                     // fullwidth digit
-            "1\u{0}",                // embedded NUL
-            "\u{200B}1",             // zero-width space
+            "\u{1F600}",        // emoji
+            "1\u{1F600}",       // digit + emoji
+            "e\u{0301}",        // combining acute accent
+            "\u{0661}\u{0662}", // arabic-indic digits
+            "１",               // fullwidth digit
+            "1\u{0}",           // embedded NUL
+            "\u{200B}1",        // zero-width space
             deep_nesting.as_str(),
             long_junk.as_str(),
         ];
@@ -1558,7 +1588,10 @@ mod autotest_generated {
     #[test]
     fn keyword_enums_print_parse_round_trip() {
         for d in ALL_DIRECTIONS {
-            assert_eq!(parse_layout_flex_direction(&d.print_as_css_value()).unwrap(), d);
+            assert_eq!(
+                parse_layout_flex_direction(&d.print_as_css_value()).unwrap(),
+                d
+            );
         }
         for w in [
             LayoutFlexWrap::Wrap,
@@ -1577,7 +1610,10 @@ mod autotest_generated {
             LayoutJustifyContent::SpaceAround,
             LayoutJustifyContent::SpaceEvenly,
         ] {
-            assert_eq!(parse_layout_justify_content(&j.print_as_css_value()).unwrap(), j);
+            assert_eq!(
+                parse_layout_justify_content(&j.print_as_css_value()).unwrap(),
+                j
+            );
         }
         for a in [
             LayoutAlignItems::Stretch,
@@ -1586,7 +1622,10 @@ mod autotest_generated {
             LayoutAlignItems::End,
             LayoutAlignItems::Baseline,
         ] {
-            assert_eq!(parse_layout_align_items(&a.print_as_css_value()).unwrap(), a);
+            assert_eq!(
+                parse_layout_align_items(&a.print_as_css_value()).unwrap(),
+                a
+            );
         }
         for a in [
             LayoutAlignContent::Stretch,
@@ -1596,7 +1635,10 @@ mod autotest_generated {
             LayoutAlignContent::SpaceBetween,
             LayoutAlignContent::SpaceAround,
         ] {
-            assert_eq!(parse_layout_align_content(&a.print_as_css_value()).unwrap(), a);
+            assert_eq!(
+                parse_layout_align_content(&a.print_as_css_value()).unwrap(),
+                a
+            );
         }
         for a in [
             LayoutAlignSelf::Auto,
@@ -1625,8 +1667,8 @@ mod autotest_generated {
             "inf",
             "9223372036854775807",
             "\u{1F600}",
-            "row\u{200B}",  // zero-width space is NOT css whitespace
-            "row\u{0}",     // embedded NUL
+            "row\u{200B}", // zero-width space is NOT css whitespace
+            "row\u{0}",    // embedded NUL
             "row row",
             "row;",
             ";row",
@@ -1663,7 +1705,10 @@ mod autotest_generated {
             parse_layout_flex_direction("row").unwrap(),
             LayoutFlexDirection::Row
         );
-        assert_eq!(parse_layout_align_self("auto").unwrap(), LayoutAlignSelf::Auto);
+        assert_eq!(
+            parse_layout_align_self("auto").unwrap(),
+            LayoutAlignSelf::Auto
+        );
     }
 
     /// Keyword errors must echo the original, untrimmed input.
@@ -1759,7 +1804,7 @@ mod autotest_generated {
             "",
             "   ",
             "\t\n",
-            "px",          // unit with no value
+            "px", // unit with no value
             "%",
             "em",
             " px ",
@@ -1767,10 +1812,10 @@ mod autotest_generated {
             "auto auto",
             "200px;",
             "200 px extra",
-            "AUTO",        // case-sensitive
+            "AUTO", // case-sensitive
             "5PX",
             "\u{1F600}",
-            "５０px",       // fullwidth digits
+            "５０px", // fullwidth digits
             "200\u{200B}px",
             deep_nesting.as_str(),
             long_junk.as_str(),

@@ -84,7 +84,11 @@ extern "C" fn on_align(mut data: RefAny, _: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_font_select(_: RefAny, _: CallbackInfo, state: ComboBoxState) -> Update {
-    println!("[azwriter] font changed: {} (index {})", state.text.as_str(), state.selected);
+    println!(
+        "[azwriter] font changed: {} (index {})",
+        state.text.as_str(),
+        state.selected
+    );
     Update::DoNothing
 }
 
@@ -109,17 +113,28 @@ fn item_menu(icon: &str, label: &str) -> RibbonItem {
 }
 
 fn row(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Row(items.into_iter().fold(RibbonRow::new(), |r, it| r.with_item(it)))
+    RibbonItem::Row(
+        items
+            .into_iter()
+            .fold(RibbonRow::new(), |r, it| r.with_item(it)),
+    )
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(items.into_iter().fold(RibbonColumn::new(), |c, it| c.with_item(it)))
+    RibbonItem::Column(
+        items
+            .into_iter()
+            .fold(RibbonColumn::new(), |c, it| c.with_item(it)),
+    )
 }
 
 fn cell(preview_css: &str, sample: &str, name: &str) -> RibbonGalleryCell {
     // The preview sits next to the cell's <p> label, so it needs a box of its
     // own — a DIV, which (unlike <p>) adds no UA margins to the sample.
-    RibbonGalleryCell::new(Dom::create_div_with_text(sample).with_css(preview_css), s(name))
+    RibbonGalleryCell::new(
+        Dom::create_div_with_text(sample).with_css(preview_css),
+        s(name),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -152,11 +167,12 @@ fn home_tab(state: &AppState, data: &RefAny) -> RibbonTab {
     .iter()
     .map(|f| s(f))
     .collect();
-    let font_sizes: Vec<AzString> =
-        ["8", "9", "10", "11", "12", "14", "18", "24", "36"].iter().map(|f| s(f)).collect();
+    let font_sizes: Vec<AzString> = ["8", "9", "10", "11", "12", "14", "18", "24", "36"]
+        .iter()
+        .map(|f| s(f))
+        .collect();
 
-    let mut name_combo =
-        ribbon_style.styled_combo_box(font_names.into(), s("Calibri (Body)"), 133);
+    let mut name_combo = ribbon_style.styled_combo_box(font_names.into(), s("Calibri (Body)"), 133);
     name_combo.set_on_select(data.clone(), on_font_select as ComboBoxOnSelectCallbackType);
     let mut size_combo = ribbon_style.styled_combo_box(font_sizes.into(), s("11"), 45);
     // WORKAROUND(engine): pin the static UI font (see crate::fonts).
@@ -170,7 +186,10 @@ fn home_tab(state: &AppState, data: &RefAny) -> RibbonTab {
     let mut underline = small("format_underlined", "")
         .with_toggled(state.underline)
         .with_arrow(RibbonArrow::Menu);
-    underline.set_on_click(data.clone(), on_toggle_underline as ButtonOnClickCallbackType);
+    underline.set_on_click(
+        data.clone(),
+        on_toggle_underline as ButtonOnClickCallbackType,
+    );
 
     let font = RibbonGroup::new(s("Font")).with_item(column(vec![
         row(vec![
@@ -206,7 +225,10 @@ fn home_tab(state: &AppState, data: &RefAny) -> RibbonTab {
     for (i, icon) in align_icons.iter().enumerate() {
         let mut b = small(icon, "").with_toggled(state.align == i);
         b.set_on_click(
-            RefAny::new(AlignPayload { app: data.clone(), align: i }),
+            RefAny::new(AlignPayload {
+                app: data.clone(),
+                align: i,
+            }),
             on_align as ButtonOnClickCallbackType,
         );
         align_items.push(RibbonItem::SmallButton(b));
@@ -235,17 +257,32 @@ fn home_tab(state: &AppState, data: &RefAny) -> RibbonTab {
 
     // -- Styles (in-ribbon gallery) -------------------------------------------
     let cells = vec![
-        cell("font-size: 14px; color: #444444;", "AaBbCcDc", "\u{00b6} Normal"),
-        cell("font-size: 14px; color: #444444;", "AaBbCcDc", "\u{00b6} No Spac..."),
+        cell(
+            "font-size: 14px; color: #444444;",
+            "AaBbCcDc",
+            "\u{00b6} Normal",
+        ),
+        cell(
+            "font-size: 14px; color: #444444;",
+            "AaBbCcDc",
+            "\u{00b6} No Spac...",
+        ),
         cell("font-size: 15px; color: #2e74b5;", "AaBbCc", "Heading 1"),
         cell("font-size: 14px; color: #2e74b5;", "AaBbCcD", "Heading 2"),
         cell("font-size: 19px; color: #262626;", "AaB", "Title"),
         cell("font-size: 13px; color: #5a5a5a;", "AaBbCcD", "Subtitle"),
-        cell("font-size: 13px; color: #808080;", "AaBbCcDi", "Subtle Em..."),
+        cell(
+            "font-size: 13px; color: #808080;",
+            "AaBbCcDi",
+            "Subtle Em...",
+        ),
         cell("font-size: 13px; color: #4472c4;", "AaBbCcDi", "Emphasis"),
     ];
     let mut gallery = RibbonGallery::new(cells.into()).with_selected(state.selected_style);
-    gallery.set_on_select(data.clone(), on_style_select as RibbonGalleryOnSelectCallbackType);
+    gallery.set_on_select(
+        data.clone(),
+        on_style_select as RibbonGalleryOnSelectCallbackType,
+    );
 
     let styles = RibbonGroup::new(s("Styles"))
         .with_item(RibbonItem::Gallery(gallery))
@@ -269,10 +306,9 @@ fn home_tab(state: &AppState, data: &RefAny) -> RibbonTab {
 /// The non-HOME tabs only exist as switchable headers with placeholder
 /// content — the HOME tab is the cloning target.
 fn placeholder_tab(label: &str) -> RibbonTab {
-    RibbonTab::new(s(label)).with_group(
-        RibbonGroup::new(s("Preview"))
-            .with_item(RibbonItem::LargeButton(RibbonButton::new(s("layers"), s(label)))),
-    )
+    RibbonTab::new(s(label)).with_group(RibbonGroup::new(s("Preview")).with_item(
+        RibbonItem::LargeButton(RibbonButton::new(s("layers"), s(label))),
+    ))
 }
 
 /// Builds the full ribbon (tab strip + active tab content) for the editor

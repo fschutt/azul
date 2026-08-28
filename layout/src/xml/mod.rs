@@ -36,13 +36,13 @@ fn decode_xml_entities(s: &str) -> std::borrow::Cow<'_, str> {
 fn decode_xml_entities_slow(s: &str) -> std::borrow::Cow<'_, str> {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
-    
+
     while let Some(c) = chars.next() {
         if c == '&' {
             // Collect the entity reference
             let mut entity = String::new();
             let mut found_semicolon = false;
-            
+
             while let Some(&next) = chars.peek() {
                 if next == ';' {
                     chars.next();
@@ -58,7 +58,7 @@ fn decode_xml_entities_slow(s: &str) -> std::borrow::Cow<'_, str> {
                     break;
                 }
             }
-            
+
             if found_semicolon {
                 // Try to decode the entity
                 match entity.as_str() {
@@ -110,7 +110,7 @@ fn decode_xml_entities_slow(s: &str) -> std::borrow::Cow<'_, str> {
             result.push(c);
         }
     }
-    
+
     std::borrow::Cow::Owned(result)
 }
 
@@ -122,7 +122,8 @@ use azul_css::{css::Css, AzString, OptionString, U8Vec};
 use xmlparser::Tokenizer;
 
 #[cfg(feature = "xml")]
-#[must_use] pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
+#[must_use]
+pub fn domxml_from_str(xml: &str, component_map: &ComponentMap) -> DomXml {
     let error_css = Css::empty();
 
     let parsed = match parse_xml_string(xml) {
@@ -161,11 +162,14 @@ use xmlparser::Tokenizer;
 /// and will be applied during the cascade pass.
 // FFI-exported (api.json fn_body azul_layout::xml::dom_from_parsed_xml(xml)): owned Xml by value.
 #[allow(clippy::needless_pass_by_value)]
-#[must_use] pub fn dom_from_parsed_xml(xml: Xml) -> Dom {
+#[must_use]
+pub fn dom_from_parsed_xml(xml: Xml) -> Dom {
     let component_map = ComponentMap::with_builtin();
     match str_to_dom_unstyled(xml.root.as_ref(), &component_map) {
         Ok(dom) => dom,
-        Err(e) => Dom::create_body().with_children(vec![Dom::create_p_with_text(format!("{e}"))].into()),
+        Err(e) => {
+            Dom::create_body().with_children(vec![Dom::create_p_with_text(format!("{e}"))].into())
+        }
     }
 }
 
@@ -257,7 +261,8 @@ pub fn parse_xml_to_styled_dom(xml: &str) -> Result<StyledDom, XmlError> {
         fast_dom.css = vec![azul_core::dom::CssWithNodeId {
             node_id: 0, // global scope
             css: combined_css,
-        }].into();
+        }]
+        .into();
     }
     if mem_on {
         let rss2 = peak_rss_bytes();
@@ -306,9 +311,13 @@ fn peak_rss_bytes() -> u64 {
     let ru = usage.ru_maxrss as u64;
     // macOS reports bytes, Linux reports KiB.
     #[cfg(target_os = "macos")]
-    { ru }
+    {
+        ru
+    }
     #[cfg(not(target_os = "macos"))]
-    { ru.saturating_mul(1024) }
+    {
+        ru.saturating_mul(1024)
+    }
 }
 
 #[cfg(not(all(unix, feature = "probe")))]
@@ -319,16 +328,22 @@ const fn peak_rss_bytes() -> u64 {
 /// Internal: parse XML into `FastDom` + collected CSS stylesheets.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded layout/render numeric cast
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
-    use xmlparser::{ElementEnd::{Open, Empty, Close}, Token::{ElementStart, Attribute, ElementEnd, Text}, Tokenizer};
-    use azul_core::dom::{NodeData, NodeType, IdOrClass, TabIndex};
+fn parse_xml_to_fast_dom_with_css(
+    xml: &str,
+) -> Result<(azul_core::dom::FastDom, Vec<Css>), XmlError> {
+    use azul_core::dom::{IdOrClass, NodeData, NodeType, TabIndex};
     use azul_core::xml::CompactDomBuilder;
+    use xmlparser::{
+        ElementEnd::{Close, Empty, Open},
+        Token::{Attribute, ElementEnd, ElementStart, Text},
+        Tokenizer,
+    };
 
     const ESTIMATED_BYTES_PER_NODE: usize = 20;
 
     const VOID_ELEMENTS: &[&str] = &[
-        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
-        "param", "source", "track", "wbr",
+        "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
+        "source", "track", "wbr",
     ];
 
     // Lowercase `src` into `dst`, reusing `dst`'s existing capacity.
@@ -359,7 +374,10 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     // Skip <!DOCTYPE ...>
     let mut xml = xml.trim();
-    if xml.len() > 9 && xml.is_char_boundary(9) && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
+    if xml.len() > 9
+        && xml.is_char_boundary(9)
+        && xml[..9].to_ascii_lowercase().starts_with("<!doctype")
+    {
         if let Some(pos) = xml.find('>') {
             xml = &xml[(pos + 1)..];
         }
@@ -398,130 +416,145 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     // Finalize the pending open element: create NodeData from tag + attrs, push to builder
     // tag is already lowercase
-    let finalize_open = |
-        builder: &mut CompactDomBuilder,
-        str_arena: &mut azul_css::corety::StringArena,
-        tag: &str,
-        attrs: &[(String, String)],
-        css_key_map: &azul_css::props::property::CssKeyMap,
-    | {
-        let node_type = tag_to_node_type(tag);
-        let mut nd = NodeData::create_node(node_type);
+    let finalize_open =
+        |builder: &mut CompactDomBuilder,
+         str_arena: &mut azul_css::corety::StringArena,
+         tag: &str,
+         attrs: &[(String, String)],
+         css_key_map: &azul_css::props::property::CssKeyMap| {
+            let node_type = tag_to_node_type(tag);
+            let mut nd = NodeData::create_node(node_type);
 
-        // `<transient-window open="true" anchor="bottom" …>`: the config rides
-        // INSIDE the NodeType, so its attributes are applied onto that payload
-        // rather than stored as generic attributes. Done before the generic
-        // loop so the keys it consumes never reach `attr_vec`.
-        let mut transient_cfg = match nd.get_node_type() {
-            NodeType::TransientWindow(c) => Some(*c),
-            _ => None,
-        };
+            // `<transient-window open="true" anchor="bottom" …>`: the config rides
+            // INSIDE the NodeType, so its attributes are applied onto that payload
+            // rather than stored as generic attributes. Done before the generic
+            // loop so the keys it consumes never reach `attr_vec`.
+            let mut transient_cfg = match nd.get_node_type() {
+                NodeType::TransientWindow(c) => Some(*c),
+                _ => None,
+            };
 
-        // Apply attributes — build AttributeTypeVec directly (avoids the
-        // clone + retain dance in set_ids_and_classes for fresh NodeData).
-        let mut attr_vec: Vec<azul_core::dom::AttributeType> = Vec::new();
-        for (key, value) in attrs {
-            if let Some(cfg) = transient_cfg.as_mut() {
-                if cfg.apply_attr(key.as_str(), value.as_str()) {
-                    // `tearoff="zone:<selector>"`: the MODE rides in the
-                    // config (it is `Copy`), the selector - a string - stays
-                    // on the node as its `tearoff-zone` attribute, where the
-                    // engine's drop handling reads it.
-                    if key == "tearoff" {
-                        if let Some(selector) = value.trim().strip_prefix("zone:") {
-                            attr_vec.push(azul_core::dom::AttributeType::Custom(
-                                azul_core::dom::AttributeNameValue {
-                                    attr_name: str_arena.intern("tearoff-zone"),
-                                    value: str_arena.intern(selector.trim()),
-                                },
+            // Apply attributes — build AttributeTypeVec directly (avoids the
+            // clone + retain dance in set_ids_and_classes for fresh NodeData).
+            let mut attr_vec: Vec<azul_core::dom::AttributeType> = Vec::new();
+            for (key, value) in attrs {
+                if let Some(cfg) = transient_cfg.as_mut() {
+                    if cfg.apply_attr(key.as_str(), value.as_str()) {
+                        // `tearoff="zone:<selector>"`: the MODE rides in the
+                        // config (it is `Copy`), the selector - a string - stays
+                        // on the node as its `tearoff-zone` attribute, where the
+                        // engine's drop handling reads it.
+                        if key == "tearoff" {
+                            if let Some(selector) = value.trim().strip_prefix("zone:") {
+                                attr_vec.push(azul_core::dom::AttributeType::Custom(
+                                    azul_core::dom::AttributeNameValue {
+                                        attr_name: str_arena.intern("tearoff-zone"),
+                                        value: str_arena.intern(selector.trim()),
+                                    },
+                                ));
+                            }
+                        }
+                        continue;
+                    }
+                }
+                match key.as_str() {
+                    "id" => {
+                        for id in value.split_whitespace() {
+                            attr_vec.push(azul_core::dom::AttributeType::Id(str_arena.intern(id)));
+                        }
+                    }
+                    "class" => {
+                        for class in value.split_whitespace() {
+                            attr_vec.push(azul_core::dom::AttributeType::Class(
+                                str_arena.intern(class),
                             ));
                         }
                     }
-                    continue;
-                }
-            }
-            match key.as_str() {
-                "id" => {
-                    for id in value.split_whitespace() {
-                        attr_vec.push(azul_core::dom::AttributeType::Id(str_arena.intern(id)));
-                    }
-                }
-                "class" => {
-                    for class in value.split_whitespace() {
-                        attr_vec.push(azul_core::dom::AttributeType::Class(str_arena.intern(class)));
-                    }
-                }
-                "focusable" => {
-                    if let Some(f) = parse_bool(value.as_str()) {
-                        nd.set_tab_index(if f { TabIndex::Auto } else { TabIndex::NoKeyboardFocus });
-                    }
-                }
-                "tabindex" => {
-                    if let Ok(ti) = value.parse::<isize>() {
-                        match ti {
-                            0 => nd.set_tab_index(TabIndex::Auto),
-                            i if i > 0 => nd.set_tab_index(TabIndex::OverrideInParent(i as u32)),
-                            _ => nd.set_tab_index(TabIndex::NoKeyboardFocus),
+                    "focusable" => {
+                        if let Some(f) = parse_bool(value.as_str()) {
+                            nd.set_tab_index(if f {
+                                TabIndex::Auto
+                            } else {
+                                TabIndex::NoKeyboardFocus
+                            });
                         }
                     }
-                }
-                "style" => {
-                    let mut css_attrs = Vec::new();
-                    for s in value.split(';') {
-                        let mut s = s.split(':');
-                        let Some(key) = s.next() else { continue };
-                        let Some(val) = s.next() else { continue };
-                        // Called for its side effect (writes parsed props into
-                        // `css_attrs`); the returned value is intentionally discarded.
-                        drop(azul_css::parser2::parse_css_declaration(
-                            key.trim(), val.trim(),
-                            azul_css::parser2::ErrorLocationRange::default(),
-                            css_key_map, &mut Vec::new(), &mut css_attrs,
-                        ));
-                    }
-                    let props = css_attrs.into_iter().filter_map(|s| {
-                        use azul_css::css::CssDeclaration;
-                        use azul_css::dynamic_selector::CssPropertyWithConditions;
-                        match s {
-                            CssDeclaration::Static(s) => Some(CssPropertyWithConditions::simple(s)),
-                            CssDeclaration::Dynamic(_) => None,
+                    "tabindex" => {
+                        if let Ok(ti) = value.parse::<isize>() {
+                            match ti {
+                                0 => nd.set_tab_index(TabIndex::Auto),
+                                i if i > 0 => {
+                                    nd.set_tab_index(TabIndex::OverrideInParent(i as u32))
+                                }
+                                _ => nd.set_tab_index(TabIndex::NoKeyboardFocus),
+                            }
                         }
-                    }).collect::<Vec<_>>();
-                    if !props.is_empty() {
-                        nd.set_css_props(props.into());
                     }
-                }
-                "contenteditable" => {
-                    match parse_bool(value.as_str()) {
-                        Some(true) => nd.set_contenteditable(true),
-                        // An explicit `false` is NOT "no attribute": inside an
-                        // editable host it walls its subtree off (HTML's
-                        // inheritance rule, `is_node_contenteditable_inherited`)
-                        // and keeps that subtree out of the host's edit buffer
-                        // and out of the block the edit is shaped into. Dropped
-                        // here, a mounted `<p contenteditable="false">` island
-                        // behaved like any other child — the Rust API's
-                        // `with_attribute(ContentEditable(false))` and the HTML
-                        // loader disagreed on the same document.
-                        Some(false) => attr_vec.push(
-                            azul_core::dom::AttributeType::ContentEditable(false),
-                        ),
-                        None => {}
+                    "style" => {
+                        let mut css_attrs = Vec::new();
+                        for s in value.split(';') {
+                            let mut s = s.split(':');
+                            let Some(key) = s.next() else { continue };
+                            let Some(val) = s.next() else { continue };
+                            // Called for its side effect (writes parsed props into
+                            // `css_attrs`); the returned value is intentionally discarded.
+                            drop(azul_css::parser2::parse_css_declaration(
+                                key.trim(),
+                                val.trim(),
+                                azul_css::parser2::ErrorLocationRange::default(),
+                                css_key_map,
+                                &mut Vec::new(),
+                                &mut css_attrs,
+                            ));
+                        }
+                        let props = css_attrs
+                            .into_iter()
+                            .filter_map(|s| {
+                                use azul_css::css::CssDeclaration;
+                                use azul_css::dynamic_selector::CssPropertyWithConditions;
+                                match s {
+                                    CssDeclaration::Static(s) => {
+                                        Some(CssPropertyWithConditions::simple(s))
+                                    }
+                                    CssDeclaration::Dynamic(_) => None,
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        if !props.is_empty() {
+                            nd.set_css_props(props.into());
+                        }
                     }
+                    "contenteditable" => {
+                        match parse_bool(value.as_str()) {
+                            Some(true) => nd.set_contenteditable(true),
+                            // An explicit `false` is NOT "no attribute": inside an
+                            // editable host it walls its subtree off (HTML's
+                            // inheritance rule, `is_node_contenteditable_inherited`)
+                            // and keeps that subtree out of the host's edit buffer
+                            // and out of the block the edit is shaped into. Dropped
+                            // here, a mounted `<p contenteditable="false">` island
+                            // behaved like any other child — the Rust API's
+                            // `with_attribute(ContentEditable(false))` and the HTML
+                            // loader disagreed on the same document.
+                            Some(false) => {
+                                attr_vec.push(azul_core::dom::AttributeType::ContentEditable(false))
+                            }
+                            None => {}
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
-        if !attr_vec.is_empty() {
-            nd.set_attributes(attr_vec.into());
-        }
-        // Write the parsed popup config back into the node's payload.
-        if let Some(cfg) = transient_cfg {
-            nd.set_node_type(NodeType::TransientWindow(cfg));
-        }
+            if !attr_vec.is_empty() {
+                nd.set_attributes(attr_vec.into());
+            }
+            // Write the parsed popup config back into the node's payload.
+            if let Some(cfg) = transient_cfg {
+                nd.set_node_type(NodeType::TransientWindow(cfg));
+            }
 
-        builder.open_node(nd);
-    };
+            builder.open_node(nd);
+        };
 
     let mut last_was_void = false;
     let mut tag_stack: Vec<String> = Vec::new(); // for matching close tags
@@ -533,10 +566,20 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                 // Flush any pending open element
                 if pending_open {
                     let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-                    if current_tag == "head" { head_depth += 1; }
+                    if current_tag == "head" {
+                        head_depth += 1;
+                    }
                     if head_depth == 0 {
-                        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
-                        if is_void { builder.close_node(); }
+                        finalize_open(
+                            &mut builder,
+                            &mut str_arena,
+                            &current_tag,
+                            &current_attrs,
+                            &css_key_map,
+                        );
+                        if is_void {
+                            builder.close_node();
+                        }
                     }
                     if !is_void {
                         tag_stack.push(core::mem::take(&mut current_tag));
@@ -557,7 +600,10 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                 // `to_string()` because we can't hold a borrow across token
                 // iterations. TODO: when we switch current_attrs to
                 // Vec<(&str, Cow<str>)> this becomes zero-alloc for the key.
-                current_attrs.push((local.to_string(), decode_xml_entities(value.as_str()).into_owned()));
+                current_attrs.push((
+                    local.to_string(),
+                    decode_xml_entities(value.as_str()).into_owned(),
+                ));
             }
             ElementEnd { end: Open, .. } => {
                 if pending_open {
@@ -566,10 +612,20 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         inside_style_tag = true;
                         style_text.clear();
                     }
-                    if current_tag == "head" { head_depth += 1; }
+                    if current_tag == "head" {
+                        head_depth += 1;
+                    }
                     if head_depth == 0 {
-                        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
-                        if is_void { builder.close_node(); }
+                        finalize_open(
+                            &mut builder,
+                            &mut str_arena,
+                            &current_tag,
+                            &current_attrs,
+                            &css_key_map,
+                        );
+                        if is_void {
+                            builder.close_node();
+                        }
                     }
                     if !is_void {
                         // Use take() instead of clone() — after pending_open=false,
@@ -583,22 +639,45 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
             ElementEnd { end: Empty, .. } => {
                 // Self-closing element: open + immediately close
                 if pending_open {
-                    if current_tag == "head" { head_depth += 1; }
+                    if current_tag == "head" {
+                        head_depth += 1;
+                    }
                     if head_depth == 0 {
-                        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
+                        finalize_open(
+                            &mut builder,
+                            &mut str_arena,
+                            &current_tag,
+                            &current_attrs,
+                            &css_key_map,
+                        );
                         builder.close_node();
                     }
-                    if current_tag == "head" && head_depth > 0 { head_depth -= 1; }
+                    if current_tag == "head" && head_depth > 0 {
+                        head_depth -= 1;
+                    }
                     pending_open = false;
                 }
             }
-            ElementEnd { end: Close(_, close_value), .. } => {
+            ElementEnd {
+                end: Close(_, close_value),
+                ..
+            } => {
                 if pending_open {
                     let is_void = VOID_ELEMENTS.contains(&current_tag.as_str());
-                    if current_tag == "head" { head_depth += 1; }
+                    if current_tag == "head" {
+                        head_depth += 1;
+                    }
                     if head_depth == 0 {
-                        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
-                        if is_void { builder.close_node(); }
+                        finalize_open(
+                            &mut builder,
+                            &mut str_arena,
+                            &current_tag,
+                            &current_attrs,
+                            &css_key_map,
+                        );
+                        if is_void {
+                            builder.close_node();
+                        }
                     }
                     if !is_void {
                         tag_stack.push(core::mem::take(&mut current_tag));
@@ -627,11 +706,15 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                     let was_head = top == "head";
                     // Pop this tag (unconditionally auto-close mismatched tags)
                     let popped = tag_stack.pop().unwrap();
-                    if popped == "head" && head_depth > 0 { head_depth -= 1; }
+                    if popped == "head" && head_depth > 0 {
+                        head_depth -= 1;
+                    }
                     if head_depth == 0 && !was_head {
                         builder.close_node();
                     }
-                    if is_match { break; }
+                    if is_match {
+                        break;
+                    }
                 }
             }
             Text { text } => {
@@ -641,10 +724,20 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         inside_style_tag = true;
                         style_text.clear();
                     }
-                    if current_tag == "head" { head_depth += 1; }
+                    if current_tag == "head" {
+                        head_depth += 1;
+                    }
                     if head_depth == 0 {
-                        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
-                        if is_void { builder.close_node(); }
+                        finalize_open(
+                            &mut builder,
+                            &mut str_arena,
+                            &current_tag,
+                            &current_attrs,
+                            &css_key_map,
+                        );
+                        if is_void {
+                            builder.close_node();
+                        }
                     }
                     if !is_void {
                         tag_stack.push(current_tag.clone());
@@ -662,7 +755,11 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
                         let inside_body = tag_stack.iter().any(|t| t == "body");
                         if inside_body || !text_str.trim().is_empty() {
                             let decoded = decode_xml_entities(text_str);
-                            builder.add_leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(str_arena.intern(&decoded)));
+                            builder.add_leaf(
+                                NodeData::create_text_do_not_use_without_block_level_wrapper(
+                                    str_arena.intern(&decoded),
+                                ),
+                            );
                         }
                     }
                 }
@@ -673,7 +770,13 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 
     // Close any remaining open elements
     if pending_open {
-        finalize_open(&mut builder, &mut str_arena, &current_tag, &current_attrs, &css_key_map);
+        finalize_open(
+            &mut builder,
+            &mut str_arena,
+            &current_tag,
+            &current_attrs,
+            &css_key_map,
+        );
     }
     while tag_stack.pop().is_some() {
         builder.close_node();
@@ -692,10 +795,7 @@ fn parse_xml_to_fast_dom_with_css(xml: &str) -> Result<(azul_core::dom::FastDom,
 /// use this in release builds! This function deliberately never fails: In an error case,
 /// the error gets rendered as a `NodeType::Label`.
 #[cfg(all(feature = "std", feature = "xml"))]
-pub fn domxml_from_file<I: AsRef<Path>>(
-    file_path: I,
-    component_map: &ComponentMap,
-) -> DomXml {
+pub fn domxml_from_file<I: AsRef<Path>>(file_path: I, component_map: &ComponentMap) -> DomXml {
     use std::fs;
 
     let error_css = Css::empty();
@@ -705,15 +805,14 @@ pub fn domxml_from_file<I: AsRef<Path>>(
         Err(e) => {
             return DomXml {
                 parsed_dom: {
-                    let mut dom = Dom::create_body()
-                        .with_children(
-                            vec![Dom::create_p_with_text(format!(
-                                "Error reading: \"{}\": {}",
-                                file_path.as_ref().to_string_lossy(),
-                                e
-                            ))]
-                            .into(),
-                        );
+                    let mut dom = Dom::create_body().with_children(
+                        vec![Dom::create_p_with_text(format!(
+                            "Error reading: \"{}\": {}",
+                            file_path.as_ref().to_string_lossy(),
+                            e
+                        ))]
+                        .into(),
+                    );
                     StyledDom::create(&mut dom, error_css)
                 },
             };
@@ -735,7 +834,11 @@ pub fn domxml_from_file<I: AsRef<Path>>(
 ///
 /// Returns an `XmlError` if the XML cannot be parsed.
 pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
-    use xmlparser::{ElementEnd::{Empty, Close}, Token::{ElementStart, ElementEnd, Attribute, Text}, Tokenizer};
+    use xmlparser::{
+        ElementEnd::{Close, Empty},
+        Token::{Attribute, ElementEnd, ElementStart, Text},
+        Tokenizer,
+    };
 
     use self::XmlParseError::*;
 
@@ -802,24 +905,27 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
     // Search for "<?xml" and "?>" tags and delete them from the XML
     let mut xml = xml.trim();
     if xml.starts_with("<?") {
-        let pos = xml.find("?>").ok_or(XmlError::MalformedHierarchy(
-            MalformedHierarchyError {
+        let pos = xml
+            .find("?>")
+            .ok_or(XmlError::MalformedHierarchy(MalformedHierarchyError {
                 expected: "<?xml".into(),
                 got: "?>".into(),
-            },
-        ))?;
+            }))?;
         xml = &xml[(pos + 2)..];
     }
 
     // Delete <!DOCTYPE ...> if necessary (case-insensitive)
     let mut xml = xml.trim();
-    if xml.len() > 9 && xml.is_char_boundary(9) && xml[..9].to_ascii_lowercase().starts_with("<!doctype") {
-        let pos = xml.find('>').ok_or(XmlError::MalformedHierarchy(
-            MalformedHierarchyError {
+    if xml.len() > 9
+        && xml.is_char_boundary(9)
+        && xml[..9].to_ascii_lowercase().starts_with("<!doctype")
+    {
+        let pos = xml
+            .find('>')
+            .ok_or(XmlError::MalformedHierarchy(MalformedHierarchyError {
                 expected: "<!DOCTYPE".into(),
                 got: ">".into(),
-            },
-        ))?;
+            }))?;
         xml = &xml[(pos + 1)..];
     } else if xml.starts_with("<!--") {
         // Skip HTML comments at the start
@@ -874,7 +980,7 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                 // SAFETY: We access the last element which is valid
                 if let Some(&current_parent_ptr) = node_stack.last() {
                     let current_parent = unsafe { &mut *current_parent_ptr };
-                    
+
                     current_parent.children.push(XmlNodeChild::Element(XmlNode {
                         node_type: tag_name.into(),
                         attributes: StringPairVec::new().into(),
@@ -883,10 +989,12 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
 
                     // Get pointer to the newly added child
                     let children_len = current_parent.children.len();
-                    if let Some(XmlNodeChild::Element(ref mut new_child)) = current_parent.children.as_mut().get_mut(children_len - 1) {
+                    if let Some(XmlNodeChild::Element(ref mut new_child)) =
+                        current_parent.children.as_mut().get_mut(children_len - 1)
+                    {
                         node_stack.push(std::ptr::from_mut::<XmlNode>(new_child));
                     }
-                    
+
                     last_was_void = is_void_element;
                 }
             }
@@ -959,9 +1067,9 @@ pub fn parse_xml_string(xml: &str) -> Result<Vec<XmlNodeChild>, XmlError> {
                 // IMPORTANT: Preserve ALL text nodes including whitespace-only nodes.
                 // Whether whitespace is significant depends on the CSS `white-space` property,
                 // which is determined during layout, not during parsing.
-                // 
+                //
                 // For example: <pre><span>    </span></pre> must preserve the 4 spaces.
-                // 
+                //
                 // We only skip completely EMPTY text nodes (zero-length strings).
                 let text_str = text.as_str();
 
@@ -1016,9 +1124,8 @@ pub fn parse_xml(s: &str) -> Result<Xml, XmlError> {
 // to_string(&self) -> String
 
 #[cfg(feature = "xml")]
-#[must_use] pub fn translate_roxmltree_expandedname(
-    e: roxmltree::ExpandedName<'_, '_>,
-) -> XmlQualifiedName {
+#[must_use]
+pub fn translate_roxmltree_expandedname(e: roxmltree::ExpandedName<'_, '_>) -> XmlQualifiedName {
     let ns: Option<AzString> = e.namespace().map(|e| e.to_string().into());
     XmlQualifiedName {
         local_name: e.name().to_string().into(),
@@ -1133,7 +1240,8 @@ fn translate_xmlparser_error(e: xmlparser::Error) -> XmlParseError {
 }
 
 #[cfg(feature = "xml")]
-#[must_use] pub fn translate_roxmltree_error(e: roxmltree::Error) -> XmlError {
+#[must_use]
+pub fn translate_roxmltree_error(e: roxmltree::Error) -> XmlError {
     match e {
         roxmltree::Error::InvalidXmlPrefixUri(s) => {
             XmlError::InvalidXmlPrefixUri(translate_roxml_textpos(s))
@@ -1445,17 +1553,8 @@ mod autotest_generated {
     #[test]
     fn decode_xml_entities_keeps_unterminated_and_unknown_entities_verbatim() {
         for s in [
-            "&",
-            "&&",
-            "&lt",
-            "&#",
-            "&#x",
-            "&foo;",
-            "&LT;", // entity table is case-sensitive
-            "&Amp;",
-            "& lt;",
-            "a & b",
-            "&;",
+            "&", "&&", "&lt", "&#", "&#x", "&foo;", "&LT;", // entity table is case-sensitive
+            "&Amp;", "& lt;", "a & b", "&;",
         ] {
             assert_eq!(&*decode_xml_entities(s), s, "{s:?} must be preserved");
         }
@@ -1582,7 +1681,15 @@ mod autotest_generated {
     #[cfg(feature = "xml")]
     #[test]
     fn parse_xml_string_accepts_empty_and_whitespace_only_input() {
-        for s in ["", " ", "   ", "\t\n", "\r\n\r\n", "\u{FEFF}", "\u{FEFF}   "] {
+        for s in [
+            "",
+            " ",
+            "   ",
+            "\t\n",
+            "\r\n\r\n",
+            "\u{FEFF}",
+            "\u{FEFF}   ",
+        ] {
             let parsed = parse_xml_string(s)
                 .unwrap_or_else(|e| panic!("{s:?} should parse to an empty tree, got {e}"));
             assert!(parsed.is_empty(), "{s:?} produced {} roots", parsed.len());
@@ -1681,7 +1788,8 @@ mod autotest_generated {
     fn parse_xml_string_keeps_trailing_junk_as_text() {
         // Lenient HTML-ish parsing: trailing junk becomes a text node at the
         // root rather than an error or a dropped document.
-        let parsed = parse_xml_string(&format!("{};garbage", doc("<div/>"))).expect("lenient parse");
+        let parsed =
+            parse_xml_string(&format!("{};garbage", doc("<div/>"))).expect("lenient parse");
         assert_eq!(elements(&parsed).len(), 1);
         assert_eq!(texts(&parsed), vec![";garbage"]);
     }
@@ -1698,8 +1806,8 @@ mod autotest_generated {
             "1 < 2 > 0 && true",
         ] {
             let src = doc(&escape(raw));
-            let parsed = parse_xml_string(&src)
-                .unwrap_or_else(|e| panic!("{src:?} should parse, got {e}"));
+            let parsed =
+                parse_xml_string(&src).unwrap_or_else(|e| panic!("{src:?} should parse, got {e}"));
             let html = elements(&parsed);
             let body = elements(html[0].children.as_ref());
             assert_eq!(
@@ -1861,7 +1969,9 @@ mod autotest_generated {
         assert!(cfg.open, "open=\"true\" must open it");
         assert_eq!(cfg.anchor, TransientAnchor::Right);
         assert_eq!(cfg.dismiss, TransientDismiss::Escape);
-        assert!(matches!(cfg.size, azul_core::geom::OptionLogicalSize::Some(s) if s.width == 300.0));
+        assert!(
+            matches!(cfg.size, azul_core::geom::OptionLogicalSize::Some(s) if s.width == 300.0)
+        );
         // `class` is an ordinary attribute and must survive; the popup keys
         // must NOT have been stored as attributes.
         let classes: Vec<String> = nd
@@ -1880,9 +1990,9 @@ mod autotest_generated {
     #[test]
     fn a_bare_transient_window_tag_is_closed() {
         let dom = parse_xml_to_fast_dom("<div><transient-window/></div>").expect("parses");
-        let closed = nodes(&dom).iter().any(|nd| {
-            matches!(nd.get_node_type(), NodeType::TransientWindow(c) if !c.open)
-        });
+        let closed = nodes(&dom)
+            .iter()
+            .any(|nd| matches!(nd.get_node_type(), NodeType::TransientWindow(c) if !c.open));
         assert!(closed, "a bare <transient-window/> must parse as closed");
     }
 
@@ -1891,7 +2001,11 @@ mod autotest_generated {
         for s in ["", " ", "   ", "\t\n", "\u{FEFF}", "\u{FEFF}  \n "] {
             let dom = parse_xml_to_fast_dom(s)
                 .unwrap_or_else(|e| panic!("{s:?} should yield an empty arena, got {e}"));
-            assert!(nodes(&dom).is_empty(), "{s:?} produced {} nodes", nodes(&dom).len());
+            assert!(
+                nodes(&dom).is_empty(),
+                "{s:?} produced {} nodes",
+                nodes(&dom).len()
+            );
             assert_eq!(dom.node_hierarchy.as_ref().len(), nodes(&dom).len());
         }
     }
@@ -1938,7 +2052,10 @@ mod autotest_generated {
         );
         assert_eq!(text_of(&n[2]).as_deref(), Some("x"));
         assert_eq!(css.len(), 1, "the <style> body must still be collected");
-        assert!(!css[0].rules.as_ref().is_empty(), "the CSS must have parsed");
+        assert!(
+            !css[0].rules.as_ref().is_empty(),
+            "the CSS must have parsed"
+        );
     }
 
     #[test]
@@ -2032,15 +2149,16 @@ mod autotest_generated {
 
     #[test]
     fn parse_xml_to_fast_dom_parses_bool_attributes_case_sensitively() {
-        assert_eq!(
-            tab_index_with(r#"focusable="true""#),
-            Some(TabIndex::Auto)
-        );
+        assert_eq!(tab_index_with(r#"focusable="true""#), Some(TabIndex::Auto));
         assert_eq!(
             tab_index_with(r#"focusable="false""#),
             Some(TabIndex::NoKeyboardFocus)
         );
-        for junk in [r#"focusable="TRUE""#, r#"focusable="1""#, r#"focusable="yes""#] {
+        for junk in [
+            r#"focusable="TRUE""#,
+            r#"focusable="1""#,
+            r#"focusable="yes""#,
+        ] {
             assert_eq!(
                 tab_index_with(junk),
                 tab_index_with(""),
@@ -2241,10 +2359,9 @@ mod autotest_generated {
         // The tokenizer stays fully generic: `<icon>spec</icon>` is an
         // un-named Icon node with its spec preserved as a text child.
         // The RESOLVER consumes the spec (see the resolution test below).
-        let fast = parse_xml_to_fast_dom(
-            "<html><body><icon> content_copy </icon><p>x</p></body></html>",
-        )
-        .expect("icon markup must parse");
+        let fast =
+            parse_xml_to_fast_dom("<html><body><icon> content_copy </icon><p>x</p></body></html>")
+                .expect("icon markup must parse");
 
         let icon_names: Vec<&str> = nodes(&fast)
             .iter()
@@ -2253,12 +2370,19 @@ mod autotest_generated {
                 _ => None,
             })
             .collect();
-        assert_eq!(icon_names, vec![""], "the builder must not interpret the spec");
+        assert_eq!(
+            icon_names,
+            vec![""],
+            "the builder must not interpret the spec"
+        );
 
         let spec_preserved = nodes(&fast).iter().any(|nd| {
             matches!(nd.get_node_type(), NodeType::Text(t) if t.as_ref().as_str().trim() == "content_copy")
         });
-        assert!(spec_preserved, "the spec text child must be preserved for the resolver");
+        assert!(
+            spec_preserved,
+            "the spec text child must be preserved for the resolver"
+        );
     }
 
     #[test]
@@ -2279,7 +2403,11 @@ mod autotest_generated {
             original: &azul_core::dom::NodeData,
             _: &SystemStyle,
         ) -> Dom {
-            let marker = if data.is_some() { "RESOLVED" } else { "MISSING" };
+            let marker = if data.is_some() {
+                "RESOLVED"
+            } else {
+                "MISSING"
+            };
             let mut replacement = Dom::create_div();
             replacement.root = original.clone();
             replacement
@@ -2319,12 +2447,20 @@ mod autotest_generated {
 
         let resolved = texts.iter().filter(|t| t.as_str() == "RESOLVED").count();
         let missing = texts.iter().filter(|t| t.as_str() == "MISSING").count();
-        assert_eq!(resolved, 2, "bare + pack-qualified specs must both resolve: {texts:?}");
-        assert_eq!(missing, 1, "the unknown spec resolves to no data: {texts:?}");
+        assert_eq!(
+            resolved, 2,
+            "bare + pack-qualified specs must both resolve: {texts:?}"
+        );
+        assert_eq!(
+            missing, 1,
+            "the unknown spec resolves to no data: {texts:?}"
+        );
 
         // The spec text was consumed — it must not survive as renderable text.
         assert!(
-            !texts.iter().any(|t| t.contains("content_copy") || t.contains("unknown_icon")),
+            !texts
+                .iter()
+                .any(|t| t.contains("content_copy") || t.contains("unknown_icon")),
             "spec text children must be cleared after resolution: {texts:?}"
         );
     }
@@ -2549,7 +2685,10 @@ mod autotest_generated {
         // Degenerate names must survive untouched, not be normalised away.
         for name in ["", " ", "日本語-🙂", "a:b"] {
             let e: roxmltree::ExpandedName<'_, '_> = name.into();
-            assert_eq!(translate_roxmltree_expandedname(e).local_name.as_str(), name);
+            assert_eq!(
+                translate_roxmltree_expandedname(e).local_name.as_str(),
+                name
+            );
         }
         let empty_ns: roxmltree::ExpandedName<'_, '_> = ("", "x").into();
         assert_eq!(
@@ -2565,8 +2704,8 @@ mod autotest_generated {
     #[cfg(feature = "xml")]
     #[test]
     fn translate_roxmltree_attribute_preserves_name_and_namespace() {
-        let rdoc = roxmltree::Document::parse(r#"<e xmlns:x="urn:x" x:a="1" b="2"/>"#)
-            .expect("valid XML");
+        let rdoc =
+            roxmltree::Document::parse(r#"<e xmlns:x="urn:x" x:a="1" b="2"/>"#).expect("valid XML");
         let attrs: Vec<XmlQualifiedName> = rdoc
             .root_element()
             .attributes()

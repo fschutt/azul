@@ -155,10 +155,7 @@ fn emit_wrapper_body(builder: &mut CodeBuilder, s: &StructDef) {
     builder.line("   if Self.Owned then");
     // The FFI delete subprogram takes the address of the inner record;
     // we use `Self.Inner'Address` to obtain a `System.Address`.
-    builder.line(&format!(
-        "      {}_Delete (Self.Inner'Address);",
-        ffi
-    ));
+    builder.line(&format!("      {}_Delete (Self.Inner'Address);", ffi));
     builder.line("      Self.Owned := False;");
     builder.line("   end if;");
     builder.line("end Finalize;");

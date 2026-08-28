@@ -3,7 +3,9 @@
 //! into a DOM via [`ProgressBar::dom()`].
 
 use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+use azul_css::css::BoxOrStatic;
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -14,7 +16,6 @@ use azul_css::{
     },
     *,
 };
-use azul_css::css::BoxOrStatic;
 
 const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
@@ -190,7 +191,8 @@ pub struct ProgressBarState {
 impl ProgressBar {
     /// Creates a new progress bar with the given completion percentage (0.0 to 100.0).
     #[inline]
-    #[must_use] pub const fn create(percent_done: f32) -> Self {
+    #[must_use]
+    pub const fn create(percent_done: f32) -> Self {
         Self {
             progressbar_state: ProgressBarState {
                 percent_done,
@@ -219,7 +221,8 @@ impl ProgressBar {
         self.container_background = background;
     }
 
-    #[must_use] pub fn with_container_background(mut self, background: StyleBackgroundContentVec) -> Self {
+    #[must_use]
+    pub fn with_container_background(mut self, background: StyleBackgroundContentVec) -> Self {
         self.set_container_background(background);
         self
     }
@@ -228,7 +231,8 @@ impl ProgressBar {
         self.bar_background = background;
     }
 
-    #[must_use] pub fn with_bar_background(mut self, background: StyleBackgroundContentVec) -> Self {
+    #[must_use]
+    pub fn with_bar_background(mut self, background: StyleBackgroundContentVec) -> Self {
         self.set_bar_background(background);
         self
     }
@@ -237,7 +241,8 @@ impl ProgressBar {
         self.height = height;
     }
 
-    #[must_use] pub const fn with_height(mut self, height: PixelValue) -> Self {
+    #[must_use]
+    pub const fn with_height(mut self, height: PixelValue) -> Self {
         self.set_height(height);
         self
     }
@@ -245,7 +250,8 @@ impl ProgressBar {
     /// Renders this progress bar into a [`Dom`] tree consisting of a container div
     /// with two children: the filled bar and the remaining empty space.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         use azul_core::dom::DomVec;
 
         // Use percentage widths for the progress bar and remaining space.
@@ -725,10 +731,7 @@ mod autotest_generated {
     /// each const, so the address it returns is stable across calls — and that
     /// is exactly the property under test: a `create()` that copied the slice
     /// into a heap vec would hand out a fresh address every time.
-    fn create_gradient_ptrs() -> (
-        *const StyleBackgroundContent,
-        *const StyleBackgroundContent,
-    ) {
+    fn create_gradient_ptrs() -> (*const StyleBackgroundContent, *const StyleBackgroundContent) {
         let pb = ProgressBar::create(0.0);
         (pb.bar_background.as_ptr(), pb.container_background.as_ptr())
     }
@@ -821,9 +824,7 @@ mod autotest_generated {
             .style
             .iter_inline_properties()
             .find_map(|(p, _)| match p {
-                CssProperty::BackgroundContent(v) => {
-                    v.get_property().map(|b| b.as_ref().to_vec())
-                }
+                CssProperty::BackgroundContent(v) => v.get_property().map(|b| b.as_ref().to_vec()),
                 _ => None,
             })
     }
@@ -891,8 +892,16 @@ mod autotest_generated {
     #[test]
     fn create_defaults_to_a_15px_height() {
         let pb = ProgressBar::create(50.0);
-        assert_eq!(pb.height.metric, SizeMetric::Px, "the default height must be absolute");
-        assert_eq!(raw(pb.height), 15_000, "the default height is 15px in 1/1000 units");
+        assert_eq!(
+            pb.height.metric,
+            SizeMetric::Px,
+            "the default height must be absolute"
+        );
+        assert_eq!(
+            raw(pb.height),
+            15_000,
+            "the default height is 15px in 1/1000 units"
+        );
     }
 
     #[test]
@@ -1015,7 +1024,11 @@ mod autotest_generated {
                 0_u32,
                 "the replacement must be +0.0 — a -0.0 would encode with the sign bit set",
             );
-            assert_eq!(raw(pb.height), 15_000, "the replacement must use the default height");
+            assert_eq!(
+                raw(pb.height),
+                15_000,
+                "the replacement must use the default height"
+            );
             assert_eq!(
                 pb.bar_background.as_ptr(),
                 create_gradient_ptrs().0,
@@ -1064,7 +1077,11 @@ mod autotest_generated {
             pb.set_bar_background(solid(want));
             let prev = pb.swap_with_default();
 
-            assert_eq!(prev.bar_background.len(), want, "round {i} handed back the wrong buffer");
+            assert_eq!(
+                prev.bar_background.len(),
+                want,
+                "round {i} handed back the wrong buffer"
+            );
             assert_eq!(pb.progressbar_state.percent_done, 0.0);
             assert_eq!(pb.bar_background.as_ptr(), bar_ptr);
         }
@@ -1112,7 +1129,10 @@ mod autotest_generated {
         b.set_height(PixelValue::px(-4.5));
 
         assert_eq!(a.bar_background.as_ref(), b.bar_background.as_ref());
-        assert_eq!(a.container_background.as_ref(), b.container_background.as_ref());
+        assert_eq!(
+            a.container_background.as_ref(),
+            b.container_background.as_ref()
+        );
         assert_eq!(a.height, b.height);
         assert_eq!(
             a.progressbar_state.percent_done,
@@ -1156,7 +1176,11 @@ mod autotest_generated {
         }));
         let bg = StyleBackgroundContentVec::from_vec(v);
         assert_eq!(bg.len(), 1);
-        assert!(bg.capacity() >= 64, "from_vec lost the spare capacity: {}", bg.capacity());
+        assert!(
+            bg.capacity() >= 64,
+            "from_vec lost the spare capacity: {}",
+            bg.capacity()
+        );
 
         let pb = ProgressBar::create(0.0).with_container_background(bg);
         assert_eq!(pb.container_background.len(), 1);
@@ -1172,7 +1196,11 @@ mod autotest_generated {
         let ptr = big.as_ptr();
         let pb = ProgressBar::create(50.0).with_bar_background(big);
         assert_eq!(pb.bar_background.len(), 10_000);
-        assert_eq!(pb.bar_background.as_ptr(), ptr, "the setter deep-copied a 10k-layer background");
+        assert_eq!(
+            pb.bar_background.as_ptr(),
+            ptr,
+            "the setter deep-copied a 10k-layer background"
+        );
 
         let dom = pb.dom();
         assert_eq!(
@@ -1237,7 +1265,10 @@ mod autotest_generated {
         for h in adversarial_heights() {
             let mut pb = ProgressBar::create(0.0);
             pb.set_height(h);
-            assert_eq!(pb.height.metric, h.metric, "set_height changed the unit of {h:?}");
+            assert_eq!(
+                pb.height.metric, h.metric,
+                "set_height changed the unit of {h:?}"
+            );
             assert_eq!(raw(pb.height), raw(h), "set_height re-encoded {h:?}");
             // and nothing else moved
             assert_eq!(pb.progressbar_state.percent_done, 0.0);
@@ -1253,8 +1284,15 @@ mod autotest_generated {
         // an infinity) and then casts to `isize` — a saturating cast, so the result
         // is a bound, never a wrapped negative.
         pb.set_height(PixelValue::px(f32::MAX));
-        assert_eq!(raw(pb.height), isize::MAX, "an overflowing height wrapped instead of saturating");
-        assert!(pb.height.number.get().is_finite(), "the saturated height decoded to a non-finite f32");
+        assert_eq!(
+            raw(pb.height),
+            isize::MAX,
+            "an overflowing height wrapped instead of saturating"
+        );
+        assert!(
+            pb.height.number.get().is_finite(),
+            "the saturated height decoded to a non-finite f32"
+        );
 
         pb.set_height(PixelValue::px(f32::INFINITY));
         assert_eq!(raw(pb.height), isize::MAX);
@@ -1266,7 +1304,11 @@ mod autotest_generated {
         assert_eq!(raw(pb.height), isize::MIN);
 
         pb.set_height(PixelValue::px(f32::NAN));
-        assert_eq!(raw(pb.height), 0, "a NaN height must land on 0, not on an arbitrary integer");
+        assert_eq!(
+            raw(pb.height),
+            0,
+            "a NaN height must land on 0, not on an arbitrary integer"
+        );
 
         pb.set_height(PixelValue::px(-0.0));
         assert_eq!(raw(pb.height), 0, "-0.0 must encode to the same 0 as +0.0");
@@ -1285,7 +1327,10 @@ mod autotest_generated {
             let mut b = ProgressBar::create(42.0);
             b.set_height(h);
 
-            assert_eq!(a.height, b.height, "with_height disagreed with set_height for {h:?}");
+            assert_eq!(
+                a.height, b.height,
+                "with_height disagreed with set_height for {h:?}"
+            );
             assert_eq!(raw(a.height), raw(h));
             assert_eq!(a.progressbar_state.percent_done, 42.0);
             assert_eq!(
@@ -1305,16 +1350,29 @@ mod autotest_generated {
         let dom = ProgressBar::create(50.0).dom();
 
         assert!(matches!(dom.root.get_node_type(), NodeType::Div));
-        assert_eq!(kids(&dom).len(), 2, "the progress bar must render bar + remaining");
+        assert_eq!(
+            kids(&dom).len(),
+            2,
+            "the progress bar must render bar + remaining"
+        );
         assert!(kids(bar(&dom)).is_empty(), "the bar must stay a leaf");
-        assert!(kids(remaining(&dom)).is_empty(), "the remaining space must stay a leaf");
+        assert!(
+            kids(remaining(&dom)).is_empty(),
+            "the remaining space must stay a leaf"
+        );
 
         // A cached child count that is too small makes `convert_dom_into_compact_dom`
         // under-allocate its arenas and panic on out-of-bounds writes.
         assert_eq!(dom.estimated_total_children, 2);
 
-        assert_eq!(classes(&dom), vec!["__azul-native-progress-bar-container".to_string()]);
-        assert_eq!(classes(bar(&dom)), vec!["__azul-native-progress-bar-bar".to_string()]);
+        assert_eq!(
+            classes(&dom),
+            vec!["__azul-native-progress-bar-container".to_string()]
+        );
+        assert_eq!(
+            classes(bar(&dom)),
+            vec!["__azul-native-progress-bar-bar".to_string()]
+        );
         assert_eq!(
             classes(remaining(&dom)),
             vec!["__azul-native-progress-bar-remaining".to_string()],
@@ -1344,11 +1402,24 @@ mod autotest_generated {
             let b = width_of(bar(&dom)).expect("the bar must declare a width");
             let r = width_of(remaining(&dom)).expect("the remaining space must declare a width");
 
-            assert_eq!(b.metric, SizeMetric::Percent, "the bar must size in %, not {:?}", b.metric);
-            assert_eq!(r.metric, SizeMetric::Percent, "the gap must size in %, not {:?}", r.metric);
+            assert_eq!(
+                b.metric,
+                SizeMetric::Percent,
+                "the bar must size in %, not {:?}",
+                b.metric
+            );
+            assert_eq!(
+                r.metric,
+                SizeMetric::Percent,
+                "the gap must size in %, not {:?}",
+                r.metric
+            );
             assert_eq!(raw(b), bar_width, "bar width for input {input}");
             assert_eq!(raw(r), remaining_width, "remaining width for input {input}");
-            assert!(raw(b) >= 0 && raw(r) >= 0, "a negative width escaped for input {input}");
+            assert!(
+                raw(b) >= 0 && raw(r) >= 0,
+                "a negative width escaped for input {input}"
+            );
         }
     }
 
@@ -1366,7 +1437,11 @@ mod autotest_generated {
         assert_eq!(raw(r), 0);
         assert_eq!(b.metric, SizeMetric::Percent);
         assert_eq!(r.metric, SizeMetric::Percent);
-        assert_eq!(kids(&dom).len(), 2, "a NaN percentage must not change the tree shape");
+        assert_eq!(
+            kids(&dom).len(),
+            2,
+            "a NaN percentage must not change the tree shape"
+        );
     }
 
     #[test]
@@ -1466,27 +1541,56 @@ mod autotest_generated {
             let dom = ProgressBar::create(50.0).with_height(h).dom();
             let got = height_of(&dom).expect("the container must declare a height");
 
-            assert_eq!(got.metric, h.metric, "the height unit changed on the way into the DOM");
-            assert_eq!(raw(got), raw(h), "the height was re-encoded on the way into the DOM");
-            assert_eq!(height_of(bar(&dom)), None, "the bar must not declare its own height");
+            assert_eq!(
+                got.metric, h.metric,
+                "the height unit changed on the way into the DOM"
+            );
+            assert_eq!(
+                raw(got),
+                raw(h),
+                "the height was re-encoded on the way into the DOM"
+            );
+            assert_eq!(
+                height_of(bar(&dom)),
+                None,
+                "the bar must not declare its own height"
+            );
             assert_eq!(
                 height_of(remaining(&dom)),
                 None,
                 "the remaining space must not declare its own height",
             );
-            assert_eq!(width_of(&dom), None, "the container must not declare a width");
+            assert_eq!(
+                width_of(&dom),
+                None,
+                "the container must not declare a width"
+            );
         }
     }
 
     #[test]
     fn dom_declares_the_expected_style_blocks_and_no_property_twice() {
-        let dom = ProgressBar::create(50.0).with_bar_background(solid(1)).dom();
+        let dom = ProgressBar::create(50.0)
+            .with_bar_background(solid(1))
+            .dom();
 
-        assert_eq!(inline_props(&dom).len(), 23, "the container style block drifted");
-        assert_eq!(inline_props(bar(&dom)).len(), 10, "the bar style block drifted");
+        assert_eq!(
+            inline_props(&dom).len(),
+            23,
+            "the container style block drifted"
+        );
+        assert_eq!(
+            inline_props(bar(&dom)).len(),
+            10,
+            "the bar style block drifted"
+        );
 
         let props = inline_props(remaining(&dom));
-        assert_eq!(props.len(), 1, "the remaining space grew a style block: {props:?}");
+        assert_eq!(
+            props.len(),
+            1,
+            "the remaining space grew a style block: {props:?}"
+        );
         assert!(
             matches!(&props[0], CssProperty::Width(_)),
             "the remaining space must only declare its width",
@@ -1550,7 +1654,10 @@ mod autotest_generated {
             .with_height(PixelValue::px(7.25))
             .dom();
 
-        assert_eq!(a, b, "two identically-built progress bars rendered differently");
+        assert_eq!(
+            a, b,
+            "two identically-built progress bars rendered differently"
+        );
     }
 
     /// The bar's percentage is its accessibility VALUE, on the container, as a
@@ -1595,14 +1702,21 @@ mod autotest_generated {
                     .with_height(PixelValue::px(f32::MAX))
                     .dom();
 
-                assert_eq!(kids(&dom).len(), 2, "shape changed for {p} / {layers} layers");
+                assert_eq!(
+                    kids(&dom).len(),
+                    2,
+                    "shape changed for {p} / {layers} layers"
+                );
                 assert_eq!(dom.estimated_total_children, 2);
                 assert_eq!(background_of(bar(&dom)).map(|v| v.len()), Some(layers));
                 assert_eq!(background_of(&dom).map(|v| v.len()), Some(layers));
 
                 let b = width_of(bar(&dom)).expect("the bar must declare a width");
                 assert_eq!(b.metric, SizeMetric::Percent);
-                assert!((0..=100_000).contains(&raw(b)), "width out of range for {p}");
+                assert!(
+                    (0..=100_000).contains(&raw(b)),
+                    "width out of range for {p}"
+                );
             }
         }
     }

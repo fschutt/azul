@@ -7,8 +7,8 @@
 //! Parse functions are gated behind the `parser` feature and are consumed
 //! by the CSS property system in `property.rs`.
 
-use alloc::string::{String, ToString};
 use crate::corety::AzString;
+use alloc::string::{String, ToString};
 
 use crate::props::formatter::PrintAsCssValue;
 
@@ -36,10 +36,10 @@ pub enum LayoutWritingMode {
     VerticalLr,
 }
 
-
 impl LayoutWritingMode {
     /// Returns true if the writing mode is vertical (`VerticalRl` or `VerticalLr`)
-    #[must_use] pub const fn is_vertical(self) -> bool {
+    #[must_use]
+    pub const fn is_vertical(self) -> bool {
         matches!(self, Self::VerticalRl | Self::VerticalLr)
     }
 }
@@ -88,7 +88,8 @@ pub enum LayoutWritingModeParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl LayoutWritingModeParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> LayoutWritingModeParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> LayoutWritingModeParseErrorOwned {
         match self {
             LayoutWritingModeParseError::InvalidValue(s) => {
                 LayoutWritingModeParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -99,11 +100,10 @@ impl LayoutWritingModeParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl LayoutWritingModeParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> LayoutWritingModeParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> LayoutWritingModeParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                LayoutWritingModeParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => LayoutWritingModeParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -142,7 +142,6 @@ pub enum LayoutClear {
     /// Element is moved below all preceding floats.
     Both,
 }
-
 
 impl core::fmt::Debug for LayoutClear {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -189,7 +188,8 @@ pub enum LayoutClearParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl LayoutClearParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> LayoutClearParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> LayoutClearParseErrorOwned {
         match self {
             LayoutClearParseError::InvalidValue(s) => {
                 LayoutClearParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -200,11 +200,10 @@ impl LayoutClearParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl LayoutClearParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> LayoutClearParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> LayoutClearParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                LayoutClearParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => LayoutClearParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -354,7 +353,10 @@ mod autotest_generated {
     #[test]
     fn is_vertical_default_is_horizontal() {
         assert!(!LayoutWritingMode::default().is_vertical());
-        assert_eq!(LayoutWritingMode::default(), LayoutWritingMode::HorizontalTb);
+        assert_eq!(
+            LayoutWritingMode::default(),
+            LayoutWritingMode::HorizontalTb
+        );
     }
 
     #[test]
@@ -411,7 +413,10 @@ mod autotest_generated {
 
     #[test]
     fn serializing_defaults_does_not_panic() {
-        assert_eq!(LayoutWritingMode::default().print_as_css_value(), "horizontal-tb");
+        assert_eq!(
+            LayoutWritingMode::default().print_as_css_value(),
+            "horizontal-tb"
+        );
         assert_eq!(LayoutClear::default().print_as_css_value(), "none");
     }
 
@@ -439,7 +444,10 @@ mod autotest_generated {
         // callers never build a stylesheet assuming `{:>20}` aligns.
         assert_eq!(format!("{:>20}", LayoutClear::Both), "both");
         assert_eq!(format!("{:.2}", LayoutClear::Both), "both");
-        assert_eq!(format!("{:>20}", LayoutWritingMode::VerticalRl), "vertical-rl");
+        assert_eq!(
+            format!("{:>20}", LayoutWritingMode::VerticalRl),
+            "vertical-rl"
+        );
     }
 
     // --- ordering / hashing invariants on the plain enums ---
@@ -558,7 +566,10 @@ mod autotest_generated {
             "verticalrl",
         ] {
             let err = parse_layout_writing_mode(garbage).unwrap_err();
-            assert_eq!(err, LayoutWritingModeParseError::InvalidValue(garbage.trim()));
+            assert_eq!(
+                err,
+                LayoutWritingModeParseError::InvalidValue(garbage.trim())
+            );
             let err = parse_layout_clear(garbage).unwrap_err();
             assert_eq!(err, LayoutClearParseError::InvalidValue(garbage.trim()));
         }
@@ -612,7 +623,13 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn parse_rejects_trailing_junk_after_valid_keyword() {
-        for junk in ["both;garbage", "both;", "both both", "both!important", "both,"] {
+        for junk in [
+            "both;garbage",
+            "both;",
+            "both both",
+            "both!important",
+            "both,",
+        ] {
             assert_eq!(
                 parse_layout_clear(junk).unwrap_err(),
                 LayoutClearParseError::InvalidValue(junk.trim())
@@ -653,11 +670,11 @@ mod autotest_generated {
         for weird in [
             "\u{1F600}",
             "🙂🙃",
-            "e\u{0301}",              // combining acute
-            "n\u{0303}one",           // combining tilde inside a keyword
-            "ｎｏｎｅ",               // fullwidth
-            "نص",                     // RTL
-            "\u{202E}both",           // RTL override
+            "e\u{0301}",    // combining acute
+            "n\u{0303}one", // combining tilde inside a keyword
+            "ｎｏｎｅ",     // fullwidth
+            "نص",           // RTL
+            "\u{202E}both", // RTL override
             "both\u{0301}",
         ] {
             let err = parse_layout_writing_mode(weird).unwrap_err();
@@ -688,7 +705,10 @@ mod autotest_generated {
             "18446744073709551616", // u64::MAX + 1
             "179769313486231570000000000000000000000000000000000000000000000000000000000000000",
         ] {
-            assert!(parse_layout_writing_mode(numeric).is_err(), "{numeric} parsed");
+            assert!(
+                parse_layout_writing_mode(numeric).is_err(),
+                "{numeric} parsed"
+            );
             assert!(parse_layout_clear(numeric).is_err(), "{numeric} parsed");
         }
     }
@@ -752,7 +772,11 @@ mod autotest_generated {
     fn writing_mode_round_trips_through_css_value() {
         for mode in ALL_WRITING_MODES {
             let css = mode.print_as_css_value();
-            assert_eq!(parse_layout_writing_mode(&css), Ok(mode), "round-trip {css}");
+            assert_eq!(
+                parse_layout_writing_mode(&css),
+                Ok(mode),
+                "round-trip {css}"
+            );
             // Display and Debug are the same wire format, so they round-trip too.
             assert_eq!(parse_layout_writing_mode(&format!("{mode}")), Ok(mode));
             assert_eq!(parse_layout_writing_mode(&format!("{mode:?}")), Ok(mode));
@@ -831,7 +855,11 @@ mod autotest_generated {
 
             let shared = LayoutWritingModeParseError::InvalidValue(value);
             let owned = shared.to_contained();
-            assert_eq!(owned.to_shared(), shared, "writing-mode round-trip {value:?}");
+            assert_eq!(
+                owned.to_shared(),
+                shared,
+                "writing-mode round-trip {value:?}"
+            );
             assert_eq!(owned.to_shared().to_contained(), owned);
         }
     }

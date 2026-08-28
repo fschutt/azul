@@ -107,7 +107,8 @@ pub struct MicrophoneWidget {
 
 impl MicrophoneWidget {
     /// Create a microphone widget for the given capture config.
-    #[must_use] pub const fn create(config: AudioConfig) -> Self {
+    #[must_use]
+    pub const fn create(config: AudioConfig) -> Self {
         Self {
             config,
             on_frame: OptionOnAudioFrame::None,
@@ -139,7 +140,8 @@ impl MicrophoneWidget {
     /// Build the widget's DOM: a single invisible node, fed by a background
     /// capture thread started on mount. Place it anywhere in your tree - the
     /// capture lives as long as the node is mounted (unmount stops it).
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         let state = MicrophoneWidgetState {
             config: self.config,
             started: false,
@@ -149,7 +151,9 @@ impl MicrophoneWidget {
 
         Dom::create_div()
             .with_dataset(OptionRefAny::Some(dataset.clone()))
-            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_microphone_state))
+            .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
+                merge_microphone_state,
+            ))
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 dataset,
@@ -195,11 +199,7 @@ extern "C" fn mic_on_after_mount(mut data: RefAny, mut info: CallbackInfo) -> Up
 /// widget unmounts. The real `AVAudioEngine` / `AAudio` / cpal capture loop
 /// replaces it (dll-side).
 #[allow(clippy::cast_precision_loss)] // bounded graphics/coord/counter/fixed-point cast
-extern "C" fn mic_worker(
-    mut init: RefAny,
-    mut sender: ThreadSender,
-    mut recv: ThreadReceiver,
-) {
+extern "C" fn mic_worker(mut init: RefAny, mut sender: ThreadSender, mut recv: ThreadReceiver) {
     let (rate, channels) = init
         .downcast_ref::<MicThreadInit>()
         .map_or((48_000, 1), |i| (i.sample_rate, i.channels));
@@ -306,7 +306,11 @@ extern "C" fn mic_writeback(
         Some(s) => s.on_frame.clone(),
         None => return Update::DoNothing,
     };
-    frame_data.downcast_ref::<AudioFrame>().map_or(Update::DoNothing, |frame| invoke_on_audio_frame(&hook, &info, frame.clone()))
+    frame_data
+        .downcast_ref::<AudioFrame>()
+        .map_or(Update::DoNothing, |frame| {
+            invoke_on_audio_frame(&hook, &info, frame.clone())
+        })
 }
 
 /// Carry live state forward across relayout (config + started; the `on_frame`
@@ -564,7 +568,9 @@ mod autotest_generated {
         let (tx, rx) = channel::<ThreadReceiveMsg>();
         let sender = ThreadSender::new(ThreadSenderInner {
             ptr: Box::new(tx),
-            send_fn: ThreadSendCallback { cb: record_and_stop },
+            send_fn: ThreadSendCallback {
+                cb: record_and_stop,
+            },
             destructor: ThreadSenderDestructorCallback {
                 cb: sender_drop_noop,
             },
@@ -657,7 +663,14 @@ mod autotest_generated {
         // the user hook exactly as captured, with no normalisation and no panic.
         let mut log = new_log();
         let hook = hook_into(&log);
-        let hostile = vec![f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -0.0, f32::MIN, f32::MAX];
+        let hostile = vec![
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            -0.0,
+            f32::MIN,
+            f32::MAX,
+        ];
 
         let (update, _) =
             with_callback_info(|info| invoke_on_audio_frame(&hook, &info, frame(0, 1, hostile)));
@@ -666,7 +679,11 @@ mod autotest_generated {
         let seen = logged_frames(&mut log);
         assert_eq!(seen.len(), 1);
         let (rate, channels, samples) = &seen[0];
-        assert_eq!((*rate, *channels), (0, 1), "a 0 Hz frame is forwarded as-is");
+        assert_eq!(
+            (*rate, *channels),
+            (0, 1),
+            "a 0 Hz frame is forwarded as-is"
+        );
         assert!(samples[0].is_nan(), "NaN must not be normalised");
         assert_eq!(samples[1], f32::INFINITY);
         assert_eq!(samples[2], f32::NEG_INFINITY);
@@ -690,7 +707,10 @@ mod autotest_generated {
         let (update, _) = with_callback_info(|info| invoke_on_audio_frame(&hook, &info, bogus));
 
         assert_eq!(update, Update::RefreshDom);
-        assert_eq!(logged_frames(&mut log), vec![(u32::MAX, u16::MAX, vec![0.1, 0.2, 0.3])]);
+        assert_eq!(
+            logged_frames(&mut log),
+            vec![(u32::MAX, u16::MAX, vec![0.1, 0.2, 0.3])]
+        );
     }
 
     // ------------------------------------------------------------------
@@ -759,12 +779,14 @@ mod autotest_generated {
             panic!("hook must still be set");
         };
         assert_eq!(
-            hook.callback.cb as usize,
-            frame_do_nothing as OnAudioFrameCallbackType as usize,
+            hook.callback.cb as usize, frame_do_nothing as OnAudioFrameCallbackType as usize,
             "the second set_on_frame must replace the first"
         );
         assert_eq!(hook.refany, second);
-        assert_ne!(hook.refany, first, "the first payload must have been dropped");
+        assert_ne!(
+            hook.refany, first,
+            "the first payload must have been dropped"
+        );
         assert_eq!(widget.config, cfg(8_000, 1));
     }
 
@@ -790,7 +812,11 @@ mod autotest_generated {
         let dom = MicrophoneWidget::create(cfg(48_000, 2)).dom();
 
         assert_eq!(dom.root.get_node_type(), &NodeType::Div);
-        assert_eq!(dom.children.as_ref().len(), 0, "the widget is a single node");
+        assert_eq!(
+            dom.children.as_ref().len(),
+            0,
+            "the widget is a single node"
+        );
 
         let callbacks = dom.root.get_callbacks();
         assert_eq!(
@@ -1080,7 +1106,10 @@ mod autotest_generated {
             );
             assert_eq!(expected_chunk_len(rate, channels), expected);
             assert!(
-                sent[0].samples.iter().all(|s| s.is_finite() && s.abs() <= 0.2),
+                sent[0]
+                    .samples
+                    .iter()
+                    .all(|s| s.is_finite() && s.abs() <= 0.2),
                 "a phase step larger than a full period must still yield bounded samples"
             );
         }
@@ -1115,7 +1144,10 @@ mod autotest_generated {
             with_callback_info(|info| mic_writeback(data.clone(), frame_data.clone(), info));
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "audio has no texture - nothing to change");
+        assert!(
+            changes.is_empty(),
+            "audio has no texture - nothing to change"
+        );
     }
 
     #[test]
@@ -1137,7 +1169,11 @@ mod autotest_generated {
     #[test]
     fn writeback_survives_a_writeback_dataset_that_is_not_a_microphone_state() {
         let (update, changes) = with_callback_info(|info| {
-            mic_writeback(RefAny::new(0_u32), RefAny::new(frame(8_000, 1, vec![0.0])), info)
+            mic_writeback(
+                RefAny::new(0_u32),
+                RefAny::new(frame(8_000, 1, vec![0.0])),
+                info,
+            )
         });
 
         assert_eq!(
@@ -1161,7 +1197,10 @@ mod autotest_generated {
             with_callback_info(|info| mic_writeback(data.clone(), bogus.clone(), info));
 
         assert_eq!(update, Update::RefreshDom);
-        assert_eq!(logged_frames(&mut log), vec![(u32::MAX, u16::MAX, Vec::new())]);
+        assert_eq!(
+            logged_frames(&mut log),
+            vec![(u32::MAX, u16::MAX, Vec::new())]
+        );
     }
 
     #[test]
@@ -1177,7 +1216,11 @@ mod autotest_generated {
         let (update, changes) =
             with_callback_info(|info| mic_writeback(data.clone(), frame_data.clone(), info));
 
-        assert_eq!(update, Update::DoNothing, "a blocked downcast must not panic");
+        assert_eq!(
+            update,
+            Update::DoNothing,
+            "a blocked downcast must not panic"
+        );
         assert!(changes.is_empty());
         drop(guard);
         assert!(logged_frames(&mut log).is_empty());

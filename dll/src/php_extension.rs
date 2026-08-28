@@ -53,9 +53,7 @@
 // Cross-call by referring to them as extern "C" symbols without a
 // `#[link]` directive (no separate link target).
 extern "C" {
-    fn AzApp_setHostHandleReleaser(
-        releaser: Option<unsafe extern "C" fn(id: u64)>,
-    );
+    fn AzApp_setHostHandleReleaser(releaser: Option<unsafe extern "C" fn(id: u64)>);
     /// libazul's generic-invoker setter. The trampoline registered
     /// here fires for every callback kind whose per-kind invoker
     /// slot is empty (which is "all of them" until Phase 51 wires

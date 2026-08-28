@@ -45,8 +45,11 @@ impl CppDialect for Cpp03Generator {
         // Synthesize struct entries for Option/Result tagged-union enums.
         let synthesized = synthesize_option_result_structs(ir);
         let sorted_structs = self.sort_types_by_dependencies(ir);
-        let all_structs: Vec<&StructDef> =
-            sorted_structs.iter().copied().chain(synthesized.iter()).collect();
+        let all_structs: Vec<&StructDef> = sorted_structs
+            .iter()
+            .copied()
+            .chain(synthesized.iter())
+            .collect();
 
         // Forward declarations
         code.push_str("// Forward declarations\r\n");
@@ -79,7 +82,10 @@ impl CppDialect for Cpp03Generator {
             if !config.should_include_type(&enum_def.name) {
                 continue;
             }
-            if matches!(enum_def.category, TypeCategory::Option | TypeCategory::Result) {
+            if matches!(
+                enum_def.category,
+                TypeCategory::Option | TypeCategory::Result
+            ) {
                 continue;
             }
             self.generate_enum_wrapper(&mut code, enum_def, config);
@@ -238,7 +244,8 @@ impl CppDialect for Cpp03Generator {
             let substitute = should_substitute_callbacks(func);
             let cpp_args =
                 generate_args_signature_ex(&func.args, ir, config, false, class_name, substitute);
-            let call_args = generate_call_args_ex(&func.args, ir, config, false, class_name, substitute);
+            let call_args =
+                generate_call_args_ex(&func.args, ir, config, false, class_name, substitute);
 
             code.push_str(&format!(
                 "inline {} {}::{}({}) {{\r\n",
@@ -274,7 +281,8 @@ impl CppDialect for Cpp03Generator {
             let substitute = should_substitute_callbacks(func);
             let cpp_args =
                 generate_args_signature_ex(&func.args, ir, config, false, class_name, substitute);
-            let call_args = generate_call_args_ex(&func.args, ir, config, false, class_name, substitute);
+            let call_args =
+                generate_call_args_ex(&func.args, ir, config, false, class_name, substitute);
 
             code.push_str(&format!(
                 "inline {} {}::{}({}) {{\r\n",
@@ -308,7 +316,11 @@ impl CppDialect for Cpp03Generator {
             // `this`'s destructor would double-free the already-consumed inner_
             // at the end of every builder-chain statement.
             let self_is_value = has_self
-                && func.args.first().map(|a| a.ref_kind == ArgRefKind::Owned).unwrap_or(false);
+                && func
+                    .args
+                    .first()
+                    .map(|a| a.ref_kind == ArgRefKind::Owned)
+                    .unwrap_or(false);
             let is_const = has_self
                 && !self_is_value
                 && (matches!(func.kind, FunctionKind::Method) || func.is_const);
@@ -317,14 +329,19 @@ impl CppDialect for Cpp03Generator {
             let substitute = should_substitute_callbacks(func);
             let cpp_args =
                 generate_args_signature_ex(&func.args, ir, config, true, class_name, substitute);
-            let call_args = generate_call_args_ex(&func.args, ir, config, true, class_name, substitute);
+            let call_args =
+                generate_call_args_ex(&func.args, ir, config, true, class_name, substitute);
 
             // Build full call args with self. A value-self method passes
             // release() (returns inner_ and memsets the source to zero, matching
             // the Colvin-Gibbons stealing copy) so the consumed inner_ is not
             // double-freed; a by-ref method borrows.
             let full_call_args = if has_self {
-                let self_arg = if self_is_value { "release()" } else { "&inner_" };
+                let self_arg = if self_is_value {
+                    "release()"
+                } else {
+                    "&inner_"
+                };
                 if call_args.is_empty() {
                     self_arg.to_string()
                 } else {
@@ -647,7 +664,11 @@ impl Cpp03Generator {
                 // value-self (consuming) methods are non-const (must match the
                 // out-of-line impl, which calls the non-const release()).
                 let self_is_value = has_self
-                    && func.args.first().map(|a| a.ref_kind == ArgRefKind::Owned).unwrap_or(false);
+                    && func
+                        .args
+                        .first()
+                        .map(|a| a.ref_kind == ArgRefKind::Owned)
+                        .unwrap_or(false);
                 let is_const = has_self
                     && !self_is_value
                     && (matches!(func.kind, FunctionKind::Method) || func.is_const);

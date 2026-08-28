@@ -603,7 +603,7 @@ impl FakeFontBuilder {
         let mut b = Vec::new();
         push_u16(&mut b, 0); // table version
         push_u16(&mut b, 1); // nTables
-        // subtable
+                             // subtable
         push_u16(&mut b, 0); // subtable version
         push_u16(&mut b, subtable_len as u16); // length (incl. this header)
         push_u16(&mut b, 0x0001); // coverage: horizontal, format 0

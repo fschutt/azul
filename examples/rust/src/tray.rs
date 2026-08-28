@@ -119,13 +119,9 @@ fn main() {
             // your own RefAny plus a `CallbackInfo`. Without one the item is
             // still clickable, but the click only shows up as a `TrayEvent` for
             // you to poll - attaching a callback is what makes it act.
-            MenuItem::String(
-                StringMenuItem::create("Open").with_callback(data.clone(), on_open),
-            ),
+            MenuItem::String(StringMenuItem::create("Open").with_callback(data.clone(), on_open)),
             MenuItem::Separator,
-            MenuItem::String(
-                StringMenuItem::create("Quit").with_callback(data.clone(), on_quit),
-            ),
+            MenuItem::String(StringMenuItem::create("Quit").with_callback(data.clone(), on_quit)),
         ]));
 
     // A DOM registered as an icon. The colour lives HERE, with the icon, not as
@@ -135,8 +131,7 @@ fn main() {
     config.icon_provider.register_dom_icon(
         String::from("demo"),
         String::from("red-heart"),
-        Dom::create_icon(String::from("favorite"))
-            .with_css("color: #d7263d;"),
+        Dom::create_icon(String::from("favorite")).with_css("color: #d7263d;"),
     );
 
     let mut app = App::create(data, config);

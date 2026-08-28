@@ -33,9 +33,7 @@ use super::super::ir::{
     MonomorphizedKind, MonomorphizedTypeDef, MonomorphizedVariant, StructDef, TypeAliasDef,
     TypeCategory,
 };
-use super::{
-    map_type_to_pascal, pointer_type_name, record_type_name, sanitize_identifier,
-};
+use super::{map_type_to_pascal, pointer_type_name, record_type_name, sanitize_identifier};
 
 // ============================================================================
 // Top-level type-block emission
@@ -546,8 +544,7 @@ fn emit_monomorphized_alias(
                 match &v.payload_type {
                     None => builder.line(&format!("{}: ();", case_label)),
                     Some(payload_ty) => {
-                        let pas_ty =
-                            field_type_for_ref_kind(payload_ty, &v.payload_ref_kind, ir);
+                        let pas_ty = field_type_for_ref_kind(payload_ty, &v.payload_ref_kind, ir);
                         builder.line(&format!(
                             "{}: (Payload_{}: {});",
                             case_label, variant_suffix, pas_ty

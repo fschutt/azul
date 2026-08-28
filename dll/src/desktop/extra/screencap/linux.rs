@@ -113,7 +113,12 @@ impl Portal {
         .ok()?;
         let unique = conn.unique_name()?.to_string(); // ":1.123"
         let sender_token = unique.trim_start_matches(':').replace('.', "_");
-        Some(Self { conn, proxy, sender_token, counter: 0 })
+        Some(Self {
+            conn,
+            proxy,
+            sender_token,
+            counter: 0,
+        })
     }
 
     /// A fresh per-request handle token (the portal echoes it back via the
@@ -168,7 +173,11 @@ impl Portal {
         // forever; pull the next signal on a helper thread and bound the wait
         // with recv_timeout (the helper leaks until a signal eventually lands
         // or the process exits — fine for this one-shot handshake).
-        scd!("portal {} waiting for Response (<= {:?})...", method, timeout);
+        scd!(
+            "portal {} waiting for Response (<= {:?})...",
+            method,
+            timeout
+        );
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             if let Some(msg) = responses.next() {
@@ -230,8 +239,7 @@ fn portal_open_stream() -> Option<(OwnedFd, u32, zbus::blocking::Connection, Str
         .and_then(|v| v.downcast_ref::<zbus::zvariant::Str>().ok())
         .map(|s| s.to_string())?;
     scd!("CreateSession OK: {}", session_handle);
-    let session_path =
-        zbus::zvariant::OwnedObjectPath::try_from(session_handle.clone()).ok()?;
+    let session_path = zbus::zvariant::OwnedObjectPath::try_from(session_handle.clone()).ok()?;
 
     // 2. SelectSources(o, a{sv}): monitors, single, cursor embedded in frames.
     let token = portal.next_token();
@@ -368,12 +376,15 @@ struct PwLib {
     pw_thread_loop_get_loop: unsafe extern "C" fn(*mut c_void) -> *mut c_void,
     pw_context_new: unsafe extern "C" fn(*mut c_void, *mut c_void, usize) -> *mut c_void,
     pw_context_destroy: unsafe extern "C" fn(*mut c_void),
-    pw_context_connect_fd: unsafe extern "C" fn(*mut c_void, c_int, *mut c_void, usize) -> *mut c_void,
+    pw_context_connect_fd:
+        unsafe extern "C" fn(*mut c_void, c_int, *mut c_void, usize) -> *mut c_void,
     pw_core_disconnect: unsafe extern "C" fn(*mut c_void) -> c_int,
     pw_stream_new: unsafe extern "C" fn(*mut c_void, *const c_char, *mut c_void) -> *mut c_void,
     pw_stream_destroy: unsafe extern "C" fn(*mut c_void),
-    pw_stream_add_listener: unsafe extern "C" fn(*mut c_void, *mut c_void, *const PwStreamEvents, *mut c_void),
-    pw_stream_connect: unsafe extern "C" fn(*mut c_void, c_int, u32, c_int, *mut *const u8, u32) -> c_int,
+    pw_stream_add_listener:
+        unsafe extern "C" fn(*mut c_void, *mut c_void, *const PwStreamEvents, *mut c_void),
+    pw_stream_connect:
+        unsafe extern "C" fn(*mut c_void, c_int, u32, c_int, *mut *const u8, u32) -> c_int,
     pw_stream_disconnect: unsafe extern "C" fn(*mut c_void) -> c_int,
     pw_stream_dequeue_buffer: unsafe extern "C" fn(*mut c_void) -> *mut PwBuffer,
     pw_stream_queue_buffer: unsafe extern "C" fn(*mut c_void, *mut PwBuffer) -> c_int,
@@ -484,7 +495,9 @@ struct PodWriter {
 
 impl PodWriter {
     fn new() -> Self {
-        Self { buf: Vec::with_capacity(256) }
+        Self {
+            buf: Vec::with_capacity(256),
+        }
     }
     fn u32(&mut self, v: u32) {
         self.buf.extend_from_slice(&v.to_le_bytes());
@@ -641,9 +654,19 @@ fn build_dmabuf_format_pod(spa_fmt: u32, mods: &[u64]) -> Vec<u8> {
     vals.extend_from_slice(mods);
     w.choice_long(SPA_CHOICE_ENUM, &vals);
     w.prop(SPA_FORMAT_VIDEO_SIZE);
-    w.choice(SPA_CHOICE_RANGE, SPA_TYPE_RECTANGLE, 2, &[1920, 1080, 1, 1, 16384, 16384]);
+    w.choice(
+        SPA_CHOICE_RANGE,
+        SPA_TYPE_RECTANGLE,
+        2,
+        &[1920, 1080, 1, 1, 16384, 16384],
+    );
     w.prop(SPA_FORMAT_VIDEO_FRAMERATE);
-    w.choice(SPA_CHOICE_RANGE, SPA_TYPE_FRACTION, 2, &[30, 1, 0, 1, 240, 1]);
+    w.choice(
+        SPA_CHOICE_RANGE,
+        SPA_TYPE_FRACTION,
+        2,
+        &[30, 1, 0, 1, 240, 1],
+    );
     w.into_object(SPA_TYPE_OBJECT_FORMAT, SPA_PARAM_ENUM_FORMAT)
 }
 
@@ -762,9 +785,17 @@ extern "C" fn on_param_changed(data: *mut c_void, id: u32, param: *const u8) {
             h,
             if dmabuf { " (dmabuf)" } else { "" }
         );
-        scd!("negotiated format {} {}x{} modifier={:?}", fmt, w, h, modifier);
-        ctx.modifier
-            .store(modifier.unwrap_or(dmabuf::DRM_FORMAT_MOD_INVALID), Ordering::Relaxed);
+        scd!(
+            "negotiated format {} {}x{} modifier={:?}",
+            fmt,
+            w,
+            h,
+            modifier
+        );
+        ctx.modifier.store(
+            modifier.unwrap_or(dmabuf::DRM_FORMAT_MOD_INVALID),
+            Ordering::Relaxed,
+        );
         {
             let mut slot = ctx.shared.slot.lock().unwrap();
             slot.spa_format = fmt;
@@ -774,7 +805,11 @@ extern "C" fn on_param_changed(data: *mut c_void, id: u32, param: *const u8) {
         // Respond with the buffer params — this is what drives the stream from
         // "paused" (format fixed) into "streaming" (buffers allocated, process
         // fires). Without it the stream connects but never produces frames.
-        let buffers = if dmabuf { build_buffers_pod_dmabuf() } else { build_buffers_pod() };
+        let buffers = if dmabuf {
+            build_buffers_pod_dmabuf()
+        } else {
+            build_buffers_pod()
+        };
         let mut params: [*const u8; 1] = [buffers.as_ptr()];
         unsafe {
             (ctx.pw.pw_stream_update_params)(ctx.stream, params.as_mut_ptr(), 1);
@@ -801,7 +836,9 @@ extern "C" fn on_state_changed(data: *mut c_void, _old: c_int, state: c_int, err
         let msg = if err.is_null() {
             "unknown".to_string()
         } else {
-            unsafe { std::ffi::CStr::from_ptr(err) }.to_string_lossy().into_owned()
+            unsafe { std::ffi::CStr::from_ptr(err) }
+                .to_string_lossy()
+                .into_owned()
         };
         crate::plog_warn!("[screencap] stream error: {}", msg);
         scd!("STREAM ERROR: {}", msg);
@@ -878,7 +915,12 @@ extern "C" fn on_process(data: *mut c_void) {
                     }
                     slot.data_is_rgba = false;
                     if slot.seq == 0 {
-                        scd!("first frame received ({}x{}, fmt {})", w, h, slot.spa_format);
+                        scd!(
+                            "first frame received ({}x{}, fmt {})",
+                            w,
+                            h,
+                            slot.spa_format
+                        );
                     }
                     slot.seq = slot.seq.wrapping_add(1);
                     ctx.shared.cond.notify_all();
@@ -962,7 +1004,11 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
     }
     scd!(
         "egl backend: {}",
-        if egl.is_some() { "ready" } else { "unavailable (shmem only)" }
+        if egl.is_some() {
+            "ready"
+        } else {
+            "unavailable (shmem only)"
+        }
     );
     let format_pods = build_format_pods(egl.as_ref());
     scd!("offering {} EnumFormat params", format_pods.len());
@@ -971,18 +1017,24 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
         let name = CString::new("azul-screencap").unwrap();
         let thread_loop = (pw.pw_thread_loop_new)(name.as_ptr(), std::ptr::null());
         if thread_loop.is_null() {
-            crate::plog_warn!("[screencap] pw_thread_loop_new failed — falling back to the test pattern");
+            crate::plog_warn!(
+                "[screencap] pw_thread_loop_new failed — falling back to the test pattern"
+            );
             return 0;
         }
         let loop_ = (pw.pw_thread_loop_get_loop)(thread_loop);
         let context = (pw.pw_context_new)(loop_, std::ptr::null_mut(), 0);
         if context.is_null() {
-            crate::plog_warn!("[screencap] pw_context_new failed — falling back to the test pattern");
+            crate::plog_warn!(
+                "[screencap] pw_context_new failed — falling back to the test pattern"
+            );
             (pw.pw_thread_loop_destroy)(thread_loop);
             return 0;
         }
         if (pw.pw_thread_loop_start)(thread_loop) != 0 {
-            crate::plog_warn!("[screencap] pw_thread_loop_start failed — falling back to the test pattern");
+            crate::plog_warn!(
+                "[screencap] pw_thread_loop_start failed — falling back to the test pattern"
+            );
             (pw.pw_context_destroy)(context);
             (pw.pw_thread_loop_destroy)(thread_loop);
             return 0;
@@ -1023,7 +1075,9 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
         let stream_name = CString::new("azul-screen").unwrap();
         let stream = (pw.pw_stream_new)(core, stream_name.as_ptr(), props);
         if stream.is_null() {
-            crate::plog_warn!("[screencap] pw_stream_new failed — falling back to the test pattern");
+            crate::plog_warn!(
+                "[screencap] pw_stream_new failed — falling back to the test pattern"
+            );
             (pw.pw_thread_loop_unlock)(thread_loop);
             (pw.pw_core_disconnect)(core);
             (pw.pw_thread_loop_stop)(thread_loop);
@@ -1114,11 +1168,14 @@ pub fn open(_request: &azul_layout::widgets::capture_common::CaptureRequest) -> 
         };
         sessions().lock().unwrap().insert(handle, session);
         crate::plog_info!("[screencap] session {} open (node {})", handle, node_id);
-        scd!("session {} CONNECTED (node {}) — awaiting frames", handle, node_id);
+        scd!(
+            "session {} CONNECTED (node {}) — awaiting frames",
+            handle,
+            node_id
+        );
         handle
     }
 }
-
 
 pub fn read(handle: u64, out: &mut Vec<u8>) -> azul_layout::widgets::capture_common::CaptureRead {
     use azul_layout::widgets::capture_common::CaptureRead;
@@ -1296,7 +1353,10 @@ mod tests {
         w.prop(SPA_FORMAT_VIDEO_MODIFIER);
         // A single Long pod (8-byte body), as a fixated modifier would arrive.
         let modifier: u64 = 0x0100_0000_0000_0002; // arbitrary explicit modifier
-        w.pod(SPA_TYPE_LONG, &[(modifier & 0xffff_ffff) as u32, (modifier >> 32) as u32]);
+        w.pod(
+            SPA_TYPE_LONG,
+            &[(modifier & 0xffff_ffff) as u32, (modifier >> 32) as u32],
+        );
         w.prop(SPA_FORMAT_VIDEO_SIZE);
         w.pod(SPA_TYPE_RECTANGLE, &[2560, 1440]);
         let pod = w.into_object(SPA_TYPE_OBJECT_FORMAT, SPA_PARAM_FORMAT);
@@ -1311,10 +1371,21 @@ mod tests {
     /// every screencast consumer relies on).
     #[test]
     fn spa_drm_fourcc_mapping() {
-        assert_eq!(spa_to_drm_fourcc(SPA_VIDEO_FORMAT_BGRA), dmabuf::DRM_FORMAT_ARGB8888);
-        assert_eq!(spa_to_drm_fourcc(SPA_VIDEO_FORMAT_RGBA), dmabuf::DRM_FORMAT_ABGR8888);
-        assert_eq!(spa_to_drm_fourcc(SPA_VIDEO_FORMAT_BGRX), dmabuf::DRM_FORMAT_XRGB8888);
-        assert_eq!(spa_to_drm_fourcc(SPA_VIDEO_FORMAT_RGBX), dmabuf::DRM_FORMAT_XBGR8888);
+        assert_eq!(
+            spa_to_drm_fourcc(SPA_VIDEO_FORMAT_BGRA),
+            dmabuf::DRM_FORMAT_ARGB8888
+        );
+        assert_eq!(
+            spa_to_drm_fourcc(SPA_VIDEO_FORMAT_RGBA),
+            dmabuf::DRM_FORMAT_ABGR8888
+        );
+        assert_eq!(
+            spa_to_drm_fourcc(SPA_VIDEO_FORMAT_BGRX),
+            dmabuf::DRM_FORMAT_XRGB8888
+        );
+        assert_eq!(
+            spa_to_drm_fourcc(SPA_VIDEO_FORMAT_RGBX),
+            dmabuf::DRM_FORMAT_XBGR8888
+        );
     }
 }
-

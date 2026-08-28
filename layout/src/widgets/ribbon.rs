@@ -46,14 +46,19 @@ use azul_core::{
     },
     refany::RefAny,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{
         CssPropertyWithConditions as Cond, CssPropertyWithConditionsVec, DynamicSelector,
         MinMaxRange,
     },
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, *},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            *,
+        },
         layout::*,
         property::CssProperty as P,
         style::*,
@@ -61,8 +66,8 @@ use azul_css::{
     *,
 };
 
-use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
 use azul_css::system::{Handedness, SystemStyle};
+use azul_css::{impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut};
 
 use crate::callbacks::{Callback, CallbackInfo};
 
@@ -78,8 +83,10 @@ use super::{
 /// Callback signature invoked when a ribbon tab is clicked.
 pub type RibbonOnTabClickCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
 impl_widget_callback!(
-    RibbonOnTabClick, OptionRibbonOnTabClick,
-    RibbonOnTabClickCallback, RibbonOnTabClickCallbackType
+    RibbonOnTabClick,
+    OptionRibbonOnTabClick,
+    RibbonOnTabClickCallback,
+    RibbonOnTabClickCallbackType
 );
 
 azul_core::impl_managed_callback! {
@@ -96,11 +103,12 @@ azul_core::impl_managed_callback! {
 }
 
 /// Callback signature invoked when a gallery cell is clicked (cell index).
-pub type RibbonGalleryOnSelectCallbackType =
-    extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
+pub type RibbonGalleryOnSelectCallbackType = extern "C" fn(RefAny, CallbackInfo, usize) -> Update;
 impl_widget_callback!(
-    RibbonGalleryOnSelect, OptionRibbonGalleryOnSelect,
-    RibbonGalleryOnSelectCallback, RibbonGalleryOnSelectCallbackType
+    RibbonGalleryOnSelect,
+    OptionRibbonGalleryOnSelect,
+    RibbonGalleryOnSelectCallback,
+    RibbonGalleryOnSelectCallbackType
 );
 
 azul_core::impl_managed_callback! {
@@ -125,34 +133,109 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 
 // -- the Office-2013-era look palette (seeds RibbonTheme::office_2013) --
 
-const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+const WHITE: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+const TRANSPARENT: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 0,
+};
 /// Office 2013 accent blue (#2B579A): FILE tab, active tab text.
-const W13_BLUE: ColorU = ColorU { r: 43, g: 87, b: 154, a: 255 };
+const W13_BLUE: ColorU = ColorU {
+    r: 43,
+    g: 87,
+    b: 154,
+    a: 255,
+};
 /// FILE tab hover fill (darker blue).
-const W13_BLUE_HOVER: ColorU = ColorU { r: 30, g: 62, b: 111, a: 255 };
+const W13_BLUE_HOVER: ColorU = ColorU {
+    r: 30,
+    g: 62,
+    b: 111,
+    a: 255,
+};
 /// Regular control text (#444444).
-const W13_TEXT: ColorU = ColorU { r: 68, g: 68, b: 68, a: 255 };
+const W13_TEXT: ColorU = ColorU {
+    r: 68,
+    g: 68,
+    b: 68,
+    a: 255,
+};
 /// Group caption + secondary glyph gray (#676767).
-const W13_LABEL_GRAY: ColorU = ColorU { r: 103, g: 103, b: 103, a: 255 };
+const W13_LABEL_GRAY: ColorU = ColorU {
+    r: 103,
+    g: 103,
+    b: 103,
+    a: 255,
+};
 /// Monochrome icon gray.
-const W13_ICON_GRAY: ColorU = ColorU { r: 80, g: 80, b: 80, a: 255 };
+const W13_ICON_GRAY: ColorU = ColorU {
+    r: 80,
+    g: 80,
+    b: 80,
+    a: 255,
+};
 /// Chrome border gray (#D4D4D4): tab underline, ribbon bottom border.
-const W13_BORDER: ColorU = ColorU { r: 212, g: 212, b: 212, a: 255 };
+const W13_BORDER: ColorU = ColorU {
+    r: 212,
+    g: 212,
+    b: 212,
+    a: 255,
+};
 /// Group/segment separator gray (#E1E1E1).
-const W13_SEP: ColorU = ColorU { r: 225, g: 225, b: 225, a: 255 };
+const W13_SEP: ColorU = ColorU {
+    r: 225,
+    g: 225,
+    b: 225,
+    a: 255,
+};
 /// Hover fill (#CDE6F7).
-const W13_HOVER_BG: ColorU = ColorU { r: 205, g: 230, b: 247, a: 255 };
+const W13_HOVER_BG: ColorU = ColorU {
+    r: 205,
+    g: 230,
+    b: 247,
+    a: 255,
+};
 /// Hover/checked border (#92C0E0).
-const W13_HOVER_BORDER: ColorU = ColorU { r: 146, g: 192, b: 224, a: 255 };
+const W13_HOVER_BORDER: ColorU = ColorU {
+    r: 146,
+    g: 192,
+    b: 224,
+    a: 255,
+};
 /// Pressed fill (#B0D0EC).
-const W13_PRESSED_BG: ColorU = ColorU { r: 176, g: 208, b: 236, a: 255 };
+const W13_PRESSED_BG: ColorU = ColorU {
+    r: 176,
+    g: 208,
+    b: 236,
+    a: 255,
+};
 /// Toggled-on fill (#C6DDF0).
-const W13_CHECKED_BG: ColorU = ColorU { r: 198, g: 221, b: 240, a: 255 };
+const W13_CHECKED_BG: ColorU = ColorU {
+    r: 198,
+    g: 221,
+    b: 240,
+    a: 255,
+};
 /// Selected gallery cell fill (#EAF3FC).
-const W13_SELECTED_BG: ColorU = ColorU { r: 234, g: 243, b: 252, a: 255 };
+const W13_SELECTED_BG: ColorU = ColorU {
+    r: 234,
+    g: 243,
+    b: 252,
+    a: 255,
+};
 /// Flat editable-field border gray (#ABABAB).
-const W13_FIELD_BORDER: ColorU = ColorU { r: 171, g: 171, b: 171, a: 255 };
+const W13_FIELD_BORDER: ColorU = ColorU {
+    r: 171,
+    g: 171,
+    b: 171,
+    a: 255,
+};
 
 // -- Theme --
 
@@ -272,7 +355,9 @@ static GROUP_ITEMS_STYLE: &[Cond] = &[
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
     Cond::simple(P::const_height(LayoutHeight::const_px(68))),
     Cond::simple(P::const_align_items(LayoutAlignItems::Start)),
-    Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
 ];
 
 static GROUP_FOOTER_STYLE: &[Cond] = &[
@@ -282,13 +367,17 @@ static GROUP_FOOTER_STYLE: &[Cond] = &[
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
     Cond::simple(P::const_height(LayoutHeight::const_px(18))),
     Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
-    Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
 ];
 
 static FOOTER_SPACER_STYLE: &[Cond] = &[
     Cond::simple(P::const_width(LayoutWidth::const_px(18))),
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
 ];
 
 static COLUMN_STYLE: &[Cond] = &[
@@ -296,7 +385,9 @@ static COLUMN_STYLE: &[Cond] = &[
     Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
     Cond::simple(P::const_align_items(LayoutAlignItems::Start)),
-    Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
 ];
 
 static ROW_STYLE: &[Cond] = &[
@@ -305,7 +396,9 @@ static ROW_STYLE: &[Cond] = &[
     Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
     Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
     Cond::simple(P::const_margin_bottom(LayoutMarginBottom::const_px(5))),
-    Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+    Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })),
 ];
 
 static GALLERY_STRIP_STYLE: &[Cond] = &[
@@ -409,44 +502,100 @@ const fn cond_border_box() -> Cond {
 }
 
 fn push_padding(v: &mut Vec<Cond>, top: isize, right: isize, bottom: isize, left: isize) {
-    v.push(Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(top))));
-    v.push(Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(right))));
-    v.push(Cond::simple(P::const_padding_bottom(LayoutPaddingBottom::const_px(bottom))));
-    v.push(Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(left))));
+    v.push(Cond::simple(P::const_padding_top(
+        LayoutPaddingTop::const_px(top),
+    )));
+    v.push(Cond::simple(P::const_padding_right(
+        LayoutPaddingRight::const_px(right),
+    )));
+    v.push(Cond::simple(P::const_padding_bottom(
+        LayoutPaddingBottom::const_px(bottom),
+    )));
+    v.push(Cond::simple(P::const_padding_left(
+        LayoutPaddingLeft::const_px(left),
+    )));
 }
 
 /// 1px solid border on all four sides in the given color.
 fn push_box_border(v: &mut Vec<Cond>, c: ColorU) {
-    v.push(Cond::simple(P::const_border_top_width(LayoutBorderTopWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_top_style(StyleBorderTopStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })));
+    v.push(Cond::simple(P::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_top_style(
+        StyleBorderTopStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_left_style(
+        StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
     push_border_colors(v, c);
 }
 
 fn push_border_colors(v: &mut Vec<Cond>, c: ColorU) {
-    v.push(Cond::simple(P::const_border_top_color(StyleBorderTopColor { inner: c })));
-    v.push(Cond::simple(P::const_border_left_color(StyleBorderLeftColor { inner: c })));
-    v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor { inner: c })));
-    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: c })));
+    v.push(Cond::simple(P::const_border_top_color(
+        StyleBorderTopColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_left_color(
+        StyleBorderLeftColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_right_color(
+        StyleBorderRightColor { inner: c },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_color(
+        StyleBorderBottomColor { inner: c },
+    )));
 }
 
 fn push_hover_border_colors(v: &mut Vec<Cond>, c: ColorU) {
-    v.push(Cond::on_hover(P::const_border_top_color(StyleBorderTopColor { inner: c })));
-    v.push(Cond::on_hover(P::const_border_left_color(StyleBorderLeftColor { inner: c })));
-    v.push(Cond::on_hover(P::const_border_right_color(StyleBorderRightColor { inner: c })));
-    v.push(Cond::on_hover(P::const_border_bottom_color(StyleBorderBottomColor { inner: c })));
+    v.push(Cond::on_hover(P::const_border_top_color(
+        StyleBorderTopColor { inner: c },
+    )));
+    v.push(Cond::on_hover(P::const_border_left_color(
+        StyleBorderLeftColor { inner: c },
+    )));
+    v.push(Cond::on_hover(P::const_border_right_color(
+        StyleBorderRightColor { inner: c },
+    )));
+    v.push(Cond::on_hover(P::const_border_bottom_color(
+        StyleBorderBottomColor { inner: c },
+    )));
 }
 
 /// Bottom border only (tab underline / ribbon bottom edge).
 fn push_bottom_border(v: &mut Vec<Cond>, c: ColorU) {
-    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(1))));
-    v.push(Cond::simple(P::const_border_bottom_style(StyleBorderBottomStyle { inner: BorderStyle::Solid })));
-    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor { inner: c })));
+    v.push(Cond::simple(P::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )));
+    v.push(Cond::simple(P::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )));
+    v.push(Cond::simple(P::const_border_bottom_color(
+        StyleBorderBottomColor { inner: c },
+    )));
 }
 
 /// Transparent-bordered, hover-highlighted button chassis shared by large
@@ -497,11 +646,15 @@ fn theme_app_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
     ];
-    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })));
     push_padding(&mut v, 7, 17, 7, 17);
     v.push(cond_bg(t.accent));
     v.push(cond_text_color(t.accent_text));
-    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(12))));
+    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        12,
+    ))));
     v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     v.push(cond_bg_hover(t.accent_hover));
@@ -516,14 +669,18 @@ fn theme_tab(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
     ];
-    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })));
     push_padding(&mut v, 7, 13, 6, 13);
     v.push(Cond::simple(P::const_cursor(StyleCursor::Pointer)));
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     v.push(cond_text_color(t.text));
     v.push(cond_bg(t.chrome_bg));
     push_bottom_border(&mut v, t.border);
-    v.push(Cond::on_hover(P::const_text_color(StyleTextColor { inner: t.accent })));
+    v.push(Cond::on_hover(P::const_text_color(StyleTextColor {
+        inner: t.accent,
+    })));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -535,7 +692,9 @@ fn theme_tab_active(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
     ];
-    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })));
+    v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+        inner: FloatValue::const_new(0),
+    })));
     push_padding(&mut v, 6, 12, 6, 12);
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     v.push(cond_text_color(t.accent));
@@ -543,14 +702,16 @@ fn theme_tab_active(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     push_box_border(&mut v, t.border);
     // Erase the underline below the active tab: the bottom border matches
     // the chrome so the tab visually merges with the ribbon content.
-    v.push(Cond::simple(P::const_border_bottom_color(StyleBorderBottomColor {
-        inner: t.chrome_bg,
-    })));
+    v.push(Cond::simple(P::const_border_bottom_color(
+        StyleBorderBottomColor { inner: t.chrome_bg },
+    )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_tab_filler(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    let mut v = vec![Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1)))];
+    let mut v = vec![Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        1,
+    )))];
     push_bottom_border(&mut v, t.border);
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -561,7 +722,9 @@ fn theme_content(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_height(LayoutHeight::const_px(92))),
         cond_bg(t.chrome_bg),
     ])
@@ -572,13 +735,21 @@ fn theme_group(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_padding_top(LayoutPaddingTop::const_px(3))),
         Cond::simple(P::const_padding_left(LayoutPaddingLeft::const_px(2))),
         Cond::simple(P::const_padding_right(LayoutPaddingRight::const_px(2))),
-        Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))),
-        Cond::simple(P::const_border_right_style(StyleBorderRightStyle { inner: BorderStyle::Solid })),
-        Cond::simple(P::const_border_right_color(StyleBorderRightColor { inner: t.separator })),
+        Cond::simple(P::const_border_right_width(
+            LayoutBorderRightWidth::const_px(1),
+        )),
+        Cond::simple(P::const_border_right_style(StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        })),
+        Cond::simple(P::const_border_right_color(StyleBorderRightColor {
+            inner: t.separator,
+        })),
     ])
 }
 
@@ -600,7 +771,9 @@ fn theme_launcher_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_width(LayoutWidth::const_px(16))),
         Cond::simple(P::const_height(LayoutHeight::const_px(14))),
     ];
@@ -627,7 +800,9 @@ fn theme_separator(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_width(LayoutWidth::const_px(1))),
         Cond::simple(P::const_height(LayoutHeight::const_px(22))),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_margin_left(LayoutMarginLeft::const_px(3))),
         Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(3))),
         cond_bg(t.separator),
@@ -640,12 +815,16 @@ fn theme_large_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_height(LayoutHeight::const_px(66))),
         Cond::simple(P::const_min_width(LayoutMinWidth::const_px(44))),
     ];
     push_padding(&mut v, 3, 7, 3, 7);
-    v.push(Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(1))));
+    v.push(Cond::simple(P::const_margin_right(
+        LayoutMarginRight::const_px(1),
+    )));
     push_button_chassis(&mut v, t);
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -676,7 +855,9 @@ fn theme_small_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)),
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_height(LayoutHeight::const_px(22))),
     ];
     push_padding(&mut v, 1, 3, 1, 3);
@@ -749,7 +930,9 @@ fn theme_gallery_cell(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_align_items(LayoutAlignItems::Center)),
         Cond::simple(P::const_justify_content(LayoutJustifyContent::Center)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_width(LayoutWidth::const_px(120))),
     ];
     push_padding(&mut v, 2, 6, 2, 6);
@@ -757,9 +940,9 @@ fn theme_gallery_cell(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
     push_box_border(&mut v, TRANSPARENT);
     // Cells are divided by a thin rule on their right edge.
-    v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor {
-        inner: t.separator,
-    })));
+    v.push(Cond::simple(P::const_border_right_color(
+        StyleBorderRightColor { inner: t.separator },
+    )));
     v.push(cond_bg_hover(t.hover_bg));
     push_hover_border_colors(&mut v, t.hover_border);
     CssPropertyWithConditionsVec::from_vec(v)
@@ -787,11 +970,19 @@ fn theme_gallery_spinner(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::Flex)),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_width(LayoutWidth::const_px(15))),
-        Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1))),
-        Cond::simple(P::const_border_left_style(StyleBorderLeftStyle { inner: BorderStyle::Solid })),
-        Cond::simple(P::const_border_left_color(StyleBorderLeftColor { inner: t.separator })),
+        Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(
+            1,
+        ))),
+        Cond::simple(P::const_border_left_style(StyleBorderLeftStyle {
+            inner: BorderStyle::Solid,
+        })),
+        Cond::simple(P::const_border_left_color(StyleBorderLeftColor {
+            inner: t.separator,
+        })),
     ])
 }
 
@@ -835,10 +1026,18 @@ fn theme_gallery_spinner_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec
     push_padding(&mut v, 0, 0, 0, 0);
     v.push(Cond::simple(P::const_cursor(StyleCursor::Default)));
     v.push(cond_bg(TRANSPARENT));
-    v.push(Cond::simple(P::const_border_top_width(LayoutBorderTopWidth::const_px(0))));
-    v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(0))));
-    v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(0))));
-    v.push(Cond::simple(P::const_border_bottom_width(LayoutBorderBottomWidth::const_px(0))));
+    v.push(Cond::simple(P::const_border_top_width(
+        LayoutBorderTopWidth::const_px(0),
+    )));
+    v.push(Cond::simple(P::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(0),
+    )));
+    v.push(Cond::simple(P::const_border_right_width(
+        LayoutBorderRightWidth::const_px(0),
+    )));
+    v.push(Cond::simple(P::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(0),
+    )));
     v.push(cond_bg_hover(t.hover_bg));
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -858,7 +1057,9 @@ fn theme_combo_wrapper_base(_t: &RibbonTheme) -> Vec<Cond> {
         Cond::simple(P::const_display(LayoutDisplay::InlineBlock)),
         Cond::simple(P::const_position(LayoutPosition::Relative)),
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))),
-        Cond::simple(P::const_flex_shrink(LayoutFlexShrink { inner: FloatValue::const_new(0) })),
+        Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
+            inner: FloatValue::const_new(0),
+        })),
         Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(2))),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
         Cond::simple(P::const_font_family(SYSTEM_UI_FAMILY)),
@@ -879,10 +1080,18 @@ fn theme_combo_field(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     v.push(cond_bg(t.chrome_bg));
     v.push(cond_text_color(t.text));
     push_box_border(&mut v, t.field_border);
-    v.push(Cond::on_focus(P::const_border_top_color(StyleBorderTopColor { inner: t.accent })));
-    v.push(Cond::on_focus(P::const_border_left_color(StyleBorderLeftColor { inner: t.accent })));
-    v.push(Cond::on_focus(P::const_border_right_color(StyleBorderRightColor { inner: t.accent })));
-    v.push(Cond::on_focus(P::const_border_bottom_color(StyleBorderBottomColor { inner: t.accent })));
+    v.push(Cond::on_focus(P::const_border_top_color(
+        StyleBorderTopColor { inner: t.accent },
+    )));
+    v.push(Cond::on_focus(P::const_border_left_color(
+        StyleBorderLeftColor { inner: t.accent },
+    )));
+    v.push(Cond::on_focus(P::const_border_right_color(
+        StyleBorderRightColor { inner: t.accent },
+    )));
+    v.push(Cond::on_focus(P::const_border_bottom_color(
+        StyleBorderBottomColor { inner: t.accent },
+    )));
     CssPropertyWithConditionsVec::from_vec(v)
 }
 
@@ -907,12 +1116,18 @@ fn theme_combo_arrow(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
 fn theme_mobile_tab_button(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     let mut v: Vec<Cond> = mobile_only_visibility(LayoutDisplay::Flex).to_vec();
     v.push(cond_border_box());
-    v.push(Cond::simple(P::const_flex_direction(LayoutFlexDirection::Row)));
+    v.push(Cond::simple(P::const_flex_direction(
+        LayoutFlexDirection::Row,
+    )));
     v.push(Cond::simple(P::const_align_items(LayoutAlignItems::Center)));
     v.push(Cond::simple(P::const_height(LayoutHeight::const_px(48))));
-    v.push(Cond::simple(P::const_width(LayoutWidth::Px(PixelValue::const_percent(100)))));
+    v.push(Cond::simple(P::const_width(LayoutWidth::Px(
+        PixelValue::const_percent(100),
+    ))));
     push_padding(&mut v, 0, 12, 0, 16);
-    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(17))));
+    v.push(Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        17,
+    ))));
     v.push(cond_text_color(t.accent));
     v.push(cond_bg(t.chrome_bg));
     push_bottom_border(&mut v, t.border);
@@ -949,7 +1164,9 @@ fn theme_mobile_tab_overlay(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_position(LayoutPosition::Absolute)),
         Cond::simple(P::const_top(LayoutTop::const_px(0))),
         Cond::simple(P::const_left(LayoutLeft::const_px(0))),
-        Cond::simple(P::const_width(LayoutWidth::Px(PixelValue::const_percent(100)))),
+        Cond::simple(P::const_width(LayoutWidth::Px(PixelValue::const_percent(
+            100,
+        )))),
         Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)),
         cond_bg(t.chrome_bg),
     ];
@@ -981,9 +1198,13 @@ fn theme_mobile_tab_overlay_item(t: &RibbonTheme) -> CssPropertyWithConditionsVe
 fn theme_mobile_group_list(t: &RibbonTheme, left_handed: bool) -> CssPropertyWithConditionsVec {
     let mut v: Vec<Cond> = mobile_only_visibility(LayoutDisplay::Flex).to_vec();
     v.push(cond_border_box());
-    v.push(Cond::simple(P::const_flex_direction(LayoutFlexDirection::Column)));
+    v.push(Cond::simple(P::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )));
     v.push(Cond::simple(P::const_width(LayoutWidth::const_px(116))));
-    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(0))));
+    v.push(Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(
+        0,
+    ))));
     v.push(Cond::simple(P::const_flex_shrink(LayoutFlexShrink {
         inner: FloatValue::const_new(0),
     })));
@@ -993,21 +1214,29 @@ fn theme_mobile_group_list(t: &RibbonTheme, left_handed: bool) -> CssPropertyWit
     // The list hugs the dominant hand: a border on the side that faces the
     // content, so the divider reads correctly whichever side it is on.
     if left_handed {
-        v.push(Cond::simple(P::const_border_right_width(LayoutBorderRightWidth::const_px(1))));
-        v.push(Cond::simple(P::const_border_right_style(StyleBorderRightStyle {
-            inner: BorderStyle::Solid,
-        })));
-        v.push(Cond::simple(P::const_border_right_color(StyleBorderRightColor {
-            inner: t.separator,
-        })));
+        v.push(Cond::simple(P::const_border_right_width(
+            LayoutBorderRightWidth::const_px(1),
+        )));
+        v.push(Cond::simple(P::const_border_right_style(
+            StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            },
+        )));
+        v.push(Cond::simple(P::const_border_right_color(
+            StyleBorderRightColor { inner: t.separator },
+        )));
     } else {
-        v.push(Cond::simple(P::const_border_left_width(LayoutBorderLeftWidth::const_px(1))));
-        v.push(Cond::simple(P::const_border_left_style(StyleBorderLeftStyle {
-            inner: BorderStyle::Solid,
-        })));
-        v.push(Cond::simple(P::const_border_left_color(StyleBorderLeftColor {
-            inner: t.separator,
-        })));
+        v.push(Cond::simple(P::const_border_left_width(
+            LayoutBorderLeftWidth::const_px(1),
+        )));
+        v.push(Cond::simple(P::const_border_left_style(
+            StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            },
+        )));
+        v.push(Cond::simple(P::const_border_left_color(
+            StyleBorderLeftColor { inner: t.separator },
+        )));
     }
     CssPropertyWithConditionsVec::from_vec(v)
 }
@@ -1032,52 +1261,67 @@ fn theme_mobile_group_list_item(t: &RibbonTheme) -> CssPropertyWithConditionsVec
 
 /// The selected entry of the mobile group list (appended, last-wins).
 fn theme_mobile_group_list_item_selected(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        cond_bg(t.selected_bg),
-        cond_text_color(t.accent),
-    ])
+    CssPropertyWithConditionsVec::from_vec(vec![cond_bg(t.selected_bg), cond_text_color(t.accent)])
 }
 
 // -- Classes --
 
 static CLS_RIBBON: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-ribbon"))];
-static CLS_TAB_BAR: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-tabbar"))];
-static CLS_APP_BUTTON: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-appbutton"))];
+static CLS_TAB_BAR: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-tabbar",
+))];
+static CLS_APP_BUTTON: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-appbutton",
+))];
 static CLS_TAB: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-ribbon-tab"))];
 static CLS_TAB_ACTIVE: &[IdOrClass] = &[
     Class(AzString::from_const_str("__azul-native-ribbon-tab")),
     Class(AzString::from_const_str("__azul-native-ribbon-tab-active")),
 ];
-static CLS_TAB_FILLER: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-tab-filler"))];
-static CLS_CONTENT: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-content"))];
-static CLS_GROUP: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-group"))];
-static CLS_GROUP_ITEMS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-group-items"))];
-static CLS_GROUP_FOOTER: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-group-footer"))];
-static CLS_GROUP_LABEL: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-group-label"))];
-static CLS_FOOTER_SPACER: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-footer-spacer"))];
-static CLS_COLUMN: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-column"))];
+static CLS_TAB_FILLER: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-tab-filler",
+))];
+static CLS_CONTENT: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-content",
+))];
+static CLS_GROUP: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-group",
+))];
+static CLS_GROUP_ITEMS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-group-items",
+))];
+static CLS_GROUP_FOOTER: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-group-footer",
+))];
+static CLS_GROUP_LABEL: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-group-label",
+))];
+static CLS_FOOTER_SPACER: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-footer-spacer",
+))];
+static CLS_COLUMN: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-column",
+))];
 static CLS_ROW: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-ribbon-row"))];
-static CLS_SEPARATOR: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-separator"))];
-static CLS_GALLERY: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery"))];
-static CLS_GALLERY_STRIP: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-strip"))];
-static CLS_GALLERY_CELL: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-cell"))];
+static CLS_SEPARATOR: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-separator",
+))];
+static CLS_GALLERY: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery",
+))];
+static CLS_GALLERY_STRIP: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery-strip",
+))];
+static CLS_GALLERY_CELL: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery-cell",
+))];
 static CLS_GALLERY_CELL_SELECTED: &[IdOrClass] = &[
-    Class(AzString::from_const_str("__azul-native-ribbon-gallery-cell")),
-    Class(AzString::from_const_str("__azul-native-ribbon-gallery-cell-selected")),
+    Class(AzString::from_const_str(
+        "__azul-native-ribbon-gallery-cell",
+    )),
+    Class(AzString::from_const_str(
+        "__azul-native-ribbon-gallery-cell-selected",
+    )),
 ];
 /// Class names the handlers resolve their targets by (see
 /// `ancestor_with_class`), kept next to the `IdOrClass` tables that emit them.
@@ -1091,25 +1335,34 @@ const MOBILE_GROUP_LIST_ITEM_CLASS: &str = "__azul-native-ribbon-mobile-group-li
 const RIBBON_CONTENT_CLASS: &str = "__azul-native-ribbon-content";
 static CLS_MOBILE_TAB_BUTTON: &[IdOrClass] =
     &[Class(AzString::from_const_str(MOBILE_TAB_BUTTON_CLASS))];
-static CLS_MOBILE_TAB_OVERLAY: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-tab-overlay"))];
-static CLS_MOBILE_TAB_OVERLAY_ITEM: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-tab-overlay-item"))];
-static CLS_MOBILE_GROUP_LIST: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-group-list"))];
-static CLS_MOBILE_BAND: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-band"))];
-static CLS_MOBILE_GROUP_LIST_ITEM: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-mobile-group-list-item"))];
+static CLS_MOBILE_TAB_OVERLAY: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-mobile-tab-overlay",
+))];
+static CLS_MOBILE_TAB_OVERLAY_ITEM: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-mobile-tab-overlay-item",
+))];
+static CLS_MOBILE_GROUP_LIST: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-mobile-group-list",
+))];
+static CLS_MOBILE_BAND: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-mobile-band",
+))];
+static CLS_MOBILE_GROUP_LIST_ITEM: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-mobile-group-list-item",
+))];
 
-static CLS_GALLERY_MORE: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-more"))];
-static CLS_GALLERY_WRAPPER: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-wrapper"))];
-static CLS_GALLERY_PANEL: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-panel"))];
-static CLS_GALLERY_SPINNER: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-ribbon-gallery-spinner"))];
+static CLS_GALLERY_MORE: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery-more",
+))];
+static CLS_GALLERY_WRAPPER: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery-wrapper",
+))];
+static CLS_GALLERY_PANEL: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery-panel",
+))];
+static CLS_GALLERY_SPINNER: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-ribbon-gallery-spinner",
+))];
 
 // -- Style bundle --
 
@@ -1251,7 +1504,9 @@ impl RibbonStyle {
             group_items_style: CssPropertyWithConditionsVec::from_const_slice(GROUP_ITEMS_STYLE),
             group_footer_style: CssPropertyWithConditionsVec::from_const_slice(GROUP_FOOTER_STYLE),
             group_label_style: theme_group_label(theme),
-            footer_spacer_style: CssPropertyWithConditionsVec::from_const_slice(FOOTER_SPACER_STYLE),
+            footer_spacer_style: CssPropertyWithConditionsVec::from_const_slice(
+                FOOTER_SPACER_STYLE,
+            ),
             launcher_button_style: theme_launcher_button(theme),
             launcher_icon_style: theme_launcher_icon(theme),
             column_style: CssPropertyWithConditionsVec::from_const_slice(COLUMN_STYLE),
@@ -1266,7 +1521,9 @@ impl RibbonStyle {
             arrow_icon_style: theme_arrow_icon(theme),
             checked_style: theme_checked(theme),
             gallery_frame_style: theme_gallery_frame(theme),
-            gallery_strip_style: CssPropertyWithConditionsVec::from_const_slice(GALLERY_STRIP_STYLE),
+            gallery_strip_style: CssPropertyWithConditionsVec::from_const_slice(
+                GALLERY_STRIP_STYLE,
+            ),
             gallery_cell_style: theme_gallery_cell(theme),
             gallery_cell_selected_style: theme_gallery_cell_selected(theme),
             gallery_cell_label_style: theme_gallery_cell_label(theme),
@@ -1310,8 +1567,7 @@ impl RibbonStyle {
         wrapper.push(Cond::simple(P::const_width(LayoutWidth::const_px(width))));
         combo.wrapper_style = CssPropertyWithConditionsVec::from_vec(wrapper);
         combo.field_style = theme_combo_field(&self.theme);
-        combo.text_style =
-            CssPropertyWithConditionsVec::from_const_slice(RIBBON_COMBO_TEXT_STYLE);
+        combo.text_style = CssPropertyWithConditionsVec::from_const_slice(RIBBON_COMBO_TEXT_STYLE);
         combo.arrow_style = theme_combo_arrow(&self.theme);
         combo
     }
@@ -1552,29 +1808,71 @@ pub struct RibbonGalleryCell {
     pub label: AzString,
 }
 
-impl_option!(RibbonAppButton, OptionRibbonAppButton, copy = false, [Debug, Clone]);
+impl_option!(
+    RibbonAppButton,
+    OptionRibbonAppButton,
+    copy = false,
+    [Debug, Clone]
+);
 impl_option!(RibbonTab, OptionRibbonTab, copy = false, [Debug, Clone]);
 impl_option!(RibbonGroup, OptionRibbonGroup, copy = false, [Debug, Clone]);
 impl_option!(RibbonItem, OptionRibbonItem, copy = false, [Debug, Clone]);
-impl_option!(RibbonGalleryCell, OptionRibbonGalleryCell, copy = false, [Debug, Clone]);
+impl_option!(
+    RibbonGalleryCell,
+    OptionRibbonGalleryCell,
+    copy = false,
+    [Debug, Clone]
+);
 
-impl_vec!(RibbonTab, RibbonTabVec, RibbonTabVecDestructor, RibbonTabVecDestructorType, RibbonTabVecSlice, OptionRibbonTab);
+impl_vec!(
+    RibbonTab,
+    RibbonTabVec,
+    RibbonTabVecDestructor,
+    RibbonTabVecDestructorType,
+    RibbonTabVecSlice,
+    OptionRibbonTab
+);
 impl_vec_clone!(RibbonTab, RibbonTabVec, RibbonTabVecDestructor);
 impl_vec_debug!(RibbonTab, RibbonTabVec);
 impl_vec_mut!(RibbonTab, RibbonTabVec);
 
-impl_vec!(RibbonGroup, RibbonGroupVec, RibbonGroupVecDestructor, RibbonGroupVecDestructorType, RibbonGroupVecSlice, OptionRibbonGroup);
+impl_vec!(
+    RibbonGroup,
+    RibbonGroupVec,
+    RibbonGroupVecDestructor,
+    RibbonGroupVecDestructorType,
+    RibbonGroupVecSlice,
+    OptionRibbonGroup
+);
 impl_vec_clone!(RibbonGroup, RibbonGroupVec, RibbonGroupVecDestructor);
 impl_vec_debug!(RibbonGroup, RibbonGroupVec);
 impl_vec_mut!(RibbonGroup, RibbonGroupVec);
 
-impl_vec!(RibbonItem, RibbonItemVec, RibbonItemVecDestructor, RibbonItemVecDestructorType, RibbonItemVecSlice, OptionRibbonItem);
+impl_vec!(
+    RibbonItem,
+    RibbonItemVec,
+    RibbonItemVecDestructor,
+    RibbonItemVecDestructorType,
+    RibbonItemVecSlice,
+    OptionRibbonItem
+);
 impl_vec_clone!(RibbonItem, RibbonItemVec, RibbonItemVecDestructor);
 impl_vec_debug!(RibbonItem, RibbonItemVec);
 impl_vec_mut!(RibbonItem, RibbonItemVec);
 
-impl_vec!(RibbonGalleryCell, RibbonGalleryCellVec, RibbonGalleryCellVecDestructor, RibbonGalleryCellVecDestructorType, RibbonGalleryCellVecSlice, OptionRibbonGalleryCell);
-impl_vec_clone!(RibbonGalleryCell, RibbonGalleryCellVec, RibbonGalleryCellVecDestructor);
+impl_vec!(
+    RibbonGalleryCell,
+    RibbonGalleryCellVec,
+    RibbonGalleryCellVecDestructor,
+    RibbonGalleryCellVecDestructorType,
+    RibbonGalleryCellVecSlice,
+    OptionRibbonGalleryCell
+);
+impl_vec_clone!(
+    RibbonGalleryCell,
+    RibbonGalleryCellVec,
+    RibbonGalleryCellVecDestructor
+);
 impl_vec_debug!(RibbonGalleryCell, RibbonGalleryCellVec);
 impl_vec_mut!(RibbonGalleryCell, RibbonGalleryCellVec);
 
@@ -1584,7 +1882,10 @@ impl RibbonAppButton {
     /// Creates an application button with the given label and no callback.
     #[must_use]
     pub fn new(label: AzString) -> Self {
-        Self { label, on_click: None.into() }
+        Self {
+            label,
+            on_click: None.into(),
+        }
     }
 
     /// Sets the click callback.
@@ -1709,7 +2010,9 @@ impl RibbonColumn {
     /// Creates an empty column.
     #[must_use]
     pub const fn new() -> Self {
-        Self { items: RibbonItemVec::from_const_slice(&[]) }
+        Self {
+            items: RibbonItemVec::from_const_slice(&[]),
+        }
     }
 
     /// Appends an item to this column.
@@ -1735,7 +2038,9 @@ impl RibbonRow {
     /// Creates an empty row.
     #[must_use]
     pub const fn new() -> Self {
-        Self { items: RibbonItemVec::from_const_slice(&[]) }
+        Self {
+            items: RibbonItemVec::from_const_slice(&[]),
+        }
     }
 
     /// Appends an item to this row.
@@ -1813,7 +2118,11 @@ impl RibbonGallery {
     /// Creates a gallery from its cells; cell 0 is selected.
     #[must_use]
     pub fn new(cells: RibbonGalleryCellVec) -> Self {
-        Self { cells, selected: 0, on_select: None.into() }
+        Self {
+            cells,
+            selected: 0,
+            on_select: None.into(),
+        }
     }
 
     /// Builder method: sets the selected cell index and returns `self`.
@@ -1923,13 +2232,19 @@ impl Ribbon {
     /// Registers a callback invoked when a tab is clicked.
     pub fn set_on_tab_click<C: Into<RibbonOnTabClickCallback>>(&mut self, data: RefAny, cb: C) {
         self.on_tab_click = Some(RibbonOnTabClick {
-            callback: cb.into(), refany: data,
-        }).into();
+            callback: cb.into(),
+            refany: data,
+        })
+        .into();
     }
 
     /// Builder method: registers a tab-click callback and returns `self`.
     #[must_use]
-    pub fn with_on_tab_click<C: Into<RibbonOnTabClickCallback>>(mut self, data: RefAny, cb: C) -> Self {
+    pub fn with_on_tab_click<C: Into<RibbonOnTabClickCallback>>(
+        mut self,
+        data: RefAny,
+        cb: C,
+    ) -> Self {
         self.set_on_tab_click(data, cb);
         self
     }
@@ -1966,16 +2281,28 @@ impl Ribbon {
     }
 
     fn build_chrome(self, mode: RibbonChromeMode) -> Dom {
-        let Self { app_button, tabs, active_tab, on_tab_click, style, behavior } = self;
+        let Self {
+            app_button,
+            tabs,
+            active_tab,
+            on_tab_click,
+            style,
+            behavior,
+        } = self;
         let has_callback = on_tab_click.is_some();
 
         // Labels are needed by both chromes; `tabs` is consumed below.
-        let tab_labels: Vec<AzString> =
-            tabs.as_slice().iter().map(|t| t.label.clone()).collect();
+        let tab_labels: Vec<AzString> = tabs.as_slice().iter().map(|t| t.label.clone()).collect();
         let group_labels: Vec<AzString> = tabs
             .as_slice()
             .get(active_tab)
-            .map(|t| t.groups.as_slice().iter().map(|g| g.label.clone()).collect())
+            .map(|t| {
+                t.groups
+                    .as_slice()
+                    .iter()
+                    .map(|g| g.label.clone())
+                    .collect()
+            })
             .unwrap_or_default();
 
         let mut bar_children: Vec<Dom> = Vec::with_capacity(tabs.len() + 2);
@@ -1984,16 +2311,21 @@ impl Ribbon {
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_APP_BUTTON))
                 .with_css_props(style.app_button_style.clone())
-                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(ab.label)]));
+                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
+                    ab.label,
+                )]));
             if let Some(oc) = ab.on_click.into_option() {
-                d = d.with_callbacks(vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                    callback: CoreCallback {
-                        cb: oc.callback.cb as *const () as usize,
-                        ctx: oc.callback.ctx,
-                    },
-                    refany: oc.refany,
-                }].into());
+                d = d.with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        callback: CoreCallback {
+                            cb: oc.callback.cb as *const () as usize,
+                            ctx: oc.callback.ctx,
+                        },
+                        refany: oc.refany,
+                    }]
+                    .into(),
+                );
             }
             bar_children.push(d);
         }
@@ -2021,7 +2353,9 @@ impl Ribbon {
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(part_style)
-                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(tab.label.clone())]));
+                .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
+                    tab.label.clone(),
+                )]));
 
             let mut cbs: Vec<CoreCallbackData> = Vec::with_capacity(4);
             if has_callback {
@@ -2032,7 +2366,8 @@ impl Ribbon {
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
                     refany: RefAny::new(TabClickData {
-                        tab_idx: idx, on_tab_click: on_tab_click.clone(),
+                        tab_idx: idx,
+                        on_tab_click: on_tab_click.clone(),
                     }),
                 });
             }
@@ -2081,15 +2416,16 @@ impl Ribbon {
             .with_css_props(style.tab_bar_style.clone())
             .with_children(DomVec::from_vec(bar_children));
 
-        let mut group_doms: Vec<Dom> = match tabs.into_library_owned_vec().into_iter().nth(active_tab) {
-            Some(active) => active
-                .groups
-                .into_library_owned_vec()
-                .into_iter()
-                .map(|g| group_dom(g, &style, behavior))
-                .collect(),
-            None => Vec::new(),
-        };
+        let mut group_doms: Vec<Dom> =
+            match tabs.into_library_owned_vec().into_iter().nth(active_tab) {
+                Some(active) => active
+                    .groups
+                    .into_library_owned_vec()
+                    .into_iter()
+                    .map(|g| group_dom(g, &style, behavior))
+                    .collect(),
+                None => Vec::new(),
+            };
 
         // Structural mobile chrome shows ONE group at a time; the group list
         // beside the content swaps them in (a runtime display patch - no app
@@ -2097,7 +2433,8 @@ impl Ribbon {
         if matches!(mode, RibbonChromeMode::Mobile) {
             for (idx, g) in group_doms.iter_mut().enumerate() {
                 if idx != 0 {
-                    g.root.upsert_inline_css_property(P::const_display(LayoutDisplay::None));
+                    g.root
+                        .upsert_inline_css_property(P::const_display(LayoutDisplay::None));
                 }
             }
         }
@@ -2117,7 +2454,9 @@ impl Ribbon {
             .with_children(DomVec::from_vec(vec![
                 crate::widgets::widget_p()
                     .with_css_props(style.mobile_tab_label_style.clone())
-                    .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(active_label)])),
+                    .with_children(DomVec::from_vec(vec![
+                        Dom::create_text_do_not_use_without_block_level_wrapper(active_label),
+                    ])),
                 Dom::create_icon(AzString::from_const_str("expand_more"))
                     .with_css_props(style.mobile_tab_arrow_style.clone()),
             ]));
@@ -2158,19 +2497,24 @@ impl Ribbon {
                         CLS_MOBILE_TAB_OVERLAY_ITEM,
                     ))
                     .with_css_props(style.mobile_tab_overlay_item_style.clone())
-                    .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(label.clone())]));
+                    .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
+                        label.clone(),
+                    )]));
                 if has_callback {
-                    item = item.with_callbacks(vec![CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                        callback: CoreCallback {
-                            cb: on_ribbon_tab_click as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                        refany: RefAny::new(TabClickData {
-                            tab_idx: idx,
-                            on_tab_click: on_tab_click.clone(),
-                        }),
-                    }].into());
+                    item = item.with_callbacks(
+                        vec![CoreCallbackData {
+                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                            callback: CoreCallback {
+                                cb: on_ribbon_tab_click as usize,
+                                ctx: azul_core::refany::OptionRefAny::None,
+                            },
+                            refany: RefAny::new(TabClickData {
+                                tab_idx: idx,
+                                on_tab_click: on_tab_click.clone(),
+                            }),
+                        }]
+                        .into(),
+                    );
                 }
                 item
             })
@@ -2199,20 +2543,25 @@ impl Ribbon {
                         CLS_MOBILE_GROUP_LIST_ITEM,
                     ))
                     .with_css_props(item_style)
-                    .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(label.clone())]));
+                    .with_children(DomVec::from_vec(vec![crate::widgets::widget_p_with_text(
+                        label.clone(),
+                    )]));
                 if matches!(mode, RibbonChromeMode::Mobile) {
-                    item = item.with_callbacks(vec![CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                        callback: CoreCallback {
-                            cb: on_ribbon_mobile_group_click as usize,
-                            ctx: azul_core::refany::OptionRefAny::None,
-                        },
-                        refany: RefAny::new(GroupListClickData {
-                            group_idx: idx,
-                            selected_style: style.mobile_group_list_item_selected_style.clone(),
-                            base_style: style.mobile_group_list_item_style.clone(),
-                        }),
-                    }].into());
+                    item = item.with_callbacks(
+                        vec![CoreCallbackData {
+                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                            callback: CoreCallback {
+                                cb: on_ribbon_mobile_group_click as usize,
+                                ctx: azul_core::refany::OptionRefAny::None,
+                            },
+                            refany: RefAny::new(GroupListClickData {
+                                group_idx: idx,
+                                selected_style: style.mobile_group_list_item_selected_style.clone(),
+                                base_style: style.mobile_group_list_item_style.clone(),
+                            }),
+                        }]
+                        .into(),
+                    );
                 }
                 item
             })
@@ -2241,7 +2590,9 @@ impl Ribbon {
             ],
             RibbonChromeMode::Desktop => {
                 let mut tab_bar = tab_bar;
-                tab_bar.root.upsert_inline_css_property(P::const_display(LayoutDisplay::Flex));
+                tab_bar
+                    .root
+                    .upsert_inline_css_property(P::const_display(LayoutDisplay::Flex));
                 vec![tab_bar, content]
             }
             RibbonChromeMode::Mobile => {
@@ -2283,7 +2634,9 @@ impl Ribbon {
         // when a chrome behavior is active - an inert ribbon has no chrome
         // state to persist (and `Dom` equality stays meaningful for it).
         if behavior.collapsible || behavior.peek_on_hover {
-            container.root.set_dataset(azul_core::refany::OptionRefAny::Some(chrome));
+            container
+                .root
+                .set_dataset(azul_core::refany::OptionRefAny::Some(chrome));
             // The `as` is NOT trivial: it coerces the fn ITEM to a fn POINTER,
             // which is what `DatasetMergeCallback: From<...>` is implemented for.
             // Dropping it fails to satisfy the bound.
@@ -2336,7 +2689,11 @@ fn styled_button(
 }
 
 fn expand_ribbon_button(rb: RibbonButton, large: bool, s: &RibbonStyle) -> Dom {
-    let base = if large { &s.large_button_style } else { &s.small_button_style };
+    let base = if large {
+        &s.large_button_style
+    } else {
+        &s.small_button_style
+    };
     let container = if rb.toggled {
         merged_style(base, &s.checked_style)
     } else {
@@ -2413,7 +2770,12 @@ static GROUP_FILL_STYLE: &[Cond] = &[
 ];
 
 fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
-    let RibbonGroup { label, items, launcher, fills_space } = group;
+    let RibbonGroup {
+        label,
+        items,
+        launcher,
+        fills_space,
+    } = group;
 
     let item_doms: Vec<Dom> = items
         .into_library_owned_vec()
@@ -2440,7 +2802,9 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
         crate::widgets::widget_p()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GROUP_LABEL))
             .with_css_props(s.group_label_style.clone())
-            .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label)])),
+            .with_children(DomVec::from_vec(vec![
+                Dom::create_text_do_not_use_without_block_level_wrapper(label),
+            ])),
     );
     if let Some(l) = launcher.into_option() {
         footer_children.push(styled_button(
@@ -2475,7 +2839,11 @@ fn group_dom(group: RibbonGroup, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
 }
 
 fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Dom {
-    let RibbonGallery { cells, selected, on_select } = gallery;
+    let RibbonGallery {
+        cells,
+        selected,
+        on_select,
+    } = gallery;
     let has_callback = on_select.is_some();
     let cells = cells.into_library_owned_vec();
 
@@ -2494,27 +2862,32 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
             };
             let label = crate::widgets::widget_p()
                 .with_css_props(s.gallery_cell_label_style.clone())
-                .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(cell.label.clone())]));
+                .with_children(DomVec::from_vec(vec![
+                    Dom::create_text_do_not_use_without_block_level_wrapper(cell.label.clone()),
+                ]));
             let mut d = Dom::create_div()
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(classes))
                 .with_css_props(cell_style)
                 .with_children(DomVec::from_vec(vec![cell.preview.clone(), label]));
             if has_callback || b.auto_select_gallery {
-                d = d.with_callbacks(vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                    callback: CoreCallback {
-                        cb: on_ribbon_gallery_cell_click as usize,
-                        ctx: azul_core::refany::OptionRefAny::None,
-                    },
-                    refany: RefAny::new(GalleryCellClickData {
-                        cell_idx: idx,
-                        on_select: on_select.clone(),
-                        auto_select: b.auto_select_gallery,
-                        in_panel,
-                        selected_style: s.gallery_cell_selected_style.clone(),
-                        base_style: s.gallery_cell_style.clone(),
-                    }),
-                }].into());
+                d = d.with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        callback: CoreCallback {
+                            cb: on_ribbon_gallery_cell_click as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(GalleryCellClickData {
+                            cell_idx: idx,
+                            on_select: on_select.clone(),
+                            auto_select: b.auto_select_gallery,
+                            in_panel,
+                            selected_style: s.gallery_cell_selected_style.clone(),
+                            base_style: s.gallery_cell_style.clone(),
+                        }),
+                    }]
+                    .into(),
+                );
             }
             out.push(d);
         }
@@ -2545,16 +2918,18 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
             );
             // The third button is "More": it expands the panel.
             if i == 2 && b.expandable_gallery {
-                btn = btn
-                    .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_MORE));
-                btn = btn.with_callbacks(vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                    callback: CoreCallback {
-                        cb: on_ribbon_gallery_more_click as usize,
-                        ctx: azul_core::refany::OptionRefAny::None,
-                    },
-                    refany: RefAny::new(GalleryMoreData { open: false }),
-                }].into());
+                btn = btn.with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_MORE));
+                btn = btn.with_callbacks(
+                    vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        callback: CoreCallback {
+                            cb: on_ribbon_gallery_more_click as usize,
+                            ctx: azul_core::refany::OptionRefAny::None,
+                        },
+                        refany: RefAny::new(GalleryMoreData { open: false }),
+                    }]
+                    .into(),
+                );
             }
             btn
         })
@@ -2668,9 +3043,10 @@ extern "C" fn on_ribbon_mobile_group_click(mut refany: RefAny, mut info: Callbac
                         continue;
                     }
                     let ty = prop.property.get_type();
-                    let in_base = base_style.as_ref().iter().any(|b| {
-                        b.apply_if.as_ref().is_empty() && b.property.get_type() == ty
-                    });
+                    let in_base = base_style
+                        .as_ref()
+                        .iter()
+                        .any(|b| b.apply_if.as_ref().is_empty() && b.property.get_type() == ty);
                     if !in_base {
                         info.set_css_property(entry, props::property::CssProperty::initial(ty));
                     }
@@ -2704,9 +3080,7 @@ extern "C" fn on_ribbon_tab_click(mut refany: RefAny, info: CallbackInfo) -> Upd
     };
     let idx = data.tab_idx;
     match data.on_tab_click.as_mut() {
-        Some(RibbonOnTabClick { refany, callback }) => {
-            (callback.cb)(refany.clone(), info, idx)
-        }
+        Some(RibbonOnTabClick { refany, callback }) => (callback.cb)(refany.clone(), info, idx),
         None => Update::DoNothing,
     }
 }
@@ -2816,7 +3190,11 @@ extern "C" fn on_ribbon_mobile_tab_click(mut refany: RefAny, mut info: CallbackI
     drop(data);
     info.set_css_property(
         overlay,
-        P::const_display(if open { LayoutDisplay::Flex } else { LayoutDisplay::None }),
+        P::const_display(if open {
+            LayoutDisplay::Flex
+        } else {
+            LayoutDisplay::None
+        }),
     );
     Update::DoNothing
 }
@@ -2833,11 +3211,7 @@ struct GalleryMoreData {
 /// the ribbon's handlers locate their targets by CLASS rather than by
 /// counting `get_parent` hops - the same identifiers the public CSS API is
 /// built on. The walk is bounded so a malformed tree cannot spin.
-fn ancestor_with_class(
-    info: &CallbackInfo,
-    start: DomNodeId,
-    class: &str,
-) -> Option<DomNodeId> {
+fn ancestor_with_class(info: &CallbackInfo, start: DomNodeId, class: &str) -> Option<DomNodeId> {
     let mut current = Some(start);
     for _ in 0..16 {
         let node = current?;
@@ -2858,11 +3232,7 @@ fn ancestor_with_class(
 /// bounded to 64 visited nodes. The ribbon's structural chromes nest parts
 /// at different depths (the mobile band wraps group list + content), so
 /// class resolution must not assume direct children.
-fn descendant_with_class(
-    info: &CallbackInfo,
-    root: DomNodeId,
-    class: &str,
-) -> Option<DomNodeId> {
+fn descendant_with_class(info: &CallbackInfo, root: DomNodeId, class: &str) -> Option<DomNodeId> {
     let mut queue: Vec<DomNodeId> = Vec::with_capacity(8);
     let mut child = info.get_first_child(root);
     while let Some(n) = child {
@@ -2949,7 +3319,11 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
         if let Some(strip) = info.get_parent(cell) {
             let mut sibling = info.get_first_child(strip);
             while let Some(cell_node) = sibling {
-                let style = if cell_node == cell { &selected_style } else { &base_style };
+                let style = if cell_node == cell {
+                    &selected_style
+                } else {
+                    &base_style
+                };
                 for prop in style.as_ref() {
                     if prop.apply_if.as_ref().is_empty() {
                         info.set_css_property(cell_node, prop.property.clone());
@@ -2967,15 +3341,15 @@ extern "C" fn on_ribbon_gallery_cell_click(mut refany: RefAny, mut info: Callbac
     }
 
     match user.into_option() {
-        Some(RibbonGalleryOnSelect { refany, callback }) => {
-            (callback.cb)(refany, info, idx)
-        }
+        Some(RibbonGalleryOnSelect { refany, callback }) => (callback.cb)(refany, info, idx),
         None => Update::DoNothing,
     }
 }
 
 impl From<Ribbon> for Dom {
-    fn from(r: Ribbon) -> Self { r.dom() }
+    fn from(r: Ribbon) -> Self {
+        r.dom()
+    }
 }
 
 #[cfg(test)]
@@ -3043,10 +3417,7 @@ mod tests {
     /// gallery, launcher) and flags every Text node under a non-P parent.
     #[test]
     fn every_ribbon_label_is_block_formatted_no_raw_text_children() {
-        extern "C" fn noop_launcher_click(
-            _data: RefAny,
-            _info: CallbackInfo,
-        ) -> Update {
+        extern "C" fn noop_launcher_click(_data: RefAny, _info: CallbackInfo) -> Update {
             Update::DoNothing
         }
         fn walk(node: &Dom, parent_is_p: bool, bad: &mut Vec<String>) {
@@ -3062,12 +3433,10 @@ mod tests {
                 walk(c, is_p, bad);
             }
         }
-        let cells = vec![
-            RibbonGalleryCell::new(
-                Dom::create_div(), // user preview content — exempt from the convention
-                "Style 0".into(),
-            ),
-        ];
+        let cells = vec![RibbonGalleryCell::new(
+            Dom::create_div(), // user preview content — exempt from the convention
+            "Style 0".into(),
+        )];
         let tab = RibbonTab::new("HOME".into())
             .with_group(
                 RibbonGroup::new("Clipboard".into())
@@ -3307,8 +3676,15 @@ mod tests {
 
         let (bar, content) = parts(&dom);
         assert!(has_class(bar, "__azul-native-ribbon-tabbar"));
-        assert_eq!(bar.children.as_ref().len(), 1, "empty ribbon bar = filler only");
-        assert!(has_class(&bar.children.as_ref()[0], "__azul-native-ribbon-tab-filler"));
+        assert_eq!(
+            bar.children.as_ref().len(),
+            1,
+            "empty ribbon bar = filler only"
+        );
+        assert!(has_class(
+            &bar.children.as_ref()[0],
+            "__azul-native-ribbon-tab-filler"
+        ));
         assert!(content.children.as_ref().is_empty());
     }
 
@@ -3339,7 +3715,10 @@ mod tests {
         assert!(has_class(&ch[2], "__azul-native-ribbon-mobile-band"));
         let band = ch[2].children.as_ref();
         assert_eq!(band.len(), 2, "band = [group list, content] side by side");
-        assert!(has_class(&band[0], "__azul-native-ribbon-mobile-group-list"));
+        assert!(has_class(
+            &band[0],
+            "__azul-native-ribbon-mobile-group-list"
+        ));
         assert!(has_class(&band[1], "__azul-native-ribbon-content"));
 
         // Exactly the FIRST group is visible; the others carry an appended
@@ -3371,7 +3750,11 @@ mod tests {
 
         // Every group-list entry carries the swap callback.
         for item in ch[2].children.as_ref()[0].children.as_ref() {
-            assert_eq!(item.root.callbacks.as_ref().len(), 1, "group-list entry has the swap callback");
+            assert_eq!(
+                item.root.callbacks.as_ref().len(),
+                1,
+                "group-list entry has the swap callback"
+            );
         }
     }
 
@@ -3438,7 +3821,10 @@ mod tests {
     #[test]
     fn dom_gives_every_tab_a_mouseup_callback_with_its_own_index() {
         let dom = Ribbon::new(tabs(5))
-            .with_on_tab_click(RefAny::new(IndexLog { seen: Vec::new() }), record_index as RibbonOnTabClickCallbackType)
+            .with_on_tab_click(
+                RefAny::new(IndexLog { seen: Vec::new() }),
+                record_index as RibbonOnTabClickCallbackType,
+            )
             .dom();
         let (bar, _) = parts(&dom);
         for (i, tab) in bar.children.as_ref()[..5].iter().enumerate() {
@@ -3457,7 +3843,11 @@ mod tests {
             assert_eq!(data.tab_idx, i);
         }
         // the filler has no callback
-        assert!(bar.children.as_ref()[5].root.get_callbacks().as_ref().is_empty());
+        assert!(bar.children.as_ref()[5]
+            .root
+            .get_callbacks()
+            .as_ref()
+            .is_empty());
     }
 
     #[test]
@@ -3465,8 +3855,10 @@ mod tests {
         extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
             Update::DoNothing
         }
-        let ab = RibbonAppButton::new(AzString::from("FILE"))
-            .with_on_click(RefAny::new(0u8), noop as super::super::button::ButtonOnClickCallbackType);
+        let ab = RibbonAppButton::new(AzString::from("FILE")).with_on_click(
+            RefAny::new(0u8),
+            noop as super::super::button::ButtonOnClickCallbackType,
+        );
         let dom = Ribbon::new(tabs(1)).with_app_button(ab).dom();
         let (bar, _) = parts(&dom);
         let cbs = bar.children.as_ref()[0].root.get_callbacks();
@@ -3551,7 +3943,10 @@ mod tests {
         let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
         let (_, content) = parts(&dom);
         assert_eq!(content.children.as_ref().len(), 1);
-        assert!(has_class(&content.children.as_ref()[0], "__azul-native-ribbon-group"));
+        assert!(has_class(
+            &content.children.as_ref()[0],
+            "__azul-native-ribbon-group"
+        ));
 
         let (items, footer) = group_parts(content, 0);
         assert!(has_class(items, "__azul-native-ribbon-group-items"));
@@ -3567,8 +3962,10 @@ mod tests {
         extern "C" fn noop(_: RefAny, _: CallbackInfo) -> Update {
             Update::DoNothing
         }
-        let group = RibbonGroup::new(AzString::from("Font"))
-            .with_launcher(RefAny::new(0u8), noop as super::super::button::ButtonOnClickCallbackType);
+        let group = RibbonGroup::new(AzString::from("Font")).with_launcher(
+            RefAny::new(0u8),
+            noop as super::super::button::ButtonOnClickCallbackType,
+        );
         let tab = RibbonTab::new(AzString::from("HOME")).with_group(group);
         let dom = Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom();
         let (_, content) = parts(&dom);
@@ -3580,7 +3977,10 @@ mod tests {
         assert_eq!(text_of(&ch[1]), Some("Font"));
         // the launcher is a real Button widget with the south_east icon
         assert!(matches!(ch[2].root.get_node_type(), NodeType::Button));
-        assert_eq!(icon_name_of(&ch[2].children.as_ref()[0]), Some("south_east"));
+        assert_eq!(
+            icon_name_of(&ch[2].children.as_ref()[0]),
+            Some("south_east")
+        );
         assert_eq!(ch[2].root.get_callbacks().as_ref().len(), 1);
     }
 
@@ -3607,7 +4007,10 @@ mod tests {
         let node = render_item(RibbonItem::LargeButton(rb));
 
         assert!(matches!(node.root.get_node_type(), NodeType::Button));
-        assert!(has_class(&node, "__azul-native-button"), "reuses the Button widget");
+        assert!(
+            has_class(&node, "__azul-native-button"),
+            "reuses the Button widget"
+        );
         let ch = node.children.as_ref();
         assert_eq!(ch.len(), 3, "[icon, label, arrow]");
         assert_eq!(icon_name_of(&ch[0]), Some("content_paste"));
@@ -3757,7 +4160,12 @@ mod tests {
         );
         let wrapper = render_item(RibbonItem::Gallery(g));
         let frame = &wrapper.children.as_ref()[0];
-        for (i, cell) in frame.children.as_ref()[0].children.as_ref().iter().enumerate() {
+        for (i, cell) in frame.children.as_ref()[0]
+            .children
+            .as_ref()
+            .iter()
+            .enumerate()
+        {
             let cbs = cell.root.get_callbacks();
             assert_eq!(cbs.as_ref().len(), 1);
             let mut payload = cbs.as_ref()[0].refany.clone();
@@ -3851,7 +4259,10 @@ mod tests {
         );
 
         let default = ComboBox::create();
-        assert_ne!(combo.wrapper_style, default.wrapper_style, "wrapper restyled");
+        assert_ne!(
+            combo.wrapper_style, default.wrapper_style,
+            "wrapper restyled"
+        );
         assert_ne!(combo.field_style, default.field_style, "field restyled");
         assert_eq!(combo.combo_state.inner.text.as_str(), "Calibri (Body)");
 
@@ -3874,7 +4285,12 @@ mod tests {
 
     #[test]
     fn from_theme_recolors_the_accent_carrying_parts() {
-        let neon = ColorU { r: 255, g: 0, b: 128, a: 255 };
+        let neon = ColorU {
+            r: 255,
+            g: 0,
+            b: 128,
+            a: 255,
+        };
         let mut theme = RibbonTheme::office_2013();
         theme.accent = neon;
 
@@ -3926,13 +4342,21 @@ mod tests {
         // contract is about a system that reports NO colors at all.
         let mut sys = SystemStyle::default();
         sys.colors = system::SystemColors::default();
-        assert_eq!(RibbonTheme::from_system(sys.clone()), RibbonTheme::office_2013());
+        assert_eq!(
+            RibbonTheme::from_system(sys.clone()),
+            RibbonTheme::office_2013()
+        );
         assert_eq!(RibbonStyle::from_system(sys), RibbonStyle::office_2013());
     }
 
     #[test]
     fn from_system_extracts_reported_colors_and_falls_back_for_the_rest() {
-        let reported = ColorU { r: 9, g: 99, b: 199, a: 255 };
+        let reported = ColorU {
+            r: 9,
+            g: 99,
+            b: 199,
+            a: 255,
+        };
         let mut sys = SystemStyle::default();
         sys.colors.accent = Some(reported).into();
 
@@ -3957,7 +4381,9 @@ mod tests {
         assert!(w.collapsible && w.peek_on_hover && w.auto_select_gallery && w.expandable_gallery);
         assert!(w.mobile_tab_overlay);
         let i = RibbonBehavior::inert();
-        assert!(!i.collapsible && !i.peek_on_hover && !i.auto_select_gallery && !i.expandable_gallery);
+        assert!(
+            !i.collapsible && !i.peek_on_hover && !i.auto_select_gallery && !i.expandable_gallery
+        );
         assert!(!i.mobile_tab_overlay);
         assert_eq!(Ribbon::new(tabs(1)).behavior, RibbonBehavior::office_2013());
     }
@@ -4012,7 +4438,10 @@ mod tests {
             .iter()
             .map(|c| c.event)
             .collect();
-        assert_eq!(events, vec![EventFilter::Hover(HoverEventFilter::DoubleClick)]);
+        assert_eq!(
+            events,
+            vec![EventFilter::Hover(HoverEventFilter::DoubleClick)]
+        );
     }
 
     #[test]
@@ -4031,7 +4460,11 @@ mod tests {
             CssProperty::Display(d) => d.get_property().copied(),
             _ => None,
         });
-        assert_eq!(display, Some(LayoutDisplay::None), "the panel starts hidden");
+        assert_eq!(
+            display,
+            Some(LayoutDisplay::None),
+            "the panel starts hidden"
+        );
 
         // The third spinner button is the "More" toggle.
         let spinner = &ch[0].children.as_ref()[1];
@@ -4142,9 +4575,9 @@ mod tests {
             .as_ref()
             .iter()
             .filter_map(|c| match &c.property {
-                CssProperty::Display(d) => {
-                    d.get_property().map(|d| (d, !c.apply_if.as_ref().is_empty()))
-                }
+                CssProperty::Display(d) => d
+                    .get_property()
+                    .map(|d| (d, !c.apply_if.as_ref().is_empty())),
                 _ => None,
             })
             .collect();
@@ -4156,7 +4589,10 @@ mod tests {
         assert_eq!(*displays[0].0, LayoutDisplay::Flex);
         assert!(!displays[0].1, "the desktop value is unconditional");
         assert_eq!(*displays[1].0, LayoutDisplay::None);
-        assert!(displays[1].1, "the mobile value is conditional and comes last");
+        assert!(
+            displays[1].1,
+            "the mobile value is conditional and comes last"
+        );
 
         // ...and the mobile button is the mirror image.
         let mobile: Vec<(&LayoutDisplay, bool)> = s
@@ -4164,9 +4600,9 @@ mod tests {
             .as_ref()
             .iter()
             .filter_map(|c| match &c.property {
-                CssProperty::Display(d) => {
-                    d.get_property().map(|d| (d, !c.apply_if.as_ref().is_empty()))
-                }
+                CssProperty::Display(d) => d
+                    .get_property()
+                    .map(|d| (d, !c.apply_if.as_ref().is_empty())),
                 _ => None,
             })
             .collect();
@@ -4179,8 +4615,10 @@ mod tests {
     /// independent of text direction, so it is its own system setting.
     #[test]
     fn handedness_flips_the_mobile_group_list_divider() {
-        let right = RibbonStyle::from_theme_handed(RibbonTheme::office_2013(), Handedness::RightHanded);
-        let left = RibbonStyle::from_theme_handed(RibbonTheme::office_2013(), Handedness::LeftHanded);
+        let right =
+            RibbonStyle::from_theme_handed(RibbonTheme::office_2013(), Handedness::RightHanded);
+        let left =
+            RibbonStyle::from_theme_handed(RibbonTheme::office_2013(), Handedness::LeftHanded);
         assert_ne!(right.mobile_group_list_style, left.mobile_group_list_style);
 
         let has = |s: &CssPropertyWithConditionsVec, want_left: bool| {
@@ -4192,10 +4630,14 @@ mod tests {
                 }
             })
         };
-        assert!(has(&right.mobile_group_list_style, true),
-            "a right-handed list sits at the right edge, so its divider is on its LEFT");
-        assert!(has(&left.mobile_group_list_style, false),
-            "a left-handed list sits at the left edge, so its divider is on its RIGHT");
+        assert!(
+            has(&right.mobile_group_list_style, true),
+            "a right-handed list sits at the right edge, so its divider is on its LEFT"
+        );
+        assert!(
+            has(&left.mobile_group_list_style, false),
+            "a left-handed list sits at the left edge, so its divider is on its RIGHT"
+        );
     }
 
     #[test]
@@ -4203,11 +4645,12 @@ mod tests {
         let mut sys = SystemStyle::default();
         sys.handedness = Handedness::LeftHanded;
         let from_sys = RibbonStyle::from_system(sys.clone());
-        let expected = RibbonStyle::from_theme_handed(
-            RibbonTheme::from_system(sys),
-            Handedness::LeftHanded,
+        let expected =
+            RibbonStyle::from_theme_handed(RibbonTheme::from_system(sys), Handedness::LeftHanded);
+        assert_eq!(
+            from_sys.mobile_group_list_style,
+            expected.mobile_group_list_style
         );
-        assert_eq!(from_sys.mobile_group_list_style, expected.mobile_group_list_style);
     }
 
     #[test]
@@ -4226,7 +4669,12 @@ mod tests {
 
     #[test]
     fn styled_combo_box_follows_the_style_bundles_theme() {
-        let neon = ColorU { r: 1, g: 2, b: 3, a: 255 };
+        let neon = ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 255,
+        };
         let mut theme = RibbonTheme::office_2013();
         theme.field_border = neon;
 
@@ -4244,6 +4692,9 @@ mod tests {
                 _ => None,
             })
             .expect("combo field declares a border color");
-        assert_eq!(border_color.inner, neon, "combo field border follows the theme");
+        assert_eq!(
+            border_color.inner, neon,
+            "combo field border follows the theme"
+        );
     }
 }

@@ -1,16 +1,17 @@
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use super::*;
 
-use std::collections::HashMap;
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::RendererResources;
-use azul_css::props::basic::{ColorU, FontRef};
-use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-use azul_css::props::style::filter::StyleFilter;
+use crate::glyph_cache::GlyphCache;
 use agg_rust::blur::stack_blur_rgba32;
 use agg_rust::rendering_buffer::RowAccessor;
 use agg_rust::trans_affine::TransAffine;
-use crate::glyph_cache::GlyphCache;
+use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+use azul_core::resources::RendererResources;
+use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+use azul_css::props::basic::{ColorU, FontRef};
+use azul_css::props::style::filter::StyleFilter;
+use std::collections::HashMap;
 
 /// A row-major 3x3 matrix over column vectors `[x; y; 1]`:
 /// `x' = (m0 x + m1 y + m2) / w`, `y' = (m3 x + m4 y + m5) / w`,
@@ -43,7 +44,12 @@ pub const fn mat3_translation(tx: f64, ty: f64) -> Mat3 {
 /// Is the third row the trivial `[0 0 1]` (no perspective)?
 #[must_use]
 pub const fn mat3_is_affine(m: &Mat3) -> bool {
-    m[6] > -1e-12 && m[6] < 1e-12 && m[7] > -1e-12 && m[7] < 1e-12 && m[8] > 1.0 - 1e-9 && m[8] < 1.0 + 1e-9
+    m[6] > -1e-12
+        && m[6] < 1e-12
+        && m[7] > -1e-12
+        && m[7] < 1e-12
+        && m[8] > 1.0 - 1e-9
+        && m[8] < 1.0 + 1e-9
 }
 
 /// The affine part as agg's `TransAffine` (exact when [`mat3_is_affine`]).
@@ -56,7 +62,6 @@ use crate::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, L
 use crate::text3::cache::FontManager;
 
 const IDENTITY_EPSILON: f32 = 0.0001;
-
 
 // ============================================================================
 // Retained-Mode Compositor — Layer Tree
@@ -225,8 +230,7 @@ fn report_impossible_layer_size(
     debug_assert!(
         false,
         "compositor: layer for node {node:?} at {}x{} logical (dpi {dpi_factor}) is {why}",
-        size.width,
-        size.height,
+        size.width, size.height,
     );
 }
 
@@ -236,7 +240,11 @@ fn report_impossible_layer_size(
 ///
 /// The backdrop a plain child layer is
 /// seeded with (see `render_layers`).
-#[allow(clippy::cast_sign_loss, clippy::cast_possible_wrap, clippy::cast_possible_truncation)] // bounded pixel/coord cast
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_possible_truncation
+)] // bounded pixel/coord cast
 fn backdrop_under(parent: &AzulPixmap, ox: i32, oy: i32, w: u32, h: u32) -> Vec<u8> {
     let mut out = vec![0u8; (w as usize) * (h as usize) * 4];
     let pw = parent.width as i32;
@@ -296,7 +304,8 @@ fn intersect_logical_rects(a: LogicalRect, b: LogicalRect) -> LogicalRect {
 impl CompositorState {
     /// Create a new compositor with a root layer sized to the viewport.
     #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
-    #[must_use] pub fn new(width: u32, height: u32) -> Self {
+    #[must_use]
+    pub fn new(width: u32, height: u32) -> Self {
         let root_id = LayerId(0);
         // The ROOT layer is the canvas: start it OPAQUE WHITE (the base a
         // full repaint clears to), never zeroed transparent black. The
@@ -338,7 +347,8 @@ impl CompositorState {
     }
 
     /// Read-only peek at the next layer ID counter (for leak probes).
-    #[must_use] pub const fn next_layer_id_peek(&self) -> u64 {
+    #[must_use]
+    pub const fn next_layer_id_peek(&self) -> u64 {
         self.next_layer_id
     }
 
@@ -394,11 +404,13 @@ impl CompositorState {
                     ..
                 } => {
                     let bounds = *clip_bounds.inner();
-                    let (pw, ph) = layer_pixel_size(bounds.size, dpi_factor, node_of(display_list, i));
+                    let (pw, ph) =
+                        layer_pixel_size(bounds.size, dpi_factor, node_of(display_list, i));
                     if pw > 0 && ph > 0 {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, bounds, pw, ph);
-                        layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
+                        layer.static_clip =
+                            clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.scroll_id = Some(*scroll_id);
                         // Find the matching PopScrollFrame to set range
                         let end = find_matching_pop(&display_list.items, i, MatchKind::ScrollFrame);
@@ -417,7 +429,11 @@ impl CompositorState {
                         layer_stack.pop();
                     }
                 }
-                DisplayListItem::PushOpacity { bounds, opacity, opacity_key } => {
+                DisplayListItem::PushOpacity {
+                    bounds,
+                    opacity,
+                    opacity_key,
+                } => {
                     // The LIVE value wins over the baked one — an enter/exit
                     // fade republishes its opacity every tick without the list
                     // being rebuilt, exactly like animated transforms. The
@@ -433,7 +449,8 @@ impl CompositorState {
                     if promote {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
-                        layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
+                        layer.static_clip =
+                            clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.opacity = effective;
                         let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
                         layer.display_list_range = (i + 1, end);
@@ -459,11 +476,13 @@ impl CompositorState {
                     let has_blur = filters.iter().any(|f| matches!(f, StyleFilter::Blur(_)));
                     if has_blur {
                         let b = *bounds.inner();
-                        let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
+                        let (pw, ph) =
+                            layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
                         if pw > 0 && ph > 0 {
                             let new_id = self.alloc_layer_id();
                             let mut layer = Layer::new(new_id, b, pw, ph);
-                        layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
+                            layer.static_clip =
+                                clip_stack.iter().copied().reduce(intersect_logical_rects);
                             layer.filters.clone_from(filters);
                             let end = find_matching_pop(&display_list.items, i, MatchKind::Filter);
                             layer.display_list_range = (i + 1, end);
@@ -514,11 +533,13 @@ impl CompositorState {
                     ref_frame_promoted.push(!is_identity);
                     if !is_identity {
                         let b = *bounds.inner();
-                        let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
+                        let (pw, ph) =
+                            layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
                         let (pw, ph) = (pw.max(1), ph.max(1));
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
-                        layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
+                        layer.static_clip =
+                            clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.transform = TransAffine::new_custom(
                             f64::from(m[0][0]),
                             f64::from(m[0][1]),
@@ -565,7 +586,8 @@ impl CompositorState {
                     if pw > 0 && ph > 0 && !filters.is_empty() {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
-                        layer.static_clip = clip_stack.iter().copied().reduce(intersect_logical_rects);
+                        layer.static_clip =
+                            clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.filters.clone_from(filters);
                         layer.is_backdrop_filter = true;
                         // The layer's OWN content may be empty (e.g. an empty
@@ -718,7 +740,13 @@ impl CompositorState {
                     .iter()
                     .filter_map(|cid| self.layers.get(cid).map(|c| c.display_list_range))
                     .collect();
-                (*id, layer.display_list_range, layer.bounds, layer.scroll_id, child_ranges)
+                (
+                    *id,
+                    layer.display_list_range,
+                    layer.bounds,
+                    layer.scroll_id,
+                    child_ranges,
+                )
             })
             .collect();
 
@@ -946,7 +974,9 @@ impl CompositorState {
                         (f64::from(sc.origin.x + sc.size.width) * dpi + pm.tx).round() as i32,
                         (f64::from(sc.origin.y + sc.size.height) * dpi + pm.ty).round() as i32,
                     );
-                    Some(clip.map_or(r, |c| (c.0.max(r.0), c.1.max(r.1), c.2.min(r.2), c.3.min(r.3))))
+                    Some(clip.map_or(r, |c| {
+                        (c.0.max(r.0), c.1.max(r.1), c.2.min(r.2), c.3.min(r.3))
+                    }))
                 } else {
                     clip
                 }
@@ -988,9 +1018,7 @@ impl CompositorState {
             };
             apply_layer_filters(&mut backdrop, &layer.filters, dpi_factor);
             write_region(output, &backdrop.data, w, h, px_x, px_y);
-            blit_pixmap_clipped(
-                &layer.pixbuf, output, px_x, px_y, layer.opacity, clip,
-            );
+            blit_pixmap_clipped(&layer.pixbuf, output, px_x, px_y, layer.opacity, clip);
         } else {
             // Apply filters at composite time (to the layer's own content).
             let src = if layer.filters.is_empty() {
@@ -1003,17 +1031,11 @@ impl CompositorState {
 
             let src_pixbuf = src.as_ref().unwrap_or(&layer.pixbuf);
             if is_pure_translation {
-                blit_pixmap_clipped(
-                    src_pixbuf, output, px_x, px_y, layer.opacity, clip,
-                );
+                blit_pixmap_clipped(src_pixbuf, output, px_x, px_y, layer.opacity, clip);
             } else if is_affine {
-                blit_pixmap_affine_clipped(
-                    src_pixbuf, output, &this_m, layer.opacity, clip,
-                );
+                blit_pixmap_affine_clipped(src_pixbuf, output, &this_m, layer.opacity, clip);
             } else {
-                blit_pixmap_projective_clipped(
-                    src_pixbuf, output, &this_h, layer.opacity, clip,
-                );
+                blit_pixmap_projective_clipped(src_pixbuf, output, &this_h, layer.opacity, clip);
             }
         }
 
@@ -1047,20 +1069,20 @@ impl CompositorState {
         // pure-translation path — scroll frames are never transformed in
         // practice, and an approximate tightening under a live transform
         // would clip wrongly rather than loosely.
-        let child_clip = if layer_id != self.root_layer
-            && layer.scroll_id.is_some()
-            && is_pure_translation
-        {
-            let r = (
-                px_x,
-                px_y,
-                px_x.saturating_add(layer.pixbuf.width as i32),
-                px_y.saturating_add(layer.pixbuf.height as i32),
-            );
-            Some(clip.map_or(r, |c| (c.0.max(r.0), c.1.max(r.1), c.2.min(r.2), c.3.min(r.3))))
-        } else {
-            clip
-        };
+        let child_clip =
+            if layer_id != self.root_layer && layer.scroll_id.is_some() && is_pure_translation {
+                let r = (
+                    px_x,
+                    px_y,
+                    px_x.saturating_add(layer.pixbuf.width as i32),
+                    px_y.saturating_add(layer.pixbuf.height as i32),
+                );
+                Some(clip.map_or(r, |c| {
+                    (c.0.max(r.0), c.1.max(r.1), c.2.min(r.2), c.3.min(r.3))
+                }))
+            } else {
+                clip
+            };
         for child_id in &children {
             self.composite_layer_recursive(*child_id, output, child_base, child_clip, dpi_factor);
         }
@@ -1348,7 +1370,11 @@ fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalR
 /// not opaque over its clip can drag whatever showed through. Real scroll
 /// containers paint an opaque background or fully cover their box, so this is a
 /// known, documented limitation rather than a correctness bug for the common case.
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss
+)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 pub fn scroll_shift_region(
     pixmap: &mut AzulPixmap,
@@ -1357,7 +1383,15 @@ pub fn scroll_shift_region(
     new_offset: (f32, f32),
     dpi_factor: f32,
 ) -> Vec<LogicalRect> {
-    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, false, false)
+    scroll_shift_region_impl(
+        pixmap,
+        clip_bounds,
+        delta,
+        new_offset,
+        dpi_factor,
+        false,
+        false,
+    )
 }
 
 /// [`scroll_shift_region`] for a NATIVE target in POOL byte order (#32
@@ -1373,7 +1407,15 @@ pub fn scroll_shift_region_pool_order(
     new_offset: (f32, f32),
     dpi_factor: f32,
 ) -> Vec<LogicalRect> {
-    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, false, true)
+    scroll_shift_region_impl(
+        pixmap,
+        clip_bounds,
+        delta,
+        new_offset,
+        dpi_factor,
+        false,
+        true,
+    )
 }
 
 /// [`scroll_shift_region`] with EXACT strips (no 1-px over-cover). The
@@ -1389,7 +1431,15 @@ pub fn scroll_shift_region_exact(
     new_offset: (f32, f32),
     dpi_factor: f32,
 ) -> Vec<LogicalRect> {
-    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, true, false)
+    scroll_shift_region_impl(
+        pixmap,
+        clip_bounds,
+        delta,
+        new_offset,
+        dpi_factor,
+        true,
+        false,
+    )
 }
 
 /// [`scroll_shift_region_exact`] for a pool-order native target — see
@@ -1401,7 +1451,15 @@ pub fn scroll_shift_region_exact_pool_order(
     new_offset: (f32, f32),
     dpi_factor: f32,
 ) -> Vec<LogicalRect> {
-    scroll_shift_region_impl(pixmap, clip_bounds, delta, new_offset, dpi_factor, true, true)
+    scroll_shift_region_impl(
+        pixmap,
+        clip_bounds,
+        delta,
+        new_offset,
+        dpi_factor,
+        true,
+        true,
+    )
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1437,8 +1495,8 @@ fn scroll_shift_region_impl(
     // Clip rectangle in physical pixels, clamped to the pixmap.
     let cx0 = ((clip_bounds.origin.x * dpi_factor).floor() as i32).clamp(0, pw);
     let cy0 = ((clip_bounds.origin.y * dpi_factor).floor() as i32).clamp(0, ph);
-    let cx1 = (((clip_bounds.origin.x + clip_bounds.size.width) * dpi_factor).ceil() as i32)
-        .clamp(0, pw);
+    let cx1 =
+        (((clip_bounds.origin.x + clip_bounds.size.width) * dpi_factor).ceil() as i32).clamp(0, pw);
     let cy1 = (((clip_bounds.origin.y + clip_bounds.size.height) * dpi_factor).ceil() as i32)
         .clamp(0, ph);
     let region_w = cx1 - cx0;
@@ -1513,7 +1571,10 @@ fn scroll_shift_region_impl(
         };
         exposed.push(LogicalRect {
             origin: LogicalPosition { x: cbx, y },
-            size: LogicalSize { width: cbw, height: h },
+            size: LogicalSize {
+                width: cbw,
+                height: h,
+            },
         });
     }
     if px_dx != 0 {
@@ -1529,7 +1590,10 @@ fn scroll_shift_region_impl(
         };
         exposed.push(LogicalRect {
             origin: LogicalPosition { x, y: cby },
-            size: LogicalSize { width: w, height: cbh },
+            size: LogicalSize {
+                width: w,
+                height: cbh,
+            },
         });
     }
     exposed
@@ -1674,8 +1738,10 @@ fn shift_diagonal_2d(
 /// nothing-but-the-clear-color is always eligible (no backdrop to drag).
 /// Returns `true` when there is no such frame (nothing to do).
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-#[must_use] pub fn scroll_fast_path_eligible(
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[must_use]
+pub fn scroll_fast_path_eligible(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,
     clip_bounds: &LogicalRect,
@@ -1768,9 +1834,11 @@ fn shift_diagonal_2d(
             continue; // negligible — thin border / small decoration
         }
         match it {
-            DisplayListItem::Rect { color, border_radius, .. }
-                if color.a == 255 && border_radius.is_zero() =>
-            {
+            DisplayListItem::Rect {
+                color,
+                border_radius,
+                ..
+            } if color.a == 255 && border_radius.is_zero() => {
                 match backdrop_color {
                     None => backdrop_color = Some(*color),
                     Some(prev) if prev == *color => {}
@@ -1783,7 +1851,7 @@ fn shift_diagonal_2d(
             | DisplayListItem::LinearGradient { .. }
             | DisplayListItem::RadialGradient { .. }
             | DisplayListItem::ConicGradient { .. } => return false, // non-uniform fill
-            _ => {} // border/text/shadow/scrollbar etc. — negligible
+            _ => {}                            // border/text/shadow/scrollbar etc. — negligible
         }
     }
     if backdrop_fills.is_empty() {
@@ -1815,7 +1883,8 @@ pub struct GpuValueDamage {
 /// (missed damage); with it, an idle window reaches `FrameDamage::None` even
 /// with scrollbars present.
 #[allow(clippy::implicit_hasher)] // internal call sites all use std hasher
-#[must_use] pub fn gpu_value_damage(
+#[must_use]
+pub fn gpu_value_damage(
     display_list: &DisplayList,
     old_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
     old_opacities: &HashMap<usize, f32>,
@@ -1993,7 +2062,8 @@ pub struct GpuValueDamage {
 /// every scroll container), the caller adds these rects to the damage set so
 /// the dragged pixels are simply repainted after the shift.
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-#[must_use] pub fn overlay_rects_after_frame(
+#[must_use]
+pub fn overlay_rects_after_frame(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,
     clip_bounds: &LogicalRect,
@@ -2058,10 +2128,12 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
     let x1 = x0 + target.size.width;
     let y1 = y0 + target.size.height;
     let mut y = y0 + step * 0.5;
-    #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
+    #[allow(clippy::while_float)]
+    // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
     while y < y1 {
         let mut x = x0 + step * 0.5;
-        #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
+        #[allow(clippy::while_float)]
+        // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
         while x < x1 {
             let inside = covers.iter().any(|r| {
                 x >= r.origin.x
@@ -2081,7 +2153,11 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
 
 /// Apply CSS filters to a pixbuf at composite time.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn apply_layer_filters(pixmap: &mut AzulPixmap, filters: &[StyleFilter], dpi_factor: f32) {
     for filter in filters {
@@ -2475,7 +2551,10 @@ fn windowed_structural_damage(
                     let y1 = (a.origin.y + a.size.height).max(visual.origin.y + visual.size.height);
                     LogicalRect {
                         origin: LogicalPosition { x: x0, y: y0 },
-                        size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+                        size: LogicalSize {
+                            width: x1 - x0,
+                            height: y1 - y0,
+                        },
                     }
                 }
                 None => visual,
@@ -2499,7 +2578,8 @@ fn windowed_structural_damage(
     Some(damage)
 }
 
-#[must_use] pub fn compute_display_list_damage_translated(
+#[must_use]
+pub fn compute_display_list_damage_translated(
     old: &DisplayList,
     new: &DisplayList,
     old_offsets: &ScrollOffsetMap,
@@ -2509,7 +2589,8 @@ fn windowed_structural_damage(
     compute_display_list_damage_impl(old, new, old_offsets, new_offsets, hint)
 }
 
-#[must_use] pub fn compute_display_list_damage(
+#[must_use]
+pub fn compute_display_list_damage(
     old: &DisplayList,
     new: &DisplayList,
     old_offsets: &ScrollOffsetMap,
@@ -2604,25 +2685,29 @@ fn compute_display_list_damage_impl(
             ) = (old_item, new_item)
             {
                 if refine {
-                // Sides have distinct wrapper types; small duplication
-                // (same inner PixelValue) beats a generic bound here.
-                let paints = |w: &crate::solver3::display_list::StyleBorderWidths| {
-                    w.top.as_ref().map_or(0.0, |v| {
-                        v.get_property().map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
-                    }) > 0.0
-                        || w.right.as_ref().map_or(0.0, |v| {
-                            v.get_property().map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
+                    // Sides have distinct wrapper types; small duplication
+                    // (same inner PixelValue) beats a generic bound here.
+                    let paints = |w: &crate::solver3::display_list::StyleBorderWidths| {
+                        w.top.as_ref().map_or(0.0, |v| {
+                            v.get_property()
+                                .map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
                         }) > 0.0
-                        || w.bottom.as_ref().map_or(0.0, |v| {
-                            v.get_property().map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
-                        }) > 0.0
-                        || w.left.as_ref().map_or(0.0, |v| {
-                            v.get_property().map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
-                        }) > 0.0
-                };
-                if !paints(ow) && !paints(nw) {
-                    continue;
-                }
+                            || w.right.as_ref().map_or(0.0, |v| {
+                                v.get_property()
+                                    .map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
+                            }) > 0.0
+                            || w.bottom.as_ref().map_or(0.0, |v| {
+                                v.get_property()
+                                    .map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
+                            }) > 0.0
+                            || w.left.as_ref().map_or(0.0, |v| {
+                                v.get_property()
+                                    .map_or(0.0, |x| x.inner.to_pixels_internal(0.0, 16.0, 16.0))
+                            }) > 0.0
+                    };
+                    if !paints(ow) && !paints(nw) {
+                        continue;
+                    }
                 } else {
                     // fall through to plain damage below
                 }
@@ -2645,87 +2730,125 @@ fn compute_display_list_damage_impl(
             // its clipping; only the delta strips can newly show or hide
             // content. (A moved clip falls through to full old∪new.)
             if let (
-                DisplayListItem::PushClip { bounds: ob, border_radius: obr },
-                DisplayListItem::PushClip { bounds: nb, border_radius: nbr },
+                DisplayListItem::PushClip {
+                    bounds: ob,
+                    border_radius: obr,
+                },
+                DisplayListItem::PushClip {
+                    bounds: nb,
+                    border_radius: nbr,
+                },
             ) = (old_item, new_item)
             {
                 if refine {
-                let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
-                    && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
-                if same_origin && obr == nbr {
-                    let o = ob.0;
-                    let nr = nb.0;
-                    let (wx0, wx1) =
-                        (o.size.width.min(nr.size.width), o.size.width.max(nr.size.width));
-                    if wx1 - wx0 > 0.01 {
-                        damage.push(LogicalRect {
-                            origin: LogicalPosition { x: nr.origin.x + wx0, y: nr.origin.y },
-                            size: LogicalSize {
-                                width: wx1 - wx0,
-                                height: o.size.height.max(nr.size.height),
-                            },
-                        });
+                    let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
+                        && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
+                    if same_origin && obr == nbr {
+                        let o = ob.0;
+                        let nr = nb.0;
+                        let (wx0, wx1) = (
+                            o.size.width.min(nr.size.width),
+                            o.size.width.max(nr.size.width),
+                        );
+                        if wx1 - wx0 > 0.01 {
+                            damage.push(LogicalRect {
+                                origin: LogicalPosition {
+                                    x: nr.origin.x + wx0,
+                                    y: nr.origin.y,
+                                },
+                                size: LogicalSize {
+                                    width: wx1 - wx0,
+                                    height: o.size.height.max(nr.size.height),
+                                },
+                            });
+                        }
+                        let (hy0, hy1) = (
+                            o.size.height.min(nr.size.height),
+                            o.size.height.max(nr.size.height),
+                        );
+                        if hy1 - hy0 > 0.01 {
+                            damage.push(LogicalRect {
+                                origin: LogicalPosition {
+                                    x: nr.origin.x,
+                                    y: nr.origin.y + hy0,
+                                },
+                                size: LogicalSize {
+                                    width: o.size.width.max(nr.size.width),
+                                    height: hy1 - hy0,
+                                },
+                            });
+                        }
+                        continue;
                     }
-                    let (hy0, hy1) =
-                        (o.size.height.min(nr.size.height), o.size.height.max(nr.size.height));
-                    if hy1 - hy0 > 0.01 {
-                        damage.push(LogicalRect {
-                            origin: LogicalPosition { x: nr.origin.x, y: nr.origin.y + hy0 },
-                            size: LogicalSize {
-                                width: o.size.width.max(nr.size.width),
-                                height: hy1 - hy0,
-                            },
-                        });
-                    }
-                    continue;
-                }
                 } else {
                     // plain damage below
                 }
             }
             if let (
-                DisplayListItem::Rect { bounds: ob, color: oc, border_radius: obr },
-                DisplayListItem::Rect { bounds: nb, color: nc, border_radius: nbr },
+                DisplayListItem::Rect {
+                    bounds: ob,
+                    color: oc,
+                    border_radius: obr,
+                },
+                DisplayListItem::Rect {
+                    bounds: nb,
+                    color: nc,
+                    border_radius: nbr,
+                },
             ) = (old_item, new_item)
             {
                 if refine {
-                let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
-                    && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
-                if same_origin && oc == nc && obr == nbr && obr.is_zero() {
-                    let (acc_o, acc_n) = (acc_old, acc_new);
-                    let scrolled = |r: &crate::solver3::display_list::WindowLogicalRect, acc: (f32, f32)| LogicalRect {
-                        origin: LogicalPosition {
-                            x: r.0.origin.x - acc.0,
-                            y: r.0.origin.y - acc.1,
-                        },
-                        size: r.0.size,
-                    };
-                    let o = scrolled(ob, acc_o);
-                    let nr = scrolled(nb, acc_n);
-                    // Horizontal strip (width delta), full height of the taller.
-                    let (wx0, wx1) = (o.size.width.min(nr.size.width), o.size.width.max(nr.size.width));
-                    if wx1 - wx0 > 0.01 {
-                        damage.push(LogicalRect {
-                            origin: LogicalPosition { x: nr.origin.x + wx0, y: nr.origin.y },
-                            size: LogicalSize {
-                                width: wx1 - wx0,
-                                height: o.size.height.max(nr.size.height),
-                            },
-                        });
+                    let same_origin = (ob.0.origin.x - nb.0.origin.x).abs() < 0.01
+                        && (ob.0.origin.y - nb.0.origin.y).abs() < 0.01;
+                    if same_origin && oc == nc && obr == nbr && obr.is_zero() {
+                        let (acc_o, acc_n) = (acc_old, acc_new);
+                        let scrolled =
+                            |r: &crate::solver3::display_list::WindowLogicalRect,
+                             acc: (f32, f32)| LogicalRect {
+                                origin: LogicalPosition {
+                                    x: r.0.origin.x - acc.0,
+                                    y: r.0.origin.y - acc.1,
+                                },
+                                size: r.0.size,
+                            };
+                        let o = scrolled(ob, acc_o);
+                        let nr = scrolled(nb, acc_n);
+                        // Horizontal strip (width delta), full height of the taller.
+                        let (wx0, wx1) = (
+                            o.size.width.min(nr.size.width),
+                            o.size.width.max(nr.size.width),
+                        );
+                        if wx1 - wx0 > 0.01 {
+                            damage.push(LogicalRect {
+                                origin: LogicalPosition {
+                                    x: nr.origin.x + wx0,
+                                    y: nr.origin.y,
+                                },
+                                size: LogicalSize {
+                                    width: wx1 - wx0,
+                                    height: o.size.height.max(nr.size.height),
+                                },
+                            });
+                        }
+                        // Vertical strip (height delta), full width of the wider.
+                        let (hy0, hy1) = (
+                            o.size.height.min(nr.size.height),
+                            o.size.height.max(nr.size.height),
+                        );
+                        if hy1 - hy0 > 0.01 {
+                            damage.push(LogicalRect {
+                                origin: LogicalPosition {
+                                    x: nr.origin.x,
+                                    y: nr.origin.y + hy0,
+                                },
+                                size: LogicalSize {
+                                    width: o.size.width.max(nr.size.width),
+                                    height: hy1 - hy0,
+                                },
+                            });
+                        }
+                        continue;
                     }
-                    // Vertical strip (height delta), full width of the wider.
-                    let (hy0, hy1) = (o.size.height.min(nr.size.height), o.size.height.max(nr.size.height));
-                    if hy1 - hy0 > 0.01 {
-                        damage.push(LogicalRect {
-                            origin: LogicalPosition { x: nr.origin.x, y: nr.origin.y + hy0 },
-                            size: LogicalSize {
-                                width: o.size.width.max(nr.size.width),
-                                height: hy1 - hy0,
-                            },
-                        });
-                    }
-                    continue;
-                }
                 } else {
                     // plain damage below
                 }
@@ -2775,7 +2898,10 @@ fn compute_display_list_damage_impl(
                 0.0
             };
             let inflate = |r: LogicalRect| LogicalRect {
-                origin: LogicalPosition { x: r.origin.x - fringe, y: r.origin.y - fringe },
+                origin: LogicalPosition {
+                    x: r.origin.x - fringe,
+                    y: r.origin.y - fringe,
+                },
                 size: LogicalSize {
                     width: 2.0f32.mul_add(fringe, r.size.width),
                     height: 2.0f32.mul_add(fringe, r.size.height),
@@ -2814,14 +2940,18 @@ fn union_rects(a: LogicalRect, b: LogicalRect) -> LogicalRect {
     let y1 = (a.origin.y + a.size.height).max(b.origin.y + b.size.height);
     LogicalRect {
         origin: LogicalPosition { x: x0, y: y0 },
-        size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+        size: LogicalSize {
+            width: x1 - x0,
+            height: y1 - y0,
+        },
     }
 }
 
 /// Is `new` exactly `old` translated by `delta`? Uses `translate_item` on a
 /// clone + `is_visually_equal` — runs ONLY for mismatching pairs inside the
 /// hint region (the steady-state pair equals and never reaches this).
-#[must_use] pub fn items_equal_translated(
+#[must_use]
+pub fn items_equal_translated(
     old: &DisplayListItem,
     new: &DisplayListItem,
     delta: (f32, f32),
@@ -2829,7 +2959,10 @@ fn union_rects(a: LogicalRect, b: LogicalRect) -> LogicalRect {
     use crate::solver3::display_list::translate_item;
     let translated = translate_item(
         old.clone(),
-        LogicalPosition { x: delta.0, y: delta.1 },
+        LogicalPosition {
+            x: delta.0,
+            y: delta.1,
+        },
     );
     translated.is_visually_equal(new)
 }
@@ -2839,7 +2972,8 @@ fn union_rects(a: LogicalRect, b: LogicalRect) -> LogicalRect {
 /// (same length, same item
 /// discriminants, every item `is_visually_equal`). Cheaper proxy than a
 /// structural hash, reusing the same per-item comparison the damage diff uses.
-#[must_use] pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
+#[must_use]
+pub fn display_lists_visually_equal(a: &DisplayList, b: &DisplayList) -> bool {
     if a.items.len() != b.items.len() {
         return false;
     }
@@ -2863,14 +2997,20 @@ fn union_rects(a: LogicalRect, b: LogicalRect) -> LogicalRect {
 /// `current` / `previous` are keyed by the child `DomId` (the non-root entries
 /// of `layout_results`). A child that is newly present or newly absent counts
 /// as changed.
-#[must_use] pub fn compute_virtual_view_damage(
+#[must_use]
+pub fn compute_virtual_view_damage(
     parent: &DisplayList,
     current: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
     previous: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
 ) -> Vec<LogicalRect> {
     let mut damage = Vec::new();
     for item in &parent.items {
-        if let DisplayListItem::VirtualView { child_dom_id, bounds, .. } = item {
+        if let DisplayListItem::VirtualView {
+            child_dom_id,
+            bounds,
+            ..
+        } = item
+        {
             let changed = match (current.get(child_dom_id), previous.get(child_dom_id)) {
                 (Some(c), Some(p)) => {
                     // Same Arc → definitely unchanged (cheap fast-path).
@@ -2933,7 +3073,8 @@ pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     }
 }
 
-#[must_use] pub fn rects_overlap_or_adjacent(a: &LogicalRect, b: &LogicalRect, gap: f32) -> bool {
+#[must_use]
+pub fn rects_overlap_or_adjacent(a: &LogicalRect, b: &LogicalRect, gap: f32) -> bool {
     a.origin.x - gap <= b.origin.x + b.size.width
         && b.origin.x - gap <= a.origin.x + a.size.width
         && a.origin.y - gap <= b.origin.y + b.size.height
@@ -2942,7 +3083,8 @@ pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
 
 /// Compute damage rects for a grow-only window resize.
 /// Returns the right strip and bottom strip that need rendering.
-#[must_use] pub fn compute_resize_damage(
+#[must_use]
+pub fn compute_resize_damage(
     old_width: f32,
     old_height: f32,
     new_width: f32,
@@ -2980,7 +3122,8 @@ pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
 /// Returns the number of pixels that differ by more than `threshold` per channel.
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::many_single_char_names)] // domain-standard coordinate/geometry/short-lived names
-#[must_use] pub fn compare_region(
+#[must_use]
+pub fn compare_region(
     a: &AzulPixmap,
     b: &AzulPixmap,
     x: u32,
@@ -3027,7 +3170,10 @@ mod layer_size_is_never_an_allocation_bomb {
         // `as u32` saturates, so this used to be u32::MAX — and the caller then
         // asked for u32::MAX * height * 4 bytes.
         assert_eq!(layer_pixel_size(sz(f32::INFINITY, 27.0), 2.0, None), (0, 0));
-        assert_eq!(layer_pixel_size(sz(100.0, f32::INFINITY), 2.0, None), (0, 0));
+        assert_eq!(
+            layer_pixel_size(sz(100.0, f32::INFINITY), 2.0, None),
+            (0, 0)
+        );
         assert_eq!(layer_pixel_size(sz(f32::NAN, 27.0), 2.0, None), (0, 0));
         assert_eq!(layer_pixel_size(sz(100.0, 27.0), f32::NAN, None), (0, 0));
     }
@@ -3148,7 +3294,6 @@ mod scroll_shift_tests {
         }
     }
 
-
     /// #32 LAW: on a pool-order (B,G,R,A) target, shift + commit-swizzle must
     /// leave the moved pixels byte-identical to a PLAIN byte-move of the slot
     /// — a pure move never changes displayed colors. The pool-order variant
@@ -3194,7 +3339,10 @@ mod scroll_shift_tests {
         // whole presented clip.
         let strips =
             scroll_shift_region_exact_pool_order(&mut slot, &clip, (0.0, 8.0), (0.0, 8.0), 1.0);
-        assert_eq!(strips, ref_strips, "both variants must expose the same strips");
+        assert_eq!(
+            strips, ref_strips,
+            "both variants must expose the same strips"
+        );
         swizzle_all(&mut slot); // the commit swizzle (full clip = full pixmap here)
 
         let in_strip = |x: usize, y: usize| {
@@ -3291,8 +3439,17 @@ mod scroll_shift_tests {
     #[test]
     fn noop_when_delta_zero() {
         let mut p = xy_pixmap(64, 64);
-        let strips = scroll_shift_region(&mut p, &rect(0.0, 0.0, 64.0, 64.0), (0.0, 0.0), (0.0, 0.0), 1.0);
-        assert!(strips.is_empty(), "zero delta must not shift or expose anything");
+        let strips = scroll_shift_region(
+            &mut p,
+            &rect(0.0, 0.0, 64.0, 64.0),
+            (0.0, 0.0),
+            (0.0, 0.0),
+            1.0,
+        );
+        assert!(
+            strips.is_empty(),
+            "zero delta must not shift or expose anything"
+        );
         // Buffer untouched.
         assert_eq!(at(&p, 10, 20), [10, 20, 0, 255]);
     }
@@ -3302,15 +3459,29 @@ mod scroll_shift_tests {
     fn vertical_scroll_one_strip_and_translates() {
         let mut p = xy_pixmap(200, 100);
         // Scroll DOWN by 30 → content moves UP → bottom strip exposed.
-        let strips = scroll_shift_region(&mut p, &rect(0.0, 0.0, 200.0, 100.0), (0.0, 30.0), (0.0, 30.0), 1.0);
-        assert_eq!(strips.len(), 1, "single-axis scroll = one strip, got {strips:?}");
+        let strips = scroll_shift_region(
+            &mut p,
+            &rect(0.0, 0.0, 200.0, 100.0),
+            (0.0, 30.0),
+            (0.0, 30.0),
+            1.0,
+        );
+        assert_eq!(
+            strips.len(),
+            1,
+            "single-axis scroll = one strip, got {strips:?}"
+        );
         let s = &strips[0];
         assert!(
             (s.origin.y - (100.0 - s.size.height)).abs() < 0.01 && s.size.width == 200.0,
             "vertical scroll-down must expose a full-width BOTTOM strip, got {s:?}"
         );
         // Kept region (top): (x, y) now holds original (x, y+30).
-        assert_eq!(at(&p, 50, 10), [50, 40, 0, 255], "content not translated up by 30");
+        assert_eq!(
+            at(&p, 50, 10),
+            [50, 40, 0, 255],
+            "content not translated up by 30"
+        );
     }
 
     #[test]
@@ -3319,8 +3490,13 @@ mod scroll_shift_tests {
     fn diagonal_pan_two_strips_and_translates() {
         let mut p = xy_pixmap(200, 100);
         // Diagonal scroll down-right by (20, 30): content moves up-left.
-        let strips =
-            scroll_shift_region(&mut p, &rect(0.0, 0.0, 200.0, 100.0), (20.0, 30.0), (20.0, 30.0), 1.0);
+        let strips = scroll_shift_region(
+            &mut p,
+            &rect(0.0, 0.0, 200.0, 100.0),
+            (20.0, 30.0),
+            (20.0, 30.0),
+            1.0,
+        );
         assert_eq!(
             strips.len(),
             2,
@@ -3345,8 +3521,21 @@ mod scroll_shift_tests {
         let mut p = xy_pixmap(200, 100);
         // Clip is a sub-region; everything OUTSIDE must be byte-identical after.
         let clip = rect(8.0, 16.0, 180.0, 60.0); // phys [8,188) x [16,76)
-        drop(scroll_shift_region(&mut p, &clip, (0.0, 10.0), (0.0, 10.0), 1.0));
-        for &(x, y) in &[(0u32, 0u32), (199, 99), (100, 5), (100, 90), (2, 50), (190, 50)] {
+        drop(scroll_shift_region(
+            &mut p,
+            &clip,
+            (0.0, 10.0),
+            (0.0, 10.0),
+            1.0,
+        ));
+        for &(x, y) in &[
+            (0u32, 0u32),
+            (199, 99),
+            (100, 5),
+            (100, 90),
+            (2, 50),
+            (190, 50),
+        ] {
             assert_eq!(
                 at(&p, x, y),
                 [(x & 0xFF) as u8, (y & 0xFF) as u8, 0, 255],
@@ -3354,7 +3543,11 @@ mod scroll_shift_tests {
             );
         }
         // Inside the kept region it DID move: (50,40) holds original (50,50).
-        assert_eq!(at(&p, 50, 40), [50, 50, 0, 255], "inside-clip content not shifted");
+        assert_eq!(
+            at(&p, 50, 40),
+            [50, 50, 0, 255],
+            "inside-clip content not shifted"
+        );
     }
 
     #[test]
@@ -3392,7 +3585,12 @@ mod scroll_shift_tests {
     fn fill(x: f32, y: f32, w: f32, h: f32, a: u8) -> DisplayListItem {
         DisplayListItem::Rect {
             bounds: wr(x, y, w, h),
-            color: ColorU { r: 10, g: 20, b: 30, a },
+            color: ColorU {
+                r: 10,
+                g: 20,
+                b: 30,
+                a,
+            },
             border_radius: BorderRadius::default(),
         }
     }
@@ -3412,7 +3610,13 @@ mod scroll_shift_tests {
             fill(0.0, 0.0, 100.0, 30.0, 0), // transparent row
             DisplayListItem::PopScrollFrame,
         ]);
-        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)));
+        assert!(scroll_fast_path_eligible(
+            &list,
+            7,
+            &rect(0.0, 0.0, 100.0, 100.0),
+            (0.0, 0.0),
+            (0.0, 0.0)
+        ));
     }
 
     #[test]
@@ -3426,7 +3630,13 @@ mod scroll_shift_tests {
             fill(0.0, 0.0, 100.0, 30.0, 0), // transparent content
             DisplayListItem::PopScrollFrame,
         ]);
-        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)));
+        assert!(scroll_fast_path_eligible(
+            &list,
+            7,
+            &rect(0.0, 0.0, 100.0, 100.0),
+            (0.0, 0.0),
+            (0.0, 0.0)
+        ));
     }
 
     #[test]
@@ -3435,11 +3645,21 @@ mod scroll_shift_tests {
         // visible → must full-repaint.
         let mut left = fill(0.0, 0.0, 50.0, 100.0, 255);
         if let DisplayListItem::Rect { color, .. } = &mut left {
-            *color = ColorU { r: 200, g: 0, b: 0, a: 255 };
+            *color = ColorU {
+                r: 200,
+                g: 0,
+                b: 0,
+                a: 255,
+            };
         }
         let mut right = fill(50.0, 0.0, 50.0, 100.0, 255);
         if let DisplayListItem::Rect { color, .. } = &mut right {
-            *color = ColorU { r: 0, g: 0, b: 200, a: 255 };
+            *color = ColorU {
+                r: 0,
+                g: 0,
+                b: 200,
+                a: 255,
+            };
         }
         let list = dl(vec![
             left,
@@ -3448,7 +3668,13 @@ mod scroll_shift_tests {
             fill(0.0, 0.0, 100.0, 30.0, 0), // transparent content
             DisplayListItem::PopScrollFrame,
         ]);
-        assert!(!scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)));
+        assert!(!scroll_fast_path_eligible(
+            &list,
+            7,
+            &rect(0.0, 0.0, 100.0, 100.0),
+            (0.0, 0.0),
+            (0.0, 0.0)
+        ));
     }
 
     #[test]
@@ -3461,7 +3687,13 @@ mod scroll_shift_tests {
             fill(0.0, 0.0, 100.0, 30.0, 0), // transparent content
             DisplayListItem::PopScrollFrame,
         ]);
-        assert!(!scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)));
+        assert!(!scroll_fast_path_eligible(
+            &list,
+            7,
+            &rect(0.0, 0.0, 100.0, 100.0),
+            (0.0, 0.0),
+            (0.0, 0.0)
+        ));
     }
 
     #[test]
@@ -3474,7 +3706,13 @@ mod scroll_shift_tests {
             fill(0.0, 0.0, 100.0, 1000.0, 255), // opaque full-content cover
             DisplayListItem::PopScrollFrame,
         ]);
-        assert!(scroll_fast_path_eligible(&list, 7, &rect(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)));
+        assert!(scroll_fast_path_eligible(
+            &list,
+            7,
+            &rect(0.0, 0.0, 100.0, 100.0),
+            (0.0, 0.0),
+            (0.0, 0.0)
+        ));
     }
 
     #[test]
@@ -3508,12 +3746,12 @@ mod backdrop_filter_tests {
         FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new")
     }
 
+    use crate::cpurender::{CpuRenderState, ScrollOffsetMap};
+    use crate::solver3::display_list::DisplayList;
     use azul_core::resources::RendererResources;
+    use azul_css::props::basic::length::PercentageValue;
     use azul_css::props::basic::ColorU;
     use azul_css::props::style::filter::StyleFilter;
-    use azul_css::props::basic::length::PercentageValue;
-    use crate::solver3::display_list::DisplayList;
-    use crate::cpurender::{CpuRenderState, ScrollOffsetMap};
 
     fn lrect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
         LogicalRect {
@@ -3541,7 +3779,12 @@ mod backdrop_filter_tests {
         // Background: a solid blue rect over the whole canvas (root layer).
         // Then a backdrop-filter:invert region over the right half (no own
         // content), so its backdrop (blue) becomes inverted (yellow).
-        let blue = ColorU { r: 0, g: 0, b: 255, a: 255 };
+        let blue = ColorU {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 255,
+        };
         let dl = DisplayList {
             items: vec![
                 DisplayListItem::Rect {
@@ -3570,7 +3813,8 @@ mod backdrop_filter_tests {
         let rr = RendererResources::default();
         let mut gc = GlyphCache::new();
         let state = CpuRenderState::new(ScrollOffsetMap::new());
-        comp.render_layers(&dl, 1.0, &rr, &test_font_manager(), &mut gc, &state).unwrap();
+        comp.render_layers(&dl, 1.0, &rr, &test_font_manager(), &mut gc, &state)
+            .unwrap();
 
         let mut out = AzulPixmap::new(w, h).unwrap();
         out.fill(0, 0, 0, 255);
@@ -3600,7 +3844,11 @@ mod backdrop_filter_tests {
 #[allow(clippy::float_cmp)] // deterministic float values: exact compare is the assertion
 #[allow(clippy::many_single_char_names)] // domain-standard coordinate/pixel short names
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry short names
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
 mod autotest_generated {
 
     /// The CPU renderer resolves every glyph run through a `FontManager` — there is
@@ -3620,17 +3868,16 @@ mod autotest_generated {
         transform::ComputedTransform3D,
     };
     use azul_css::{
-        props::basic::{angle::AngleValue, color::ColorU, length::PercentageValue,
-            pixel::PixelValue},
+        props::basic::{
+            angle::AngleValue, color::ColorU, length::PercentageValue, pixel::PixelValue,
+        },
         props::style::filter::{StyleBlur, StyleFilter},
     };
 
     use super::*;
     use crate::{
         cpurender::{CpuRenderState, ScrollOffsetMap},
-        solver3::display_list::{
-            BorderRadius, DisplayList, DisplayListItem, WindowLogicalRect,
-        },
+        solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, WindowLogicalRect},
     };
 
     // ---------------------------------------------------------------- helpers
@@ -3658,7 +3905,18 @@ mod autotest_generated {
         }
     }
     fn opaque_rect(x: f32, y: f32, w: f32, h: f32) -> DisplayListItem {
-        rect_item(x, y, w, h, ColorU { r: 10, g: 20, b: 30, a: 255 })
+        rect_item(
+            x,
+            y,
+            w,
+            h,
+            ColorU {
+                r: 10,
+                g: 20,
+                b: 30,
+                a: 255,
+            },
+        )
     }
     fn push_scroll(id: u64, x: f32, y: f32, w: f32, h: f32) -> DisplayListItem {
         DisplayListItem::PushScrollFrame {
@@ -3733,7 +3991,11 @@ mod autotest_generated {
         assert_eq!(root.bounds.size.height, 600.0);
         assert_eq!((root.pixbuf.width(), root.pixbuf.height()), (800, 600));
         assert_eq!(root.pixbuf.data().len(), 800 * 600 * 4);
-        assert_eq!(at(&root.pixbuf, 0, 0), [255, 255, 255, 255], "root starts opaque white");
+        assert_eq!(
+            at(&root.pixbuf, 0, 0),
+            [255, 255, 255, 255],
+            "root starts opaque white"
+        );
         assert_eq!(root.opacity, 1.0);
         assert!(root.children.is_empty());
         assert!(root.damage.is_empty());
@@ -3755,7 +4017,11 @@ mod autotest_generated {
     fn next_layer_id_peek_is_side_effect_free() {
         let mut c = CompositorState::new(4, 4);
         let before = c.next_layer_id_peek();
-        assert_eq!(before, c.next_layer_id_peek(), "peek must not mutate the counter");
+        assert_eq!(
+            before,
+            c.next_layer_id_peek(),
+            "peek must not mutate the counter"
+        );
         let _ = c.alloc_layer_id();
         assert_eq!(c.next_layer_id_peek(), before + 1);
     }
@@ -3809,14 +4075,20 @@ mod autotest_generated {
     #[test]
     fn find_matching_pop_start_past_end_returns_len() {
         // `skip(start + 1)` past the end must yield an empty iterator, not panic.
-        let items = vec![push_scroll(1, 0.0, 0.0, 10.0, 10.0), DisplayListItem::PopScrollFrame];
+        let items = vec![
+            push_scroll(1, 0.0, 0.0, 10.0, 10.0),
+            DisplayListItem::PopScrollFrame,
+        ];
         assert_eq!(find_matching_pop(&items, 10, MatchKind::ScrollFrame), 2);
         assert_eq!(find_matching_pop(&items, 1_000_000, MatchKind::Opacity), 2);
     }
 
     #[test]
     fn find_matching_pop_unmatched_push_returns_len() {
-        let items = vec![push_scroll(1, 0.0, 0.0, 10.0, 10.0), opaque_rect(0.0, 0.0, 5.0, 5.0)];
+        let items = vec![
+            push_scroll(1, 0.0, 0.0, 10.0, 10.0),
+            opaque_rect(0.0, 0.0, 5.0, 5.0),
+        ];
         assert_eq!(
             find_matching_pop(&items, 0, MatchKind::ScrollFrame),
             2,
@@ -3832,8 +4104,16 @@ mod autotest_generated {
             DisplayListItem::PopScrollFrame,
             DisplayListItem::PopScrollFrame,
         ];
-        assert_eq!(find_matching_pop(&items, 0, MatchKind::ScrollFrame), 3, "outer pop");
-        assert_eq!(find_matching_pop(&items, 1, MatchKind::ScrollFrame), 2, "inner pop");
+        assert_eq!(
+            find_matching_pop(&items, 0, MatchKind::ScrollFrame),
+            3,
+            "outer pop"
+        );
+        assert_eq!(
+            find_matching_pop(&items, 1, MatchKind::ScrollFrame),
+            2,
+            "inner pop"
+        );
     }
 
     #[test]
@@ -3864,7 +4144,10 @@ mod autotest_generated {
     fn compute_exposed_rects_zero_and_subpixel_delta_expose_nothing() {
         let b = lr(0.0, 0.0, 200.0, 100.0);
         assert!(compute_exposed_rects(&b, 0.0, 0.0).is_empty());
-        assert!(compute_exposed_rects(&b, 0.49, -0.49).is_empty(), "|d| <= 0.5 is a no-op");
+        assert!(
+            compute_exposed_rects(&b, 0.49, -0.49).is_empty(),
+            "|d| <= 0.5 is a no-op"
+        );
     }
 
     #[test]
@@ -3879,7 +4162,10 @@ mod autotest_generated {
         let b = lr(0.0, 0.0, 200.0, 100.0);
         let r = compute_exposed_rects(&b, 0.0, 1000.0);
         assert_eq!(r.len(), 1);
-        assert_eq!(r[0].size.height, 100.0, "strip cannot exceed the frame height");
+        assert_eq!(
+            r[0].size.height, 100.0,
+            "strip cannot exceed the frame height"
+        );
         assert_eq!(r[0].size.width, 200.0);
     }
 
@@ -3888,7 +4174,10 @@ mod autotest_generated {
         let b = lr(0.0, 0.0, 200.0, 100.0);
         let pos = compute_exposed_rects(&b, 0.0, f32::INFINITY);
         assert_eq!(pos.len(), 1);
-        assert_eq!(pos[0].size.height, 100.0, "+inf must clamp via min(h), not stay inf");
+        assert_eq!(
+            pos[0].size.height, 100.0,
+            "+inf must clamp via min(h), not stay inf"
+        );
         assert!(pos[0].origin.y.is_finite());
 
         let neg = compute_exposed_rects(&b, 0.0, f32::NEG_INFINITY);
@@ -3901,9 +4190,16 @@ mod autotest_generated {
     fn compute_exposed_rects_diagonal_yields_two_strips() {
         let b = lr(0.0, 0.0, 200.0, 100.0);
         let r = compute_exposed_rects(&b, -10.0, 10.0);
-        assert_eq!(r.len(), 2, "diagonal scroll = vertical strip + horizontal strip");
+        assert_eq!(
+            r.len(),
+            2,
+            "diagonal scroll = vertical strip + horizontal strip"
+        );
         assert!(r.iter().any(|s| s.size.width == 200.0), "full-width strip");
-        assert!(r.iter().any(|s| s.size.height == 100.0), "full-height strip");
+        assert!(
+            r.iter().any(|s| s.size.height == 100.0),
+            "full-height strip"
+        );
     }
 
     // ============================== scroll_shift_region =====================
@@ -3911,17 +4207,34 @@ mod autotest_generated {
     #[test]
     fn scroll_shift_zero_dpi_is_a_noop() {
         let mut p = xy_map(64, 64);
-        let strips = scroll_shift_region(&mut p, &lr(0.0, 0.0, 64.0, 64.0), (0.0, 30.0), (0.0, 30.0), 0.0);
-        assert!(strips.is_empty(), "dpi 0 → 0 physical px moved → nothing exposed");
+        let strips = scroll_shift_region(
+            &mut p,
+            &lr(0.0, 0.0, 64.0, 64.0),
+            (0.0, 30.0),
+            (0.0, 30.0),
+            0.0,
+        );
+        assert!(
+            strips.is_empty(),
+            "dpi 0 → 0 physical px moved → nothing exposed"
+        );
         assert_eq!(at(&p, 10, 20), [10, 20, 0, 255], "buffer must be untouched");
     }
 
     #[test]
     fn scroll_shift_nan_dpi_is_a_noop() {
         let mut p = xy_map(64, 64);
-        let strips =
-            scroll_shift_region(&mut p, &lr(0.0, 0.0, 64.0, 64.0), (0.0, 30.0), (0.0, 30.0), f32::NAN);
-        assert!(strips.is_empty(), "NaN casts to 0 px — no move, no exposure");
+        let strips = scroll_shift_region(
+            &mut p,
+            &lr(0.0, 0.0, 64.0, 64.0),
+            (0.0, 30.0),
+            (0.0, 30.0),
+            f32::NAN,
+        );
+        assert!(
+            strips.is_empty(),
+            "NaN casts to 0 px — no move, no exposure"
+        );
         assert_eq!(at(&p, 10, 20), [10, 20, 0, 255]);
     }
 
@@ -3943,8 +4256,13 @@ mod autotest_generated {
     fn scroll_shift_negative_dpi_is_a_noop() {
         // A negative scale collapses the clamped clip region to zero width.
         let mut p = xy_map(64, 64);
-        let strips =
-            scroll_shift_region(&mut p, &lr(0.0, 0.0, 64.0, 64.0), (0.0, 10.0), (0.0, 10.0), -1.0);
+        let strips = scroll_shift_region(
+            &mut p,
+            &lr(0.0, 0.0, 64.0, 64.0),
+            (0.0, 10.0),
+            (0.0, 10.0),
+            -1.0,
+        );
         assert!(strips.is_empty(), "negative dpi → empty region → no move");
         assert_eq!(at(&p, 10, 20), [10, 20, 0, 255]);
     }
@@ -3952,9 +4270,17 @@ mod autotest_generated {
     #[test]
     fn scroll_shift_clip_entirely_outside_pixmap_is_a_noop() {
         let mut p = xy_map(64, 64);
-        let strips =
-            scroll_shift_region(&mut p, &lr(500.0, 500.0, 10.0, 10.0), (0.0, 10.0), (0.0, 10.0), 1.0);
-        assert!(strips.is_empty(), "off-screen clip clamps to an empty region");
+        let strips = scroll_shift_region(
+            &mut p,
+            &lr(500.0, 500.0, 10.0, 10.0),
+            (0.0, 10.0),
+            (0.0, 10.0),
+            1.0,
+        );
+        assert!(
+            strips.is_empty(),
+            "off-screen clip clamps to an empty region"
+        );
         assert_eq!(at(&p, 63, 63), [63, 63, 0, 255]);
     }
 
@@ -3963,10 +4289,18 @@ mod autotest_generated {
         let mut p = xy_map(64, 64);
         let clip = lr(0.0, 0.0, 64.0, 64.0);
         let strips = scroll_shift_region(&mut p, &clip, (0.0, 1.0e9), (0.0, 1.0e9), 1.0);
-        assert_eq!(strips.len(), 1, "shift ≥ region → caller repaints the whole clip");
+        assert_eq!(
+            strips.len(),
+            1,
+            "shift ≥ region → caller repaints the whole clip"
+        );
         assert_eq!(strips[0].size.width, 64.0);
         assert_eq!(strips[0].size.height, 64.0);
-        assert_eq!(at(&p, 10, 20), [10, 20, 0, 255], "memmove is skipped entirely");
+        assert_eq!(
+            at(&p, 10, 20),
+            [10, 20, 0, 255],
+            "memmove is skipped entirely"
+        );
     }
 
     #[test]
@@ -3994,7 +4328,11 @@ mod autotest_generated {
             s.origin.y >= 0.0 && s.origin.y + s.size.height <= 64.0,
             "exposed strip must stay inside the pixmap, got {s:?}"
         );
-        assert_eq!(at(&p, 50, 10), [50, 20, 0, 255], "content translated up by 10");
+        assert_eq!(
+            at(&p, 50, 10),
+            [50, 20, 0, 255],
+            "content translated up by 10"
+        );
     }
 
     #[test]
@@ -4006,7 +4344,11 @@ mod autotest_generated {
         let strips = scroll_shift_region(&mut p, &clip, (0.0, 0.25), (0.0, 10.25), 2.0);
         // round(10.25*2)=21 (round-half-away-from-zero on .5), round(10.0*2)=20 → 1px.
         assert_eq!(strips.len(), 1, "a 1px move exposes exactly one strip");
-        assert_eq!(at(&p, 5, 0), [5, 1, 0, 255], "moved up by exactly 1 physical px");
+        assert_eq!(
+            at(&p, 5, 0),
+            [5, 1, 0, 255],
+            "moved up by exactly 1 physical px"
+        );
     }
 
     // ============================== shift_*_1d / shift_diagonal_2d ==========
@@ -4016,7 +4358,11 @@ mod autotest_generated {
         let mut p = xy_map(8, 8);
         let before = p.data().to_vec();
         shift_vertical_1d(p.data_mut(), 8, 0, 0, 8, 8, 0);
-        assert_eq!(p.data(), &before[..], "px_dy = 0 must not touch a single byte");
+        assert_eq!(
+            p.data(),
+            &before[..],
+            "px_dy = 0 must not touch a single byte"
+        );
     }
 
     #[test]
@@ -4024,7 +4370,11 @@ mod autotest_generated {
         let mut p = xy_map(8, 8);
         let before = p.data().to_vec();
         shift_vertical_1d(p.data_mut(), 8, 0, 0, 8, 8, 100);
-        assert_eq!(p.data(), &before[..], "|px_dy| ≥ height → empty row range, no panic");
+        assert_eq!(
+            p.data(),
+            &before[..],
+            "|px_dy| ≥ height → empty row range, no panic"
+        );
         shift_vertical_1d(p.data_mut(), 8, 0, 0, 8, 8, -100);
         assert_eq!(p.data(), &before[..]);
     }
@@ -4033,13 +4383,29 @@ mod autotest_generated {
     fn shift_vertical_1d_moves_content_up_and_down() {
         let mut p = xy_map(8, 8);
         shift_vertical_1d(p.data_mut(), 8, 0, 0, 8, 8, 2); // content up by 2
-        assert_eq!(at(&p, 3, 0), [3, 2, 0, 255], "row 0 now holds original row 2");
-        assert_eq!(at(&p, 3, 5), [3, 7, 0, 255], "row 5 now holds original row 7");
+        assert_eq!(
+            at(&p, 3, 0),
+            [3, 2, 0, 255],
+            "row 0 now holds original row 2"
+        );
+        assert_eq!(
+            at(&p, 3, 5),
+            [3, 7, 0, 255],
+            "row 5 now holds original row 7"
+        );
 
         let mut q = xy_map(8, 8);
         shift_vertical_1d(q.data_mut(), 8, 0, 0, 8, 8, -3); // content down by 3
-        assert_eq!(at(&q, 3, 7), [3, 4, 0, 255], "row 7 now holds original row 4");
-        assert_eq!(at(&q, 3, 3), [3, 0, 0, 255], "row 3 now holds original row 0");
+        assert_eq!(
+            at(&q, 3, 7),
+            [3, 4, 0, 255],
+            "row 7 now holds original row 4"
+        );
+        assert_eq!(
+            at(&q, 3, 3),
+            [3, 0, 0, 255],
+            "row 3 now holds original row 0"
+        );
     }
 
     #[test]
@@ -4056,11 +4422,19 @@ mod autotest_generated {
         // through (it early-returns at >= region_w): the copy must not underflow.
         let mut p = xy_map(8, 8);
         shift_horizontal_1d(p.data_mut(), 8, 0, 0, 8, 8, 7);
-        assert_eq!(at(&p, 0, 4), [7, 4, 0, 255], "col 0 now holds original col 7");
+        assert_eq!(
+            at(&p, 0, 4),
+            [7, 4, 0, 255],
+            "col 0 now holds original col 7"
+        );
 
         let mut q = xy_map(8, 8);
         shift_horizontal_1d(q.data_mut(), 8, 0, 0, 8, 8, -7);
-        assert_eq!(at(&q, 7, 4), [0, 4, 0, 255], "col 7 now holds original col 0");
+        assert_eq!(
+            at(&q, 7, 4),
+            [0, 4, 0, 255],
+            "col 7 now holds original col 0"
+        );
     }
 
     #[test]
@@ -4106,8 +4480,14 @@ mod autotest_generated {
     fn rect_covered_by_degenerate_target_is_vacuously_covered() {
         let cover = [lr(0.0, 0.0, 10.0, 10.0)];
         // No sample points → the "every sample is inside" predicate holds.
-        assert!(rect_covered_by(&lr(0.0, 0.0, 0.0, 0.0), &cover), "zero-size target");
-        assert!(rect_covered_by(&lr(0.0, 0.0, -50.0, -50.0), &cover), "negative-size target");
+        assert!(
+            rect_covered_by(&lr(0.0, 0.0, 0.0, 0.0), &cover),
+            "zero-size target"
+        );
+        assert!(
+            rect_covered_by(&lr(0.0, 0.0, -50.0, -50.0), &cover),
+            "negative-size target"
+        );
         assert!(
             rect_covered_by(&lr(0.0, 0.0, f32::NAN, f32::NAN), &cover),
             "NaN target must terminate (no infinite while-float loop) and be defined"
@@ -4135,8 +4515,15 @@ mod autotest_generated {
     fn rects_touching_with_zero_gap_are_adjacent() {
         let a = lr(0.0, 0.0, 10.0, 10.0);
         let b = lr(10.0, 0.0, 10.0, 10.0);
-        assert!(rects_overlap_or_adjacent(&a, &b, 0.0), "shared edge counts as adjacent");
-        assert!(!rects_overlap_or_adjacent(&a, &lr(11.0, 0.0, 10.0, 10.0), 0.0));
+        assert!(
+            rects_overlap_or_adjacent(&a, &b, 0.0),
+            "shared edge counts as adjacent"
+        );
+        assert!(!rects_overlap_or_adjacent(
+            &a,
+            &lr(11.0, 0.0, 10.0, 10.0),
+            0.0
+        ));
     }
 
     #[test]
@@ -4147,15 +4534,25 @@ mod autotest_generated {
             !rects_overlap_or_adjacent(&a, &b, -1.0),
             "a negative gap must SHRINK the test, not widen it"
         );
-        assert!(rects_overlap_or_adjacent(&a, &lr(5.0, 0.0, 10.0, 10.0), -1.0));
+        assert!(rects_overlap_or_adjacent(
+            &a,
+            &lr(5.0, 0.0, 10.0, 10.0),
+            -1.0
+        ));
     }
 
     #[test]
     fn rects_overlap_nan_inputs_are_false_not_panics() {
         let a = lr(0.0, 0.0, 10.0, 10.0);
         let nan = lr(f32::NAN, f32::NAN, f32::NAN, f32::NAN);
-        assert!(!rects_overlap_or_adjacent(&a, &nan, 0.0), "NaN compares false everywhere");
-        assert!(!rects_overlap_or_adjacent(&a, &a, f32::NAN), "NaN gap → false");
+        assert!(
+            !rects_overlap_or_adjacent(&a, &nan, 0.0),
+            "NaN compares false everywhere"
+        );
+        assert!(
+            !rects_overlap_or_adjacent(&a, &a, f32::NAN),
+            "NaN gap → false"
+        );
     }
 
     #[test]
@@ -4190,7 +4587,11 @@ mod autotest_generated {
             lr(10.0, 0.0, 10.0, 10.0),
         ];
         coalesce_damage_rects(&mut chain);
-        assert_eq!(chain.len(), 1, "an overlapping chain collapses transitively");
+        assert_eq!(
+            chain.len(),
+            1,
+            "an overlapping chain collapses transitively"
+        );
         assert_eq!(chain[0].size.width, 20.0);
     }
 
@@ -4207,7 +4608,11 @@ mod autotest_generated {
         // scrollbar strip touch at a corner but their union is the viewport.
         let mut v = vec![lr(990.0, 0.0, 10.0, 1000.0), lr(0.0, 990.0, 1000.0, 10.0)];
         coalesce_damage_rects(&mut v);
-        assert_eq!(v.len(), 2, "union would be 100× the painted area — must stay split");
+        assert_eq!(
+            v.len(),
+            2,
+            "union would be 100× the painted area — must stay split"
+        );
     }
 
     #[test]
@@ -4228,7 +4633,10 @@ mod autotest_generated {
     #[test]
     fn resize_damage_shrink_or_equal_is_empty() {
         assert!(compute_resize_damage(100.0, 100.0, 100.0, 100.0).is_empty());
-        assert!(compute_resize_damage(100.0, 100.0, 50.0, 50.0).is_empty(), "grow-only");
+        assert!(
+            compute_resize_damage(100.0, 100.0, 50.0, 50.0).is_empty(),
+            "grow-only"
+        );
     }
 
     #[test]
@@ -4238,8 +4646,14 @@ mod autotest_generated {
         assert_eq!(r[0].origin.x, 100.0, "right strip starts at the old width");
         assert_eq!(r[0].size.width, 100.0);
         assert_eq!(r[0].size.height, 150.0, "right strip spans the NEW height");
-        assert_eq!(r[1].origin.y, 100.0, "bottom strip starts at the old height");
-        assert_eq!(r[1].size.width, 100.0, "bottom strip is min(old, new) wide — no overdraw");
+        assert_eq!(
+            r[1].origin.y, 100.0,
+            "bottom strip starts at the old height"
+        );
+        assert_eq!(
+            r[1].size.width, 100.0,
+            "bottom strip is min(old, new) wide — no overdraw"
+        );
         assert_eq!(r[1].size.height, 50.0);
     }
 
@@ -4258,7 +4672,10 @@ mod autotest_generated {
     fn resize_damage_infinite_new_size_does_not_panic() {
         let r = compute_resize_damage(0.0, 0.0, f32::INFINITY, f32::INFINITY);
         assert_eq!(r.len(), 2);
-        assert!(r[0].size.width.is_infinite(), "inf propagates, but nothing panics");
+        assert!(
+            r[0].size.width.is_infinite(),
+            "inf propagates, but nothing panics"
+        );
     }
 
     // ============================== compare_region ==========================
@@ -4275,8 +4692,16 @@ mod autotest_generated {
         // Max per-channel distance is 255, and the test is strictly `>`.
         let a = solid(4, 4, [0, 0, 0, 255]);
         let b = solid(4, 4, [255, 255, 255, 255]);
-        assert_eq!(compare_region(&a, &b, 0, 0, 4, 4, 255), 0, "saturated threshold = blind");
-        assert_eq!(compare_region(&a, &b, 0, 0, 4, 4, 254), 16, "one below → every pixel");
+        assert_eq!(
+            compare_region(&a, &b, 0, 0, 4, 4, 255),
+            0,
+            "saturated threshold = blind"
+        );
+        assert_eq!(
+            compare_region(&a, &b, 0, 0, 4, 4, 254),
+            16,
+            "one below → every pixel"
+        );
         assert_eq!(compare_region(&a, &b, 0, 0, 4, 4, 0), 16);
     }
 
@@ -4284,7 +4709,11 @@ mod autotest_generated {
     fn compare_region_ignores_the_alpha_channel() {
         let a = solid(4, 4, [9, 9, 9, 255]);
         let b = solid(4, 4, [9, 9, 9, 0]);
-        assert_eq!(compare_region(&a, &b, 0, 0, 4, 4, 0), 0, "only RGB is compared");
+        assert_eq!(
+            compare_region(&a, &b, 0, 0, 4, 4, 0),
+            0,
+            "only RGB is compared"
+        );
     }
 
     #[test]
@@ -4321,13 +4750,29 @@ mod autotest_generated {
     fn opaque_fill_rect_accepts_only_opaque_square_rects() {
         assert!(opaque_fill_rect(&opaque_rect(1.0, 2.0, 3.0, 4.0)).is_some());
         assert!(
-            opaque_fill_rect(&rect_item(0.0, 0.0, 1.0, 1.0, ColorU { r: 0, g: 0, b: 0, a: 254 }))
-                .is_none(),
+            opaque_fill_rect(&rect_item(
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 254
+                }
+            ))
+            .is_none(),
             "a = 254 is not fully opaque"
         );
         let rounded = DisplayListItem::Rect {
             bounds: wlr(0.0, 0.0, 10.0, 10.0),
-            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
             border_radius: BorderRadius {
                 top_left: 0.1,
                 top_right: 0.0,
@@ -4335,7 +4780,10 @@ mod autotest_generated {
                 bottom_right: 0.0,
             },
         };
-        assert!(opaque_fill_rect(&rounded).is_none(), "any corner radius disqualifies");
+        assert!(
+            opaque_fill_rect(&rounded).is_none(),
+            "any corner radius disqualifies"
+        );
         assert!(opaque_fill_rect(&DisplayListItem::PopScrollFrame).is_none());
         let b = opaque_fill_rect(&opaque_rect(1.0, 2.0, 3.0, 4.0)).unwrap();
         assert_eq!((b.origin.x, b.size.height), (1.0, 4.0));
@@ -4345,7 +4793,13 @@ mod autotest_generated {
 
     #[test]
     fn fast_path_eligible_when_no_such_frame() {
-        assert!(scroll_fast_path_eligible(&dlist(vec![]), 3, &lr(0.0, 0.0, 10.0, 10.0), (0.0, 0.0), (0.0, 0.0)));
+        assert!(scroll_fast_path_eligible(
+            &dlist(vec![]),
+            3,
+            &lr(0.0, 0.0, 10.0, 10.0),
+            (0.0, 0.0),
+            (0.0, 0.0)
+        ));
     }
 
     #[test]
@@ -4364,7 +4818,13 @@ mod autotest_generated {
             "a nested frame must fall back to a full repaint"
         );
         assert!(
-            scroll_fast_path_eligible(&list, 1, &lr(0.0, 0.0, 100.0, 100.0), (0.0, 0.0), (0.0, 0.0)),
+            scroll_fast_path_eligible(
+                &list,
+                1,
+                &lr(0.0, 0.0, 100.0, 100.0),
+                (0.0, 0.0),
+                (0.0, 0.0)
+            ),
             "the outer frame is still eligible (nothing painted behind it)"
         );
     }
@@ -4377,7 +4837,13 @@ mod autotest_generated {
             DisplayListItem::PopScrollFrame,
         ]);
         // clip_area is max(1.0)-guarded; must return a bool, not panic.
-        assert!(scroll_fast_path_eligible(&list, 1, &lr(0.0, 0.0, 0.0, 0.0), (0.0, 0.0), (0.0, 0.0)));
+        assert!(scroll_fast_path_eligible(
+            &list,
+            1,
+            &lr(0.0, 0.0, 0.0, 0.0),
+            (0.0, 0.0),
+            (0.0, 0.0)
+        ));
     }
 
     #[test]
@@ -4391,7 +4857,13 @@ mod autotest_generated {
             DisplayListItem::PopScrollFrame,
         ]);
         let clip = lr(0.0, 0.0, 100.0, 100.0);
-        assert!(scroll_fast_path_eligible(&list, 7, &clip, (0.0, 0.0), (0.0, 0.0)));
+        assert!(scroll_fast_path_eligible(
+            &list,
+            7,
+            &clip,
+            (0.0, 0.0),
+            (0.0, 0.0)
+        ));
         assert!(
             !scroll_fast_path_eligible(&list, 7, &clip, (0.0, 60.0), (0.0, 0.0)),
             "coverage must hold at the NEW offset too, not just the old one"
@@ -4419,7 +4891,8 @@ mod autotest_generated {
             DisplayListItem::PopScrollFrame,
             opaque_rect(100.0, 0.0, 10.0, 10.0), // merely TOUCHES the clip edge
             opaque_rect(90.0, 90.0, 40.0, 40.0), // genuinely overlaps
-            DisplayListItem::PushClip {          // state-management → skipped
+            DisplayListItem::PushClip {
+                // state-management → skipped
                 bounds: wlr(0.0, 0.0, 100.0, 100.0),
                 border_radius: BorderRadius::default(),
             },
@@ -4427,7 +4900,10 @@ mod autotest_generated {
         let r = overlay_rects_after_frame(&list, 1, &clip);
         assert_eq!(r.len(), 1, "only the strictly-overlapping item, got {r:?}");
         assert_eq!(r[0].origin.x, 90.0);
-        assert_eq!(r[0].size.width, 10.0, "intersection is clipped to the frame");
+        assert_eq!(
+            r[0].size.width, 10.0,
+            "intersection is clipped to the frame"
+        );
         assert_eq!(r[0].size.height, 10.0);
     }
 
@@ -4465,7 +4941,10 @@ mod autotest_generated {
         let empty_t: HashMap<usize, ComputedTransform3D> = HashMap::new();
         let empty_o: HashMap<usize, f32> = HashMap::new();
         let d2 = gpu_value_damage(&list, &empty_t, &empty_o, &empty_t, &empty_o);
-        assert!(d2.rects.is_empty() && !d2.needs_full, "empty maps → no damage");
+        assert!(
+            d2.rects.is_empty() && !d2.needs_full,
+            "empty maps → no damage"
+        );
     }
 
     #[test]
@@ -4484,7 +4963,10 @@ mod autotest_generated {
         assert!(!d.needs_full, "affine moves must not full-repaint");
         assert_eq!(d.rects.len(), 2, "old position + new position");
         let dx = (d.rects[1].origin.x - d.rects[0].origin.x).abs();
-        assert!((dx - 20.0).abs() < 0.01, "the two rects are 20px apart, got {dx}");
+        assert!(
+            (dx - 20.0).abs() < 0.01,
+            "the two rects are 20px apart, got {dx}"
+        );
     }
 
     #[test]
@@ -4500,7 +4982,10 @@ mod autotest_generated {
             "a key present in old but absent in new is a change (the frame \
              settles to identity, damaging its old offset position)"
         );
-        assert!(!d.needs_full, "the settle is affine — rect damage, not full");
+        assert!(
+            !d.needs_full,
+            "the settle is affine — rect damage, not full"
+        );
     }
 
     #[test]
@@ -4513,7 +4998,10 @@ mod autotest_generated {
         let mut new_o: HashMap<usize, f32> = HashMap::new();
         new_o.insert(88, 0.25);
         let d = gpu_value_damage(&list, &t, &old_o, &new_t, &new_o);
-        assert!(d.rects.is_empty() && !d.needs_full, "a key bound to no item cannot damage");
+        assert!(
+            d.rects.is_empty() && !d.needs_full,
+            "a key bound to no item cannot damage"
+        );
     }
 
     #[test]
@@ -4533,13 +5021,33 @@ mod autotest_generated {
     fn display_lists_visually_equal_basics() {
         let a = dlist(vec![opaque_rect(0.0, 0.0, 10.0, 10.0)]);
         let b = dlist(vec![opaque_rect(0.0, 0.0, 10.0, 10.0)]);
-        assert!(display_lists_visually_equal(&dlist(vec![]), &dlist(vec![])), "empty == empty");
+        assert!(
+            display_lists_visually_equal(&dlist(vec![]), &dlist(vec![])),
+            "empty == empty"
+        );
         assert!(display_lists_visually_equal(&a, &b));
-        assert!(!display_lists_visually_equal(&a, &dlist(vec![])), "length differs");
-        let c = dlist(vec![rect_item(0.0, 0.0, 10.0, 10.0, ColorU { r: 9, g: 9, b: 9, a: 255 })]);
+        assert!(
+            !display_lists_visually_equal(&a, &dlist(vec![])),
+            "length differs"
+        );
+        let c = dlist(vec![rect_item(
+            0.0,
+            0.0,
+            10.0,
+            10.0,
+            ColorU {
+                r: 9,
+                g: 9,
+                b: 9,
+                a: 255,
+            },
+        )]);
         assert!(!display_lists_visually_equal(&a, &c), "colour differs");
         let d = dlist(vec![DisplayListItem::PopClip]);
-        assert!(!display_lists_visually_equal(&a, &d), "discriminant differs");
+        assert!(
+            !display_lists_visually_equal(&a, &d),
+            "discriminant differs"
+        );
     }
 
     /// DETECTOR for a bug class, not for one widget.
@@ -4609,7 +5117,11 @@ mod autotest_generated {
         let b = dlist(vec![DisplayListItem::PopClip]);
         let d = compute_display_list_damage(&a, &b, &off, &off)
             .expect("a replaced item damages its area");
-        assert_eq!(d.len(), 1, "the boundless PopClip contributes no rect of its own");
+        assert_eq!(
+            d.len(),
+            1,
+            "the boundless PopClip contributes no rect of its own"
+        );
         // A change with NO bounds-carrying item anywhere in the window stays
         // a full repaint — conservative, never "no damage".
         let c = dlist(vec![DisplayListItem::PopClip]);
@@ -4625,14 +5137,29 @@ mod autotest_generated {
         let d = compute_display_list_damage(&a, &b, &off, &off).expect("no structural change");
         assert!(d.is_empty(), "identical frames damage nothing");
         let e = compute_display_list_damage(&dlist(vec![]), &dlist(vec![]), &off, &off);
-        assert_eq!(e.map(|v| v.len()), Some(0), "two empty lists are comparable");
+        assert_eq!(
+            e.map(|v| v.len()),
+            Some(0),
+            "two empty lists are comparable"
+        );
     }
 
     #[test]
     fn damage_diff_covers_a_colour_change() {
         let off = ScrollOffsetMap::new();
         let a = dlist(vec![opaque_rect(10.0, 10.0, 20.0, 20.0)]);
-        let b = dlist(vec![rect_item(10.0, 10.0, 20.0, 20.0, ColorU { r: 1, g: 1, b: 1, a: 255 })]);
+        let b = dlist(vec![rect_item(
+            10.0,
+            10.0,
+            20.0,
+            20.0,
+            ColorU {
+                r: 1,
+                g: 1,
+                b: 1,
+                a: 255,
+            },
+        )]);
         let d = compute_display_list_damage(&a, &b, &off, &off).unwrap();
         assert_eq!(d.len(), 1, "old + new bounds coincide → one coalesced rect");
         assert_eq!(d[0].origin.x, 10.0);
@@ -4654,14 +5181,35 @@ mod autotest_generated {
         ]);
         let new = dlist(vec![
             push_scroll(1, 0.0, 0.0, 100.0, 100.0),
-            rect_item(0.0, 100.0, 10.0, 10.0, ColorU { r: 7, g: 7, b: 7, a: 255 }),
+            rect_item(
+                0.0,
+                100.0,
+                10.0,
+                10.0,
+                ColorU {
+                    r: 7,
+                    g: 7,
+                    b: 7,
+                    a: 255,
+                },
+            ),
             DisplayListItem::PopScrollFrame,
         ]);
         let d = compute_display_list_damage(&old, &new, &old_off, &new_off).unwrap();
-        assert_eq!(d.len(), 2, "old and new positions are 40px apart → no merge, got {d:?}");
+        assert_eq!(
+            d.len(),
+            2,
+            "old and new positions are 40px apart → no merge, got {d:?}"
+        );
         let ys: Vec<f32> = d.iter().map(|r| r.origin.y).collect();
-        assert!(ys.contains(&100.0), "old pixels at y=100 (offset 0), got {ys:?}");
-        assert!(ys.contains(&50.0), "new pixels at y=50 (offset 50), got {ys:?}");
+        assert!(
+            ys.contains(&100.0),
+            "old pixels at y=100 (offset 0), got {ys:?}"
+        );
+        assert!(
+            ys.contains(&50.0),
+            "new pixels at y=50 (offset 50), got {ys:?}"
+        );
     }
 
     // ============================== compute_virtual_view_damage ==============
@@ -4727,20 +5275,40 @@ mod autotest_generated {
     #[test]
     fn filter_opacity_saturates_at_both_ends() {
         let mut zero = solid(2, 2, [10, 20, 30, 255]);
-        apply_layer_filters(&mut zero, &[StyleFilter::Opacity(PercentageValue::new(0.0))], 1.0);
+        apply_layer_filters(
+            &mut zero,
+            &[StyleFilter::Opacity(PercentageValue::new(0.0))],
+            1.0,
+        );
         assert_eq!(at(&zero, 0, 0)[3], 0, "0% → fully transparent");
 
         let mut half = solid(2, 2, [10, 20, 30, 255]);
-        apply_layer_filters(&mut half, &[StyleFilter::Opacity(PercentageValue::new(50.0))], 1.0);
+        apply_layer_filters(
+            &mut half,
+            &[StyleFilter::Opacity(PercentageValue::new(50.0))],
+            1.0,
+        );
         assert_eq!(at(&half, 0, 0)[3], 127, "50% → 127 (127.5 truncated)");
 
         let mut over = solid(2, 2, [10, 20, 30, 255]);
-        apply_layer_filters(&mut over, &[StyleFilter::Opacity(PercentageValue::new(500.0))], 1.0);
+        apply_layer_filters(
+            &mut over,
+            &[StyleFilter::Opacity(PercentageValue::new(500.0))],
+            1.0,
+        );
         assert_eq!(at(&over, 0, 0)[3], 255, "500% must clamp, not wrap");
 
         let mut neg = solid(2, 2, [10, 20, 30, 255]);
-        apply_layer_filters(&mut neg, &[StyleFilter::Opacity(PercentageValue::new(-100.0))], 1.0);
-        assert_eq!(at(&neg, 0, 0)[3], 0, "a negative percentage clamps to 0, not to 255");
+        apply_layer_filters(
+            &mut neg,
+            &[StyleFilter::Opacity(PercentageValue::new(-100.0))],
+            1.0,
+        );
+        assert_eq!(
+            at(&neg, 0, 0)[3],
+            0,
+            "a negative percentage clamps to 0, not to 255"
+        );
         assert_eq!(at(&neg, 0, 0)[0], 10, "RGB is untouched by opacity");
     }
 
@@ -4750,15 +5318,31 @@ mod autotest_generated {
         // to 0, so a NaN filter amount degrades to 0% rather than poisoning the
         // pixels with NaN.
         let mut p = solid(2, 2, [200, 100, 50, 255]);
-        apply_layer_filters(&mut p, &[StyleFilter::Grayscale(PercentageValue::new(f32::NAN))], 1.0);
-        assert_eq!(at(&p, 0, 0), [200, 100, 50, 255], "NaN amount ⇒ 0% ⇒ identity");
+        apply_layer_filters(
+            &mut p,
+            &[StyleFilter::Grayscale(PercentageValue::new(f32::NAN))],
+            1.0,
+        );
+        assert_eq!(
+            at(&p, 0, 0),
+            [200, 100, 50, 255],
+            "NaN amount ⇒ 0% ⇒ identity"
+        );
     }
 
     #[test]
     fn filter_brightness_clamps_below_zero_and_above_white() {
         let mut dark = solid(2, 2, [200, 100, 50, 255]);
-        apply_layer_filters(&mut dark, &[StyleFilter::Brightness(PercentageValue::new(-500.0))], 1.0);
-        assert_eq!(at(&dark, 0, 0), [0, 0, 0, 255], "negative brightness floors at black");
+        apply_layer_filters(
+            &mut dark,
+            &[StyleFilter::Brightness(PercentageValue::new(-500.0))],
+            1.0,
+        );
+        assert_eq!(
+            at(&dark, 0, 0),
+            [0, 0, 0, 255],
+            "negative brightness floors at black"
+        );
 
         let mut bright = solid(2, 2, [100, 100, 100, 255]);
         apply_layer_filters(
@@ -4766,36 +5350,68 @@ mod autotest_generated {
             &[StyleFilter::Brightness(PercentageValue::new(100_000.0))],
             1.0,
         );
-        assert_eq!(at(&bright, 0, 0), [255, 255, 255, 255], "huge brightness saturates to white");
+        assert_eq!(
+            at(&bright, 0, 0),
+            [255, 255, 255, 255],
+            "huge brightness saturates to white"
+        );
     }
 
     #[test]
     fn filter_grayscale_and_saturate_agree_at_their_extremes() {
         // luma(255, 0, 0) = 0.2126 * 255 ≈ 54
         let mut gray = solid(2, 2, [255, 0, 0, 255]);
-        apply_layer_filters(&mut gray, &[StyleFilter::Grayscale(PercentageValue::new(100.0))], 1.0);
+        apply_layer_filters(
+            &mut gray,
+            &[StyleFilter::Grayscale(PercentageValue::new(100.0))],
+            1.0,
+        );
         let g = at(&gray, 0, 0);
-        assert_eq!((g[0], g[1], g[2]), (54, 54, 54), "full grayscale → luma on every channel");
+        assert_eq!(
+            (g[0], g[1], g[2]),
+            (54, 54, 54),
+            "full grayscale → luma on every channel"
+        );
         assert_eq!(g[3], 255, "alpha untouched");
 
         let mut desat = solid(2, 2, [255, 0, 0, 255]);
-        apply_layer_filters(&mut desat, &[StyleFilter::Saturate(PercentageValue::new(0.0))], 1.0);
+        apply_layer_filters(
+            &mut desat,
+            &[StyleFilter::Saturate(PercentageValue::new(0.0))],
+            1.0,
+        );
         assert_eq!(at(&desat, 0, 0), g, "saturate(0) == grayscale(1)");
     }
 
     #[test]
     fn filter_grayscale_amount_over_100_percent_is_clamped() {
         let mut a = solid(2, 2, [255, 0, 0, 255]);
-        apply_layer_filters(&mut a, &[StyleFilter::Grayscale(PercentageValue::new(100.0))], 1.0);
+        apply_layer_filters(
+            &mut a,
+            &[StyleFilter::Grayscale(PercentageValue::new(100.0))],
+            1.0,
+        );
         let mut b = solid(2, 2, [255, 0, 0, 255]);
-        apply_layer_filters(&mut b, &[StyleFilter::Grayscale(PercentageValue::new(9999.0))], 1.0);
-        assert_eq!(at(&a, 0, 0), at(&b, 0, 0), "amount is clamped to 1.0 — no overshoot");
+        apply_layer_filters(
+            &mut b,
+            &[StyleFilter::Grayscale(PercentageValue::new(9999.0))],
+            1.0,
+        );
+        assert_eq!(
+            at(&a, 0, 0),
+            at(&b, 0, 0),
+            "amount is clamped to 1.0 — no overshoot"
+        );
     }
 
     #[test]
     fn filter_invert_full_inverts_rgb_only() {
         let mut p = solid(2, 2, [0, 0, 255, 200]);
-        apply_layer_filters(&mut p, &[StyleFilter::Invert(PercentageValue::new(100.0))], 1.0);
+        apply_layer_filters(
+            &mut p,
+            &[StyleFilter::Invert(PercentageValue::new(100.0))],
+            1.0,
+        );
         assert_eq!(at(&p, 0, 0), [255, 255, 0, 200]);
     }
 
@@ -4815,10 +5431,12 @@ mod autotest_generated {
     #[test]
     fn filter_blur_with_no_effective_radius_is_a_noop() {
         let base = solid(8, 8, [10, 20, 30, 255]);
-        let blur = |px: f32| StyleFilter::Blur(StyleBlur {
-            width: PixelValue::px(px),
-            height: PixelValue::px(px),
-        });
+        let blur = |px: f32| {
+            StyleFilter::Blur(StyleBlur {
+                width: PixelValue::px(px),
+                height: PixelValue::px(px),
+            })
+        };
 
         let mut zero = solid(8, 8, [10, 20, 30, 255]);
         apply_layer_filters(&mut zero, &[blur(0.0)], 1.0);
@@ -4826,7 +5444,11 @@ mod autotest_generated {
 
         let mut neg = solid(8, 8, [10, 20, 30, 255]);
         apply_layer_filters(&mut neg, &[blur(-8.0)], 1.0);
-        assert_eq!(neg.data(), base.data(), "a negative radius casts to 0, it must not wrap");
+        assert_eq!(
+            neg.data(),
+            base.data(),
+            "a negative radius casts to 0, it must not wrap"
+        );
 
         let mut nan_dpi = solid(8, 8, [10, 20, 30, 255]);
         apply_layer_filters(&mut nan_dpi, &[blur(4.0)], f32::NAN);
@@ -4851,8 +5473,16 @@ mod autotest_generated {
             })],
             1.0,
         );
-        assert_ne!(p.data(), &before[..], "a 2px blur must actually change pixels");
-        assert_eq!(p.data().len(), before.len(), "the buffer must not be reallocated");
+        assert_ne!(
+            p.data(),
+            &before[..],
+            "a 2px blur must actually change pixels"
+        );
+        assert_eq!(
+            p.data().len(),
+            before.len(),
+            "the buffer must not be reallocated"
+        );
     }
 
     #[test]
@@ -4873,7 +5503,11 @@ mod autotest_generated {
             ],
             1.0,
         );
-        assert_eq!(at(&p, 0, 0), [255, 255, 255, 255], "filters must compose left-to-right");
+        assert_eq!(
+            at(&p, 0, 0),
+            [255, 255, 255, 255],
+            "filters must compose left-to-right"
+        );
     }
 
     // ============================== allocate_layers_from_display_list ========
@@ -4896,7 +5530,7 @@ mod autotest_generated {
             DisplayListItem::PushOpacity {
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
                 opacity: 0.5,
-                    opacity_key: None,
+                opacity_key: None,
             },
             DisplayListItem::PopOpacity,
             DisplayListItem::PushFilter {
@@ -4916,14 +5550,23 @@ mod autotest_generated {
         c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 4, "root + scroll + opacity + blur");
         let root = c.layers.get(&c.root_layer).unwrap();
-        assert_eq!(root.children.len(), 3, "all three are direct children of the root");
+        assert_eq!(
+            root.children.len(),
+            3,
+            "all three are direct children of the root"
+        );
     }
 
     #[test]
     fn allocate_layers_at_degenerate_dpi_creates_no_layers() {
         for dpi in [0.0_f32, -2.0, f32::NAN] {
             let mut c = CompositorState::new(64, 64);
-            c.allocate_layers_from_display_list(&layer_soup(), dpi, &HashMap::new(), &HashMap::new());
+            c.allocate_layers_from_display_list(
+                &layer_soup(),
+                dpi,
+                &HashMap::new(),
+                &HashMap::new(),
+            );
             assert_eq!(
                 c.layers.len(),
                 1,
@@ -4935,7 +5578,10 @@ mod autotest_generated {
     #[test]
     fn allocate_layers_zero_sized_scroll_frame_is_skipped() {
         let mut c = CompositorState::new(64, 64);
-        let list = dlist(vec![push_scroll(1, 0.0, 0.0, 0.0, 0.0), DisplayListItem::PopScrollFrame]);
+        let list = dlist(vec![
+            push_scroll(1, 0.0, 0.0, 0.0, 0.0),
+            DisplayListItem::PopScrollFrame,
+        ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 1, "a 0×0 clip cannot get a pixbuf");
     }
@@ -4950,8 +5596,16 @@ mod autotest_generated {
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 2);
-        let l = c.layers.values().find(|l| l.scroll_id == Some(7)).expect("scroll layer");
-        assert_eq!(l.display_list_range, (1, 2), "range is (push+1, matching pop)");
+        let l = c
+            .layers
+            .values()
+            .find(|l| l.scroll_id == Some(7))
+            .expect("scroll layer");
+        assert_eq!(
+            l.display_list_range,
+            (1, 2),
+            "range is (push+1, matching pop)"
+        );
         assert_eq!(l.bounds.origin.x, 5.0);
         assert_eq!((l.pixbuf.width(), l.pixbuf.height()), (20, 20));
     }
@@ -4969,7 +5623,11 @@ mod autotest_generated {
             DisplayListItem::PopScrollFrame,
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
-        assert_eq!(c.layers.len(), 1, "stray pops are ignored, the root survives");
+        assert_eq!(
+            c.layers.len(),
+            1,
+            "stray pops are ignored, the root survives"
+        );
     }
 
     #[test]
@@ -4981,7 +5639,11 @@ mod autotest_generated {
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
-        assert_eq!(l.display_list_range, (1, 2), "an unmatched push clamps to items.len()");
+        assert_eq!(
+            l.display_list_range,
+            (1, 2),
+            "an unmatched push clamps to items.len()"
+        );
     }
 
     #[test]
@@ -4993,7 +5655,7 @@ mod autotest_generated {
                 DisplayListItem::PushOpacity {
                     bounds: wlr(0.0, 0.0, 20.0, 20.0),
                     opacity: op,
-                        opacity_key: None,
+                    opacity_key: None,
                 },
                 DisplayListItem::PopOpacity,
             ]);
@@ -5005,12 +5667,16 @@ mod autotest_generated {
             DisplayListItem::PushOpacity {
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
                 opacity: -3.0,
-                    opacity_key: None,
+                opacity_key: None,
             },
             DisplayListItem::PopOpacity,
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
-        assert_eq!(c.layers.len(), 2, "a negative opacity still needs its own layer");
+        assert_eq!(
+            c.layers.len(),
+            2,
+            "a negative opacity still needs its own layer"
+        );
     }
 
     #[test]
@@ -5030,7 +5696,11 @@ mod autotest_generated {
             DisplayListItem::PopReferenceFrame,
         ]);
         c2.allocate_layers_from_display_list(&moved, 1.0, &HashMap::new(), &HashMap::new());
-        assert_eq!(c2.layers.len(), 2, "a non-identity transform gets its own layer");
+        assert_eq!(
+            c2.layers.len(),
+            2,
+            "a non-identity transform gets its own layer"
+        );
         let l = c2.layers.values().find(|l| l.id != c2.root_layer).unwrap();
         assert!(!l.transform.is_identity(IDENTITY_EPSILON_F64));
     }
@@ -5058,7 +5728,11 @@ mod autotest_generated {
             &live,
             &HashMap::new(),
         );
-        assert_eq!(c.layers.len(), 2, "a live-animated frame must be promoted to a layer");
+        assert_eq!(
+            c.layers.len(),
+            2,
+            "a live-animated frame must be promoted to a layer"
+        );
         let l = c.layers.values().find(|l| l.id != c.root_layer).unwrap();
         assert!(
             (l.transform.tx - 120.0).abs() < 0.001,
@@ -5088,7 +5762,11 @@ mod autotest_generated {
             &live,
             &HashMap::new(),
         );
-        assert_eq!(c.layers.len(), 1, "a settled animation must not keep its layer");
+        assert_eq!(
+            c.layers.len(),
+            1,
+            "a settled animation must not keep its layer"
+        );
     }
 
     /// Push/pop pairing must not be inferred from the transform VALUE.
@@ -5132,7 +5810,10 @@ mod autotest_generated {
         c.allocate_layers_from_display_list(&group(1.0), 1.0, &no_t, &live_o);
         assert_eq!(c.layers.len(), 2, "a mid-fade keyed group needs a layer");
         let l = c.layers.values().find(|l| l.id != c.root_layer).unwrap();
-        assert!((l.opacity - 0.4).abs() < 0.001, "layer must carry the LIVE opacity");
+        assert!(
+            (l.opacity - 0.4).abs() < 0.001,
+            "layer must carry the LIVE opacity"
+        );
 
         // Settled fade: live 1.0 beats baked 0.5 — no layer.
         let mut live_one: HashMap<usize, f32> = HashMap::new();
@@ -5162,7 +5843,7 @@ mod autotest_generated {
                     opacity: 1.0,
                     opacity_key: Some(OpacityKey { id: 9 }),
                 },
-                DisplayListItem::PopOpacity, // allocated nothing
+                DisplayListItem::PopOpacity,     // allocated nothing
                 opaque_rect(0.0, 0.0, 5.0, 5.0), // still inside the FRAME
                 DisplayListItem::PopReferenceFrame,
             ]),
@@ -5171,7 +5852,13 @@ mod autotest_generated {
             &live_o,
         );
         assert_eq!(c.layers.len(), 2, "only the moved frame gets a layer");
-        let frame_id = *c.layers.get(&c.root_layer).unwrap().children.first().unwrap();
+        let frame_id = *c
+            .layers
+            .get(&c.root_layer)
+            .unwrap()
+            .children
+            .first()
+            .unwrap();
         let frame = c.layers.get(&frame_id).unwrap();
         let (start, end) = frame.display_list_range;
         assert!(
@@ -5201,7 +5888,13 @@ mod autotest_generated {
             &HashMap::new(),
         );
         assert_eq!(c.layers.len(), 2, "only the moved outer frame gets a layer");
-        let outer_id = *c.layers.get(&c.root_layer).unwrap().children.first().unwrap();
+        let outer_id = *c
+            .layers
+            .get(&c.root_layer)
+            .unwrap()
+            .children
+            .first()
+            .unwrap();
         let outer = c.layers.get(&outer_id).unwrap();
         let (start, end) = outer.display_list_range;
         assert!(
@@ -5223,11 +5916,19 @@ mod autotest_generated {
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         assert_eq!(c.layers.len(), 3);
         let root = c.layers.get(&c.root_layer).unwrap();
-        assert_eq!(root.children.len(), 1, "only the outer frame hangs off the root");
+        assert_eq!(
+            root.children.len(),
+            1,
+            "only the outer frame hangs off the root"
+        );
         let outer_id = root.children[0];
         let outer = c.layers.get(&outer_id).unwrap();
         assert_eq!(outer.scroll_id, Some(1));
-        assert_eq!(outer.children.len(), 1, "the inner frame is a child of the outer one");
+        assert_eq!(
+            outer.children.len(),
+            1,
+            "the inner frame is a child of the outer one"
+        );
         let inner = c.layers.get(&outer.children[0]).unwrap();
         assert_eq!(inner.scroll_id, Some(2));
         assert_eq!(inner.display_list_range, (2, 3));
@@ -5239,10 +5940,21 @@ mod autotest_generated {
         c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new(), &HashMap::new());
         let first = c.layers.len();
         c.allocate_layers_from_display_list(&layer_soup(), 1.0, &HashMap::new(), &HashMap::new());
-        assert_eq!(c.layers.len(), first, "re-allocating must not leak last frame's layers");
+        assert_eq!(
+            c.layers.len(),
+            first,
+            "re-allocating must not leak last frame's layers"
+        );
         let root = c.layers.get(&c.root_layer).unwrap();
-        assert_eq!(root.children.len(), 3, "root children are rebuilt, not appended to");
-        assert!(c.next_layer_id_peek() > first as u64, "ids stay monotonic across frames");
+        assert_eq!(
+            root.children.len(),
+            3,
+            "root children are rebuilt, not appended to"
+        );
+        assert!(
+            c.next_layer_id_peek() > first as u64,
+            "ids stay monotonic across frames"
+        );
     }
 
     #[test]
@@ -5256,7 +5968,11 @@ mod autotest_generated {
             DisplayListItem::PopBackdropFilter,
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
-        let l = c.layers.values().find(|l| l.is_backdrop_filter).expect("backdrop layer");
+        let l = c
+            .layers
+            .values()
+            .find(|l| l.is_backdrop_filter)
+            .expect("backdrop layer");
         assert_eq!(
             at(&l.pixbuf, 0, 0),
             [0, 0, 0, 0],
@@ -5303,7 +6019,11 @@ mod autotest_generated {
         let rects = [lr(0.0, 0.0, 10.0, 10.0)];
         c.compute_damage(&dirty, &old, &new, &rects);
         let root = c.layers.get(&c.root_layer).unwrap();
-        assert_eq!(root.damage.len(), 2, "a moved node damages where it was AND where it is");
+        assert_eq!(
+            root.damage.len(),
+            2,
+            "a moved node damages where it was AND where it is"
+        );
         assert!(root.composite_dirty);
         assert!(root.damage.iter().any(|d| d.origin.x == 0.0));
         assert!(root.damage.iter().any(|d| d.origin.x == 20.0));
@@ -5356,7 +6076,9 @@ mod autotest_generated {
         let list = dlist(vec![]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, st) = render_deps();
-        assert!(c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).is_ok());
+        assert!(c
+            .render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .is_ok());
     }
 
     #[test]
@@ -5367,18 +6089,28 @@ mod autotest_generated {
             0.0,
             16.0,
             16.0,
-            ColorU { r: 0, g: 0, b: 255, a: 255 },
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            },
         )]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, st) = render_deps();
-        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
         let root = c.layers.get(&c.root_layer).unwrap();
         assert_eq!(at(&root.pixbuf, 8, 8), [0, 0, 255, 255]);
 
         let mut out = AzulPixmap::new(16, 16).unwrap();
         out.fill(0, 0, 0, 255);
         c.composite_frame(&mut out, 1.0);
-        assert_eq!(at(&out, 8, 8), [0, 0, 255, 255], "the root layer is blitted 1:1");
+        assert_eq!(
+            at(&out, 8, 8),
+            [0, 0, 255, 255],
+            "the root layer is blitted 1:1"
+        );
     }
 
     #[test]
@@ -5392,12 +6124,18 @@ mod autotest_generated {
                 0.0,
                 8.0,
                 8.0,
-                ColorU { r: 0, g: 0, b: 255, a: 255 },
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                    a: 255,
+                },
             )]);
             c.allocate_layers_from_display_list(&list, dpi, &HashMap::new(), &HashMap::new());
             let (rr, mut gc, st) = render_deps();
             assert!(
-                c.render_layers(&list, dpi, &rr, &test_font_manager(), &mut gc, &st).is_ok(),
+                c.render_layers(&list, dpi, &rr, &test_font_manager(), &mut gc, &st)
+                    .is_ok(),
                 "dpi {dpi} must not error or panic"
             );
             let root = c.layers.get(&c.root_layer).unwrap();
@@ -5419,7 +6157,8 @@ mod autotest_generated {
         c.layers.get_mut(&root_id).unwrap().display_list_range = (999, 1000);
         let (rr, mut gc, st) = render_deps();
         assert!(
-            c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).is_ok(),
+            c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+                .is_ok(),
             "an out-of-range range must be skipped, not indexed"
         );
     }
@@ -5432,15 +6171,25 @@ mod autotest_generated {
             0.0,
             8.0,
             8.0,
-            ColorU { r: 0, g: 255, b: 0, a: 255 },
+            ColorU {
+                r: 0,
+                g: 255,
+                b: 0,
+                a: 255,
+            },
         )]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let root_id = c.root_layer;
         c.layers.get_mut(&root_id).unwrap().display_list_range = (0, 9999);
         let (rr, mut gc, st) = render_deps();
-        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
         let root = c.layers.get(&c.root_layer).unwrap();
-        assert_eq!(at(&root.pixbuf, 4, 4), [0, 255, 0, 255], "end is clamped to items.len()");
+        assert_eq!(
+            at(&root.pixbuf, 4, 4),
+            [0, 255, 0, 255],
+            "end is clamped to items.len()"
+        );
     }
 
     #[test]
@@ -5449,13 +6198,18 @@ mod autotest_generated {
         let list = dlist(vec![]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, st) = render_deps();
-        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
 
         for dpi in [0.0_f32, -1.0, f32::NAN] {
             let mut out = AzulPixmap::new(16, 16).unwrap();
             out.fill(0, 0, 0, 255);
             c.composite_frame(&mut out, dpi);
-            assert_eq!(at(&out, 0, 0), [255, 255, 255, 255], "root blit ignores dpi {dpi}");
+            assert_eq!(
+                at(&out, 0, 0),
+                [255, 255, 255, 255],
+                "root blit ignores dpi {dpi}"
+            );
         }
 
         // Output smaller than the root layer: the blit must clip, not panic.
@@ -5474,12 +6228,24 @@ mod autotest_generated {
                 opacity: 0.0, // fully transparent group
                 opacity_key: None,
             },
-            rect_item(0.0, 0.0, 16.0, 16.0, ColorU { r: 255, g: 0, b: 0, a: 255 }),
+            rect_item(
+                0.0,
+                0.0,
+                16.0,
+                16.0,
+                ColorU {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
+            ),
             DisplayListItem::PopOpacity,
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, st) = render_deps();
-        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
         let mut out = AzulPixmap::new(16, 16).unwrap();
         out.fill(0, 0, 0, 255);
         c.composite_frame(&mut out, 1.0);
@@ -5499,8 +6265,18 @@ mod autotest_generated {
     /// localized structural change now damages the changed middle window.
     #[test]
     fn a_changed_item_count_damages_the_changed_window_not_the_full_frame() {
-        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
-        let blue = ColorU { r: 0, g: 0, b: 255, a: 255 };
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let blue = ColorU {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 255,
+        };
         let old = dlist(vec![
             rect_item(0.0, 0.0, 100.0, 10.0, red),
             rect_item(0.0, 20.0, 100.0, 10.0, red),
@@ -5528,7 +6304,12 @@ mod autotest_generated {
     /// keeps the full-repaint bail when the offsets themselves changed.
     #[test]
     fn windowed_damage_respects_scroll_offsets() {
-        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
         let old = dlist(vec![
             push_scroll(1, 0.0, 0.0, 100.0, 50.0),
             rect_item(0.0, 100.0, 100.0, 10.0, red),
@@ -5566,7 +6347,12 @@ mod autotest_generated {
     #[test]
     fn a_push_clip_wrapping_a_nested_layer_clips_it_at_composite() {
         let mut c = CompositorState::new(64, 64);
-        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
         let list = dlist(vec![
             DisplayListItem::PushClip {
                 bounds: wlr(10.0, 10.0, 20.0, 20.0),
@@ -5579,11 +6365,16 @@ mod autotest_generated {
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, st) = render_deps();
-        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
         let mut out = AzulPixmap::new(64, 64).unwrap();
         out.fill(255, 255, 255, 255);
         c.composite_frame(&mut out, 1.0);
-        assert_eq!(at(&out, 25, 25), [255, 0, 0, 255], "inside the wrapping clip");
+        assert_eq!(
+            at(&out, 25, 25),
+            [255, 0, 0, 255],
+            "inside the wrapping clip"
+        );
         assert_eq!(
             at(&out, 35, 15),
             [255, 255, 255, 255],
@@ -5592,7 +6383,6 @@ mod autotest_generated {
         assert_eq!(at(&out, 15, 35), [255, 255, 255, 255], "both axes");
     }
 
-
     /// THE CLASS (AzWidgets TextArea, 2026-08-24): a layer nested inside a
     /// NON-root layer composited at parent origin + its own absolute origin —
     /// every ancestor origin double-counted — so its pixels landed below and
@@ -5600,7 +6390,12 @@ mod autotest_generated {
     #[test]
     fn a_nested_scroll_frame_composites_parent_relative_not_double_offset() {
         let mut c = CompositorState::new(64, 64);
-        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
         let list = dlist(vec![
             push_scroll(1, 10.0, 10.0, 40.0, 40.0),
             push_scroll(2, 20.0, 20.0, 20.0, 20.0),
@@ -5610,7 +6405,8 @@ mod autotest_generated {
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, st) = render_deps();
-        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
         let mut out = AzulPixmap::new(64, 64).unwrap();
         out.fill(255, 255, 255, 255);
         c.composite_frame(&mut out, 1.0);
@@ -5634,7 +6430,12 @@ mod autotest_generated {
     #[test]
     fn scrolling_the_outer_frame_moves_and_clips_the_nested_frame() {
         let mut c = CompositorState::new(64, 64);
-        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
         let list = dlist(vec![
             push_scroll(1, 10.0, 10.0, 40.0, 40.0),
             push_scroll(2, 20.0, 20.0, 20.0, 20.0),
@@ -5647,7 +6448,8 @@ mod autotest_generated {
         let mut offsets = ScrollOffsetMap::new();
         offsets.insert(1, (0.0, 15.0));
         let st = CpuRenderState::new(offsets);
-        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st).unwrap();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
         let mut out = AzulPixmap::new(64, 64).unwrap();
         out.fill(255, 255, 255, 255);
         c.composite_frame(&mut out, 1.0);
@@ -5679,7 +6481,16 @@ mod autotest_generated {
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, _st) = render_deps();
         assert!(
-            c.scroll_layer(4242, (0.0, 10.0), &list, 1.0, &rr, &test_font_manager(), &mut gc).is_ok(),
+            c.scroll_layer(
+                4242,
+                (0.0, 10.0),
+                &list,
+                1.0,
+                &rr,
+                &test_font_manager(),
+                &mut gc
+            )
+            .is_ok(),
             "scrolling a frame that has no layer is a no-op, not a panic"
         );
     }
@@ -5694,9 +6505,22 @@ mod autotest_generated {
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, _st) = render_deps();
-        c.scroll_layer(1, (0.0, 0.4), &list, 1.0, &rr, &test_font_manager(), &mut gc).unwrap();
+        c.scroll_layer(
+            1,
+            (0.0, 0.4),
+            &list,
+            1.0,
+            &rr,
+            &test_font_manager(),
+            &mut gc,
+        )
+        .unwrap();
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
-        assert_eq!(l.scroll_offset, (0.0, 0.0), "|dy| < 0.5 must not move anything");
+        assert_eq!(
+            l.scroll_offset,
+            (0.0, 0.0),
+            "|dy| < 0.5 must not move anything"
+        );
         assert!(l.damage.is_empty());
     }
 
@@ -5710,7 +6534,16 @@ mod autotest_generated {
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
         let (rr, mut gc, _st) = render_deps();
-        c.scroll_layer(1, (0.0, 10.0), &list, 1.0, &rr, &test_font_manager(), &mut gc).unwrap();
+        c.scroll_layer(
+            1,
+            (0.0, 10.0),
+            &list,
+            1.0,
+            &rr,
+            &test_font_manager(),
+            &mut gc,
+        )
+        .unwrap();
         let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
         assert_eq!(l.scroll_offset, (0.0, 10.0));
         assert_eq!(l.damage.len(), 1, "a single-axis scroll exposes one strip");
@@ -5725,9 +6558,23 @@ mod autotest_generated {
         let mut p = solid(4, 4, [255, 255, 255, 255]);
         let (rr, mut gc, st) = render_deps();
         let r = render_display_list_range(
-            &list, &mut p, 5, 2, &[], 0.0, 0.0, 1.0, &rr, &test_font_manager(), &mut gc, &st,
+            &list,
+            &mut p,
+            5,
+            2,
+            &[],
+            0.0,
+            0.0,
+            1.0,
+            &rr,
+            &test_font_manager(),
+            &mut gc,
+            &st,
         );
-        assert!(r.is_ok(), "an inverted range is an empty range, not a panic");
+        assert!(
+            r.is_ok(),
+            "an inverted range is an empty range, not a panic"
+        );
         assert_eq!(at(&p, 0, 0), [255, 255, 255, 255], "nothing was drawn");
     }
 
@@ -5738,12 +6585,28 @@ mod autotest_generated {
             0.0,
             4.0,
             4.0,
-            ColorU { r: 255, g: 0, b: 0, a: 255 },
+            ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
         )]);
         let mut p = solid(4, 4, [255, 255, 255, 255]);
         let (rr, mut gc, st) = render_deps();
         render_display_list_range(
-            &list, &mut p, 0, 1, &[(0, 1)], 0.0, 0.0, 1.0, &rr, &test_font_manager(), &mut gc, &st,
+            &list,
+            &mut p,
+            0,
+            1,
+            &[(0, 1)],
+            0.0,
+            0.0,
+            1.0,
+            &rr,
+            &test_font_manager(),
+            &mut gc,
+            &st,
         )
         .unwrap();
         assert_eq!(

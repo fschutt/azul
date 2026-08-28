@@ -11,14 +11,16 @@ use crate::corety::AzString;
 /// E.g. `url(something,else), url(another,thing)` becomes `["url(something,else)",
 /// "url(another,thing)"]` whereas a normal split by comma would yield `["url(something", "else)",
 /// "url(another", "thing)"]`
-#[must_use] pub fn split_string_respect_comma(input: &str) -> Vec<&str> {
+#[must_use]
+pub fn split_string_respect_comma(input: &str) -> Vec<&str> {
     split_string_by_char(input, ',')
 }
 
 /// Splits a string by whitespace, but respects parentheses/braces
 ///
 /// E.g. `translateX(10px) rotate(90deg)` becomes `["translateX(10px)", "rotate(90deg)"]`
-#[must_use] pub fn split_string_respect_whitespace(input: &str) -> Vec<&str> {
+#[must_use]
+pub fn split_string_respect_whitespace(input: &str) -> Vec<&str> {
     let mut items = Vec::<&str>::new();
     let mut current_start = 0;
     let mut depth = 0;
@@ -115,7 +117,8 @@ impl_display! { ParenthesisParseError<'a>, {
     StopWordNotFound(e) => format!("Stopword not found, found: \"{}\"", e),
     EmptyInput => format!("Empty parenthesis"),
 }}
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Owned version of `ParenthesisParseError`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -128,7 +131,8 @@ pub enum ParenthesisParseErrorOwned {
 }
 
 impl ParenthesisParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> ParenthesisParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> ParenthesisParseErrorOwned {
         match self {
             ParenthesisParseError::UnclosedBraces => ParenthesisParseErrorOwned::UnclosedBraces,
             ParenthesisParseError::NoOpeningBraceFound => {
@@ -146,18 +150,13 @@ impl ParenthesisParseError<'_> {
 }
 
 impl ParenthesisParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> ParenthesisParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> ParenthesisParseError<'_> {
         match self {
             Self::UnclosedBraces => ParenthesisParseError::UnclosedBraces,
-            Self::NoOpeningBraceFound => {
-                ParenthesisParseError::NoOpeningBraceFound
-            }
-            Self::NoClosingBraceFound => {
-                ParenthesisParseError::NoClosingBraceFound
-            }
-            Self::StopWordNotFound(s) => {
-                ParenthesisParseError::StopWordNotFound(s.as_str())
-            }
+            Self::NoOpeningBraceFound => ParenthesisParseError::NoOpeningBraceFound,
+            Self::NoClosingBraceFound => ParenthesisParseError::NoClosingBraceFound,
+            Self::StopWordNotFound(s) => ParenthesisParseError::StopWordNotFound(s.as_str()),
             Self::EmptyInput => ParenthesisParseError::EmptyInput,
         }
     }
@@ -196,7 +195,9 @@ pub fn parse_parentheses<'a>(
     input: &'a str,
     stopwords: &[&'static str],
 ) -> Result<(&'static str, &'a str), ParenthesisParseError<'a>> {
-    use self::ParenthesisParseError::{EmptyInput, NoOpeningBraceFound, StopWordNotFound, NoClosingBraceFound};
+    use self::ParenthesisParseError::{
+        EmptyInput, NoClosingBraceFound, NoOpeningBraceFound, StopWordNotFound,
+    };
 
     let input = input.trim();
     if input.is_empty() {
@@ -303,7 +304,8 @@ pub enum CssImageParseErrorOwned {
 
 impl CssImageParseError<'_> {
     /// Converts to the owned variant.
-    #[must_use] pub fn to_contained(&self) -> CssImageParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssImageParseErrorOwned {
         match self {
             CssImageParseError::UnclosedQuotes(s) => {
                 CssImageParseErrorOwned::UnclosedQuotes((*s).to_string().into())
@@ -314,11 +316,10 @@ impl CssImageParseError<'_> {
 
 impl CssImageParseErrorOwned {
     /// Converts to the borrowed variant.
-    #[must_use] pub fn to_shared(&self) -> CssImageParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssImageParseError<'_> {
         match self {
-            Self::UnclosedQuotes(s) => {
-                CssImageParseError::UnclosedQuotes(s.as_str())
-            }
+            Self::UnclosedQuotes(s) => CssImageParseError::UnclosedQuotes(s.as_str()),
         }
     }
 }
@@ -524,7 +525,10 @@ mod autotest_generated {
             split_string_by_char("a;b(c;d);e", ';'),
             vec!["a", "b(c;d)", "e"]
         );
-        assert_eq!(split_string_by_char("a b(c d) e", ' '), vec!["a", "b(c d)", "e"]);
+        assert_eq!(
+            split_string_by_char("a b(c d) e", ' '),
+            vec!["a", "b(c d)", "e"]
+        );
     }
 
     #[test]
@@ -588,8 +592,18 @@ mod autotest_generated {
     #[test]
     fn split_comma_garbage_input_never_panics() {
         for garbage in [
-            "\0", "\u{FFFD}", ";;;", "((((", "))))", "()", ",()", "()," , "\\\"'`",
-            "\u{200B},\u{200B}", "--,--", "\t,\n,\r",
+            "\0",
+            "\u{FFFD}",
+            ";;;",
+            "((((",
+            "))))",
+            "()",
+            ",()",
+            "(),",
+            "\\\"'`",
+            "\u{200B},\u{200B}",
+            "--,--",
+            "\t,\n,\r",
         ] {
             let parts = split_string_respect_comma(garbage);
             // Every returned slice must be a real substring of the input.
@@ -602,7 +616,10 @@ mod autotest_generated {
     #[test]
     fn split_comma_extremely_long_inputs_do_not_hang() {
         let no_comma = "a".repeat(1_000_000);
-        assert_eq!(split_string_respect_comma(&no_comma), vec![no_comma.as_str()]);
+        assert_eq!(
+            split_string_respect_comma(&no_comma),
+            vec![no_comma.as_str()]
+        );
 
         let all_commas = ",".repeat(100_000);
         let parts = split_string_respect_comma(&all_commas);
@@ -648,7 +665,10 @@ mod autotest_generated {
             split_string_respect_whitespace("translateX(10px) rotate(90deg)"),
             vec!["translateX(10px)", "rotate(90deg)"]
         );
-        assert_eq!(split_string_respect_whitespace("  a\t\tb\n"), vec!["a", "b"]);
+        assert_eq!(
+            split_string_respect_whitespace("  a\t\tb\n"),
+            vec!["a", "b"]
+        );
     }
 
     #[test]
@@ -802,7 +822,10 @@ mod autotest_generated {
             "0.0000000000000000000001",
         ] {
             let input = format!("translate({n})");
-            assert_eq!(parse_parentheses(&input, &["translate"]), Ok(("translate", n)));
+            assert_eq!(
+                parse_parentheses(&input, &["translate"]),
+                Ok(("translate", n))
+            );
         }
         // A bare number has no brace at all.
         assert_eq!(
@@ -854,7 +877,10 @@ mod autotest_generated {
         let inner = format!("{}{}", "(".repeat(10_000), ")".repeat(10_000));
         let input = format!("abc({inner})");
         // find/rfind based, not recursive-descent.
-        assert_eq!(parse_parentheses(&input, &["abc"]), Ok(("abc", inner.as_str())));
+        assert_eq!(
+            parse_parentheses(&input, &["abc"]),
+            Ok(("abc", inner.as_str()))
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -933,7 +959,10 @@ mod autotest_generated {
 
     #[test]
     fn strip_quotes_valid_minimal_positive_control() {
-        assert_eq!(strip_quotes("\"Helvetica\""), Ok(QuoteStripped("Helvetica")));
+        assert_eq!(
+            strip_quotes("\"Helvetica\""),
+            Ok(QuoteStripped("Helvetica"))
+        );
         assert_eq!(strip_quotes("'Arial'"), Ok(QuoteStripped("Arial")));
         // Empty quoted string is legal and yields an empty payload.
         assert_eq!(strip_quotes("\"\""), Ok(QuoteStripped("")));
@@ -945,12 +974,18 @@ mod autotest_generated {
         assert_eq!(strip_quotes(""), Err(UnclosedQuotesError("")));
         assert_eq!(strip_quotes("   "), Err(UnclosedQuotesError("   ")));
         assert_eq!(strip_quotes("\t\n"), Err(UnclosedQuotesError("\t\n")));
-        assert_eq!(strip_quotes("no-quotes"), Err(UnclosedQuotesError("no-quotes")));
+        assert_eq!(
+            strip_quotes("no-quotes"),
+            Err(UnclosedQuotesError("no-quotes"))
+        );
     }
 
     #[test]
     fn strip_quotes_mixed_quote_kinds_are_rejected() {
-        assert_eq!(strip_quotes("\"Arial'"), Err(UnclosedQuotesError("\"Arial'")));
+        assert_eq!(
+            strip_quotes("\"Arial'"),
+            Err(UnclosedQuotesError("\"Arial'"))
+        );
         // A legitimate apostrophe inside a double-quoted name is *also* rejected.
         assert_eq!(
             strip_quotes("\"Bob's Font\""),
@@ -961,11 +996,17 @@ mod autotest_generated {
     #[test]
     fn strip_quotes_unclosed_error_payload_is_asymmetric_between_branches() {
         // The single-quote branch reports the whole input...
-        assert_eq!(strip_quotes("'unclosed"), Err(UnclosedQuotesError("'unclosed")));
+        assert_eq!(
+            strip_quotes("'unclosed"),
+            Err(UnclosedQuotesError("'unclosed"))
+        );
         assert_eq!(strip_quotes("'"), Err(UnclosedQuotesError("'")));
         // ...but the double-quote branch reports only the text *after* the quote,
         // losing the leading '"'. Pinned as-is; the two branches disagree.
-        assert_eq!(strip_quotes("\"unclosed"), Err(UnclosedQuotesError("unclosed")));
+        assert_eq!(
+            strip_quotes("\"unclosed"),
+            Err(UnclosedQuotesError("unclosed"))
+        );
         assert_eq!(strip_quotes("\""), Err(UnclosedQuotesError("")));
     }
 
@@ -981,7 +1022,10 @@ mod autotest_generated {
             Err(UnclosedQuotesError(" 'Arial' "))
         );
         // Inner whitespace, however, is preserved exactly.
-        assert_eq!(strip_quotes("\"  spaced  \""), Ok(QuoteStripped("  spaced  ")));
+        assert_eq!(
+            strip_quotes("\"  spaced  \""),
+            Ok(QuoteStripped("  spaced  "))
+        );
     }
 
     #[test]
@@ -1065,7 +1109,10 @@ mod autotest_generated {
         for payload in ["", "a.png", "\u{1F600}\u{0301}", "\0", huge.as_str()] {
             let shared = CssImageParseError::UnclosedQuotes(payload);
             let owned = shared.to_contained();
-            assert_eq!(owned, CssImageParseErrorOwned::UnclosedQuotes(payload.into()));
+            assert_eq!(
+                owned,
+                CssImageParseErrorOwned::UnclosedQuotes(payload.into())
+            );
             assert_eq!(owned.to_shared(), shared, "round-trip must be lossless");
             assert_eq!(owned.to_shared().to_contained(), owned);
         }
@@ -1111,7 +1158,10 @@ mod autotest_generated {
             huge.as_str(),
             nested.as_str(),
         ] {
-            assert!(parse_image(input).is_ok(), "parse_image({input:?}) must be Ok");
+            assert!(
+                parse_image(input).is_ok(),
+                "parse_image({input:?}) must be Ok"
+            );
         }
     }
 

@@ -118,7 +118,9 @@ fn emit_prelude(b: &mut CodeBuilder) {
     b.blank();
     b.line("# --- tagged-union blob helpers (used by @eval'd union structs) --------------");
     b.line("# Element type giving a Julia value the requested C alignment.");
-    b.line("_az_blob_eltype(a::Integer) = a >= 8 ? UInt64 : a == 4 ? UInt32 : a == 2 ? UInt16 : UInt8");
+    b.line(
+        "_az_blob_eltype(a::Integer) = a >= 8 ? UInt64 : a == 4 ? UInt32 : a == 2 ? UInt16 : UInt8",
+    );
     b.line("# Alignment of an isbits type (matches the C union's alignment).");
     b.line("_az_alignof(@nospecialize(T)) = Base.datatype_alignment(T)");
     b.blank();
@@ -271,11 +273,7 @@ pub fn ptr_to_julia(_inner: &str, _ir: &CodegenIR) -> String {
 }
 
 /// Map a `(type_name, FieldRefKind)` pair to the Julia field type.
-pub fn field_type_for_ref_kind(
-    type_name: &str,
-    ref_kind: &FieldRefKind,
-    ir: &CodegenIR,
-) -> String {
+pub fn field_type_for_ref_kind(type_name: &str, ref_kind: &FieldRefKind, ir: &CodegenIR) -> String {
     match ref_kind {
         FieldRefKind::Owned => map_type_to_julia(type_name, ir),
         FieldRefKind::Ref

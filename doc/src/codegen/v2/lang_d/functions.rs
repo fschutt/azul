@@ -74,12 +74,7 @@ fn emit_extern_proc(b: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
         .map(|r| map_type_to_d(r, ir))
         .unwrap_or_else(|| "void".to_string());
 
-    b.line(&format!(
-        "\t{} {}({});",
-        ret,
-        func.c_name,
-        args.join(", ")
-    ));
+    b.line(&format!("\t{} {}({});", ret, func.c_name, args.join(", ")));
 }
 
 /// Emit idiomatic aliases dropping the `Az` prefix

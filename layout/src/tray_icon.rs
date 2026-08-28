@@ -161,7 +161,12 @@ pub fn render_icon_to_rgba(
             dpi_factor: 1.0,
             // Transparent, NOT the white the preview renderer defaults to — a
             // tray icon composited over a white square is a white square.
-            background_color: ColorU { r: 0, g: 0, b: 0, a: 0 },
+            background_color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
         },
         None,
     )
@@ -254,10 +259,7 @@ mod tests {
         // faces are referenced, it does not parse them.
         static DUMMY: u8 = 0;
         extern "C" fn noop(_: *mut core::ffi::c_void) {}
-        let face = FontRef::new(
-            core::ptr::addr_of!(DUMMY).cast::<core::ffi::c_void>(),
-            noop,
-        );
+        let face = FontRef::new(core::ptr::addr_of!(DUMMY).cast::<core::ffi::c_void>(), noop);
 
         let mut handle = IconProviderHandle::with_resolver(crate::icon::default_icon_resolver);
         handle.register_icon(
@@ -271,11 +273,7 @@ mod tests {
         let provider = SharedIconProvider::from_handle(handle);
 
         let mut dom = Dom::create_icon(String::from("gear"));
-        azul_core::icon::resolve_icons_in_dom(
-            &mut dom,
-            &provider,
-            &SystemStyle::default(),
-        );
+        azul_core::icon::resolve_icons_in_dom(&mut dom, &provider, &SystemStyle::default());
         let styled = StyledDom::create_from_dom(dom);
 
         let collected = crate::solver3::getters::collect_font_stacks_from_styled_dom(

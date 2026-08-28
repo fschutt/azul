@@ -43,7 +43,8 @@ impl ParseFloatError {
     }
 
     /// Reconstruct a `core::num::ParseFloatError` from our C-compatible variant.
-    #[must_use] pub fn to_std(&self) -> core::num::ParseFloatError {
+    #[must_use]
+    pub fn to_std(&self) -> core::num::ParseFloatError {
         match self {
             Self::Empty => "".parse::<f32>().unwrap_err(),
             Self::Invalid => "x".parse::<f32>().unwrap_err(),
@@ -99,7 +100,8 @@ impl ParseIntError {
     }
 
     /// Reconstruct a `core::num::ParseIntError` from our C-compatible variant.
-    #[must_use] pub fn to_std(&self) -> core::num::ParseIntError {
+    #[must_use]
+    pub fn to_std(&self) -> core::num::ParseIntError {
         match self {
             Self::Empty => "".parse::<i32>().unwrap_err(),
             Self::InvalidDigit => "x".parse::<i32>().unwrap_err(),
@@ -151,13 +153,17 @@ pub struct WrongComponentCountError {
 }
 
 impl InvalidValueErr<'_> {
-    #[must_use] pub fn to_contained(&self) -> InvalidValueErrOwned {
-        InvalidValueErrOwned { value: self.0.to_string().into() }
+    #[must_use]
+    pub fn to_contained(&self) -> InvalidValueErrOwned {
+        InvalidValueErrOwned {
+            value: self.0.to_string().into(),
+        }
     }
 }
 
 impl InvalidValueErrOwned {
-    #[must_use] pub fn to_shared(&self) -> InvalidValueErr<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> InvalidValueErr<'_> {
         InvalidValueErr(self.value.as_str())
     }
 }
@@ -241,15 +247,10 @@ mod autotest_generated {
         // A string that *looks* empty but is not: `from_std` must NOT collapse
         // these into `Empty`, because std trims nothing.
         for s in [
-            " ",
-            "  ",
-            "\t",
-            "\n",
-            "\r\n",
-            "\u{a0}",    // NBSP
-            "\u{feff}",  // BOM
-            "\u{200b}",  // zero-width space
-            "\u{0}",     // NUL
+            " ", "  ", "\t", "\n", "\r\n", "\u{a0}",   // NBSP
+            "\u{feff}", // BOM
+            "\u{200b}", // zero-width space
+            "\u{0}",    // NUL
         ] {
             assert_eq!(
                 float_kind::<f32>(s),
@@ -276,9 +277,9 @@ mod autotest_generated {
     #[test]
     fn float_from_std_non_ascii_digits_are_invalid() {
         for s in [
-            "١٢٣",     // Arabic-Indic digits
-            "１２３",  // fullwidth digits
-            "½",       // vulgar fraction
+            "١٢٣",    // Arabic-Indic digits
+            "１２３", // fullwidth digits
+            "½",      // vulgar fraction
             "😀",
             "٣.٥",
             "1\u{301}", // combining acute after a valid digit
@@ -322,10 +323,16 @@ mod autotest_generated {
         // No `ParseFloatError` is produced for out-of-range magnitudes — std
         // saturates. Anything relying on an "overflow" variant would be wrong.
         assert!(
-            "1e400".parse::<f32>().expect("saturates, does not error").is_infinite(),
+            "1e400"
+                .parse::<f32>()
+                .expect("saturates, does not error")
+                .is_infinite(),
             "huge positive exponent should saturate to +inf"
         );
-        assert!("-1e400".parse::<f32>().expect("saturates").is_sign_negative());
+        assert!("-1e400"
+            .parse::<f32>()
+            .expect("saturates")
+            .is_sign_negative());
         assert_eq!("1e-400".parse::<f32>().expect("underflows to zero"), 0.0);
 
         let huge = "9".repeat(100_000);
@@ -337,8 +344,14 @@ mod autotest_generated {
         assert!("nan".parse::<f32>().expect("nan is valid").is_nan());
         assert!("NaN".parse::<f32>().expect("NaN is valid").is_nan());
         assert!("inf".parse::<f32>().expect("inf is valid").is_infinite());
-        assert!("infinity".parse::<f32>().expect("infinity is valid").is_infinite());
-        assert!("-inf".parse::<f32>().expect("-inf is valid").is_sign_negative());
+        assert!("infinity"
+            .parse::<f32>()
+            .expect("infinity is valid")
+            .is_infinite());
+        assert!("-inf"
+            .parse::<f32>()
+            .expect("-inf is valid")
+            .is_sign_negative());
         assert!("-0".parse::<f32>().expect("-0 is valid").is_sign_negative());
     }
 
@@ -355,7 +368,10 @@ mod autotest_generated {
     #[test]
     fn float_to_std_variants_stay_distinct() {
         // If these ever collapsed, `from_std` would misclassify every error.
-        assert_ne!(ParseFloatError::Empty.to_std(), ParseFloatError::Invalid.to_std());
+        assert_ne!(
+            ParseFloatError::Empty.to_std(),
+            ParseFloatError::Invalid.to_std()
+        );
     }
 
     #[test]
@@ -368,7 +384,11 @@ mod autotest_generated {
     #[test]
     fn float_round_trip_encode_decode_is_identity() {
         for v in ALL_FLOAT {
-            assert_eq!(ParseFloatError::from_std(&v.to_std()), v, "round-trip lost {v:?}");
+            assert_eq!(
+                ParseFloatError::from_std(&v.to_std()),
+                v,
+                "round-trip lost {v:?}"
+            );
             assert_eq!(ParseFloatError::from(v.to_std()), v);
         }
     }
@@ -390,8 +410,29 @@ mod autotest_generated {
     #[test]
     fn int_from_std_malformed_inputs_are_invalid_digit() {
         for s in [
-            "x", " ", "  ", "\t", "+", "-", "+-1", "--1", "1 ", " 1", "1_000", "0x10", "1.0",
-            "1e3", "abc", "\u{0}", "1\u{0}", "٣", "１２３", "😀", "½", ",", "1,000",
+            "x",
+            " ",
+            "  ",
+            "\t",
+            "+",
+            "-",
+            "+-1",
+            "--1",
+            "1 ",
+            " 1",
+            "1_000",
+            "0x10",
+            "1.0",
+            "1e3",
+            "abc",
+            "\u{0}",
+            "1\u{0}",
+            "٣",
+            "１２３",
+            "😀",
+            "½",
+            ",",
+            "1,000",
         ] {
             assert_eq!(
                 int_kind::<i32>(s),
@@ -407,7 +448,10 @@ mod autotest_generated {
         // reporting NegOverflow — a classifier that assumed otherwise would be wrong.
         assert_eq!(int_kind::<u32>("-1"), ParseIntError::InvalidDigit);
         assert_eq!(int_kind::<u8>("-0"), ParseIntError::InvalidDigit);
-        assert_eq!(int_kind::<u128>("-99999999999999999999999999"), ParseIntError::InvalidDigit);
+        assert_eq!(
+            int_kind::<u128>("-99999999999999999999999999"),
+            ParseIntError::InvalidDigit
+        );
     }
 
     #[test]
@@ -431,7 +475,10 @@ mod autotest_generated {
         assert_eq!(int_kind::<i32>("-2147483649"), ParseIntError::NegOverflow);
         assert_eq!(i8::MIN.to_string().parse::<i8>(), Ok(i8::MIN));
         assert_eq!(int_kind::<i8>("-129"), ParseIntError::NegOverflow);
-        assert_eq!(int_kind::<i128>("-99999999999999999999999999999999999999999"), ParseIntError::NegOverflow);
+        assert_eq!(
+            int_kind::<i128>("-99999999999999999999999999999999999999999"),
+            ParseIntError::NegOverflow
+        );
     }
 
     #[test]
@@ -459,16 +506,31 @@ mod autotest_generated {
         // stable via the NonZero* parsers — so `from_std` really can return `Zero`.
         assert_eq!(int_kind::<core::num::NonZeroU8>("0"), ParseIntError::Zero);
         assert_eq!(int_kind::<core::num::NonZeroI32>("0"), ParseIntError::Zero);
-        assert_eq!(int_kind::<core::num::NonZeroUsize>("0"), ParseIntError::Zero);
+        assert_eq!(
+            int_kind::<core::num::NonZeroUsize>("0"),
+            ParseIntError::Zero
+        );
         // ...while other failures on the same type keep their own classification.
         assert_eq!(int_kind::<core::num::NonZeroU8>(""), ParseIntError::Empty);
-        assert_eq!(int_kind::<core::num::NonZeroU8>("x"), ParseIntError::InvalidDigit);
-        assert_eq!(int_kind::<core::num::NonZeroU8>("256"), ParseIntError::PosOverflow);
+        assert_eq!(
+            int_kind::<core::num::NonZeroU8>("x"),
+            ParseIntError::InvalidDigit
+        );
+        assert_eq!(
+            int_kind::<core::num::NonZeroU8>("256"),
+            ParseIntError::PosOverflow
+        );
     }
 
     #[test]
     fn int_from_impl_agrees_with_from_std() {
-        for s in ["", "x", "99999999999999999999", "-99999999999999999999", "😀"] {
+        for s in [
+            "",
+            "x",
+            "99999999999999999999",
+            "-99999999999999999999",
+            "😀",
+        ] {
             let a: ParseIntError = std_int_err(s).into();
             let b = ParseIntError::from_std(&std_int_err(s));
             assert_eq!(a, b, "From<> and from_std disagree for {s:?}");
@@ -481,12 +543,27 @@ mod autotest_generated {
 
     #[test]
     fn int_to_std_maps_each_variant_onto_the_expected_std_kind() {
-        assert!(matches!(ParseIntError::Empty.to_std().kind(), IntErrorKind::Empty));
-        assert!(matches!(ParseIntError::InvalidDigit.to_std().kind(), IntErrorKind::InvalidDigit));
-        assert!(matches!(ParseIntError::PosOverflow.to_std().kind(), IntErrorKind::PosOverflow));
-        assert!(matches!(ParseIntError::NegOverflow.to_std().kind(), IntErrorKind::NegOverflow));
+        assert!(matches!(
+            ParseIntError::Empty.to_std().kind(),
+            IntErrorKind::Empty
+        ));
+        assert!(matches!(
+            ParseIntError::InvalidDigit.to_std().kind(),
+            IntErrorKind::InvalidDigit
+        ));
+        assert!(matches!(
+            ParseIntError::PosOverflow.to_std().kind(),
+            IntErrorKind::PosOverflow
+        ));
+        assert!(matches!(
+            ParseIntError::NegOverflow.to_std().kind(),
+            IntErrorKind::NegOverflow
+        ));
         // Documented lossy case: `Zero` degrades to an InvalidDigit std error.
-        assert!(matches!(ParseIntError::Zero.to_std().kind(), IntErrorKind::InvalidDigit));
+        assert!(matches!(
+            ParseIntError::Zero.to_std().kind(),
+            IntErrorKind::InvalidDigit
+        ));
     }
 
     #[test]
@@ -504,7 +581,11 @@ mod autotest_generated {
             ParseIntError::PosOverflow,
             ParseIntError::NegOverflow,
         ] {
-            assert_eq!(ParseIntError::from_std(&v.to_std()), v, "round-trip lost {v:?}");
+            assert_eq!(
+                ParseIntError::from_std(&v.to_std()),
+                v,
+                "round-trip lost {v:?}"
+            );
             assert_eq!(ParseIntError::from(v.to_std()), v);
         }
 
@@ -542,7 +623,10 @@ mod autotest_generated {
         for m in &float_msgs {
             assert!(!m.is_empty(), "float Display must not be empty");
         }
-        assert_ne!(float_msgs[0], float_msgs[1], "float variants must be distinguishable");
+        assert_ne!(
+            float_msgs[0], float_msgs[1],
+            "float variants must be distinguishable"
+        );
 
         let int_msgs: Vec<String> = ALL_INT.iter().map(ToString::to_string).collect();
         for m in &int_msgs {
@@ -550,7 +634,10 @@ mod autotest_generated {
         }
         for i in 0..int_msgs.len() {
             for j in (i + 1)..int_msgs.len() {
-                assert_ne!(int_msgs[i], int_msgs[j], "int variants {i}/{j} share a message");
+                assert_ne!(
+                    int_msgs[i], int_msgs[j],
+                    "int variants {i}/{j} share a message"
+                );
             }
         }
     }
@@ -559,11 +646,23 @@ mod autotest_generated {
     fn display_mirrors_the_std_error_messages() {
         // The whole point of these types is to be a faithful FFI mirror of the std
         // errors; if std ever reworded a message, this catches the drift.
-        assert_eq!(ParseFloatError::Empty.to_string(), std_float_err("").to_string());
-        assert_eq!(ParseFloatError::Invalid.to_string(), std_float_err("x").to_string());
+        assert_eq!(
+            ParseFloatError::Empty.to_string(),
+            std_float_err("").to_string()
+        );
+        assert_eq!(
+            ParseFloatError::Invalid.to_string(),
+            std_float_err("x").to_string()
+        );
 
-        assert_eq!(ParseIntError::Empty.to_string(), std_int_err("").to_string());
-        assert_eq!(ParseIntError::InvalidDigit.to_string(), std_int_err("x").to_string());
+        assert_eq!(
+            ParseIntError::Empty.to_string(),
+            std_int_err("").to_string()
+        );
+        assert_eq!(
+            ParseIntError::InvalidDigit.to_string(),
+            std_int_err("x").to_string()
+        );
         assert_eq!(
             ParseIntError::PosOverflow.to_string(),
             std_int_err("99999999999999999999").to_string()
@@ -587,7 +686,10 @@ mod autotest_generated {
             let msg = v.to_string();
             let padded = format!("{v:>60}");
             assert!(!padded.is_empty());
-            assert!(padded.contains(&msg), "padding must not corrupt the message");
+            assert!(
+                padded.contains(&msg),
+                "padding must not corrupt the message"
+            );
             // precision / fill / alternate flags: no panic, still produces output
             assert!(!format!("{v:.3}").is_empty());
             assert!(!format!("{v:*^10}").is_empty());
@@ -614,14 +716,21 @@ mod autotest_generated {
     #[test]
     fn error_enums_have_consistent_eq_hash_and_ord() {
         for (i, a) in ALL_INT.iter().enumerate() {
-            assert_eq!(hash_of(a), hash_of(&ALL_INT[i]), "equal values must hash equal");
+            assert_eq!(
+                hash_of(a),
+                hash_of(&ALL_INT[i]),
+                "equal values must hash equal"
+            );
             for (j, b) in ALL_INT.iter().enumerate() {
                 assert_eq!(a == b, i == j, "only identical variants may compare equal");
                 assert_eq!(a.cmp(b), i.cmp(&j), "Ord must follow declaration order");
             }
         }
         assert!(ParseFloatError::Empty < ParseFloatError::Invalid);
-        assert_eq!(hash_of(&ParseFloatError::Empty), hash_of(&ParseFloatError::Empty));
+        assert_eq!(
+            hash_of(&ParseFloatError::Empty),
+            hash_of(&ParseFloatError::Empty)
+        );
         assert_ne!(ParseFloatError::Empty, ParseFloatError::Invalid);
     }
 
@@ -674,7 +783,12 @@ mod autotest_generated {
         assert_eq!(owned.value, AzString::default());
         assert!(owned.value.as_str().is_empty());
         assert_eq!(owned.to_shared(), InvalidValueErr(""));
-        assert_eq!(owned, InvalidValueErrOwned { value: AzString::default() });
+        assert_eq!(
+            owned,
+            InvalidValueErrOwned {
+                value: AzString::default()
+            }
+        );
     }
 
     #[test]
@@ -728,8 +842,12 @@ mod autotest_generated {
     #[test]
     fn invalid_value_err_owned_equality_is_by_content() {
         let a = InvalidValueErr("x").to_contained();
-        let b = InvalidValueErrOwned { value: AzString::from("x") };
-        let c = InvalidValueErrOwned { value: AzString::from("y") };
+        let b = InvalidValueErrOwned {
+            value: AzString::from("x"),
+        };
+        let c = InvalidValueErrOwned {
+            value: AzString::from("y"),
+        };
         assert_eq!(a, b);
         assert_ne!(a, c);
         assert_eq!(a.clone(), a);

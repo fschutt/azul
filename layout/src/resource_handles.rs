@@ -40,7 +40,8 @@ pub struct FontCacheSnapshot {
 impl FontCacheSnapshot {
     /// Wrap a font manager into an ABI handle.
     #[cfg(feature = "text_layout")]
-    #[must_use] pub fn from_font_manager(fm: InnerFontManager) -> Self {
+    #[must_use]
+    pub fn from_font_manager(fm: InnerFontManager) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(fm)).cast(),
             run_destructor: true,
@@ -49,12 +50,14 @@ impl FontCacheSnapshot {
 
     /// Borrow the wrapped font manager, if any.
     #[cfg(feature = "text_layout")]
-    #[must_use] pub const fn as_font_manager(&self) -> Option<&InnerFontManager> {
+    #[must_use]
+    pub const fn as_font_manager(&self) -> Option<&InnerFontManager> {
         unsafe { self.ptr.cast::<InnerFontManager>().as_ref() }
     }
 
     /// An empty handle (also what the non-`text_layout` build returns).
-    #[must_use] pub const fn empty() -> Self {
+    #[must_use]
+    pub const fn empty() -> Self {
         Self {
             ptr: core::ptr::null_mut(),
             run_destructor: false,
@@ -108,7 +111,8 @@ pub struct ImageCacheSnapshot {
 
 impl ImageCacheSnapshot {
     /// Wrap an image cache into an ABI handle.
-    #[must_use] pub fn from_image_cache(cache: azul_core::resources::ImageCache) -> Self {
+    #[must_use]
+    pub fn from_image_cache(cache: azul_core::resources::ImageCache) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(cache)).cast(),
             run_destructor: true,
@@ -116,16 +120,14 @@ impl ImageCacheSnapshot {
     }
 
     /// Borrow the wrapped image cache, if any.
-    #[must_use] pub const fn as_image_cache(&self) -> Option<&azul_core::resources::ImageCache> {
-        unsafe {
-            self.ptr
-                .cast::<azul_core::resources::ImageCache>()
-                .as_ref()
-        }
+    #[must_use]
+    pub const fn as_image_cache(&self) -> Option<&azul_core::resources::ImageCache> {
+        unsafe { self.ptr.cast::<azul_core::resources::ImageCache>().as_ref() }
     }
 
     /// An empty handle.
-    #[must_use] pub const fn empty() -> Self {
+    #[must_use]
+    pub const fn empty() -> Self {
         Self {
             ptr: core::ptr::null_mut(),
             run_destructor: false,
@@ -240,9 +242,7 @@ impl PaginationSnapshot {
     pub fn break_is_forced(&self, index: usize) -> bool {
         self.as_info()
             .and_then(|i| i.breaks.get(index))
-            .is_some_and(|b| {
-                matches!(b.kind, crate::solver3::page_breaks::BreakKind::Forced)
-            })
+            .is_some_and(|b| matches!(b.kind, crate::solver3::page_breaks::BreakKind::Forced))
     }
 
     /// Whether break `index` was MOVED by an avoid-rule (break-inside /

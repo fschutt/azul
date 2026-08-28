@@ -177,7 +177,12 @@ fn emit_tagged_union(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     b.line(&format!("union {} {{", name));
     for v in &e.variants {
         let vname = sanitize_identifier(&v.name);
-        b.line(&format!("\t{}Variant_{} {};", name, sanitize_identifier(&v.name), vname));
+        b.line(&format!(
+            "\t{}Variant_{} {};",
+            name,
+            sanitize_identifier(&v.name),
+            vname
+        ));
     }
     b.line("}");
     b.blank();

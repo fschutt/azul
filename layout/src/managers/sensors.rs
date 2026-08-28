@@ -21,8 +21,8 @@ use azul_core::dom::DomNodeId;
 use azul_core::events::{
     EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent,
 };
-use azul_core::task::Instant;
 pub use azul_core::sensors::{SensorKind, SensorReading};
+use azul_core::task::Instant;
 
 /// Cross-platform sensor state. One per `App` — the OS exposes a single
 /// per-process sensor subscription, not per-window.
@@ -47,12 +47,14 @@ pub struct SensorManager {
 }
 
 impl SensorManager {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
 
     /// Latest reading for `kind`, or `None` if no backend has delivered one.
-    #[must_use] pub const fn reading(&self, kind: SensorKind) -> Option<SensorReading> {
+    #[must_use]
+    pub const fn reading(&self, kind: SensorKind) -> Option<SensorReading> {
         match kind {
             SensorKind::Accelerometer => self.accelerometer,
             SensorKind::Gyroscope => self.gyroscope,
@@ -69,7 +71,9 @@ impl SensorManager {
             SensorKind::Gyroscope => &mut self.gyroscope,
             SensorKind::Magnetometer => &mut self.magnetometer,
         };
-        let changed = slot.as_mut().is_none_or(|prev| !reading_bitwise_eq(prev, &reading));
+        let changed = slot
+            .as_mut()
+            .is_none_or(|prev| !reading_bitwise_eq(prev, &reading));
         *slot = Some(reading);
         if changed {
             self.pending_event = true;
@@ -89,7 +93,8 @@ impl SensorManager {
     }
 
     /// `true` while the capability pump should poll the sensor backend.
-    #[must_use] pub const fn has_listeners(&self) -> bool {
+    #[must_use]
+    pub const fn has_listeners(&self) -> bool {
         self.has_listeners
     }
 }
@@ -129,13 +134,14 @@ fn reading_bitwise_eq(a: &SensorReading, b: &SensorReading) -> bool {
 // drains it and applies the latest per kind. Pure Rust — no platform
 // dependency (SUPER_PLAN_2 §0.5). Mirrors the geolocation fix channel.
 
-static PENDING_READINGS: std::sync::Mutex<Vec<SensorReading>> =
-    std::sync::Mutex::new(Vec::new());
+static PENDING_READINGS: std::sync::Mutex<Vec<SensorReading>> = std::sync::Mutex::new(Vec::new());
 
 /// Park a sensor reading delivered by a platform backend (in the dll).
 /// Thread-safe; poison-recovering.
 pub fn push_sensor_reading(reading: SensorReading) {
-    let mut q = PENDING_READINGS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_READINGS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(reading);
 }
 
@@ -143,7 +149,9 @@ pub fn push_sensor_reading(reading: SensorReading) {
 /// Called once per layout pass; the caller applies them through
 /// [`SensorManager::set_reading`] (the last per kind wins).
 pub fn drain_sensor_readings() -> Vec<SensorReading> {
-    let mut q = PENDING_READINGS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_READINGS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
@@ -154,7 +162,10 @@ mod tests {
     #[test]
     fn listener_flag_gates_polling_decision() {
         let mut mgr = SensorManager::new();
-        assert!(!mgr.has_listeners(), "no listeners until the relayout walk reports some");
+        assert!(
+            !mgr.has_listeners(),
+            "no listeners until the relayout walk reports some"
+        );
         mgr.set_has_listeners(true);
         assert!(mgr.has_listeners());
         mgr.set_has_listeners(false);
@@ -192,10 +203,7 @@ mod tests {
         assert!(mgr.set_reading(r(SensorKind::Accelerometer, 1.0, 0.0, 9.81)));
         // A different kind fills its own slot.
         assert!(mgr.set_reading(r(SensorKind::Gyroscope, 0.1, 0.0, 0.0)));
-        assert_eq!(
-            mgr.reading(SensorKind::Gyroscope).map(|r| r.x),
-            Some(0.1)
-        );
+        assert_eq!(mgr.reading(SensorKind::Gyroscope).map(|r| r.x), Some(0.1));
     }
 
     #[test]
@@ -338,8 +346,14 @@ mod autotest_generated {
         for kind in KINDS {
             assert_eq!(mgr.reading(kind), None, "{kind:?} slot must start empty");
         }
-        assert!(!mgr.pending_event, "no event may be pending before any sample");
-        assert!(!mgr.has_listeners(), "polling must not be armed at construction");
+        assert!(
+            !mgr.pending_event,
+            "no event may be pending before any sample"
+        );
+        assert!(
+            !mgr.has_listeners(),
+            "polling must not be armed at construction"
+        );
         assert_eq!(mgr, SensorManager::default(), "new() must equal Default");
         assert_eq!(mgr, SensorManager::new(), "new() must be deterministic");
     }
@@ -560,9 +574,15 @@ mod autotest_generated {
         mgr.set_reading(r(SensorKind::Gyroscope, 2.0, 2.0, 2.0, 2));
         mgr.set_reading(r(SensorKind::Magnetometer, 3.0, 3.0, 3.0, 3));
 
-        assert_eq!(mgr.reading(SensorKind::Accelerometer).map(|s| s.x), Some(1.0));
+        assert_eq!(
+            mgr.reading(SensorKind::Accelerometer).map(|s| s.x),
+            Some(1.0)
+        );
         assert_eq!(mgr.reading(SensorKind::Gyroscope).map(|s| s.x), Some(2.0));
-        assert_eq!(mgr.reading(SensorKind::Magnetometer).map(|s| s.x), Some(3.0));
+        assert_eq!(
+            mgr.reading(SensorKind::Magnetometer).map(|s| s.x),
+            Some(3.0)
+        );
         for kind in KINDS {
             assert_eq!(
                 mgr.reading(kind).map(|s| s.kind),
@@ -653,7 +673,11 @@ mod autotest_generated {
 
         for arm in [true, true, false, false, true] {
             mgr.set_has_listeners(arm);
-            assert_eq!(mgr.has_listeners(), arm, "set_has_listeners({arm}) must stick");
+            assert_eq!(
+                mgr.has_listeners(),
+                arm,
+                "set_has_listeners({arm}) must stick"
+            );
         }
 
         // Arming/disarming polling must not fabricate or destroy readings.
@@ -767,10 +791,7 @@ mod autotest_generated {
         }
 
         for a in &samples {
-            assert!(
-                reading_bitwise_eq(a, a),
-                "must be reflexive for {a:?}"
-            );
+            assert!(reading_bitwise_eq(a, a), "must be reflexive for {a:?}");
             for b in &samples {
                 assert_eq!(
                     reading_bitwise_eq(a, b),
@@ -802,7 +823,11 @@ mod autotest_generated {
         let events = mgr.get_pending_events(tick());
         assert_eq!(events.len(), 1, "one advance → exactly one event");
         assert_eq!(events[0].event_type, EventType::SensorChanged);
-        assert_eq!(events[0].target, DomNodeId::ROOT, "window-level: target is root");
+        assert_eq!(
+            events[0].target,
+            DomNodeId::ROOT,
+            "window-level: target is root"
+        );
 
         assert_eq!(
             mgr.get_pending_events(tick()).len(),

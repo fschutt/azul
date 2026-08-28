@@ -11,8 +11,8 @@ pub mod geometry;
 pub mod getters;
 pub mod layout_tree;
 pub use layout_tree::LayoutNodeId;
-pub mod page_breaks;
 pub mod break_token;
+pub mod page_breaks;
 pub mod paged_layout;
 pub mod pagination;
 pub mod positioning;
@@ -120,7 +120,10 @@ macro_rules! debug_display_type {
     };
 }
 
-use std::{collections::{BTreeMap, HashMap}, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use azul_core::{
     dom::{DomId, NodeId},
@@ -132,7 +135,10 @@ use azul_core::{
 };
 
 /// Sentinel value for "position not yet computed". No real position is ever `f32::MIN`.
-pub(crate) const POSITION_UNSET: LogicalPosition = LogicalPosition { x: f32::MIN, y: f32::MIN };
+pub(crate) const POSITION_UNSET: LogicalPosition = LogicalPosition {
+    x: f32::MIN,
+    y: f32::MIN,
+};
 
 /// Maximum number of scrollbar-induced reflow iterations before layout gives up.
 /// Scrollbar appearance can change container size, which may trigger further scrollbar
@@ -149,7 +155,8 @@ pub type PositionVec = Vec<LogicalPosition>;
 /// because `POSITION_UNSET` always sets both `x` and `y` to `f32::MIN`, and `pos_set`
 /// always writes both components together.
 #[inline]
-#[must_use] pub fn pos_get(positions: &PositionVec, idx: usize) -> Option<LogicalPosition> {
+#[must_use]
+pub fn pos_get(positions: &PositionVec, idx: usize) -> Option<LogicalPosition> {
     positions.get(idx).copied().filter(|p| p.x != f32::MIN)
 }
 
@@ -164,7 +171,8 @@ pub fn pos_set(positions: &mut PositionVec, idx: usize, pos: LogicalPosition) {
 
 /// Check if position has been set for node index.
 #[inline]
-#[must_use] pub fn pos_contains(positions: &PositionVec, idx: usize) -> bool {
+#[must_use]
+pub fn pos_contains(positions: &PositionVec, idx: usize) -> bool {
     positions.get(idx).is_some_and(|p| p.x != f32::MIN)
 }
 use azul_css::{
@@ -184,9 +192,7 @@ pub use crate::font_traits::TextLayoutCache;
 use crate::{
     font_traits::ParsedFontTrait,
     solver3::{
-        cache::LayoutCache,
-        display_list::DisplayList,
-        fc::LayoutConstraints,
+        cache::LayoutCache, display_list::DisplayList, fc::LayoutConstraints,
         layout_tree::DirtyFlag,
     },
 };
@@ -461,11 +467,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // preserves their cache slots too. Without this, anon
     // wrappers re-allocate empty every reconcile and invalidate
     // their ancestors via `mark_dirty`.
-    fn collect_anon_children_by_parent(
-        tree: &LayoutTree,
-    ) -> HashMap<usize, Vec<usize>> {
-        let mut map: HashMap<usize, Vec<usize>> =
-            HashMap::new();
+    fn collect_anon_children_by_parent(tree: &LayoutTree) -> HashMap<usize, Vec<usize>> {
+        let mut map: HashMap<usize, Vec<usize>> = HashMap::new();
         for (idx, node) in tree.nodes.iter().enumerate() {
             if node.dom_node_id.is_some() {
                 continue;
@@ -482,7 +485,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     layout_tree::IfcId::reset_counter();
     // in layout_document returns the rc=5 Err (the error enum can't be captured
     // reliably in the lift). The last value seen = the step that errored next.
-    { let _ = (0xDD00_0001u32); }
+    {
+        let _ = (0xDD00_0001u32);
+    }
     // If 0 here → the LogicalRect HFA arg was lost across the lifted call.
 
     if let Some(msgs) = debug_messages.as_mut() {
@@ -508,7 +513,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: None,
-            reflowed_ifcs: std::collections::BTreeSet::new(),
+        reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
         cursor_locations: cursor_locations.clone(),
         preedit_text: preedit_text.clone(),
@@ -612,13 +617,19 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // that lifts reliably (cf. M8.4 "heap allocations work fine"). Deref coercion handles the
     // `&new_tree`/`&mut new_tree`/`new_tree.field` sites unchanged.
     let mut new_tree = Box::new(new_tree_val);
-    { let _ = (0xDD00_0002u32); }
+    {
+        let _ = (0xDD00_0002u32);
+    }
     // [az-diag g51 REVERT] 0x71 = reconcile_and_invalidate returned OK (no InvalidTree in reconcile).
-    unsafe { crate::az_mark(0x60704_u32, (0x71u32)); }
+    unsafe {
+        crate::az_mark(0x60704_u32, (0x71u32));
+    }
     // [az-diag g54 REVERT] 0x40740 = new_tree.nodes.len() RIGHT AFTER reconcile. If 0 → reconcile
     // built an empty LayoutTree (the bug is in reconcile_recursive/create_node_from_dom). If 2 →
     // reconcile is fine and the tree gets emptied/mis-lifted downstream (check 0x40744 at the loop).
-    unsafe { crate::az_mark(0x60740_u32, (new_tree.nodes.len() as u32)); }
+    unsafe {
+        crate::az_mark(0x60740_u32, (new_tree.nodes.len() as u32));
+    }
     crate::probe::sample_peak_rss("rss:after_reconcile");
     crate::probe::sample_phase_peak("rss:peak_during_reconcile");
 
@@ -647,7 +658,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // only, not values: values change every tick, and serving this cached
         // list across ticks while values flow through the GPU channel is the
         // point of the design.
-        let gpu_fp = gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
+        let gpu_fp =
+            gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
         if css_dirty.is_empty()
             && new_root_hash == Some(*cached_hash)
             && *cached_viewport == viewport
@@ -656,7 +668,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let _p = crate::probe::Probe::span("display_list_cache_hit");
             #[cfg(feature = "std")]
             if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
-                eprintln!("[dlcache] HIT fp={gpu_fp:x} items={}", cached_dl.items.len());
+                eprintln!(
+                    "[dlcache] HIT fp={gpu_fp:x} items={}",
+                    cached_dl.items.len()
+                );
             }
             let dl = cached_dl.clone();
             // The served list is IDENTICAL to the previous frame — this is
@@ -722,10 +737,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // reconcile-driven dirtiness and was forcing 312 min/max-content
     // subtree re-layouts per pass on big.md, ~40% of a steady resize).
     {
-        let closure = sizing::compute_dirty_ancestor_closure(
-            &new_tree,
-            &recon_result.intrinsic_dirty,
-        );
+        let closure =
+            sizing::compute_dirty_ancestor_closure(&new_tree, &recon_result.intrinsic_dirty);
         for &node_idx in &closure {
             if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
                 warm.taffy_cache.clear();
@@ -747,7 +760,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cache::compute_counters(new_dom, &new_tree, &mut counter_values);
     }
     // [az-diag g51 REVERT] 0x72 = compute_counters done (InvalidTree, if any, is after here).
-    unsafe { crate::az_mark(0x60704_u32, (0x72u32)); }
+    unsafe {
+        crate::az_mark(0x60704_u32, (0x72u32));
+    }
 
     // Step 1.4: Resize and invalidate per-node cache (Taffy-inspired 9+1 slot cache)
     // Move cache_map out of LayoutCache for the duration of layout (avoids borrow conflicts).
@@ -768,7 +783,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     let probe_cache_remap = Some(crate::probe::Probe::span("cache_map_remap"));
     if let Some(old_tree) = cache.tree.as_ref() {
         let mut remapped = cache::LayoutCacheMap::default();
-        remapped.entries.resize_with(new_tree.nodes.len(), Default::default);
+        remapped
+            .entries
+            .resize_with(new_tree.nodes.len(), Default::default);
 
         // Primary mapping: DOM id → layout idx on both sides. This
         // covers every node that has a corresponding DOM node.
@@ -799,8 +816,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // dom-id mapping we just populated, then match anon children
         // positionally within that parent.
         // Build a new→old layout-idx lookup from the primary pass.
-        let mut new_to_old_layout_idx: HashMap<LayoutNodeId, LayoutNodeId> =
-            HashMap::new();
+        let mut new_to_old_layout_idx: HashMap<LayoutNodeId, LayoutNodeId> = HashMap::new();
         for (dom_id, new_indices) in &new_tree.dom_to_layout {
             let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
                 continue;
@@ -813,7 +829,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }
 
         for (new_parent_idx, new_anon_children) in new_anon_by_parent {
-            let Some(&old_parent_idx) = new_to_old_layout_idx.get(&LayoutNodeId::new(new_parent_idx)) else {
+            let Some(&old_parent_idx) =
+                new_to_old_layout_idx.get(&LayoutNodeId::new(new_parent_idx))
+            else {
                 continue;
             };
             let Some(old_anon_children) = old_anon_by_parent.get(&old_parent_idx.index()) else {
@@ -823,8 +841,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 let Some(&old_anon_idx) = old_anon_children.get(ord) else {
                     continue;
                 };
-                if old_anon_idx >= cache_map.entries.len()
-                    || new_anon_idx >= remapped.entries.len()
+                if old_anon_idx >= cache_map.entries.len() || new_anon_idx >= remapped.entries.len()
                 {
                     continue;
                 }
@@ -857,7 +874,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         counters: &mut counter_values,
         viewport_size: viewport.size,
         fragmentation_context: None,
-            reflowed_ifcs: std::collections::BTreeSet::new(),
+        reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
         cursor_locations,
         preedit_text,
@@ -920,9 +937,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // leaving the old entry in place would serve STALE PAINT on the next
         // call, and not storing at all would re-emit every frame for the
         // whole life of an animation.
-        let root_hash = tree.cold(LayoutNodeId::new(tree.root)).map(|c| c.subtree_hash);
-        let gpu_fp = gpu_value_cache
-            .map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
+        let root_hash = tree
+            .cold(LayoutNodeId::new(tree.root))
+            .map(|c| c.subtree_hash);
+        let gpu_fp =
+            gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
         if let Some(h) = root_hash {
             cache.cached_display_list = Some((h, viewport, gpu_fp, dl.clone()));
         }
@@ -940,9 +959,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         return Ok(dl);
     }
 
-    { let _ = (0xDD00_0003u32); }
+    {
+        let _ = (0xDD00_0003u32);
+    }
     // [az-diag g51 REVERT] 0x80 = reached the incremental layout loop (past early-exit + remap + dirty loops).
-    unsafe { crate::az_mark(0x60704_u32, (0x80u32)); }
+    unsafe {
+        crate::az_mark(0x60704_u32, (0x80u32));
+    }
     // [az-diag g65 PATH-B VALIDATION] new_tree is still valid here (=2). Clone it into the HEAP-backed
     // cache.tree (set AFTER the remap+early-exit which read the OLD cache.tree). cache is the stable
     // &mut arg (read correctly throughout), so cache.tree is NOT a deep-SP-relative stack local. At the
@@ -955,7 +978,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // If src=1=clone → corruption already reached line 758 (heisenbug) → move won't help.
     unsafe {
         crate::az_mark(0x607C0_u32, (new_tree.nodes.len() as u32));
-        crate::az_mark(0x607C4_u32, (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32));
+        crate::az_mark(
+            0x607C4_u32,
+            (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32),
+        );
     }
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
@@ -964,7 +990,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     loop {
         loop_count += 1;
         if loop_count > MAX_SCROLLBAR_REFLOW_ITERATIONS {
-            debug_warning!(ctx, "Scrollbar reflow loop hit limit of {} iterations, breaking to avoid infinite loop", MAX_SCROLLBAR_REFLOW_ITERATIONS);
+            debug_warning!(
+                ctx,
+                "Scrollbar reflow loop hit limit of {} iterations, breaking to avoid infinite loop",
+                MAX_SCROLLBAR_REFLOW_ITERATIONS
+            );
             break;
         }
 
@@ -973,16 +1003,22 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.calculated_positions.clone()
         };
         // [az-diag g70 RELIABLE free-band] 0x60780 = nodes.len AFTER the in-loop calculated_positions.clone().
-        unsafe { crate::az_mark(0x60780_u32, (new_tree.nodes.len() as u32)); }
+        unsafe {
+            crate::az_mark(0x60780_u32, (new_tree.nodes.len() as u32));
+        }
         let mut reflow_needed_for_scrollbars = false;
 
         {
             crate::probe::reset_peak();
             // [az-diag g70 RELIABLE free-band] 0x60784 = nodes.len AFTER reset_peak (before the calc Span).
-            unsafe { crate::az_mark(0x60784_u32, (new_tree.nodes.len() as u32)); }
+            unsafe {
+                crate::az_mark(0x60784_u32, (new_tree.nodes.len() as u32));
+            }
             let _p = crate::probe::Probe::span("calc_intrinsic_sizes");
             // [az-diag g70 RELIABLE free-band] 0x60788 = nodes.len AFTER the calc_intrinsic_sizes Span.
-            unsafe { crate::az_mark(0x60788_u32, (new_tree.nodes.len() as u32)); }
+            unsafe {
+                crate::az_mark(0x60788_u32, (new_tree.nodes.len() as u32));
+            }
             // [az-diag g72 FIX] REMOVED the g48 `#[cfg(feature="web_lift")] panic!(...)` that lived
             // here. web-transpiler => azul-layout?/web_lift IS enabled (dll/Cargo.toml:651), so this
             // panic WAS compiled in, and with `-Z build-std-features=panic_immediate_abort` it lowered
@@ -996,7 +1032,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // 0x4074C = HEAP cache.tree.nodes.len() (expect 2 if path B sidesteps the corruption).
             unsafe {
                 crate::az_mark(0x60748_u32, (new_tree.nodes.len() as u32));
-                crate::az_mark(0x6074C_u32, (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32));
+                crate::az_mark(
+                    0x6074C_u32,
+                    (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32),
+                );
             }
             cache.last_intrinsic_dirty = recon_result.intrinsic_dirty.len();
             calculate_intrinsic_sizes(
@@ -1009,7 +1048,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         crate::probe::sample_peak_rss("rss:after_calc_intrinsic");
         crate::probe::sample_phase_peak("rss:peak_during_intrinsic");
         // divergence is inside calculate_intrinsic_sizes (the SIMD/text intrinsic pass).
-        { let _ = (0xDD00_0005u32); }
+        {
+            let _ = (0xDD00_0005u32);
+        }
 
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
@@ -1021,7 +1062,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             );
             // 0x05, the divergence is INSIDE get_containing_block_for_node (or the for-loop
             // entry); if 0x53 but not 0x55, it's the margin logic / box_props.unpack below.
-            { let _ = (0xDD00_0053u32); }
+            {
+                let _ = (0xDD00_0053u32);
+            }
             // get_containing_block_for_node(viewport)). 800 here but viewport=800 ⟹ OK;
             // 0 here with viewport=800 ⟹ get_containing_block_for_node lost it (HFA return).
 
@@ -1031,7 +1074,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // We pass margin-adjusted position so calculate_content_box_pos works correctly.
             let root_node = &new_tree.nodes[root_idx];
             let root_bp = root_node.box_props.unpack();
-            { let _ = (0xDD00_0054u32); }
+            {
+                let _ = (0xDD00_0054u32);
+            }
 
             let is_root_with_margin = root_node.parent.is_none()
                 && (root_bp.margin.left != 0.0 || root_bp.margin.top != 0.0);
@@ -1044,13 +1089,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             } else {
                 cb_pos
             };
-            { let _ = (0xDD00_0056u32); }
+            {
+                let _ = (0xDD00_0056u32);
+            }
 
             // DEBUG: Log containing block info for this root
             if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
                 let dom_name = root_node
                     .dom_node_id
-                    .and_then(|id| new_dom.node_data.as_container().internal.get(id.index())).map_or_else(|| "Unknown".to_string(), |n| format!("{:?}", n.node_type));
+                    .and_then(|id| new_dom.node_data.as_container().internal.get(id.index()))
+                    .map_or_else(|| "Unknown".to_string(), |n| format!("{:?}", n.node_type));
 
                 debug_msgs.push(LayoutDebugMessage::new(
                     LayoutDebugMessageType::PositionCalculation,
@@ -1079,7 +1127,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             crate::probe::sample_peak_rss("rss:before_root_layout");
             crate::probe::reset_peak();
             // 0x57 = it RETURNED. If step stays 0x55, calculate_layout_for_subtree diverges.
-            { let _ = (0xDD00_0055u32); }
+            {
+                let _ = (0xDD00_0055u32);
+            }
             // This is exactly what calc_used_size reads as `viewport`. 0 here pinpoints the
             // loss to the ctx build (viewport.size → ctx.viewport_size copy).
             // 0x5E = Err. Do NOT propagate (continue to the cache store) so layout-real can
@@ -1100,7 +1150,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     cache::ComputeMode::PerformLayout,
                 )
             };
-            { let _ = (if clr.is_ok() { 0xDD00_0057u32 } else { 0xDD00_005Eu32 }); }
+            {
+                let _ = (if clr.is_ok() {
+                    0xDD00_0057u32
+                } else {
+                    0xDD00_005Eu32
+                });
+            }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
 
@@ -1127,7 +1183,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 if let Some(debug_msgs) = ctx.debug_messages.as_mut() {
                     let dom_name = root_node
                         .dom_node_id
-                        .and_then(|id| new_dom.node_data.as_container().internal.get(id.index())).map_or_else(|| "Unknown".to_string(), |n| format!("{:?}", n.node_type));
+                        .and_then(|id| new_dom.node_data.as_container().internal.get(id.index()))
+                        .map_or_else(|| "Unknown".to_string(), |n| format!("{:?}", n.node_type));
 
                     debug_msgs.push(LayoutDebugMessage::new(
                         LayoutDebugMessageType::PositionCalculation,
@@ -1150,7 +1207,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
         }
         // (step 6). If step stays 5, the divergence is in calculate_layout_for_subtree.
-        { let _ = (0xDD00_0006u32); }
+        {
+            let _ = (0xDD00_0006u32);
+        }
 
         {
             let _p = crate::probe::Probe::span("reposition_clean_subtrees");
@@ -1163,7 +1222,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }
 
         if reflow_needed_for_scrollbars {
-            debug_log!(ctx,
+            debug_log!(
+                ctx,
                 "Scrollbars changed container size, starting full reflow (loop {})",
                 loop_count
             );
@@ -1255,10 +1315,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // (changed-node set, geometry-base rects) of a PATCHED build; consumed
     // after the final list exists to add the changed nodes' ITEM visual
     // bounds from both the old and the new list (shadow fringes).
-    let mut patch_damage_pending: Option<(
-        std::collections::BTreeSet<usize>,
-        Vec<LogicalRect>,
-    )> = None;
+    let mut patch_damage_pending: Option<(std::collections::BTreeSet<usize>, Vec<LogicalRect>)> =
+        None;
     let display_list = if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
         // Web backend: positions are done; the painter is dead weight.
         DisplayList::default()
@@ -1308,7 +1366,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                         );
                     }
                     (a, b) if a.is_some() != b.is_some() => {
-                        eprintln!("[CTXDIFF] presence cur={} stored={}", a.is_some(), b.is_some());
+                        eprintln!(
+                            "[CTXDIFF] presence cur={} stored={}",
+                            a.is_some(),
+                            b.is_some()
+                        );
                     }
                     _ => {}
                 }
@@ -1350,27 +1412,30 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             && cache.previous_sizes.len() == new_tree.nodes.len()
             && cache.calculated_positions.len() == calculated_positions.len()
         {
-            cache.cached_display_list.as_ref().and_then(|(_, _, _, prev_dl)| {
-                let new_sizes: Vec<Option<LogicalSize>> =
-                    new_tree.nodes.iter().map(|n| n.used_size).collect();
-                // Fresh/content-changed nodes must RE-EMIT, never splice —
-                // their previous items describe content that no longer
-                // exists (the text-edit case, and same-count replaces). The
-                // intrinsic-dirty ANCESTOR chain is deliberately not here:
-                // an ancestor whose geometry did not change splices its
-                // unchanged items (size/position changes re-emit via
-                // PatchState's own size diff).
-                let mut reemit = ctx.reflowed_ifcs.clone();
-                reemit.extend(recon_result.fresh_indices.iter().copied());
-                display_list::PatchState::build(
-                    prev_dl,
-                    &cache.calculated_positions, // last pass's positions (replaced later)
-                    &calculated_positions,
-                    &cache.previous_sizes,
-                    &new_sizes,
-                    &reemit,
-                )
-            })
+            cache
+                .cached_display_list
+                .as_ref()
+                .and_then(|(_, _, _, prev_dl)| {
+                    let new_sizes: Vec<Option<LogicalSize>> =
+                        new_tree.nodes.iter().map(|n| n.used_size).collect();
+                    // Fresh/content-changed nodes must RE-EMIT, never splice —
+                    // their previous items describe content that no longer
+                    // exists (the text-edit case, and same-count replaces). The
+                    // intrinsic-dirty ANCESTOR chain is deliberately not here:
+                    // an ancestor whose geometry did not change splices its
+                    // unchanged items (size/position changes re-emit via
+                    // PatchState's own size diff).
+                    let mut reemit = ctx.reflowed_ifcs.clone();
+                    reemit.extend(recon_result.fresh_indices.iter().copied());
+                    display_list::PatchState::build(
+                        prev_dl,
+                        &cache.calculated_positions, // last pass's positions (replaced later)
+                        &calculated_positions,
+                        &cache.previous_sizes,
+                        &new_sizes,
+                        &reemit,
+                    )
+                })
         } else {
             None
         };
@@ -1438,24 +1503,16 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     reemit_full.insert(i);
                 }
             }
-            let parents: Vec<Option<usize>> =
-                new_tree.nodes.iter().map(|n| n.parent).collect();
+            let parents: Vec<Option<usize>> = new_tree.nodes.iter().map(|n| n.parent).collect();
             let opaque_bg: Vec<bool> = (0..new_tree.nodes.len())
                 .map(|i| {
                     new_tree
                         .get(LayoutNodeId::new(i))
                         .and_then(|node| node.dom_node_id)
                         .is_some_and(|dom_id| {
-                            let state = &ctx.styled_dom.styled_nodes.as_container()
-                                [dom_id]
+                            let state = &ctx.styled_dom.styled_nodes.as_container()[dom_id]
                                 .styled_node_state;
-                            getters::get_background_color(
-                                ctx.styled_dom,
-                                dom_id,
-                                state,
-                            )
-                            .a
-                                == 255
+                            getters::get_background_color(ctx.styled_dom, dom_id, state).a == 255
                         })
                 })
                 .collect();
@@ -1511,7 +1568,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     let gpu_fp = gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
     #[cfg(feature = "std")]
     if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
-        eprintln!("[dlcache] STORE fp={gpu_fp:x} items={}", display_list.items.len());
+        eprintln!(
+            "[dlcache] STORE fp={gpu_fp:x} items={}",
+            display_list.items.len()
+        );
     }
     // Patched-build damage, phase 2: union the changed nodes' ITEM visual
     // bounds from the OLD list (still in the cache slot here) and the NEW
@@ -1546,7 +1606,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // the same borrow reason as above; same bookkeeping as
         // `record_patch_damage`.
         cache.build_seq = cache.build_seq.wrapping_add(1);
-        cache.patch_damage_log.push((cache.build_seq, rects.clone()));
+        cache
+            .patch_damage_log
+            .push((cache.build_seq, rects.clone()));
         if cache.patch_damage_log.len() > cache::PATCH_DAMAGE_LOG_CAP {
             let excess = cache.patch_damage_log.len() - cache::PATCH_DAMAGE_LOG_CAP;
             cache.patch_damage_log.drain(..excess);
@@ -1572,16 +1634,18 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.last_dynamic_context = cur.cloned();
         }
     }
-    cache.cached_display_list =
-        Some((root_subtree_hash, viewport, gpu_fp, display_list.clone()));
+    cache.cached_display_list = Some((root_subtree_hash, viewport, gpu_fp, display_list.clone()));
 
     cache.tree = Some(*new_tree); // [g56] unbox the heap LayoutTree back into the cache
-    cache.previous_positions = std::mem::replace(&mut cache.calculated_positions, calculated_positions);
+    cache.previous_positions =
+        std::mem::replace(&mut cache.calculated_positions, calculated_positions);
     cache.viewport = Some(viewport);
     cache.scroll_ids = scroll_ids;
     cache.scroll_id_to_node_id = scroll_id_to_node_id;
     // + calculated_positions.len in the low bits. If step stays 3, it diverged earlier.
-    { let _ = (0xDD00_0004u32 | ((cache.calculated_positions.len() as u32 & 0xfff) << 4)); }
+    {
+        let _ = (0xDD00_0004u32 | ((cache.calculated_positions.len() as u32 & 0xfff) << 4));
+    }
     let _doc_tail_span = crate::probe::Probe::span("doc_tail_writeback");
     cache.counters = counter_values;
     cache.cache_map = cache_map_back;
@@ -1611,8 +1675,7 @@ pub(super) fn get_containing_block_for_node(
 ) -> (LogicalPosition, LogicalSize) {
     if let Some(parent_idx) = tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.parent) {
         if let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) {
-            let pos = pos_get(calculated_positions, parent_idx)
-                .unwrap_or(viewport.origin);
+            let pos = pos_get(calculated_positions, parent_idx).unwrap_or(viewport.origin);
             let size = parent_node.used_size.unwrap_or_default();
             // Position in calculated_positions is the margin-box position
             // To get content-box, add: border + padding (NOT margin, that's already in pos)
@@ -1640,7 +1703,7 @@ pub(super) fn get_containing_block_for_node(
             return (content_pos, size);
         }
     }
-    
+
     // +spec:containing-block:41bdfc - ICB equals viewport; overflow:hidden on root clips to ICB
     // +spec:containing-block:1eed60 - Initial containing block establishes a BFC; viewport is the ICB
     // +spec:containing-block:99866f - Containing block is a rectangle for sizing/positioning; ICB from viewport
@@ -1666,7 +1729,8 @@ pub(super) fn get_containing_block_for_node(
 // Result<(),LayoutError> arrived as Err → rc=5 InvalidTree though the out-param content was correct).
 // An explicit u8 tag (0..=4) moves the Result niche to unused tag values (5..) = a simple u8 compare
 // the lift handles. Same disc-mis-lift class as InlineContent/LogicalItem/ShapedItem (g117/g118).
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Debug)]
 #[repr(C, u8)]
 pub enum LayoutError {
@@ -1961,7 +2025,10 @@ mod autotest_generated {
 
         assert_eq!(positions.len(), 4, "grows to exactly idx + 1");
         for idx in 0..3 {
-            assert!(pos_get(&positions, idx).is_none(), "gap idx {idx} must be unset");
+            assert!(
+                pos_get(&positions, idx).is_none(),
+                "gap idx {idx} must be unset"
+            );
             assert!(!pos_contains(&positions, idx), "gap idx {idx}");
             assert_eq!(positions[idx].x, POSITION_UNSET.x);
             assert_eq!(positions[idx].y, POSITION_UNSET.y);
@@ -2029,7 +2096,10 @@ mod autotest_generated {
             assert!(pos_contains(&positions, idx), "idx {idx} lost after regrow");
         }
         for idx in 64..4_095 {
-            assert!(!pos_contains(&positions, idx), "new slot {idx} must be unset");
+            assert!(
+                !pos_contains(&positions, idx),
+                "new slot {idx} must be unset"
+            );
         }
         assert!(pos_contains(&positions, 4_095));
     }
@@ -2055,7 +2125,12 @@ mod autotest_generated {
     #[test]
     fn a_root_node_gets_the_viewport_as_its_containing_block() {
         let dom = body_dom();
-        let tree = tree_of(vec![hot(None, Some(NodeId::ZERO), Some(size(10.0, 10.0)), &ResolvedBoxProps::default())]);
+        let tree = tree_of(vec![hot(
+            None,
+            Some(NodeId::ZERO),
+            Some(size(10.0, 10.0)),
+            &ResolvedBoxProps::default(),
+        )]);
         let viewport = rect(7.0, 9.0, 800.0, 600.0);
 
         let (cb_pos, cb_size) =
@@ -2070,7 +2145,12 @@ mod autotest_generated {
     #[test]
     fn an_out_of_range_node_index_falls_back_to_the_viewport() {
         let dom = body_dom();
-        let tree = tree_of(vec![hot(None, None, Some(size(10.0, 10.0)), &ResolvedBoxProps::default())]);
+        let tree = tree_of(vec![hot(
+            None,
+            None,
+            Some(size(10.0, 10.0)),
+            &ResolvedBoxProps::default(),
+        )]);
         let viewport = rect(0.0, 0.0, 800.0, 600.0);
 
         for idx in [1usize, 99, usize::MAX] {
@@ -2088,8 +2168,18 @@ mod autotest_generated {
         // the viewport branch rather than index out of bounds.
         let dom = body_dom();
         let tree = tree_of(vec![
-            hot(None, None, Some(size(10.0, 10.0)), &ResolvedBoxProps::default()),
-            hot(Some(999), None, Some(size(10.0, 10.0)), &ResolvedBoxProps::default()),
+            hot(
+                None,
+                None,
+                Some(size(10.0, 10.0)),
+                &ResolvedBoxProps::default(),
+            ),
+            hot(
+                Some(999),
+                None,
+                Some(size(10.0, 10.0)),
+                &ResolvedBoxProps::default(),
+            ),
         ]);
         let viewport = rect(1.0, 2.0, 300.0, 400.0);
 
@@ -2106,19 +2196,19 @@ mod autotest_generated {
         let dom = body_dom();
         let parent_props = bp(edges(10.0, 10.0, 10.0, 10.0), edges(5.0, 5.0, 5.0, 5.0));
         let tree = tree_of(vec![
-            hot(None, Some(NodeId::ZERO), Some(size(200.0, 100.0)), &parent_props),
+            hot(
+                None,
+                Some(NodeId::ZERO),
+                Some(size(200.0, 100.0)),
+                &parent_props,
+            ),
             hot(Some(0), None, None, &ResolvedBoxProps::default()),
         ]);
         let mut positions: PositionVec = Vec::new();
         pos_set(&mut positions, 0, pos(30.0, 40.0));
 
-        let (cb_pos, cb_size) = get_containing_block_for_node(
-            &tree,
-            &dom,
-            1,
-            &positions,
-            rect(0.0, 0.0, 800.0, 600.0),
-        );
+        let (cb_pos, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 1, &positions, rect(0.0, 0.0, 800.0, 600.0));
 
         // content origin = margin-box pos + border + padding
         assert!(close(cb_pos.x, 45.0), "x was {}", cb_pos.x);
@@ -2142,17 +2232,15 @@ mod autotest_generated {
         let mut positions: PositionVec = Vec::new();
         pos_set(&mut positions, 0, pos(0.0, 0.0));
 
-        let (cb_pos, cb_size) = get_containing_block_for_node(
-            &tree,
-            &dom,
-            1,
-            &positions,
-            rect(0.0, 0.0, 800.0, 600.0),
-        );
+        let (cb_pos, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 1, &positions, rect(0.0, 0.0, 800.0, 600.0));
 
         assert!(close(cb_pos.x, 15.0), "x was {}", cb_pos.x);
         assert!(close(cb_pos.y, 15.0), "y was {}", cb_pos.y);
-        assert_eq!(cb_size.width, 200.0, "anonymous arm does not subtract padding/border");
+        assert_eq!(
+            cb_size.width, 200.0,
+            "anonymous arm does not subtract padding/border"
+        );
         assert_eq!(cb_size.height, 100.0);
     }
 
@@ -2161,7 +2249,12 @@ mod autotest_generated {
         let dom = body_dom();
         let parent_props = bp(edges(1.0, 0.0, 0.0, 2.0), edges(3.0, 0.0, 0.0, 4.0));
         let tree = tree_of(vec![
-            hot(None, Some(NodeId::ZERO), Some(size(200.0, 100.0)), &parent_props),
+            hot(
+                None,
+                Some(NodeId::ZERO),
+                Some(size(200.0, 100.0)),
+                &parent_props,
+            ),
             hot(Some(0), None, None, &ResolvedBoxProps::default()),
         ]);
         let viewport = rect(100.0, 200.0, 800.0, 600.0);
@@ -2180,7 +2273,12 @@ mod autotest_generated {
         // resolves against the viewport origin instead.
         let dom = body_dom();
         let tree = tree_of(vec![
-            hot(None, Some(NodeId::ZERO), Some(size(200.0, 100.0)), &ResolvedBoxProps::default()),
+            hot(
+                None,
+                Some(NodeId::ZERO),
+                Some(size(200.0, 100.0)),
+                &ResolvedBoxProps::default(),
+            ),
             hot(Some(0), None, None, &ResolvedBoxProps::default()),
         ]);
         let mut positions: PositionVec = Vec::new();
@@ -2207,13 +2305,8 @@ mod autotest_generated {
         let mut positions: PositionVec = Vec::new();
         pos_set(&mut positions, 0, pos(0.0, 0.0));
 
-        let (_, cb_size) = get_containing_block_for_node(
-            &tree,
-            &dom,
-            1,
-            &positions,
-            rect(0.0, 0.0, 800.0, 600.0),
-        );
+        let (_, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 1, &positions, rect(0.0, 0.0, 800.0, 600.0));
         assert_eq!(cb_size.width, 0.0);
         assert_eq!(cb_size.height, 0.0);
     }
@@ -2225,23 +2318,30 @@ mod autotest_generated {
         let dom = body_dom();
         let parent_props = bp(edges(1e30, 1e30, 1e30, 1e30), edges(1e30, 1e30, 1e30, 1e30));
         let tree = tree_of(vec![
-            hot(None, Some(NodeId::ZERO), Some(size(200.0, 100.0)), &parent_props),
+            hot(
+                None,
+                Some(NodeId::ZERO),
+                Some(size(200.0, 100.0)),
+                &parent_props,
+            ),
             hot(Some(0), None, None, &ResolvedBoxProps::default()),
         ]);
         let mut positions: PositionVec = Vec::new();
         pos_set(&mut positions, 0, pos(0.0, 0.0));
 
-        let (cb_pos, cb_size) = get_containing_block_for_node(
-            &tree,
-            &dom,
-            1,
-            &positions,
-            rect(0.0, 0.0, 800.0, 600.0),
-        );
+        let (cb_pos, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 1, &positions, rect(0.0, 0.0, 800.0, 600.0));
 
         assert!(cb_pos.x.is_finite() && cb_pos.y.is_finite());
-        assert!(cb_pos.x > 0.0, "saturated padding must stay positive, got {}", cb_pos.x);
-        assert!(cb_pos.x <= 2.0 * 3276.7 + 1.0, "clamped to the i16 ×10 range");
+        assert!(
+            cb_pos.x > 0.0,
+            "saturated padding must stay positive, got {}",
+            cb_pos.x
+        );
+        assert!(
+            cb_pos.x <= 2.0 * 3276.7 + 1.0,
+            "clamped to the i16 ×10 range"
+        );
         // border + padding dwarf the border-box, so the content box floors at zero.
         assert_eq!(cb_size.width, 0.0);
         assert_eq!(cb_size.height, 0.0);
@@ -2252,21 +2352,24 @@ mod autotest_generated {
         let dom = body_dom();
         let parent_props = bp(edges(10.0, 10.0, 10.0, 10.0), EdgeSizes::default());
         let tree = tree_of(vec![
-            hot(None, Some(NodeId::ZERO), Some(size(200.0, 100.0)), &parent_props),
+            hot(
+                None,
+                Some(NodeId::ZERO),
+                Some(size(200.0, 100.0)),
+                &parent_props,
+            ),
             hot(Some(0), None, None, &ResolvedBoxProps::default()),
         ]);
         let mut positions: PositionVec = Vec::new();
         pos_set(&mut positions, 0, pos(f32::NAN, f32::NAN));
 
-        let (cb_pos, cb_size) = get_containing_block_for_node(
-            &tree,
-            &dom,
-            1,
-            &positions,
-            rect(0.0, 0.0, 800.0, 600.0),
-        );
+        let (cb_pos, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 1, &positions, rect(0.0, 0.0, 800.0, 600.0));
 
-        assert!(cb_pos.x.is_nan() && cb_pos.y.is_nan(), "NaN flows through unchanged");
+        assert!(
+            cb_pos.x.is_nan() && cb_pos.y.is_nan(),
+            "NaN flows through unchanged"
+        );
         // The size path never touches the position, so it must stay clean.
         assert!(close(cb_size.width, 180.0), "width was {}", cb_size.width);
         assert!(close(cb_size.height, 80.0), "height was {}", cb_size.height);
@@ -2278,19 +2381,19 @@ mod autotest_generated {
         // block collapses to 0 rather than exporting NaN into sizing.
         let dom = body_dom();
         let tree = tree_of(vec![
-            hot(None, Some(NodeId::ZERO), Some(size(f32::NAN, f32::NAN)), &ResolvedBoxProps::default()),
+            hot(
+                None,
+                Some(NodeId::ZERO),
+                Some(size(f32::NAN, f32::NAN)),
+                &ResolvedBoxProps::default(),
+            ),
             hot(Some(0), None, None, &ResolvedBoxProps::default()),
         ]);
         let mut positions: PositionVec = Vec::new();
         pos_set(&mut positions, 0, pos(0.0, 0.0));
 
-        let (_, cb_size) = get_containing_block_for_node(
-            &tree,
-            &dom,
-            1,
-            &positions,
-            rect(0.0, 0.0, 800.0, 600.0),
-        );
+        let (_, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 1, &positions, rect(0.0, 0.0, 800.0, 600.0));
         assert!(!cb_size.width.is_nan() && !cb_size.height.is_nan());
         assert_eq!(cb_size.width, 0.0);
         assert_eq!(cb_size.height, 0.0);
@@ -2312,13 +2415,8 @@ mod autotest_generated {
         let mut positions: PositionVec = Vec::new();
         pos_set(&mut positions, 0, pos(0.0, 0.0));
 
-        let (_, cb_size) = get_containing_block_for_node(
-            &tree,
-            &dom,
-            1,
-            &positions,
-            rect(0.0, 0.0, 800.0, 600.0),
-        );
+        let (_, cb_size) =
+            get_containing_block_for_node(&tree, &dom, 1, &positions, rect(0.0, 0.0, 800.0, 600.0));
         assert!(cb_size.width.is_infinite() && cb_size.width.is_sign_positive());
         assert!(cb_size.height.is_infinite() && cb_size.height.is_sign_positive());
     }
@@ -2330,13 +2428,8 @@ mod autotest_generated {
         let dom = body_dom();
         let tree = tree_of(vec![hot(None, None, None, &ResolvedBoxProps::default())]);
 
-        let (p, s) = get_containing_block_for_node(
-            &tree,
-            &dom,
-            0,
-            &Vec::new(),
-            rect(0.0, 0.0, 0.0, 0.0),
-        );
+        let (p, s) =
+            get_containing_block_for_node(&tree, &dom, 0, &Vec::new(), rect(0.0, 0.0, 0.0, 0.0));
         assert_eq!(s.width, 0.0);
         assert_eq!(s.height, 0.0);
         assert_eq!(p.x, 0.0);
@@ -2357,7 +2450,10 @@ mod autotest_generated {
             &Vec::new(),
             rect(f32::NAN, f32::NAN, f32::NAN, f32::NAN),
         );
-        assert!(p.x.is_nan() && s.width.is_nan(), "NaN viewport is not sanitised");
+        assert!(
+            p.x.is_nan() && s.width.is_nan(),
+            "NaN viewport is not sanitised"
+        );
 
         let (_, s) = get_containing_block_for_node(
             &tree,
@@ -2381,7 +2477,9 @@ mod autotest_generated {
             LayoutError::SizingFailed,
             LayoutError::PositioningFailed,
             LayoutError::DisplayListFailed,
-            LayoutError::Text(crate::font_traits::LayoutError::BidiError("boom".to_string())),
+            LayoutError::Text(crate::font_traits::LayoutError::BidiError(
+                "boom".to_string(),
+            )),
         ];
         let rendered: Vec<String> = variants.iter().map(ToString::to_string).collect();
 
@@ -2391,7 +2489,10 @@ mod autotest_generated {
         }
         for i in 0..rendered.len() {
             for j in (i + 1)..rendered.len() {
-                assert_ne!(rendered[i], rendered[j], "variants {i} and {j} render alike");
+                assert_ne!(
+                    rendered[i], rendered[j],
+                    "variants {i} and {j} render alike"
+                );
             }
         }
     }
@@ -2399,7 +2500,10 @@ mod autotest_generated {
     #[test]
     fn layout_error_display_matches_the_documented_wording() {
         assert_eq!(LayoutError::InvalidTree.to_string(), "Invalid layout tree");
-        assert_eq!(LayoutError::SizingFailed.to_string(), "Sizing calculation failed");
+        assert_eq!(
+            LayoutError::SizingFailed.to_string(),
+            "Sizing calculation failed"
+        );
         assert_eq!(
             LayoutError::PositioningFailed.to_string(),
             "Position calculation failed"
@@ -2454,7 +2558,10 @@ mod autotest_generated {
         ));
         let msg = err.to_string();
         assert!(msg.starts_with("Text layout error: "));
-        assert!(msg.contains("serif"), "the default family should show up: {msg}");
+        assert!(
+            msg.contains("serif"),
+            "the default family should show up: {msg}"
+        );
     }
 
     #[cfg(all(feature = "text_layout", feature = "font_loading"))]
@@ -2538,7 +2645,7 @@ mod autotest_generated {
                     counters: &mut self.counters,
                     viewport_size: size(800.0, 600.0),
                     fragmentation_context: None,
-            reflowed_ifcs: std::collections::BTreeSet::new(),
+                    reflowed_ifcs: std::collections::BTreeSet::new(),
                     cursor_is_visible: true,
                     cursor_locations: Vec::new(),
                     preedit_text: None,
@@ -2587,7 +2694,10 @@ mod autotest_generated {
             for (msg, (text, ty)) in msgs.iter().zip(expected) {
                 assert_eq!(msg.message.as_str(), text);
                 assert_eq!(msg.message_type, ty);
-                assert!(!msg.location.as_str().is_empty(), "location must be recorded");
+                assert!(
+                    !msg.location.as_str().is_empty(),
+                    "location must be recorded"
+                );
             }
         }
 
@@ -2725,7 +2835,10 @@ mod autotest_generated {
         set_skip_display_list(true);
         assert!(SKIP_DISPLAY_LIST.load(Ordering::Relaxed));
         set_skip_display_list(true);
-        assert!(SKIP_DISPLAY_LIST.load(Ordering::Relaxed), "double-set is idempotent");
+        assert!(
+            SKIP_DISPLAY_LIST.load(Ordering::Relaxed),
+            "double-set is idempotent"
+        );
 
         set_skip_display_list(false);
         assert!(!SKIP_DISPLAY_LIST.load(Ordering::Relaxed));
@@ -2858,7 +2971,10 @@ mod autotest_generated {
             cache: &mut LayoutCache,
             dom: &StyledDom,
             viewport: LogicalRect,
-            css_dirty: &[(azul_core::dom::NodeId, azul_css::props::property::RelayoutScope)],
+            css_dirty: &[(
+                azul_core::dom::NodeId,
+                azul_css::props::property::RelayoutScope,
+            )],
         ) -> Result<std::sync::Arc<DisplayList>> {
             let mut text_cache = TextLayoutCache::new();
             let font_manager: FontManager<FontRef> =
@@ -2946,8 +3062,13 @@ mod autotest_generated {
             );
 
             // Sizing: must actually re-solve.
-            let fourth = run_with_css(&mut cache, &dom, viewport, &[(div, RelayoutScope::SizingOnly)])
-                .expect("sizing pass");
+            let fourth = run_with_css(
+                &mut cache,
+                &dom,
+                viewport,
+                &[(div, RelayoutScope::SizingOnly)],
+            )
+            .expect("sizing pass");
             assert!(
                 !std::sync::Arc::ptr_eq(&third, &fourth),
                 "a sizing diff must not serve the cached list"
@@ -2981,7 +3102,10 @@ mod autotest_generated {
                 dl.items
                     .iter()
                     .filter(|i| {
-                        matches!(i, crate::solver3::display_list::DisplayListItem::PushReferenceFrame { .. })
+                        matches!(
+                            i,
+                            crate::solver3::display_list::DisplayListItem::PushReferenceFrame { .. }
+                        )
                     })
                     .count()
             };
@@ -2996,7 +3120,10 @@ mod autotest_generated {
                 // the sibling tests).
                 return;
             };
-            assert!(cache.cached_display_list.is_some(), "cold pass must seed the DL cache");
+            assert!(
+                cache.cached_display_list.is_some(),
+                "cold pass must seed the DL cache"
+            );
             assert_eq!(count_refframes(&first), 0, "no keys, no reference frames");
 
             // A key is minted for a node — as animation seeding does, AFTER
@@ -3054,8 +3181,12 @@ mod autotest_generated {
             // runs — the empty divs sit BETWEEN anonymous blocks, which is
             // the arrangement that used to skip them.
             let mut dom = Dom::create_body()
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("azul-self-test"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("probing platform APIs"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "azul-self-test",
+                ))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "probing platform APIs",
+                ))
                 .with_child(Dom::create_div())
                 .with_child(Dom::create_div());
             let (css, _warnings) = azul_css::parser2::new_from_str("body { font-size: 14px; }");
@@ -3088,7 +3219,10 @@ mod autotest_generated {
             // a panic, an infinite scrollbar reflow, or a NaN position is not.
             if run(&mut cache, &dom, rect(0.0, 0.0, 0.0, 0.0)).is_ok() {
                 for p in &cache.calculated_positions {
-                    assert!(!p.x.is_nan() && !p.y.is_nan(), "NaN position from a 0×0 viewport");
+                    assert!(
+                        !p.x.is_nan() && !p.y.is_nan(),
+                        "NaN position from a 0×0 viewport"
+                    );
                 }
             }
         }
@@ -3124,20 +3258,30 @@ mod autotest_generated {
                 // No fonts available in this environment — nothing to compare.
                 return;
             }
-            assert!(cache.cached_display_list.is_some(), "cold pass must seed the DL cache");
+            assert!(
+                cache.cached_display_list.is_some(),
+                "cold pass must seed the DL cache"
+            );
             assert_eq!(cache.viewport, Some(viewport));
             let positions_after_first = cache.calculated_positions.clone();
 
             // Second pass: the structural-identity cache should short-circuit, and
             // must not corrupt the stored geometry on the way out.
             let second = run(&mut cache, &dom, viewport);
-            assert!(second.is_ok(), "a warm relayout of an unchanged DOM must succeed");
+            assert!(
+                second.is_ok(),
+                "a warm relayout of an unchanged DOM must succeed"
+            );
             assert_eq!(
                 cache.calculated_positions.len(),
                 positions_after_first.len(),
                 "warm pass changed the node count"
             );
-            for (warm, cold) in cache.calculated_positions.iter().zip(&positions_after_first) {
+            for (warm, cold) in cache
+                .calculated_positions
+                .iter()
+                .zip(&positions_after_first)
+            {
                 assert_eq!(warm.x.to_bits(), cold.x.to_bits(), "warm pass moved a node");
                 assert_eq!(warm.y.to_bits(), cold.y.to_bits(), "warm pass moved a node");
             }

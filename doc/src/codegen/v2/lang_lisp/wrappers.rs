@@ -32,7 +32,7 @@ use super::super::ir::{
     ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FunctionDef, FunctionKind, StructDef,
     TypeCategory,
 };
-use super::{idiomatic_class_name, ident_to_kebab, raw_fn_name, to_kebab_case};
+use super::{ident_to_kebab, idiomatic_class_name, raw_fn_name, to_kebab_case};
 
 pub fn generate_wrappers(
     builder: &mut CodeBuilder,
@@ -132,10 +132,7 @@ fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     builder.line(&format!("(defclass {} ()", class));
     builder.indent();
     builder.line("((ptr :initarg :ptr");
-    builder.line(&format!(
-        "        :accessor {}-ptr",
-        class
-    ));
+    builder.line(&format!("        :accessor {}-ptr", class));
     builder.line("        :initform (cffi:null-pointer))))");
     builder.dedent();
     builder.blank();
@@ -182,9 +179,7 @@ fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
                 }
                 emit_static_or_ctor(builder, &class, func, ir);
             }
-            FunctionKind::Method
-            | FunctionKind::MethodMut
-            | FunctionKind::DeepCopy => {
+            FunctionKind::Method | FunctionKind::MethodMut | FunctionKind::DeepCopy => {
                 emit_instance_method(builder, &class, func, ir);
             }
             _ => {}
@@ -199,12 +194,7 @@ fn emit_struct_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     builder.blank();
 }
 
-fn emit_static_or_ctor(
-    builder: &mut CodeBuilder,
-    class: &str,
-    func: &FunctionDef,
-    ir: &CodegenIR,
-) {
+fn emit_static_or_ctor(builder: &mut CodeBuilder, class: &str, func: &FunctionDef, ir: &CodegenIR) {
     let raw = raw_fn_name(&func.c_name);
     let lisp_method = idiomatic_method_name(&func.method_name);
 
@@ -235,7 +225,11 @@ fn emit_static_or_ctor(
         .map(|r| r.trim() == func.class_name)
         .unwrap_or(false);
 
-    builder.line(&format!("(defun {} ({})", public_name, param_list.join(" ")));
+    builder.line(&format!(
+        "(defun {} ({})",
+        public_name,
+        param_list.join(" ")
+    ));
     builder.indent();
     if returns_self {
         builder.line(&format!(
@@ -272,8 +266,7 @@ fn emit_instance_method(
         }
     }
 
-    let (mut param_list, mut call_args) =
-        build_param_lists(&func.args, ir, /*has_self*/ true);
+    let (mut param_list, mut call_args) = build_param_lists(&func.args, ir, /*has_self*/ true);
 
     // The first arg from the IR is implicit `self` (named after the
     // lowercased class). Replace it with `obj` and pass the inner ptr.
@@ -289,7 +282,11 @@ fn emit_instance_method(
         .map(|r| r.trim() == func.class_name)
         .unwrap_or(false);
 
-    builder.line(&format!("(defun {} ({})", public_name, param_list.join(" ")));
+    builder.line(&format!(
+        "(defun {} ({})",
+        public_name,
+        param_list.join(" ")
+    ));
     builder.indent();
     if returns_self {
         builder.line(&format!(

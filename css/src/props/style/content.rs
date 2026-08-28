@@ -45,21 +45,24 @@ pub struct CounterReset {
 }
 
 impl CounterReset {
-    #[must_use] pub const fn new(counter_name: AzString, value: i32) -> Self {
+    #[must_use]
+    pub const fn new(counter_name: AzString, value: i32) -> Self {
         Self {
             counter_name,
             value,
         }
     }
 
-    #[must_use] pub const fn none() -> Self {
+    #[must_use]
+    pub const fn none() -> Self {
         Self {
             counter_name: AzString::from_const_str("none"),
             value: 0,
         }
     }
 
-    #[must_use] pub const fn list_item() -> Self {
+    #[must_use]
+    pub const fn list_item() -> Self {
         Self {
             counter_name: AzString::from_const_str("list-item"),
             value: 0,
@@ -92,21 +95,24 @@ pub struct CounterIncrement {
 }
 
 impl CounterIncrement {
-    #[must_use] pub const fn new(counter_name: AzString, value: i32) -> Self {
+    #[must_use]
+    pub const fn new(counter_name: AzString, value: i32) -> Self {
         Self {
             counter_name,
             value,
         }
     }
 
-    #[must_use] pub const fn none() -> Self {
+    #[must_use]
+    pub const fn none() -> Self {
         Self {
             counter_name: AzString::from_const_str("none"),
             value: 0,
         }
     }
 
-    #[must_use] pub const fn list_item() -> Self {
+    #[must_use]
+    pub const fn list_item() -> Self {
         Self {
             counter_name: AzString::from_const_str("list-item"),
             value: 1,
@@ -190,7 +196,8 @@ impl crate::codegen::format::FormatAsRustCode for StringSet {
 
 #[cfg(feature = "parser")]
 pub mod parser {
-    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
+    #[allow(clippy::wildcard_imports)]
+    // parser submodule reuses the parent module's value types
     use super::*;
 
     // Simplified parsers that just take the raw string value.
@@ -316,9 +323,9 @@ mod autotest_generated {
             String::new(),
             " ".to_string(),
             "\t\n\r\u{b}\u{c}".to_string(),
-            "\u{a0}".to_string(),      // NBSP: Unicode White_Space
-            "\u{200b}".to_string(),    // ZWSP: NOT White_Space
-            "\0".to_string(),          // embedded NUL
+            "\u{a0}".to_string(),   // NBSP: Unicode White_Space
+            "\u{200b}".to_string(), // ZWSP: NOT White_Space
+            "\0".to_string(),       // embedded NUL
             "\0page\0 1\0".to_string(),
             ";".to_string(),
             "}{".to_string(),
@@ -445,7 +452,10 @@ mod autotest_generated {
             "'Hi';garbage"
         );
         assert_eq!(
-            parse_string_set("chapter content()").unwrap().inner.as_str(),
+            parse_string_set("chapter content()")
+                .unwrap()
+                .inner
+                .as_str(),
             "chapter content()"
         );
     }
@@ -606,7 +616,10 @@ mod autotest_generated {
     #[test]
     fn counter_value_at_i32_boundaries_parses_exactly() {
         assert_eq!(parse_counter_reset("c 2147483647").unwrap().value, i32::MAX);
-        assert_eq!(parse_counter_reset("c -2147483648").unwrap().value, i32::MIN);
+        assert_eq!(
+            parse_counter_reset("c -2147483648").unwrap().value,
+            i32::MIN
+        );
         assert_eq!(parse_counter_reset("c 0").unwrap().value, 0);
         assert_eq!(parse_counter_reset("c -0").unwrap().value, 0);
         assert_eq!(parse_counter_reset("c +7").unwrap().value, 7);
@@ -637,9 +650,21 @@ mod autotest_generated {
     #[test]
     fn counter_non_integer_values_are_rejected() {
         for bad in [
-            "c 1.0", "c 1.5", "c 1e3", "c NaN", "c nan", "c inf", "c -inf", "c 0x10", "c 1_000",
-            "c 1,", "c one", "c -", "c +", "c ٣", // Arabic-Indic digit three
-            "c １",  // fullwidth digit one
+            "c 1.0",
+            "c 1.5",
+            "c 1e3",
+            "c NaN",
+            "c nan",
+            "c inf",
+            "c -inf",
+            "c 0x10",
+            "c 1_000",
+            "c 1,",
+            "c one",
+            "c -",
+            "c +",
+            "c ٣",  // Arabic-Indic digit three
+            "c １", // fullwidth digit one
             "c 1\u{200b}",
         ] {
             assert!(
@@ -670,8 +695,8 @@ mod autotest_generated {
     fn counter_arbitrary_whitespace_forms_are_normalized() {
         for input in [
             "\t page \n 42 \r",
-            "page\u{a0}42",   // NBSP separates under split_whitespace
-            "page    42",     // runs of spaces
+            "page\u{a0}42",    // NBSP separates under split_whitespace
+            "page    42",      // runs of spaces
             "\u{2003}page 42", // em-space
         ] {
             let r = parse_counter_reset(input).unwrap();
@@ -730,7 +755,10 @@ mod autotest_generated {
         assert_eq!(r.value, 0);
 
         let nested_with_value = alloc::format!("{nested} 1");
-        assert_eq!(parse_counter_increment(&nested_with_value).unwrap().value, 1);
+        assert_eq!(
+            parse_counter_increment(&nested_with_value).unwrap().value,
+            1
+        );
     }
 
     // ---------------------------------------------------------------
@@ -761,9 +789,15 @@ mod autotest_generated {
 
         let li = CounterIncrement::list_item();
         assert_eq!(li.print_as_css_value(), "list-item 1");
-        assert_eq!(parse_counter_increment(&li.print_as_css_value()).unwrap(), li);
+        assert_eq!(
+            parse_counter_increment(&li.print_as_css_value()).unwrap(),
+            li
+        );
 
-        assert_eq!(CounterReset::list_item().print_as_css_value(), "list-item 0");
+        assert_eq!(
+            CounterReset::list_item().print_as_css_value(),
+            "list-item 0"
+        );
         assert_eq!(CounterIncrement::none().print_as_css_value(), "none");
     }
 
@@ -813,9 +847,7 @@ mod autotest_generated {
         assert_ne!(a1, a2);
 
         assert_eq!(
-            hash_of(&Content {
-                inner: "x".into()
-            }),
+            hash_of(&Content { inner: "x".into() }),
             hash_of(&parse_content(" x ").unwrap())
         );
     }

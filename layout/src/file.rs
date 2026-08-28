@@ -5,8 +5,11 @@
 
 use alloc::string::String;
 use alloc::vec::Vec;
+use azul_css::{
+    impl_option, impl_option_inner, impl_result, impl_result_inner, impl_vec, impl_vec_clone,
+    impl_vec_debug, impl_vec_mut, AzString, EmptyStruct, U8Vec,
+};
 use core::fmt;
-use azul_css::{AzString, U8Vec, EmptyStruct, impl_result, impl_result_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_option, impl_option_inner};
 
 #[cfg(feature = "std")]
 use std::path::Path;
@@ -61,14 +64,15 @@ impl FileError {
             kind,
         }
     }
-    
+
     #[cfg(feature = "std")]
     // taken by value so it can be used directly as `.map_err(FileError::from_io_error)`
     // (map_err yields an owned io::Error); a &-param would break every such call site.
     #[allow(clippy::needless_pass_by_value)]
-    #[must_use] pub fn from_io_error(e: std::io::Error) -> Self {
+    #[must_use]
+    pub fn from_io_error(e: std::io::Error) -> Self {
         use std::io::ErrorKind;
-        
+
         let kind = match e.kind() {
             ErrorKind::NotFound => FileErrorKind::NotFound,
             ErrorKind::PermissionDenied => FileErrorKind::PermissionDenied,
@@ -77,7 +81,7 @@ impl FileError {
             ErrorKind::DirectoryNotEmpty => FileErrorKind::DirectoryNotEmpty,
             _ => FileErrorKind::IoError,
         };
-        
+
         Self {
             message: AzString::from(e.to_string()),
             kind,
@@ -178,7 +182,14 @@ pub struct DirEntry {
 
 /// Vec of DirEntry
 impl_option!(DirEntry, OptionDirEntry, copy = false, [Debug, Clone]);
-impl_vec!(DirEntry, DirEntryVec, DirEntryVecDestructor, DirEntryVecDestructorType, DirEntryVecSlice, OptionDirEntry);
+impl_vec!(
+    DirEntry,
+    DirEntryVec,
+    DirEntryVecDestructor,
+    DirEntryVecDestructorType,
+    DirEntryVecSlice,
+    OptionDirEntry
+);
 impl_vec_clone!(DirEntry, DirEntryVec, DirEntryVecDestructor);
 impl_vec_debug!(DirEntry, DirEntryVec);
 impl_vec_mut!(DirEntry, DirEntryVec);
@@ -211,8 +222,7 @@ impl_result!(
 ///
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn file_read(path: &str) -> Result<U8Vec, FileError> {
-    let data = std::fs::read(path)
-        .map_err(FileError::from_io_error)?;
+    let data = std::fs::read(path).map_err(FileError::from_io_error)?;
     Ok(U8Vec::from(data))
 }
 
@@ -222,8 +232,7 @@ pub fn file_read(path: &str) -> Result<U8Vec, FileError> {
 ///
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn file_read_string(path: &str) -> Result<AzString, FileError> {
-    let data = std::fs::read_to_string(path)
-        .map_err(FileError::from_io_error)?;
+    let data = std::fs::read_to_string(path).map_err(FileError::from_io_error)?;
     Ok(AzString::from(data))
 }
 
@@ -234,7 +243,8 @@ pub fn file_read_string(path: &str) -> Result<AzString, FileError> {
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn file_write(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
     std::fs::write(path, data)
-        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default())
+        .map_err(FileError::from_io_error)
 }
 
 /// Write string to a file (creates or overwrites)
@@ -244,7 +254,8 @@ pub fn file_write(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn file_write_string(path: &str, data: &str) -> Result<EmptyStruct, FileError> {
     std::fs::write(path, data.as_bytes())
-        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default())
+        .map_err(FileError::from_io_error)
 }
 
 /// Append bytes to a file
@@ -255,13 +266,13 @@ pub fn file_write_string(path: &str, data: &str) -> Result<EmptyStruct, FileErro
 pub fn file_append(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
     use std::fs::OpenOptions;
     use std::io::Write;
-    
+
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
         .map_err(FileError::from_io_error)?;
-    
+
     file.write_all(data)
         .map(|()| EmptyStruct::default())
         .map_err(FileError::from_io_error)
@@ -273,8 +284,7 @@ pub fn file_append(path: &str, data: &[u8]) -> Result<EmptyStruct, FileError> {
 ///
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn file_copy(from: &str, to: &str) -> Result<u64, FileError> {
-    std::fs::copy(from, to)
-        .map_err(FileError::from_io_error)
+    std::fs::copy(from, to).map_err(FileError::from_io_error)
 }
 
 /// Rename/move a file
@@ -284,7 +294,8 @@ pub fn file_copy(from: &str, to: &str) -> Result<u64, FileError> {
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn file_rename(from: &str, to: &str) -> Result<EmptyStruct, FileError> {
     std::fs::rename(from, to)
-        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default())
+        .map_err(FileError::from_io_error)
 }
 
 /// Delete a file
@@ -294,24 +305,28 @@ pub fn file_rename(from: &str, to: &str) -> Result<EmptyStruct, FileError> {
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn file_delete(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_file(path)
-        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default())
+        .map_err(FileError::from_io_error)
 }
 
 /// Check if a file or directory exists
 #[cfg(feature = "std")]
-#[must_use] pub fn path_exists(path: &str) -> bool {
+#[must_use]
+pub fn path_exists(path: &str) -> bool {
     Path::new(path).exists()
 }
 
 /// Check if path is a file
 #[cfg(feature = "std")]
-#[must_use] pub fn path_is_file(path: &str) -> bool {
+#[must_use]
+pub fn path_is_file(path: &str) -> bool {
     Path::new(path).is_file()
 }
 
 /// Check if path is a directory
 #[cfg(feature = "std")]
-#[must_use] pub fn path_is_dir(path: &str) -> bool {
+#[must_use]
+pub fn path_is_dir(path: &str) -> bool {
     Path::new(path).is_dir()
 }
 
@@ -321,9 +336,8 @@ pub fn file_delete(path: &str) -> Result<EmptyStruct, FileError> {
 ///
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn file_metadata(path: &str) -> Result<FileMetadata, FileError> {
-    let meta = std::fs::symlink_metadata(path)
-        .map_err(FileError::from_io_error)?;
-    
+    let meta = std::fs::symlink_metadata(path).map_err(FileError::from_io_error)?;
+
     let file_type = if meta.is_file() {
         FileType::File
     } else if meta.is_dir() {
@@ -333,17 +347,19 @@ pub fn file_metadata(path: &str) -> Result<FileMetadata, FileError> {
     } else {
         FileType::Other
     };
-    
-    let modified_secs = meta.modified()
+
+    let modified_secs = meta
+        .modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_secs());
-    
-    let created_secs = meta.created()
+
+    let created_secs = meta
+        .created()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_secs());
-    
+
     Ok(FileMetadata {
         size: meta.len(),
         file_type,
@@ -446,7 +462,8 @@ pub fn file_metadata(_path: &str) -> Result<FileMetadata, FileError> {
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn dir_create(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::create_dir(path)
-        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default())
+        .map_err(FileError::from_io_error)
 }
 
 /// Create a directory and all parent directories
@@ -456,7 +473,8 @@ pub fn dir_create(path: &str) -> Result<EmptyStruct, FileError> {
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn dir_create_all(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::create_dir_all(path)
-        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default())
+        .map_err(FileError::from_io_error)
 }
 
 /// Delete an empty directory
@@ -466,7 +484,8 @@ pub fn dir_create_all(path: &str) -> Result<EmptyStruct, FileError> {
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn dir_delete(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_dir(path)
-        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default())
+        .map_err(FileError::from_io_error)
 }
 
 /// Delete a directory and all its contents
@@ -476,7 +495,8 @@ pub fn dir_delete(path: &str) -> Result<EmptyStruct, FileError> {
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn dir_delete_all(path: &str) -> Result<EmptyStruct, FileError> {
     std::fs::remove_dir_all(path)
-        .map(|()| EmptyStruct::default()).map_err(FileError::from_io_error)
+        .map(|()| EmptyStruct::default())
+        .map_err(FileError::from_io_error)
 }
 
 /// List directory contents
@@ -485,14 +505,14 @@ pub fn dir_delete_all(path: &str) -> Result<EmptyStruct, FileError> {
 ///
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn dir_list(path: &str) -> Result<DirEntryVec, FileError> {
-    let entries = std::fs::read_dir(path)
-        .map_err(FileError::from_io_error)?;
-    
+    let entries = std::fs::read_dir(path).map_err(FileError::from_io_error)?;
+
     let mut result = Vec::new();
-    
+
     for entry in entries {
         let entry = entry.map_err(FileError::from_io_error)?;
-        let file_type = entry.file_type()
+        let file_type = entry
+            .file_type()
             .map(|ft| {
                 if ft.is_file() {
                     FileType::File
@@ -505,14 +525,14 @@ pub fn dir_list(path: &str) -> Result<DirEntryVec, FileError> {
                 }
             })
             .unwrap_or(FileType::Other);
-        
+
         result.push(DirEntry {
             name: path_to_azstring(entry.file_name()),
             path: path_to_azstring(entry.path()),
             file_type,
         });
     }
-    
+
     Ok(DirEntryVec::from_vec(result))
 }
 
@@ -552,7 +572,8 @@ pub fn dir_list(_path: &str) -> Result<DirEntryVec, FileError> {
 
 /// Join two paths
 #[cfg(feature = "std")]
-#[must_use] pub fn path_join(base: &str, path: &str) -> AzString {
+#[must_use]
+pub fn path_join(base: &str, path: &str) -> AzString {
     let joined = Path::new(base).join(path);
     path_to_azstring(joined)
 }
@@ -560,22 +581,19 @@ pub fn dir_list(_path: &str) -> Result<DirEntryVec, FileError> {
 /// Get the parent directory of a path
 #[cfg(feature = "std")]
 pub fn path_parent(path: &str) -> Option<AzString> {
-    Path::new(path).parent()
-        .map(path_to_azstring)
+    Path::new(path).parent().map(path_to_azstring)
 }
 
 /// Get the file name from a path
 #[cfg(feature = "std")]
 pub fn path_file_name(path: &str) -> Option<AzString> {
-    Path::new(path).file_name()
-        .map(path_to_azstring)
+    Path::new(path).file_name().map(path_to_azstring)
 }
 
 /// Get the file extension from a path
 #[cfg(feature = "std")]
 pub fn path_extension(path: &str) -> Option<AzString> {
-    Path::new(path).extension()
-        .map(path_to_azstring)
+    Path::new(path).extension().map(path_to_azstring)
 }
 
 /// Canonicalize a path (resolve symlinks, make absolute)
@@ -584,8 +602,7 @@ pub fn path_extension(path: &str) -> Option<AzString> {
 ///
 /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
 pub fn path_canonicalize(path: &str) -> Result<AzString, FileError> {
-    let canonical = std::fs::canonicalize(path)
-        .map_err(FileError::from_io_error)?;
+    let canonical = std::fs::canonicalize(path).map_err(FileError::from_io_error)?;
     Ok(path_to_azstring(canonical))
 }
 
@@ -595,7 +612,8 @@ pub fn path_canonicalize(path: &str) -> Result<AzString, FileError> {
 
 /// Get the system temporary directory
 #[cfg(feature = "std")]
-#[must_use] pub fn temp_dir() -> AzString {
+#[must_use]
+pub fn temp_dir() -> AzString {
     path_to_azstring(std::env::temp_dir())
 }
 
@@ -640,7 +658,7 @@ pub fn temp_dir() -> AzString {
 // ============================================================================
 
 /// FFI-safe path type with OOP-style methods
-/// 
+///
 /// This wraps a string path and provides method-based access to file operations.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -658,33 +676,46 @@ impl_result!(
 );
 
 // Option type for FilePath
-impl_option!(FilePath, OptionFilePath, copy = false, [Clone, Debug, PartialEq, Eq]);
+impl_option!(
+    FilePath,
+    OptionFilePath,
+    copy = false,
+    [Clone, Debug, PartialEq, Eq]
+);
 
 impl Default for FilePath {
     fn default() -> Self {
-        Self { inner: AzString::from_const_str("") }
+        Self {
+            inner: AzString::from_const_str(""),
+        }
     }
 }
 
 impl FilePath {
     /// Creates a new path from a string
-    #[must_use] pub const fn new(path: AzString) -> Self {
+    #[must_use]
+    pub const fn new(path: AzString) -> Self {
         Self { inner: path }
     }
 
     /// Creates an empty path
-    #[must_use] pub fn empty() -> Self {
+    #[must_use]
+    pub fn empty() -> Self {
         Self::default()
     }
 
     /// Creates a path from a string slice
-    #[must_use] pub fn from_str(s: &str) -> Self {
-        Self { inner: AzString::from(String::from(s)) }
+    #[must_use]
+    pub fn from_str(s: &str) -> Self {
+        Self {
+            inner: AzString::from(String::from(s)),
+        }
     }
 
     /// Returns the system temporary directory
     #[cfg(feature = "std")]
-    #[must_use] pub fn get_temp_dir() -> Self {
+    #[must_use]
+    pub fn get_temp_dir() -> Self {
         Self { inner: temp_dir() }
     }
 
@@ -695,176 +726,248 @@ impl FilePath {
     /// Returns a `FileError` if the filesystem operation fails (e.g. path not found, permission denied, or an I/O error).
     pub fn get_current_dir() -> Result<Self, FileError> {
         match std::env::current_dir() {
-            Ok(p) => Ok(Self { inner: path_to_azstring(p) }),
+            Ok(p) => Ok(Self {
+                inner: path_to_azstring(p),
+            }),
             Err(e) => Err(FileError::from_io_error(e)),
         }
     }
 
     /// Returns the user's home directory (e.g., /home/username on Linux, C:\Users\username on Windows)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_home_dir() -> Option<Self> {
-        dirs::home_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_home_dir() -> Option<Self> {
+        dirs::home_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's cache directory (e.g., ~/.cache on Linux, ~/Library/Caches on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_cache_dir() -> Option<Self> {
-        dirs::cache_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_cache_dir() -> Option<Self> {
+        dirs::cache_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_config_dir() -> Option<Self> {
-        dirs::config_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_config_dir() -> Option<Self> {
+        dirs::config_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's local config directory (e.g., ~/.config on Linux, ~/Library/Application Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_config_local_dir() -> Option<Self> {
-        dirs::config_local_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_config_local_dir() -> Option<Self> {
+        dirs::config_local_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_data_dir() -> Option<Self> {
-        dirs::data_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_data_dir() -> Option<Self> {
+        dirs::data_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's local data directory (e.g., ~/.local/share on Linux, ~/Library/Application Support on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_data_local_dir() -> Option<Self> {
-        dirs::data_local_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_data_local_dir() -> Option<Self> {
+        dirs::data_local_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's desktop directory (e.g., ~/Desktop)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_desktop_dir() -> Option<Self> {
-        dirs::desktop_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_desktop_dir() -> Option<Self> {
+        dirs::desktop_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's documents directory (e.g., ~/Documents)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_document_dir() -> Option<Self> {
-        dirs::document_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_document_dir() -> Option<Self> {
+        dirs::document_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's downloads directory (e.g., ~/Downloads)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_download_dir() -> Option<Self> {
-        dirs::download_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_download_dir() -> Option<Self> {
+        dirs::download_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's executable directory (e.g., ~/.local/bin on Linux)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_executable_dir() -> Option<Self> {
-        dirs::executable_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_executable_dir() -> Option<Self> {
+        dirs::executable_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's font directory (e.g., ~/.local/share/fonts on Linux, ~/Library/Fonts on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_font_dir() -> Option<Self> {
-        dirs::font_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_font_dir() -> Option<Self> {
+        dirs::font_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's pictures directory (e.g., ~/Pictures)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_picture_dir() -> Option<Self> {
-        dirs::picture_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_picture_dir() -> Option<Self> {
+        dirs::picture_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's preference directory (e.g., ~/.config on Linux, ~/Library/Preferences on macOS)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_preference_dir() -> Option<Self> {
-        dirs::preference_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_preference_dir() -> Option<Self> {
+        dirs::preference_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's public directory (e.g., ~/Public)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_public_dir() -> Option<Self> {
-        dirs::public_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_public_dir() -> Option<Self> {
+        dirs::public_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's runtime directory (e.g., /run/user/1000 on Linux)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_runtime_dir() -> Option<Self> {
-        dirs::runtime_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_runtime_dir() -> Option<Self> {
+        dirs::runtime_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's state directory (e.g., ~/.local/state on Linux)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_state_dir() -> Option<Self> {
-        dirs::state_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_state_dir() -> Option<Self> {
+        dirs::state_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's audio directory (e.g., ~/Music)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_audio_dir() -> Option<Self> {
-        dirs::audio_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_audio_dir() -> Option<Self> {
+        dirs::audio_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's video directory (e.g., ~/Videos)
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_video_dir() -> Option<Self> {
-        dirs::video_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_video_dir() -> Option<Self> {
+        dirs::video_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Returns the user's templates directory
     #[cfg(all(feature = "std", feature = "extra"))]
-    #[must_use] pub fn get_template_dir() -> Option<Self> {
-        dirs::template_dir().map(|p| Self { inner: path_to_azstring(p) })
+    #[must_use]
+    pub fn get_template_dir() -> Option<Self> {
+        dirs::template_dir().map(|p| Self {
+            inner: path_to_azstring(p),
+        })
     }
 
     /// Joins this path with another path component
     #[cfg(feature = "std")]
-    #[must_use] pub fn join(&self, other: &Self) -> Self {
-        Self { inner: path_join(self.inner.as_str(), other.inner.as_str()) }
+    #[must_use]
+    pub fn join(&self, other: &Self) -> Self {
+        Self {
+            inner: path_join(self.inner.as_str(), other.inner.as_str()),
+        }
     }
 
     /// Joins this path with a string component
     #[cfg(feature = "std")]
-    #[must_use] pub fn join_str(&self, component: &AzString) -> Self {
-        Self { inner: path_join(self.inner.as_str(), component.as_str()) }
+    #[must_use]
+    pub fn join_str(&self, component: &AzString) -> Self {
+        Self {
+            inner: path_join(self.inner.as_str(), component.as_str()),
+        }
     }
 
     /// Returns the parent directory of this path
     #[cfg(feature = "std")]
-    #[must_use] pub fn parent(&self) -> Option<Self> {
+    #[must_use]
+    pub fn parent(&self) -> Option<Self> {
         path_parent(self.inner.as_str()).map(|p| Self { inner: p })
     }
 
     /// Returns the file name component of this path
     #[cfg(feature = "std")]
-    #[must_use] pub fn file_name(&self) -> Option<AzString> {
+    #[must_use]
+    pub fn file_name(&self) -> Option<AzString> {
         path_file_name(self.inner.as_str())
     }
 
     /// Returns the file extension of this path
     #[cfg(feature = "std")]
-    #[must_use] pub fn extension(&self) -> Option<AzString> {
+    #[must_use]
+    pub fn extension(&self) -> Option<AzString> {
         path_extension(self.inner.as_str())
     }
 
     /// Checks if the path exists on the filesystem
     #[cfg(feature = "std")]
-    #[must_use] pub fn exists(&self) -> bool {
+    #[must_use]
+    pub fn exists(&self) -> bool {
         path_exists(self.inner.as_str())
     }
 
     /// Checks if the path is a file
     #[cfg(feature = "std")]
-    #[must_use] pub fn is_file(&self) -> bool {
+    #[must_use]
+    pub fn is_file(&self) -> bool {
         path_is_file(self.inner.as_str())
     }
 
     /// Checks if the path is a directory
     #[cfg(feature = "std")]
-    #[must_use] pub fn is_dir(&self) -> bool {
+    #[must_use]
+    pub fn is_dir(&self) -> bool {
         path_is_dir(self.inner.as_str())
     }
 
     /// Checks if the path is absolute
     #[cfg(feature = "std")]
-    #[must_use] pub fn is_absolute(&self) -> bool {
+    #[must_use]
+    pub fn is_absolute(&self) -> bool {
         Path::new(self.inner.as_str()).is_absolute()
     }
 
@@ -968,12 +1071,14 @@ impl FilePath {
     }
 
     /// Returns the path as a string reference
-    #[must_use] pub fn as_str(&self) -> &str {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
         self.inner.as_str()
     }
 
     /// Returns the path as an `AzString`
-    #[must_use] pub fn as_string(&self) -> AzString {
+    #[must_use]
+    pub fn as_string(&self) -> AzString {
         self.inner.clone()
     }
 
@@ -1007,13 +1112,17 @@ impl FilePath {
 
 impl From<String> for FilePath {
     fn from(s: String) -> Self {
-        Self { inner: AzString::from(s) }
+        Self {
+            inner: AzString::from(s),
+        }
     }
 }
 
 impl From<&str> for FilePath {
     fn from(s: &str) -> Self {
-        Self { inner: AzString::from(String::from(s)) }
+        Self {
+            inner: AzString::from(String::from(s)),
+        }
     }
 }
 
@@ -1026,14 +1135,14 @@ impl From<AzString> for FilePath {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     #[cfg(feature = "std")]
     fn test_temp_dir() {
         let temp = temp_dir();
         assert!(!temp.as_str().is_empty());
     }
-    
+
     #[test]
     #[cfg(feature = "std")]
     fn test_path_join() {
@@ -1074,7 +1183,10 @@ mod autotest_generated {
             let name = format!("azul_autotest_file_{}_{}_{}", std::process::id(), tag, n);
             let dir = path_join(temp_dir().as_str(), &name).as_str().to_string();
             let _ = dir_delete_all(&dir);
-            assert!(dir_create_all(&dir).is_ok(), "could not create case dir {dir}");
+            assert!(
+                dir_create_all(&dir).is_ok(),
+                "could not create case dir {dir}"
+            );
             Self(dir)
         }
 
@@ -1198,7 +1310,10 @@ mod autotest_generated {
             (ErrorKind::PermissionDenied, FileErrorKind::PermissionDenied),
             (ErrorKind::AlreadyExists, FileErrorKind::AlreadyExists),
             (ErrorKind::IsADirectory, FileErrorKind::IsDirectory),
-            (ErrorKind::DirectoryNotEmpty, FileErrorKind::DirectoryNotEmpty),
+            (
+                ErrorKind::DirectoryNotEmpty,
+                FileErrorKind::DirectoryNotEmpty,
+            ),
             // everything else collapses to IoError
             (ErrorKind::InvalidData, FileErrorKind::IoError),
             (ErrorKind::InvalidInput, FileErrorKind::IoError),
@@ -1283,7 +1398,10 @@ mod autotest_generated {
         let content = "\u{1F600}\u{200D}\u{1F5A5}\u{FE0F} e\u{301}\u{327} \u{202E}rtl \u{0}nul";
         assert!(file_write_string(&p, content).is_ok());
         assert_eq!(file_read_string(&p).expect("read").as_str(), content);
-        assert_eq!(file_read(&p).expect("read bytes").as_slice(), content.as_bytes());
+        assert_eq!(
+            file_read(&p).expect("read bytes").as_slice(),
+            content.as_bytes()
+        );
     }
 
     #[test]
@@ -1394,7 +1512,10 @@ mod autotest_generated {
         let padded = case.child("  spaced  ");
 
         assert!(file_write_string(&padded, "payload").is_ok());
-        assert_eq!(file_read_string(&padded).expect("exact name").as_str(), "payload");
+        assert_eq!(
+            file_read_string(&padded).expect("exact name").as_str(),
+            "payload"
+        );
 
         // The trimmed name is a *different* file and must not resolve.
         let trimmed = case.child("spaced");
@@ -1413,11 +1534,20 @@ mod autotest_generated {
         let p = case.child("log.bin");
 
         assert!(!path_exists(&p));
-        assert!(file_append(&p, b"aa").is_ok(), "append must create the file");
-        assert!(file_append(&p, b"").is_ok(), "empty append is a no-op, not an error");
+        assert!(
+            file_append(&p, b"aa").is_ok(),
+            "append must create the file"
+        );
+        assert!(
+            file_append(&p, b"").is_ok(),
+            "empty append is a no-op, not an error"
+        );
         assert!(file_append(&p, &[0xFF, 0x00]).is_ok());
 
-        assert_eq!(file_read(&p).expect("read").as_slice(), &[b'a', b'a', 0xFF, 0x00]);
+        assert_eq!(
+            file_read(&p).expect("read").as_slice(),
+            &[b'a', b'a', 0xFF, 0x00]
+        );
     }
 
     #[test]
@@ -1540,7 +1670,9 @@ mod autotest_generated {
         assert_eq!(d.file_type, FileType::Directory);
 
         assert_eq!(
-            file_metadata(&case.child("ghost")).expect_err("missing").kind,
+            file_metadata(&case.child("ghost"))
+                .expect_err("missing")
+                .kind,
             FileErrorKind::NotFound
         );
     }
@@ -1560,10 +1692,15 @@ mod autotest_generated {
 
         // ...while the predicates and readers *do* follow it.
         assert!(path_is_file(&link));
-        assert_eq!(file_read_string(&link).expect("read through link").as_str(), "hello");
+        assert_eq!(
+            file_read_string(&link).expect("read through link").as_str(),
+            "hello"
+        );
         assert_eq!(
             path_canonicalize(&link).expect("canonicalize").as_str(),
-            path_canonicalize(&target).expect("canonicalize target").as_str()
+            path_canonicalize(&target)
+                .expect("canonicalize target")
+                .as_str()
         );
     }
 
@@ -1599,7 +1736,9 @@ mod autotest_generated {
             FileErrorKind::AlreadyExists
         );
 
-        let orphan = path_join(&case.child("missing"), "child").as_str().to_string();
+        let orphan = path_join(&case.child("missing"), "child")
+            .as_str()
+            .to_string();
         assert_eq!(
             dir_create(&orphan).expect_err("missing parent").kind,
             FileErrorKind::NotFound
@@ -1608,7 +1747,10 @@ mod autotest_generated {
 
         // create_all fills in the parents and is idempotent.
         assert!(dir_create_all(&orphan).is_ok());
-        assert!(dir_create_all(&orphan).is_ok(), "create_all must be idempotent");
+        assert!(
+            dir_create_all(&orphan).is_ok(),
+            "create_all must be idempotent"
+        );
         assert!(path_is_dir(&orphan));
     }
 
@@ -1641,7 +1783,10 @@ mod autotest_generated {
         #[cfg(unix)]
         assert_eq!(err.kind, FileErrorKind::DirectoryNotEmpty);
         assert!(!err.message.as_str().is_empty());
-        assert!(path_is_dir(&sub), "failed delete must not have removed anything");
+        assert!(
+            path_is_dir(&sub),
+            "failed delete must not have removed anything"
+        );
 
         assert!(dir_delete_all(&sub).is_ok());
         assert!(!path_exists(&sub));
@@ -1710,7 +1855,10 @@ mod autotest_generated {
     fn path_join_absolute_component_replaces_the_base() {
         // std::path::Path::join semantics: an absolute second component wins.
         // This is the classic traversal footgun, so pin it down.
-        assert_eq!(path_join("/home/user", "/etc/passwd").as_str(), "/etc/passwd");
+        assert_eq!(
+            path_join("/home/user", "/etc/passwd").as_str(),
+            "/etc/passwd"
+        );
         assert_eq!(path_join("/srv/data", "/").as_str(), "/");
     }
 
@@ -1726,7 +1874,9 @@ mod autotest_generated {
 
         assert_eq!(path_join("", "x").as_str(), "x");
         assert!(path_join("base", "").as_str().starts_with("base"));
-        assert!(path_join("base", "\u{1F600}").as_str().ends_with("\u{1F600}"));
+        assert!(path_join("base", "\u{1F600}")
+            .as_str()
+            .ends_with("\u{1F600}"));
     }
 
     #[test]
@@ -1740,7 +1890,10 @@ mod autotest_generated {
         {
             assert_eq!(as_opt_string(path_parent("/")), None);
             assert_eq!(as_opt_string(path_parent("/a")), Some("/".to_string()));
-            assert_eq!(as_opt_string(path_parent("/a/b/c")), Some("/a/b".to_string()));
+            assert_eq!(
+                as_opt_string(path_parent("/a/b/c")),
+                Some("/a/b".to_string())
+            );
             assert_eq!(as_opt_string(path_parent("/a/b/")), Some("/a".to_string()));
         }
     }
@@ -1760,7 +1913,10 @@ mod autotest_generated {
         assert_eq!(as_opt_string(path_file_name("")), None);
         assert_eq!(as_opt_string(path_file_name("..")), None);
         assert_eq!(as_opt_string(path_file_name(".")), None);
-        assert_eq!(as_opt_string(path_file_name("foo.txt")), Some("foo.txt".to_string()));
+        assert_eq!(
+            as_opt_string(path_file_name("foo.txt")),
+            Some("foo.txt".to_string())
+        );
         assert_eq!(
             as_opt_string(path_file_name("\u{1F600}.txt")),
             Some("\u{1F600}.txt".to_string())
@@ -1770,7 +1926,10 @@ mod autotest_generated {
         {
             assert_eq!(as_opt_string(path_file_name("/")), None);
             // A trailing separator is stripped, not treated as an empty name.
-            assert_eq!(as_opt_string(path_file_name("/a/b/")), Some("b".to_string()));
+            assert_eq!(
+                as_opt_string(path_file_name("/a/b/")),
+                Some("b".to_string())
+            );
         }
     }
 
@@ -1784,8 +1943,14 @@ mod autotest_generated {
         // ...but a trailing dot yields an *empty* extension, not None.
         assert_eq!(as_opt_string(path_extension("a.")), Some(String::new()));
         // Only the last segment counts.
-        assert_eq!(as_opt_string(path_extension("a.tar.gz")), Some("gz".to_string()));
-        assert_eq!(as_opt_string(path_extension("a.\u{1F600}")), Some("\u{1F600}".to_string()));
+        assert_eq!(
+            as_opt_string(path_extension("a.tar.gz")),
+            Some("gz".to_string())
+        );
+        assert_eq!(
+            as_opt_string(path_extension("a.\u{1F600}")),
+            Some("\u{1F600}".to_string())
+        );
         assert_eq!(as_opt_string(path_extension("..")), None);
     }
 
@@ -1806,7 +1971,9 @@ mod autotest_generated {
             FileErrorKind::NotFound
         );
         assert_eq!(
-            path_canonicalize(&case.child("ghost")).expect_err("missing").kind,
+            path_canonicalize(&case.child("ghost"))
+                .expect_err("missing")
+                .kind,
             FileErrorKind::NotFound
         );
 
@@ -1818,7 +1985,9 @@ mod autotest_generated {
             .as_str()
             .to_string();
         assert_eq!(
-            path_canonicalize(&via_dotdot).expect("resolve .. through a real dir").as_str(),
+            path_canonicalize(&via_dotdot)
+                .expect("resolve .. through a real dir")
+                .as_str(),
             canon.as_str()
         );
 
@@ -1918,7 +2087,10 @@ mod autotest_generated {
             !set.insert(FilePath::new(AzString::from(String::from("/a/b")))),
             "equal FilePaths must hash equally"
         );
-        assert!(set.insert(FilePath::from_str("/a/b/")), "trailing slash is a distinct string");
+        assert!(
+            set.insert(FilePath::from_str("/a/b/")),
+            "trailing slash is a distinct string"
+        );
         assert_eq!(set.len(), 2);
     }
 
@@ -1944,8 +2116,14 @@ mod autotest_generated {
                 as_opt_string(path_parent(s)),
                 "parent() diverged from path_parent for {s:?}"
             );
-            assert_eq!(as_opt_string(p.file_name()), as_opt_string(path_file_name(s)));
-            assert_eq!(as_opt_string(p.extension()), as_opt_string(path_extension(s)));
+            assert_eq!(
+                as_opt_string(p.file_name()),
+                as_opt_string(path_file_name(s))
+            );
+            assert_eq!(
+                as_opt_string(p.extension()),
+                as_opt_string(path_extension(s))
+            );
             assert_eq!(p.exists(), path_exists(s));
             assert_eq!(p.is_file(), path_is_file(s));
             assert_eq!(p.is_dir(), path_is_dir(s));
@@ -2006,7 +2184,10 @@ mod autotest_generated {
         let e = FilePath::empty();
         assert!(e.create_dir_all().is_ok());
         assert!(dir_create_all("").is_ok());
-        assert!(!e.exists(), "Ok(()) must not be read as `the dir was created`");
+        assert!(
+            !e.exists(),
+            "Ok(()) must not be read as `the dir was created`"
+        );
 
         // The non-recursive variant does fail, so the two disagree on `""`.
         assert!(dir_create("").is_err());
@@ -2018,7 +2199,9 @@ mod autotest_generated {
         let case = CaseDir::new("oop");
         let root = FilePath::from_str(case.path());
 
-        let nested = root.join(&FilePath::from_str("a")).join(&FilePath::from_str("b"));
+        let nested = root
+            .join(&FilePath::from_str("a"))
+            .join(&FilePath::from_str("b"));
         assert!(nested.create_dir_all().is_ok());
         assert!(nested.is_dir());
 
@@ -2047,7 +2230,10 @@ mod autotest_generated {
 
         assert!(moved.remove_file().is_ok());
         assert!(f.remove_file().is_ok());
-        assert!(nested.remove_dir().is_ok(), "now-empty dir must be removable");
+        assert!(
+            nested.remove_dir().is_ok(),
+            "now-empty dir must be removable"
+        );
         assert!(root.join(&FilePath::from_str("a")).remove_dir_all().is_ok());
     }
 
@@ -2057,7 +2243,9 @@ mod autotest_generated {
         let case = CaseDir::new("overwrite");
         let f = FilePath::from_str(&case.child("f.txt"));
 
-        assert!(f.write_string(&AzString::from(String::from("first"))).is_ok());
+        assert!(f
+            .write_string(&AzString::from(String::from("first")))
+            .is_ok());
         assert!(f.write_string(&AzString::from(String::from("2"))).is_ok());
         assert_eq!(f.read_string().expect("read").as_str(), "2");
         assert_eq!(f.metadata().expect("meta").size, 1);
@@ -2100,8 +2288,15 @@ mod autotest_generated {
 
         for (name, dir) in probes {
             if let Some(d) = dir {
-                assert!(!d.as_str().is_empty(), "{name} dir resolved to an empty path");
-                assert!(d.is_absolute(), "{name} dir must be absolute: {:?}", d.as_str());
+                assert!(
+                    !d.as_str().is_empty(),
+                    "{name} dir resolved to an empty path"
+                );
+                assert!(
+                    d.is_absolute(),
+                    "{name} dir must be absolute: {:?}",
+                    d.as_str()
+                );
             }
         }
 

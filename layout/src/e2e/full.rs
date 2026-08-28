@@ -535,7 +535,10 @@ pub enum StructuredFieldType {
     #[serde(rename = "primitive")]
     Primitive { name: String },
     #[serde(rename = "callback")]
-    Callback { args: Vec<CallbackArgInfo>, return_type: String },
+    Callback {
+        args: Vec<CallbackArgInfo>,
+        return_type: String,
+    },
     #[serde(rename = "ref_any")]
     RefAny { type_hint: String },
     #[serde(rename = "option")]
@@ -706,7 +709,9 @@ pub struct ExportedComponentDef {
 }
 
 #[cfg(feature = "std")]
-fn default_param_type() -> String { "String".to_string() }
+fn default_param_type() -> String {
+    "String".to_string()
+}
 
 /// A data model field in JSON form (unified: data fields, callbacks, parameters).
 /// For callbacks, set `type` to "Callback(...)" or "Callback".
@@ -1197,7 +1202,7 @@ pub struct LayoutNodeInfo {
     pub anonymous_type: Option<String>,
     pub formatting_context: String,
     pub parent: i64,
-    pub children: Vec<usize>,  // populated from layout_tree.children(idx)
+    pub children: Vec<usize>, // populated from layout_tree.children(idx)
 }
 
 /// Response for GetDisplayList
@@ -1611,7 +1616,7 @@ pub struct SelectionManagerDump {
 pub struct SelectionDumpEntry {
     /// DOM ID
     pub dom_id: u32,
-    /// Node ID 
+    /// Node ID
     pub node_id: Option<u64>,
     /// CSS selector for the node
     pub selector: Option<String>,
@@ -2749,9 +2754,9 @@ fn parse_accessibility_action(
                          set_numeric_value, custom_action";
 
     let need_value = |what: &str| -> Result<azul_css::AzString, String> {
-        value.map(azul_css::AzString::from).ok_or_else(|| {
-            format!("action '{what}' needs a \"value\" string, and none was given")
-        })
+        value
+            .map(azul_css::AzString::from)
+            .ok_or_else(|| format!("action '{what}' needs a \"value\" string, and none was given"))
     };
     let need_point = |what: &str| -> Result<LogicalPosition, String> {
         match (x, y) {
@@ -2791,9 +2796,11 @@ fn parse_accessibility_action(
                 selection_end: e as usize,
             }),
             _ => {
-                return Err("action 'set_text_selection' needs both \"selection_start\" and \
+                return Err(
+                    "action 'set_text_selection' needs both \"selection_start\" and \
                             \"selection_end\", and at least one was missing"
-                    .to_string())
+                        .to_string(),
+                )
             }
         },
         "set_numeric_value" => match number {
@@ -2813,11 +2820,7 @@ fn parse_accessibility_action(
                 )
             }
         },
-        other => {
-            return Err(format!(
-                "unknown action '{other}'. Known actions: {KNOWN}"
-            ))
-        }
+        other => return Err(format!("unknown action '{other}'. Known actions: {KNOWN}")),
     })
 }
 
@@ -2956,19 +2959,19 @@ fn build_selector_for_node(
     let layout_result = layout_window.layout_results.get(&dom_id)?;
     let styled_dom = &layout_result.styled_dom;
     let node_data_container = styled_dom.node_data.as_container();
-    
+
     if node_id.index() >= node_data_container.len() {
         return None;
     }
-    
+
     let node_data = &node_data_container[node_id];
-    
+
     // Get tag name from NodeTypeTag (lowercase HTML tag name)
     let node_type_tag = node_data.get_node_type().get_path();
     let tag_name = alloc::format!("{:?}", node_type_tag).to_lowercase();
-    
+
     let mut selector = tag_name;
-    
+
     // Add ID if present (first ID wins)
     for attr in node_data.attributes().as_ref().iter() {
         if let Some(id) = attr.as_id() {
@@ -2977,7 +2980,7 @@ fn build_selector_for_node(
             break; // Only one ID
         }
     }
-    
+
     // Add all classes
     for attr in node_data.attributes().as_ref().iter() {
         if let Some(class) = attr.as_class() {
@@ -2985,14 +2988,17 @@ fn build_selector_for_node(
             selector.push_str(class);
         }
     }
-    
+
     // If no ID or classes, add node index to make it unique
-    let has_id_or_class = node_data.attributes().as_ref().iter()
+    let has_id_or_class = node_data
+        .attributes()
+        .as_ref()
+        .iter()
         .any(|a| a.as_id().is_some() || a.as_class().is_some());
     if !has_id_or_class {
         selector.push_str(&alloc::format!(":nth-child({})", node_id.index() + 1));
     }
-    
+
     Some(selector)
 }
 
@@ -3491,9 +3497,7 @@ pub fn init_recording() {
 /// `std::process::exit`.
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server-http")]
-pub fn queue_e2e_tests(
-    tests: Vec<E2eTest>,
-) -> std::sync::mpsc::Receiver<DebugResponseData> {
+pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugResponseData> {
     E2E_ACTIVE.store(true, Ordering::SeqCst);
 
     let test_count = tests.len();
@@ -3501,14 +3505,22 @@ pub fn queue_e2e_tests(
     log(
         LogLevel::Info,
         LogCategory::DebugServer,
-        format!("[E2E] Queuing {} test(s) with {} total step(s)", test_count, total_steps),
+        format!(
+            "[E2E] Queuing {} test(s) with {} total step(s)",
+            test_count, total_steps
+        ),
         None,
     );
     for (i, test) in tests.iter().enumerate() {
         log(
             LogLevel::Debug,
             LogCategory::DebugServer,
-            format!("[E2E]   test[{}]: '{}' ({} steps)", i, test.name, test.steps.len()),
+            format!(
+                "[E2E]   test[{}]: '{}' ({} steps)",
+                i,
+                test.name,
+                test.steps.len()
+            ),
             None,
         );
     }
@@ -3518,7 +3530,10 @@ pub fn queue_e2e_tests(
 
     let request = DebugRequest {
         request_id,
-        event: DebugEvent::RunE2eTests { tests, snapshots: None },
+        event: DebugEvent::RunE2eTests {
+            tests,
+            snapshots: None,
+        },
         window_id: None,
         wait_for_render: false,
         response_tx: tx,
@@ -3540,9 +3555,7 @@ pub fn queue_e2e_tests(
 /// Returns `None` if not set or not a valid port number.
 #[cfg(feature = "std")]
 pub fn get_debug_port() -> Option<u16> {
-    std::env::var("AZ_DEBUG")
-        .ok()
-        .and_then(|s| s.parse().ok())
+    std::env::var("AZ_DEBUG").ok().and_then(|s| s.parse().ok())
 }
 
 /// Initialize the process-wide debug-server statics.
@@ -3638,8 +3651,11 @@ fn log_internal(
     if let Some(file) = RECORD_FILE.get() {
         if let Ok(mut f) = file.lock() {
             use std::io::Write;
-            let _ = writeln!(f, "[{:>12}us] [{:?}] [{:?}] {}",
-                timestamp_us, level, category, message);
+            let _ = writeln!(
+                f,
+                "[{:>12}us] [{:?}] [{:?}] {}",
+                timestamp_us, level, category, message
+            );
         }
     }
 
@@ -3709,22 +3725,35 @@ mod profile_report_tests {
     /// default to `memory` when `kind` is omitted.
     #[test]
     fn get_profile_report_parses_from_scenario_json() {
-        let ev: DebugEvent =
-            serde_json::from_str(r#"{"op":"get_profile_report","kind":"memory"}"#)
-                .expect("explicit kind must parse");
-        assert!(matches!(ev, DebugEvent::GetProfileReport { kind: ProfileKind::Memory }));
+        let ev: DebugEvent = serde_json::from_str(r#"{"op":"get_profile_report","kind":"memory"}"#)
+            .expect("explicit kind must parse");
+        assert!(matches!(
+            ev,
+            DebugEvent::GetProfileReport {
+                kind: ProfileKind::Memory
+            }
+        ));
 
-        let ev: DebugEvent = serde_json::from_str(r#"{"op":"get_profile_report"}"#)
-            .expect("kind must be optional");
+        let ev: DebugEvent =
+            serde_json::from_str(r#"{"op":"get_profile_report"}"#).expect("kind must be optional");
         assert!(
-            matches!(ev, DebugEvent::GetProfileReport { kind: ProfileKind::Memory }),
+            matches!(
+                ev,
+                DebugEvent::GetProfileReport {
+                    kind: ProfileKind::Memory
+                }
+            ),
             "omitting kind must mean memory, not fail and not mean cpu"
         );
 
-        let ev: DebugEvent =
-            serde_json::from_str(r#"{"op":"get_profile_report","kind":"cpu"}"#)
-                .expect("cpu must parse");
-        assert!(matches!(ev, DebugEvent::GetProfileReport { kind: ProfileKind::Cpu }));
+        let ev: DebugEvent = serde_json::from_str(r#"{"op":"get_profile_report","kind":"cpu"}"#)
+            .expect("cpu must parse");
+        assert!(matches!(
+            ev,
+            DebugEvent::GetProfileReport {
+                kind: ProfileKind::Cpu
+            }
+        ));
     }
 
     /// An absent allocator must serialise as NULL, never 0.
@@ -3752,14 +3781,20 @@ mod profile_report_tests {
     #[test]
     fn empty_phases_are_omitted_from_the_json() {
         let json = serde_json::to_string(&ProfileResponse::default()).unwrap();
-        assert!(!json.contains("phases_us"), "empty phases must be omitted; got {json}");
+        assert!(
+            !json.contains("phases_us"),
+            "empty phases must be omitted; got {json}"
+        );
 
         let with = ProfileResponse {
             phases_us: vec![("layout".to_string(), 1234)],
             ..Default::default()
         };
         let json = serde_json::to_string(&with).unwrap();
-        assert!(json.contains(r#""phases_us":[["layout",1234]]"#), "got {json}");
+        assert!(
+            json.contains(r#""phases_us":[["layout",1234]]"#),
+            "got {json}"
+        );
     }
 }
 
@@ -3879,8 +3914,6 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
     let _ = request.response_tx.send(response);
 }
 
-
-
 /// Helper function for serializing DebugHttpResponse
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server-http")]
@@ -3891,7 +3924,10 @@ pub fn serialize_http_response(response: &DebugHttpResponse) -> String {
 
 #[cfg(feature = "std")]
 #[cfg(feature = "e2e-server-http")]
-pub fn handle_event_request(body: &str, request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>) -> String {
+pub fn handle_event_request(
+    body: &str,
+    request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>,
+) -> String {
     use std::time::Duration;
 
     // Parse the event request
@@ -3942,10 +3978,12 @@ pub fn handle_event_request(body: &str, request_tx: &Arc<Mutex<spmc::Sender<Debu
                                 data,
                             })
                         }
-                        DebugResponseData::Err(message) => DebugHttpResponse::Error(DebugHttpResponseError {
-                            request_id: Some(request_id),
-                            message,
-                        }),
+                        DebugResponseData::Err(message) => {
+                            DebugHttpResponse::Error(DebugHttpResponseError {
+                                request_id: Some(request_id),
+                                message,
+                            })
+                        }
                     };
                     serialize_http_response(&http_response)
                 }
@@ -3974,8 +4012,7 @@ pub fn handle_event_request(body: &str, request_tx: &Arc<Mutex<spmc::Sender<Debu
 
 /// Runtime configuration that governs how the E2E runner executes tests.
 #[cfg(feature = "std")]
-#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, serde::Deserialize, serde::Serialize, Default)]
 pub struct E2eConfig {
     /// failure instead of aborting the test immediately.  Default: `false`.
     #[serde(default)]
@@ -4041,11 +4078,17 @@ pub struct E2eSetup {
 }
 
 #[cfg(feature = "std")]
-fn default_width() -> u32 { 800 }
+fn default_width() -> u32 {
+    800
+}
 #[cfg(feature = "std")]
-fn default_height() -> u32 { 600 }
+fn default_height() -> u32 {
+    600
+}
 #[cfg(feature = "std")]
-fn default_dpi() -> u32 { 96 }
+fn default_dpi() -> u32 {
+    96
+}
 
 /// A single step inside an E2E test.
 ///
@@ -4119,15 +4162,34 @@ pub struct AssertionResult {
 #[cfg(feature = "std")]
 impl AssertionResult {
     fn pass(message: impl Into<String>) -> Self {
-        Self { passed: true, message: message.into(), actual: None, expected: None }
+        Self {
+            passed: true,
+            message: message.into(),
+            actual: None,
+            expected: None,
+        }
     }
     fn fail(message: impl Into<String>) -> Self {
-        Self { passed: false, message: message.into(), actual: None, expected: None }
+        Self {
+            passed: false,
+            message: message.into(),
+            actual: None,
+            expected: None,
+        }
     }
-    fn fail_with(message: impl Into<String>, expected: impl Into<String>, actual: impl Into<String>) -> Self {
+    fn fail_with(
+        message: impl Into<String>,
+        expected: impl Into<String>,
+        actual: impl Into<String>,
+    ) -> Self {
         let expected = expected.into();
         let actual = actual.into();
-        Self { passed: false, message: message.into(), actual: Some(actual), expected: Some(expected) }
+        Self {
+            passed: false,
+            message: message.into(),
+            actual: Some(actual),
+            expected: Some(expected),
+        }
     }
 }
 
@@ -4191,9 +4253,7 @@ pub fn evaluate_assertion(
         // Manager / composition / damage-soundness (E2E_PLAN §(c)/(g1)/(g2)/(g3))
         "assert_state_machines_idle" => eval_assert_state_machines_idle(params, callback_info),
         "assert_manager_invariants" => eval_assert_manager_invariants(params, callback_info),
-        "assert_only_managers_changed" => {
-            eval_assert_only_managers_changed(params, callback_info)
-        }
+        "assert_only_managers_changed" => eval_assert_only_managers_changed(params, callback_info),
         "assert_composition" => eval_assert_composition(params, callback_info),
         "assert_damage_sound" => eval_assert_damage_sound(params, callback_info),
         "assert_stderr" => eval_assert_stderr(params),
@@ -4210,7 +4270,10 @@ pub fn evaluate_assertion(
         log(
             LogLevel::Info,
             LogCategory::DebugServer,
-            format!("[E2E] assertion FAILED: {} (expected={:?}, actual={:?})", result.message, result.expected, result.actual),
+            format!(
+                "[E2E] assertion FAILED: {} (expected={:?}, actual={:?})",
+                result.message, result.expected, result.actual
+            ),
             None,
         );
     }
@@ -4240,9 +4303,12 @@ fn eval_assert_text(
 
     let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
         Some(nid) => nid,
-        None => return AssertionResult::fail(format!(
-            "assert_text: no node matches selector '{}'", selector
-        )),
+        None => {
+            return AssertionResult::fail(format!(
+                "assert_text: no node matches selector '{}'",
+                selector
+            ))
+        }
     };
 
     // Get text content: try callback_info first, fall back to raw NodeType::Text
@@ -4298,11 +4364,14 @@ fn eval_assert_exists(
     let matches = resolve_all_matching_nodes(callback_info, selector);
     if matches.is_empty() {
         AssertionResult::fail(format!(
-            "assert_exists: no node matches selector '{}'", selector
+            "assert_exists: no node matches selector '{}'",
+            selector
         ))
     } else {
         AssertionResult::pass(format!(
-            "assert_exists: '{}' matched {} node(s)", selector, matches.len()
+            "assert_exists: '{}' matched {} node(s)",
+            selector,
+            matches.len()
         ))
     }
 }
@@ -4324,12 +4393,14 @@ fn eval_assert_not_exists(
     let matches = resolve_all_matching_nodes(callback_info, selector);
     if matches.is_empty() {
         AssertionResult::pass(format!(
-            "assert_not_exists: '{}' correctly has no matches", selector
+            "assert_not_exists: '{}' correctly has no matches",
+            selector
         ))
     } else {
         AssertionResult::fail(format!(
             "assert_not_exists: selector '{}' unexpectedly matched {} node(s)",
-            selector, matches.len()
+            selector,
+            matches.len()
         ))
     }
 }
@@ -4340,7 +4411,8 @@ fn eval_assert_node_count(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_node_count", params, &["selector", "expected"]) {
+    if let Some(bad) = reject_unknown_params("assert_node_count", params, &["selector", "expected"])
+    {
         return bad;
     }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
@@ -4349,7 +4421,11 @@ fn eval_assert_node_count(
     };
     let expected = match params.get("expected").and_then(|v| v.as_u64()) {
         Some(n) => n as usize,
-        None => return AssertionResult::fail("assert_node_count: missing or invalid 'expected' (number)"),
+        None => {
+            return AssertionResult::fail(
+                "assert_node_count: missing or invalid 'expected' (number)",
+            )
+        }
     };
 
     let matches = resolve_all_matching_nodes(callback_info, selector);
@@ -4357,7 +4433,8 @@ fn eval_assert_node_count(
 
     if actual == expected {
         AssertionResult::pass(format!(
-            "assert_node_count: '{}' has {} node(s)", selector, actual
+            "assert_node_count: '{}' has {} node(s)",
+            selector, actual
         ))
     } else {
         AssertionResult::fail_with(
@@ -4387,7 +4464,11 @@ fn eval_assert_window_state(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_window_state", params, &["property", "expected", "tolerance"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_window_state",
+        params,
+        &["property", "expected", "tolerance"],
+    ) {
         return bad;
     }
     let property = match params.get("property").and_then(|v| v.as_str()) {
@@ -4505,7 +4586,14 @@ fn eval_assert_dom(
     if let Some(bad) = reject_unknown_params(
         "assert_dom",
         params,
-        &["contains", "not_contains", "node_count", "min_node_count", "root_type", "root_children"],
+        &[
+            "contains",
+            "not_contains",
+            "node_count",
+            "min_node_count",
+            "root_type",
+            "root_children",
+        ],
     ) {
         return bad;
     }
@@ -4676,7 +4764,11 @@ fn resolve_click_position(
             }
             // Text nodes often have no hit-test bounds of their own.
             let node_hier = &hierarchy[NodeId::new(i)];
-            let parent_idx = if node_hier.parent > 0 { node_hier.parent - 1 } else { i };
+            let parent_idx = if node_hier.parent > 0 {
+                node_hier.parent - 1
+            } else {
+                i
+            };
             if let Some(pos) = centre(parent_idx).or_else(|| centre(i)) {
                 return Some(pos);
             }
@@ -4692,7 +4784,11 @@ fn eval_assert_layout(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_layout", params, &["selector", "property", "expected", "tolerance"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_layout",
+        params,
+        &["selector", "property", "expected", "tolerance"],
+    ) {
         return bad;
     }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
@@ -4707,13 +4803,19 @@ fn eval_assert_layout(
         Some(n) => n,
         None => return AssertionResult::fail("assert_layout: missing or non-numeric 'expected'"),
     };
-    let tolerance: f64 = params.get("tolerance").and_then(|v| v.as_f64()).unwrap_or(0.5);
+    let tolerance: f64 = params
+        .get("tolerance")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.5);
 
     let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
         Some(nid) => nid,
-        None => return AssertionResult::fail(format!(
-            "assert_layout: no node matches selector '{}'", selector
-        )),
+        None => {
+            return AssertionResult::fail(format!(
+                "assert_layout: no node matches selector '{}'",
+                selector
+            ))
+        }
     };
 
     use azul_core::dom::{DomId, DomNodeId};
@@ -4724,9 +4826,12 @@ fn eval_assert_layout(
 
     let rect = match callback_info.get_node_rect(dom_node_id) {
         Some(r) => r,
-        None => return AssertionResult::fail(format!(
-            "assert_layout: node '{}' has no layout rect", selector
-        )),
+        None => {
+            return AssertionResult::fail(format!(
+                "assert_layout: node '{}' has no layout rect",
+                selector
+            ))
+        }
     };
 
     let actual = match property {
@@ -4734,9 +4839,12 @@ fn eval_assert_layout(
         "y" => rect.origin.y as f64,
         "width" => rect.size.width as f64,
         "height" => rect.size.height as f64,
-        other => return AssertionResult::fail(format!(
-            "assert_layout: unknown property '{}' (use x, y, width, height)", other
-        )),
+        other => {
+            return AssertionResult::fail(format!(
+                "assert_layout: unknown property '{}' (use x, y, width, height)",
+                other
+            ))
+        }
     };
 
     if (actual - expected).abs() <= tolerance {
@@ -4760,7 +4868,9 @@ fn eval_assert_css(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_css", params, &["selector", "property", "expected"]) {
+    if let Some(bad) =
+        reject_unknown_params("assert_css", params, &["selector", "property", "expected"])
+    {
         return bad;
     }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
@@ -4778,13 +4888,16 @@ fn eval_assert_css(
 
     let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
         Some(nid) => nid,
-        None => return AssertionResult::fail(format!(
-            "assert_css: no node matches selector '{}'", selector
-        )),
+        None => {
+            return AssertionResult::fail(format!(
+                "assert_css: no node matches selector '{}'",
+                selector
+            ))
+        }
     };
 
     use azul_core::dom::{DomId, DomNodeId};
-    use azul_css::props::property::{CssPropertyType, get_css_key_map};
+    use azul_css::props::property::{get_css_key_map, CssPropertyType};
 
     let dom_node_id = DomNodeId {
         dom: ROOT_DOM_ID,
@@ -4795,9 +4908,12 @@ fn eval_assert_css(
     let key_map = get_css_key_map();
     let prop_type = match CssPropertyType::from_str(property, &key_map) {
         Some(pt) => pt,
-        None => return AssertionResult::fail(format!(
-            "assert_css: unknown CSS property '{}'", property
-        )),
+        None => {
+            return AssertionResult::fail(format!(
+                "assert_css: unknown CSS property '{}'",
+                property
+            ))
+        }
     };
 
     match callback_info.get_computed_css_property(dom_node_id, prop_type) {
@@ -4805,7 +4921,8 @@ fn eval_assert_css(
             let actual = format!("{:?}", computed);
             if actual == expected {
                 AssertionResult::pass(format!(
-                    "assert_css: '{}' {} = {}", selector, property, actual
+                    "assert_css: '{}' {} = {}",
+                    selector, property, actual
                 ))
             } else {
                 AssertionResult::fail_with(
@@ -4815,13 +4932,14 @@ fn eval_assert_css(
                 )
             }
         }
-        None => {
-            AssertionResult::fail_with(
-                format!("assert_css: property '{}' not set on '{}'", property, selector),
-                expected,
-                "(not set)",
-            )
-        }
+        None => AssertionResult::fail_with(
+            format!(
+                "assert_css: property '{}' not set on '{}'",
+                property, selector
+            ),
+            expected,
+            "(not set)",
+        ),
     }
 }
 
@@ -4848,7 +4966,7 @@ fn eval_assert_app_state(
 
     if !app_data.can_serialize() {
         return AssertionResult::fail(
-            "assert_app_state: app_data is not serializable (implement AzSerialize)"
+            "assert_app_state: app_data is not serializable (implement AzSerialize)",
         );
     }
 
@@ -4867,9 +4985,7 @@ fn eval_assert_app_state(
     match actual {
         Some(val) => {
             if val == expected {
-                AssertionResult::pass(format!(
-                    "assert_app_state: '{}' = {}", path, val
-                ))
+                AssertionResult::pass(format!("assert_app_state: '{}' = {}", path, val))
             } else {
                 AssertionResult::fail_with(
                     format!("assert_app_state: '{}' mismatch", path),
@@ -4892,7 +5008,10 @@ fn eval_assert_app_state(
 /// `root["user"]["address"]["city"]`. Supports array indices via
 /// bracket notation: `"items[0].name"`.
 #[cfg(feature = "std")]
-fn navigate_json_path<'a>(root: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+fn navigate_json_path<'a>(
+    root: &'a serde_json::Value,
+    path: &str,
+) -> Option<&'a serde_json::Value> {
     let mut current = root;
     for segment in path.split('.') {
         // Handle array index: "items[0]"
@@ -4928,20 +5047,30 @@ fn eval_assert_scroll(
                 .to_string(),
         );
     }
-    if let Some(bad) = reject_unknown_params("assert_scroll", params, &["selector", "x", "y", "tolerance"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_scroll",
+        params,
+        &["selector", "x", "y", "tolerance"],
+    ) {
         return bad;
     }
     let selector = match params.get("selector").and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s,
         _ => return AssertionResult::fail("assert_scroll: missing 'selector' parameter"),
     };
-    let tolerance: f64 = params.get("tolerance").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    let tolerance: f64 = params
+        .get("tolerance")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0);
 
     let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
         Some(nid) => nid,
-        None => return AssertionResult::fail(format!(
-            "assert_scroll: no node matches selector '{}'", selector
-        )),
+        None => {
+            return AssertionResult::fail(format!(
+                "assert_scroll: no node matches selector '{}'",
+                selector
+            ))
+        }
     };
 
     use azul_core::dom::{DomId, DomNodeId};
@@ -4958,9 +5087,12 @@ fn eval_assert_scroll(
 
     let offset = match scroll_offset {
         Some(o) => o,
-        None => return AssertionResult::fail(format!(
-            "assert_scroll: node '{}' is not scrollable or has no scroll state", selector
-        )),
+        None => {
+            return AssertionResult::fail(format!(
+                "assert_scroll: node '{}' is not scrollable or has no scroll state",
+                selector
+            ))
+        }
     };
 
     // Check x if specified
@@ -4988,7 +5120,8 @@ fn eval_assert_scroll(
     }
 
     AssertionResult::pass(format!(
-        "assert_scroll: '{}' at ({:.1}, {:.1})", selector, offset.x, offset.y
+        "assert_scroll: '{}' at ({:.1}, {:.1})",
+        selector, offset.x, offset.y
     ))
 }
 
@@ -5018,7 +5151,11 @@ fn eval_assert_screenshot(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_screenshot", params, &["reference", "threshold", "max_diff_ratio", "save_actual"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_screenshot",
+        params,
+        &["reference", "threshold", "max_diff_ratio", "save_actual"],
+    ) {
         return bad;
     }
     #[cfg(not(feature = "cpurender"))]
@@ -5032,25 +5169,37 @@ fn eval_assert_screenshot(
             Some(s) if !s.is_empty() => s,
             _ => return AssertionResult::fail("assert_screenshot: missing 'reference' path"),
         };
-        let threshold = params.get("threshold").and_then(|v| v.as_u64()).unwrap_or(2) as u8;
-        let max_diff_ratio = params.get("max_diff_ratio").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let threshold = params
+            .get("threshold")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(2) as u8;
+        let max_diff_ratio = params
+            .get("max_diff_ratio")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         let save_actual = params.get("save_actual").and_then(|v| v.as_str());
 
         // Take a screenshot of the current frame
         let dom_id = ROOT_DOM_ID;
         let png_bytes = match callback_info.take_screenshot(dom_id) {
             Ok(bytes) => bytes,
-            Err(e) => return AssertionResult::fail(
-                format!("assert_screenshot: screenshot failed: {}", e.as_str())
-            ),
+            Err(e) => {
+                return AssertionResult::fail(format!(
+                    "assert_screenshot: screenshot failed: {}",
+                    e.as_str()
+                ))
+            }
         };
 
         // Decode the rendered screenshot
         let rendered = match azul_layout::cpurender::AzulPixmap::decode_png(&png_bytes) {
             Ok(p) => p,
-            Err(e) => return AssertionResult::fail(
-                format!("assert_screenshot: decode rendered PNG failed: {}", e)
-            ),
+            Err(e) => {
+                return AssertionResult::fail(format!(
+                    "assert_screenshot: decode rendered PNG failed: {}",
+                    e
+                ))
+            }
         };
 
         // Save the actual screenshot if requested
@@ -5103,17 +5252,21 @@ fn eval_assert_screenshot(
                         "missing".to_string(),
                     );
                 }
-                return AssertionResult::fail(
-                    format!("assert_screenshot: cannot read reference {}: {}", reference_path, e)
-                );
+                return AssertionResult::fail(format!(
+                    "assert_screenshot: cannot read reference {}: {}",
+                    reference_path, e
+                ));
             }
         };
 
         let reference = match azul_layout::cpurender::AzulPixmap::decode_png(&ref_bytes) {
             Ok(p) => p,
-            Err(e) => return AssertionResult::fail(
-                format!("assert_screenshot: decode reference PNG failed: {}", e)
-            ),
+            Err(e) => {
+                return AssertionResult::fail(format!(
+                    "assert_screenshot: decode reference PNG failed: {}",
+                    e
+                ))
+            }
         };
 
         let result = azul_layout::cpurender::pixel_diff(&reference, &rendered, threshold);
@@ -5140,8 +5293,11 @@ fn eval_assert_screenshot(
 
         AssertionResult::pass(format!(
             "assert_screenshot: match ({}x{}, {}/{} pixels differ, threshold={})",
-            rendered.width(), rendered.height(),
-            result.diff_count, result.total_pixels, threshold
+            rendered.width(),
+            rendered.height(),
+            result.diff_count,
+            result.total_pixels,
+            threshold
         ))
     }
 }
@@ -5444,7 +5600,10 @@ fn eval_assert_stderr(params: &serde_json::Value) -> AssertionResult {
     }
 
     let recorded = azul_core::diagnostics::recorded();
-    let clear_after = params.get("clear").and_then(serde_json::Value::as_bool).unwrap_or(false);
+    let clear_after = params
+        .get("clear")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
 
     let mut result = AssertionResult::pass("diagnostics match");
 
@@ -5488,7 +5647,14 @@ fn eval_assert_damage(
     if let Some(bad) = reject_unknown_params(
         "assert_damage",
         params,
-        &["kind", "min_rects", "max_rects", "max_area_ratio", "which", "frame"],
+        &[
+            "kind",
+            "min_rects",
+            "max_rects",
+            "max_area_ratio",
+            "which",
+            "frame",
+        ],
     ) {
         return bad;
     }
@@ -5588,7 +5754,11 @@ fn eval_assert_changed(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_changed", params, &["vs", "min_damage_rects", "threshold", "which", "frame"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_changed",
+        params,
+        &["vs", "min_damage_rects", "threshold", "which", "frame"],
+    ) {
         return bad;
     }
     #[cfg(not(feature = "cpurender"))]
@@ -5701,7 +5871,11 @@ fn eval_assert_damage_covers_changes(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_damage_covers_changes", params, &["vs", "threshold", "slack_px", "which", "frame"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_damage_covers_changes",
+        params,
+        &["vs", "threshold", "slack_px", "which", "frame"],
+    ) {
         return bad;
     }
     #[cfg(not(feature = "cpurender"))]
@@ -5820,7 +5994,11 @@ fn eval_assert_damage_incremental(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_damage_incremental", params, &["max_area_ratio", "which", "frame"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_damage_incremental",
+        params,
+        &["max_area_ratio", "which", "frame"],
+    ) {
         return bad;
     }
     let max_ratio = params
@@ -5873,7 +6051,11 @@ fn eval_assert_idle_stable(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_idle_stable", params, &["vs", "threshold", "max_frames"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_idle_stable",
+        params,
+        &["vs", "threshold", "max_frames"],
+    ) {
         return bad;
     }
     let report = frame_report_of(callback_info);
@@ -6012,9 +6194,15 @@ fn eval_assert_work_bounded(
         params,
         &[
             "allow_depth_cap",
-            "max_relayouts", "min_relayouts", "exact_relayouts",
-            "max_dom_regens", "min_dom_regens", "exact_dom_regens",
-            "max_layout_passes", "min_layout_passes", "exact_layout_passes",
+            "max_relayouts",
+            "min_relayouts",
+            "exact_relayouts",
+            "max_dom_regens",
+            "min_dom_regens",
+            "exact_dom_regens",
+            "max_layout_passes",
+            "min_layout_passes",
+            "exact_layout_passes",
         ],
     ) {
         return bad;
@@ -6030,9 +6218,15 @@ fn eval_assert_work_bounded(
     // that constrains none of those numbers. assert_damage already guards this
     // way, with the same reasoning in its own message.
     const CONSTRAINTS: &[&str] = &[
-        "max_relayouts", "min_relayouts", "exact_relayouts",
-        "max_dom_regens", "min_dom_regens", "exact_dom_regens",
-        "max_layout_passes", "min_layout_passes", "exact_layout_passes",
+        "max_relayouts",
+        "min_relayouts",
+        "exact_relayouts",
+        "max_dom_regens",
+        "min_dom_regens",
+        "exact_dom_regens",
+        "max_layout_passes",
+        "min_layout_passes",
+        "exact_layout_passes",
     ];
     if !CONSTRAINTS.iter().any(|c| params.get(*c).is_some()) {
         return AssertionResult::fail(format!(
@@ -6061,7 +6255,12 @@ fn eval_assert_work_bounded(
         );
     }
 
-    if depth_cap && !params.get("allow_depth_cap").and_then(serde_json::Value::as_bool).unwrap_or(false) {
+    if depth_cap
+        && !params
+            .get("allow_depth_cap")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    {
         return AssertionResult::fail_with(
             "assert_work_bounded: MAX_EVENT_RECURSION_DEPTH was hit — the event did not converge \
              (invalidation loop)"
@@ -6314,10 +6513,7 @@ fn node_is_live(
 /// `DomNodeId` form of [`node_is_live`]. A `NONE` node id names the DOM itself,
 /// which is live iff that DOM is still laid out.
 #[cfg(feature = "std")]
-fn dom_node_is_live(
-    lw: &azul_layout::window::LayoutWindow,
-    id: azul_core::dom::DomNodeId,
-) -> bool {
+fn dom_node_is_live(lw: &azul_layout::window::LayoutWindow, id: azul_core::dom::DomNodeId) -> bool {
     id.node.into_crate_internal().map_or_else(
         || lw.layout_results.contains_key(&id.dom),
         |n| node_is_live(lw, id.dom, n),
@@ -6367,7 +6563,12 @@ fn multi_cursor_span(mc: &azul_core::selection::MultiCursorState) -> u64 {
         .map(|s| match s.selection {
             Selection::Cursor(_) => 0u64,
             Selection::Range(r) => {
-                let runs = u64::from(r.end.cluster_id.source_run.abs_diff(r.start.cluster_id.source_run));
+                let runs = u64::from(
+                    r.end
+                        .cluster_id
+                        .source_run
+                        .abs_diff(r.start.cluster_id.source_run),
+                );
                 let bytes = u64::from(
                     r.end
                         .cluster_id
@@ -6447,7 +6648,8 @@ fn collect_state_machine_leaks(
                 .to_string(),
         );
     }
-    if lw.text_edit_manager.multi_cursor.is_none() && lw.text_edit_manager.blink.blink_timer_active {
+    if lw.text_edit_manager.multi_cursor.is_none() && lw.text_edit_manager.blink.blink_timer_active
+    {
         leaks.push(
             "text_edit_manager.blink.blink_timer_active is true with no multi_cursor — the caret \
              blink outlived the editor"
@@ -6662,13 +6864,15 @@ fn eval_assert_manager_invariants(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_manager_invariants", params, &["managers", "cross", "min_checked"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_manager_invariants",
+        params,
+        &["managers", "cross", "min_checked"],
+    ) {
         return bad;
     }
     /// Every invariant a scenario may request.
-    const KNOWN_CROSS: &[&str] = &[
-        "X1", "X2", "X3", "X4", "X5", "X6", "X7", "X8", "X9", "X10",
-    ];
+    const KNOWN_CROSS: &[&str] = &["X1", "X2", "X3", "X4", "X5", "X6", "X7", "X8", "X9", "X10"];
     /// The invariants checked when a scenario does not say which.
     ///
     /// These six hold UNCONDITIONALLY — on a blank window, on a mounted one, at
@@ -6938,10 +7142,7 @@ fn eval_assert_manager_invariants(
                                 "X10 {m}: multi_cursor is anchored on ({}, {:?}), which no longer \
                                  exists",
                                 mc.node_id.dom.inner,
-                                mc.node_id
-                                    .node
-                                    .into_crate_internal()
-                                    .map(|n| n.index())
+                                mc.node_id.node.into_crate_internal().map(|n| n.index())
                             ));
                         }
                     }
@@ -7184,7 +7385,11 @@ fn eval_assert_manager_invariants(
     // that X8 was written to catch.
     if cross.iter().any(|c| c == "X8") {
         checked += 1;
-        violations.extend(check_x8_selection_autoscroll(lw, callback_info, &mut checked));
+        violations.extend(check_x8_selection_autoscroll(
+            lw,
+            callback_info,
+            &mut checked,
+        ));
     }
 
     // A scenario can REQUIRE that this assertion actually looked at something.
@@ -7332,7 +7537,9 @@ fn check_x1_target_is_visible(
     let th = trect.size.height as f32;
 
     *checked += 1;
-    if info.max_scroll_y > 0.0 && th <= vis_h + TOL && (ty < vis_y - TOL || ty + th > vis_y + vis_h + TOL)
+    if info.max_scroll_y > 0.0
+        && th <= vis_h + TOL
+        && (ty < vis_y - TOL || ty + th > vis_y + vis_h + TOL)
     {
         out.push(format!(
             "X1: after scroll_into_view, target ({}, {}) spans y [{ty:.1}, {:.1}] but container \
@@ -7347,7 +7554,9 @@ fn check_x1_target_is_visible(
             vis_y + vis_h
         ));
     }
-    if info.max_scroll_x > 0.0 && tw <= vis_w + TOL && (tx < vis_x - TOL || tx + tw > vis_x + vis_w + TOL)
+    if info.max_scroll_x > 0.0
+        && tw <= vis_w + TOL
+        && (tx < vis_x - TOL || tx + tw > vis_x + vis_w + TOL)
     {
         out.push(format!(
             "X1: after scroll_into_view, target ({}, {}) spans x [{tx:.1}, {:.1}] but container \
@@ -7373,10 +7582,7 @@ fn check_x1_target_is_visible(
 /// node, reports the wrong kind, or manufactures a node drag out of a text
 /// selection, the app acts on a drag the engine is not running.
 #[cfg(feature = "std")]
-fn check_x4_drag_view_agrees(
-    d: &azul_core::drag::DragContext,
-    checked: &mut usize,
-) -> Vec<String> {
+fn check_x4_drag_view_agrees(d: &azul_core::drag::DragContext, checked: &mut usize) -> Vec<String> {
     use azul_core::drag::ActiveDragType;
     use azul_layout::managers::drag_drop::{DragState, DragType};
 
@@ -7473,12 +7679,13 @@ fn check_x8_selection_autoscroll(
     let mut out: Vec<String> = Vec::new();
     let samples = {
         let guard = scratch(callback_info);
-        guard.composition_trace.as_ref().and_then(|t| {
-            match (t.prev.as_ref(), t.prev2.as_ref()) {
+        guard
+            .composition_trace
+            .as_ref()
+            .and_then(|t| match (t.prev.as_ref(), t.prev2.as_ref()) {
                 (Some(a), Some(b)) => Some((a.clone(), b.clone())),
                 _ => None,
-            }
-        })
+            })
     };
     let Some((prev, prev2)) = samples else {
         out.push(
@@ -7764,7 +7971,10 @@ pub(crate) fn manager_fingerprints(
     out.insert("biometric".to_string(), fp_biometric(&lw.biometric_manager));
     out.insert("keyring".to_string(), fp_keyring(&lw.keyring_manager));
     out.insert("sensors".to_string(), fp_sensors(&lw.sensor_manager));
-    out.insert("eyedropper".to_string(), fp_eyedropper(&lw.eyedropper_manager));
+    out.insert(
+        "eyedropper".to_string(),
+        fp_eyedropper(&lw.eyedropper_manager),
+    );
     #[cfg(feature = "a11y")]
     out.insert("a11y".to_string(), fp_a11y(&lw.a11y_manager));
     out
@@ -7880,8 +8090,10 @@ fn fp_gesture(m: &azul_layout::managers::gesture::GestureAndDragManager) -> Mana
         None => "none".to_string(),
         Some(d) => {
             population += 1;
-            let anchor = drag_source_node(d)
-                .map_or_else(|| "-".to_string(), |(dom, n)| format!("({},{})", dom.inner, n.index()));
+            let anchor = drag_source_node(d).map_or_else(
+                || "-".to_string(),
+                |(dom, n)| format!("({},{})", dom.inner, n.index()),
+            );
             format!(
                 "{}@{anchor}#{}{}",
                 drag_kind_str(d),
@@ -7916,13 +8128,14 @@ fn fp_gesture(m: &azul_layout::managers::gesture::GestureAndDragManager) -> Mana
         format!(
             "drag={drag} sessions=[{}] pen={} pen_pending={} pad={} native={:?}",
             sessions.join(","),
-            m.pen_state
-                .as_ref()
-                .map_or_else(|| "none".to_string(), |p| format!(
+            m.pen_state.as_ref().map_or_else(
+                || "none".to_string(),
+                |p| format!(
                     "dev{}{}",
                     p.device_id,
                     if p.in_contact { "+contact" } else { "" }
-                )),
+                )
+            ),
             m.pen_event_pending,
             m.pad_state.is_some(),
             m.native_gesture
@@ -8014,7 +8227,9 @@ fn fp_undo_redo(m: &azul_layout::managers::undo_redo::UndoRedoManager) -> Manage
 }
 
 #[cfg(feature = "std")]
-fn fp_virtual_view(m: &azul_layout::managers::virtual_view::VirtualViewManager) -> ManagerFingerprint {
+fn fp_virtual_view(
+    m: &azul_layout::managers::virtual_view::VirtualViewManager,
+) -> ManagerFingerprint {
     let keys = m.all_view_keys();
     let rendered: Vec<String> = keys
         .iter()
@@ -8089,8 +8304,12 @@ fn fp_permission(m: &azul_layout::managers::permission::PermissionManager) -> Ma
 
 #[cfg(feature = "std")]
 fn fp_clipboard(m: &azul_layout::managers::clipboard::ClipboardManager) -> ManagerFingerprint {
-    let paste = m.get_paste_content().map_or(0, |c| c.plain_text.as_str().len());
-    let copy = m.get_copy_content().map_or(0, |c| c.plain_text.as_str().len());
+    let paste = m
+        .get_paste_content()
+        .map_or(0, |c| c.plain_text.as_str().len());
+    let copy = m
+        .get_copy_content()
+        .map_or(0, |c| c.plain_text.as_str().len());
     ManagerFingerprint::new(
         usize::from(m.has_paste_content()) + usize::from(m.has_copy_content()),
         format!(
@@ -8494,9 +8713,7 @@ const COMPOSITION_STAGES: &[&str] = &[
 /// Reset the composition trace. Called at the start of every E2E test and by the
 /// `reset_frame_counters` op (the plan's "checkpoint").
 #[cfg(feature = "std")]
-pub(crate) fn e2e_reset_composition_trace(
-    callback_info: &azul_layout::callbacks::CallbackInfo,
-) {
+pub(crate) fn e2e_reset_composition_trace(callback_info: &azul_layout::callbacks::CallbackInfo) {
     scratch(callback_info).composition_trace = Some(CompositionTrace::default());
 }
 
@@ -8529,9 +8746,7 @@ fn e2e_record_composition_sample(
             .state_keys()
             .into_iter()
             .filter_map(|(d, n)| lw.scroll_manager.get_current_offset(d, n))
-            .map(|o| {
-                (f64::from(o.x.abs()) * 100.0) as i64 + (f64::from(o.y.abs()) * 100.0) as i64
-            })
+            .map(|o| (f64::from(o.x.abs()) * 100.0) as i64 + (f64::from(o.y.abs()) * 100.0) as i64)
             .sum(),
         scroll_offsets: lw
             .scroll_manager
@@ -8555,13 +8770,18 @@ fn e2e_record_composition_sample(
                 .map(|n| (mc.node_id.dom.inner, n.index()))
         }),
         text_selection_drag: matches!(
-            lw.gesture_drag_manager.active_drag.as_ref().map(|d| &d.drag_type),
+            lw.gesture_drag_manager
+                .active_drag
+                .as_ref()
+                .map(|d| &d.drag_type),
             Some(azul_core::drag::ActiveDragType::TextSelection(_))
         ),
     };
 
     let mut guard = scratch(callback_info);
-    let trace = guard.composition_trace.get_or_insert_with(CompositionTrace::default);
+    let trace = guard
+        .composition_trace
+        .get_or_insert_with(CompositionTrace::default);
 
     let mut entered: Vec<&'static str> = Vec::new();
     if sample.drag_active {
@@ -8624,7 +8844,11 @@ fn eval_assert_composition(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_composition", params, &["expect", "fixpoint", "damage"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_composition",
+        params,
+        &["expect", "fixpoint", "damage"],
+    ) {
         return bad;
     }
     let Some(serde_json::Value::Array(want)) = params.get("expect") else {
@@ -8665,11 +8889,8 @@ fn eval_assert_composition(
     }
 
     let seen: Vec<String> = {
-        let mut v: Vec<(usize, String)> = trace
-            .entered
-            .iter()
-            .map(|(k, i)| (*i, k.clone()))
-            .collect();
+        let mut v: Vec<(usize, String)> =
+            trace.entered.iter().map(|(k, i)| (*i, k.clone())).collect();
         v.sort_unstable();
         v.into_iter().map(|(i, k)| format!("{k}@{i}")).collect()
     };
@@ -8812,7 +9033,18 @@ fn eval_assert_damage_sound(
     params: &serde_json::Value,
     callback_info: &azul_layout::callbacks::CallbackInfo,
 ) -> AssertionResult {
-    if let Some(bad) = reject_unknown_params("assert_damage_sound", params, &["vs", "threshold", "slack_px", "max_overpaint_ratio", "forbid_full", "pixel_identity"]) {
+    if let Some(bad) = reject_unknown_params(
+        "assert_damage_sound",
+        params,
+        &[
+            "vs",
+            "threshold",
+            "slack_px",
+            "max_overpaint_ratio",
+            "forbid_full",
+            "pixel_identity",
+        ],
+    ) {
         return bad;
     }
     #[cfg(not(feature = "cpurender"))]
@@ -8950,9 +9182,7 @@ fn eval_assert_damage_sound(
         }
         if changed > 0 && paint.is_none() {
             return AssertionResult::fail_with(
-                format!(
-                    "assert_damage_sound: {changed} pixels changed but NO damage was reported"
-                ),
+                format!("assert_damage_sound: {changed} pixels changed but NO damage was reported"),
                 "damage != none".to_string(),
                 "none".to_string(),
             );
@@ -9174,9 +9404,14 @@ fn resume_e2e_continuation_inner(
 
                 if let Some(state) = setup.app_state.clone() {
                     let mut cmd = serde_json::Map::new();
-                    cmd.insert("op".into(), serde_json::Value::String("set_app_state".into()));
+                    cmd.insert(
+                        "op".into(),
+                        serde_json::Value::String("set_app_state".into()),
+                    );
                     cmd.insert("state".into(), state);
-                    if let Ok(ev) = serde_json::from_value::<DebugEvent>(serde_json::Value::Object(cmd)) {
+                    if let Ok(ev) =
+                        serde_json::from_value::<DebugEvent>(serde_json::Value::Object(cmd))
+                    {
                         let (tx, _rx) = mpsc::channel();
                         let req = DebugRequest {
                             request_id: NEXT_REQUEST_ID.fetch_add(1, Ordering::SeqCst),
@@ -9186,7 +9421,11 @@ fn resume_e2e_continuation_inner(
                             response_tx: tx,
                         };
                         let _ = process_debug_event(
-                            &req, callback_info, &mut app_data, &cont.component_map, session,
+                            &req,
+                            callback_info,
+                            &mut app_data,
+                            &cont.component_map,
+                            session,
                         );
                     }
                 }
@@ -9238,10 +9477,14 @@ fn resume_e2e_continuation_inner(
                 // CI at all: this one scenario alone slept ~900 ms of its 1.2 s.
                 let total = azul_core::task::advance_test_clock_ms(ms);
                 cont.current_step_results.push(E2eStepResult {
-                    step_index, op: op.to_string(), status: "pass".into(),
+                    step_index,
+                    op: op.to_string(),
+                    status: "pass".into(),
                     duration_ms: step_start.elapsed().as_millis() as u64,
                     logs: vec![format!("waited {ms} ms (virtual clock, now +{total} ms)")],
-                    screenshot: None, error: None, response: None,
+                    screenshot: None,
+                    error: None,
+                    response: None,
                 });
                 cont.step_idx = step_index + 1;
                 cont.app_data = app_data;
@@ -9298,8 +9541,10 @@ fn resume_e2e_continuation_inner(
                         // "nonzero" when its exact value is wall-clock-paced
                         // (the redraw pump ticks animations between ops).
                         let want_not = step.params.get("not_contains").and_then(|v| v.as_str());
-                        let actual_type =
-                            resp.get("type").and_then(|v| v.as_str()).unwrap_or("<none>");
+                        let actual_type = resp
+                            .get("type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("<none>");
 
                         if want_type.is_none() && want_sub.is_none() && want_not.is_none() {
                             AssertionResult::fail(
@@ -9337,9 +9582,14 @@ fn resume_e2e_continuation_inner(
 
                 if result.passed {
                     cont.current_step_results.push(E2eStepResult {
-                        step_index, op: op.to_string(), status: "pass".into(),
+                        step_index,
+                        op: op.to_string(),
+                        status: "pass".into(),
                         duration_ms: step_start.elapsed().as_millis() as u64,
-                        logs: vec![result.message], screenshot: None, error: None, response: None,
+                        logs: vec![result.message],
+                        screenshot: None,
+                        error: None,
+                        response: None,
                     });
                 } else {
                     cont.current_test_failed = true;
@@ -9351,9 +9601,14 @@ fn resume_e2e_continuation_inner(
                         result.message.clone()
                     };
                     cont.current_step_results.push(E2eStepResult {
-                        step_index, op: op.to_string(), status: "fail".into(),
+                        step_index,
+                        op: op.to_string(),
+                        status: "fail".into(),
                         duration_ms: step_start.elapsed().as_millis() as u64,
-                        logs: vec![], screenshot: None, error: Some(error_msg), response: None,
+                        logs: vec![],
+                        screenshot: None,
+                        error: Some(error_msg),
+                        response: None,
                     });
                 }
 
@@ -9369,15 +9624,24 @@ fn resume_e2e_continuation_inner(
                 let result = evaluate_assertion(op, &step.params, callback_info, &app_data);
                 if result.passed {
                     cont.current_step_results.push(E2eStepResult {
-                        step_index, op: op.to_string(), status: "pass".into(),
+                        step_index,
+                        op: op.to_string(),
+                        status: "pass".into(),
                         duration_ms: step_start.elapsed().as_millis() as u64,
-                        logs: vec![result.message], screenshot: None, error: None, response: None,
+                        logs: vec![result.message],
+                        screenshot: None,
+                        error: None,
+                        response: None,
                     });
                 } else {
                     cont.current_test_failed = true;
-                    let error_msg = if let (Some(ref exp), Some(ref act)) = (&result.expected, &result.actual) {
+                    let error_msg = if let (Some(ref exp), Some(ref act)) =
+                        (&result.expected, &result.actual)
+                    {
                         format!("{}: expected {}, got {}", result.message, exp, act)
-                    } else { result.message.clone() };
+                    } else {
+                        result.message.clone()
+                    };
 
                     // Report the failure through telemetry, tagged with the
                     // scenario and the step that produced it. At Error severity
@@ -9394,12 +9658,20 @@ fn resume_e2e_continuation_inner(
                         &error_msg,
                     );
                     cont.current_step_results.push(E2eStepResult {
-                        step_index, op: op.to_string(), status: "fail".into(),
+                        step_index,
+                        op: op.to_string(),
+                        status: "fail".into(),
                         duration_ms: step_start.elapsed().as_millis() as u64,
-                        logs: vec![], screenshot: None, error: Some(error_msg), response: None,
+                        logs: vec![],
+                        screenshot: None,
+                        error: Some(error_msg),
+                        response: None,
                     });
                 }
-            } else if op == "commit_undo_snapshot" || op == "undo_app_state" || op == "redo_app_state" {
+            } else if op == "commit_undo_snapshot"
+                || op == "undo_app_state"
+                || op == "redo_app_state"
+            {
                 // App-state undo/redo history (mini-git) on the session's app_data,
                 // via the shared RefAnyUndoManager. Exposes the undo system to E2E
                 // JSON so it can be tested end-to-end from the outside.
@@ -9449,7 +9721,10 @@ fn resume_e2e_continuation_inner(
                             response_tx: step_tx,
                         };
                         let step_needs_update = process_debug_event(
-                            &step_request, callback_info, &mut app_data, &cont.component_map,
+                            &step_request,
+                            callback_info,
+                            &mut app_data,
+                            &cont.component_map,
                             session,
                         );
                         if step_needs_update {
@@ -9467,10 +9742,14 @@ fn resume_e2e_continuation_inner(
                         if callback_info.has_pending_relayout_change() {
                             // Yield: save progress and return
                             cont.current_step_results.push(E2eStepResult {
-                                step_index, op: op.to_string(), status: "pass".into(),
+                                step_index,
+                                op: op.to_string(),
+                                status: "pass".into(),
                                 duration_ms: step_start.elapsed().as_millis() as u64,
                                 logs: vec![format!("Executed: {} (yield for relayout)", op)],
-                                screenshot: None, error: None, response: None,
+                                screenshot: None,
+                                error: None,
+                                response: None,
                             });
                             cont.step_idx = step_index + 1;
                             cont.app_data = app_data;
@@ -9484,26 +9763,41 @@ fn resume_e2e_continuation_inner(
                         match step_rx.try_recv() {
                             Ok(DebugResponseData::Ok { data, .. }) => {
                                 cont.current_step_results.push(E2eStepResult {
-                                    step_index, op: op.to_string(), status: "pass".into(),
+                                    step_index,
+                                    op: op.to_string(),
+                                    status: "pass".into(),
                                     duration_ms: step_start.elapsed().as_millis() as u64,
-                                    logs: vec![format!("Executed: {}", op)], screenshot: None,
-                                    error: None, response: data.as_ref().and_then(|d| serde_json::to_value(d).ok()),
+                                    logs: vec![format!("Executed: {}", op)],
+                                    screenshot: None,
+                                    error: None,
+                                    response: data
+                                        .as_ref()
+                                        .and_then(|d| serde_json::to_value(d).ok()),
                                 });
                             }
                             Ok(DebugResponseData::Err(msg)) => {
                                 cont.current_test_failed = true;
                                 cont.current_step_results.push(E2eStepResult {
-                                    step_index, op: op.to_string(), status: "fail".into(),
+                                    step_index,
+                                    op: op.to_string(),
+                                    status: "fail".into(),
                                     duration_ms: step_start.elapsed().as_millis() as u64,
-                                    logs: vec![], screenshot: None, error: Some(msg), response: None,
+                                    logs: vec![],
+                                    screenshot: None,
+                                    error: Some(msg),
+                                    response: None,
                                 });
                             }
                             Err(_) => {
                                 cont.current_step_results.push(E2eStepResult {
-                                    step_index, op: op.to_string(), status: "pass".into(),
+                                    step_index,
+                                    op: op.to_string(),
+                                    status: "pass".into(),
                                     duration_ms: step_start.elapsed().as_millis() as u64,
                                     logs: vec![format!("Executed (no response): {}", op)],
-                                    screenshot: None, error: None, response: None,
+                                    screenshot: None,
+                                    error: None,
+                                    response: None,
                                 });
                             }
                         }
@@ -9511,10 +9805,14 @@ fn resume_e2e_continuation_inner(
                     Err(e) => {
                         cont.current_test_failed = true;
                         cont.current_step_results.push(E2eStepResult {
-                            step_index, op: op.to_string(), status: "fail".into(),
+                            step_index,
+                            op: op.to_string(),
+                            status: "fail".into(),
                             duration_ms: step_start.elapsed().as_millis() as u64,
-                            logs: vec![], screenshot: None,
-                            error: Some(format!("Unknown op '{}': {}", op, e)), response: None,
+                            logs: vec![],
+                            screenshot: None,
+                            error: Some(format!("Unknown op '{}': {}", op, e)),
+                            response: None,
                         });
                     }
                 }
@@ -9535,11 +9833,24 @@ fn resume_e2e_continuation_inner(
         }
 
         // Finalize current test
-        let steps_passed = cont.current_step_results.iter().filter(|s| s.status == "pass").count();
-        let steps_failed = cont.current_step_results.iter().filter(|s| s.status == "fail").count();
+        let steps_passed = cont
+            .current_step_results
+            .iter()
+            .filter(|s| s.status == "pass")
+            .count();
+        let steps_failed = cont
+            .current_step_results
+            .iter()
+            .filter(|s| s.status == "fail")
+            .count();
         cont.completed_results.push(E2eTestResult {
             name: test.name.clone(),
-            status: if cont.current_test_failed { "fail" } else { "pass" }.into(),
+            status: if cont.current_test_failed {
+                "fail"
+            } else {
+                "pass"
+            }
+            .into(),
             duration_ms: cont.test_start.elapsed().as_millis() as u64,
             step_count: test.steps.len(),
             steps_passed,
@@ -9554,11 +9865,7 @@ fn resume_e2e_continuation_inner(
         // scenario's engine diagnostics would be filed under this one's name —
         // which is worse than no tag, because it looks right.
         #[cfg(feature = "telemetry")]
-        crate::telemetry::report_e2e_result(
-            &test.name,
-            steps_failed == 0,
-            test.steps.len(),
-        );
+        crate::telemetry::report_e2e_result(&test.name, steps_failed == 0, test.steps.len());
         azul_core::diagnostics::set_scope(None);
 
         cont.test_idx += 1;
@@ -9599,10 +9906,9 @@ pub fn e2e_pump_continuation(
     let mut pending = session.pending.take();
     // `wait` steps yield with a deadline — if it hasn't passed, put the
     // continuation back untouched and report it as still pending.
-    if let Some(cont) = pending.take_if(|c| {
-        c.resume_not_before
-            .is_some_and(|t| wall_clock_now() < t)
-    }) {
+    if let Some(cont) =
+        pending.take_if(|c| c.resume_not_before.is_some_and(|t| wall_clock_now() < t))
+    {
         let rnb = cont.resume_not_before;
         session.pending = Some(cont);
         return (false, true, rnb);
@@ -9612,7 +9918,11 @@ pub fn e2e_pump_continuation(
     };
     cont.resume_not_before = None;
     let needs_update = resume_e2e_continuation(cont, callback_info, session);
-    (needs_update, session.is_pending(), session.resume_not_before())
+    (
+        needs_update,
+        session.is_pending(),
+        session.resume_not_before(),
+    )
 }
 
 // ==================== Timer Callback ====================
@@ -9663,9 +9973,9 @@ pub extern "C" fn debug_timer_callback(
     let mut pending_continuation = session.pending.take();
     // `wait` steps yield with a deadline — if it hasn't passed, put the
     // continuation back and let this tick process queued input/relayout.
-    if let Some(cont) = pending_continuation.take_if(|c| {
-        c.resume_not_before.is_some_and(|t| wall_clock_now() < t)
-    }) {
+    if let Some(cont) =
+        pending_continuation.take_if(|c| c.resume_not_before.is_some_and(|t| wall_clock_now() < t))
+    {
         session.pending = Some(cont);
     }
     if let Some(mut continuation) = pending_continuation {
@@ -9673,16 +9983,16 @@ pub extern "C" fn debug_timer_callback(
         log(
             LogLevel::Debug,
             LogCategory::DebugServer,
-            format!("[E2E] Resuming continuation: test {}, step {}", continuation.test_idx, continuation.step_idx),
+            format!(
+                "[E2E] Resuming continuation: test {}, step {}",
+                continuation.test_idx, continuation.step_idx
+            ),
             None,
         );
         // `session.pending` is empty here — `resume_e2e_continuation` refills it
         // if another yield is needed.
-        let result = resume_e2e_continuation(
-            continuation,
-            &mut timer_info.callback_info,
-            &mut session,
-        );
+        let result =
+            resume_e2e_continuation(continuation, &mut timer_info.callback_info, &mut session);
         needs_update = needs_update || result;
     }
 
@@ -9695,10 +10005,13 @@ pub extern "C" fn debug_timer_callback(
             if target_id != &my_window_id {
                 // Not for us — but SPMC already consumed it.
                 // Send error so HTTP thread doesn't hang forever.
-                send_err(&request, format!(
-                    "Request targeted window '{}' but was consumed by '{}'",
-                    target_id, my_window_id
-                ));
+                send_err(
+                    &request,
+                    format!(
+                        "Request targeted window '{}' but was consumed by '{}'",
+                        target_id, my_window_id
+                    ),
+                );
                 continue;
             }
         }
@@ -9732,7 +10045,10 @@ pub extern "C" fn debug_timer_callback(
         log(
             LogLevel::Debug,
             LogCategory::DebugServer,
-            format!("[timer] Processed {} request(s), needs_update={}", processed_count, needs_update),
+            format!(
+                "[timer] Processed {} request(s), needs_update={}",
+                processed_count, needs_update
+            ),
             None,
         );
     }
@@ -9886,7 +10202,7 @@ fn build_clip_analysis(
 #[cfg(feature = "std")]
 fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode> {
     use azul_core::window::VirtualKeyCode;
-    
+
     match key.to_lowercase().as_str() {
         // Letters
         "a" => Some(VirtualKeyCode::A),
@@ -9915,7 +10231,7 @@ fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode>
         "x" => Some(VirtualKeyCode::X),
         "y" => Some(VirtualKeyCode::Y),
         "z" => Some(VirtualKeyCode::Z),
-        
+
         // Numbers
         "0" | "key0" => Some(VirtualKeyCode::Key0),
         "1" | "key1" => Some(VirtualKeyCode::Key1),
@@ -9927,7 +10243,7 @@ fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode>
         "7" | "key7" => Some(VirtualKeyCode::Key7),
         "8" | "key8" => Some(VirtualKeyCode::Key8),
         "9" | "key9" => Some(VirtualKeyCode::Key9),
-        
+
         // Special keys
         "tab" => Some(VirtualKeyCode::Tab),
         "enter" | "return" => Some(VirtualKeyCode::Return),
@@ -9940,13 +10256,13 @@ fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode>
         "end" => Some(VirtualKeyCode::End),
         "pageup" | "page_up" => Some(VirtualKeyCode::PageUp),
         "pagedown" | "page_down" => Some(VirtualKeyCode::PageDown),
-        
+
         // Arrow keys
         "arrowup" | "up" => Some(VirtualKeyCode::Up),
         "arrowdown" | "down" => Some(VirtualKeyCode::Down),
         "arrowleft" | "left" => Some(VirtualKeyCode::Left),
         "arrowright" | "right" => Some(VirtualKeyCode::Right),
-        
+
         // Function keys
         "f1" => Some(VirtualKeyCode::F1),
         "f2" => Some(VirtualKeyCode::F2),
@@ -9960,7 +10276,7 @@ fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode>
         "f10" => Some(VirtualKeyCode::F10),
         "f11" => Some(VirtualKeyCode::F11),
         "f12" => Some(VirtualKeyCode::F12),
-        
+
         // Modifier keys (for explicit key presses)
         "shift" | "lshift" => Some(VirtualKeyCode::LShift),
         "rshift" => Some(VirtualKeyCode::RShift),
@@ -9970,7 +10286,7 @@ fn parse_virtual_keycode(key: &str) -> Option<azul_core::window::VirtualKeyCode>
         "ralt" => Some(VirtualKeyCode::RAlt),
         "meta" | "super" | "lwin" | "lmeta" => Some(VirtualKeyCode::LWin),
         "rwin" | "rmeta" => Some(VirtualKeyCode::RWin),
-        
+
         _ => None,
     }
 }
@@ -10033,14 +10349,18 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
             let result = dladdr(address as *const std::os::raw::c_void, &mut info);
             if result != 0 {
                 if !info.dli_fname.is_null() {
-                    file_name = Some(CStr::from_ptr(info.dli_fname).to_string_lossy().into_owned());
+                    file_name = Some(
+                        CStr::from_ptr(info.dli_fname)
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
                 }
                 if !info.dli_sname.is_null() {
-                    let raw = CStr::from_ptr(info.dli_sname).to_string_lossy().into_owned();
+                    let raw = CStr::from_ptr(info.dli_sname)
+                        .to_string_lossy()
+                        .into_owned();
                     // Strip leading underscore (macOS C name-mangling convention)
-                    let clean = raw.strip_prefix('_')
-                        .unwrap_or(&raw)
-                        .to_string();
+                    let clean = raw.strip_prefix('_').unwrap_or(&raw).to_string();
                     symbol_name = Some(clean);
                 }
             }
@@ -10091,7 +10411,7 @@ fn resolve_function_pointer(address: usize) -> ResolvedSymbolInfo {
         if let Some(ref sym) = symbol_name {
             // Strip hash suffix (e.g. "::h1234abcd")
             let clean = if let Some(pos) = sym.rfind("::h") {
-                if sym[pos+3..].chars().all(|c| c.is_ascii_hexdigit()) {
+                if sym[pos + 3..].chars().all(|c| c.is_ascii_hexdigit()) {
                     &sym[..pos]
                 } else {
                     sym.as_str()
@@ -10138,8 +10458,17 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
             let tag = def.id.name.as_str();
 
             // --- data model (component-specific attributes) ---
-            let mut data_model: Vec<ComponentDataFieldInfo> = def.data_model.fields.as_ref().iter()
-                .filter(|f| !matches!(f.field_type, azul_core::xml::ComponentFieldType::Callback(..)))
+            let mut data_model: Vec<ComponentDataFieldInfo> = def
+                .data_model
+                .fields
+                .as_ref()
+                .iter()
+                .filter(|f| {
+                    !matches!(
+                        f.field_type,
+                        azul_core::xml::ComponentFieldType::Callback(..)
+                    )
+                })
                 .map(|f| ComponentDataFieldInfo {
                     name: f.name.as_str().to_string(),
                     field_type: field_type_to_string(&f.field_type),
@@ -10158,7 +10487,9 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
                         data_model.push(ComponentDataFieldInfo {
                             name: attr_name.to_string(),
                             field_type: attr_type.to_string(),
-                            field_type_structured: StructuredFieldType::Primitive { name: attr_type.to_string() },
+                            field_type_structured: StructuredFieldType::Primitive {
+                                name: attr_type.to_string(),
+                            },
                             default: None,
                             required: false,
                             description: String::new(),
@@ -10168,21 +10499,31 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
             }
 
             // --- universal HTML attributes (separate) ---
-            let universal_attributes: Vec<ComponentAttributeInfo> = if def.source == ComponentSource::Builtin {
-                get_universal_attributes().into_iter().map(|(name, atype)| ComponentAttributeInfo {
-                    name: name.to_string(),
-                    attr_type: atype.to_string(),
-                    default: None,
-                    description: String::new(),
-                }).collect()
-            } else {
-                Vec::new()
-            };
+            let universal_attributes: Vec<ComponentAttributeInfo> =
+                if def.source == ComponentSource::Builtin {
+                    get_universal_attributes()
+                        .into_iter()
+                        .map(|(name, atype)| ComponentAttributeInfo {
+                            name: name.to_string(),
+                            attr_type: atype.to_string(),
+                            default: None,
+                            description: String::new(),
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
 
             // --- callback slots (extracted from data_model.fields with Callback type) ---
-            let callback_slots: Vec<ComponentCallbackSlotInfo> = def.data_model.fields.as_ref().iter()
+            let callback_slots: Vec<ComponentCallbackSlotInfo> = def
+                .data_model
+                .fields
+                .as_ref()
+                .iter()
                 .filter_map(|f| {
-                    if let azul_core::xml::ComponentFieldType::Callback(ref signature) = f.field_type {
+                    if let azul_core::xml::ComponentFieldType::Callback(ref signature) =
+                        f.field_type
+                    {
                         Some(ComponentCallbackSlotInfo {
                             name: f.name.as_str().to_string(),
                             callback_type: format!("Callback({})", signature.return_type.as_str()),
@@ -10217,11 +10558,17 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
         components.sort_by(|a, b| a.tag.cmp(&b.tag));
 
         // Build data model infos from library-level data models
-        let data_models: Vec<DataModelInfo> = lib.data_models.as_ref().iter()
+        let data_models: Vec<DataModelInfo> = lib
+            .data_models
+            .as_ref()
+            .iter()
             .map(|dm| DataModelInfo {
                 name: dm.name.as_str().to_string(),
                 description: dm.description.as_str().to_string(),
-                fields: dm.fields.as_ref().iter()
+                fields: dm
+                    .fields
+                    .as_ref()
+                    .iter()
                     .map(|f| ComponentDataFieldInfo {
                         name: f.name.as_str().to_string(),
                         field_type: field_type_to_string(&f.field_type),
@@ -10235,15 +10582,24 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
             .collect();
 
         // Build enum model infos from library-level enum models
-        let enum_models: Vec<EnumModelInfo> = lib.enum_models.as_ref().iter()
+        let enum_models: Vec<EnumModelInfo> = lib
+            .enum_models
+            .as_ref()
+            .iter()
             .map(|em| EnumModelInfo {
                 name: em.name.as_str().to_string(),
                 description: em.description.as_str().to_string(),
-                variants: em.variants.as_ref().iter()
+                variants: em
+                    .variants
+                    .as_ref()
+                    .iter()
                     .map(|v| EnumVariantInfo {
                         name: v.name.as_str().to_string(),
                         description: v.description.as_str().to_string(),
-                        fields: v.fields.as_ref().iter()
+                        fields: v
+                            .fields
+                            .as_ref()
+                            .iter()
                             .map(|f| ComponentDataFieldInfo {
                                 name: f.name.as_str().to_string(),
                                 field_type: field_type_to_string(&f.field_type),
@@ -10273,14 +10629,13 @@ fn build_component_registry(map_ref: &azul_core::xml::ComponentMap) -> Component
     ComponentRegistryResponse { libraries }
 }
 
-
 /// Convert a StyledDom into a JSON-serializable render tree for the mini HTML tree widget.
 /// The result is a JSON object with a "nodes" array of root-level nodes,
 /// each with "tag", "text", "classes", "children" fields.
 #[cfg(feature = "std")]
 fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> serde_json::Value {
-    use serde_json::json;
     use azul_core::id::node_id::NodeId;
+    use serde_json::json;
 
     let node_data_vec = &styled_dom.node_data;
     let node_hierarchy = &styled_dom.node_hierarchy;
@@ -10314,7 +10669,7 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
                     "children": [],
                     "classes": []
                 });
-            },
+            }
             azul_core::dom::NodeType::Image(_) => "img".to_string(),
             azul_core::dom::NodeType::VirtualView => "virtualized-view".to_string(),
             azul_core::dom::NodeType::P => "p".to_string(),
@@ -10325,12 +10680,15 @@ fn styled_dom_to_render_tree(styled_dom: &azul_core::styled_dom::StyledDom) -> s
                 // Use Debug format to get tag name for other types
                 let tag_str = format!("{:?}", nd.node_type);
                 tag_str.to_lowercase()
-            },
+            }
         };
 
-        let classes: Vec<String> = nd.attributes().as_ref().iter().filter_map(|attr| {
-            attr.as_class().map(|s| s.to_string())
-        }).collect();
+        let classes: Vec<String> = nd
+            .attributes()
+            .as_ref()
+            .iter()
+            .filter_map(|attr| attr.as_class().map(|s| s.to_string()))
+            .collect();
 
         // Collect children
         let mut children = Vec::new();
@@ -10378,9 +10736,8 @@ fn override_data_model_defaults(
     json_args: Option<&std::collections::HashMap<String, serde_json::Value>>,
 ) -> Result<azul_core::xml::ComponentDataModel, String> {
     use azul_core::xml::{
-        ComponentDefaultValue, ComponentFieldType,
-        ComponentDataModel, ComponentDataField, ComponentDataFieldVec,
-        OptionComponentDefaultValue,
+        ComponentDataField, ComponentDataFieldVec, ComponentDataModel, ComponentDefaultValue,
+        ComponentFieldType, OptionComponentDefaultValue,
     };
 
     let empty_map = std::collections::HashMap::new();
@@ -10419,79 +10776,98 @@ fn parse_json_to_default_value(
 
     match ft {
         ComponentFieldType::String => match val {
-            serde_json::Value::String(s) => Ok(ComponentDefaultValue::String(AzString::from(s.as_str()))),
-            other => Ok(ComponentDefaultValue::String(AzString::from(other.to_string().as_str()))),
+            serde_json::Value::String(s) => {
+                Ok(ComponentDefaultValue::String(AzString::from(s.as_str())))
+            }
+            other => Ok(ComponentDefaultValue::String(AzString::from(
+                other.to_string().as_str(),
+            ))),
         },
         ComponentFieldType::Bool => match val {
             serde_json::Value::Bool(b) => Ok(ComponentDefaultValue::Bool(*b)),
-            serde_json::Value::String(s) => s.parse::<bool>()
+            serde_json::Value::String(s) => s
+                .parse::<bool>()
                 .map(ComponentDefaultValue::Bool)
                 .map_err(|_| format!("expected bool, got \"{}\"", s)),
             other => Err(format!("expected bool, got {}", other)),
         },
         ComponentFieldType::I32 => match val {
-            serde_json::Value::Number(n) => n.as_i64()
+            serde_json::Value::Number(n) => n
+                .as_i64()
                 .and_then(|v| i32::try_from(v).ok())
                 .map(ComponentDefaultValue::I32)
                 .ok_or_else(|| format!("expected i32, got {}", n)),
-            serde_json::Value::String(s) => s.parse::<i32>()
+            serde_json::Value::String(s) => s
+                .parse::<i32>()
                 .map(ComponentDefaultValue::I32)
                 .map_err(|_| format!("expected i32, got \"{}\"", s)),
             other => Err(format!("expected i32, got {}", other)),
         },
         ComponentFieldType::I64 => match val {
-            serde_json::Value::Number(n) => n.as_i64()
+            serde_json::Value::Number(n) => n
+                .as_i64()
                 .map(ComponentDefaultValue::I64)
                 .ok_or_else(|| format!("expected i64, got {}", n)),
-            serde_json::Value::String(s) => s.parse::<i64>()
+            serde_json::Value::String(s) => s
+                .parse::<i64>()
                 .map(ComponentDefaultValue::I64)
                 .map_err(|_| format!("expected i64, got \"{}\"", s)),
             other => Err(format!("expected i64, got {}", other)),
         },
         ComponentFieldType::U32 => match val {
-            serde_json::Value::Number(n) => n.as_u64()
+            serde_json::Value::Number(n) => n
+                .as_u64()
                 .and_then(|v| u32::try_from(v).ok())
                 .map(ComponentDefaultValue::U32)
                 .ok_or_else(|| format!("expected u32, got {}", n)),
-            serde_json::Value::String(s) => s.parse::<u32>()
+            serde_json::Value::String(s) => s
+                .parse::<u32>()
                 .map(ComponentDefaultValue::U32)
                 .map_err(|_| format!("expected u32, got \"{}\"", s)),
             other => Err(format!("expected u32, got {}", other)),
         },
         ComponentFieldType::U64 => match val {
-            serde_json::Value::Number(n) => n.as_u64()
+            serde_json::Value::Number(n) => n
+                .as_u64()
                 .map(ComponentDefaultValue::U64)
                 .ok_or_else(|| format!("expected u64, got {}", n)),
-            serde_json::Value::String(s) => s.parse::<u64>()
+            serde_json::Value::String(s) => s
+                .parse::<u64>()
                 .map(ComponentDefaultValue::U64)
                 .map_err(|_| format!("expected u64, got \"{}\"", s)),
             other => Err(format!("expected u64, got {}", other)),
         },
         ComponentFieldType::Usize => match val {
-            serde_json::Value::Number(n) => n.as_u64()
+            serde_json::Value::Number(n) => n
+                .as_u64()
                 .map(|v| v as usize)
                 .map(ComponentDefaultValue::Usize)
                 .ok_or_else(|| format!("expected usize, got {}", n)),
-            serde_json::Value::String(s) => s.parse::<usize>()
+            serde_json::Value::String(s) => s
+                .parse::<usize>()
                 .map(ComponentDefaultValue::Usize)
                 .map_err(|_| format!("expected usize, got \"{}\"", s)),
             other => Err(format!("expected usize, got {}", other)),
         },
         ComponentFieldType::F32 => match val {
-            serde_json::Value::Number(n) => n.as_f64()
+            serde_json::Value::Number(n) => n
+                .as_f64()
                 .map(|v| v as f32)
                 .map(ComponentDefaultValue::F32)
                 .ok_or_else(|| format!("expected f32, got {}", n)),
-            serde_json::Value::String(s) => s.parse::<f32>()
+            serde_json::Value::String(s) => s
+                .parse::<f32>()
                 .map(ComponentDefaultValue::F32)
                 .map_err(|_| format!("expected f32, got \"{}\"", s)),
             other => Err(format!("expected f32, got {}", other)),
         },
         ComponentFieldType::F64 => match val {
-            serde_json::Value::Number(n) => n.as_f64()
+            serde_json::Value::Number(n) => n
+                .as_f64()
                 .map(ComponentDefaultValue::F64)
                 .ok_or_else(|| format!("expected f64, got {}", n)),
-            serde_json::Value::String(s) => s.parse::<f64>()
+            serde_json::Value::String(s) => s
+                .parse::<f64>()
                 .map(ComponentDefaultValue::F64)
                 .map_err(|_| format!("expected f64, got \"{}\"", s)),
             other => Err(format!("expected f64, got {}", other)),
@@ -10500,14 +10876,19 @@ fn parse_json_to_default_value(
             serde_json::Value::String(s) => {
                 let hex = s.strip_prefix('#').unwrap_or(s.as_str());
                 if hex.len() >= 6 {
-                    let r = u8::from_str_radix(&hex[0..2], 16).map_err(|_| format!("invalid color: {}", s))?;
-                    let g = u8::from_str_radix(&hex[2..4], 16).map_err(|_| format!("invalid color: {}", s))?;
-                    let b = u8::from_str_radix(&hex[4..6], 16).map_err(|_| format!("invalid color: {}", s))?;
+                    let r = u8::from_str_radix(&hex[0..2], 16)
+                        .map_err(|_| format!("invalid color: {}", s))?;
+                    let g = u8::from_str_radix(&hex[2..4], 16)
+                        .map_err(|_| format!("invalid color: {}", s))?;
+                    let b = u8::from_str_radix(&hex[4..6], 16)
+                        .map_err(|_| format!("invalid color: {}", s))?;
                     let a = if hex.len() >= 8 {
                         u8::from_str_radix(&hex[6..8], 16).unwrap_or(255)
-                    } else { 255 };
+                    } else {
+                        255
+                    };
                     Ok(ComponentDefaultValue::ColorU(
-                        azul_css::props::basic::color::ColorU { r, g, b, a }
+                        azul_css::props::basic::color::ColorU { r, g, b, a },
                     ))
                 } else {
                     Err(format!("expected #RRGGBB[AA], got \"{}\"", s))
@@ -10521,8 +10902,12 @@ fn parse_json_to_default_value(
         },
         // For complex types we fall back to storing as string
         _ => match val {
-            serde_json::Value::String(s) => Ok(ComponentDefaultValue::String(AzString::from(s.as_str()))),
-            other => Ok(ComponentDefaultValue::String(AzString::from(other.to_string().as_str()))),
+            serde_json::Value::String(s) => {
+                Ok(ComponentDefaultValue::String(AzString::from(s.as_str())))
+            }
+            other => Ok(ComponentDefaultValue::String(AzString::from(
+                other.to_string().as_str(),
+            ))),
         },
     }
 }
@@ -10570,19 +10955,23 @@ fn build_live_page_code(
 /// in the target language, then packages the result as a set of files.
 /// For the "builtin" library this is a no-op (builtin components are not exported).
 #[cfg(feature = "std")]
-fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -> Result<ExportedCodeResponse, String> {
-    use azul_core::xml::{
-        ComponentMap, CompileTarget,
-        ComponentDef,
-        ResultStringCompileError,
-    };
+fn build_exported_code(
+    language: &str,
+    map_ref: &azul_core::xml::ComponentMap,
+) -> Result<ExportedCodeResponse, String> {
+    use azul_core::xml::{CompileTarget, ComponentDef, ComponentMap, ResultStringCompileError};
 
     let target = match language {
         "rust" => CompileTarget::Rust,
         "c" => CompileTarget::C,
         "cpp" | "c++" => CompileTarget::Cpp,
         "python" => CompileTarget::Python,
-        other => return Err(format!("Unsupported language: '{}'. Use: rust, c, cpp, python", other)),
+        other => {
+            return Err(format!(
+                "Unsupported language: '{}'. Use: rust, c, cpp, python",
+                other
+            ))
+        }
     };
 
     let mut files = std::collections::HashMap::new();
@@ -10596,13 +10985,13 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
 
     for lib in &exportable {
         for def in lib.components.iter() {
-
             let compiled_code = match (def.compile_fn)(def, &target, &def.data_model, 0) {
                 ResultStringCompileError::Ok(code) => Some(code.as_str().to_string()),
                 ResultStringCompileError::Err(e) => {
                     warnings.push(format!(
                         "Failed to compile component '{}': {:?}",
-                        def.id.qualified_name(), e
+                        def.id.qualified_name(),
+                        e
                     ));
                     None
                 }
@@ -10613,19 +11002,35 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
                 display_name: def.display_name.as_str().to_string(),
                 data_model_name: def.data_model.name.as_str().to_string(),
                 compiled_code,
-                data_fields: def.data_model.fields.as_ref().iter()
-                    .filter(|f| !matches!(f.field_type,
-                        azul_core::xml::ComponentFieldType::Callback(..)
-                        | azul_core::xml::ComponentFieldType::StyledDom
-                    ))
-                    .map(|f| (
-                        f.name.as_str().to_string(),
-                        field_type_to_string(&f.field_type),
-                        default_value_to_opt_string(&f.default_value),
-                    )).collect(),
-                callback_slots: def.data_model.fields.as_ref().iter()
+                data_fields: def
+                    .data_model
+                    .fields
+                    .as_ref()
+                    .iter()
+                    .filter(|f| {
+                        !matches!(
+                            f.field_type,
+                            azul_core::xml::ComponentFieldType::Callback(..)
+                                | azul_core::xml::ComponentFieldType::StyledDom
+                        )
+                    })
+                    .map(|f| {
+                        (
+                            f.name.as_str().to_string(),
+                            field_type_to_string(&f.field_type),
+                            default_value_to_opt_string(&f.default_value),
+                        )
+                    })
+                    .collect(),
+                callback_slots: def
+                    .data_model
+                    .fields
+                    .as_ref()
+                    .iter()
                     .filter_map(|f| {
-                        if let azul_core::xml::ComponentFieldType::Callback(ref signature) = f.field_type {
+                        if let azul_core::xml::ComponentFieldType::Callback(ref signature) =
+                            f.field_type
+                        {
                             Some((
                                 f.name.as_str().to_string(),
                                 format!("Callback({})", signature.return_type.as_str()),
@@ -10633,13 +11038,23 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
                         } else {
                             None
                         }
-                    }).collect(),
-                slot_fields: def.data_model.fields.as_ref().iter()
-                    .filter(|f| matches!(f.field_type, azul_core::xml::ComponentFieldType::StyledDom))
-                    .map(|f| (
-                        f.name.as_str().to_string(),
-                        f.description.as_str().to_string(),
-                    )).collect(),
+                    })
+                    .collect(),
+                slot_fields: def
+                    .data_model
+                    .fields
+                    .as_ref()
+                    .iter()
+                    .filter(|f| {
+                        matches!(f.field_type, azul_core::xml::ComponentFieldType::StyledDom)
+                    })
+                    .map(|f| {
+                        (
+                            f.name.as_str().to_string(),
+                            f.description.as_str().to_string(),
+                        )
+                    })
+                    .collect(),
             });
         }
     }
@@ -10650,7 +11065,10 @@ fn build_exported_code(language: &str, map_ref: &azul_core::xml::ComponentMap) -
     }
 
     if component_infos.is_empty() {
-        warnings.push("No user-defined component libraries to export. Generated minimal scaffold.".to_string());
+        warnings.push(
+            "No user-defined component libraries to export. Generated minimal scaffold."
+                .to_string(),
+        );
     }
 
     Ok(ExportedCodeResponse {
@@ -10695,10 +11113,16 @@ fn field_type_to_string(ft: &azul_core::xml::ComponentFieldType) -> String {
         ComponentFieldType::ImageRef => "ImageRef".to_string(),
         ComponentFieldType::FontRef => "FontRef".to_string(),
         ComponentFieldType::StyledDom => "StyledDom".to_string(),
-        ComponentFieldType::Callback(signature) => format!("Callback({})", signature.return_type.as_str()),
+        ComponentFieldType::Callback(signature) => {
+            format!("Callback({})", signature.return_type.as_str())
+        }
         ComponentFieldType::RefAny(type_hint) => format!("RefAny({})", type_hint.as_str()),
-        ComponentFieldType::OptionType(inner) => format!("Option<{}>", field_type_to_string(inner.as_ref())),
-        ComponentFieldType::VecType(inner) => format!("Vec<{}>", field_type_to_string(inner.as_ref())),
+        ComponentFieldType::OptionType(inner) => {
+            format!("Option<{}>", field_type_to_string(inner.as_ref()))
+        }
+        ComponentFieldType::VecType(inner) => {
+            format!("Vec<{}>", field_type_to_string(inner.as_ref()))
+        }
         ComponentFieldType::StructRef(name) => format!("struct:{}", name.as_str()),
         ComponentFieldType::EnumRef(name) => format!("enum:{}", name.as_str()),
     }
@@ -10709,27 +11133,58 @@ fn field_type_to_string(ft: &azul_core::xml::ComponentFieldType) -> String {
 fn field_type_to_structured(ft: &azul_core::xml::ComponentFieldType) -> StructuredFieldType {
     use azul_core::xml::ComponentFieldType;
     match ft {
-        ComponentFieldType::String => StructuredFieldType::Primitive { name: "String".to_string() },
-        ComponentFieldType::Bool => StructuredFieldType::Primitive { name: "bool".to_string() },
-        ComponentFieldType::I32 => StructuredFieldType::Primitive { name: "i32".to_string() },
-        ComponentFieldType::I64 => StructuredFieldType::Primitive { name: "i64".to_string() },
-        ComponentFieldType::U32 => StructuredFieldType::Primitive { name: "u32".to_string() },
-        ComponentFieldType::U64 => StructuredFieldType::Primitive { name: "u64".to_string() },
-        ComponentFieldType::Usize => StructuredFieldType::Primitive { name: "usize".to_string() },
-        ComponentFieldType::F32 => StructuredFieldType::Primitive { name: "f32".to_string() },
-        ComponentFieldType::F64 => StructuredFieldType::Primitive { name: "f64".to_string() },
-        ComponentFieldType::ColorU => StructuredFieldType::Primitive { name: "ColorU".to_string() },
-        ComponentFieldType::CssProperty => StructuredFieldType::Primitive { name: "CssProperty".to_string() },
-        ComponentFieldType::ImageRef => StructuredFieldType::Primitive { name: "ImageRef".to_string() },
-        ComponentFieldType::FontRef => StructuredFieldType::Primitive { name: "FontRef".to_string() },
-        ComponentFieldType::StyledDom => StructuredFieldType::Primitive { name: "StyledDom".to_string() },
+        ComponentFieldType::String => StructuredFieldType::Primitive {
+            name: "String".to_string(),
+        },
+        ComponentFieldType::Bool => StructuredFieldType::Primitive {
+            name: "bool".to_string(),
+        },
+        ComponentFieldType::I32 => StructuredFieldType::Primitive {
+            name: "i32".to_string(),
+        },
+        ComponentFieldType::I64 => StructuredFieldType::Primitive {
+            name: "i64".to_string(),
+        },
+        ComponentFieldType::U32 => StructuredFieldType::Primitive {
+            name: "u32".to_string(),
+        },
+        ComponentFieldType::U64 => StructuredFieldType::Primitive {
+            name: "u64".to_string(),
+        },
+        ComponentFieldType::Usize => StructuredFieldType::Primitive {
+            name: "usize".to_string(),
+        },
+        ComponentFieldType::F32 => StructuredFieldType::Primitive {
+            name: "f32".to_string(),
+        },
+        ComponentFieldType::F64 => StructuredFieldType::Primitive {
+            name: "f64".to_string(),
+        },
+        ComponentFieldType::ColorU => StructuredFieldType::Primitive {
+            name: "ColorU".to_string(),
+        },
+        ComponentFieldType::CssProperty => StructuredFieldType::Primitive {
+            name: "CssProperty".to_string(),
+        },
+        ComponentFieldType::ImageRef => StructuredFieldType::Primitive {
+            name: "ImageRef".to_string(),
+        },
+        ComponentFieldType::FontRef => StructuredFieldType::Primitive {
+            name: "FontRef".to_string(),
+        },
+        ComponentFieldType::StyledDom => StructuredFieldType::Primitive {
+            name: "StyledDom".to_string(),
+        },
         ComponentFieldType::Callback(signature) => {
-            let args: Vec<CallbackArgInfo> = signature.args.as_ref().iter().map(|a| {
-                CallbackArgInfo {
+            let args: Vec<CallbackArgInfo> = signature
+                .args
+                .as_ref()
+                .iter()
+                .map(|a| CallbackArgInfo {
                     name: a.name.as_str().to_string(),
                     arg_type: field_type_to_string(&a.arg_type),
-                }
-            }).collect();
+                })
+                .collect();
             StructuredFieldType::Callback {
                 args,
                 return_type: signature.return_type.as_str().to_string(),
@@ -10770,8 +11225,12 @@ fn default_value_to_opt_string(dv: &azul_core::xml::OptionComponentDefaultValue)
             ComponentDefaultValue::Usize(u) => u.to_string(),
             ComponentDefaultValue::F32(f) => f.to_string(),
             ComponentDefaultValue::F64(f) => f.to_string(),
-            ComponentDefaultValue::ColorU(c) => format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a),
-            ComponentDefaultValue::ComponentInstance(ci) => format!("instance:{}", ci.component.as_str()),
+            ComponentDefaultValue::ColorU(c) => {
+                format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a)
+            }
+            ComponentDefaultValue::ComponentInstance(ci) => {
+                format!("instance:{}", ci.component.as_str())
+            }
             ComponentDefaultValue::CallbackFnPointer(s) => format!("fn:{}", s.as_str()),
             ComponentDefaultValue::Json(s) => s.as_str().to_string(),
         }),
@@ -10782,7 +11241,10 @@ fn default_value_to_opt_string(dv: &azul_core::xml::OptionComponentDefaultValue)
 /// Returns an error for unrecognized type strings instead of silently falling back.
 #[cfg(feature = "std")]
 fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFieldType, String> {
-    use azul_core::xml::{ComponentFieldType, ComponentCallbackSignature, ComponentCallbackArgVec, ComponentFieldTypeBox};
+    use azul_core::xml::{
+        ComponentCallbackArgVec, ComponentCallbackSignature, ComponentFieldType,
+        ComponentFieldTypeBox,
+    };
     use azul_css::corety::AzString;
     match s {
         "String" | "string" => Ok(ComponentFieldType::String),
@@ -10801,28 +11263,47 @@ fn parse_field_type_from_string(s: &str) -> Result<azul_core::xml::ComponentFiel
         "StyledDom" | "dom" | "Dom" => Ok(ComponentFieldType::StyledDom),
         other => {
             if other.starts_with("Callback") {
-                Ok(ComponentFieldType::Callback(
-                    ComponentCallbackSignature {
-                        return_type: AzString::from("Update"),
-                        args: ComponentCallbackArgVec::from_const_slice(&[]),
-                    },
-                ))
+                Ok(ComponentFieldType::Callback(ComponentCallbackSignature {
+                    return_type: AzString::from("Update"),
+                    args: ComponentCallbackArgVec::from_const_slice(&[]),
+                }))
             } else if other.starts_with("RefAny") {
-                let hint = other.strip_prefix("RefAny(").and_then(|s| s.strip_suffix(")"))
-                    .ok_or_else(|| format!("Invalid RefAny syntax '{}', expected 'RefAny(TypeHint)'", other))?;
+                let hint = other
+                    .strip_prefix("RefAny(")
+                    .and_then(|s| s.strip_suffix(")"))
+                    .ok_or_else(|| {
+                        format!(
+                            "Invalid RefAny syntax '{}', expected 'RefAny(TypeHint)'",
+                            other
+                        )
+                    })?;
                 Ok(ComponentFieldType::RefAny(AzString::from(hint)))
             } else if other.starts_with("Option<") {
-                let inner = other.strip_prefix("Option<").and_then(|s| s.strip_suffix(">"))
-                    .ok_or_else(|| format!("Invalid Option type syntax '{}', expected 'Option<InnerType>'", other))?;
-                Ok(ComponentFieldType::OptionType(
-                    ComponentFieldTypeBox::new(parse_field_type_from_string(inner)?),
-                ))
+                let inner = other
+                    .strip_prefix("Option<")
+                    .and_then(|s| s.strip_suffix(">"))
+                    .ok_or_else(|| {
+                        format!(
+                            "Invalid Option type syntax '{}', expected 'Option<InnerType>'",
+                            other
+                        )
+                    })?;
+                Ok(ComponentFieldType::OptionType(ComponentFieldTypeBox::new(
+                    parse_field_type_from_string(inner)?,
+                )))
             } else if other.starts_with("Vec<") {
-                let inner = other.strip_prefix("Vec<").and_then(|s| s.strip_suffix(">"))
-                    .ok_or_else(|| format!("Invalid Vec type syntax '{}', expected 'Vec<InnerType>'", other))?;
-                Ok(ComponentFieldType::VecType(
-                    ComponentFieldTypeBox::new(parse_field_type_from_string(inner)?),
-                ))
+                let inner = other
+                    .strip_prefix("Vec<")
+                    .and_then(|s| s.strip_suffix(">"))
+                    .ok_or_else(|| {
+                        format!(
+                            "Invalid Vec type syntax '{}', expected 'Vec<InnerType>'",
+                            other
+                        )
+                    })?;
+                Ok(ComponentFieldType::VecType(ComponentFieldTypeBox::new(
+                    parse_field_type_from_string(inner)?,
+                )))
             } else if let Some(name) = other.strip_prefix("struct:") {
                 if name.is_empty() {
                     return Err("Empty struct reference name in 'struct:'".to_string());
@@ -10854,7 +11335,10 @@ fn validate_field_name(name: &str) -> Result<(), String> {
     if name.starts_with(|c: char| c.is_ascii_digit()) {
         return Err(format!("Field name '{}' cannot start with a digit", name));
     }
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
         return Err(format!(
             "Field name '{}' contains invalid characters (only alphanumeric, underscore, hyphen allowed)",
             name
@@ -10866,7 +11350,9 @@ fn validate_field_name(name: &str) -> Result<(), String> {
 /// Validate and convert an `ExportedDataField` into a `ComponentDataField`.
 /// Validates field name format, type string, and default value compatibility.
 #[cfg(feature = "std")]
-fn validate_exported_field(field: &ExportedDataField) -> Result<azul_core::xml::ComponentDataField, String> {
+fn validate_exported_field(
+    field: &ExportedDataField,
+) -> Result<azul_core::xml::ComponentDataField, String> {
     use azul_core::xml::{ComponentDataField, ComponentDefaultValue, OptionComponentDefaultValue};
     use azul_css::corety::AzString;
 
@@ -10906,40 +11392,58 @@ fn parse_default_value(
             "false" | "0" | "no" => Ok(ComponentDefaultValue::Bool(false)),
             _ => Err(format!("expected bool ('true'/'false'), got '{}'", value)),
         },
-        ComponentFieldType::I32 => value.parse::<i32>()
+        ComponentFieldType::I32 => value
+            .parse::<i32>()
             .map(ComponentDefaultValue::I32)
             .map_err(|e| format!("expected i32: {}", e)),
-        ComponentFieldType::I64 => value.parse::<i64>()
+        ComponentFieldType::I64 => value
+            .parse::<i64>()
             .map(ComponentDefaultValue::I64)
             .map_err(|e| format!("expected i64: {}", e)),
-        ComponentFieldType::U32 => value.parse::<u32>()
+        ComponentFieldType::U32 => value
+            .parse::<u32>()
             .map(ComponentDefaultValue::U32)
             .map_err(|e| format!("expected u32: {}", e)),
-        ComponentFieldType::U64 => value.parse::<u64>()
+        ComponentFieldType::U64 => value
+            .parse::<u64>()
             .map(ComponentDefaultValue::U64)
             .map_err(|e| format!("expected u64: {}", e)),
-        ComponentFieldType::Usize => value.parse::<usize>()
+        ComponentFieldType::Usize => value
+            .parse::<usize>()
             .map(ComponentDefaultValue::Usize)
             .map_err(|e| format!("expected usize: {}", e)),
-        ComponentFieldType::F32 => value.parse::<f32>()
+        ComponentFieldType::F32 => value
+            .parse::<f32>()
             .map(ComponentDefaultValue::F32)
             .map_err(|e| format!("expected f32: {}", e)),
-        ComponentFieldType::F64 => value.parse::<f64>()
+        ComponentFieldType::F64 => value
+            .parse::<f64>()
             .map(ComponentDefaultValue::F64)
             .map_err(|e| format!("expected f64: {}", e)),
         ComponentFieldType::ColorU => {
             // Accept #rrggbb or #rrggbbaa hex strings
             let hex = value.strip_prefix('#').unwrap_or(value);
             if hex.len() == 6 || hex.len() == 8 {
-                let r = u8::from_str_radix(&hex[0..2], 16).map_err(|e| format!("invalid color: {}", e))?;
-                let g = u8::from_str_radix(&hex[2..4], 16).map_err(|e| format!("invalid color: {}", e))?;
-                let b = u8::from_str_radix(&hex[4..6], 16).map_err(|e| format!("invalid color: {}", e))?;
+                let r = u8::from_str_radix(&hex[0..2], 16)
+                    .map_err(|e| format!("invalid color: {}", e))?;
+                let g = u8::from_str_radix(&hex[2..4], 16)
+                    .map_err(|e| format!("invalid color: {}", e))?;
+                let b = u8::from_str_radix(&hex[4..6], 16)
+                    .map_err(|e| format!("invalid color: {}", e))?;
                 let a = if hex.len() == 8 {
-                    u8::from_str_radix(&hex[6..8], 16).map_err(|e| format!("invalid color: {}", e))?
-                } else { 255 };
-                Ok(ComponentDefaultValue::ColorU(azul_css::props::basic::color::ColorU { r, g, b, a }))
+                    u8::from_str_radix(&hex[6..8], 16)
+                        .map_err(|e| format!("invalid color: {}", e))?
+                } else {
+                    255
+                };
+                Ok(ComponentDefaultValue::ColorU(
+                    azul_css::props::basic::color::ColorU { r, g, b, a },
+                ))
             } else {
-                Err(format!("expected #rrggbb or #rrggbbaa hex color, got '{}'", value))
+                Err(format!(
+                    "expected #rrggbb or #rrggbbaa hex color, got '{}'",
+                    value
+                ))
             }
         }
         ComponentFieldType::Callback { .. } => {
@@ -10953,7 +11457,9 @@ fn parse_default_value(
 
 /// Validate all fields of an exported component definition for uniqueness and correctness.
 #[cfg(feature = "std")]
-fn validate_exported_fields(fields: &[ExportedDataField]) -> Result<Vec<azul_core::xml::ComponentDataField>, String> {
+fn validate_exported_fields(
+    fields: &[ExportedDataField],
+) -> Result<Vec<azul_core::xml::ComponentDataField>, String> {
     let mut seen_names = std::collections::HashSet::new();
     let mut validated = Vec::with_capacity(fields.len());
 
@@ -11114,7 +11620,10 @@ azul = "0.0.1"
         let pascal_name = to_pascal_case(&comp.name);
 
         // Generate the struct
-        component_structs.push_str(&format!("/// Data model for the {} component\n", comp.display_name));
+        component_structs.push_str(&format!(
+            "/// Data model for the {} component\n",
+            comp.display_name
+        ));
         component_structs.push_str(&format!("pub struct {} {{\n", struct_name));
         for (field_name, field_type, _default) in &comp.data_fields {
             let rust_type = map_type_to_rust(field_type);
@@ -11140,7 +11649,10 @@ azul = "0.0.1"
             ));
         }
         for (slot_name, _desc) in &comp.slot_fields {
-            component_structs.push_str(&format!("            {}: StyledDom::default(),\n", slot_name));
+            component_structs.push_str(&format!(
+                "            {}: StyledDom::default(),\n",
+                slot_name
+            ));
         }
         for (cb_name, _cb_type) in &comp.callback_slots {
             component_structs.push_str(&format!("            {}: None,\n", cb_name));
@@ -11148,10 +11660,7 @@ azul = "0.0.1"
         component_structs.push_str("        }\n    }\n}\n\n");
 
         // Generate render function
-        component_render_fns.push_str(&format!(
-            "/// Render the {} component\n",
-            comp.display_name
-        ));
+        component_render_fns.push_str(&format!("/// Render the {} component\n", comp.display_name));
         component_render_fns.push_str(&format!(
             "fn render_{}(data: &{}) -> Dom {{\n",
             comp.name, struct_name
@@ -11267,11 +11776,17 @@ fn generate_c_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, Str
 
         // Render function
         render_fns.push_str(&format!("/* Render {} */\n", comp.display_name));
-        render_fns.push_str(&format!("AzDom render_{}(const {}Data* data) {{\n", comp.name, struct_name));
+        render_fns.push_str(&format!(
+            "AzDom render_{}(const {}Data* data) {{\n",
+            comp.name, struct_name
+        ));
         if let Some(ref code) = comp.compiled_code {
             render_fns.push_str(&format!("    return {};\n", code));
         } else {
-            render_fns.push_str(&format!("    return AzDom_createDiv(); /* TODO: implement {} */\n", comp.display_name));
+            render_fns.push_str(&format!(
+                "    return AzDom_createDiv(); /* TODO: implement {} */\n",
+                comp.display_name
+            ));
         }
         render_fns.push_str("}\n\n");
 
@@ -11291,8 +11806,14 @@ fn generate_c_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, Str
     } else {
         for comp in components {
             let struct_name = to_pascal_case(&comp.name);
-            layout_body.push_str(&format!("    {}Data {}_data = {{ 0 }};\n", struct_name, comp.name));
-            layout_body.push_str(&format!("    AzDom_addChild(&body, render_{}(&{}_data));\n", comp.name, comp.name));
+            layout_body.push_str(&format!(
+                "    {}Data {}_data = {{ 0 }};\n",
+                struct_name, comp.name
+            ));
+            layout_body.push_str(&format!(
+                "    AzDom_addChild(&body, render_{}(&{}_data));\n",
+                comp.name, comp.name
+            ));
         }
     }
     layout_body.push_str("    return body;\n");
@@ -11348,7 +11869,10 @@ fn generate_cpp_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, S
                 Some(v) => format!(" = {}", v),
                 None => cpp_default_init(field_type),
             };
-            component_structs.push_str(&format!("    {} {}{};\n", cpp_type, field_name, default_str));
+            component_structs.push_str(&format!(
+                "    {} {}{};\n",
+                cpp_type, field_name, default_str
+            ));
         }
         for (slot_name, _desc) in &comp.slot_fields {
             component_structs.push_str(&format!("    StyledDom {};\n", slot_name));
@@ -11359,11 +11883,17 @@ fn generate_cpp_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, S
         component_structs.push_str("};\n\n");
 
         render_fns.push_str(&format!("// Render {}\n", comp.display_name));
-        render_fns.push_str(&format!("Dom render_{}(const {}Data& data) {{\n", comp.name, struct_name));
+        render_fns.push_str(&format!(
+            "Dom render_{}(const {}Data& data) {{\n",
+            comp.name, struct_name
+        ));
         if let Some(ref code) = comp.compiled_code {
             render_fns.push_str(&format!("    return {};\n", code));
         } else {
-            render_fns.push_str(&format!("    return Dom::create_div(); // TODO: {}\n", comp.display_name));
+            render_fns.push_str(&format!(
+                "    return Dom::create_div(); // TODO: {}\n",
+                comp.display_name
+            ));
         }
         render_fns.push_str("}\n\n");
     }
@@ -11375,7 +11905,10 @@ fn generate_cpp_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String, S
     } else {
         for comp in components {
             let struct_name = to_pascal_case(&comp.name);
-            layout_body.push_str(&format!("    body.add_child(render_{}({}Data{{}}));\n", comp.name, struct_name));
+            layout_body.push_str(&format!(
+                "    body.add_child(render_{}({}Data{{}}));\n",
+                comp.name, struct_name
+            ));
         }
     }
     layout_body.push_str("    return body.with_css(\"\");\n");
@@ -11432,7 +11965,10 @@ fn generate_python_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String
 
         for (slot_name, _slot_type) in &comp.slot_fields {
             has_fields = true;
-            component_classes.push_str(&format!("        self.{} = None  # StyledDom slot\n", slot_name));
+            component_classes.push_str(&format!(
+                "        self.{} = None  # StyledDom slot\n",
+                slot_name
+            ));
         }
 
         for (cb_name, _cb_type) in &comp.callback_slots {
@@ -11448,7 +11984,10 @@ fn generate_python_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String
 
         // Render function
         render_fns.push_str(&format!("def render_{}(data):\n", comp.name));
-        render_fns.push_str(&format!("    \"\"\"Render the {} component.\"\"\"\n", comp.display_name));
+        render_fns.push_str(&format!(
+            "    \"\"\"Render the {} component.\"\"\"\n",
+            comp.display_name
+        ));
 
         if let Some(ref code) = comp.compiled_code {
             for line in code.lines() {
@@ -11471,7 +12010,10 @@ fn generate_python_scaffold(components: &[ScaffoldComponentInfo]) -> Vec<(String
     } else {
         for comp in components {
             let class_name = format!("{}Data", to_pascal_case(&comp.name));
-            layout_body.push_str(&format!("    body = body.with_child(render_{}({}()))\n", comp.name, class_name));
+            layout_body.push_str(&format!(
+                "    body = body.with_child(render_{}({}()))\n",
+                comp.name, class_name
+            ));
         }
     }
     layout_body.push_str("    return body.with_css(\"\")\n");
@@ -11501,7 +12043,11 @@ fn python_default_value(field_type: &str, default_val: Option<&str>) -> String {
         Some(v) => match field_type {
             "String" | "string" => format!("\"{}\"", v),
             "bool" | "Bool" | "boolean" => {
-                if v == "true" { "True".to_string() } else { "False".to_string() }
+                if v == "true" {
+                    "True".to_string()
+                } else {
+                    "False".to_string()
+                }
             }
             _ => v.to_string(),
         },
@@ -11526,33 +12072,26 @@ fn json_to_serde_value(json: &azul_core::json::Json) -> serde_json::Value {
     use azul_core::json::JsonType;
     match json.value_type {
         JsonType::Null => serde_json::Value::Null,
-        JsonType::Bool => {
-            match json.as_bool() {
-                azul_css::OptionBool::Some(b) => serde_json::Value::Bool(b),
-                azul_css::OptionBool::None => serde_json::Value::Null,
-            }
-        }
-        JsonType::Number => {
-            match json.as_number() {
-                azul_css::OptionF64::Some(n) => {
-                    if n.fract() == 0.0 && n >= i64::MIN as f64 && n <= i64::MAX as f64 {
-                        serde_json::Value::Number(serde_json::Number::from(n as i64))
-                    } else {
-                        serde_json::Number::from_f64(n)
-                            .map(serde_json::Value::Number)
-                            .unwrap_or(serde_json::Value::Null)
-                    }
+        JsonType::Bool => match json.as_bool() {
+            azul_css::OptionBool::Some(b) => serde_json::Value::Bool(b),
+            azul_css::OptionBool::None => serde_json::Value::Null,
+        },
+        JsonType::Number => match json.as_number() {
+            azul_css::OptionF64::Some(n) => {
+                if n.fract() == 0.0 && n >= i64::MIN as f64 && n <= i64::MAX as f64 {
+                    serde_json::Value::Number(serde_json::Number::from(n as i64))
+                } else {
+                    serde_json::Number::from_f64(n)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or(serde_json::Value::Null)
                 }
-                azul_css::OptionF64::None => serde_json::Value::Null,
             }
-        }
-        JsonType::String => {
-            serde_json::Value::String(json.raw_string().to_string())
-        }
+            azul_css::OptionF64::None => serde_json::Value::Null,
+        },
+        JsonType::String => serde_json::Value::String(json.raw_string().to_string()),
         JsonType::Array | JsonType::Object => {
             // Internal storage is a JSON string — just parse it
-            serde_json::from_str(json.raw_string())
-                .unwrap_or(serde_json::Value::Null)
+            serde_json::from_str(json.raw_string()).unwrap_or(serde_json::Value::Null)
         }
     }
 }
@@ -11582,34 +12121,87 @@ fn get_universal_attributes() -> Vec<(&'static str, &'static str)> {
 fn get_tag_specific_attributes(tag: &str) -> Vec<(&'static str, &'static str)> {
     match tag {
         "a" => vec![("href", "String"), ("target", "String"), ("rel", "String")],
-        "img" | "image" => vec![("src", "String"), ("alt", "String"), ("width", "String"), ("height", "String")],
-        "input" => vec![
-            ("type", "String"), ("name", "String"), ("value", "String"),
-            ("placeholder", "String"), ("required", "bool"), ("disabled", "bool"),
-            ("readonly", "bool"), ("checked", "bool"), ("min", "String"),
-            ("max", "String"), ("step", "String"), ("pattern", "String"),
-            ("maxlength", "i32"), ("minlength", "i32"), ("autocomplete", "String"),
+        "img" | "image" => vec![
+            ("src", "String"),
+            ("alt", "String"),
+            ("width", "String"),
+            ("height", "String"),
         ],
-        "button" => vec![("type", "String"), ("name", "String"), ("value", "String"), ("disabled", "bool")],
+        "input" => vec![
+            ("type", "String"),
+            ("name", "String"),
+            ("value", "String"),
+            ("placeholder", "String"),
+            ("required", "bool"),
+            ("disabled", "bool"),
+            ("readonly", "bool"),
+            ("checked", "bool"),
+            ("min", "String"),
+            ("max", "String"),
+            ("step", "String"),
+            ("pattern", "String"),
+            ("maxlength", "i32"),
+            ("minlength", "i32"),
+            ("autocomplete", "String"),
+        ],
+        "button" => vec![
+            ("type", "String"),
+            ("name", "String"),
+            ("value", "String"),
+            ("disabled", "bool"),
+        ],
         "form" => vec![("action", "String"), ("method", "String")],
         "label" => vec![("for", "String")],
-        "select" => vec![("name", "String"), ("required", "bool"), ("disabled", "bool")],
-        "option" => vec![("value", "String"), ("selected", "bool"), ("disabled", "bool")],
+        "select" => vec![
+            ("name", "String"),
+            ("required", "bool"),
+            ("disabled", "bool"),
+        ],
+        "option" => vec![
+            ("value", "String"),
+            ("selected", "bool"),
+            ("disabled", "bool"),
+        ],
         "textarea" => vec![
-            ("name", "String"), ("placeholder", "String"), ("rows", "i32"),
-            ("cols", "i32"), ("required", "bool"), ("disabled", "bool"),
-            ("readonly", "bool"), ("maxlength", "i32"),
+            ("name", "String"),
+            ("placeholder", "String"),
+            ("rows", "i32"),
+            ("cols", "i32"),
+            ("required", "bool"),
+            ("disabled", "bool"),
+            ("readonly", "bool"),
+            ("maxlength", "i32"),
         ],
         "td" | "th" => vec![("colspan", "i32"), ("rowspan", "i32"), ("scope", "String")],
-        "meta" => vec![("charset", "String"), ("name", "String"), ("content", "String")],
+        "meta" => vec![
+            ("charset", "String"),
+            ("name", "String"),
+            ("content", "String"),
+        ],
         "link" => vec![("href", "String"), ("rel", "String"), ("type", "String")],
-        "script" => vec![("src", "String"), ("type", "String"), ("defer", "bool"), ("async", "bool")],
+        "script" => vec![
+            ("src", "String"),
+            ("type", "String"),
+            ("defer", "bool"),
+            ("async", "bool"),
+        ],
         "source" => vec![("src", "String"), ("type", "String")],
-        "video" | "audio" => vec![("src", "String"), ("controls", "bool"), ("autoplay", "bool"), ("loop", "bool")],
+        "video" | "audio" => vec![
+            ("src", "String"),
+            ("controls", "bool"),
+            ("autoplay", "bool"),
+            ("loop", "bool"),
+        ],
         "canvas" => vec![("width", "String"), ("height", "String")],
         "virtual-view" => vec![("src", "String"), ("width", "String"), ("height", "String")],
         "icon" => vec![("name", "String")],
-        "meter" => vec![("value", "String"), ("min", "String"), ("max", "String"), ("low", "String"), ("high", "String")],
+        "meter" => vec![
+            ("value", "String"),
+            ("min", "String"),
+            ("max", "String"),
+            ("low", "String"),
+            ("high", "String"),
+        ],
         "progress" => vec![("value", "String"), ("max", "String")],
         _ => vec![],
     }
@@ -11620,9 +12212,7 @@ fn get_tag_specific_attributes(tag: &str) -> Vec<(&'static str, &'static str)> {
 /// `assert_dom` evaluates against the SAME builder, so an E2E test asserts the
 /// exact structure the op hands out — not a parallel re-implementation of it.
 #[cfg(feature = "std")]
-fn build_dom_response(
-    callback_info: &azul_layout::callbacks::CallbackInfo,
-) -> Option<DomResponse> {
+fn build_dom_response(callback_info: &azul_layout::callbacks::CallbackInfo) -> Option<DomResponse> {
     struct Flat {
         node_type: String,
         id: Option<String>,
@@ -11810,7 +12400,7 @@ pub fn process_debug_event(
             let physical = size.get_physical_size();
             let hidpi = size.get_hidpi_factor();
             let window_id_str = window_state.window_id.as_str();
-            
+
             // Get the focused node from the focus manager
             let focused_node_raw = callback_info.get_focused_node();
             let focused_node = focused_node_raw
@@ -11869,7 +12459,6 @@ pub fn process_debug_event(
         // (dll/src/desktop/shell2/common/event.rs). That handler saves
         // `previous_window_state`, applies the fields and runs the diff
         // pass — i.e. the identical sequence WM_SETFOCUS performs.
-
         DebugEvent::Focus => {
             log(
                 LogLevel::Info,
@@ -11908,9 +12497,9 @@ pub fn process_debug_event(
             use azul_core::styled_dom::NodeHierarchyItemId;
 
             let target = resolve_node_target(callback_info, selector.as_deref(), *node_id, None);
-            let described = selector
-                .clone()
-                .unwrap_or_else(|| node_id.map_or_else(|| "<nothing>".to_string(), |n| format!("node {n}")));
+            let described = selector.clone().unwrap_or_else(|| {
+                node_id.map_or_else(|| "<nothing>".to_string(), |n| format!("node {n}"))
+            });
 
             // Resolve + validate BEFORE pushing the change. The runner's
             // `SetFocusTarget` arm answers an unresolvable target with
@@ -12006,8 +12595,12 @@ pub fn process_debug_event(
                 *custom_id,
             );
 
-            let target =
-                resolve_node_target(callback_info, selector.as_deref(), *node_id, text.as_deref());
+            let target = resolve_node_target(
+                callback_info,
+                selector.as_deref(),
+                *node_id,
+                text.as_deref(),
+            );
 
             // Is the node one assistive technology can actually see? Same
             // predicate the accesskit tree builder uses, so this cannot drift
@@ -12202,10 +12795,14 @@ pub fn process_debug_event(
                     dom: dom_id,
                     node: Some(NodeId::new(*nid as usize)).into(),
                 };
-                callback_info.get_node_hit_test_bounds(dom_node_id).map(|rect| (
-                        rect.origin.x + rect.size.width / 2.0,
-                        rect.origin.y + rect.size.height / 2.0,
-                    ))
+                callback_info
+                    .get_node_hit_test_bounds(dom_node_id)
+                    .map(|rect| {
+                        (
+                            rect.origin.x + rect.size.width / 2.0,
+                            rect.origin.y + rect.size.height / 2.0,
+                        )
+                    })
             } else if let Some(sel) = selector {
                 // Click by CSS selector using matches_html_element
                 use azul_core::style::matches_html_element;
@@ -12252,7 +12849,8 @@ pub fn process_debug_event(
                             }
                         }
                     }
-                }                found
+                }
+                found
             } else if let Some(txt) = text {
                 // Click by text content
                 let dom_id = ROOT_DOM_ID;
@@ -12353,9 +12951,7 @@ pub fn process_debug_event(
 
                     // Queue all states to be applied in sequence across frames
                     callback_info
-                        .queue_window_state_sequence(
-                            vec![move_state, down_state, up_state].into(),
-                        );
+                        .queue_window_state_sequence(vec![move_state, down_state, up_state].into());
                     // NO `needs_update` — see the note on `process_debug_event`.
                     // `QueueWindowStateSequence` runs one state-diff pass per
                     // queued state on its own.
@@ -12433,12 +13029,10 @@ pub fn process_debug_event(
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
 
             let set_button_down = |state: &mut azul_layout::window_state::FullWindowState,
-                                   down: bool| {
-                match button {
-                    MouseButton::Left => state.mouse_state.left_down = down,
-                    MouseButton::Right => state.mouse_state.right_down = down,
-                    MouseButton::Middle => state.mouse_state.middle_down = down,
-                }
+                                   down: bool| match button {
+                MouseButton::Left => state.mouse_state.left_down = down,
+                MouseButton::Right => state.mouse_state.right_down = down,
+                MouseButton::Middle => state.mouse_state.middle_down = down,
             };
 
             for _ in 0..2 {
@@ -12494,21 +13088,23 @@ pub fn process_debug_event(
             // We iterate through scroll manager states and check if the point is inside
             let layout_window = callback_info.get_layout_window();
             let cursor_pos = LogicalPosition { x: *x, y: *y };
-            
+
             let mut scroll_node: Option<(DomId, NodeId)> = None;
             for (dom_id, layout_result) in &layout_window.layout_results {
                 for (scroll_id, &node_id) in &layout_result.scroll_id_to_node_id {
                     // Get node bounds from layout tree
-                    if let Some(layout_indices) = layout_result.layout_tree.dom_to_layout.get(&node_id) {
+                    if let Some(layout_indices) =
+                        layout_result.layout_tree.dom_to_layout.get(&node_id)
+                    {
                         if let Some(&layout_idx) = layout_indices.first() {
                             if let Some(layout_node) = layout_result.layout_tree.get(layout_idx) {
                                 let node_pos = layout_result
                                     .calculated_positions
-                    .get(layout_idx.index())
+                                    .get(layout_idx.index())
                                     .copied()
                                     .unwrap_or_default();
                                 let node_size = layout_node.used_size.unwrap_or_default();
-                                
+
                                 // Check if cursor is inside this node
                                 if cursor_pos.x >= node_pos.x
                                     && cursor_pos.x <= node_pos.x + node_size.width
@@ -12593,9 +13189,8 @@ pub fn process_debug_event(
         }
 
         DebugEvent::Unmount => {
-            callback_info.push_change(
-                azul_layout::callbacks::CallbackChange::RemountDom { xml: None },
-            );
+            callback_info
+                .push_change(azul_layout::callbacks::CallbackChange::RemountDom { xml: None });
             needs_update = true;
             send_ok(request, None, None);
         }
@@ -12657,12 +13252,10 @@ pub fn process_debug_event(
             // Fixed 16.6 ms substeps because the spring integrator is
             // semi-implicit Euler — one 2000 ms step is outside its stable
             // region, and a real shell never hands it more than a frame.
-            callback_info.push_change(
-                azul_layout::callbacks::CallbackChange::TickAnimations {
-                    dt_micros: 16_666,
-                    steps: u32::try_from((*ms).div_ceil(16).max(1)).unwrap_or(u32::MAX),
-                },
-            );
+            callback_info.push_change(azul_layout::callbacks::CallbackChange::TickAnimations {
+                dt_micros: 16_666,
+                steps: u32::try_from((*ms).div_ceil(16).max(1)).unwrap_or(u32::MAX),
+            });
             // Force a frame so that time-driven state (fade / momentum / blink /
             // animation) actually advances and re-renders; an idle engine then
             // reports FrameDamage::None, which is what `assert_idle_stable` asserts.
@@ -13226,9 +13819,10 @@ pub fn process_debug_event(
             // Mutation goes through the sanctioned channel: CallbackInfo hands
             // out `&LayoutWindow` only, and `apply_system_change` is where the
             // mutable window lives.
-            callback_info.push_change(
-                azul_layout::callbacks::CallbackChange::TickAnimations { dt_micros, steps },
-            );
+            callback_info.push_change(azul_layout::callbacks::CallbackChange::TickAnimations {
+                dt_micros,
+                steps,
+            });
             let active = callback_info.get_layout_window().animations.len();
             send_ok(
                 request,
@@ -13498,24 +14092,29 @@ pub fn process_debug_event(
                         node_id.az_children(&hierarchy).map(|c| c.index()).collect();
 
                     // Extract event handlers
-                    let events: Vec<NodeEventInfo> = data.callbacks.as_ref().iter().map(|cb| {
-                        NodeEventInfo {
+                    let events: Vec<NodeEventInfo> = data
+                        .callbacks
+                        .as_ref()
+                        .iter()
+                        .map(|cb| NodeEventInfo {
                             event: format!("{:?}", cb.event),
                             callback_ptr: format!("0x{:x}", cb.callback.cb),
-                        }
-                    }).collect();
+                        })
+                        .collect();
 
                     // Get layout rect
                     let dom_node_id = azul_core::dom::DomNodeId {
                         dom: dom_id,
                         node: Some(NodeId::new(i)).into(),
                     };
-                    let rect = callback_info.get_node_rect(dom_node_id).map(|r| LogicalRectJson {
-                        x: r.origin.x,
-                        y: r.origin.y,
-                        width: r.size.width,
-                        height: r.size.height,
-                    });
+                    let rect = callback_info
+                        .get_node_rect(dom_node_id)
+                        .map(|r| LogicalRectJson {
+                            x: r.origin.x,
+                            y: r.origin.y,
+                            width: r.size.width,
+                            height: r.size.height,
+                        });
 
                     // Tab index
                     let tab_index = match data.get_tab_index() {
@@ -13609,7 +14208,8 @@ pub fn process_debug_event(
                         dom_idx,
                         node_type: node_type.to_string(),
                         is_anonymous: node.dom_node_id.is_none(),
-                        anonymous_type: cold.and_then(|c| c.anonymous_type.as_ref().map(|t| format!("{:?}", t))),
+                        anonymous_type: cold
+                            .and_then(|c| c.anonymous_type.as_ref().map(|t| format!("{:?}", t))),
                         formatting_context: format!("{:?}", node.formatting_context),
                         parent: node.parent.map(|p| p as i64).unwrap_or(-1),
                         children: layout_tree.children(idx).to_vec(),
@@ -14120,7 +14720,9 @@ pub fn process_debug_event(
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 // Check each node in the layout tree to see if it has scrollbar_info (warm tier)
                 for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
-                    let scrollbar_info = layout_result.layout_tree.warm(LayoutNodeId::new(node_idx))
+                    let scrollbar_info = layout_result
+                        .layout_tree
+                        .warm(LayoutNodeId::new(node_idx))
                         .and_then(|w| w.scrollbar_info.as_ref());
                     if let Some(scrollbar_info) = scrollbar_info {
                         if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
@@ -14262,7 +14864,9 @@ pub fn process_debug_event(
             behavior,
         } => {
             use azul_core::dom::{DomId, DomNodeId};
-            use azul_core::events::{ScrollIntoViewBehavior, ScrollIntoViewOptions, ScrollLogicalPosition};
+            use azul_core::events::{
+                ScrollIntoViewBehavior, ScrollIntoViewOptions, ScrollLogicalPosition,
+            };
             use azul_core::id::NodeId;
             use azul_core::styled_dom::NodeHierarchyItemId;
             use azul_core::task::Instant;
@@ -14343,7 +14947,7 @@ pub fn process_debug_event(
                 node_id: nid,
                 adjustments_count: 0, // Count is not known until change is processed
             };
-            
+
             send_ok(request, None, Some(ResponseData::ScrollIntoView(response)));
         }
 
@@ -14724,7 +15328,9 @@ pub fn process_debug_event(
             );
 
             let layout_window = callback_info.get_layout_window();
-            let infos = layout_window.virtual_view_manager.get_all_virtual_view_infos();
+            let infos = layout_window
+                .virtual_view_manager
+                .get_all_virtual_view_infos();
 
             let virtual_views: Vec<VirtualViewStateInfo> = infos
                 .iter()
@@ -14750,7 +15356,11 @@ pub fn process_debug_event(
                 virtual_view_count: virtual_views.len(),
                 virtual_views,
             };
-            send_ok(request, None, Some(ResponseData::VirtualViewStates(response)));
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::VirtualViewStates(response)),
+            );
         }
 
         DebugEvent::GetVirtualViewLayout { dom_id, node_id } => {
@@ -14787,7 +15397,9 @@ pub fn process_debug_event(
                         .scroll_manager
                         .get_scroll_states_for_dom(parent_dom);
                     scroll_states.get(&parent_node).map(|sp| {
-                        let infos = layout_window.virtual_view_manager.get_all_virtual_view_infos();
+                        let infos = layout_window
+                            .virtual_view_manager
+                            .get_all_virtual_view_infos();
                         let virtual_view_info = infos.iter().find(|i| i.parent_node_id == *nid);
 
                         VirtualViewScrollStateInfo {
@@ -14801,8 +15413,7 @@ pub fn process_debug_event(
                                 .and_then(|i| i.virtual_scroll_size_width),
                             virtual_scroll_height: virtual_view_info
                                 .and_then(|i| i.virtual_scroll_size_height),
-                            max_scroll_x: (sp.children_rect.size.width
-                                - sp.parent_rect.size.width)
+                            max_scroll_x: (sp.children_rect.size.width - sp.parent_rect.size.width)
                                 .max(0.0),
                             max_scroll_y: (sp.children_rect.size.height
                                 - sp.parent_rect.size.height)
@@ -14863,7 +15474,11 @@ pub fn process_debug_event(
                     available_dom_ids,
                     layout_result_found,
                 };
-                send_ok(request, None, Some(ResponseData::VirtualViewLayout(response)));
+                send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::VirtualViewLayout(response)),
+                );
             } else {
                 send_err(
                     request,
@@ -14877,8 +15492,15 @@ pub fn process_debug_event(
             let mut selections = Vec::new();
             if let Some(ref mc) = layout_window.text_edit_manager.multi_cursor {
                 let dom_id = mc.node_id.dom;
-                let node_id = mc.node_id.node.into_crate_internal().map(|n| n.index() as u64);
-                let selector = mc.node_id.node.into_crate_internal()
+                let node_id = mc
+                    .node_id
+                    .node
+                    .into_crate_internal()
+                    .map(|n| n.index() as u64);
+                let selector = mc
+                    .node_id
+                    .node
+                    .into_crate_internal()
                     .and_then(|nid| build_selector_for_node(callback_info, dom_id, nid));
                 let mut ranges = Vec::new();
                 for s in &mc.selections {
@@ -14887,7 +15509,9 @@ pub fn process_debug_event(
                         Selection::Cursor(cursor) => SelectionRangeInfo {
                             selection_type: "cursor".to_string(),
                             cursor_position: Some(cursor.cluster_id.start_byte_in_run as usize),
-                            start: None, end: None, direction: None,
+                            start: None,
+                            end: None,
+                            direction: None,
                         },
                         Selection::Range(range) => {
                             let sp = range.start.cluster_id.start_byte_in_run as usize;
@@ -14895,15 +15519,22 @@ pub fn process_debug_event(
                             SelectionRangeInfo {
                                 selection_type: "range".to_string(),
                                 cursor_position: None,
-                                start: Some(sp), end: Some(ep),
-                                direction: Some(if sp <= ep { "forward" } else { "backward" }.to_string()),
+                                start: Some(sp),
+                                end: Some(ep),
+                                direction: Some(
+                                    if sp <= ep { "forward" } else { "backward" }.to_string(),
+                                ),
                             }
-                        },
+                        }
                     };
                     ranges.push(range_info);
                 }
                 selections.push(DomSelectionInfo {
-                    dom_id: dom_id.inner as u32, node_id, selector, ranges, rectangles: Vec::new(),
+                    dom_id: dom_id.inner as u32,
+                    node_id,
+                    selector,
+                    ranges,
+                    rectangles: Vec::new(),
                 });
             }
             let response = SelectionStateResponse {
@@ -14919,8 +15550,15 @@ pub fn process_debug_event(
             let mut selections = Vec::new();
             if let Some(ref mc) = layout_window.text_edit_manager.multi_cursor {
                 let dom_id = mc.node_id.dom;
-                let node_id = mc.node_id.node.into_crate_internal().map(|n| n.index() as u64);
-                let selector = mc.node_id.node.into_crate_internal()
+                let node_id = mc
+                    .node_id
+                    .node
+                    .into_crate_internal()
+                    .map(|n| n.index() as u64);
+                let selector = mc
+                    .node_id
+                    .node
+                    .into_crate_internal()
                     .and_then(|nid| build_selector_for_node(callback_info, dom_id, nid));
                 let mut sel_dumps = Vec::new();
                 for s in &mc.selections {
@@ -14934,29 +15572,40 @@ pub fn process_debug_event(
                     });
                 }
                 selections.push(SelectionDumpEntry {
-                    dom_id: dom_id.inner as u32, node_id, selector, selections: sel_dumps,
+                    dom_id: dom_id.inner as u32,
+                    node_id,
+                    selector,
+                    selections: sel_dumps,
                 });
             }
             let response = SelectionManagerDump {
                 selections,
                 click_state: ClickStateDump {
-                    last_node: None, last_position: LogicalPositionJson { x: 0.0, y: 0.0 },
-                    last_time_ms: 0, click_count: 0,
+                    last_node: None,
+                    last_position: LogicalPositionJson { x: 0.0, y: 0.0 },
+                    last_time_ms: 0,
+                    click_count: 0,
                 },
             };
-            send_ok(request, None, Some(ResponseData::SelectionManagerDump(response)));
+            send_ok(
+                request,
+                None,
+                Some(ResponseData::SelectionManagerDump(response)),
+            );
         }
 
         DebugEvent::GetDragState => {
             // Get current drag state from unified drag system
             let layout_window = callback_info.get_layout_window();
             let gesture_manager = &layout_window.gesture_drag_manager;
-            
-            let (is_dragging, drag_type, description) = if let Some(drag_ctx) = gesture_manager.get_drag_context() {
+
+            let (is_dragging, drag_type, description) = if let Some(drag_ctx) =
+                gesture_manager.get_drag_context()
+            {
                 use azul_core::drag::ActiveDragType;
                 let type_str = match &drag_ctx.drag_type {
                     ActiveDragType::TextSelection(_) => "text_selection",
-                    ActiveDragType::ScrollbarThumb(_) => "scrollbar_thumb", 
+                    ActiveDragType::ScrollbarThumb(_) => "scrollbar_thumb",
                     ActiveDragType::Node(_) => "node",
                     ActiveDragType::WindowMove(_) => "window_move",
                     ActiveDragType::WindowResize(_) => "window_resize",
@@ -14967,7 +15616,7 @@ pub fn process_debug_event(
             } else {
                 (false, None, "No active drag".to_string())
             };
-            
+
             let response = DragStateResponse {
                 is_dragging,
                 drag_type,
@@ -14980,30 +15629,41 @@ pub fn process_debug_event(
             // Get detailed drag context from unified drag system
             let layout_window = callback_info.get_layout_window();
             let gesture_manager = &layout_window.gesture_drag_manager;
-            
+
             let response = if let Some(drag_ctx) = gesture_manager.get_drag_context() {
                 use azul_core::drag::ActiveDragType;
-                let (type_str, scrollbar_axis, resize_edge, files, target_node_id, target_dom_id) = 
+                let (type_str, scrollbar_axis, resize_edge, files, target_node_id, target_dom_id) =
                     match &drag_ctx.drag_type {
-                        ActiveDragType::TextSelection(sel) => {
-                            ("text_selection", None, None, None, 
-                             Some(sel.anchor_ifc_node.index() as u64),
-                             Some(sel.dom_id.inner as u32))
-                        }
+                        ActiveDragType::TextSelection(sel) => (
+                            "text_selection",
+                            None,
+                            None,
+                            None,
+                            Some(sel.anchor_ifc_node.index() as u64),
+                            Some(sel.dom_id.inner as u32),
+                        ),
                         ActiveDragType::ScrollbarThumb(sb) => {
                             let axis = match sb.axis {
                                 azul_core::drag::ScrollbarAxis::Horizontal => "horizontal",
                                 azul_core::drag::ScrollbarAxis::Vertical => "vertical",
                             };
-                            ("scrollbar_thumb", Some(axis.to_string()), None, None,
-                             Some(sb.scroll_container_node.index() as u64),
-                             None) // ScrollbarThumbDrag doesn't have dom_id
+                            (
+                                "scrollbar_thumb",
+                                Some(axis.to_string()),
+                                None,
+                                None,
+                                Some(sb.scroll_container_node.index() as u64),
+                                None,
+                            ) // ScrollbarThumbDrag doesn't have dom_id
                         }
-                        ActiveDragType::Node(nd) => {
-                            ("node", None, None, None,
-                             Some(nd.node_id.index() as u64),
-                             Some(nd.dom_id.inner as u32))
-                        }
+                        ActiveDragType::Node(nd) => (
+                            "node",
+                            None,
+                            None,
+                            None,
+                            Some(nd.node_id.index() as u64),
+                            Some(nd.dom_id.inner as u32),
+                        ),
                         ActiveDragType::WindowMove(_) => {
                             ("window_move", None, None, None, None, None)
                         }
@@ -15012,7 +15672,8 @@ pub fn process_debug_event(
                             ("window_resize", None, Some(edge), None, None, None)
                         }
                         ActiveDragType::FileDrop(fd) => {
-                            let file_list: Vec<String> = fd.files
+                            let file_list: Vec<String> = fd
+                                .files
                                 .as_slice()
                                 .iter()
                                 .map(|f| f.as_str().to_string())
@@ -15020,7 +15681,7 @@ pub fn process_debug_event(
                             ("file_drop", None, None, Some(file_list), None, None)
                         }
                     };
-                
+
                 DragContextResponse {
                     is_dragging: true,
                     drag_type: Some(type_str.to_string()),
@@ -15037,7 +15698,7 @@ pub fn process_debug_event(
                     scrollbar_axis,
                     resize_edge,
                     files,
-                    drag_data: None, // TODO: convert DragData to BTreeMap
+                    drag_data: None,   // TODO: convert DragData to BTreeMap
                     drag_effect: None, // TODO: convert DragEffect
                     debug: alloc::format!("{:?}", drag_ctx),
                 }
@@ -15097,7 +15758,9 @@ pub fn process_debug_event(
                         let response = AppStateResponse {
                             metadata,
                             state: serde_json::Value::Null,
-                            error: Some(RefAnyError::SerdeError("Serialization returned null".to_string())),
+                            error: Some(RefAnyError::SerdeError(
+                                "Serialization returned null".to_string(),
+                            )),
                         };
                         send_ok(request, None, Some(ResponseData::AppState(response)));
                     }
@@ -15110,7 +15773,7 @@ pub fn process_debug_event(
 
             // Get deserialize_fn from RefAny
             let deserialize_fn = app_data.get_deserialize_fn();
-            
+
             if deserialize_fn == 0 {
                 // send_err, not send_ok-with-success-false: the step loop maps any
                 // Ok response to "pass" without reading the payload, so all three
@@ -15134,7 +15797,10 @@ pub fn process_debug_event(
                         match azul_layout::json::restore_refany_from_json(app_data, json) {
                             Ok(()) => {
                                 needs_update = true;
-                                let response = AppStateSetResponse { success: true, error: None };
+                                let response = AppStateSetResponse {
+                                    success: true,
+                                    error: None,
+                                };
                                 send_ok(request, None, Some(ResponseData::AppStateSet(response)));
                             }
                             Err(e) => {
@@ -15148,7 +15814,9 @@ pub fn process_debug_event(
                     Err(e) => {
                         send_err(
                             request,
-                            alloc::format!("set_app_state: the supplied state is not valid JSON: {e:?}"),
+                            alloc::format!(
+                                "set_app_state: the supplied state is not valid JSON: {e:?}"
+                            ),
                         );
                     }
                 }
@@ -15196,16 +15864,26 @@ pub fn process_debug_event(
                                             dataset: value,
                                             error: None,
                                         };
-                                        send_ok(request, None, Some(ResponseData::NodeDataset(response)));
+                                        send_ok(
+                                            request,
+                                            None,
+                                            Some(ResponseData::NodeDataset(response)),
+                                        );
                                     }
                                     None => {
                                         let response = NodeDatasetResponse {
                                             node_id: *node_id,
                                             metadata,
                                             dataset: serde_json::Value::Null,
-                                            error: Some(RefAnyError::SerdeError("Serialization returned null".to_string())),
+                                            error: Some(RefAnyError::SerdeError(
+                                                "Serialization returned null".to_string(),
+                                            )),
                                         };
-                                        send_ok(request, None, Some(ResponseData::NodeDataset(response)));
+                                        send_ok(
+                                            request,
+                                            None,
+                                            Some(ResponseData::NodeDataset(response)),
+                                        );
                                     }
                                 }
                             }
@@ -15215,20 +15893,30 @@ pub fn process_debug_event(
                         }
                     }
                 } else {
-                    send_err(request, alloc::format!("Node {} out of range (max {})", node_id, node_data.len()));
+                    send_err(
+                        request,
+                        alloc::format!("Node {} out of range (max {})", node_id, node_data.len()),
+                    );
                 }
             } else {
                 send_err(request, "No layout result for DOM 0");
             }
         }
 
-        DebugEvent::KeyDown { key, modifiers, text } => {
+        DebugEvent::KeyDown {
+            key,
+            modifiers,
+            text,
+        } => {
             use azul_core::window::{VirtualKeyCode, VirtualKeyCodeVec};
 
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Debug key down: {} (shift={}, ctrl={}, alt={})", key, modifiers.shift, modifiers.ctrl, modifiers.alt),
+                format!(
+                    "Debug key down: {} (shift={}, ctrl={}, alt={})",
+                    key, modifiers.shift, modifiers.ctrl, modifiers.alt
+                ),
                 None,
             );
 
@@ -15262,8 +15950,7 @@ pub fn process_debug_event(
                         let node_id = focused.node.into_crate_internal()?;
                         let old_inline =
                             layout_window.get_text_before_textinput(focused.dom, node_id);
-                        let old_text =
-                            layout_window.extract_text_from_inline_content(&old_inline);
+                        let old_text = layout_window.extract_text_from_inline_content(&old_inline);
                         Some(azul_layout::managers::text_input::PendingTextEdit {
                             node: focused,
                             inserted_text: text.into(),
@@ -15276,10 +15963,15 @@ pub fn process_debug_event(
             }
 
             let mut new_state = callback_info.get_current_window_state().clone();
-            
+
             // Collect current keys into a Vec
-            let mut pressed_keys: alloc::vec::Vec<VirtualKeyCode> = new_state.keyboard_state.pressed_virtual_keycodes.iter().copied().collect();
-            
+            let mut pressed_keys: alloc::vec::Vec<VirtualKeyCode> = new_state
+                .keyboard_state
+                .pressed_virtual_keycodes
+                .iter()
+                .copied()
+                .collect();
+
             // Parse the key string to VirtualKeyCode
             if let Some(keycode) = parse_virtual_keycode(key) {
                 // Add the key to pressed keys if not already present
@@ -15288,7 +15980,7 @@ pub fn process_debug_event(
                 }
                 new_state.keyboard_state.current_virtual_keycode = Some(keycode).into();
             }
-            
+
             // Set modifier keys based on modifiers struct
             if modifiers.shift && !pressed_keys.contains(&VirtualKeyCode::LShift) {
                 pressed_keys.push(VirtualKeyCode::LShift);
@@ -15302,8 +15994,9 @@ pub fn process_debug_event(
             if modifiers.meta && !pressed_keys.contains(&VirtualKeyCode::LWin) {
                 pressed_keys.push(VirtualKeyCode::LWin);
             }
-            
-            new_state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(pressed_keys);
+
+            new_state.keyboard_state.pressed_virtual_keycodes =
+                VirtualKeyCodeVec::from_vec(pressed_keys);
             callback_info.modify_window_state(new_state);
             // NOTE: Do NOT set needs_update = true here!
             // modify_window_state() pushes a CallbackChange::ModifyWindowState which
@@ -15333,31 +16026,41 @@ pub fn process_debug_event(
 
         DebugEvent::KeyUp { key, modifiers } => {
             use azul_core::window::{VirtualKeyCode, VirtualKeyCodeVec};
-            
+
             log(
                 LogLevel::Debug,
                 LogCategory::EventLoop,
-                format!("Debug key up: {} (shift={}, ctrl={}, alt={})", key, modifiers.shift, modifiers.ctrl, modifiers.alt),
+                format!(
+                    "Debug key up: {} (shift={}, ctrl={}, alt={})",
+                    key, modifiers.shift, modifiers.ctrl, modifiers.alt
+                ),
                 None,
             );
 
             let mut new_state = callback_info.get_current_window_state().clone();
-            
+
             // Collect current keys into a Vec
-            let mut pressed_keys: alloc::vec::Vec<VirtualKeyCode> = new_state.keyboard_state.pressed_virtual_keycodes.iter().copied().collect();
-            
+            let mut pressed_keys: alloc::vec::Vec<VirtualKeyCode> = new_state
+                .keyboard_state
+                .pressed_virtual_keycodes
+                .iter()
+                .copied()
+                .collect();
+
             // Parse the key string to VirtualKeyCode and remove it
             if let Some(keycode) = parse_virtual_keycode(key) {
                 pressed_keys.retain(|k| *k != keycode);
                 new_state.keyboard_state.current_virtual_keycode = None.into();
             }
-            
+
             // Remove modifier keys if modifiers struct says they should be released
             if !modifiers.shift {
-                pressed_keys.retain(|k| *k != VirtualKeyCode::LShift && *k != VirtualKeyCode::RShift);
+                pressed_keys
+                    .retain(|k| *k != VirtualKeyCode::LShift && *k != VirtualKeyCode::RShift);
             }
             if !modifiers.ctrl {
-                pressed_keys.retain(|k| *k != VirtualKeyCode::LControl && *k != VirtualKeyCode::RControl);
+                pressed_keys
+                    .retain(|k| *k != VirtualKeyCode::LControl && *k != VirtualKeyCode::RControl);
             }
             if !modifiers.alt {
                 pressed_keys.retain(|k| *k != VirtualKeyCode::LAlt && *k != VirtualKeyCode::RAlt);
@@ -15365,8 +16068,9 @@ pub fn process_debug_event(
             if !modifiers.meta {
                 pressed_keys.retain(|k| *k != VirtualKeyCode::LWin && *k != VirtualKeyCode::RWin);
             }
-            
-            new_state.keyboard_state.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(pressed_keys);
+
+            new_state.keyboard_state.pressed_virtual_keycodes =
+                VirtualKeyCodeVec::from_vec(pressed_keys);
             callback_info.modify_window_state(new_state);
             // NOTE: Do NOT set needs_update = true here!
             // Same as KeyDown - modify_window_state handles event processing internally.
@@ -15400,7 +16104,10 @@ pub fn process_debug_event(
                 // overwriting the internal text edit.
                 send_ok(request, None, None);
             } else {
-                send_err(request, "No focused node - text input requires focus on contenteditable");
+                send_err(
+                    request,
+                    "No focused node - text input requires focus on contenteditable",
+                );
             }
         }
 
@@ -15409,10 +16116,13 @@ pub fn process_debug_event(
         // event-determination fires HoverEventFilter::TouchStart /
         // TouchMove / TouchEnd / TouchCancel via the normal state-diff
         // pipeline.
-
         DebugEvent::TouchStart { id, x, y, force } => {
             let mut state = callback_info.get_current_window_state().clone();
-            let mut points = state.touch_state.touch_points.clone().into_library_owned_vec();
+            let mut points = state
+                .touch_state
+                .touch_points
+                .clone()
+                .into_library_owned_vec();
             points.retain(|p| p.id != *id);
             points.push(azul_core::window::TouchPoint {
                 id: *id,
@@ -15427,7 +16137,11 @@ pub fn process_debug_event(
         }
         DebugEvent::TouchMove { id, x, y, force } => {
             let mut state = callback_info.get_current_window_state().clone();
-            let mut points = state.touch_state.touch_points.clone().into_library_owned_vec();
+            let mut points = state
+                .touch_state
+                .touch_points
+                .clone()
+                .into_library_owned_vec();
             if let Some(p) = points.iter_mut().find(|p| p.id == *id) {
                 p.position = LogicalPosition { x: *x, y: *y };
                 p.force = *force;
@@ -15446,7 +16160,11 @@ pub fn process_debug_event(
         }
         DebugEvent::TouchEnd { id } => {
             let mut state = callback_info.get_current_window_state().clone();
-            let mut points = state.touch_state.touch_points.clone().into_library_owned_vec();
+            let mut points = state
+                .touch_state
+                .touch_points
+                .clone()
+                .into_library_owned_vec();
             points.retain(|p| p.id != *id);
             state.touch_state.touch_points = points.into();
             state.touch_state.num_touches = state.touch_state.touch_points.as_ref().len();
@@ -15485,8 +16203,13 @@ pub fn process_debug_event(
         // hover-only handlers still fire — pen and mouse are
         // intentionally unified in HoverEventFilter (PenDown is a
         // distinct variant, but `MouseDown` / `MouseUp` also fire).
-
-        DebugEvent::PenDown { x, y, pressure, x_tilt, y_tilt } => {
+        DebugEvent::PenDown {
+            x,
+            y,
+            pressure,
+            x_tilt,
+            y_tilt,
+        } => {
             let mut state = callback_info.get_current_window_state().clone();
             state.mouse_state.cursor_position =
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
@@ -15499,7 +16222,13 @@ pub fn process_debug_event(
             // NO `needs_update` — see the note on `process_debug_event`.
             send_ok(request, None, None);
         }
-        DebugEvent::PenMove { x, y, pressure, x_tilt, y_tilt } => {
+        DebugEvent::PenMove {
+            x,
+            y,
+            pressure,
+            x_tilt,
+            y_tilt,
+        } => {
             let mut state = callback_info.get_current_window_state().clone();
             state.mouse_state.cursor_position =
                 azul_core::window::CursorPosition::InWindow(LogicalPosition { x: *x, y: *y });
@@ -15524,7 +16253,6 @@ pub fn process_debug_event(
         // callback that calls `get_swipe_direction` / `get_pinch` /
         // `get_rotation` / `get_long_press` / `was_double_clicked`
         // sees the injected gesture.
-
         DebugEvent::Swipe { direction } => {
             use azul_layout::managers::gesture::{GestureDirection, NativeGestureEvent};
             let dir = match direction {
@@ -15548,7 +16276,10 @@ pub fn process_debug_event(
             use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
             callback_info.inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
                 scale: *scale,
-                center: LogicalPosition { x: *center_x, y: *center_y },
+                center: LogicalPosition {
+                    x: *center_x,
+                    y: *center_y,
+                },
                 initial_distance: *initial_distance,
                 current_distance: *current_distance,
                 duration_ms: *duration_ms,
@@ -15565,7 +16296,10 @@ pub fn process_debug_event(
             use azul_layout::managers::gesture::{DetectedRotation, NativeGestureEvent};
             callback_info.inject_native_gesture(NativeGestureEvent::Rotation(DetectedRotation {
                 angle_radians: *angle_radians,
-                center: LogicalPosition { x: *center_x, y: *center_y },
+                center: LogicalPosition {
+                    x: *center_x,
+                    y: *center_y,
+                },
                 duration_ms: *duration_ms,
             }));
             // NO `needs_update` — see the note on `process_debug_event`.
@@ -15586,15 +16320,15 @@ pub fn process_debug_event(
         DebugEvent::GetFocusState => {
             let layout_window = callback_info.get_layout_window();
             let focus_manager = &layout_window.focus_manager;
-            
+
             let response = if let Some(focused_node) = focus_manager.get_focused_node() {
                 let dom_id = focused_node.dom;
                 let internal_node_id = focused_node.node.into_crate_internal();
-                
+
                 let focused_info = internal_node_id.map(|node_id| {
                     // Get node info
                     let selector = build_selector_for_node(callback_info, dom_id, node_id);
-                    
+
                     // Check if contenteditable
                     let is_contenteditable = callback_info
                         .get_layout_window()
@@ -15603,20 +16337,18 @@ pub fn process_debug_event(
                         .and_then(|lr| lr.styled_dom.node_data.get(node_id.index()))
                         .map(|nd| nd.is_contenteditable())
                         .unwrap_or(false);
-                    
+
                     // Get text content - extract from NodeType::Text if available
                     let text_content = callback_info
                         .get_layout_window()
                         .layout_results
                         .get(&dom_id)
                         .and_then(|lr| lr.styled_dom.node_data.get(node_id.index()))
-                        .and_then(|nd| {
-                            match nd.get_node_type() {
-                                azul_core::dom::NodeType::Text(s) => Some(s.as_str().to_string()),
-                                _ => None,
-                            }
+                        .and_then(|nd| match nd.get_node_type() {
+                            azul_core::dom::NodeType::Text(s) => Some(s.as_str().to_string()),
+                            _ => None,
                         });
-                    
+
                     FocusedNodeInfo {
                         dom_id: dom_id.inner as u32,
                         node_id: node_id.index() as u64,
@@ -15625,7 +16357,7 @@ pub fn process_debug_event(
                         text_content,
                     }
                 });
-                
+
                 FocusStateResponse {
                     has_focus: focused_info.is_some(),
                     focused_node: focused_info,
@@ -15636,7 +16368,7 @@ pub fn process_debug_event(
                     focused_node: None,
                 }
             };
-            
+
             send_ok(request, None, Some(ResponseData::FocusState(response)));
         }
 
@@ -15644,7 +16376,9 @@ pub fn process_debug_event(
             let layout_window = callback_info.get_layout_window();
             let tem = &layout_window.text_edit_manager;
 
-            let response = if let (Some(cursor), Some(mc)) = (tem.get_primary_cursor(), tem.multi_cursor.as_ref()) {
+            let response = if let (Some(cursor), Some(mc)) =
+                (tem.get_primary_cursor(), tem.multi_cursor.as_ref())
+            {
                 let position = cursor.cluster_id.start_byte_in_run as usize;
                 let affinity = match cursor.affinity {
                     azul_core::selection::CursorAffinity::Leading => "leading".to_string(),
@@ -15655,7 +16389,12 @@ pub fn process_debug_event(
                     has_cursor: true,
                     cursor: Some(CursorInfo {
                         dom_id: mc.node_id.dom.inner as u32,
-                        node_id: mc.node_id.node.into_crate_internal().map(|n| n.index() as u64).unwrap_or(0),
+                        node_id: mc
+                            .node_id
+                            .node
+                            .into_crate_internal()
+                            .map(|n| n.index() as u64)
+                            .unwrap_or(0),
                         position,
                         affinity,
                         is_visible: tem.blink.is_visible,
@@ -15668,11 +16407,14 @@ pub fn process_debug_event(
                     cursor: None,
                 }
             };
-            
+
             send_ok(request, None, Some(ResponseData::CursorState(response)));
         }
 
-        DebugEvent::RunE2eTests { ref tests, ref snapshots } => {
+        DebugEvent::RunE2eTests {
+            ref tests,
+            ref snapshots,
+        } => {
             // One scheduler slot per window. A second run started while one is
             // suspended (or while a scenario STEP is itself `run_e2e_tests`)
             // would overwrite the first run's progress and leave its requester
@@ -15713,13 +16455,20 @@ pub fn process_debug_event(
                 undo_manager: azul_layout::json::RefAnyUndoManager::new(0),
             };
             let result = resume_e2e_continuation(cont, callback_info, session);
-            if result { needs_update = true; }
+            if result {
+                needs_update = true;
+            }
             // Don't send_ok — resume_e2e_continuation sends the response directly
         }
 
         // === DOM Mutation ===
-
-        DebugEvent::InsertNode { parent_id, node_type, position, classes, id } => {
+        DebugEvent::InsertNode {
+            parent_id,
+            node_type,
+            position,
+            classes,
+            id,
+        } => {
             use azul_core::dom::DomId;
             use azul_core::id::NodeId;
 
@@ -15728,7 +16477,9 @@ pub fn process_debug_event(
 
             // Validate parent exists
             let layout_window = callback_info.get_layout_window();
-            let node_count = layout_window.layout_results.get(&dom_id)
+            let node_count = layout_window
+                .layout_results
+                .get(&dom_id)
                 .map(|lr| lr.styled_dom.node_data.as_ref().len())
                 .unwrap_or(0);
 
@@ -15761,19 +16512,29 @@ pub fn process_debug_event(
                 .unwrap_or(false);
 
             if parent_node_id.index() >= node_count {
-                send_err(request, format!("Parent node {} not found (total nodes: {})", parent_id, node_count));
+                send_err(
+                    request,
+                    format!(
+                        "Parent node {} not found (total nodes: {})",
+                        parent_id, node_count
+                    ),
+                );
             } else if !on_rightmost_spine {
-                send_err(request, format!(
+                send_err(
+                    request,
+                    format!(
                     "insert_node: node {parent_id} is not on the DOM's rightmost spine. The flat \
                      DFS hierarchy derives a node's first child as `id + 1`, so a node appended at \
                      the end of the array can only become the last child of a subtree that already \
                      ends the array. Inserting elsewhere requires a full re-index + \
                      remap_node_ids, which is not implemented — refusing rather than corrupting \
                      the tree."
-                ));
+                ),
+                );
             } else {
                 let new_node_id = node_count as u64; // New node will be appended at end
-                let classes_az: Vec<azul_css::AzString> = classes.iter()
+                let classes_az: Vec<azul_css::AzString> = classes
+                    .iter()
                     .map(|c| azul_css::AzString::from(c.as_str()))
                     .collect();
                 let id_az = id.as_ref().map(|i| azul_css::AzString::from(i.as_str()));
@@ -15811,12 +16572,17 @@ pub fn process_debug_event(
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
-            let node_count = layout_window.layout_results.get(&dom_id)
+            let node_count = layout_window
+                .layout_results
+                .get(&dom_id)
                 .map(|lr| lr.styled_dom.node_data.as_ref().len())
                 .unwrap_or(0);
 
             if target_node_id.index() >= node_count || *node_id == 0 {
-                send_err(request, format!("Cannot delete node {} (root or out of range)", node_id));
+                send_err(
+                    request,
+                    format!("Cannot delete node {} (root or out of range)", node_id),
+                );
             } else {
                 callback_info.delete_node(dom_id, target_node_id);
                 // NOTE: deliberately NO `needs_update = true` here — the pushed
@@ -15837,14 +16603,16 @@ pub fn process_debug_event(
 
         DebugEvent::SetNodeText { node_id, text } => {
             use azul_core::dom::{DomId, DomNodeId};
-            use azul_core::styled_dom::NodeHierarchyItemId;
             use azul_core::id::NodeId;
+            use azul_core::styled_dom::NodeHierarchyItemId;
 
             let dom_id = ROOT_DOM_ID;
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
-            let node_count = layout_window.layout_results.get(&dom_id)
+            let node_count = layout_window
+                .layout_results
+                .get(&dom_id)
                 .map(|lr| lr.styled_dom.node_data.as_ref().len())
                 .unwrap_or(0);
 
@@ -15855,10 +16623,8 @@ pub fn process_debug_event(
                     dom: dom_id,
                     node: NodeHierarchyItemId::from_crate_internal(Some(target_node_id)),
                 };
-                callback_info.change_node_text(
-                    dom_node_id,
-                    azul_css::AzString::from(text.as_str()),
-                );
+                callback_info
+                    .change_node_text(dom_node_id, azul_css::AzString::from(text.as_str()));
                 // NOTE: deliberately NO `needs_update = true` here — the pushed
                 // CallbackChange already relayouts + rebuilds the display list.
                 // needs_update would force Update::RefreshDom → a full DOM rebuild
@@ -15875,7 +16641,11 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::SetNodeClasses { node_id, classes, id } => {
+        DebugEvent::SetNodeClasses {
+            node_id,
+            classes,
+            id,
+        } => {
             use azul_core::dom::{DomId, IdOrClass};
             use azul_core::id::NodeId;
 
@@ -15883,7 +16653,9 @@ pub fn process_debug_event(
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
-            let node_count = layout_window.layout_results.get(&dom_id)
+            let node_count = layout_window
+                .layout_results
+                .get(&dom_id)
                 .map(|lr| lr.styled_dom.node_data.as_ref().len())
                 .unwrap_or(0);
 
@@ -15926,7 +16698,8 @@ pub fn process_debug_event(
                     ids_and_classes.push(IdOrClass::Id(existing));
                 }
                 for class in classes.iter() {
-                    ids_and_classes.push(IdOrClass::Class(azul_css::AzString::from(class.as_str())));
+                    ids_and_classes
+                        .push(IdOrClass::Class(azul_css::AzString::from(class.as_str())));
                 }
 
                 callback_info.set_node_ids_and_classes(
@@ -15951,16 +16724,22 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::SetNodeCssOverride { node_id, property, value } => {
+        DebugEvent::SetNodeCssOverride {
+            node_id,
+            property,
+            value,
+        } => {
             use azul_core::dom::DomId;
             use azul_core::id::NodeId;
-            use azul_css::props::property::{CssPropertyType, get_css_key_map};
+            use azul_css::props::property::{get_css_key_map, CssPropertyType};
 
             let dom_id = ROOT_DOM_ID;
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
-            let node_count = layout_window.layout_results.get(&dom_id)
+            let node_count = layout_window
+                .layout_results
+                .get(&dom_id)
                 .map(|lr| lr.styled_dom.node_data.as_ref().len())
                 .unwrap_or(0);
 
@@ -15987,7 +16766,9 @@ pub fn process_debug_event(
                                      '{property}': {e:?}"
                                 )
                             })
-                    } else if let Some(combined) = CombinedCssPropertyType::from_str(property, &key_map) {
+                    } else if let Some(combined) =
+                        CombinedCssPropertyType::from_str(property, &key_map)
+                    {
                         parse_combined_css_property(combined, value).map_err(|e| {
                             format!(
                                 "Failed to parse CSS value '{value}' for shorthand property \
@@ -16015,11 +16796,13 @@ pub fn process_debug_event(
                         send_ok(
                             request,
                             None,
-                            Some(ResponseData::NodeCssOverrideSet(NodeCssOverrideSetResponse {
-                                node_id: *node_id,
-                                property: property.clone(),
-                                value: value.clone(),
-                            })),
+                            Some(ResponseData::NodeCssOverrideSet(
+                                NodeCssOverrideSetResponse {
+                                    node_id: *node_id,
+                                    property: property.clone(),
+                                    value: value.clone(),
+                                },
+                            )),
                         );
                     }
                     Err(e) => send_err(request, e),
@@ -16027,7 +16810,12 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::SetNodeImage { node_id, width, height, color } => {
+        DebugEvent::SetNodeImage {
+            node_id,
+            width,
+            height,
+            color,
+        } => {
             use azul_core::dom::NodeType;
             use azul_core::id::NodeId;
 
@@ -16038,16 +16826,13 @@ pub fn process_debug_event(
             // AND be an image node — a silent no-op here would let a scenario
             // "pass" without exercising anything.
             let layout_window = callback_info.get_layout_window();
-            let is_image_node = layout_window
-                .layout_results
-                .get(&dom_id)
-                .and_then(|lr| {
-                    lr.styled_dom
-                        .node_data
-                        .as_container()
-                        .get(target_node_id)
-                        .map(|n| matches!(n.get_node_type(), NodeType::Image(_)))
-                });
+            let is_image_node = layout_window.layout_results.get(&dom_id).and_then(|lr| {
+                lr.styled_dom
+                    .node_data
+                    .as_container()
+                    .get(target_node_id)
+                    .map(|n| matches!(n.get_node_type(), NodeType::Image(_)))
+            });
 
             match is_image_node {
                 None => send_err(request, format!("Node {node_id} not found")),
@@ -16074,15 +16859,18 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::AddImageToCache { css_id, width, height, color } => {
-            match synthesize_solid_image(*width, *height, color) {
-                Ok(image) => {
-                    callback_info.add_image_to_cache(css_id.clone().into(), image);
-                    send_ok(request, None, None);
-                }
-                Err(e) => send_err(request, e),
+        DebugEvent::AddImageToCache {
+            css_id,
+            width,
+            height,
+            color,
+        } => match synthesize_solid_image(*width, *height, color) {
+            Ok(image) => {
+                callback_info.add_image_to_cache(css_id.clone().into(), image);
+                send_ok(request, None, None);
             }
-        }
+            Err(e) => send_err(request, e),
+        },
 
         DebugEvent::RemoveImageFromCache { css_id } => {
             callback_info.remove_image_from_cache(css_id.clone().into());
@@ -16135,14 +16923,18 @@ pub fn process_debug_event(
             let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
-            let libraries = registry.libraries.iter().map(|lib| LibrarySummary {
-                name: lib.name.clone(),
-                version: lib.version.clone(),
-                description: lib.description.clone(),
-                exportable: lib.exportable,
-                modifiable: lib.modifiable,
-                component_count: lib.components.len(),
-            }).collect();
+            let libraries = registry
+                .libraries
+                .iter()
+                .map(|lib| LibrarySummary {
+                    name: lib.name.clone(),
+                    version: lib.version.clone(),
+                    description: lib.description.clone(),
+                    exportable: lib.exportable,
+                    modifiable: lib.modifiable,
+                    component_count: lib.components.len(),
+                })
+                .collect();
             send_ok(
                 request,
                 None,
@@ -16164,10 +16956,15 @@ pub fn process_debug_event(
                     })),
                 );
             } else {
-                let available: Vec<_> = registry.libraries.iter().map(|l| l.name.as_str()).collect();
-                send_err(request, format!(
-                    "Library '{}' not found. Available: {:?}", library, available
-                ));
+                let available: Vec<_> =
+                    registry.libraries.iter().map(|l| l.name.as_str()).collect();
+                send_err(
+                    request,
+                    format!(
+                        "Library '{}' not found. Available: {:?}",
+                        library, available
+                    ),
+                );
             }
         }
 
@@ -16201,7 +16998,10 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::ExportCodeZip { language, library: _lib_filter } => {
+        DebugEvent::ExportCodeZip {
+            language,
+            library: _lib_filter,
+        } => {
             // G1/G3: Package exported code into a downloadable ZIP
             let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let result = build_exported_code(language, &map_guard);
@@ -16262,12 +17062,16 @@ pub fn process_debug_event(
                         Ok(zip_bytes) => {
                             let base64_str = azul_layout::callbacks::base64_encode(&zip_bytes);
                             let data_uri = format!("data:application/zip;base64,{}", base64_str);
-                            send_ok(request, None, Some(ResponseData::Json(serde_json::json!({
-                                "download_url": data_uri,
-                                "filename": format!("azul-export-{}.zip", language),
-                                "size_bytes": zip_bytes.len(),
-                                "file_count": response.files.len(),
-                            }))));
+                            send_ok(
+                                request,
+                                None,
+                                Some(ResponseData::Json(serde_json::json!({
+                                    "download_url": data_uri,
+                                    "filename": format!("azul-export-{}.zip", language),
+                                    "size_bytes": zip_bytes.len(),
+                                    "file_count": response.files.len(),
+                                }))),
+                            );
                         }
                         Err(e) => {
                             send_err(request, format!("ZIP creation failed: {:?}", e));
@@ -16282,10 +17086,8 @@ pub fn process_debug_event(
 
         DebugEvent::ImportComponentLibrary { library: lib_json } => {
             use azul_core::xml::{
-                ComponentDef, ComponentId, ComponentDataModel,
-                ComponentLibrary,
-                ComponentSource, ComponentDefVec, ComponentLibraryVec,
-                ComponentDataFieldVec,
+                ComponentDataFieldVec, ComponentDataModel, ComponentDef, ComponentDefVec,
+                ComponentId, ComponentLibrary, ComponentLibraryVec, ComponentSource,
             };
             use azul_css::corety::AzString;
 
@@ -16297,7 +17099,6 @@ pub fn process_debug_event(
             let mut validation_errors = Vec::new();
 
             for c in &lib_json.components {
-
                 // Validate and convert all fields
                 let validated_fields = match validate_exported_fields(&c.fields) {
                     Ok(fields) => fields,
@@ -16307,7 +17108,11 @@ pub fn process_debug_event(
                     }
                 };
 
-                let display_name_str = if c.display_name.is_empty() { &c.name } else { &c.display_name };
+                let display_name_str = if c.display_name.is_empty() {
+                    &c.name
+                } else {
+                    &c.display_name
+                };
                 defs.push(ComponentDef {
                     id: ComponentId::new(&lib_name, &c.name),
                     display_name: AzString::from(display_name_str.as_str()),
@@ -16327,11 +17132,14 @@ pub fn process_debug_event(
             }
 
             if !validation_errors.is_empty() {
-                send_err(request, format!(
-                    "Validation errors in library '{}': {}",
-                    lib_name,
-                    validation_errors.join("; ")
-                ));
+                send_err(
+                    request,
+                    format!(
+                        "Validation errors in library '{}': {}",
+                        lib_name,
+                        validation_errors.join("; ")
+                    ),
+                );
             } else {
                 let new_lib = ComponentLibrary {
                     name: AzString::from(lib_name.as_str()),
@@ -16347,32 +17155,42 @@ pub fn process_debug_event(
                 // Insert or replace in the component map
                 let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
                 let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
-                let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
-                let was_update = if let Some(existing) = libs.iter_mut().find(|l| l.name.as_str() == lib_name) {
-                    *existing = new_lib;
-                    true
-                } else {
-                    libs.push(new_lib);
-                    false
-                };
+                let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs)
+                    .into_library_owned_vec();
+                let was_update =
+                    if let Some(existing) = libs.iter_mut().find(|l| l.name.as_str() == lib_name) {
+                        *existing = new_lib;
+                        true
+                    } else {
+                        libs.push(new_lib);
+                        false
+                    };
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
 
-                send_ok(request, None, Some(ResponseData::ImportedLibrary(ImportedLibraryResponse {
-                    library_name: lib_name,
-                    component_count,
-                    was_update,
-                })));
+                send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::ImportedLibrary(ImportedLibraryResponse {
+                        library_name: lib_name,
+                        component_count,
+                        was_update,
+                    })),
+                );
                 needs_update = true;
             }
         }
 
-        DebugEvent::ExportComponentLibrary { library: lib_name_opt } => {
+        DebugEvent::ExportComponentLibrary {
+            library: lib_name_opt,
+        } => {
             let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let registry = build_component_registry(&map_guard);
             drop(map_guard);
 
-            let exportable_libs: Vec<&ComponentLibraryInfo> = registry.libraries.iter()
+            let exportable_libs: Vec<&ComponentLibraryInfo> = registry
+                .libraries
+                .iter()
                 .filter(|lib| lib.exportable)
                 .filter(|lib| lib_name_opt.as_ref().is_none_or(|n| &lib.name == n))
                 .collect();
@@ -16394,42 +17212,56 @@ pub fn process_debug_event(
                     description: lib.description.clone(),
                     data_models: Vec::new(),
                     enum_models: Vec::new(),
-                    components: lib.components.iter().map(|c| {
-                        // Build unified fields from data_model + callback_slots
-                        let mut fields: Vec<ExportedDataField> = c.data_model.iter().map(|f| ExportedDataField {
-                            name: f.name.clone(),
-                            field_type: f.field_type.clone(),
-                            default: f.default.clone(),
-                            description: f.description.clone(),
-                        }).collect();
-                        for s in c.callback_slots.iter() {
-                            fields.push(ExportedDataField {
-                                name: s.name.clone(),
-                                field_type: s.callback_type.clone(),
-                                default: None,
-                                description: s.description.clone(),
-                            });
-                        }
-                        ExportedComponentDef {
-                            name: c.tag.clone(),
-                            display_name: c.display_name.clone(),
-                            description: c.description.clone(),
-                            fields,
-                            css: c.css.clone(),
-                        }
-                    }).collect(),
+                    components: lib
+                        .components
+                        .iter()
+                        .map(|c| {
+                            // Build unified fields from data_model + callback_slots
+                            let mut fields: Vec<ExportedDataField> = c
+                                .data_model
+                                .iter()
+                                .map(|f| ExportedDataField {
+                                    name: f.name.clone(),
+                                    field_type: f.field_type.clone(),
+                                    default: f.default.clone(),
+                                    description: f.description.clone(),
+                                })
+                                .collect();
+                            for s in c.callback_slots.iter() {
+                                fields.push(ExportedDataField {
+                                    name: s.name.clone(),
+                                    field_type: s.callback_type.clone(),
+                                    default: None,
+                                    description: s.description.clone(),
+                                });
+                            }
+                            ExportedComponentDef {
+                                name: c.tag.clone(),
+                                display_name: c.display_name.clone(),
+                                description: c.description.clone(),
+                                fields,
+                                css: c.css.clone(),
+                            }
+                        })
+                        .collect(),
                 };
                 send_ok(request, None, Some(ResponseData::ExportedLibrary(exported)));
             }
         }
 
         DebugEvent::CreateLibrary { name, description } => {
-            use azul_core::xml::{ComponentLibrary, ComponentDefVec, ComponentLibraryVec, ComponentDataModelVec};
+            use azul_core::xml::{
+                ComponentDataModelVec, ComponentDefVec, ComponentLibrary, ComponentLibraryVec,
+            };
             use azul_css::corety::AzString;
 
             let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             // Check if library already exists
-            if map_guard.libraries.iter().any(|l| l.name.as_str() == name.as_str()) {
+            if map_guard
+                .libraries
+                .iter()
+                .any(|l| l.name.as_str() == name.as_str())
+            {
                 drop(map_guard);
                 send_err(request, format!("Library '{}' already exists", name));
             } else {
@@ -16444,7 +17276,8 @@ pub fn process_debug_event(
                     enum_models: azul_core::xml::ComponentEnumModelVec::from_const_slice(&[]),
                 };
                 let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
-                let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+                let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs)
+                    .into_library_owned_vec();
                 libs.push(new_lib);
                 map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                 drop(map_guard);
@@ -16457,7 +17290,8 @@ pub fn process_debug_event(
 
             let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
-            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+            let mut libs =
+                core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
             let original_len = libs.len();
 
             // Only allow deletion of modifiable libraries
@@ -16465,7 +17299,10 @@ pub fn process_debug_event(
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
-                    send_err(request, format!("Library '{}' is not modifiable and cannot be deleted", name));
+                    send_err(
+                        request,
+                        format!("Library '{}' is not modifiable and cannot be deleted", name),
+                    );
                 } else {
                     libs.retain(|l| l.name.as_str() != name.as_str());
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
@@ -16479,15 +17316,26 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::CreateComponent { library, name, display_name } => {
-            use azul_core::xml::{ComponentDef, ComponentId, ComponentSource, ComponentLibraryVec, ComponentDataModel, ComponentDataFieldVec};
+        DebugEvent::CreateComponent {
+            library,
+            name,
+            display_name,
+        } => {
+            use azul_core::xml::{
+                ComponentDataFieldVec, ComponentDataModel, ComponentDef, ComponentId,
+                ComponentLibraryVec, ComponentSource,
+            };
             use azul_css::corety::AzString;
 
             let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
-            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+            let mut libs =
+                core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
 
-            if let Some(lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+            if let Some(lib) = libs
+                .iter_mut()
+                .find(|l| l.name.as_str() == library.as_str())
+            {
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
@@ -16510,7 +17358,8 @@ pub fn process_debug_event(
                         render_fn_source: None.into(),
                         compile_fn_source: None.into(),
                     };
-                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
+                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
+                        .into_library_owned_vec();
                     comps.push(new_def);
                     lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
@@ -16529,15 +17378,20 @@ pub fn process_debug_event(
 
             let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
-            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+            let mut libs =
+                core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
 
-            if let Some(lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+            if let Some(lib) = libs
+                .iter_mut()
+                .find(|l| l.name.as_str() == library.as_str())
+            {
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
                     send_err(request, format!("Library '{}' is not modifiable", library));
                 } else {
-                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
+                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
+                        .into_library_owned_vec();
                     comps.retain(|c| c.id.name.as_str() != name.as_str());
                     lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
@@ -16551,22 +17405,37 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::UpdateComponent { library, name, css, description, display_name, fields } => {
+        DebugEvent::UpdateComponent {
+            library,
+            name,
+            css,
+            description,
+            display_name,
+            fields,
+        } => {
             use azul_core::xml::ComponentLibraryVec;
             use azul_css::corety::AzString;
 
             let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
-            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+            let mut libs =
+                core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
 
-            if let Some(lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+            if let Some(lib) = libs
+                .iter_mut()
+                .find(|l| l.name.as_str() == library.as_str())
+            {
                 if !lib.modifiable {
                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
                     send_err(request, format!("Library '{}' is not modifiable", library));
                 } else {
-                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
-                    if let Some(comp) = comps.iter_mut().find(|c| c.id.name.as_str() == name.as_str()) {
+                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
+                        .into_library_owned_vec();
+                    if let Some(comp) = comps
+                        .iter_mut()
+                        .find(|c| c.id.name.as_str() == name.as_str())
+                    {
                         if let Some(new_css) = css {
                             comp.css = AzString::from(new_css.as_str());
                         }
@@ -16583,12 +17452,14 @@ pub fn process_debug_event(
                                     comp.data_model.fields = validated.into();
                                 }
                                 Err(e) => {
-                                    lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
+                                    lib.components =
+                                        azul_core::xml::ComponentDefVec::from_vec(comps);
                                     map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                                     drop(map_guard);
-                                    send_err(request, format!(
-                                        "Validation error in component '{}': {}", name, e
-                                    ));
+                                    send_err(
+                                        request,
+                                        format!("Validation error in component '{}': {}", name, e),
+                                    );
                                     return needs_update;
                                 }
                             }
@@ -16602,7 +17473,10 @@ pub fn process_debug_event(
                         lib.components = azul_core::xml::ComponentDefVec::from_vec(comps);
                         map_guard.libraries = ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
-                        send_err(request, format!("Component '{}' not found in library '{}'", name, library));
+                        send_err(
+                            request,
+                            format!("Component '{}' not found in library '{}'", name, library),
+                        );
                     }
                 }
             } else {
@@ -16627,79 +17501,87 @@ pub fn process_debug_event(
         } => {
             // --- 1. Look up the component ---
             let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
-            let comp_found = map_guard.libraries.iter().find_map(|lib| {
-                if lib.name.as_str() == library.as_str() {
-                    lib.components.iter().find(|c| c.id.name.as_str() == name.as_str())
-                } else {
-                    None
-                }
-            }).cloned();
+            let comp_found = map_guard
+                .libraries
+                .iter()
+                .find_map(|lib| {
+                    if lib.name.as_str() == library.as_str() {
+                        lib.components
+                            .iter()
+                            .find(|c| c.id.name.as_str() == name.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .cloned();
             drop(map_guard);
 
             let comp = match comp_found {
                 Some(c) => c,
                 None => {
-                    send_err(request, format!(
-                        "Component '{}' not found in library '{}'", name, library
-                    ));
+                    send_err(
+                        request,
+                        format!("Component '{}' not found in library '{}'", name, library),
+                    );
                     return needs_update;
                 }
             };
 
             // --- 2. Override data_model defaults with provided args ---
-            let render_data_model = match override_data_model_defaults(
-                &comp.data_model,
-                args.as_ref(),
-            ) {
-                Ok(v) => v,
-                Err(e) => {
-                    send_err(request, format!(
-                        "Invalid args for '{}': {}", name, e
-                    ));
-                    return needs_update;
-                }
-            };
+            let render_data_model =
+                match override_data_model_defaults(&comp.data_model, args.as_ref()) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        send_err(request, format!("Invalid args for '{}': {}", name, e));
+                        return needs_update;
+                    }
+                };
 
             // --- 3. Render the component to a StyledDom ---
             let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let styled_dom = match (comp.render_fn)(&comp, &render_data_model, &map_guard) {
                 azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
                 azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
-                    send_err(request, format!(
-                        "render_fn failed for '{}': {:?}", name, e
-                    ));
+                    send_err(request, format!("render_fn failed for '{}': {:?}", name, e));
                     return needs_update;
                 }
             };
             drop(map_guard);
 
             // --- 4. Apply CSS (component css or overridden) ---
-            let css_text = css_override
-                .as_deref()
-                .unwrap_or_else(|| comp.css.as_str());
+            let css_text = css_override.as_deref().unwrap_or_else(|| comp.css.as_str());
             let mut styled_dom = styled_dom;
             if !css_text.is_empty() {
-                let css = azul_css::css::Css::from_string(
-                    azul_css::corety::AzString::from(css_text)
-                );
+                let css =
+                    azul_css::css::Css::from_string(azul_css::corety::AzString::from(css_text));
                 styled_dom.restyle(css);
             }
 
             // --- 5. Parse background color ---
-            let bg_color = background.as_deref().and_then(|bg_str| {
-                let hex = bg_str.strip_prefix('#').unwrap_or(bg_str);
-                if hex.len() >= 6 {
-                    let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
-                    let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
-                    let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
-                    let a = if hex.len() >= 8 {
-                        u8::from_str_radix(&hex[6..8], 16).unwrap_or(255)
-                    } else { 255 };
-                    Some(azul_css::props::basic::color::ColorU { r, g, b, a })
-                } else {
-                    None
-                }
-            }).unwrap_or(azul_css::props::basic::color::ColorU { r: 255, g: 255, b: 255, a: 255 });
+            let bg_color = background
+                .as_deref()
+                .and_then(|bg_str| {
+                    let hex = bg_str.strip_prefix('#').unwrap_or(bg_str);
+                    if hex.len() >= 6 {
+                        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+                        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+                        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+                        let a = if hex.len() >= 8 {
+                            u8::from_str_radix(&hex[6..8], 16).unwrap_or(255)
+                        } else {
+                            255
+                        };
+                        Some(azul_css::props::basic::color::ColorU { r, g, b, a })
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(azul_css::props::basic::color::ColorU {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                });
 
             // --- 6. Build render options ---
             let opts = azul_layout::cpurender::ComponentPreviewOptions {
@@ -16744,26 +17626,30 @@ pub fn process_debug_event(
         DebugEvent::GetComponentRenderTree { library, name } => {
             // Look up the component
             let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
-            let comp_found = map_guard.libraries.iter().find_map(|lib| {
-                if lib.name.as_str() == library.as_str() {
-                    lib.components.iter().find(|c| c.id.name.as_str() == name.as_str())
-                } else {
-                    None
-                }
-            }).cloned();
+            let comp_found = map_guard
+                .libraries
+                .iter()
+                .find_map(|lib| {
+                    if lib.name.as_str() == library.as_str() {
+                        lib.components
+                            .iter()
+                            .find(|c| c.id.name.as_str() == name.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .cloned();
 
             if let Some(comp) = comp_found {
                 // Build default data model
-                let render_data_model = match override_data_model_defaults(
-                    &comp.data_model,
-                    None,
-                ) {
+                let render_data_model = match override_data_model_defaults(&comp.data_model, None) {
                     Ok(v) => v,
                     Err(e) => {
                         drop(map_guard);
-                        send_err(request, format!(
-                            "Failed to build data model for '{}': {}", name, e
-                        ));
+                        send_err(
+                            request,
+                            format!("Failed to build data model for '{}': {}", name, e),
+                        );
                         return needs_update;
                     }
                 };
@@ -16773,9 +17659,7 @@ pub fn process_debug_event(
                     azul_core::xml::ResultStyledDomRenderDomError::Ok(sd) => sd,
                     azul_core::xml::ResultStyledDomRenderDomError::Err(e) => {
                         drop(map_guard);
-                        send_err(request, format!(
-                            "render_fn failed for '{}': {:?}", name, e
-                        ));
+                        send_err(request, format!("render_fn failed for '{}': {:?}", name, e));
                         return needs_update;
                     }
                 };
@@ -16786,32 +17670,47 @@ pub fn process_debug_event(
                 send_ok(request, None, Some(ResponseData::Json(tree_json)));
             } else {
                 drop(map_guard);
-                send_err(request, format!(
-                    "Component '{}' not found in library '{}'", name, library
-                ));
+                send_err(
+                    request,
+                    format!("Component '{}' not found in library '{}'", name, library),
+                );
             }
         }
 
-        DebugEvent::GetComponentSource { library, name, source_type, language } => {
+        DebugEvent::GetComponentSource {
+            library,
+            name,
+            source_type,
+            language,
+        } => {
             // E4: Return the source code of render_fn or compile_fn
             let map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
-            let comp_found = map_guard.libraries.iter().find_map(|lib| {
-                if lib.name.as_str() == library.as_str() {
-                    lib.components.iter().find(|c| c.id.name.as_str() == name.as_str())
-                } else {
-                    None
-                }
-            }).cloned();
+            let comp_found = map_guard
+                .libraries
+                .iter()
+                .find_map(|lib| {
+                    if lib.name.as_str() == library.as_str() {
+                        lib.components
+                            .iter()
+                            .find(|c| c.id.name.as_str() == name.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .cloned();
             drop(map_guard);
 
             if let Some(comp) = comp_found {
                 let source_code = match source_type.as_str() {
                     "render_fn" => {
                         // For user-defined components, the source is stored; for builtins, return a description
-                        comp.render_fn_source.as_ref()
+                        comp.render_fn_source
+                            .as_ref()
                             .map(|s| s.as_str().to_string())
-                            .unwrap_or_else(|| format!("// Built-in render function for '{}'", name))
-                    },
+                            .unwrap_or_else(|| {
+                                format!("// Built-in render function for '{}'", name)
+                            })
+                    }
                     "compile_fn" => {
                         // Generate the compile_fn output for the requested language
                         let lang = language.as_deref().unwrap_or("rust");
@@ -16825,37 +17724,59 @@ pub fn process_debug_event(
                         let result = (comp.compile_fn)(&comp, &target, &comp.data_model, 0);
                         drop(map_guard);
                         match result {
-                            azul_core::xml::ResultStringCompileError::Ok(s) => s.as_str().to_string(),
-                            azul_core::xml::ResultStringCompileError::Err(e) => format!("// Compile error: {:?}", e),
+                            azul_core::xml::ResultStringCompileError::Ok(s) => {
+                                s.as_str().to_string()
+                            }
+                            azul_core::xml::ResultStringCompileError::Err(e) => {
+                                format!("// Compile error: {:?}", e)
+                            }
                         }
-                    },
+                    }
                     _ => format!("// Unknown source_type: {}", source_type),
                 };
-                send_ok(request, None, Some(ResponseData::Json(serde_json::json!({
-                    "source": source_code
-                }))));
+                send_ok(
+                    request,
+                    None,
+                    Some(ResponseData::Json(serde_json::json!({
+                        "source": source_code
+                    }))),
+                );
             } else {
-                send_err(request, format!(
-                    "Component '{}' not found in library '{}'", name, library
-                ));
+                send_err(
+                    request,
+                    format!("Component '{}' not found in library '{}'", name, library),
+                );
             }
         }
 
-        DebugEvent::UpdateComponentRenderFn { library, name, source } => {
+        DebugEvent::UpdateComponentRenderFn {
+            library,
+            name,
+            source,
+        } => {
             // E4: Store the render_fn source code (hot-replacement not yet supported)
             let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = azul_core::xml::ComponentLibraryVec::from_const_slice(&[]);
-            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+            let mut libs =
+                core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
 
-            if let Some(lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+            if let Some(lib) = libs
+                .iter_mut()
+                .find(|l| l.name.as_str() == library.as_str())
+            {
                 if !lib.modifiable {
                     map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
                     send_err(request, format!("Library '{}' is not modifiable", library));
                 } else {
-                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
-                    if let Some(comp) = comps.iter_mut().find(|c| c.id.name.as_str() == name.as_str()) {
-                        comp.render_fn_source = Some(azul_css::corety::AzString::from(source.as_str())).into();
+                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
+                        .into_library_owned_vec();
+                    if let Some(comp) = comps
+                        .iter_mut()
+                        .find(|c| c.id.name.as_str() == name.as_str())
+                    {
+                        comp.render_fn_source =
+                            Some(azul_css::corety::AzString::from(source.as_str())).into();
                         lib.components = comps.into();
                         map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
@@ -16875,21 +17796,35 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::UpdateComponentCompileFn { library, name, source, language } => {
+        DebugEvent::UpdateComponentCompileFn {
+            library,
+            name,
+            source,
+            language,
+        } => {
             // E4: Store compile_fn source for a specific language
             let mut map_guard = component_map.lock().unwrap_or_else(|e| e.into_inner());
             let empty_libs = azul_core::xml::ComponentLibraryVec::from_const_slice(&[]);
-            let mut libs = core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
+            let mut libs =
+                core::mem::replace(&mut map_guard.libraries, empty_libs).into_library_owned_vec();
 
-            if let Some(lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+            if let Some(lib) = libs
+                .iter_mut()
+                .find(|l| l.name.as_str() == library.as_str())
+            {
                 if !lib.modifiable {
                     map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                     drop(map_guard);
                     send_err(request, format!("Library '{}' is not modifiable", library));
                 } else {
-                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into()).into_library_owned_vec();
-                    if let Some(comp) = comps.iter_mut().find(|c| c.id.name.as_str() == name.as_str()) {
-                        comp.compile_fn_source = Some(azul_css::corety::AzString::from(source.as_str())).into();
+                    let mut comps = core::mem::replace(&mut lib.components, Vec::new().into())
+                        .into_library_owned_vec();
+                    if let Some(comp) = comps
+                        .iter_mut()
+                        .find(|c| c.id.name.as_str() == name.as_str())
+                    {
+                        comp.compile_fn_source =
+                            Some(azul_css::corety::AzString::from(source.as_str())).into();
                         lib.components = comps.into();
                         map_guard.libraries = azul_core::xml::ComponentLibraryVec::from_vec(libs);
                         drop(map_guard);
@@ -16920,16 +17855,22 @@ pub fn process_debug_event(
                             .arg(file.as_str())
                             .spawn()
                     } else {
-                        std::process::Command::new("open").arg(file.as_str()).spawn()
+                        std::process::Command::new("open")
+                            .arg(file.as_str())
+                            .spawn()
                     }
                 }
                 #[cfg(target_os = "linux")]
                 {
-                    std::process::Command::new("xdg-open").arg(file.as_str()).spawn()
+                    std::process::Command::new("xdg-open")
+                        .arg(file.as_str())
+                        .spawn()
                 }
                 #[cfg(target_os = "windows")]
                 {
-                    std::process::Command::new("cmd").args(&["/C", "start", "", file.as_str()]).spawn()
+                    std::process::Command::new("cmd")
+                        .args(&["/C", "start", "", file.as_str()])
+                        .spawn()
                 }
                 // Mobile targets have no "open in default editor" — debug
                 // server is desktop-only anyway. Return a synthesized Err so
@@ -17081,8 +18022,7 @@ mod e2e_manager_accounting {
             .iter()
             .filter(|m| {
                 let a = alias(m);
-                !KNOWN_MANAGERS.contains(&a)
-                    && !UNOBSERVABLE_MANAGERS.iter().any(|(n, _)| *n == a)
+                !KNOWN_MANAGERS.contains(&a) && !UNOBSERVABLE_MANAGERS.iter().any(|(n, _)| *n == a)
             })
             .collect();
 
@@ -17140,8 +18080,7 @@ mod e2e_manager_accounting {
             .iter()
             .filter(|m| {
                 let a = alias(m);
-                !fingerprinted.contains(&a)
-                    && !not_fingerprintable.iter().any(|(n, _)| *n == a)
+                !fingerprinted.contains(&a) && !not_fingerprintable.iter().any(|(n, _)| *n == a)
             })
             .collect();
         assert!(
@@ -17211,8 +18150,7 @@ mod non_interference_can_fail {
         let before = snapshot(&[("focus", "none"), ("scroll", "(0,4)=(0.00,0.00)")]);
         // Focus moved as expected AND scroll moved, which nobody asked for.
         let after = snapshot(&[("focus", "(0,7)"), ("scroll", "(0,4)=(0.00,120.00)")]);
-        let (moved, stale) =
-            diff_manager_fingerprints(&before, &after, &["focus".to_string()]);
+        let (moved, stale) = diff_manager_fingerprints(&before, &after, &["focus".to_string()]);
         assert_eq!(names(&moved), vec!["focus", "scroll"]);
         assert!(stale.is_empty());
         // The op only lists `focus`, so `scroll` is the leak the caller must see.
@@ -17247,8 +18185,7 @@ mod non_interference_can_fail {
     fn an_exact_match_is_silent() {
         let before = snapshot(&[("focus", "none"), ("scroll", "(0,4)=(0.00,0.00)")]);
         let after = snapshot(&[("focus", "(0,7)"), ("scroll", "(0,4)=(0.00,0.00)")]);
-        let (moved, stale) =
-            diff_manager_fingerprints(&before, &after, &["focus".to_string()]);
+        let (moved, stale) = diff_manager_fingerprints(&before, &after, &["focus".to_string()]);
         assert_eq!(names(&moved), vec!["focus"]);
         assert!(
             stale.is_empty(),
@@ -17306,8 +18243,7 @@ mod non_interference_can_fail {
             "scroll",
             azul_layout::managers::scroll_state::ScrollManager::new(),
             |m: &mut azul_layout::managers::scroll_state::ScrollManager| {
-                m.pending_wheel_event =
-                    Some(azul_core::geom::LogicalPosition { x: 1.0, y: 2.0 });
+                m.pending_wheel_event = Some(azul_core::geom::LogicalPosition { x: 1.0, y: 2.0 });
             },
             super::fp_scroll
         );
@@ -17363,9 +18299,10 @@ mod non_interference_can_fail {
             "undo_redo",
             azul_layout::managers::undo_redo::UndoRedoManager::new(),
             |m: &mut azul_layout::managers::undo_redo::UndoRedoManager| {
-                m.node_stacks.push(
-                    azul_layout::managers::undo_redo::NodeUndoRedoStack::new(NodeId::new(3)),
-                );
+                m.node_stacks
+                    .push(azul_layout::managers::undo_redo::NodeUndoRedoStack::new(
+                        NodeId::new(3),
+                    ));
             },
             super::fp_undo_redo
         );
@@ -17402,8 +18339,9 @@ mod non_interference_can_fail {
             |m: &mut azul_layout::managers::clipboard::ClipboardManager| {
                 m.set_copy_content(azul_layout::managers::selection::ClipboardContent {
                     plain_text: "x".to_string().into(),
-                    styled_runs:
-                        azul_layout::managers::selection::StyledTextRunVec::from_vec(Vec::new()),
+                    styled_runs: azul_layout::managers::selection::StyledTextRunVec::from_vec(
+                        Vec::new(),
+                    ),
                 });
             },
             super::fp_clipboard
@@ -17498,7 +18436,6 @@ mod non_interference_can_fail {
              disagree, so at least one fingerprint is untested and may be a constant",
         );
     }
-
 }
 
 /// Decode a base64 payload for `AZ_E2E_SHOT_DIR`. Standard alphabet, padding
@@ -17556,18 +18493,29 @@ mod assert_stderr_tests {
         azul_core::diagnostics::record("[azul][image-churn] node 7 rebuilt".to_string());
 
         let hit = eval_assert_stderr(&serde_json::json!({ "contains": "image-churn" }));
-        assert!(hit.passed, "should find the recorded diagnostic: {}", hit.message);
+        assert!(
+            hit.passed,
+            "should find the recorded diagnostic: {}",
+            hit.message
+        );
 
         let missing = eval_assert_stderr(&serde_json::json!({ "contains": "no-such-lint" }));
-        assert!(!missing.passed, "must not claim to find a diagnostic that is absent");
+        assert!(
+            !missing.passed,
+            "must not claim to find a diagnostic that is absent"
+        );
 
-        let forbidden =
-            eval_assert_stderr(&serde_json::json!({ "not_contains": "image-churn" }));
-        assert!(!forbidden.passed, "not_contains must FAIL when the needle is present");
+        let forbidden = eval_assert_stderr(&serde_json::json!({ "not_contains": "image-churn" }));
+        assert!(
+            !forbidden.passed,
+            "not_contains must FAIL when the needle is present"
+        );
 
-        let clean =
-            eval_assert_stderr(&serde_json::json!({ "not_contains": "no-such-lint" }));
-        assert!(clean.passed, "not_contains passes when the needle is absent");
+        let clean = eval_assert_stderr(&serde_json::json!({ "not_contains": "no-such-lint" }));
+        assert!(
+            clean.passed,
+            "not_contains passes when the needle is absent"
+        );
 
         azul_core::diagnostics::clear();
     }
@@ -17589,11 +18537,12 @@ mod assert_stderr_tests {
         let _g = azul_core::diagnostics::test_lock().lock();
         azul_core::diagnostics::clear();
         azul_core::diagnostics::record("[azul][test] marker".to_string());
-        let r = eval_assert_stderr(
-            &serde_json::json!({ "contains": "marker", "clear": true }),
-        );
+        let r = eval_assert_stderr(&serde_json::json!({ "contains": "marker", "clear": true }));
         assert!(r.passed);
         let again = eval_assert_stderr(&serde_json::json!({ "contains": "marker" }));
-        assert!(!again.passed, "clear:true must empty the ring after evaluating");
+        assert!(
+            !again.passed,
+            "clear:true must empty the ring after evaluating"
+        );
     }
 }

@@ -27,7 +27,8 @@ pub struct FileDropManager {
 
 impl FileDropManager {
     /// Create a new file drop manager
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             hovered_files: Vec::new(),
             dropped_files: Vec::new(),
@@ -64,7 +65,8 @@ impl FileDropManager {
 
     /// Whether a hover ended without a drop since the last
     /// [`FileDropManager::clear_hover_cancelled`] (one-shot).
-    #[must_use] pub const fn hover_was_cancelled(&self) -> bool {
+    #[must_use]
+    pub const fn hover_was_cancelled(&self) -> bool {
         self.hover_cancelled
     }
 
@@ -77,24 +79,28 @@ impl FileDropManager {
 
     /// First hovered file (single-file view; use
     /// [`get_hovered_files`](Self::get_hovered_files) for the full list).
-    #[must_use] pub fn get_hovered_file(&self) -> Option<&AzString> {
+    #[must_use]
+    pub fn get_hovered_file(&self) -> Option<&AzString> {
         self.hovered_files.first()
     }
 
     /// ALL currently hovered files (MWA-B7).
-    #[must_use] pub fn get_hovered_files(&self) -> &[AzString] {
+    #[must_use]
+    pub fn get_hovered_files(&self) -> &[AzString] {
         &self.hovered_files
     }
 
     /// First dropped file (single-file view; use
     /// [`get_dropped_files`](Self::get_dropped_files) for the full list).
-    #[must_use] pub fn get_dropped_file(&self) -> Option<&AzString> {
+    #[must_use]
+    pub fn get_dropped_file(&self) -> Option<&AzString> {
         self.dropped_files.first()
     }
 
     /// ALL files of the drop this frame (MWA-B7; one-shot, cleared by the
     /// platform handler after event processing).
-    #[must_use] pub fn get_dropped_files(&self) -> &[AzString] {
+    #[must_use]
+    pub fn get_dropped_files(&self) -> &[AzString] {
         &self.dropped_files
     }
 
@@ -382,15 +388,15 @@ mod autotest_generated {
     #[test]
     fn unicode_paths_round_trip_byte_exact() {
         let paths = [
-            "/tmp/файл.txt",                       // Cyrillic
-            "/tmp/文件/資料.csv",                  // CJK
-            "/tmp/🦀/emoji 💾.bin",                // astral plane
-            "/tmp/\u{202E}gpj.exe",                // RTL override (spoofing)
-            "/tmp/e\u{0301}\u{0301}\u{0301}.txt",  // stacked combining marks
-            "/tmp/zero\u{200B}width.txt",          // zero-width space
-            "/tmp/\u{FFFD}replacement.txt",        // U+FFFD
-            "  /tmp/ leading and trailing  ",      // whitespace kept verbatim
-            "/tmp/newline\nand\ttab.txt",          // control chars
+            "/tmp/файл.txt",                      // Cyrillic
+            "/tmp/文件/資料.csv",                 // CJK
+            "/tmp/🦀/emoji 💾.bin",               // astral plane
+            "/tmp/\u{202E}gpj.exe",               // RTL override (spoofing)
+            "/tmp/e\u{0301}\u{0301}\u{0301}.txt", // stacked combining marks
+            "/tmp/zero\u{200B}width.txt",         // zero-width space
+            "/tmp/\u{FFFD}replacement.txt",       // U+FFFD
+            "  /tmp/ leading and trailing  ",     // whitespace kept verbatim
+            "/tmp/newline\nand\ttab.txt",         // control chars
         ];
         let files: Vec<AzString> = paths.iter().map(|p| s(p)).collect();
 
@@ -517,7 +523,10 @@ mod autotest_generated {
         let mut m = FileDropManager::new();
         m.set_hovered_files(vec![s("/tmp/🦀.txt")]);
         let dbg = alloc::format!("{m:?}");
-        assert!(dbg.contains("/tmp/🦀.txt"), "unexpected Debug output: {dbg}");
+        assert!(
+            dbg.contains("/tmp/🦀.txt"),
+            "unexpected Debug output: {dbg}"
+        );
         assert!(dbg.contains("hover_cancelled"));
     }
 }

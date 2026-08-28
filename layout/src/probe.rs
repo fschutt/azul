@@ -123,7 +123,11 @@ mod imp {
     pub(super) fn open(name: &'static str) -> Span {
         let _ = SPAN_NAMES.try_with(|st| st.borrow_mut().push(name));
         if !recording() {
-            return Span { name, start: None, depth: 0 };
+            return Span {
+                name,
+                start: None,
+                depth: 0,
+            };
         }
         let depth = DEPTH
             .try_with(|d| {
@@ -132,7 +136,11 @@ mod imp {
                 cur
             })
             .unwrap_or(0);
-        Span { name, start: Some(Instant::now()), depth }
+        Span {
+            name,
+            start: Some(Instant::now()),
+            depth,
+        }
     }
 
     pub(super) fn sample_rss(label: &'static str, bytes: u64) {
@@ -277,7 +285,11 @@ mod imp {
         }
         let module: std::borrow::Cow<'_, str> = match module {
             Some(m) if !m.is_empty() => m.into(),
-            _ => std::env::current_exe().ok()?.to_string_lossy().into_owned().into(),
+            _ => std::env::current_exe()
+                .ok()?
+                .to_string_lossy()
+                .into_owned()
+                .into(),
         };
         let ask = |addr: usize| -> Option<String> {
             let out = std::process::Command::new("addr2line")
@@ -323,11 +335,7 @@ mod imp {
     }
 }
 
-#[cfg(any(
-    not(feature = "probe"),
-    target_family = "wasm",
-    feature = "web_lift"
-))]
+#[cfg(any(not(feature = "probe"), target_family = "wasm", feature = "web_lift"))]
 mod imp {
     #[derive(Debug)]
     pub struct Span;
@@ -367,7 +375,9 @@ mod imp {
     pub(super) const fn drop_events() {}
 
     #[inline]
-    pub(super) const fn peek_len() -> usize { 0 }
+    pub(super) const fn peek_len() -> usize {
+        0
+    }
 
     #[inline]
     pub(super) const fn enabled() -> bool {
@@ -419,7 +429,8 @@ impl Probe {
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
-    #[must_use] pub fn span(name: &'static str) -> Span {
+    #[must_use]
+    pub fn span(name: &'static str) -> Span {
         imp::open(name)
     }
 
@@ -449,7 +460,8 @@ impl Probe {
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
-    #[must_use] pub fn drain() -> Vec<Event> {
+    #[must_use]
+    pub fn drain() -> Vec<Event> {
         imp::drain()
     }
 
@@ -460,7 +472,8 @@ impl Probe {
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
-    #[must_use] pub fn span_path() -> String {
+    #[must_use]
+    pub fn span_path() -> String {
         imp::span_path()
     }
 
@@ -483,7 +496,8 @@ impl Probe {
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
-    #[must_use] pub fn span_for_fn(fn_ptr: usize) -> Span {
+    #[must_use]
+    pub fn span_for_fn(fn_ptr: usize) -> Span {
         imp::open(imp::resolve_fn_name(fn_ptr))
     }
 
@@ -502,7 +516,8 @@ impl Probe {
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
-    #[must_use] pub fn peek_len() -> usize {
+    #[must_use]
+    pub fn peek_len() -> usize {
         imp::peek_len()
     }
 
@@ -510,7 +525,8 @@ impl Probe {
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
-    #[must_use] pub fn enabled() -> bool {
+    #[must_use]
+    pub fn enabled() -> bool {
         imp::enabled()
     }
 }
@@ -552,9 +568,7 @@ pub fn print_drained_events(label: &str, events: &[Event]) {
         } else {
             // Feature absent or target-family disabled (WASM): show "???"
             // instead of a misleading "compile with feature=probe" hint.
-            eprintln!(
-                "[CPU] {label}: probe unavailable on this target (timings = ???)"
-            );
+            eprintln!("[CPU] {label}: probe unavailable on this target (timings = ???)");
         }
         return;
     }
@@ -647,7 +661,11 @@ pub fn sample_peak_rss(label: &'static str) {
         // "unattributed" turned out to be largely this).
         let _p = Probe::span("probe_rss_sample_cost");
         let (current, _virt) = current_rss_bytes();
-        let bytes = if current != 0 { current } else { peak_rss_bytes_self() };
+        let bytes = if current != 0 {
+            current
+        } else {
+            peak_rss_bytes_self()
+        };
         Probe::sample_rss(label, bytes);
     }
     #[cfg(any(not(feature = "probe"), feature = "web_lift"))]
@@ -655,7 +673,10 @@ pub fn sample_peak_rss(label: &'static str) {
 }
 
 #[cfg(feature = "probe")]
-#[must_use] pub fn peak_rss_bytes_pub() -> u64 { peak_rss_bytes_self() }
+#[must_use]
+pub fn peak_rss_bytes_pub() -> u64 {
+    peak_rss_bytes_self()
+}
 
 #[cfg(feature = "probe")]
 fn peak_rss_bytes_self() -> u64 {
@@ -666,7 +687,11 @@ fn peak_rss_bytes_self() -> u64 {
             return 0;
         }
         let raw = ru.ru_maxrss as u64;
-        if cfg!(target_os = "macos") { raw } else { raw.saturating_mul(1024) }
+        if cfg!(target_os = "macos") {
+            raw
+        } else {
+            raw.saturating_mul(1024)
+        }
     }
     // Windows has no getrusage; `PeakWorkingSetSize` is the direct equivalent
     // of `ru_maxrss` and is already in bytes.
@@ -705,7 +730,10 @@ pub fn hint_purge_allocator() {
         static PURGE_TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         if *PURGE_TRACE.get_or_init(azul_core::profile::memory_enabled) {
             let (rss, _) = current_rss_bytes();
-            eprintln!("[PURGE] mi_collect(true) called — current rss={:.2} MiB", rss as f64 / 1048576.0);
+            eprintln!(
+                "[PURGE] mi_collect(true) called — current rss={:.2} MiB",
+                rss as f64 / 1048576.0
+            );
         }
         return;
     }
@@ -723,7 +751,11 @@ pub fn hint_purge_allocator() {
         }
         return;
     }
-    #[cfg(all(target_os = "macos", not(miri), not(any(feature = "allocator_mimalloc", feature = "allocator_jemalloc"))))]
+    #[cfg(all(
+        target_os = "macos",
+        not(miri),
+        not(any(feature = "allocator_mimalloc", feature = "allocator_jemalloc"))
+    ))]
     {
         extern "C" {
             fn malloc_zone_pressure_relief(zone: *mut core::ffi::c_void, goal: usize) -> usize;
@@ -765,7 +797,8 @@ pub fn hint_purge_allocator() {
 /// equivalent; the shared-lib inflation is much smaller there).
 /// More useful than `getrusage.ru_maxrss` which only moves upward.
 #[cfg(feature = "probe")]
-#[must_use] pub fn current_rss_bytes() -> (u64, u64) {
+#[must_use]
+pub fn current_rss_bytes() -> (u64, u64) {
     // Miri cannot call the mach `task_info` foreign function; memory profiling
     // is meaningless under Miri anyway, so report zero.
     #[cfg(miri)]
@@ -790,8 +823,10 @@ pub fn hint_purge_allocator() {
         extern "C" {
             fn mach_task_self() -> u32;
             fn task_info(
-                target: u32, flavor: u32,
-                info: *mut core::ffi::c_void, count: *mut u32,
+                target: u32,
+                flavor: u32,
+                info: *mut core::ffi::c_void,
+                count: *mut u32,
             ) -> i32;
         }
         unsafe {
@@ -827,10 +862,7 @@ pub fn hint_purge_allocator() {
         let resident: u64 = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
         let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
         let page = if page > 0 { page as u64 } else { 4096 };
-        (
-            resident.saturating_mul(page),
-            size.saturating_mul(page),
-        )
+        (resident.saturating_mul(page), size.saturating_mul(page))
     }
     // Windows: `K32GetProcessMemoryInfo` is the documented equivalent.
     // WorkingSetSize is the RSS analogue (what Task Manager calls "Memory
@@ -850,7 +882,9 @@ pub fn hint_purge_allocator() {
         all(target_os = "linux", not(miri)),
         all(target_os = "windows", not(miri))
     )))]
-    { (0, 0) }
+    {
+        (0, 0)
+    }
 }
 
 /// Snapshot of `PROCESS_MEMORY_COUNTERS_EX`, in bytes.
@@ -961,22 +995,17 @@ pub fn malloc_heap_bytes() -> u64 {
     #[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
     {
         type Mallinfo2Fn = unsafe extern "C" fn() -> libc::mallinfo2;
-        static MALLINFO2: std::sync::OnceLock<Option<Mallinfo2Fn>> =
-            std::sync::OnceLock::new();
+        static MALLINFO2: std::sync::OnceLock<Option<Mallinfo2Fn>> = std::sync::OnceLock::new();
         let resolved = MALLINFO2.get_or_init(|| unsafe {
             // RTLD_DEFAULT is NULL on glibc; the libc crate doesn't define
             // the constant for linux-gnu, so spell it out.
-            let sym = libc::dlsym(
-                core::ptr::null_mut(),
-                c"mallinfo2".as_ptr(),
-            );
+            let sym = libc::dlsym(core::ptr::null_mut(), c"mallinfo2".as_ptr());
             if sym.is_null() {
                 None
             } else {
-                Some(core::mem::transmute::<
-                    *mut core::ffi::c_void,
-                    Mallinfo2Fn,
-                >(sym))
+                Some(core::mem::transmute::<*mut core::ffi::c_void, Mallinfo2Fn>(
+                    sym,
+                ))
             }
         });
         match resolved {
@@ -990,7 +1019,9 @@ pub fn malloc_heap_bytes() -> u64 {
         target_os = "macos",
         all(target_os = "linux", target_env = "gnu", not(miri))
     )))]
-    { 0 }
+    {
+        0
+    }
 }
 
 /// Sample the Mach `phys_footprint` — the memory metric Activity
@@ -1008,7 +1039,8 @@ pub fn malloc_heap_bytes() -> u64 {
 // NOT const: the macOS branch calls mach task_info — const only held on
 // targets where that branch compiles out (E0015 on aarch64-apple-darwin).
 #[allow(clippy::missing_const_for_fn)]
-#[must_use] pub fn phys_footprint_bytes() -> u64 {
+#[must_use]
+pub fn phys_footprint_bytes() -> u64 {
     // Miri cannot call the mach `task_info` foreign function.
     #[cfg(miri)]
     return 0;
@@ -1046,8 +1078,10 @@ pub fn malloc_heap_bytes() -> u64 {
         extern "C" {
             fn mach_task_self() -> u32;
             fn task_info(
-                target: u32, flavor: u32,
-                info: *mut core::ffi::c_void, count: *mut u32,
+                target: u32,
+                flavor: u32,
+                info: *mut core::ffi::c_void,
+                count: *mut u32,
             ) -> i32;
         }
         unsafe {
@@ -1059,11 +1093,17 @@ pub fn malloc_heap_bytes() -> u64 {
                 &mut info as *mut _ as *mut core::ffi::c_void,
                 &mut count,
             );
-            if kr == 0 { info.phys_footprint } else { 0 }
+            if kr == 0 {
+                info.phys_footprint
+            } else {
+                0
+            }
         }
     }
     #[cfg(not(target_os = "macos"))]
-    { 0 }
+    {
+        0
+    }
 }
 
 /// Background sampler for peak `phys_footprint`. Spawns a thread that
@@ -1085,8 +1125,7 @@ pub fn start_peak_sampler() {
     {
         use std::sync::atomic::Ordering;
         // Idempotent — only spawns once.
-        static STARTED: std::sync::atomic::AtomicBool =
-            std::sync::atomic::AtomicBool::new(false);
+        static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if STARTED.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -1105,8 +1144,7 @@ pub fn start_peak_sampler() {
 }
 
 #[cfg(feature = "probe")]
-static PEAK_PHYS_FOOTPRINT: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static PEAK_PHYS_FOOTPRINT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Read the peak `phys_footprint` seen by the background sampler.
 /// Returns 0 if `start_peak_sampler` was never called.
@@ -1146,7 +1184,10 @@ pub const fn sample_phase_peak(_label: &'static str) {}
 
 #[cfg(not(feature = "probe"))]
 #[inline]
-#[must_use] pub const fn malloc_heap_bytes() -> u64 { 0 }
+#[must_use]
+pub const fn malloc_heap_bytes() -> u64 {
+    0
+}
 
 /// Emit one `{"ev":"phase","label":L,"heap":N,"call":C}` line to the
 /// JSONL file named by `AZ_PROFILE_OUT=<path>`. Only fires when
@@ -1165,15 +1206,17 @@ pub const fn sample_phase_peak(_label: &'static str) {}
 #[cfg(feature = "probe")]
 pub fn emit_phase_heap(label: &str) {
     use std::io::Write;
-    if !heap_jsonl_enabled() { return; }
-    let Some(p) = azul_core::profile::out_path() else { return };
-    static CALL_ID: std::sync::atomic::AtomicU64 =
-        std::sync::atomic::AtomicU64::new(0);
+    if !heap_jsonl_enabled() {
+        return;
+    }
+    let Some(p) = azul_core::profile::out_path() else {
+        return;
+    };
+    static CALL_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     // Auto-increment on every "start" label; "end" and intermediates reuse
     // the current id so all phases in one regenerate_layout invocation share
     // a call number.
-    static CURRENT_CALL: std::sync::atomic::AtomicU64 =
-        std::sync::atomic::AtomicU64::new(0);
+    static CURRENT_CALL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let call_id = if label == "start" {
         let next = CALL_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
         CURRENT_CALL.store(next, std::sync::atomic::Ordering::Relaxed);
@@ -1208,9 +1251,15 @@ pub const fn emit_phase_heap(_label: &str) {}
 #[cfg(feature = "probe")]
 pub fn emit_phase_heap_extra(label: &str, extra: u64) {
     use std::io::Write;
-    if !heap_jsonl_enabled() { return; }
-    if !azul_core::profile::detail_enabled() { return; }
-    let Some(p) = azul_core::profile::out_path() else { return };
+    if !heap_jsonl_enabled() {
+        return;
+    }
+    if !azul_core::profile::detail_enabled() {
+        return;
+    }
+    let Some(p) = azul_core::profile::out_path() else {
+        return;
+    };
     let heap = malloc_heap_bytes();
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
@@ -1242,13 +1291,17 @@ fn heap_jsonl_enabled() -> bool {
 /// without pulling in `azul_core::profile` directly.
 #[cfg(feature = "probe")]
 #[inline]
-#[must_use] pub fn detail_enabled() -> bool {
+#[must_use]
+pub fn detail_enabled() -> bool {
     azul_core::profile::detail_enabled()
 }
 
 #[cfg(not(feature = "probe"))]
 #[inline]
-#[must_use] pub const fn detail_enabled() -> bool { false }
+#[must_use]
+pub const fn detail_enabled() -> bool {
+    false
+}
 
 #[cfg(test)]
 #[allow(let_underscore_drop, clippy::too_many_lines)]
@@ -1270,7 +1323,11 @@ mod autotest_generated {
     fn reset() {
         Probe::set_recording(true);
         Probe::drop_events();
-        assert_eq!(Probe::peek_len(), 0, "drop_events must leave an empty buffer");
+        assert_eq!(
+            Probe::peek_len(),
+            0,
+            "drop_events must leave an empty buffer"
+        );
     }
 
     fn span_ns(ev: &Event) -> Option<u64> {
@@ -1327,7 +1384,10 @@ mod autotest_generated {
         if Probe::enabled() {
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].name, "autotest_span_round_trip");
-            assert!(span_ns(&events[0]).is_some(), "span guard must emit EventKind::Span");
+            assert!(
+                span_ns(&events[0]).is_some(),
+                "span guard must emit EventKind::Span"
+            );
         } else {
             assert!(events.is_empty(), "no-op imp must never buffer events");
         }
@@ -1404,11 +1464,11 @@ mod autotest_generated {
             "",
             "\0embedded\0nul\0",
             "\n\r\t",
-            "{}{:?}{0}%s%n",           // format-string-looking payloads
-            "🦀👨‍👩‍👧‍👦🇩🇪",         // emoji + ZWJ sequence + flag
-            "مرحبا بالعالم",           // RTL
+            "{}{:?}{0}%s%n",             // format-string-looking payloads
+            "🦀👨‍👩‍👧‍👦🇩🇪",                    // emoji + ZWJ sequence + flag
+            "مرحبا بالعالم",             // RTL
             "e\u{0301}\u{0301}\u{0301}", // stacked combining marks
-            leak("A".repeat(100_000)), // huge
+            leak("A".repeat(100_000)),   // huge
             leak("\u{1F4A9}".repeat(10_000)),
         ];
         for &name in &hostile {
@@ -1545,11 +1605,18 @@ mod autotest_generated {
         let child_len = std::thread::spawn(|| {
             // A fresh thread starts with an empty buffer, even though the
             // parent just pushed an event.
-            assert_eq!(Probe::peek_len(), 0, "buffers must not be shared across threads");
+            assert_eq!(
+                Probe::peek_len(),
+                0,
+                "buffers must not be shared across threads"
+            );
             Probe::sample_rss("child_thread", 2);
             let drained = Probe::drain();
             for ev in &drained {
-                assert_eq!(ev.name, "child_thread", "child must only see its own events");
+                assert_eq!(
+                    ev.name, "child_thread",
+                    "child must only see its own events"
+                );
             }
             drained.len()
         })
@@ -1559,7 +1626,11 @@ mod autotest_generated {
         let events = Probe::drain();
         if Probe::enabled() {
             assert_eq!(child_len, 1);
-            assert_eq!(events.len(), 1, "the child's drain must not touch our buffer");
+            assert_eq!(
+                events.len(),
+                1,
+                "the child's drain must not touch our buffer"
+            );
             assert_eq!(events[0].name, "main_thread");
         } else {
             assert_eq!(child_len, 0);
@@ -1611,9 +1682,21 @@ mod autotest_generated {
         // With zero spans the row list is empty; the `ns.last().unwrap()` in
         // the row builder must never be reached.
         let events = [
-            Event { name: "a", kind: EventKind::Rss { bytes: 0 }, depth: 0 },
-            Event { name: "b", kind: EventKind::Rss { bytes: u64::MAX }, depth: 0 },
-            Event { name: "c", kind: EventKind::Rss { bytes: 1 }, depth: 0 },
+            Event {
+                name: "a",
+                kind: EventKind::Rss { bytes: 0 },
+                depth: 0,
+            },
+            Event {
+                name: "b",
+                kind: EventKind::Rss { bytes: u64::MAX },
+                depth: 0,
+            },
+            Event {
+                name: "c",
+                kind: EventKind::Rss { bytes: 1 },
+                depth: 0,
+            },
         ];
         print_drained_events("rss-only", &events);
     }
@@ -1640,10 +1723,26 @@ mod autotest_generated {
         // u128 and truncates for display, so this must not panic in a debug
         // build (overflow checks are on for `cargo test`).
         let events = [
-            Event { name: "huge", kind: EventKind::Span { dur_ns: u64::MAX }, depth: 0 },
-            Event { name: "huge", kind: EventKind::Span { dur_ns: u64::MAX }, depth: 0 },
-            Event { name: "huge", kind: EventKind::Span { dur_ns: u64::MAX }, depth: 0 },
-            Event { name: "zero", kind: EventKind::Span { dur_ns: 0 }, depth: 0 },
+            Event {
+                name: "huge",
+                kind: EventKind::Span { dur_ns: u64::MAX },
+                depth: 0,
+            },
+            Event {
+                name: "huge",
+                kind: EventKind::Span { dur_ns: u64::MAX },
+                depth: 0,
+            },
+            Event {
+                name: "huge",
+                kind: EventKind::Span { dur_ns: u64::MAX },
+                depth: 0,
+            },
+            Event {
+                name: "zero",
+                kind: EventKind::Span { dur_ns: 0 },
+                depth: 0,
+            },
         ];
         print_drained_events("overflowing-total", &events);
     }
@@ -1653,9 +1752,21 @@ mod autotest_generated {
         // The delta is computed in i128; a MAX -> 0 -> MAX swing is the worst
         // case for a naive i64/u64 subtraction.
         let events = [
-            Event { name: "peak", kind: EventKind::Rss { bytes: u64::MAX }, depth: 0 },
-            Event { name: "trough", kind: EventKind::Rss { bytes: 0 }, depth: 0 },
-            Event { name: "peak_again", kind: EventKind::Rss { bytes: u64::MAX }, depth: 0 },
+            Event {
+                name: "peak",
+                kind: EventKind::Rss { bytes: u64::MAX },
+                depth: 0,
+            },
+            Event {
+                name: "trough",
+                kind: EventKind::Rss { bytes: 0 },
+                depth: 0,
+            },
+            Event {
+                name: "peak_again",
+                kind: EventKind::Rss { bytes: u64::MAX },
+                depth: 0,
+            },
         ];
         print_drained_events("delta-swing", &events);
     }
@@ -1664,10 +1775,26 @@ mod autotest_generated {
     fn print_drained_events_hostile_labels_and_names() {
         let big = leak("x".repeat(65_536));
         let events = [
-            Event { name: "", kind: EventKind::Span { dur_ns: 1 }, depth: 0 },
-            Event { name: "{}{:?}", kind: EventKind::Span { dur_ns: 2 }, depth: 0 },
-            Event { name: big, kind: EventKind::Span { dur_ns: u64::MAX }, depth: 0 },
-            Event { name: "🦀\u{0301}\0", kind: EventKind::Rss { bytes: 1 }, depth: 0 },
+            Event {
+                name: "",
+                kind: EventKind::Span { dur_ns: 1 },
+                depth: 0,
+            },
+            Event {
+                name: "{}{:?}",
+                kind: EventKind::Span { dur_ns: 2 },
+                depth: 0,
+            },
+            Event {
+                name: big,
+                kind: EventKind::Span { dur_ns: u64::MAX },
+                depth: 0,
+            },
+            Event {
+                name: "🦀\u{0301}\0",
+                kind: EventKind::Rss { bytes: 1 },
+                depth: 0,
+            },
         ];
         print_drained_events(big, &events);
         print_drained_events("\0\n{}", &events);
@@ -1708,7 +1835,10 @@ mod autotest_generated {
             .join()
             .expect("monotonic_now_nanos must not panic off the main thread");
         let after = monotonic_now_nanos();
-        assert!(before <= mid && mid <= after, "{before} <= {mid} <= {after}");
+        assert!(
+            before <= mid && mid <= after,
+            "{before} <= {mid} <= {after}"
+        );
     }
 
     // ---------------------------------------------------------------
@@ -1739,9 +1869,7 @@ mod autotest_generated {
                 "sample_peak_rss must emit an Rss-kind event"
             );
             assert!(
-                events
-                    .iter()
-                    .any(|ev| ev.name == "probe_rss_sample_cost"),
+                events.iter().any(|ev| ev.name == "probe_rss_sample_cost"),
                 "the self-measurement span must still be recorded: {events:?}"
             );
         } else {
@@ -1853,7 +1981,11 @@ mod autotest_generated {
     fn detail_enabled_is_deterministic() {
         let first = detail_enabled();
         for _ in 0..100 {
-            assert_eq!(detail_enabled(), first, "flag reads are cached, must not flap");
+            assert_eq!(
+                detail_enabled(),
+                first,
+                "flag reads are cached, must not flap"
+            );
         }
         if !cfg!(feature = "probe") {
             assert!(!first, "the no-probe stub is a const `false`");
@@ -1884,7 +2016,11 @@ mod autotest_generated {
         for l in &labels {
             emit_phase_heap(l);
         }
-        assert_eq!(Probe::peek_len(), 0, "JSONL emission must not touch the span buffer");
+        assert_eq!(
+            Probe::peek_len(),
+            0,
+            "JSONL emission must not touch the span buffer"
+        );
     }
 
     #[test]
@@ -1903,8 +2039,16 @@ mod autotest_generated {
 
     #[test]
     fn event_is_copy_and_clone_preserving_payload() {
-        let span = Event { name: "n", kind: EventKind::Span { dur_ns: u64::MAX }, depth: 0 };
-        let rss = Event { name: "n", kind: EventKind::Rss { bytes: u64::MAX }, depth: 0 };
+        let span = Event {
+            name: "n",
+            kind: EventKind::Span { dur_ns: u64::MAX },
+            depth: 0,
+        };
+        let rss = Event {
+            name: "n",
+            kind: EventKind::Rss { bytes: u64::MAX },
+            depth: 0,
+        };
         let span_copy = span; // Copy
         #[allow(clippy::clone_on_copy)]
         let rss_clone = rss.clone();
@@ -1928,10 +2072,19 @@ mod autotest_generated {
         let first = peak_rss_bytes_self();
         let pubbed = peak_rss_bytes_pub();
         let second = peak_rss_bytes_self();
-        assert!(pubbed >= first, "peak RSS must never decrease: {first} -> {pubbed}");
-        assert!(second >= pubbed, "peak RSS must never decrease: {pubbed} -> {second}");
+        assert!(
+            pubbed >= first,
+            "peak RSS must never decrease: {first} -> {pubbed}"
+        );
+        assert!(
+            second >= pubbed,
+            "peak RSS must never decrease: {pubbed} -> {second}"
+        );
         if cfg!(unix) && !cfg!(miri) {
-            assert!(first > 0, "getrusage on a live unix process must report some RSS");
+            assert!(
+                first > 0,
+                "getrusage on a live unix process must report some RSS"
+            );
         }
     }
 
@@ -1979,7 +2132,10 @@ mod autotest_generated {
         // the non-macOS path (where phys_footprint is always 0) is assertable.
         let seen = peak_phys_footprint_seen();
         if !cfg!(target_os = "macos") {
-            assert_eq!(seen, 0, "no phys_footprint source off macOS => peak stays 0");
+            assert_eq!(
+                seen, 0,
+                "no phys_footprint source off macOS => peak stays 0"
+            );
         }
     }
 
@@ -1994,7 +2150,11 @@ mod autotest_generated {
         );
         let first = heap_jsonl_enabled();
         for _ in 0..100 {
-            assert_eq!(heap_jsonl_enabled(), first, "flags are cached, must not flap");
+            assert_eq!(
+                heap_jsonl_enabled(),
+                first,
+                "flags are cached, must not flap"
+            );
         }
     }
 }
@@ -2154,7 +2314,10 @@ mod rss_census_tests {
         );
         // A Rust test binary always has a heap and shared libraries; if either
         // is zero the header/Rss pairing has broken.
-        assert!(c.heap_kib > 0 || c.anon_kib > 0, "no heap and no anon mappings — parse is wrong");
+        assert!(
+            c.heap_kib > 0 || c.anon_kib > 0,
+            "no heap and no anon mappings — parse is wrong"
+        );
     }
 
     /// Off Linux the census is honest about being unavailable rather than
@@ -2276,8 +2439,7 @@ pub fn malloc_trim() -> Option<bool> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         unsafe extern "C" {
-            fn dlsym(handle: *mut core::ffi::c_void, symbol: *const u8)
-                -> *mut core::ffi::c_void;
+            fn dlsym(handle: *mut core::ffi::c_void, symbol: *const u8) -> *mut core::ffi::c_void;
         }
         let sym = unsafe { dlsym(core::ptr::null_mut(), c"malloc_trim".as_ptr().cast()) };
         if sym.is_null() {
@@ -2308,8 +2470,7 @@ pub fn allocator_stats() -> Option<AllocatorStats> {
     {
         // RTLD_DEFAULT is NULL on glibc: search the global symbol scope.
         unsafe extern "C" {
-            fn dlsym(handle: *mut core::ffi::c_void, symbol: *const u8)
-                -> *mut core::ffi::c_void;
+            fn dlsym(handle: *mut core::ffi::c_void, symbol: *const u8) -> *mut core::ffi::c_void;
         }
         let sym = unsafe { dlsym(core::ptr::null_mut(), c"mallinfo2".as_ptr().cast()) };
         if sym.is_null() {
@@ -2355,7 +2516,10 @@ mod allocator_stats_tests {
             a.arena_bytes
         );
         let pct = a.fragmentation_pct();
-        assert!((0.0..=100.0).contains(&pct), "fragmentation {pct} out of range");
+        assert!(
+            (0.0..=100.0).contains(&pct),
+            "fragmentation {pct} out of range"
+        );
     }
 
     /// Allocating must move the numbers, and must move the RIGHT one.
@@ -2374,11 +2538,17 @@ mod allocator_stats_tests {
         // the live-vs-freed-but-held split for churn. Verified, pinned.
         // ARENA allocations move `live_bytes`. 32 MiB of 16 KiB blocks, so
         // the delta dominates whatever other tests are doing concurrently.
-        let Some(before_small) = allocator_stats() else { return };
+        let Some(before_small) = allocator_stats() else {
+            return;
+        };
         let small: Vec<Vec<u8>> = (0..2048).map(|_| vec![7u8; 16 * 1024]).collect();
         let small = core::hint::black_box(small);
-        let Some(after_small) = allocator_stats() else { return };
-        let grew = after_small.live_bytes.saturating_sub(before_small.live_bytes);
+        let Some(after_small) = allocator_stats() else {
+            return;
+        };
+        let grew = after_small
+            .live_bytes
+            .saturating_sub(before_small.live_bytes);
         assert!(
             grew > 16 * 1024 * 1024,
             "32 MiB of arena allocations must raise live_bytes by well over \
@@ -2395,11 +2565,15 @@ mod allocator_stats_tests {
         // whose result is never read, no counter moves, and the test "proves"
         // the field is broken — which is exactly the wrong conclusion an
         // earlier version of this test reached.
-        let Some(before_big) = allocator_stats() else { return };
+        let Some(before_big) = allocator_stats() else {
+            return;
+        };
         let mut big: Vec<u8> = vec![7u8; 64 * 1024 * 1024];
         big[12345] = 9;
         let big = core::hint::black_box(big);
-        let Some(after_big) = allocator_stats() else { return };
+        let Some(after_big) = allocator_stats() else {
+            return;
+        };
         assert!(
             after_big.mmapped_bytes > before_big.mmapped_bytes,
             "a 64 MiB allocation must raise mmapped_bytes ({} -> {})",
@@ -2426,17 +2600,27 @@ mod allocator_stats_tests {
         // identical functions into ONE address, which is not what this
         // test is about.
         #[inline(never)]
-        fn f_one() -> u32 { std::hint::black_box(1) }
+        fn f_one() -> u32 {
+            std::hint::black_box(1)
+        }
         #[inline(never)]
-        fn f_two() -> u32 { std::hint::black_box(2) }
+        fn f_two() -> u32 {
+            std::hint::black_box(2)
+        }
         let a = Probe::span_for_fn(f_one as usize);
         let b = Probe::span_for_fn(f_two as usize);
         drop(a);
         drop(b);
         let names = super::imp::resolve_fn_name(f_one as usize);
         let names2 = super::imp::resolve_fn_name(f_two as usize);
-        assert_ne!(names, "cb:?", "unresolved symbol must fall back to an address form");
-        assert_ne!(names, names2, "distinct fns must resolve to distinct span names");
+        assert_ne!(
+            names, "cb:?",
+            "unresolved symbol must fall back to an address form"
+        );
+        assert_ne!(
+            names, names2,
+            "distinct fns must resolve to distinct span names"
+        );
         assert!(
             names.starts_with("cb:"),
             "span name keeps the cb: family prefix: {names}"

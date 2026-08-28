@@ -1,5 +1,5 @@
-use azul::prelude::*;
 use azul::option::OptionDom;
+use azul::prelude::*;
 
 const TOTAL_ROWS: usize = 1_000_000;
 const ROW_HEIGHT: f32 = 22.0;
@@ -56,7 +56,11 @@ extern "C" fn render_rows(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vi
 
     for i in 0..count {
         let row_idx = first_row + i;
-        let band = if row_idx % 2 == 0 { "#ffffff" } else { "#f6f8fb" };
+        let band = if row_idx % 2 == 0 {
+            "#ffffff"
+        } else {
+            "#f6f8fb"
+        };
 
         let mut row = Dom::create_div().with_css(format!(
             "display: flex; flex-direction: row; height: {ROW_HEIGHT}px; background: {band};"
@@ -146,13 +150,12 @@ extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
         "display: flex; flex-grow: 1; overflow-y: auto; overflow-x: hidden; background: #ffffff;",
     );
 
-    let status = Dom::create_div_with_text(
-        "Ready   -   only the visible band of cells exists in the DOM",
-    )
-    .with_css(
-        "padding: 4px 12px; background: #f1f3f6; border-top: 1px solid #c9ced6; \
+    let status =
+        Dom::create_div_with_text("Ready   -   only the visible band of cells exists in the DOM")
+            .with_css(
+                "padding: 4px 12px; background: #f1f3f6; border-top: 1px solid #c9ced6; \
          color: #55606e; font-size: 11px;",
-    );
+            );
 
     Dom::create_body()
         .with_css(
@@ -166,7 +169,9 @@ extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
 }
 
 fn main() {
-    let data = RefAny::new(SheetState { total_rows: TOTAL_ROWS });
+    let data = RefAny::new(SheetState {
+        total_rows: TOTAL_ROWS,
+    });
     let app = App::create(data, AppConfig::create());
     let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = "Infinity - 1M row spreadsheet".into();

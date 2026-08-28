@@ -28,7 +28,9 @@ use super::super::ir::{
     ArgRefKind, CodegenIR, EnumDef, EnumVariantKind, FieldRefKind, FunctionArg, FunctionDef,
     FunctionKind, MonomorphizedKind, StructDef, TypeCategory,
 };
-use super::{ffi_type_name, kotlin_class_name, map_kt_owned, map_kt_return, sanitize_kt_identifier};
+use super::{
+    ffi_type_name, kotlin_class_name, map_kt_owned, map_kt_return, sanitize_kt_identifier,
+};
 
 /// Phase I.5.1 (Kotlin): how the wrapper method should idiomise an
 /// `Option<T>` / `Result<T, E>` return. Mirrors the Java
@@ -177,8 +179,7 @@ fn format_option_delete_call_kt(option_type_name: &str, ir: &CodegenIR) -> Optio
     if !has_delete {
         return None;
     }
-    let native =
-        super::super::lang_java::functions::native_class_for_class(option_type_name, ir);
+    let native = super::super::lang_java::functions::native_class_for_class(option_type_name, ir);
     let ffi_name = ffi_type_name(option_type_name);
     Some(format!(
         "{}.INSTANCE.{}_delete(__ret.getPointer())",
@@ -190,14 +191,14 @@ fn format_option_delete_call_kt(option_type_name: &str, ir: &CodegenIR) -> Optio
 /// wrapper-class payload type, or None if no _clone export exists.
 fn format_clone_call_kt(payload_type_name: &str, ir: &CodegenIR) -> Option<String> {
     use super::super::ir::FunctionKind;
-    let has_clone = ir.functions.iter().any(|f| {
-        f.class_name == payload_type_name && matches!(f.kind, FunctionKind::DeepCopy)
-    });
+    let has_clone = ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == payload_type_name && matches!(f.kind, FunctionKind::DeepCopy));
     if !has_clone {
         return None;
     }
-    let native =
-        super::super::lang_java::functions::native_class_for_class(payload_type_name, ir);
+    let native = super::super::lang_java::functions::native_class_for_class(payload_type_name, ir);
     let ffi_name = ffi_type_name(payload_type_name);
     Some(format!("{}.INSTANCE.{}_clone", native, ffi_name))
 }
@@ -331,7 +332,8 @@ pub fn emit_all(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfi
     // reachable forever and defeat the Cleaner). `close()`/`__consume()`
     // pre-empt the Cleaner explicitly so a pointer is freed at most once.
     // File-private: visible to every wrapper class emitted below.
-    builder.line("private val AZUL_CLEANER: java.lang.ref.Cleaner = java.lang.ref.Cleaner.create()");
+    builder
+        .line("private val AZUL_CLEANER: java.lang.ref.Cleaner = java.lang.ref.Cleaner.create()");
     builder.blank();
 
     for s in &ir.structs {
@@ -398,15 +400,10 @@ fn detect_vec_elem_type_kt(s: &StructDef) -> Option<String> {
     if s.fields.len() != 4 {
         return None;
     }
-    if s.fields[0].name != "ptr"
-        || s.fields[1].name != "len"
-        || s.fields[2].name != "cap"
-    {
+    if s.fields[0].name != "ptr" || s.fields[1].name != "len" || s.fields[2].name != "cap" {
         return None;
     }
-    if s.fields[1].type_name.trim() != "usize"
-        || s.fields[2].type_name.trim() != "usize"
-    {
+    if s.fields[1].type_name.trim() != "usize" || s.fields[2].type_name.trim() != "usize" {
         return None;
     }
     let raw = s.fields[0].type_name.trim();
@@ -430,7 +427,6 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
         for d in &s.doc {
             builder.line(&format!("/// {}", kdoc_escape(d)));
         }
-        
     }
 
     // Phase I.1.3 (Kotlin): when this wrapper's underlying struct is a
@@ -439,9 +435,10 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     let vec_elem_type = detect_vec_elem_type_kt(s);
     let vec_elem_has_wrapper = |elem: &str| -> bool {
         ir.find_struct(elem).is_some()
-            && ir.functions.iter().any(|f| {
-                f.class_name == elem && f.kind == FunctionKind::Delete
-            })
+            && ir
+                .functions
+                .iter()
+                .any(|f| f.class_name == elem && f.kind == FunctionKind::Delete)
     };
     let extra_iface = match &vec_elem_type {
         Some(elem) if vec_elem_has_wrapper(elem) => {
@@ -590,9 +587,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
             !f.kind.is_trait_function()
                 && matches!(
                     f.kind,
-                    FunctionKind::Constructor
-                        | FunctionKind::StaticMethod
-                        | FunctionKind::Default
+                    FunctionKind::Constructor | FunctionKind::StaticMethod | FunctionKind::Default
                 )
         })
         .collect();
@@ -616,10 +611,7 @@ fn emit_wrapper(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
             let native_class =
                 super::super::lang_java::functions::native_class_for_class(&info.class_name, ir);
             let field_path = info.field_path.join(".");
-            let sam_raw = format!(
-                "AzulNativeManaged.{}InvokerCallback",
-                info.callback_wrapper
-            );
+            let sam_raw = format!("AzulNativeManaged.{}InvokerCallback", info.callback_wrapper);
             let sam_typed = format!("AzulHostInvoker.{}", info.callback_wrapper);
 
             for (sam_type, doc_note) in [
@@ -788,9 +780,9 @@ fn is_wrapper_class_owned_arg(a: &FunctionArg, ir: &CodegenIR) -> bool {
     }
     // Kotlin's wrapper-class emission uses the same has_delete_function
     // gate as Java's. Probe it directly.
-    ir.functions.iter().any(|f| {
-        f.class_name == tn && matches!(f.kind, FunctionKind::Delete)
-    })
+    ir.functions
+        .iter()
+        .any(|f| f.class_name == tn && matches!(f.kind, FunctionKind::Delete))
 }
 
 /// Emit the pre-call wrapper-class conversion lines for one user arg.
@@ -818,10 +810,7 @@ fn emit_kt_wrapper_class_conv(
 
 /// Emit the pre-call AzString conversion lines for one user arg.
 /// Mirrors Java's emission: UTF-8 byte buffer + `AzString_fromUtf8`.
-fn emit_kt_az_string_conv(
-    pre_call_lines: &mut Vec<String>,
-    raw_name: &str,
-) -> String {
+fn emit_kt_az_string_conv(pre_call_lines: &mut Vec<String>, raw_name: &str) -> String {
     // Strip backticks if `raw_name` is keyword-escaped (e.g. `` `class` ``).
     // Backticks can't appear inside a compound identifier; they only wrap
     // a whole identifier. Build the local names from the unescaped form.
@@ -871,17 +860,12 @@ fn emit_kt_equals_hashcode_if_supported(
 ) {
     let native = super::super::lang_java::functions::native_class_for_class(&s.name, ir);
     let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq
-        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
     let hash_sym = format!("Az{}_hash", s.name);
-    let has_hash = s.traits.is_hash
-        && ir.functions.iter().any(|f| f.c_name == hash_sym);
+    let has_hash = s.traits.is_hash && ir.functions.iter().any(|f| f.c_name == hash_sym);
 
     if has_eq {
-        builder.line(&format!(
-            "/** Equality routed through {}. */",
-            eq_sym
-        ));
+        builder.line(&format!("/** Equality routed through {}. */", eq_sym));
         builder.line("override fun equals(other: Any?): Boolean {");
         builder.indent();
         builder.line(&format!("if (other !is {}) return false", class_name));
@@ -905,10 +889,7 @@ fn emit_kt_equals_hashcode_if_supported(
         builder.indent();
         // Non-nullable `ptr` — guard on `closed`, not a dead null check.
         builder.line("if (closed) return 0");
-        builder.line(&format!(
-            "val h = {}.INSTANCE.{}(ptr)",
-            native, hash_sym
-        ));
+        builder.line(&format!("val h = {}.INSTANCE.{}(ptr)", native, hash_sym));
         builder.line("return (h xor (h ushr 32)).toInt()");
         builder.dedent();
         builder.line("}");
@@ -924,17 +905,12 @@ fn emit_kt_equals_hashcode_if_supported(
 }
 
 /// Phase I.3 (Kotlin): override toString() through Az<X>_toDbgString.
-fn emit_kt_toString_if_supported(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    ir: &CodegenIR,
-) {
+fn emit_kt_toString_if_supported(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return; // Vec-direct decode already in place.
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug
-        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
     if !has_dbg {
         return;
     }
@@ -945,10 +921,7 @@ fn emit_kt_toString_if_supported(
     // Non-nullable `ptr` — the null half of the old guard was an
     // always-false warning; `closed` is the real lifecycle gate.
     builder.line("if (closed) return super.toString()");
-    builder.line(&format!(
-        "val __s = {}.INSTANCE.{}(ptr)",
-        native, dbg_sym
-    ));
+    builder.line(&format!("val __s = {}.INSTANCE.{}(ptr)", native, dbg_sym));
     builder.line("__s.write()");
     builder.line("val __sp = __s.pointer");
     builder.line("val __vecPtr: Pointer? = __sp.getPointer(0)");
@@ -973,18 +946,12 @@ fn emit_kt_toString_if_supported(
 /// cancelled, so no GC-time `AzX_delete` on Vec-internal memory).
 /// Primitive-element Vec sibling: bulk-copy into a Kotlin native
 /// typed array (`ByteArray`/`IntArray`/...) via JNA's `getXxxArray`.
-fn emit_kt_vec_primitive_array(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    elem_rust: &str,
-) {
+fn emit_kt_vec_primitive_array(builder: &mut CodeBuilder, s: &StructDef, elem_rust: &str) {
     let (kt_arr, getter, method_name) = match elem_rust.trim() {
         "u8" | "i8" | "bool" => ("ByteArray", "getByteArray", "toByteArray"),
         "u16" | "i16" => ("ShortArray", "getShortArray", "toShortArray"),
         "u32" | "i32" => ("IntArray", "getIntArray", "toIntArray"),
-        "u64" | "i64" | "usize" | "isize" => {
-            ("LongArray", "getLongArray", "toLongArray")
-        }
+        "u64" | "i64" | "usize" | "isize" => ("LongArray", "getLongArray", "toLongArray"),
         "f32" => ("FloatArray", "getFloatArray", "toFloatArray"),
         "f64" => ("DoubleArray", "getDoubleArray", "toDoubleArray"),
         _ => return,
@@ -1010,21 +977,13 @@ fn emit_kt_vec_primitive_array(
         "if (__p == null || __raw.len <= 0) return {}(0)",
         kt_arr
     ));
-    builder.line(&format!(
-        "return __p.{}(0, __raw.len.toInt())",
-        getter
-    ));
+    builder.line(&format!("return __p.{}(0, __raw.len.toInt())", getter));
     builder.dedent();
     builder.line("}");
     builder.blank();
 }
 
-fn emit_kt_vec_iterator(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-    elem_type: &str,
-    ir: &CodegenIR,
-) {
+fn emit_kt_vec_iterator(builder: &mut CodeBuilder, s: &StructDef, elem_type: &str, ir: &CodegenIR) {
     let vec_ffi = ffi_type_name(&s.name);
     let elem_ffi = ffi_type_name(elem_type);
     let elem_wrapper = kotlin_class_name(elem_type);
@@ -1055,10 +1014,7 @@ fn emit_kt_vec_iterator(
         "val __sz = Structure.newInstance({}::class.java).size()",
         elem_ffi
     ));
-    builder.line(&format!(
-        "return object : Iterator<{}> {{",
-        elem_wrapper
-    ));
+    builder.line(&format!("return object : Iterator<{}> {{", elem_wrapper));
     builder.indent();
     builder.line("private var __i: Long = 0");
     builder.line("override fun hasNext(): Boolean = __i < __n");
@@ -1127,10 +1083,9 @@ fn emit_static_factory(
             } else {
                 match a.ref_kind {
                     ArgRefKind::Owned => map_kt_owned(&a.type_name, ir),
-                    ArgRefKind::Ref
-                    | ArgRefKind::RefMut
-                    | ArgRefKind::Ptr
-                    | ArgRefKind::PtrMut => "Pointer?".to_string(),
+                    ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                        "Pointer?".to_string()
+                    }
                 }
             };
             format!("{}: {}", sanitize_kt_identifier(&a.name), kt)
@@ -1172,7 +1127,6 @@ fn emit_static_factory(
         for d in &func.doc {
             builder.line(&format!("/// {}", kdoc_escape(d)));
         }
-        
     }
 
     // Auto-wrap non-self wrapper-class returns: same IR-driven
@@ -1350,10 +1304,9 @@ fn emit_instance_method(
             } else {
                 match a.ref_kind {
                     ArgRefKind::Owned => map_kt_owned(&a.type_name, ir),
-                    ArgRefKind::Ref
-                    | ArgRefKind::RefMut
-                    | ArgRefKind::Ptr
-                    | ArgRefKind::PtrMut => "Pointer?".to_string(),
+                    ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                        "Pointer?".to_string()
+                    }
                 }
             };
             format!("{}: {}", sanitize_kt_identifier(&a.name), kt)
@@ -1401,7 +1354,6 @@ fn emit_instance_method(
         for d in &func.doc {
             builder.line(&format!("/// {}", kdoc_escape(d)));
         }
-        
     }
 
     let idiom = classify_return(func, ir);
@@ -1541,7 +1493,6 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
         for d in &e.doc {
             builder.line(&format!("/// {}", kdoc_escape(d)));
         }
-        
     }
 
     builder.line(&format!("object {}Helpers {{", class_name));
@@ -1556,10 +1507,7 @@ fn emit_union_helper(builder: &mut CodeBuilder, e: &EnumDef) {
                     "/** Construct the {}.{} variant. */",
                     e.name, v.name
                 ));
-                builder.line(&format!(
-                    "@JvmStatic fun {}(): {} {{",
-                    mname, ffi_name
-                ));
+                builder.line(&format!("@JvmStatic fun {}(): {} {{", mname, ffi_name));
                 builder.indent();
                 builder.line(&format!("val u = {}()", ffi_name));
                 // `.value` is Int; AzX_Tag is repr(C, u8) so the tag
@@ -1654,4 +1602,3 @@ pub(crate) fn kdoc_escape(s: &str) -> String {
         .replace('{', "&#123;")
         .replace('}', "&#125;")
 }
-

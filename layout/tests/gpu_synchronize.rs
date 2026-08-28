@@ -95,12 +95,14 @@ fn gpu_synchronize_populates_caches_and_emits_added_events() {
 
     // Pending events contain an Added for both transform and opacity
     let pending = lw.gpu_state_manager.take_pending_changes();
-    let has_added_transform = pending.transform_key_changes.iter().any(|e| {
-        matches!(e, GpuTransformKeyEvent::Added(nid, _, _) if *nid == target)
-    });
-    let has_added_opacity = pending.opacity_key_changes.iter().any(|e| {
-        matches!(e, GpuOpacityKeyEvent::Added(nid, _, _) if *nid == target)
-    });
+    let has_added_transform = pending
+        .transform_key_changes
+        .iter()
+        .any(|e| matches!(e, GpuTransformKeyEvent::Added(nid, _, _) if *nid == target));
+    let has_added_opacity = pending
+        .opacity_key_changes
+        .iter()
+        .any(|e| matches!(e, GpuOpacityKeyEvent::Added(nid, _, _) if *nid == target));
     assert!(
         has_added_transform,
         "expected GpuTransformKeyEvent::Added for target, got {:?}",
@@ -153,12 +155,14 @@ fn gpu_synchronize_emits_changed_events_on_mutation() {
 
     // Pending changes contain Changed events, not Added
     let pending = lw.gpu_state_manager.take_pending_changes();
-    let has_changed_transform = pending.transform_key_changes.iter().any(|e| {
-        matches!(e, GpuTransformKeyEvent::Changed(nid, _, _, _) if *nid == target)
-    });
-    let has_changed_opacity = pending.opacity_key_changes.iter().any(|e| {
-        matches!(e, GpuOpacityKeyEvent::Changed(nid, _, _, _) if *nid == target)
-    });
+    let has_changed_transform = pending
+        .transform_key_changes
+        .iter()
+        .any(|e| matches!(e, GpuTransformKeyEvent::Changed(nid, _, _, _) if *nid == target));
+    let has_changed_opacity = pending
+        .opacity_key_changes
+        .iter()
+        .any(|e| matches!(e, GpuOpacityKeyEvent::Changed(nid, _, _, _) if *nid == target));
     assert!(
         has_changed_transform,
         "expected GpuTransformKeyEvent::Changed for target, got {:?}",

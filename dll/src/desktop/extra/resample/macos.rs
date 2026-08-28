@@ -143,7 +143,11 @@ mod tests {
             height: 16,
         };
         let out = resample_rgba(&src, 4, 4);
-        assert!(out.chunks_exact(4).all(|px| px == [200, 20, 10, 255]), "{:?}", &out[..8]);
+        assert!(
+            out.chunks_exact(4).all(|px| px == [200, 20, 10, 255]),
+            "{:?}",
+            &out[..8]
+        );
     }
 
     #[test]
@@ -168,7 +172,10 @@ mod tests {
             .map(|(a, b)| a.abs_diff(*b))
             .max()
             .unwrap_or(0);
-        assert!(worst <= 16, "vImage and the portable scaler disagree by {worst} on a gradient");
+        assert!(
+            worst <= 16,
+            "vImage and the portable scaler disagree by {worst} on a gradient"
+        );
     }
 
     #[test]
@@ -176,7 +183,10 @@ mod tests {
         let bytes = [1u8; 4];
         let src = rgba_src(&bytes, 1, 1);
         assert!(resample_rgba(&src, 0, 4).is_empty());
-        let truncated = SrcImage { bytes: &bytes[..2], ..src };
+        let truncated = SrcImage {
+            bytes: &bytes[..2],
+            ..src
+        };
         assert!(resample_rgba(&truncated, 2, 2).is_empty());
     }
 }

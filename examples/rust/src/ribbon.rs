@@ -8,12 +8,12 @@
 // restyled through its public style fields (`RibbonStyle::styled_combo_box`).
 // Icons come from the builtin Material Icons pack via `<icon>` nodes.
 
+use azul::css::ColorU;
+use azul::dialog::{ColorPickerDialog, FileDialog, MsgBox, MsgBoxIcon, YesNo};
+use azul::dom::{ComboBoxOnSelectCallback, RibbonGalleryOnSelectCallback};
+use azul::option::{OptionColorU, OptionFileTypeList, OptionString};
 use azul::prelude::*;
 use azul::widgets::*;
-use azul::dom::{ComboBoxOnSelectCallback, RibbonGalleryOnSelectCallback};
-use azul::dialog::{ColorPickerDialog, FileDialog, MsgBox, MsgBoxIcon, YesNo};
-use azul::css::ColorU;
-use azul::option::{OptionColorU, OptionFileTypeList, OptionString};
 
 #[derive(Clone)]
 struct DocState {
@@ -41,7 +41,12 @@ impl Default for DocState {
             align: 0,
             selected_style: 0,
             applied_template: "Normal".to_string(),
-            font_color: ColorU { r: 192, g: 0, b: 0, a: 255 },
+            font_color: ColorU {
+                r: 192,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
         }
     }
 }
@@ -135,7 +140,12 @@ extern "C" fn on_launcher(mut data: RefAny, _: CallbackInfo) -> Update {
         0 => {
             let picked = ColorPickerDialog::open(
                 "Font Colour",
-                OptionColorU::Some(ColorU { r: 192, g: 0, b: 0, a: 255 }),
+                OptionColorU::Some(ColorU {
+                    r: 192,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                }),
             );
             if let OptionColorU::Some(c) = picked {
                 if let Some(mut state) = app.downcast_mut::<DocState>() {
@@ -176,12 +186,22 @@ extern "C" fn on_launcher(mut data: RefAny, _: CallbackInfo) -> Update {
 /// The styles gallery reports the picked template to the application - the
 /// "Title" cell tells the app the user wants the Title template applied.
 const TEMPLATE_NAMES: &[&str] = &[
-    "Normal", "No Spacing", "Heading 1", "Heading 2",
-    "Title", "Subtitle", "Subtle Emphasis", "Emphasis",
+    "Normal",
+    "No Spacing",
+    "Heading 1",
+    "Heading 2",
+    "Title",
+    "Subtitle",
+    "Subtle Emphasis",
+    "Emphasis",
 ];
 
 extern "C" fn on_font_select(_: RefAny, _: CallbackInfo, state: ComboBoxState) -> Update {
-    println!("font changed: {} (index {})", state.text.as_str(), state.selected);
+    println!(
+        "font changed: {} (index {})",
+        state.text.as_str(),
+        state.selected
+    );
     Update::DoNothing
 }
 
@@ -202,17 +222,28 @@ fn item_menu(icon: &str, label: &str) -> RibbonItem {
 }
 
 fn row(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Row(items.into_iter().fold(RibbonRow::new(), |r, it| r.with_item(it)))
+    RibbonItem::Row(
+        items
+            .into_iter()
+            .fold(RibbonRow::new(), |r, it| r.with_item(it)),
+    )
 }
 
 fn column(items: Vec<RibbonItem>) -> RibbonItem {
-    RibbonItem::Column(items.into_iter().fold(RibbonColumn::new(), |c, it| c.with_item(it)))
+    RibbonItem::Column(
+        items
+            .into_iter()
+            .fold(RibbonColumn::new(), |c, it| c.with_item(it)),
+    )
 }
 
 fn cell(preview_css: &str, sample: &str, name: &str) -> RibbonGalleryCell {
     // The preview sits next to the cell's <p> label, so it needs a box of
     // its own — a DIV, which (unlike <p>) adds no UA margins to the sample.
-    RibbonGalleryCell::new(Dom::create_div_with_text(sample).with_css(preview_css), name)
+    RibbonGalleryCell::new(
+        Dom::create_div_with_text(sample).with_css(preview_css),
+        name,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +263,13 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
             item("content_copy", "Copy"),
             item("format_paint", "Format Painter"),
         ]))
-        .with_launcher(RefAny::new(LauncherPayload { app: data.clone(), which: 1 }), on_launcher);
+        .with_launcher(
+            RefAny::new(LauncherPayload {
+                app: data.clone(),
+                which: 1,
+            }),
+            on_launcher,
+        );
 
     // -- Font ----------------------------------------------------------------
     let font_names: Vec<azul::str::String> = [
@@ -255,7 +292,10 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
     let mut name_combo = ribbon_style.styled_combo_box(font_names, "Calibri (Body)", 133);
     name_combo.set_on_select(
         data.clone(),
-        ComboBoxOnSelectCallback { cb: on_font_select, callable: OptionRefAny::None },
+        ComboBoxOnSelectCallback {
+            cb: on_font_select,
+            callable: OptionRefAny::None,
+        },
     );
     let size_combo = ribbon_style.styled_combo_box(font_sizes, "11", 45);
 
@@ -291,7 +331,13 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
                 item_menu("format_color_text", ""),
             ]),
         ]))
-        .with_launcher(RefAny::new(LauncherPayload { app: data.clone(), which: 0 }), on_launcher);
+        .with_launcher(
+            RefAny::new(LauncherPayload {
+                app: data.clone(),
+                which: 0,
+            }),
+            on_launcher,
+        );
 
     // -- Paragraph -----------------------------------------------------------
     let align_icons = [
@@ -304,7 +350,10 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
     for (i, icon) in align_icons.iter().enumerate() {
         let mut b = small(icon, "").with_toggled(state.align == i);
         b.set_on_click(
-            RefAny::new(AlignPayload { app: data.clone(), align: i }),
+            RefAny::new(AlignPayload {
+                app: data.clone(),
+                align: i,
+            }),
             on_align,
         );
         align_items.push(RibbonItem::SmallButton(b));
@@ -331,28 +380,55 @@ fn home_tab(state: &DocState, data: &RefAny) -> RibbonTab {
             ]),
             row(para_row2),
         ]))
-        .with_launcher(RefAny::new(LauncherPayload { app: data.clone(), which: 1 }), on_launcher);
+        .with_launcher(
+            RefAny::new(LauncherPayload {
+                app: data.clone(),
+                which: 1,
+            }),
+            on_launcher,
+        );
 
     // -- Styles (in-ribbon gallery) -------------------------------------------
     let cells = vec![
-        cell("font-size: 14px; color: #444444;", "AaBbCcDc", "\u{00b6} Normal"),
-        cell("font-size: 14px; color: #444444;", "AaBbCcDc", "\u{00b6} No Spac..."),
+        cell(
+            "font-size: 14px; color: #444444;",
+            "AaBbCcDc",
+            "\u{00b6} Normal",
+        ),
+        cell(
+            "font-size: 14px; color: #444444;",
+            "AaBbCcDc",
+            "\u{00b6} No Spac...",
+        ),
         cell("font-size: 15px; color: #2e74b5;", "AaBbCc", "Heading 1"),
         cell("font-size: 14px; color: #2e74b5;", "AaBbCcD", "Heading 2"),
         cell("font-size: 19px; color: #262626;", "AaB", "Title"),
         cell("font-size: 13px; color: #5a5a5a;", "AaBbCcD", "Subtitle"),
-        cell("font-size: 13px; color: #808080;", "AaBbCcDi", "Subtle Em..."),
+        cell(
+            "font-size: 13px; color: #808080;",
+            "AaBbCcDi",
+            "Subtle Em...",
+        ),
         cell("font-size: 13px; color: #4472c4;", "AaBbCcDi", "Emphasis"),
     ];
     let mut gallery = RibbonGallery::new(cells).with_selected(state.selected_style);
     gallery.set_on_select(
         data.clone(),
-        RibbonGalleryOnSelectCallback { cb: on_style_select, callable: OptionRefAny::None },
+        RibbonGalleryOnSelectCallback {
+            cb: on_style_select,
+            callable: OptionRefAny::None,
+        },
     );
 
     let styles = RibbonGroup::new("Styles")
         .with_item(RibbonItem::Gallery(gallery))
-        .with_launcher(RefAny::new(LauncherPayload { app: data.clone(), which: 2 }), on_launcher)
+        .with_launcher(
+            RefAny::new(LauncherPayload {
+                app: data.clone(),
+                which: 2,
+            }),
+            on_launcher,
+        )
         .with_fills_space(true);
 
     // -- Editing ---------------------------------------------------------------

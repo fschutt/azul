@@ -174,10 +174,7 @@ fn test_node_type_tag_non_html_elements() {
     // Just verify they can be formatted without panicking
     for &tag in NON_HTML_ELEMENT_TAGS {
         let tag_str = format!("{tag}");
-        assert!(
-            !tag_str.is_empty(),
-            "Tag {tag:?} formatted to empty string"
-        );
+        assert!(!tag_str.is_empty(), "Tag {tag:?} formatted to empty string");
     }
 }
 

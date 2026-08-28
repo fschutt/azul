@@ -72,11 +72,7 @@ pub fn start_timerfd(
 }
 
 /// Close and remove a timerfd from the timer_fds map.
-pub fn stop_timerfd(
-    timer_fds: &mut BTreeMap<usize, i32>,
-    timer_id: usize,
-    backend_name: &str,
-) {
+pub fn stop_timerfd(timer_fds: &mut BTreeMap<usize, i32>, timer_id: usize, backend_name: &str) {
     if let Some(fd) = timer_fds.remove(&timer_id) {
         unsafe {
             libc::close(fd);

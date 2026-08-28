@@ -10,16 +10,14 @@ use crate::{
     props::{
         basic::{
             length::{parse_float_value, FloatValue},
-            pixel::{
-                parse_pixel_value, CssPixelValueParseError,
-                PixelValue,
-            },
+            pixel::{parse_pixel_value, CssPixelValueParseError, PixelValue},
         },
         formatter::PrintAsCssValue,
     },
     shape::CssShape,
 };
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS shape-outside property for wrapping text around shapes
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -55,7 +53,6 @@ impl Ord for ShapeOutside {
     }
 }
 
-
 impl PrintAsCssValue for ShapeOutside {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -64,7 +61,8 @@ impl PrintAsCssValue for ShapeOutside {
         }
     }
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS shape-inside property for flowing text within shapes
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -100,7 +98,6 @@ impl Ord for ShapeInside {
     }
 }
 
-
 impl PrintAsCssValue for ShapeInside {
     fn print_as_css_value(&self) -> String {
         match self {
@@ -109,7 +106,8 @@ impl PrintAsCssValue for ShapeInside {
         }
     }
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS clip-path property for clipping element rendering
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
@@ -144,7 +142,6 @@ impl Ord for ClipPath {
         }
     }
 }
-
 
 impl PrintAsCssValue for ClipPath {
     fn print_as_css_value(&self) -> String {
@@ -263,7 +260,8 @@ impl crate::codegen::format::FormatAsRustCode for ShapeImageThreshold {
 pub mod parser {
     use core::num::ParseFloatError;
 
-    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
+    #[allow(clippy::wildcard_imports)]
+    // parser submodule reuses the parent module's value types
     use super::*;
     use crate::shape_parser::{parse_shape, ShapeParseError};
 
@@ -563,10 +561,7 @@ mod autotest_generated {
         corpus.push("(".repeat(100_000));
         corpus.push(format!("circle({}px)", "9".repeat(10_000)));
         corpus.push("circle(".repeat(10_000) + &")".repeat(10_000));
-        corpus.push(format!(
-            "polygon({}1px 1px)",
-            "1px 1px, ".repeat(10_000)
-        ));
+        corpus.push(format!("polygon({}1px 1px)", "1px 1px, ".repeat(10_000)));
         corpus.push(format!("path(\"{}\")", "M 0 0 ".repeat(10_000)));
 
         corpus
@@ -608,12 +603,13 @@ mod autotest_generated {
     #[test]
     fn path_lone_quote_returns_err_not_panic() {
         for input in KNOWN_PANIC_INPUTS {
-            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                parse_clip_path(input)
-            }));
+            let outcome =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| parse_clip_path(input)));
             match outcome {
                 Ok(res) => assert!(res.is_err(), "{input:?} must be rejected, got {res:?}"),
-                Err(_) => panic!("parse_clip_path({input:?}) still panics — the slice bug regressed"),
+                Err(_) => {
+                    panic!("parse_clip_path({input:?}) still panics — the slice bug regressed")
+                }
             }
         }
     }
@@ -691,7 +687,8 @@ mod autotest_generated {
             );
             assert_eq!(margin.inner.number.get(), 0.0);
             assert_eq!(margin, margin);
-        } else { /* rejecting "NaNpx" outright would be more correct */ }
+        } else { /* rejecting "NaNpx" outright would be more correct */
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -1278,13 +1275,19 @@ mod autotest_generated {
             );
             // Printing must also be idempotent, not just re-parseable.
             assert_eq!(
-                parse_shape_outside(&printed).expect(input).print_as_css_value(),
+                parse_shape_outside(&printed)
+                    .expect(input)
+                    .print_as_css_value(),
                 printed
             );
 
             let inside = parse_shape_inside(input).expect(input);
             let printed = inside.print_as_css_value();
-            assert_eq!(parse_shape_inside(&printed).as_ref(), Ok(&inside), "{input:?}");
+            assert_eq!(
+                parse_shape_inside(&printed).as_ref(),
+                Ok(&inside),
+                "{input:?}"
+            );
 
             let clip = parse_clip_path(input).expect(input);
             let printed = clip.print_as_css_value();
@@ -1413,7 +1416,10 @@ mod autotest_generated {
     #[test]
     fn margin_uppercase_units_never_yield_a_wrong_value() {
         for input in ["10PX", "10Px", "10EM", "10%"] {
-            if let Ok(margin) = parse_shape_margin(input) { assert_eq!(margin.inner.number.get(), 10.0, "{input:?}") } else { /* current behaviour for the uppercase forms */ }
+            if let Ok(margin) = parse_shape_margin(input) {
+                assert_eq!(margin.inner.number.get(), 10.0, "{input:?}")
+            } else { /* current behaviour for the uppercase forms */
+            }
         }
     }
 
@@ -1482,20 +1488,36 @@ mod autotest_generated {
     #[test]
     fn margin_quantizes_to_three_decimals_by_truncation() {
         assert_eq!(
-            parse_shape_margin("0.001px").expect("0.001").inner.number.get(),
+            parse_shape_margin("0.001px")
+                .expect("0.001")
+                .inner
+                .number
+                .get(),
             0.001
         );
         // 0.0005 does NOT round up to 0.001 — it truncates to 0.
         assert_eq!(
-            parse_shape_margin("0.0005px").expect("0.0005").inner.number.get(),
+            parse_shape_margin("0.0005px")
+                .expect("0.0005")
+                .inner
+                .number
+                .get(),
             0.0
         );
         assert_eq!(
-            parse_shape_margin("0.0009px").expect("0.0009").inner.number.get(),
+            parse_shape_margin("0.0009px")
+                .expect("0.0009")
+                .inner
+                .number
+                .get(),
             0.0
         );
 
-        let truncated = parse_shape_margin("1.9999px").expect("1.9999").inner.number.get();
+        let truncated = parse_shape_margin("1.9999px")
+            .expect("1.9999")
+            .inner
+            .number
+            .get();
         assert!(
             (truncated - 1.999).abs() < 1.0e-6,
             "expected truncation to 1.999, got {truncated}"
@@ -1520,8 +1542,14 @@ mod autotest_generated {
 
     #[test]
     fn threshold_parses_and_trims_valid_values() {
-        assert_eq!(parse_shape_image_threshold("0").expect("0").inner.get(), 0.0);
-        assert_eq!(parse_shape_image_threshold("1").expect("1").inner.get(), 1.0);
+        assert_eq!(
+            parse_shape_image_threshold("0").expect("0").inner.get(),
+            0.0
+        );
+        assert_eq!(
+            parse_shape_image_threshold("1").expect("1").inner.get(),
+            1.0
+        );
         assert_eq!(
             parse_shape_image_threshold("0.5").expect("0.5").inner.get(),
             0.5
@@ -1535,11 +1563,17 @@ mod autotest_generated {
         );
         // f32 accepts these spellings; CSS numbers do too.
         assert_eq!(
-            parse_shape_image_threshold("+0.5").expect("+0.5").inner.get(),
+            parse_shape_image_threshold("+0.5")
+                .expect("+0.5")
+                .inner
+                .get(),
             0.5
         );
         assert_eq!(
-            parse_shape_image_threshold("5e-1").expect("5e-1").inner.get(),
+            parse_shape_image_threshold("5e-1")
+                .expect("5e-1")
+                .inner
+                .get(),
             0.5
         );
         assert_eq!(
@@ -1554,9 +1588,31 @@ mod autotest_generated {
     #[test]
     fn threshold_is_always_clamped_to_zero_one_and_finite() {
         let extremes = [
-            "0", "-0", "1", "-1", "2", "1.0001", "-0.0001", "100", "1e10", "-1e10", "1e38",
-            "1e400", "-1e400", "inf", "-inf", "infinity", "-infinity", "NaN", "nan", "-NaN",
-            "9223372036854775807", "-9223372036854775808", "1e-45", "-1e-45", "0.0000001",
+            "0",
+            "-0",
+            "1",
+            "-1",
+            "2",
+            "1.0001",
+            "-0.0001",
+            "100",
+            "1e10",
+            "-1e10",
+            "1e38",
+            "1e400",
+            "-1e400",
+            "inf",
+            "-inf",
+            "infinity",
+            "-infinity",
+            "NaN",
+            "nan",
+            "-NaN",
+            "9223372036854775807",
+            "-9223372036854775808",
+            "1e-45",
+            "-1e-45",
+            "0.0000001",
         ];
 
         for input in extremes {
@@ -1575,7 +1631,10 @@ mod autotest_generated {
         }
 
         // Direction of the clamp, specifically.
-        assert_eq!(parse_shape_image_threshold("2").expect("2").inner.get(), 1.0);
+        assert_eq!(
+            parse_shape_image_threshold("2").expect("2").inner.get(),
+            1.0
+        );
         assert_eq!(
             parse_shape_image_threshold("-1").expect("-1").inner.get(),
             0.0
@@ -1585,7 +1644,10 @@ mod autotest_generated {
             1.0
         );
         assert_eq!(
-            parse_shape_image_threshold("-inf").expect("-inf").inner.get(),
+            parse_shape_image_threshold("-inf")
+                .expect("-inf")
+                .inner
+                .get(),
             0.0
         );
         // NaN is neutralised by the isize encoding *before* it reaches clamp

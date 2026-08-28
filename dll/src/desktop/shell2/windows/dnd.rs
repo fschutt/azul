@@ -26,10 +26,10 @@ use windows::{
     Win32::{
         Foundation::{HWND, POINTL},
         System::{
-            Com::{IDataObject, FORMATETC, DVASPECT_CONTENT, TYMED_HGLOBAL},
+            Com::{IDataObject, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL},
             Ole::{
-                OleInitialize, RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop, CF_HDROP,
-                DROPEFFECT, DROPEFFECT_COPY, DROPEFFECT_NONE, IDropTarget, IDropTarget_Impl,
+                IDropTarget, IDropTarget_Impl, OleInitialize, RegisterDragDrop, ReleaseStgMedium,
+                RevokeDragDrop, CF_HDROP, DROPEFFECT, DROPEFFECT_COPY, DROPEFFECT_NONE,
             },
             SystemServices::MODIFIERKEYS_FLAGS,
         },
@@ -158,11 +158,17 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
         if accept {
             // MWA-B7: forward the drag location (screen px) — it is the only
             // fresh position during an OS drag.
-            with_window(self.hwnd, |w| w.handle_file_drag_entered(paths, (pt.x, pt.y)));
+            with_window(self.hwnd, |w| {
+                w.handle_file_drag_entered(paths, (pt.x, pt.y))
+            });
         }
         if !pdweffect.is_null() {
             unsafe {
-                *pdweffect = if accept { DROPEFFECT_COPY } else { DROPEFFECT_NONE };
+                *pdweffect = if accept {
+                    DROPEFFECT_COPY
+                } else {
+                    DROPEFFECT_NONE
+                };
             }
         }
         Ok(())
@@ -205,7 +211,11 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
         }
         if !pdweffect.is_null() {
             unsafe {
-                *pdweffect = if accept { DROPEFFECT_COPY } else { DROPEFFECT_NONE };
+                *pdweffect = if accept {
+                    DROPEFFECT_COPY
+                } else {
+                    DROPEFFECT_NONE
+                };
             }
         }
         Ok(())

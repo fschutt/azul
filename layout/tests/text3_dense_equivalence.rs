@@ -64,8 +64,9 @@ fn layout_of_content(
     width: f32,
 ) -> (UnifiedLayout, Vec<InlineContent>, LoadedFonts<FontRef>) {
     let logical = create_logical_items(&content, &[], &mut None);
-    let visual = reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
-        .expect("bidi");
+    let visual =
+        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+            .expect("bidi");
     let mut loaded: LoadedFonts<FontRef> = LoadedFonts::new();
     loaded.insert(FontId::new(), font_ref.clone());
     let chain: HashMap<_, FontFallbackChain> = HashMap::new();
@@ -126,7 +127,10 @@ fn dense_line_height_is_the_max_over_mixed_sizes() {
 fn dense_view_agrees_with_the_current_model() {
     for (text, width) in [
         ("hello dense world", 400.0),
-        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        (
+            "a longer paragraph that will wrap across multiple lines of text",
+            120.0,
+        ),
         ("waffle office ffi", 400.0),
     ] {
         let (layout, content) = layout_of(text, width);
@@ -145,10 +149,17 @@ fn dense_view_agrees_with_the_current_model() {
                 _ => None,
             })
             .collect();
-        assert_eq!(dense.clusters.len(), clusters.len(), "cluster count ({text:?})");
+        assert_eq!(
+            dense.clusters.len(),
+            clusters.len(),
+            "cluster count ({text:?})"
+        );
 
         for (i, ((item, c), dc)) in clusters.iter().zip(dense.clusters.iter()).enumerate() {
-            assert_eq!(dc.start_byte, c.source_cluster_id.start_byte_in_run, "byte @{i}");
+            assert_eq!(
+                dc.start_byte, c.source_cluster_id.start_byte_in_run,
+                "byte @{i}"
+            );
             // (d6h) Dense flags additionally pack fragment/marker bits
             // (7-10); the classification bits must still match exactly.
             assert_eq!(
@@ -168,7 +179,11 @@ fn dense_view_agrees_with_the_current_model() {
             assert!(r.clusters.end >= r.clusters.start);
             covered = r.clusters.end;
         }
-        assert_eq!(covered as usize, dense.clusters.len(), "runs cover all clusters");
+        assert_eq!(
+            covered as usize,
+            dense.clusters.len(),
+            "runs cover all clusters"
+        );
 
         // Source-slice validity at the POSITIONED level: the line breaker
         // legitimately CONSUMES separator clusters at wrap points (they
@@ -209,7 +224,6 @@ fn dense_view_agrees_with_the_current_model() {
     }
 }
 
-
 /// §3.2 step 4 agreement gate: the dense simple-run walker must reproduce
 /// the reference's PAINT RUNS exactly — boundaries, every painted
 /// property, border fragment marks after §9.4.2 suppression, and each
@@ -222,8 +236,18 @@ fn dense_view_agrees_with_the_current_model() {
 #[test]
 fn dense_simple_runs_agree_with_the_reference_walker() {
     let font_ref = test_font_ref();
-    let red = azul_css::props::basic::ColorU { r: 200, g: 30, b: 30, a: 255 };
-    let blue = azul_css::props::basic::ColorU { r: 30, g: 30, b: 200, a: 255 };
+    let red = azul_css::props::basic::ColorU {
+        r: 200,
+        g: 30,
+        b: 30,
+        a: 255,
+    };
+    let blue = azul_css::props::basic::ColorU {
+        r: 30,
+        g: 30,
+        b: 200,
+        a: 255,
+    };
     let cases: Vec<(&str, Vec<InlineContent>, f32)> = vec![
         (
             "plain",
@@ -249,8 +273,12 @@ fn dense_simple_runs_agree_with_the_reference_walker() {
         (
             "two-style",
             vec![
-                styled("red ", &font_ref, 0, Some(NodeId::new(1)), |s| s.color = red),
-                styled("blue", &font_ref, 4, Some(NodeId::new(2)), |s| s.color = blue),
+                styled("red ", &font_ref, 0, Some(NodeId::new(1)), |s| {
+                    s.color = red
+                }),
+                styled("blue", &font_ref, 4, Some(NodeId::new(2)), |s| {
+                    s.color = blue
+                }),
             ],
             400.0,
         ),
@@ -320,14 +348,23 @@ fn dense_simple_runs_agree_with_the_reference_walker() {
         for (i, (r, o)) in reference.iter().zip(ours.iter()).enumerate() {
             assert_eq!(r.color, o.color, "color @{i} ({name})");
             assert_eq!(r.background_color, o.background_color, "bg @{i} ({name})");
-            assert_eq!(r.background_content, o.background_content, "bg content @{i} ({name})");
-            assert_eq!(r.border, o.border, "border (incl. fragment marks) @{i} ({name})");
+            assert_eq!(
+                r.background_content, o.background_content,
+                "bg content @{i} ({name})"
+            );
+            assert_eq!(
+                r.border, o.border,
+                "border (incl. fragment marks) @{i} ({name})"
+            );
             assert_eq!(r.font_hash, o.font_hash, "font hash @{i} ({name})");
             assert!(
                 (r.font_size_px - o.font_size_px).abs() < 0.01,
                 "font size @{i} ({name})"
             );
-            assert_eq!(r.text_decoration, o.text_decoration, "decoration @{i} ({name})");
+            assert_eq!(
+                r.text_decoration, o.text_decoration,
+                "decoration @{i} ({name})"
+            );
             assert_eq!(r.is_ime_preview, o.is_ime_preview, "ime @{i} ({name})");
             assert_eq!(r.source_node_id, o.source_node_id, "node @{i} ({name})");
             assert_eq!(r.glyphs.len(), o.glyphs.len(), "glyph count @{i} ({name})");
@@ -337,7 +374,10 @@ fn dense_simple_runs_agree_with_the_reference_walker() {
                     (rg.point.x - og.point.x).abs() < 0.01
                         && (rg.point.y - og.point.y).abs() < 0.01,
                     "glyph pos @{i}/{j}: ref ({}, {}) vs dense ({}, {}) ({name})",
-                    rg.point.x, rg.point.y, og.point.x, og.point.y
+                    rg.point.x,
+                    rg.point.y,
+                    og.point.x,
+                    og.point.y
                 );
                 assert_eq!(rg.size, og.size, "glyph size @{i}/{j} ({name})");
             }
@@ -353,7 +393,10 @@ fn dense_simple_runs_agree_with_the_reference_walker() {
 fn dense_glyph_positions_agree_with_the_reference_walker() {
     for (text, width) in [
         ("hello dense world", 400.0),
-        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        (
+            "a longer paragraph that will wrap across multiple lines of text",
+            120.0,
+        ),
         ("waffle office ffi", 400.0),
     ] {
         let (layout, content) = layout_of(text, width);
@@ -367,7 +410,10 @@ fn dense_glyph_positions_agree_with_the_reference_walker() {
                 (r.position.x - o.position.x).abs() < 0.01
                     && (r.position.y - o.position.y).abs() < 0.01,
                 "position @{i}: ref ({}, {}) vs dense ({}, {}) ({text:?})",
-                r.position.x, r.position.y, o.position.x, o.position.y
+                r.position.x,
+                r.position.y,
+                o.position.x,
+                o.position.y
             );
         }
     }
@@ -387,8 +433,18 @@ fn dense_pdf_runs_agree_with_the_reference_walker() {
     use azul_layout::text3::glyphs::get_glyph_runs_pdf;
 
     let font_ref = test_font_ref();
-    let red = azul_css::props::basic::ColorU { r: 200, g: 30, b: 30, a: 255 };
-    let blue = azul_css::props::basic::ColorU { r: 30, g: 30, b: 200, a: 255 };
+    let red = azul_css::props::basic::ColorU {
+        r: 200,
+        g: 30,
+        b: 30,
+        a: 255,
+    };
+    let blue = azul_css::props::basic::ColorU {
+        r: 30,
+        g: 30,
+        b: 200,
+        a: 255,
+    };
     let cases: Vec<(&str, Vec<InlineContent>, f32)> = vec![
         (
             "plain",
@@ -414,8 +470,12 @@ fn dense_pdf_runs_agree_with_the_reference_walker() {
         (
             "two-style",
             vec![
-                styled("red ", &font_ref, 0, Some(NodeId::new(1)), |s| s.color = red),
-                styled("blue", &font_ref, 4, Some(NodeId::new(2)), |s| s.color = blue),
+                styled("red ", &font_ref, 0, Some(NodeId::new(1)), |s| {
+                    s.color = red
+                }),
+                styled("blue", &font_ref, 4, Some(NodeId::new(2)), |s| {
+                    s.color = blue
+                }),
             ],
             400.0,
         ),
@@ -446,7 +506,10 @@ fn dense_pdf_runs_agree_with_the_reference_walker() {
                 (r.font_size_px - o.font_size_px).abs() < 0.01,
                 "font size @{i} ({name})"
             );
-            assert_eq!(r.text_decoration, o.text_decoration, "decoration @{i} ({name})");
+            assert_eq!(
+                r.text_decoration, o.text_decoration,
+                "decoration @{i} ({name})"
+            );
             assert_eq!(r.line_index, o.line_index, "line @{i} ({name})");
             assert_eq!(r.direction, o.direction, "direction @{i} ({name})");
             assert_eq!(r.writing_mode, o.writing_mode, "writing mode @{i} ({name})");
@@ -454,9 +517,15 @@ fn dense_pdf_runs_agree_with_the_reference_walker() {
                 (r.baseline_start.x - o.baseline_start.x).abs() < 0.01
                     && (r.baseline_start.y - o.baseline_start.y).abs() < 0.01,
                 "baseline_start @{i}: ref ({}, {}) vs dense ({}, {}) ({name})",
-                r.baseline_start.x, r.baseline_start.y, o.baseline_start.x, o.baseline_start.y
+                r.baseline_start.x,
+                r.baseline_start.y,
+                o.baseline_start.x,
+                o.baseline_start.y
             );
-            assert_eq!(r.cluster_texts, o.cluster_texts, "cluster_texts @{i} ({name})");
+            assert_eq!(
+                r.cluster_texts, o.cluster_texts,
+                "cluster_texts @{i} ({name})"
+            );
             assert_eq!(r.glyphs.len(), o.glyphs.len(), "glyph count @{i} ({name})");
             for (j, (rg, og)) in r.glyphs.iter().zip(o.glyphs.iter()).enumerate() {
                 assert_eq!(rg.glyph_id, og.glyph_id, "glyph id @{i}/{j} ({name})");
@@ -464,7 +533,10 @@ fn dense_pdf_runs_agree_with_the_reference_walker() {
                     (rg.position.x - og.position.x).abs() < 0.01
                         && (rg.position.y - og.position.y).abs() < 0.01,
                     "glyph pos @{i}/{j}: ref ({}, {}) vs dense ({}, {}) ({name})",
-                    rg.position.x, rg.position.y, og.position.x, og.position.y
+                    rg.position.x,
+                    rg.position.y,
+                    og.position.x,
+                    og.position.y
                 );
                 assert_eq!(
                     rg.unicode_codepoint, og.unicode_codepoint,
@@ -479,7 +551,8 @@ fn dense_pdf_runs_agree_with_the_reference_walker() {
                 assert!(
                     (rg.advance - og.advance).abs() < 0.01 || og.advance > rg.advance,
                     "advance @{i}/{j}: ref {} vs dense {} ({name})",
-                    rg.advance, og.advance
+                    rg.advance,
+                    og.advance
                 );
             }
         }
@@ -495,18 +568,30 @@ fn dense_pdf_runs_agree_with_the_reference_walker() {
 /// content.get(source_run) mapping fails this for the segments).
 #[test]
 fn override_segmented_run_offsets_are_item_relative_and_dense_text_correct() {
-    use azul_layout::text3::cache::{PartialStyleProperties, StyleOverride, ContentIndex};
+    use azul_layout::text3::cache::{ContentIndex, PartialStyleProperties, StyleOverride};
     let font_ref = test_font_ref();
     let input = "hello world";
-    let red = azul_css::props::basic::ColorU { r: 200, g: 30, b: 30, a: 255 };
+    let red = azul_css::props::basic::ColorU {
+        r: 200,
+        g: 30,
+        b: 30,
+        a: 255,
+    };
     let overrides = vec![StyleOverride {
-        target: ContentIndex { run_index: 0, item_index: 6 },
-        style: PartialStyleProperties { color: Some(red), ..PartialStyleProperties::default() },
+        target: ContentIndex {
+            run_index: 0,
+            item_index: 6,
+        },
+        style: PartialStyleProperties {
+            color: Some(red),
+            ..PartialStyleProperties::default()
+        },
     }];
     let content = vec![styled(input, &font_ref, 0, None, |_| {})];
     let logical = create_logical_items(&content, &overrides, &mut None);
-    let visual = reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
-        .expect("bidi");
+    let visual =
+        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+            .expect("bidi");
     let mut loaded: LoadedFonts<FontRef> = LoadedFonts::new();
     loaded.insert(FontId::new(), font_ref.clone());
     let chain: HashMap<_, FontFallbackChain> = HashMap::new();
@@ -531,20 +616,30 @@ fn override_segmented_run_offsets_are_item_relative_and_dense_text_correct() {
             assert!(
                 input[start..].starts_with(c.text()),
                 "cluster at item {item_start} + byte {} claims {:?} but input there is {:?}",
-                c.source_cluster_id.start_byte_in_run, c.text(), &input[start..]
+                c.source_cluster_id.start_byte_in_run,
+                c.text(),
+                &input[start..]
             );
         }
     }
-    assert!(saw_override_segment, "the override produced no non-zero item_index segment");
+    assert!(
+        saw_override_segment,
+        "the override produced no non-zero item_index segment"
+    );
 
     let dense = DenseText::from_unified(&layout);
-    assert!(dense.runs.len() >= 3, "override splits into >=3 dense runs, got {}", dense.runs.len());
+    assert!(
+        dense.runs.len() >= 3,
+        "override splits into >=3 dense runs, got {}",
+        dense.runs.len()
+    );
     for r in &dense.runs {
         for ci in r.clusters.clone() {
             let c = &dense.clusters[ci as usize];
             assert!(
                 r.text.get(c.start_byte as usize..).is_some(),
-                "dense run text too short for cluster byte {}", c.start_byte
+                "dense run text too short for cluster byte {}",
+                c.start_byte
             );
         }
     }
@@ -561,7 +656,10 @@ fn dense_cursor_helpers_agree_with_the_sparse_walks() {
     use azul_core::selection::{CursorAffinity, TextCursor};
     for (text, width) in [
         ("hello dense world", 400.0),
-        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        (
+            "a longer paragraph that will wrap across multiple lines of text",
+            120.0,
+        ),
         ("waffle office ffi", 400.0),
     ] {
         let (layout, content) = layout_of(text, width);
@@ -647,7 +745,10 @@ fn dense_cursor_helpers_agree_with_the_sparse_walks() {
 fn dense_grapheme_stops_agree_with_the_sparse_walk() {
     for (text, width) in [
         ("hello dense world", 400.0),
-        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        (
+            "a longer paragraph that will wrap across multiple lines of text",
+            120.0,
+        ),
         ("waffle office ffi", 400.0),
         ("cafe\u{0301} au lait", 400.0), // combining acute: continuation cluster
     ] {
@@ -668,7 +769,10 @@ fn dense_grapheme_stops_agree_with_the_sparse_walk() {
 fn dense_cursor_movement_agrees_with_the_sparse_walk() {
     for (text, width) in [
         ("hello dense world", 400.0),
-        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        (
+            "a longer paragraph that will wrap across multiple lines of text",
+            120.0,
+        ),
         ("cafe\u{0301} au lait", 400.0),
     ] {
         let (layout, content) = layout_of(text, width);
@@ -681,7 +785,10 @@ fn dense_cursor_movement_agrees_with_the_sparse_walk() {
                 azul_core::selection::CursorAffinity::Leading,
                 azul_core::selection::CursorAffinity::Trailing,
             ] {
-                let cursor = azul_core::selection::TextCursor { cluster_id: *id, affinity };
+                let cursor = azul_core::selection::TextCursor {
+                    cluster_id: *id,
+                    affinity,
+                };
                 assert_eq!(
                     dense.move_cursor_left(cursor),
                     layout.move_cursor_left(cursor, &mut dbg),
@@ -706,8 +813,14 @@ fn dense_vertical_movement_and_hittest_agree_with_the_sparse_walk() {
     use azul_layout::text3::cache::Point;
     for (text, width) in [
         ("hello dense world", 400.0),
-        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
-        ("cafe\u{0301} au lait wraps too when narrow enough for it", 90.0),
+        (
+            "a longer paragraph that will wrap across multiple lines of text",
+            120.0,
+        ),
+        (
+            "cafe\u{0301} au lait wraps too when narrow enough for it",
+            90.0,
+        ),
     ] {
         let (layout, content) = layout_of(text, width);
         let dense = DenseText::from_unified_with_content(&layout, &content);
@@ -718,7 +831,10 @@ fn dense_vertical_movement_and_hittest_agree_with_the_sparse_walk() {
                 azul_core::selection::CursorAffinity::Leading,
                 azul_core::selection::CursorAffinity::Trailing,
             ] {
-                let cursor = azul_core::selection::TextCursor { cluster_id: *id, affinity };
+                let cursor = azul_core::selection::TextCursor {
+                    cluster_id: *id,
+                    affinity,
+                };
                 let mut gx_d = None;
                 let mut gx_s = None;
                 assert_eq!(
@@ -750,7 +866,9 @@ fn dense_vertical_movement_and_hittest_agree_with_the_sparse_walk() {
                         dense.hittest_cursor(p),
                         layout.hittest_cursor(azul_core::geom::LogicalPosition { x: p.x, y: p.y }),
                         "hittest at ({}, {}) near {:?} ({text:?})",
-                        p.x, p.y, c.source_cluster_id
+                        p.x,
+                        p.y,
+                        c.source_cluster_id
                     );
                 }
             }
@@ -765,7 +883,10 @@ fn dense_vertical_movement_and_hittest_agree_with_the_sparse_walk() {
 fn dense_word_and_line_movement_agree_with_the_sparse_walk() {
     for (text, width) in [
         ("hello dense world, punct. and_under scores!", 400.0),
-        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        (
+            "a longer paragraph that will wrap across multiple lines of text",
+            120.0,
+        ),
     ] {
         let (layout, content) = layout_of(text, width);
         let dense = DenseText::from_unified_with_content(&layout, &content);
@@ -775,7 +896,10 @@ fn dense_word_and_line_movement_agree_with_the_sparse_walk() {
                 azul_core::selection::CursorAffinity::Leading,
                 azul_core::selection::CursorAffinity::Trailing,
             ] {
-                let cursor = azul_core::selection::TextCursor { cluster_id: *id, affinity };
+                let cursor = azul_core::selection::TextCursor {
+                    cluster_id: *id,
+                    affinity,
+                };
                 assert_eq!(
                     dense.move_cursor_to_prev_word(cursor),
                     layout.move_cursor_to_prev_word(cursor, &mut dbg),
@@ -811,7 +935,10 @@ fn dense_expansion_reproduces_the_sparse_items_exactly() {
     let mut cases: Vec<(String, UnifiedLayout, Vec<InlineContent>)> = Vec::new();
     for (text, width) in [
         ("hello dense world", 400.0),
-        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        (
+            "a longer paragraph that will wrap across multiple lines of text",
+            120.0,
+        ),
         ("waffle office ffi", 400.0),
     ] {
         let (layout, content) = layout_of(text, width);
@@ -965,7 +1092,10 @@ fn dense_positioned_cluster_reads_the_baseline_not_the_top() {
         (y - 40.0).abs() < f32::EPSILON,
         "y must be the line's baseline_y (the sparse position.y), got {y}"
     );
-    assert_eq!(li, 3, "line_index reads source_index, not the record ordinal");
+    assert_eq!(
+        li, 3,
+        "line_index reads source_index, not the record ordinal"
+    );
     assert!(d.positioned_cluster(1).is_none(), "out of range is None");
 }
 
@@ -979,7 +1109,10 @@ fn dense_positioned_cluster_agrees_with_the_sparse_items() {
     let mut cases: Vec<(String, UnifiedLayout, Vec<InlineContent>)> = Vec::new();
     for (text, width) in [
         ("hello dense world, punct. and_under scores!", 400.0),
-        ("a longer paragraph that will wrap across multiple lines of text", 120.0),
+        (
+            "a longer paragraph that will wrap across multiple lines of text",
+            120.0,
+        ),
     ] {
         let (layout, content) = layout_of(text, width);
         cases.push((text.to_string(), layout, content));
@@ -1014,10 +1147,7 @@ fn dense_positioned_cluster_agrees_with_the_sparse_items() {
                 "y[{i}]: sparse {} vs dense {y} ({text:?})",
                 item.position.y
             );
-            assert_eq!(
-                item.line_index, li,
-                "line_index[{i}] ({text:?})"
-            );
+            assert_eq!(item.line_index, li, "line_index[{i}] ({text:?})");
         }
     }
 }
@@ -1030,15 +1160,20 @@ fn dense_positioned_cluster_agrees_with_the_sparse_items() {
 #[test]
 fn dense_resolve_step_dispatches_like_the_sparse_resolver() {
     use azul_core::events::{SelectionDirection as D, SelectionStep as S};
-    let (layout, content) =
-        layout_of("a longer paragraph that will wrap across multiple lines of text", 120.0);
+    let (layout, content) = layout_of(
+        "a longer paragraph that will wrap across multiple lines of text",
+        120.0,
+    );
     let dense = DenseText::from_unified_with_content(&layout, &content);
     for id in &dense.grapheme_stops() {
         for affinity in [
             azul_core::selection::CursorAffinity::Leading,
             azul_core::selection::CursorAffinity::Trailing,
         ] {
-            let cursor = azul_core::selection::TextCursor { cluster_id: *id, affinity };
+            let cursor = azul_core::selection::TextCursor {
+                cluster_id: *id,
+                affinity,
+            };
             for (direction, step) in [
                 (D::Backward, S::Character),
                 (D::Forward, S::Character),
@@ -1060,9 +1195,7 @@ fn dense_resolve_step_dispatches_like_the_sparse_resolver() {
                     (D::Forward, S::VisualLine) => dense.move_cursor_down(cursor, &mut None),
                     (D::Backward, S::Line) => dense.move_cursor_to_line_start(cursor),
                     (D::Forward, S::Line) => dense.move_cursor_to_line_end(cursor),
-                    (D::Backward, S::Document) => {
-                        dense.first_cluster_cursor().unwrap_or(cursor)
-                    }
+                    (D::Backward, S::Document) => dense.first_cluster_cursor().unwrap_or(cursor),
                     (D::Forward, S::Document) => dense.last_cluster_cursor().unwrap_or(cursor),
                 };
                 assert_eq!(
@@ -1130,8 +1263,14 @@ fn ligature_cluster_records_its_full_byte_length() {
     let cluster = |start: u32, len: u16, glyph_id: u16| ShapedCluster {
         source_text: text.clone(),
         source_byte_len: len,
-        source_cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: start },
-        source_content_index: ContentIndex { run_index: 0, item_index: start },
+        source_cluster_id: GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: start,
+        },
+        source_content_index: ContentIndex {
+            run_index: 0,
+            item_index: start,
+        },
         source_node_id: None,
         glyphs: [glyph(glyph_id)].into_iter().collect(),
         flags: ClusterFlags(0),
@@ -1178,9 +1317,16 @@ fn ligature_cluster_records_its_full_byte_length() {
         d.details
     );
     assert_eq!(d.details[0].cluster, 0);
-    assert_eq!(d.details[0].byte_len, 2, "the detail must record the FUSED length");
+    assert_eq!(
+        d.details[0].byte_len, 2,
+        "the detail must record the FUSED length"
+    );
 
-    assert_eq!(d.cluster_byte_len(0), 2, "fused cluster spans 2 source bytes");
+    assert_eq!(
+        d.cluster_byte_len(0),
+        2,
+        "fused cluster spans 2 source bytes"
+    );
     assert_eq!(d.cluster_byte_len(1), 1);
     assert_eq!(d.cluster_byte_len(2), 1);
 
@@ -1191,6 +1337,13 @@ fn ligature_cluster_records_its_full_byte_length() {
     let ShapedItem::Cluster(rc) = &expanded[0].item else {
         panic!("expanded[0] must be a cluster");
     };
-    assert_eq!(rc.source_byte_len, 2, "roundtrip lost the fused byte length");
-    assert_eq!(rc.text(), "fi", "the cluster's own text slice must be the full ligature");
+    assert_eq!(
+        rc.source_byte_len, 2,
+        "roundtrip lost the fused byte length"
+    );
+    assert_eq!(
+        rc.text(),
+        "fi",
+        "the cluster's own text slice must be the full ligature"
+    );
 }

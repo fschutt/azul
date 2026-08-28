@@ -138,10 +138,7 @@ fn emit_unit_enum(out: &mut String, e: &EnumDef) {
     out.push_str(&format!("azul.{} = {{\n", lua_name));
     for v in &e.variants {
         // C-ABI emits unit enum members as `Az<Enum>_<Variant>`.
-        out.push_str(&format!(
-            "    {} = C.{}_{},\n",
-            v.name, c_prefix, v.name
-        ));
+        out.push_str(&format!("    {} = C.{}_{},\n", v.name, c_prefix, v.name));
     }
     out.push_str("}\n\n");
 }
@@ -227,9 +224,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
             "    function {}_methods:{}(data, fn)\n",
             class, smart_snake
         ));
-        out.push_str(
-            "        local data_ref = azul.refany_create(data)\n",
-        );
+        out.push_str("        local data_ref = azul.refany_create(data)\n");
         out.push_str(&format!(
             "        return self:{}(data_ref, fn)\n",
             func.method_name
@@ -273,10 +268,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // closed. Clone each element via `Az<T>_clone` (when available)
     // so the yielded entries own independent heap allocations.
     if s.category == TypeCategory::Vec {
-        out.push_str(&format!(
-            "    function {}_methods:to_lua_array()\n",
-            class
-        ));
+        out.push_str(&format!("    function {}_methods:to_lua_array()\n", class));
         out.push_str("        if self.ptr == nil or self.len == 0 then return {} end\n");
         out.push_str("        local t = {}\n");
         out.push_str("        for i = 0, tonumber(self.len) - 1 do\n");
@@ -349,8 +341,7 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
     // Phase I.2.7 (Lua): __eq metamethod via Az<X>_partialEq when
     // TypeTraits.is_partial_eq and the helper is exported.
     let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq
-        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
     let eq_clause = if has_eq {
         // Guard against `cdata == nil` and cross-type equality; both
         // LuaJIT idioms invoke __eq with `b = nil` or a non-cdata,
@@ -368,9 +359,8 @@ fn emit_struct_wrapper(out: &mut String, ir: &CodegenIR, s: &StructDef) {
 
     // Phase I.3.5 (Lua): __tostring metamethod via Az<X>_toDbgString.
     let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug
-        && ir.functions.iter().any(|f| f.c_name == dbg_sym)
-        && s.name != "String";
+    let has_dbg =
+        s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym) && s.name != "String";
     // The AzString returned by value from toDbgString is never seen by
     // a finalizer (LuaJIT arms __gc only for ffi.new cdata, not C-call
     // returns), so it must be consumed here after ffi.string() copies
@@ -480,14 +470,14 @@ fn emit_data_enum_wrapper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
     // + memory_safety_session_2026_05_15).
     let mut auto_method_count = 0usize;
     if e.variants.len() == 2 {
-        let some_payload = e
-            .variants
-            .iter()
-            .find(|v| v.name == "Some")
-            .and_then(|v| match &v.kind {
-                EnumVariantKind::Tuple(t) if t.len() == 1 => Some(&t[0].0),
-                _ => None,
-            });
+        let some_payload =
+            e.variants
+                .iter()
+                .find(|v| v.name == "Some")
+                .and_then(|v| match &v.kind {
+                    EnumVariantKind::Tuple(t) if t.len() == 1 => Some(&t[0].0),
+                    _ => None,
+                });
         let has_none = e.variants.iter().any(|v| v.name == "None");
         if let (Some(payload_ty), true) = (some_payload, has_none) {
             emit_lua_to_opt_body(out, class, payload_ty, ir);
@@ -923,12 +913,7 @@ fn lua_payload_is_string(payload_ty: &str, ir: &CodegenIR) -> bool {
 /// Emit Lua `:to_opt()` for an Az<Option> enum. Three extraction
 /// shapes (mirrors Ruby and JVM/CLR): AzString decode / wrapper-class
 /// clone-then-delete / primitive pass-through.
-fn emit_lua_to_opt_body(
-    out: &mut String,
-    class: &str,
-    payload_ty: &str,
-    ir: &CodegenIR,
-) {
+fn emit_lua_to_opt_body(out: &mut String, class: &str, payload_ty: &str, ir: &CodegenIR) {
     let option_name = format!("Az{}", class);
     let has_delete = lua_has_delete(class, ir);
     // Lua __gc fires later on the same cdata; we must call
@@ -963,9 +948,7 @@ fn emit_lua_to_opt_body(
         out.push_str("        if __azs.vec.ptr == nil or __azs.vec.len == 0 then\n");
         out.push_str("            __out = \"\"\n");
         out.push_str("        else\n");
-        out.push_str(
-            "            __out = ffi.string(__azs.vec.ptr, tonumber(__azs.vec.len))\n",
-        );
+        out.push_str("            __out = ffi.string(__azs.vec.ptr, tonumber(__azs.vec.len))\n");
         out.push_str("        end\n");
         if has_delete {
             out.push_str(&delete_line);
@@ -1002,12 +985,7 @@ fn emit_lua_to_opt_body(
 
 /// Emit Lua `:unwrap()` for an Az<Result> enum. Same three extraction
 /// shapes as [`emit_lua_to_opt_body`]; Err branch raises before delete.
-fn emit_lua_unwrap_body(
-    out: &mut String,
-    class: &str,
-    payload_ty: &str,
-    ir: &CodegenIR,
-) {
+fn emit_lua_unwrap_body(out: &mut String, class: &str, payload_ty: &str, ir: &CodegenIR) {
     let result_name = format!("Az{}", class);
     let has_delete = lua_has_delete(class, ir);
     // `azul._consume(self)` after the explicit delete: Result shells
@@ -1036,9 +1014,7 @@ fn emit_lua_unwrap_body(
         out.push_str("        if __azs.vec.ptr == nil or __azs.vec.len == 0 then\n");
         out.push_str("            __out = \"\"\n");
         out.push_str("        else\n");
-        out.push_str(
-            "            __out = ffi.string(__azs.vec.ptr, tonumber(__azs.vec.len))\n",
-        );
+        out.push_str("            __out = ffi.string(__azs.vec.ptr, tonumber(__azs.vec.len))\n");
         out.push_str("        end\n");
         if has_delete {
             out.push_str(&delete_line);
@@ -1068,8 +1044,7 @@ fn emit_lua_unwrap_body(
 }
 
 fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
-    a.type_name.trim() == "String"
-        && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+    a.type_name.trim() == "String" && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
 }
 
 /// Emit one entry of a static-method table:
@@ -1079,12 +1054,7 @@ fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
 /// the splice path (`default_c_name` + nested `field_path`) from
 /// [`layout_callback_factory_info`] instead of hardcoding
 /// `AzWindowCreateOptions_default` / `window_state.layout_callback`.
-fn emit_static_method(
-    out: &mut String,
-    lua_method: &str,
-    func: &FunctionDef,
-    ir: &CodegenIR,
-) {
+fn emit_static_method(out: &mut String, lua_method: &str, func: &FunctionDef, ir: &CodegenIR) {
     let lua_method = sanitize_lua_ident(lua_method);
 
     // ThreadCallback guard: LuaJIT is a single-threaded VM with no
@@ -1197,9 +1167,11 @@ fn emit_static_method(
         .iter()
         .filter(|a| a.callback_info.is_some())
         .collect();
-    if cb_args.len() == 1 && func.args.iter().all(|a| {
-        a.callback_info.is_some() || matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
-    }) {
+    if cb_args.len() == 1
+        && func.args.iter().all(|a| {
+            a.callback_info.is_some() || matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+        })
+    {
         let cb = cb_args[0].callback_info.as_ref().unwrap();
         let wrapper_name = cb.callback_wrapper_name.as_str();
         let returns_self_wrapper = func
@@ -1207,16 +1179,13 @@ fn emit_static_method(
             .as_deref()
             .map(|t| t.trim() == wrapper_name)
             .unwrap_or(false);
-        let supported = super::super::managed_host_invoker::HOST_INVOKER_KINDS
-            .contains(&wrapper_name);
+        let supported =
+            super::super::managed_host_invoker::HOST_INVOKER_KINDS.contains(&wrapper_name);
 
         if returns_self_wrapper && supported && func.args.len() == 1 {
             // Direct passthrough — the registered wrapper IS the return.
             let arg_name = sanitize_lua_ident(&func.args[0].name);
-            out.push_str(&format!(
-                "    {} = function({})\n",
-                lua_method, arg_name
-            ));
+            out.push_str(&format!("    {} = function({})\n", lua_method, arg_name));
             out.push_str(&format!(
                 "        return azul._register_callback('{}', {})\n",
                 wrapper_name, arg_name

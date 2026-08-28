@@ -72,7 +72,8 @@ impl VecContents {
         let t2 = "    ".repeat(tabs + 1);
 
         for (key, item) in &self.strings {
-            let _ = write!(result,
+            let _ = write!(
+                result,
                 "\r\n    const STRING_{}: AzString = AzString::from_const_str(\"{}\");",
                 key,
                 item.as_str()
@@ -86,7 +87,8 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            let _ = write!(result,
+            let _ =
+                write!(result,
                 "\r\n    const STYLE_FILTER_{key}_ITEMS: &[StyleFilter] = &[\r\n{t2}{val}\r\n{t}];"
             );
         }
@@ -98,7 +100,8 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            let _ = write!(result,
+            let _ = write!(
+                result,
                 "\r\n    const STYLE_BACKGROUND_SIZE_{key}_ITEMS: &[StyleBackgroundSize] = \
                  &[\r\n{t2}{val}\r\n{t}];"
             );
@@ -111,7 +114,8 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            let _ = write!(result,
+            let _ =
+                write!(result,
                 "\r\n    const STYLE_BACKGROUND_REPEAT_{key}_ITEMS: &[StyleBackgroundRepeat] = \
                  &[\r\n{t2}{val}\r\n{t}];"
             );
@@ -124,7 +128,8 @@ impl VecContents {
                 .collect::<Vec<_>>()
                 .join(&format!(",\r\n{t}"));
 
-            let _ = write!(result,
+            let _ =
+                write!(result,
                 "\r\n    const STYLE_BACKGROUND_CONTENT_{key}_ITEMS: &[StyleBackgroundContent] = \
                  &[\r\n{t2}{val}\r\n{t}];"
             );
@@ -162,7 +167,8 @@ impl VecContents {
         for (key, item) in &self.linear_color_stops {
             let val = format_linear_color_stops(item.as_ref(), 1);
 
-            let _ = write!(result,
+            let _ = write!(
+                result,
                 "\r\n    const LINEAR_COLOR_STOP_{key}_ITEMS: &[NormalizedLinearColorStop] = \
                  &[\r\n{t2}{val}\r\n{t}];"
             );
@@ -171,7 +177,8 @@ impl VecContents {
         for (key, item) in &self.radial_color_stops {
             let val = format_radial_color_stops(item.as_ref(), tabs);
 
-            let _ = write!(result,
+            let _ = write!(
+                result,
                 "\r\n    const RADIAL_COLOR_STOP_{key}_ITEMS: &[NormalizedRadialColorStop] = \
                  &[\r\n{t2}{val}\r\n{t}];"
             );
@@ -268,7 +275,8 @@ impl VecContents {
 // Helper functions for formatting values
 
 /// Formats a `PixelValue` as a const-compatible Rust constructor call.
-#[must_use] pub fn format_pixel_value(p: &PixelValue) -> String {
+#[must_use]
+pub fn format_pixel_value(p: &PixelValue) -> String {
     let value = p.number.get();
 
     // Decompose into integer + fractional parts using the absolute value so
@@ -303,7 +311,8 @@ const fn f32_to_isize(v: f32) -> isize {
 }
 
 /// Formats a `PixelValueNoPercent` as a const-compatible Rust constructor call.
-#[must_use] pub fn format_pixel_value_no_percent(p: &PixelValueNoPercent) -> String {
+#[must_use]
+pub fn format_pixel_value_no_percent(p: &PixelValueNoPercent) -> String {
     format!(
         "PixelValueNoPercent {{ inner: {} }}",
         format_pixel_value(&p.inner)
@@ -311,31 +320,30 @@ const fn f32_to_isize(v: f32) -> isize {
 }
 
 /// Formats a `FloatValue` as a const-compatible Rust constructor call.
-#[must_use] pub fn format_float_value(f: &FloatValue) -> String {
+#[must_use]
+pub fn format_float_value(f: &FloatValue) -> String {
     let value = f.get();
     let abs_val = libm::fabsf(value);
     let sign: isize = if value < 0.0 { -1 } else { 1 };
     let pre_comma = f32_to_isize(libm::floorf(abs_val)) * sign;
     let post_comma = f32_to_isize(libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0));
-    format!(
-        "FloatValue::const_new_fractional({pre_comma}, {post_comma})"
-    )
+    format!("FloatValue::const_new_fractional({pre_comma}, {post_comma})")
 }
 
 /// Formats a `PercentageValue` as a const-compatible Rust constructor call.
-#[must_use] pub fn format_percentage_value(f: &PercentageValue) -> String {
+#[must_use]
+pub fn format_percentage_value(f: &PercentageValue) -> String {
     let value = f.normalized() * 100.0;
     let abs_val = libm::fabsf(value);
     let sign: isize = if value < 0.0 { -1 } else { 1 };
     let pre_comma = f32_to_isize(libm::floorf(abs_val)) * sign;
     let post_comma = f32_to_isize(libm::roundf((abs_val - libm::floorf(abs_val)) * 100.0));
-    format!(
-        "PercentageValue::const_new_fractional({pre_comma}, {post_comma})"
-    )
+    format!("PercentageValue::const_new_fractional({pre_comma}, {post_comma})")
 }
 
 /// Formats an `AngleValue` as a const-compatible Rust constructor call.
-#[must_use] pub fn format_angle_value(f: &AngleValue) -> String {
+#[must_use]
+pub fn format_angle_value(f: &AngleValue) -> String {
     let value = f.number.get();
     let abs_val = libm::fabsf(value);
     let sign: isize = if value < 0.0 { -1 } else { 1 };
@@ -348,7 +356,8 @@ const fn f32_to_isize(v: f32) -> isize {
 }
 
 /// Formats a `ColorU` as a const-compatible Rust struct literal.
-#[must_use] pub fn format_color_value(c: &ColorU) -> String {
+#[must_use]
+pub fn format_color_value(c: &ColorU) -> String {
     format!(
         "ColorU {{ r: {}, g: {}, b: {}, a: {} }}",
         c.r, c.g, c.b, c.a
@@ -371,7 +380,9 @@ fn format_grid_line(line: &GridLine, _tabs: usize) -> String {
 fn format_color_or_system(c: ColorOrSystem) -> String {
     use crate::props::basic::color::{ColorOrSystem, SystemColorRef};
     match c {
-        ColorOrSystem::Color(color) => format!("ColorOrSystem::Color({})", format_color_value(&color)),
+        ColorOrSystem::Color(color) => {
+            format!("ColorOrSystem::Color({})", format_color_value(&color))
+        }
         ColorOrSystem::System(system_ref) => {
             let variant = match system_ref {
                 SystemColorRef::Text => "Text",
@@ -566,9 +577,11 @@ impl_enum_fmt!(StyleTextOverflow, Clip, Ellipsis);
 
 impl FormatAsRustCode for StyleObjectPosition {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
-        format!("StyleObjectPosition {{ horizontal: {}, vertical: {} }}",
+        format!(
+            "StyleObjectPosition {{ horizontal: {}, vertical: {} }}",
             format_background_position_horizontal(&self.horizontal),
-            format_background_position_vertical(&self.vertical))
+            format_background_position_vertical(&self.vertical)
+        )
     }
 }
 
@@ -576,19 +589,46 @@ impl FormatAsRustCode for StyleAspectRatio {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
             Self::Auto => "StyleAspectRatio::Auto".to_string(),
-            Self::Ratio(r) => format!("StyleAspectRatio::Ratio(AspectRatioValue {{ width: {}, height: {} }})", r.width, r.height),
+            Self::Ratio(r) => format!(
+                "StyleAspectRatio::Ratio(AspectRatioValue {{ width: {}, height: {} }})",
+                r.width, r.height
+            ),
         }
     }
 }
 
 impl_enum_fmt!(StyleTextOrientation, Mixed, Upright, Sideways);
-impl_enum_fmt!(StyleTextAlignLast, Auto, Start, End, Left, Right, Center, Justify);
+impl_enum_fmt!(
+    StyleTextAlignLast,
+    Auto,
+    Start,
+    End,
+    Left,
+    Right,
+    Center,
+    Justify
+);
 
-impl_enum_fmt!(StyleTextTransform, None, Capitalize, Uppercase, Lowercase, FullWidth);
+impl_enum_fmt!(
+    StyleTextTransform,
+    None,
+    Capitalize,
+    Uppercase,
+    Lowercase,
+    FullWidth
+);
 
 impl_enum_fmt!(StyleDirection, Ltr, Rtl);
 
-impl_enum_fmt!(StyleWhiteSpace, Normal, Pre, Nowrap, PreWrap, PreLine, BreakSpaces);
+impl_enum_fmt!(
+    StyleWhiteSpace,
+    Normal,
+    Pre,
+    Nowrap,
+    PreWrap,
+    PreLine,
+    BreakSpaces
+);
 
 impl_enum_fmt!(StyleVisibility, Visible, Hidden, Collapse);
 
@@ -738,10 +778,33 @@ impl_enum_fmt!(ExtendMode, Clamp, Repeat);
 impl_enum_fmt!(StyleBackfaceVisibility, Visible, Hidden);
 impl_enum_fmt!(StyleAppRegion, NoDrag, Drag);
 
-impl_enum_fmt!(StyleUnicodeBidi, Normal, Embed, Isolate, BidiOverride, IsolateOverride, Plaintext);
+impl_enum_fmt!(
+    StyleUnicodeBidi,
+    Normal,
+    Embed,
+    Isolate,
+    BidiOverride,
+    IsolateOverride,
+    Plaintext
+);
 impl_enum_fmt!(StyleTextBoxTrim, None, TrimStart, TrimEnd, TrimBoth);
-impl_enum_fmt!(TextBoxEdgeOver, Auto, Text, Cap, Ex, Ideographic, IdeographicInk);
-impl_enum_fmt!(TextBoxEdgeUnder, Auto, Text, Alphabetic, Ideographic, IdeographicInk);
+impl_enum_fmt!(
+    TextBoxEdgeOver,
+    Auto,
+    Text,
+    Cap,
+    Ex,
+    Ideographic,
+    IdeographicInk
+);
+impl_enum_fmt!(
+    TextBoxEdgeUnder,
+    Auto,
+    Text,
+    Alphabetic,
+    Ideographic,
+    IdeographicInk
+);
 impl FormatAsRustCode for StyleTextBoxEdge {
     fn format_as_rust_code(&self, tabs: usize) -> String {
         format!(
@@ -751,17 +814,56 @@ impl FormatAsRustCode for StyleTextBoxEdge {
         )
     }
 }
-impl_enum_fmt!(StyleDominantBaseline, Auto, TextBottom, Alphabetic, Ideographic, Middle, Central, Mathematical, Hanging, TextTop);
-impl_enum_fmt!(StyleAlignmentBaseline, Baseline, TextBottom, Alphabetic, Ideographic, Middle, Central, Mathematical, TextTop);
+impl_enum_fmt!(
+    StyleDominantBaseline,
+    Auto,
+    TextBottom,
+    Alphabetic,
+    Ideographic,
+    Middle,
+    Central,
+    Mathematical,
+    Hanging,
+    TextTop
+);
+impl_enum_fmt!(
+    StyleAlignmentBaseline,
+    Baseline,
+    TextBottom,
+    Alphabetic,
+    Ideographic,
+    Middle,
+    Central,
+    Mathematical,
+    TextTop
+);
 impl_enum_fmt!(StyleBaselineSource, Auto, First, Last);
-impl_enum_fmt!(StyleLineFitEdge, Leading, Text, Cap, Ex, Ideographic, IdeographicInk, Alphabetic);
-impl_enum_fmt!(StyleInitialLetterAlign, Auto, Alphabetic, Hanging, Ideographic);
+impl_enum_fmt!(
+    StyleLineFitEdge,
+    Leading,
+    Text,
+    Cap,
+    Ex,
+    Ideographic,
+    IdeographicInk,
+    Alphabetic
+);
+impl_enum_fmt!(
+    StyleInitialLetterAlign,
+    Auto,
+    Alphabetic,
+    Hanging,
+    Ideographic
+);
 impl_enum_fmt!(StyleInitialLetterWrap, None, First, All, Grid);
 impl_enum_fmt!(StyleScrollbarGutter, Auto, Stable, StableBothEdges);
 
 impl FormatAsRustCode for StyleOverflowClipMargin {
     fn format_as_rust_code(&self, tabs: usize) -> String {
-        format!("StyleOverflowClipMargin {{ inner: {} }}", self.inner.format_as_rust_code(tabs))
+        format!(
+            "StyleOverflowClipMargin {{ inner: {} }}",
+            self.inner.format_as_rust_code(tabs)
+        )
     }
 }
 
@@ -800,7 +902,8 @@ fn format_style_background_size(c: &StyleBackgroundSize) -> String {
 // Scrollbar-related impls moved to `props/style/scrollbar.rs`
 
 /// Formats a `ScrollbarInfo` as a const-compatible Rust struct literal.
-#[must_use] pub fn format_scrollbar_info(s: &ScrollbarInfo, tabs: usize) -> String {
+#[must_use]
+pub fn format_scrollbar_info(s: &ScrollbarInfo, tabs: usize) -> String {
     let t = String::from("    ").repeat(tabs);
     let t1 = String::from("    ").repeat(tabs + 1);
     format!(
@@ -1038,12 +1141,20 @@ fn format_style_filter(st: &StyleFilter, tabs: usize) -> String {
             format_float_value(&fv.k3),
             format_float_value(&fv.k4)
         ),
-        StyleFilter::Brightness(v) => format!("StyleFilter::Brightness({})", format_percentage_value(v)),
-        StyleFilter::Contrast(v) => format!("StyleFilter::Contrast({})", format_percentage_value(v)),
-        StyleFilter::Grayscale(v) => format!("StyleFilter::Grayscale({})", format_percentage_value(v)),
+        StyleFilter::Brightness(v) => {
+            format!("StyleFilter::Brightness({})", format_percentage_value(v))
+        }
+        StyleFilter::Contrast(v) => {
+            format!("StyleFilter::Contrast({})", format_percentage_value(v))
+        }
+        StyleFilter::Grayscale(v) => {
+            format!("StyleFilter::Grayscale({})", format_percentage_value(v))
+        }
         StyleFilter::HueRotate(a) => format!("StyleFilter::HueRotate({})", format_angle_value(a)),
         StyleFilter::Invert(v) => format!("StyleFilter::Invert({})", format_percentage_value(v)),
-        StyleFilter::Saturate(v) => format!("StyleFilter::Saturate({})", format_percentage_value(v)),
+        StyleFilter::Saturate(v) => {
+            format!("StyleFilter::Saturate({})", format_percentage_value(v))
+        }
         StyleFilter::Sepia(v) => format!("StyleFilter::Sepia({})", format_percentage_value(v)),
     }
 }

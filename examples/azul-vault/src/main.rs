@@ -13,10 +13,10 @@
 //! sample entries; custom key/value text input + a listing view (which
 //! needs the `DbRows`/`DbValue` accessor methods exposed) are P4.4b.
 
-use azul::prelude::*;
-use azul::biometric::BiometricResult;
 use azul::biometric::BiometricPrompt;
+use azul::biometric::BiometricResult;
 use azul::db::{Db, DbValue};
+use azul::prelude::*;
 
 struct VaultState {
     /// SQLite file path — the vault persists here across runs. Stored as a
@@ -52,7 +52,10 @@ impl VaultState {
 /// internals — just the api.json surface.
 fn refresh_entries(s: &mut VaultState) {
     let db = Db::open(s.db_path.clone());
-    let rows = db.query("SELECT k, v FROM entries ORDER BY id", Vec::<DbValue>::new());
+    let rows = db.query(
+        "SELECT k, v FROM entries ORDER BY id",
+        Vec::<DbValue>::new(),
+    );
     let ncols = rows.columns.as_slice().len();
     let cells = rows.values.as_slice();
     let mut out = Vec::new();
@@ -95,7 +98,12 @@ const EMPTY: &str = "color: #9aa0b4; font-style: italic; margin: 8px 0px;";
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let (unlocked, status, count, entries) = match data.downcast_ref::<VaultState>() {
-        Some(s) => (s.unlocked, s.status.clone(), s.added_count, s.entries.clone()),
+        Some(s) => (
+            s.unlocked,
+            s.status.clone(),
+            s.added_count,
+            s.entries.clone(),
+        ),
         None => (false, String::new(), 0, Vec::new()),
     };
 
@@ -108,7 +116,9 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 .with_child(
                     Dom::create_div()
                         .with_css(BTN)
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Unlock with biometrics"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "Unlock with biometrics",
+                        ))
                         .with_callback(
                             EventFilter::Hover(HoverEventFilter::MouseUp),
                             data.clone(),
@@ -118,16 +128,13 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         );
     }
 
-    let summary = format!(
-        "{} stored · {} added this session",
-        entries.len(),
-        count
-    );
+    let summary = format!("{} stored · {} added this session", entries.len(), count);
     let mut body = Dom::create_div()
         .with_css(BODY)
         .with_child(Dom::create_div_with_text(summary.as_str()));
     if entries.is_empty() {
-        body = body.with_child(Dom::create_div_with_text("No entries yet — add one.").with_css(EMPTY));
+        body =
+            body.with_child(Dom::create_div_with_text("No entries yet — add one.").with_css(EMPTY));
     } else {
         for (k, v) in &entries {
             body = body.with_child(
@@ -141,7 +148,9 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     body = body.with_child(
         Dom::create_div()
             .with_css(BTN)
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Add sample entry"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "Add sample entry",
+            ))
             .with_callback(
                 EventFilter::Hover(HoverEventFilter::MouseUp),
                 data.clone(),
@@ -182,9 +191,7 @@ extern "C" fn on_unlock(mut data: RefAny, mut info: CallbackInfo) -> Update {
                         BiometricResult::Unavailable => {
                             "Biometrics unavailable on this device.".to_string()
                         }
-                        BiometricResult::Cancelled => {
-                            "Cancelled — tap to try again.".to_string()
-                        }
+                        BiometricResult::Cancelled => "Cancelled — tap to try again.".to_string(),
                         _ => "Authentication failed — tap to try again.".to_string(),
                     };
                 }

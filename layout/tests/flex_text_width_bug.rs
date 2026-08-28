@@ -1,12 +1,3 @@
-/// Test for flex container text width bug
-/// 
-/// Bug: Text inside a flex item gets width=0 because MinContent sizing
-/// passes available_width=0 to the text layout engine, causing text to
-/// wrap after every character.
-///
-/// Expected: Text should measure its intrinsic min-content width (widest word)
-/// and the flex item should have non-zero width.
-use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -15,13 +6,22 @@ use azul_layout::font_traits::{FontManager, TextLayoutCache};
 use azul_layout::paged::FragmentationContext;
 use azul_layout::solver3::paged_layout::layout_document_paged_with_config;
 use azul_layout::solver3::pagination::FakePageConfig;
+/// Test for flex container text width bug
+///
+/// Bug: Text inside a flex item gets width=0 because MinContent sizing
+/// passes available_width=0 to the text layout engine, causing text to
+/// wrap after every character.
+///
+/// Expected: Text should measure its intrinsic min-content width (widest word)
+/// and the flex item should have non-zero width.
+use azul_layout::solver3::LayoutNodeId;
 use azul_layout::text3::default::PathLoader;
 use azul_layout::xml::DomXmlExt;
 use azul_layout::Solver3LayoutCache;
 use std::collections::{BTreeMap, HashMap};
 
 /// Test that text in a flex row container gets proper width
-/// 
+///
 /// This is the minimal reproduction case for the bug where:
 /// - Body has display: flex, flex-direction: column
 /// - Titlebar div has display: flex, flex-direction: row, align-self: stretch
@@ -116,13 +116,18 @@ fn test_flex_column_child_text_has_nonzero_width() {
         font_loader,
         page_config,
         &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
     )
     .expect("Layout should succeed");
 
     // Get the layout tree to inspect node sizes
-    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+    let tree = layout_cache
+        .tree
+        .as_ref()
+        .expect("Layout tree should exist");
 
     // Find the titlebar node (should be first child of body which is node 0)
     // Node structure:
@@ -134,11 +139,13 @@ fn test_flex_column_child_text_has_nonzero_width() {
     // ...
 
     // Check titlebar (node 1) has non-zero width
-    let titlebar = tree.get(LayoutNodeId::new(1)).expect("Titlebar node should exist");
+    let titlebar = tree
+        .get(LayoutNodeId::new(1))
+        .expect("Titlebar node should exist");
     let titlebar_size = titlebar.used_size.expect("Titlebar should have used_size");
-    
+
     println!("Titlebar size: {titlebar_size:?}");
-    
+
     // BUG: This currently fails because titlebar gets width=0
     // The titlebar should stretch to fill the body width (around 400px minus margins)
     assert!(
@@ -148,11 +155,15 @@ fn test_flex_column_child_text_has_nonzero_width() {
     );
 
     // Check title-container (node 2) has non-zero width
-    let title_container = tree.get(LayoutNodeId::new(2)).expect("Title container node should exist");
-    let container_size = title_container.used_size.expect("Container should have used_size");
-    
+    let title_container = tree
+        .get(LayoutNodeId::new(2))
+        .expect("Title container node should exist");
+    let container_size = title_container
+        .used_size
+        .expect("Container should have used_size");
+
     println!("Title container size: {container_size:?}");
-    
+
     // BUG: This currently fails because the container gets width=0
     // With flex-grow: 1, it should expand to fill available space
     assert!(
@@ -241,20 +252,34 @@ fn test_flex_row_text_child_has_intrinsic_width() {
         font_loader,
         page_config,
         &azul_core::resources::ImageCache::default(),
-        azul_core::task::GetSystemTimeCallback { cb: azul_core::task::get_system_time_libstd },
+        azul_core::task::GetSystemTimeCallback {
+            cb: azul_core::task::get_system_time_libstd,
+        },
         false,
     )
     .expect("Layout should succeed");
 
-    let tree = layout_cache.tree.as_ref().expect("Layout tree should exist");
+    let tree = layout_cache
+        .tree
+        .as_ref()
+        .expect("Layout tree should exist");
 
     // Debug: print all nodes
     for i in 0..10 {
         if let Some(node) = tree.get(LayoutNodeId::new(i)) {
             let size = node.used_size.unwrap_or_default();
-            let intrinsic = tree.warm(LayoutNodeId::new(i)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
-            println!("Node {}: size={:?}, intrinsic_min_w={}, intrinsic_max_w={}, fc={:?}",
-                i, size, intrinsic.min_content_width, intrinsic.max_content_width, node.formatting_context);
+            let intrinsic = tree
+                .warm(LayoutNodeId::new(i))
+                .and_then(|w| w.intrinsic_sizes)
+                .unwrap_or_default();
+            println!(
+                "Node {}: size={:?}, intrinsic_min_w={}, intrinsic_max_w={}, fc={:?}",
+                i,
+                size,
+                intrinsic.min_content_width,
+                intrinsic.max_content_width,
+                node.formatting_context
+            );
         }
     }
 
@@ -262,24 +287,24 @@ fn test_flex_row_text_child_has_intrinsic_width() {
     // Find a node that has non-zero intrinsic width (the text content node)
     let text_div_idx = (0..10)
         .find(|&i| {
-            let has_intrinsic = tree.warm(LayoutNodeId::new(i))
+            let has_intrinsic = tree
+                .warm(LayoutNodeId::new(i))
                 .and_then(|w| w.intrinsic_sizes)
                 .map(|s| s.min_content_width > 20.0)
                 .unwrap_or(false);
             tree.get(LayoutNodeId::new(i))
-                .map(|n| {
-                    has_intrinsic
-                    && n.used_size.map(|s| s.width > 0.0).unwrap_or(false)
-                })
+                .map(|n| has_intrinsic && n.used_size.map(|s| s.width > 0.0).unwrap_or(false))
                 .unwrap_or(false)
         })
         .expect("Should find text div with non-zero width");
 
-    let text_div = tree.get(LayoutNodeId::new(text_div_idx)).expect("Text div should exist");
+    let text_div = tree
+        .get(LayoutNodeId::new(text_div_idx))
+        .expect("Text div should exist");
     let text_div_size = text_div.used_size.expect("Text div should have used_size");
-    
+
     println!("Text div size: {text_div_size:?}");
-    
+
     // The div should have width equal to the text's intrinsic width
     // "Hello World" in a typical font is around 60-80px wide
     assert!(

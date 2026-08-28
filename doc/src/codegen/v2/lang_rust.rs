@@ -387,7 +387,10 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            builder.line(&format!("impl<'a, T> core::ops::Deref for {}Ref<'a, T> {{", prefix));
+            builder.line(&format!(
+                "impl<'a, T> core::ops::Deref for {}Ref<'a, T> {{",
+                prefix
+            ));
             builder.indent();
             builder.line("type Target = T;");
             builder.line("fn deref(&self) -> &T { self.ptr }");
@@ -410,14 +413,20 @@ impl RustGenerator {
             builder.dedent();
             builder.line("}");
             builder.blank();
-            builder.line(&format!("impl<'a, T> core::ops::Deref for {}RefMut<'a, T> {{", prefix));
+            builder.line(&format!(
+                "impl<'a, T> core::ops::Deref for {}RefMut<'a, T> {{",
+                prefix
+            ));
             builder.indent();
             builder.line("type Target = T;");
             builder.line("fn deref(&self) -> &T { &*self.ptr }");
             builder.dedent();
             builder.line("}");
             builder.blank();
-            builder.line(&format!("impl<'a, T> core::ops::DerefMut for {}RefMut<'a, T> {{", prefix));
+            builder.line(&format!(
+                "impl<'a, T> core::ops::DerefMut for {}RefMut<'a, T> {{",
+                prefix
+            ));
             builder.indent();
             builder.line("fn deref_mut(&mut self) -> &mut T { self.ptr }");
             builder.dedent();
@@ -434,7 +443,9 @@ impl RustGenerator {
             builder.line("use core::any::TypeId;");
             builder.line("let t = TypeId::of::<T>();");
             builder.line("let bytes = unsafe { core::slice::from_raw_parts((&t as *const TypeId) as *const u8, core::mem::size_of::<TypeId>()) };");
-            builder.line("bytes.iter().enumerate().take(8).map(|(i, b)| (*b as u64) << (i * 8)).sum()");
+            builder.line(
+                "bytes.iter().enumerate().take(8).map(|(i, b)| (*b as u64) << (i * 8)).sum()",
+            );
             builder.dedent();
             builder.line("}");
             builder.blank();
@@ -477,7 +488,8 @@ impl RustGenerator {
 
             // downcast_ref<T>
             builder.line(&format!(
-                "pub fn downcast_ref<'a, T: 'static>(&'a mut self) -> Option<{}Ref<'a, T>> {{", prefix
+                "pub fn downcast_ref<'a, T: 'static>(&'a mut self) -> Option<{}Ref<'a, T>> {{",
+                prefix
             ));
             builder.indent();
             builder.line("let type_id = Self::get_type_id_static::<T>();");
@@ -489,7 +501,10 @@ impl RustGenerator {
             builder.line(&format!("Some({}Ref {{", prefix));
             builder.indent();
             builder.line("ptr: unsafe { &*(ptr as *const T) },");
-            builder.line(&format!("sharing_info: {}RefCount::clone(&self.sharing_info),", prefix));
+            builder.line(&format!(
+                "sharing_info: {}RefCount::clone(&self.sharing_info),",
+                prefix
+            ));
             builder.dedent();
             builder.line("})");
             builder.dedent();
@@ -498,7 +513,8 @@ impl RustGenerator {
 
             // downcast_mut<T>
             builder.line(&format!(
-                "pub fn downcast_mut<'a, T: 'static>(&'a mut self) -> Option<{}RefMut<'a, T>> {{", prefix
+                "pub fn downcast_mut<'a, T: 'static>(&'a mut self) -> Option<{}RefMut<'a, T>> {{",
+                prefix
             ));
             builder.indent();
             builder.line("let type_id = Self::get_type_id_static::<T>();");
@@ -510,7 +526,10 @@ impl RustGenerator {
             builder.line(&format!("Some({}RefMut {{", prefix));
             builder.indent();
             builder.line("ptr: unsafe { &mut *(ptr as *mut T) },");
-            builder.line(&format!("sharing_info: {}RefCount::clone(&self.sharing_info),", prefix));
+            builder.line(&format!(
+                "sharing_info: {}RefCount::clone(&self.sharing_info),",
+                prefix
+            ));
             builder.dedent();
             builder.line("})");
             builder.dedent();
@@ -632,7 +651,9 @@ impl RustGenerator {
         builder.line("pub fn as_str(&self) -> &str {");
         builder.indent();
         builder.line("// SAFETY: ptr/len come from the library-owned AzString buffer.");
-        builder.line("let bytes = unsafe { core::slice::from_raw_parts(self.vec.ptr, self.vec.len) };");
+        builder.line(
+            "let bytes = unsafe { core::slice::from_raw_parts(self.vec.ptr, self.vec.len) };",
+        );
         builder.line("match core::str::from_utf8(bytes) {");
         builder.indent();
         builder.line("Ok(s) => s,");
@@ -851,7 +872,8 @@ impl RustGenerator {
         builder.line("/// serializing/deserializing the value to/from JSON. This enables");
         builder.line("/// the debug HTTP API to inspect and modify app state.");
         builder.line("///");
-        builder.line("/// Requires the `serde-json` feature and `T: Serialize + DeserializeOwned`.");
+        builder
+            .line("/// Requires the `serde-json` feature and `T: Serialize + DeserializeOwned`.");
         builder.line("///");
         builder.line("/// # Example");
         builder.line("///");
@@ -887,7 +909,10 @@ impl RustGenerator {
         builder.line(&format!("let result = {}Json::parse(s.as_str());", prefix));
         builder.line("match &result {");
         builder.indent();
-        builder.line(&format!("{}ResultJsonJsonParseError::Ok(json) => {{", prefix));
+        builder.line(&format!(
+            "{}ResultJsonJsonParseError::Ok(json) => {{",
+            prefix
+        ));
         builder.indent();
         builder.line("let json = unsafe { core::ptr::read(json) };");
         builder.line("core::mem::forget(result);");
@@ -930,7 +955,10 @@ impl RustGenerator {
         builder.line(&format!("{}ResultRefAnyString::Ok(refany)", prefix));
         builder.dedent();
         builder.line("}");
-        builder.line(&format!("Err(e) => {}ResultRefAnyString::Err({}String::from(e.to_string())),", prefix, prefix));
+        builder.line(&format!(
+            "Err(e) => {}ResultRefAnyString::Err({}String::from(e.to_string())),",
+            prefix, prefix
+        ));
         builder.dedent();
         builder.line("}");
         builder.dedent();
@@ -1110,7 +1138,7 @@ impl RustGenerator {
 
             let prefixed_name = config.apply_prefix(&enum_def.name);
             let prefixed_inner = config.apply_prefix(inner_type);
-            
+
             // Check if this type derives Copy - if so, we don't need forget
             let is_copy = enum_def.derives.contains(&"Copy".to_string());
 
@@ -1370,7 +1398,10 @@ impl RustGenerator {
                 ok_ty, err_ty, prefixed_name
             ));
             builder.indent();
-            builder.line(&format!("fn from(r: Result<{}, {}>) -> Self {{", ok_ty, err_ty));
+            builder.line(&format!(
+                "fn from(r: Result<{}, {}>) -> Self {{",
+                ok_ty, err_ty
+            ));
             builder.indent();
             builder.line("match r {");
             builder.indent();
@@ -1399,7 +1430,10 @@ impl RustGenerator {
                 ok_ty, err_ty, prefixed_name
             ));
             builder.indent();
-            builder.line(&format!("fn into(self) -> Result<{}, {}> {{", ok_ty, err_ty));
+            builder.line(&format!(
+                "fn into(self) -> Result<{}, {}> {{",
+                ok_ty, err_ty
+            ));
             builder.indent();
             builder.line("self.into_result()");
             builder.dedent();
@@ -1464,8 +1498,7 @@ impl RustGenerator {
                 prefixed_inner
             ));
             builder.indent();
-            builder
-                .line("unsafe { core::slice::from_raw_parts(self.ptr, self.len) }");
+            builder.line("unsafe { core::slice::from_raw_parts(self.ptr, self.len) }");
             builder.dedent();
             builder.line("}");
             builder.blank();
@@ -1665,7 +1698,10 @@ impl RustGenerator {
                     builder.indent();
                     builder.line("let v = unsafe { &mut *v };");
                     builder.line(&format!("match v.destructor {{ {}::AlreadyDestroyed | {}::NoDestructor => return, _ => {{ }} }}", prefixed_destructor, prefixed_destructor));
-                    builder.line(&format!("v.destructor = {}::AlreadyDestroyed;", prefixed_destructor));
+                    builder.line(&format!(
+                        "v.destructor = {}::AlreadyDestroyed;",
+                        prefixed_destructor
+                    ));
                     builder.line("if v.ptr.is_null() || v.cap == 0 { return; }");
                     builder.line("unsafe {");
                     builder.indent();
@@ -2015,14 +2051,13 @@ impl RustGenerator {
         // may rewrite a callback-wrapper arg to its raw fn-ptr. Trait
         // functions (Delete/DeepCopy/PartialEq/…) take the wrapper struct
         // itself by reference and must keep the wrapper type.
-        let rewrite_cb_to_fnptr =
-            matches!(
-                func.kind,
-                FunctionKind::Constructor
-                    | FunctionKind::StaticMethod
-                    | FunctionKind::Method
-                    | FunctionKind::MethodMut
-            );
+        let rewrite_cb_to_fnptr = matches!(
+            func.kind,
+            FunctionKind::Constructor
+                | FunctionKind::StaticMethod
+                | FunctionKind::Method
+                | FunctionKind::MethodMut
+        );
 
         for arg in &func.args {
             // An argument is "self" if:
@@ -2497,8 +2532,8 @@ impl RustGenerator {
         // 2. clone_is_derived is true AND we're NOT using C-API trait impls
         // When using UsingCAPI for non-Copy types, Clone is implemented via C-ABI function calls
         let clone_via_capi = matches!(config.trait_impl_mode, TraitImplMode::UsingCAPI);
-        let need_derive_clone = struct_def.traits.is_copy
-            || (struct_def.traits.clone_is_derived && !clone_via_capi);
+        let need_derive_clone =
+            struct_def.traits.is_copy || (struct_def.traits.clone_is_derived && !clone_via_capi);
         if need_derive_clone {
             builder.line("#[derive(Clone)]");
         }
@@ -2572,8 +2607,8 @@ impl RustGenerator {
         // 2. clone_is_derived is true AND we're NOT using C-API trait impls
         // When using UsingCAPI for non-Copy types, Clone is implemented via C-ABI function calls
         let clone_via_capi = matches!(config.trait_impl_mode, TraitImplMode::UsingCAPI);
-        let need_derive_clone = enum_def.traits.is_copy
-            || (enum_def.traits.clone_is_derived && !clone_via_capi);
+        let need_derive_clone =
+            enum_def.traits.is_copy || (enum_def.traits.clone_is_derived && !clone_via_capi);
         if need_derive_clone {
             builder.line("#[derive(Clone)]");
         }
@@ -2606,8 +2641,10 @@ impl RustGenerator {
                     builder.line(&format!("{},", variant.name));
                 }
                 EnumVariantKind::Tuple(types) => {
-                    let types_str: Vec<String> =
-                        types.iter().map(|(t, rk)| self.format_field_type(t, rk, config)).collect();
+                    let types_str: Vec<String> = types
+                        .iter()
+                        .map(|(t, rk)| self.format_field_type(t, rk, config))
+                        .collect();
                     builder.line(&format!("{}({}),", variant.name, types_str.join(", ")));
                 }
                 EnumVariantKind::Struct(fields) => {
@@ -2761,8 +2798,14 @@ impl RustGenerator {
         // type the GENERIC arms of this file already use, and the same one the
         // `UsingCAPI` emitter uses. Byte-level substitutes for it are wrong; see
         // the comment on PartialEq below.
-        let this = format!("&*(self as *const {} as *const {})", full_name, external_path);
-        let other = format!("&*(other as *const {} as *const {})", full_name, external_path);
+        let this = format!(
+            "&*(self as *const {} as *const {})",
+            full_name, external_path
+        );
+        let other = format!(
+            "&*(other as *const {} as *const {})",
+            full_name, external_path
+        );
 
         // Debug impl - skip for generic types.
         //
@@ -2835,10 +2878,7 @@ impl RustGenerator {
             builder.indent();
             builder.line("fn eq(&self, other: &Self) -> bool {");
             builder.indent();
-            builder.line(&format!(
-                "unsafe {{ PartialEq::eq({}, {}) }}",
-                this, other
-            ));
+            builder.line(&format!("unsafe {{ PartialEq::eq({}, {}) }}", this, other));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -2941,8 +2981,16 @@ impl RustGenerator {
                 // For generic enums: can't use transmute (size depends on type param).
                 // Use ptr::read + mem::forget to reinterpret between same-layout repr(C) types.
                 // Delegate to the source type's Clone impl which knows the correct semantics.
-                let clone_bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: Clone", p)).collect();
-                builder.line(&format!("impl<{}> Clone for {} {{", clone_bounds.join(", "), full_name));
+                let clone_bounds: Vec<String> = enum_def
+                    .generic_params
+                    .iter()
+                    .map(|p| format!("{}: Clone", p))
+                    .collect();
+                builder.line(&format!(
+                    "impl<{}> Clone for {} {{",
+                    clone_bounds.join(", "),
+                    full_name
+                ));
                 builder.indent();
                 builder.line("fn clone(&self) -> Self {");
                 builder.indent();
@@ -2987,8 +3035,14 @@ impl RustGenerator {
         // `&*(self as *const Mirror as *const Real)` — the borrow the generic arms
         // of this emitter already use. Only valid where there are no generic
         // params, since `external_path` names the un-parameterised real type.
-        let this = format!("&*(self as *const {} as *const {})", full_name, external_path);
-        let other = format!("&*(other as *const {} as *const {})", full_name, external_path);
+        let this = format!(
+            "&*(self as *const {} as *const {})",
+            full_name, external_path
+        );
+        let other = format!(
+            "&*(other as *const {} as *const {})",
+            full_name, external_path
+        );
 
         // Debug impl.
         //
@@ -2997,8 +3051,16 @@ impl RustGenerator {
         // one thing a caller wants. Delegate wherever there is a real Debug to
         // delegate to; keep the stub only for types that have none.
         if is_generic {
-            let debug_bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: core::fmt::Debug", p)).collect();
-            builder.line(&format!("impl<{}> core::fmt::Debug for {} {{", debug_bounds.join(", "), full_name));
+            let debug_bounds: Vec<String> = enum_def
+                .generic_params
+                .iter()
+                .map(|p| format!("{}: core::fmt::Debug", p))
+                .collect();
+            builder.line(&format!(
+                "impl<{}> core::fmt::Debug for {} {{",
+                debug_bounds.join(", "),
+                full_name
+            ));
         } else {
             builder.line(&format!("impl core::fmt::Debug for {} {{", full_name));
         }
@@ -3019,8 +3081,16 @@ impl RustGenerator {
         // PartialEq impl
         if enum_def.traits.is_partial_eq {
             if is_generic {
-                let bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: PartialEq", p)).collect();
-                builder.line(&format!("impl<{}> PartialEq for {} {{", bounds.join(", "), full_name));
+                let bounds: Vec<String> = enum_def
+                    .generic_params
+                    .iter()
+                    .map(|p| format!("{}: PartialEq", p))
+                    .collect();
+                builder.line(&format!(
+                    "impl<{}> PartialEq for {} {{",
+                    bounds.join(", "),
+                    full_name
+                ));
                 builder.indent();
                 builder.line("fn eq(&self, other: &Self) -> bool {");
                 builder.indent();
@@ -3062,8 +3132,16 @@ impl RustGenerator {
         // Eq impl
         if enum_def.traits.is_eq {
             if is_generic {
-                let bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: Eq", p)).collect();
-                builder.line(&format!("impl<{}> Eq for {} {{ }}", bounds.join(", "), full_name));
+                let bounds: Vec<String> = enum_def
+                    .generic_params
+                    .iter()
+                    .map(|p| format!("{}: Eq", p))
+                    .collect();
+                builder.line(&format!(
+                    "impl<{}> Eq for {} {{ }}",
+                    bounds.join(", "),
+                    full_name
+                ));
             } else {
                 builder.line(&format!("impl Eq for {} {{ }}", full_name));
             }
@@ -3073,10 +3151,19 @@ impl RustGenerator {
         // PartialOrd impl
         if enum_def.traits.is_partial_ord {
             if is_generic {
-                let bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: PartialOrd", p)).collect();
-                builder.line(&format!("impl<{}> PartialOrd for {} {{", bounds.join(", "), full_name));
+                let bounds: Vec<String> = enum_def
+                    .generic_params
+                    .iter()
+                    .map(|p| format!("{}: PartialOrd", p))
+                    .collect();
+                builder.line(&format!(
+                    "impl<{}> PartialOrd for {} {{",
+                    bounds.join(", "),
+                    full_name
+                ));
                 builder.indent();
-                builder.line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
+                builder
+                    .line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
                 builder.indent();
                 builder.line("unsafe {");
                 builder.indent();
@@ -3099,7 +3186,8 @@ impl RustGenerator {
             } else {
                 builder.line(&format!("impl PartialOrd for {} {{", full_name));
                 builder.indent();
-                builder.line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
+                builder
+                    .line("fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {");
                 builder.indent();
                 builder.line(&format!(
                     "unsafe {{ PartialOrd::partial_cmp({}, {}) }}",
@@ -3116,8 +3204,16 @@ impl RustGenerator {
         // Ord impl
         if enum_def.traits.is_ord {
             if is_generic {
-                let bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: Ord", p)).collect();
-                builder.line(&format!("impl<{}> Ord for {} {{", bounds.join(", "), full_name));
+                let bounds: Vec<String> = enum_def
+                    .generic_params
+                    .iter()
+                    .map(|p| format!("{}: Ord", p))
+                    .collect();
+                builder.line(&format!(
+                    "impl<{}> Ord for {} {{",
+                    bounds.join(", "),
+                    full_name
+                ));
                 builder.indent();
                 builder.line("fn cmp(&self, other: &Self) -> core::cmp::Ordering {");
                 builder.indent();
@@ -3156,8 +3252,16 @@ impl RustGenerator {
         // Hash impl
         if enum_def.traits.is_hash {
             if is_generic {
-                let bounds: Vec<String> = enum_def.generic_params.iter().map(|p| format!("{}: core::hash::Hash", p)).collect();
-                builder.line(&format!("impl<{}> core::hash::Hash for {} {{", bounds.join(", "), full_name));
+                let bounds: Vec<String> = enum_def
+                    .generic_params
+                    .iter()
+                    .map(|p| format!("{}: core::hash::Hash", p))
+                    .collect();
+                builder.line(&format!(
+                    "impl<{}> core::hash::Hash for {} {{",
+                    bounds.join(", "),
+                    full_name
+                ));
                 builder.indent();
                 builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
                 builder.indent();
@@ -3246,7 +3350,10 @@ impl RustGenerator {
         // enum_def needed for the structural Some/None test.
         suppress_default: bool,
     ) {
-        if !matches!(config.cabi_functions, CAbiFunctionMode::InternalBindings { .. }) {
+        if !matches!(
+            config.cabi_functions,
+            CAbiFunctionMode::InternalBindings { .. }
+        ) {
             return;
         }
 
@@ -3313,7 +3420,9 @@ impl RustGenerator {
                 "fn partial_cmp(&self, other: &{name}) -> Option<core::cmp::Ordering> {{"
             ));
             builder.indent();
-            builder.line(&format!("unsafe {{ PartialOrd::partial_cmp({this}, {other}) }}"));
+            builder.line(&format!(
+                "unsafe {{ PartialOrd::partial_cmp({this}, {other}) }}"
+            ));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -3324,7 +3433,9 @@ impl RustGenerator {
         if traits.is_ord {
             builder.line(&format!("impl Ord for {name} {{"));
             builder.indent();
-            builder.line(&format!("fn cmp(&self, other: &{name}) -> core::cmp::Ordering {{"));
+            builder.line(&format!(
+                "fn cmp(&self, other: &{name}) -> core::cmp::Ordering {{"
+            ));
             builder.indent();
             builder.line(&format!("unsafe {{ Ord::cmp({this}, {other}) }}"));
             builder.dedent();
@@ -3339,7 +3450,9 @@ impl RustGenerator {
             builder.indent();
             builder.line("fn hash<H: core::hash::Hasher>(&self, state: &mut H) {");
             builder.indent();
-            builder.line(&format!("unsafe {{ core::hash::Hash::hash({this}, state) }}"));
+            builder.line(&format!(
+                "unsafe {{ core::hash::Hash::hash({this}, state) }}"
+            ));
             builder.dedent();
             builder.line("}");
             builder.dedent();
@@ -4075,7 +4188,10 @@ impl RustGenerator {
         // resolve (E0425) under `--features link-dynamic`.
         if should_substitute_callbacks && Self::has_callback_wrapper_arg(func) {
             let args_raw = self.format_function_args_for_cabi_pair_raw(func, config);
-            builder.line(&format!("pub fn {}({}){};", func.c_name, args_raw, return_str));
+            builder.line(&format!(
+                "pub fn {}({}){};",
+                func.c_name, args_raw, return_str
+            ));
             let args_ctx = self.format_function_args_for_cabi_pair_with_ctx(func, config);
             builder.line(&format!(
                 "pub fn {}WithCtx({}){};",
@@ -4305,8 +4421,8 @@ impl RustGenerator {
         let mut out = Vec::with_capacity(func.args.len());
         for arg in &func.args {
             let is_self = arg.name == "self" || arg.name == self_snake;
-            let is_cb = !is_self
-                && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
+            let is_cb =
+                !is_self && super::managed_host_invoker::is_callback_wrapper(&arg.type_name);
             let type_name = if is_cb {
                 config.apply_prefix(&super::managed_host_invoker::callback_typedef_for(
                     arg.type_name.trim(),

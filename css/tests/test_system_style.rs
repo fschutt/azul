@@ -3,29 +3,35 @@
 #[test]
 #[cfg(feature = "io")]
 fn test_system_style_discovery_selection_colors() {
-    use azul_css::system::SystemStyle;
     use azul_css::props::basic::OptionColorU;
-    
+    use azul_css::system::SystemStyle;
+
     let style = SystemStyle::detect();
-    
+
     println!("\n=== SystemStyle Discovery Test ===");
     println!("Theme: {:?}", style.theme);
     println!("Platform: {:?}", style.platform);
     println!("OS Version: {:?}", style.os_version);
-    
+
     println!("\n=== Colors ===");
     println!("Accent: {:?}", style.colors.accent);
-    println!("Selection Background: {:?}", style.colors.selection_background);
+    println!(
+        "Selection Background: {:?}",
+        style.colors.selection_background
+    );
     println!("Selection Text: {:?}", style.colors.selection_text);
-    
+
     // The selection_background should be set on macOS
     #[cfg(target_os = "macos")]
     {
         match style.colors.selection_background {
             OptionColorU::Some(color) => {
                 println!("\n✓ Selection background color detected:");
-                println!("  RGB: ({}, {}, {}) Alpha: {}", color.r, color.g, color.b, color.a);
-                
+                println!(
+                    "  RGB: ({}, {}, {}) Alpha: {}",
+                    color.r, color.g, color.b, color.a
+                );
+
                 // Check if it matches user's red accent color
                 // AppleHighlightColor was: 1.000000 0.733333 0.721569 Red
                 // That's approximately RGB(255, 187, 184)

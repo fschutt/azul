@@ -27,9 +27,7 @@
 
 use super::super::generator::CodeBuilder;
 use super::super::ir::{CallbackTypedefDef, CodegenIR};
-use super::super::managed_host_invoker::{
-    has_return, host_invoker_kinds, wrapper_name,
-};
+use super::super::managed_host_invoker::{has_return, host_invoker_kinds, wrapper_name};
 
 /// Emit the managed-FFI prelude. Must be called *after* the regular
 /// `foreign` bindings (so the wrapper records the prelude references
@@ -237,10 +235,7 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
             class_snake
         ));
         builder.indent();
-        builder.line(&format!(
-            "  : az_{} Ctypes.structure =",
-            class_snake
-        ));
+        builder.line(&format!("  : az_{} Ctypes.structure =", class_snake));
         builder.line(&format!("let wco = ffi_{} () in", default_snake));
         builder.line(&format!(
             "let cb = _az_{}_create_from_host_handle",
@@ -254,10 +249,18 @@ pub fn emit_managed_prelude(builder: &mut CodeBuilder, ir: &CodegenIR) {
         let mut parent_var = "wco".to_string();
         let mut parent_struct_snake = class_snake.clone();
         let mut intermediates: Vec<(String, String, String, String)> = Vec::new();
-        for (i, seg) in info.field_path.iter().enumerate().take(depth.saturating_sub(1)) {
+        for (i, seg) in info
+            .field_path
+            .iter()
+            .enumerate()
+            .take(depth.saturating_sub(1))
+        {
             let lvl_var = format!("__lvl{}", i);
-            let field_accessor =
-                format!("az_{}_field_{}", parent_struct_snake, field_accessor_segment(seg));
+            let field_accessor = format!(
+                "az_{}_field_{}",
+                parent_struct_snake,
+                field_accessor_segment(seg)
+            );
             builder.line(&format!(
                 "let {lvl} = Ctypes.getf {parent} {accessor} in",
                 lvl = lvl_var,
@@ -413,7 +416,10 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     // - void returns: ignore.
     // We dispatch with pattern matching: the user registered with
     // `register_callback` so the Hashtbl entry is the closure itself.
-    builder.line(&format!("(* {} invoker — dispatches to handle-table entry. *)", wrapper));
+    builder.line(&format!(
+        "(* {} invoker — dispatches to handle-table entry. *)",
+        wrapper
+    ));
     builder.line(&format!("let _azul_{}_invoker_pin =", snake));
     builder.indent();
     // Build the closure signature based on arg count.
@@ -424,14 +430,9 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     if has_return(cb) {
         params.push("out_ptr".to_string());
     }
-    builder.line(&format!(
-        "let invoker {} =",
-        params.join(" ")
-    ));
+    builder.line(&format!("let invoker {} =", params.join(" ")));
     builder.indent();
-    builder.line(
-        "match Hashtbl.find_opt _azul_handles (Unsigned.UInt64.to_int64 id) with",
-    );
+    builder.line("match Hashtbl.find_opt _azul_handles (Unsigned.UInt64.to_int64 id) with");
     builder.line("| None -> ()");
     builder.line("| Some fn_obj ->");
     builder.indent();
@@ -439,9 +440,7 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
     builder.indent();
     // We just call (Obj.obj fn_obj) on the pointer args. The user
     // is responsible for matching the closure's static type.
-    let invoke_args: Vec<String> = (0..cb.args.len())
-        .map(|i| format!("arg{}", i))
-        .collect();
+    let invoke_args: Vec<String> = (0..cb.args.len()).map(|i| format!("arg{}", i)).collect();
     // Determine the OCaml-level return type the user's closure must
     // produce. Struct returns → user returns the raw `az_<foo>
     // Ctypes.structure` directly (extract `.raw` from the wrapper
@@ -479,7 +478,11 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
         for _ in &cb.args {
             parts.push("unit Ctypes.ptr".to_string());
         }
-        parts.push(if has_return(cb) { ocaml_return.clone() } else { "unit".to_string() });
+        parts.push(if has_return(cb) {
+            ocaml_return.clone()
+        } else {
+            "unit".to_string()
+        });
         parts.join(" -> ")
     };
 
@@ -553,15 +556,9 @@ pub fn emit_managed_interface(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("(* Managed-FFI public helpers (host-invoker pattern).                    *)");
     builder.line("(* ─────────────────────────────────────────────────────────────────── *)");
     builder.blank();
-    builder.line(
-        "val azul_refany_create : 'a -> az_ref_any Ctypes.structure",
-    );
-    builder.line(
-        "val azul_refany_get : az_ref_any Ctypes.structure Ctypes.ptr -> 'a option",
-    );
-    builder.line(
-        "val azul_consume : 'a -> unit",
-    );
+    builder.line("val azul_refany_create : 'a -> az_ref_any Ctypes.structure");
+    builder.line("val azul_refany_get : az_ref_any Ctypes.structure Ctypes.ptr -> 'a option");
+    builder.line("val azul_consume : 'a -> unit");
     builder.line(
         "val azul_window_create_options_with_layout : 'a -> az_window_create_options Ctypes.structure",
     );

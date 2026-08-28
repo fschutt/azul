@@ -33,9 +33,7 @@ use super::super::ir::{
     ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
 };
 use super::types::ptr_type_for_arg;
-use super::{
-    ffi_type_name, map_type_to_fb, sanitize_comment, sanitize_identifier, to_pascal_case,
-};
+use super::{ffi_type_name, map_type_to_fb, sanitize_comment, sanitize_identifier, to_pascal_case};
 
 // ============================================================================
 // Public entry point
@@ -83,10 +81,7 @@ pub fn generate_wrappers(
 // Discovery
 // ============================================================================
 
-fn collect_wrapper_targets<'a>(
-    ir: &'a CodegenIR,
-    config: &CodegenConfig,
-) -> Vec<&'a StructDef> {
+fn collect_wrapper_targets<'a>(ir: &'a CodegenIR, config: &CodegenConfig) -> Vec<&'a StructDef> {
     let delete_set: BTreeSet<&str> = ir
         .functions
         .iter()
@@ -145,7 +140,10 @@ fn emit_wrapper_decl(builder: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     // Wrap-existing constructor. Takes a raw FFI record and assumes
     // ownership. Useful when an FFI function returns `AzFoo` by value
     // and the caller wants to wrap it.
-    builder.line(&format!("Declare Constructor (ByVal raw_in As {})", raw_record));
+    builder.line(&format!(
+        "Declare Constructor (ByVal raw_in As {})",
+        raw_record
+    ));
 
     // One Constructor per IR Constructor / Default function.
     for func in ir.functions_for_class(&s.name) {
@@ -196,7 +194,11 @@ fn emit_method_decl(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenI
     let args_str = format_arg_list(&visible, ir);
     let is_static = matches!(func.kind, FunctionKind::StaticMethod);
 
-    let prefix = if is_static { "Declare Static " } else { "Declare " };
+    let prefix = if is_static {
+        "Declare Static "
+    } else {
+        "Declare "
+    };
 
     if let Some(ret) = &func.return_type {
         let fb_ret = map_type_to_fb(ret, ir);
@@ -432,10 +434,9 @@ fn format_arg_list(args: &[&FunctionArg], ir: &CodegenIR) -> String {
         .map(|a| {
             let fb_ty = match a.ref_kind {
                 ArgRefKind::Owned => map_type_to_fb(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => ptr_type_for_arg(&a.type_name, ir),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    ptr_type_for_arg(&a.type_name, ir)
+                }
             };
             format!("ByVal {} As {}", sanitize_identifier(&a.name), fb_ty)
         })

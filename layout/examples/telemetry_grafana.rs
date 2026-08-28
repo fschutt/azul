@@ -197,9 +197,9 @@ mod engine_frame {
     use azul_core::styled_dom::StyledDom;
     use azul_css::props::basic::FontRef;
     use azul_layout::cpurender::{render_with_font_manager, RenderOptions};
-    use azul_layout::glyph_cache::GlyphCache;
     use azul_layout::font::loading::build_font_cache;
     use azul_layout::font_traits::{FontManager, TextLayoutCache};
+    use azul_layout::glyph_cache::GlyphCache;
     use azul_layout::solver3::layout_document;
     use azul_layout::xml::DomXmlExt;
     use azul_layout::Solver3LayoutCache;
@@ -342,7 +342,6 @@ fn main() {
         return;
     }
 
-
     // ── Consent ─────────────────────────────────────────────────────────
     // Reads AZ_TELEMETRY plus the layered config files. Tier is `off` unless
     // something explicitly opted in, and nothing below sends anything at
@@ -390,7 +389,11 @@ fn main() {
     println!("azul telemetry demo");
     println!("  version           {}", args.version);
     println!("  channel           {}", args.channel);
-    println!("  consent tier      {} (from {:?})", config.tier.as_str(), config.tier_source);
+    println!(
+        "  consent tier      {} (from {:?})",
+        config.tier.as_str(),
+        config.tier_source
+    );
     println!(
         "  endpoint          {}",
         config
@@ -496,12 +499,9 @@ fn main() {
             // The bug: the "cache lookup" comes back empty for huge
             // documents and the expect fires. Opaque to clippy on purpose —
             // a literal `None.expect()` would be linted away.
-            let glyph_page: Option<u32> = [7_u32]
-                .iter()
-                .copied()
-                .find(|_| paragraphs < 5_200);
-            let _ = glyph_page
-                .expect("glyph cache page must exist for documents over 5200 paragraphs");
+            let glyph_page: Option<u32> = [7_u32].iter().copied().find(|_| paragraphs < 5_200);
+            let _ =
+                glyph_page.expect("glyph cache page must exist for documents over 5200 paragraphs");
         }
 
         // Resize the document every 12 iterations. The size change is what
@@ -509,7 +509,11 @@ fn main() {
         // reflects work that actually happened, it is not a dice roll.
         let resized = iteration % 12 == 0;
         if resized {
-            paragraphs = if paragraphs >= 6_000 { 2_000 } else { paragraphs + 1_000 };
+            paragraphs = if paragraphs >= 6_000 {
+                2_000
+            } else {
+                paragraphs + 1_000
+            };
             document = build_document(paragraphs);
             #[cfg(all(
                 feature = "text_layout",
@@ -665,7 +669,6 @@ fn main() {
     }
 }
 
-
 /// Deterministic tiny LCG so the fleet is reproducible without pulling in a
 /// rand crate (and without `SystemTime` seeding, which would make two runs
 /// incomparable).
@@ -712,18 +715,29 @@ fn run_fleet(users: usize, args: &Args) {
         let has_bug = v == "1.5.0";
         let mut cmd = std::process::Command::new(&exe);
         cmd.env("AZ_TELEMETRY_CLIENT_ID", format!("sim-user-{i:03}"))
-            .arg("--version").arg(v)
-            .arg("--channel").arg(&args.channel)
-            .arg("--iterations").arg(iters.to_string())
-            .arg("--pace-ms").arg("40")
-            .arg("--flush-every").arg("5")
-            .arg("--doc-size").arg(doc.to_string())
+            .arg("--version")
+            .arg(v)
+            .arg("--channel")
+            .arg(&args.channel)
+            .arg("--iterations")
+            .arg(iters.to_string())
+            .arg("--pace-ms")
+            .arg("40")
+            .arg("--flush-every")
+            .arg("5")
+            .arg("--doc-size")
+            .arg(doc.to_string())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
         if has_bug {
             cmd.arg("--crash-bug");
         }
-        (cmd.spawn().expect("spawn child"), v.to_owned(), doc, has_bug)
+        (
+            cmd.spawn().expect("spawn child"),
+            v.to_owned(),
+            doc,
+            has_bug,
+        )
     };
 
     let mut meta: std::collections::HashMap<usize, (String, usize)> =
@@ -765,12 +779,18 @@ fn run_fleet(users: usize, args: &Args) {
     for (i, v, doc) in &crashed {
         let mut cmd = std::process::Command::new(&exe);
         cmd.env("AZ_TELEMETRY_CLIENT_ID", format!("sim-user-{i:03}"))
-            .arg("--version").arg(v)
-            .arg("--channel").arg(&args.channel)
-            .arg("--iterations").arg("6")
-            .arg("--pace-ms").arg("20")
-            .arg("--flush-every").arg("3")
-            .arg("--doc-size").arg(doc.to_string())
+            .arg("--version")
+            .arg(v)
+            .arg("--channel")
+            .arg(&args.channel)
+            .arg("--iterations")
+            .arg("6")
+            .arg("--pace-ms")
+            .arg("20")
+            .arg("--flush-every")
+            .arg("3")
+            .arg("--doc-size")
+            .arg(doc.to_string())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
         drop(cmd.status());
@@ -839,7 +859,6 @@ fn run_crash_reporter_if_spawned(_args: &Args) -> bool {
     false
 }
 
-
 /// The SLOW-ROLLOUT drill: runs the REAL check path (HTTP + manifest +
 /// persisted state + cohort gate) as several cohort buckets against one
 /// manifest, so "10% today, 50% tomorrow" is observable: low buckets get
@@ -869,7 +888,9 @@ fn run_rollout_drill(manifest_url: &str, current_version: &str, channel: &str) {
             up::UpdateCheckResult::Available(r) => {
                 format!("AVAILABLE {} (this cohort is open)", r.version.as_str())
             }
-            up::UpdateCheckResult::UpToDate => "staggered/up-to-date (cohort not open yet)".to_owned(),
+            up::UpdateCheckResult::UpToDate => {
+                "staggered/up-to-date (cohort not open yet)".to_owned()
+            }
             up::UpdateCheckResult::Error(e) => format!("ERROR {}", e.as_str()),
         };
         println!("rollout: bucket {bucket:>2} auto   -> {text}");
@@ -910,7 +931,6 @@ extern "C" fn demo_button_click(nodes: u64) -> u64 {
     }
     acc
 }
-
 
 /// The UPDATE drill: check → notify → (auto-stage | consent-download) →
 /// APPLY onto a scratch "installed app" copy, proving the whole chain incl.
@@ -1019,7 +1039,9 @@ fn run_update_drill(
     };
     println!(
         "update: downloaded {} ({} bytes this call, resumed_from={}, range-resume-honored={})",
-        outcome.path.display(), outcome.bytes_written, outcome.resumed_from_bytes,
+        outcome.path.display(),
+        outcome.bytes_written,
+        outcome.resumed_from_bytes,
         outcome.server_supports_resume
     );
     let fake_install = state_dir.join("installed-app.bin");

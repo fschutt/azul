@@ -21,14 +21,27 @@ use azul_core::{
     refany::RefAny,
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_css::{OptionString, 
+use azul_css::{
+    impl_option_inner,
     props::{
         basic::{color::ColorU, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutJustifyContent, LayoutAlignItems, LayoutFlexGrow, LayoutWidth, LayoutHeight, LayoutAlignSelf, LayoutMarginRight, LayoutMarginBottom, LayoutMarginLeft},
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutHeight, LayoutJustifyContent, LayoutMarginBottom, LayoutMarginLeft,
+            LayoutMarginRight, LayoutWidth,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleOpacity, StyleCursor, StyleUserSelect},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleOpacity, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString, StringVec,
+    AzString, OptionString, StringVec,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -151,7 +164,9 @@ static RADIO_GROUP_CIRCLE_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(CIRCLE_SIZE))),
-    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(CIRCLE_SIZE))),
+    CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+        CIRCLE_SIZE,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
         LayoutBorderTopWidth::const_px(CIRCLE_BORDER),
     )),
@@ -315,7 +330,8 @@ impl RadioGroup {
         self
     }
 
-    #[must_use] pub fn create(options: StringVec) -> Self {
+    #[must_use]
+    pub fn create(options: StringVec) -> Self {
         Self {
             radio_group_state: RadioGroupStateWrapper {
                 inner: RadioGroupState { selected_index: 0 },
@@ -336,7 +352,8 @@ impl RadioGroup {
 
     /// Builder-style setter for the selected option index.
     #[inline]
-    #[must_use] pub const fn with_selected_index(mut self, selected_index: usize) -> Self {
+    #[must_use]
+    pub const fn with_selected_index(mut self, selected_index: usize) -> Self {
         self.set_selected_index(selected_index);
         self
     }
@@ -350,13 +367,15 @@ impl RadioGroup {
 
     /// Builder-style setter for the horizontal layout flag.
     #[inline]
-    #[must_use] pub fn with_horizontal(mut self, horizontal: bool) -> Self {
+    #[must_use]
+    pub fn with_horizontal(mut self, horizontal: bool) -> Self {
         self.set_horizontal(horizontal);
         self
     }
 
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(StringVec::from_const_slice(&[]));
         core::mem::swap(&mut s, self);
         s
@@ -376,7 +395,8 @@ impl RadioGroup {
     }
 
     #[inline]
-    #[must_use] pub fn with_on_change<C: Into<RadioGroupOnChangeCallback>>(
+    #[must_use]
+    pub fn with_on_change<C: Into<RadioGroupOnChangeCallback>>(
         mut self,
         data: RefAny,
         on_change: C,
@@ -385,13 +405,11 @@ impl RadioGroup {
         self
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // Read before the widget's fields are moved into the DOM below.
         let rg_name = self.accessibility_name.clone();
-        crate::widgets::warn_widget_needs_a_name(
-            "radio_group",
-            rg_name.is_some(),
-        );
+        crate::widgets::warn_widget_needs_a_name("radio_group", rg_name.is_some());
 
         use azul_core::{
             callbacks::CoreCallback,
@@ -426,9 +444,7 @@ impl RadioGroup {
                 ))
                 .with_children(
                     vec![Dom::create_div()
-                        .with_ids_and_classes(IdOrClassVec::from_const_slice(
-                            RADIO_GROUP_DOT_CLASS,
-                        ))
+                        .with_ids_and_classes(IdOrClassVec::from_const_slice(RADIO_GROUP_DOT_CLASS))
                         .with_css_props(dot_style)]
                     .into(),
                 );
@@ -547,7 +563,10 @@ extern "C" fn on_radio_row_click(mut data: RefAny, mut info: CallbackInfo) -> Up
             continue;
         };
         let opacity = if i == selected { 100 } else { 0 };
-        info.set_css_property(dot, CssProperty::const_opacity(StyleOpacity::const_new(opacity)));
+        info.set_css_property(
+            dot,
+            CssProperty::const_opacity(StyleOpacity::const_new(opacity)),
+        );
     }
 
     result
@@ -939,7 +958,9 @@ mod autotest_generated {
             .iter()
             .filter_map(|c| match c {
                 CallbackChange::ChangeNodeCssProperties {
-                    node_id, properties, ..
+                    node_id,
+                    properties,
+                    ..
                 } => {
                     let o = properties.as_ref().iter().find_map(|p| match p {
                         CssProperty::Opacity(o) => o.get_property().map(|o| o.inner.normalized()),
@@ -1208,7 +1229,10 @@ mod autotest_generated {
             ("the label style", RADIO_GROUP_LABEL_STYLE),
         ] {
             no_duplicate_properties(name, style);
-            assert!(all_unconditional(style), "{name} must apply unconditionally");
+            assert!(
+                all_unconditional(style),
+                "{name} must apply unconditionally"
+            );
         }
     }
 
@@ -1272,7 +1296,10 @@ mod autotest_generated {
             Some(CIRCLE_RADIUS as f32),
         );
 
-        for style in [RADIO_GROUP_DOT_STYLE_SELECTED, RADIO_GROUP_DOT_STYLE_UNSELECTED] {
+        for style in [
+            RADIO_GROUP_DOT_STYLE_SELECTED,
+            RADIO_GROUP_DOT_STYLE_UNSELECTED,
+        ] {
             let dot = props(style);
             assert_eq!(width(&dot).map(px), Some(DOT_SIZE as f32));
             assert_eq!(height(&dot).map(px), Some(DOT_SIZE as f32));
@@ -1349,7 +1376,9 @@ mod autotest_generated {
 
         // … and they must survive the trip through the DOM unchanged.
         let dom = rg.dom();
-        let texts: Vec<&str> = (0..case.len()).filter_map(|i| text_of(label_of(&dom, i))).collect();
+        let texts: Vec<&str> = (0..case.len())
+            .filter_map(|i| text_of(label_of(&dom, i)))
+            .collect();
         assert_eq!(texts, case, "a label was mangled on its way into the DOM");
     }
 
@@ -1409,10 +1438,12 @@ mod autotest_generated {
         let after = before.clone().with_selected_index(2);
 
         assert_eq!(after.options.as_ref(), before.options.as_ref());
-        assert_eq!(after.container_style.as_ref(), before.container_style.as_ref());
         assert_eq!(
-            after.radio_group_state.horizontal,
-            before.radio_group_state.horizontal,
+            after.container_style.as_ref(),
+            before.container_style.as_ref()
+        );
+        assert_eq!(
+            after.radio_group_state.horizontal, before.radio_group_state.horizontal,
             "changing the selection must not change the layout direction",
         );
         assert_eq!(after.radio_group_state.inner.selected_index, 2);
@@ -1618,8 +1649,14 @@ mod autotest_generated {
 
         assert!(after.radio_group_state.on_change.as_ref().is_some());
         assert_eq!(after.options.as_ref(), before.options.as_ref());
-        assert_eq!(after.container_style.as_ref(), before.container_style.as_ref());
-        assert_eq!(after.radio_group_state.inner, before.radio_group_state.inner);
+        assert_eq!(
+            after.container_style.as_ref(),
+            before.container_style.as_ref()
+        );
+        assert_eq!(
+            after.radio_group_state.inner,
+            before.radio_group_state.inner
+        );
         assert_eq!(
             after.radio_group_state.horizontal,
             before.radio_group_state.horizontal,
@@ -1649,7 +1686,9 @@ mod autotest_generated {
         );
         let mut payload = installed.refany.clone();
         assert_eq!(
-            *payload.downcast_ref::<u8>().expect("the payload changed type"),
+            *payload
+                .downcast_ref::<u8>()
+                .expect("the payload changed type"),
             2,
             "the first payload survived the second install",
         );
@@ -1697,7 +1736,11 @@ mod autotest_generated {
 
             let circle = &row.children.as_ref()[0];
             assert_eq!(classes(circle), vec!["__azul-native-radio-group-circle"]);
-            assert_eq!(circle.children.as_ref().len(), 1, "the circle holds the dot");
+            assert_eq!(
+                circle.children.as_ref().len(),
+                1,
+                "the circle holds the dot"
+            );
             assert_eq!(
                 classes(dot_of(&dom, i)),
                 vec!["__azul-native-radio-group-dot"],
@@ -1724,8 +1767,7 @@ mod autotest_generated {
                 "row {i} listens for the wrong event",
             );
             assert_eq!(
-                cb.callback.cb,
-                on_radio_row_click as usize,
+                cb.callback.cb, on_radio_row_click as usize,
                 "row {i} is wired to the wrong handler",
             );
         }
@@ -1909,8 +1951,16 @@ mod autotest_generated {
 
         let (update, changes) = run_click(Some(styled), row_node(2), state.clone());
 
-        assert_eq!(log_indices(&mut probe), vec![2], "the callback ran once with the new index");
-        assert_eq!(update, Update::RefreshDom, "the user's Update was swallowed");
+        assert_eq!(
+            log_indices(&mut probe),
+            vec![2],
+            "the callback ran once with the new index"
+        );
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user's Update was swallowed"
+        );
         // … and the restyle still happens *after* the user callback returns.
         assert_eq!(pushed_opacities(&changes), expected_opacities(3, 2));
 
@@ -1972,7 +2022,11 @@ mod autotest_generated {
 
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty(), "a parentless hit pushed a DOM change");
-        assert_eq!(selected_index_of(&mut probe), 0, "the state must be untouched");
+        assert_eq!(
+            selected_index_of(&mut probe),
+            0,
+            "the state must be untouched"
+        );
     }
 
     #[test]
@@ -1986,8 +2040,15 @@ mod autotest_generated {
 
             let (update, changes) = run_click(Some(styled), hit, state);
 
-            assert_eq!(update, Update::DoNothing, "{hit:?}: a stale hit was acted on");
-            assert!(changes.is_empty(), "{hit:?}: a stale hit pushed a DOM change");
+            assert_eq!(
+                update,
+                Update::DoNothing,
+                "{hit:?}: a stale hit was acted on"
+            );
+            assert!(
+                changes.is_empty(),
+                "{hit:?}: a stale hit pushed a DOM change"
+            );
             assert_eq!(
                 selected_index_of(&mut probe),
                 1,
@@ -2064,7 +2125,12 @@ mod autotest_generated {
         // half-finished restyle — the sibling walk simply finds no dots to update.
         // (`dot` is its circle's only child -> position 0; the label `<p>` is its
         // row's second child -> position 1, regardless of which row it belongs to.)
-        for (hit, expected) in [(node(3), 0usize), (node(13), 0), (node(4), 1), (node(14), 1)] {
+        for (hit, expected) in [
+            (node(3), 0usize),
+            (node(13), 0),
+            (node(4), 1),
+            (node(14), 1),
+        ] {
             let (styled, state) = flatten(group(&["a", "b", "c"]));
             let mut probe = state.clone();
 

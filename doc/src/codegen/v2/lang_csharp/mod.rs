@@ -194,10 +194,7 @@ pub fn map_type_to_csharp(rust_type: &str, ir: &CodegenIR) -> String {
                 // unprefixed user-facing enums (see types.rs); the
                 // Struct / TaggedUnion kinds keep the Az FFI prefix.
                 if let Some(ref mono) = ta.monomorphized_def {
-                    if matches!(
-                        mono.kind,
-                        super::ir::MonomorphizedKind::SimpleEnum { .. }
-                    ) {
+                    if matches!(mono.kind, super::ir::MonomorphizedKind::SimpleEnum { .. }) {
                         return user_enum_type_name(trimmed);
                     }
                 }
@@ -241,13 +238,13 @@ pub fn sanitize_identifier(name: &str) -> String {
         "abstract" | "as" | "base" | "bool" | "break" | "byte" | "case" | "catch" | "char"
         | "checked" | "class" | "const" | "continue" | "decimal" | "default" | "delegate"
         | "do" | "double" | "else" | "enum" | "event" | "explicit" | "extern" | "false"
-        | "finally" | "fixed" | "float" | "for" | "foreach" | "goto" | "if" | "implicit"
-        | "in" | "int" | "interface" | "internal" | "is" | "lock" | "long" | "namespace"
-        | "new" | "null" | "object" | "operator" | "out" | "override" | "params" | "private"
-        | "protected" | "public" | "readonly" | "ref" | "return" | "sbyte" | "sealed"
-        | "short" | "sizeof" | "stackalloc" | "static" | "string" | "struct" | "switch"
-        | "this" | "throw" | "true" | "try" | "typeof" | "uint" | "ulong" | "unchecked"
-        | "unsafe" | "ushort" | "using" | "virtual" | "void" | "volatile" | "while" => {
+        | "finally" | "fixed" | "float" | "for" | "foreach" | "goto" | "if" | "implicit" | "in"
+        | "int" | "interface" | "internal" | "is" | "lock" | "long" | "namespace" | "new"
+        | "null" | "object" | "operator" | "out" | "override" | "params" | "private"
+        | "protected" | "public" | "readonly" | "ref" | "return" | "sbyte" | "sealed" | "short"
+        | "sizeof" | "stackalloc" | "static" | "string" | "struct" | "switch" | "this"
+        | "throw" | "true" | "try" | "typeof" | "uint" | "ulong" | "unchecked" | "unsafe"
+        | "ushort" | "using" | "virtual" | "void" | "volatile" | "while" => {
             format!("@{}", name)
         }
         _ => name.to_string(),

@@ -58,7 +58,9 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
         // `children_rect.size`, so the two cannot disagree about the extent.
         // Snapshotted before the registration loop mutates the manager;
         // registration never touches `virtual_scroll_size`.
-        let scroll_states = layout_window.scroll_manager.get_scroll_states_for_dom(*dom_id);
+        let scroll_states = layout_window
+            .scroll_manager
+            .get_scroll_states_for_dom(*dom_id);
 
         for node_idx in 0..layout_result.layout_tree.nodes.len() {
             let node = &layout_result.layout_tree.nodes[node_idx];
@@ -87,14 +89,13 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 .get(node_idx)
                 .copied()
                 .unwrap_or_else(azul_core::geom::LogicalPosition::zero);
-            let scrollport = crate::solver3::display_list::BorderBoxRect(
-                azul_core::geom::LogicalRect {
+            let scrollport =
+                crate::solver3::display_list::BorderBoxRect(azul_core::geom::LogicalRect {
                     origin: border_box_origin,
                     size: node.used_size.unwrap_or_default(),
-                },
-            )
-            .to_padding_box(&node.box_props.unpack().border)
-            .rect();
+                })
+                .to_padding_box(&node.box_props.unpack().border)
+                .rect();
             let container_size = azul_core::geom::LogicalSize {
                 width: scrollport.size.width.max(0.0),
                 height: scrollport.size.height.max(0.0),
@@ -126,7 +127,10 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                     &mut scrollbar_info,
                 );
                 if raised {
-                    if let Some(warm) = layout_result.layout_tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                    if let Some(warm) = layout_result
+                        .layout_tree
+                        .warm_mut(LayoutNodeId::new(node_idx))
+                    {
                         warm.scrollbar_info = Some(scrollbar_info);
                     }
                 }
@@ -151,7 +155,10 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                     &mut scrollbar_info,
                 );
                 if raised {
-                    if let Some(warm) = layout_result.layout_tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                    if let Some(warm) = layout_result
+                        .layout_tree
+                        .warm_mut(LayoutNodeId::new(node_idx))
+                    {
                         warm.scrollbar_info = Some(scrollbar_info);
                     }
                 }
@@ -196,8 +203,9 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 _ => azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
             };
 
-            let mut content_size =
-                layout_result.layout_tree.get_content_size(LayoutNodeId::new(node_idx));
+            let mut content_size = layout_result
+                .layout_tree
+                .get_content_size(LayoutNodeId::new(node_idx));
             // See [`CARET_SCROLL_GUTTER_PX`]: the caret is content the text
             // extent does not account for, so without this the reveal has
             // nowhere to scroll to and the caret is clipped at the end of an
@@ -211,7 +219,8 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
             // scrollbar_width is 0.0 (no layout space reserved).
             // The scroll_manager falls back to DEFAULT_SCROLLBAR_WIDTH_PX
             // when thickness is 0 for hit-test geometry.
-            let scrollbar_thickness = scrollbar_info.scrollbar_width
+            let scrollbar_thickness = scrollbar_info
+                .scrollbar_width
                 .max(scrollbar_info.scrollbar_height);
 
             layout_window.scroll_manager.set_overscroll_behavior(
@@ -231,9 +240,7 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 scrollbar_info.needs_horizontal,
                 scrollbar_info.needs_vertical,
             );
-
         }
     }
     layout_window.scroll_manager.calculate_scrollbar_states();
 }
-

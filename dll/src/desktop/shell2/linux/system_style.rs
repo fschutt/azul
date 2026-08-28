@@ -17,18 +17,17 @@
 //! implementation of the D-Bus wire protocol.  This avoids pulling in `zbus`
 //! or `dbus` as a dependency.
 
-use alloc::string::String;
 use alloc::boxed::Box;
-use azul_css::system::{
-    defaults, SystemStyle, Platform, DesktopEnvironment, Theme,
-    TitlebarButtonSide, ToolbarStyle,
-};
-use azul_css::dynamic_selector::{OsVersion, OsFamily, BoolCondition};
-use azul_css::corety::{AzString, OptionString, OptionF32};
-use azul_css::props::basic::color::{ColorU, OptionColorU, parse_css_color};
-use azul_css::props::basic::pixel::{PixelValue, OptionPixelValue};
+use alloc::string::String;
+use azul_css::corety::{AzString, OptionF32, OptionString};
 use azul_css::css::Css;
+use azul_css::dynamic_selector::{BoolCondition, OsFamily, OsVersion};
 use azul_css::parser2::new_from_str;
+use azul_css::props::basic::color::{parse_css_color, ColorU, OptionColorU};
+use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
+use azul_css::system::{
+    defaults, DesktopEnvironment, Platform, SystemStyle, Theme, TitlebarButtonSide, ToolbarStyle,
+};
 
 // ── D-Bus wire-protocol helpers (minimal, read-only) ─────────────────────
 
@@ -47,7 +46,10 @@ use azul_css::parser2::new_from_str;
 /// into a clean `None` and we fall back to CLI/defaults. This never changes the
 /// process-wide `SIGPIPE` disposition, which a library must not do behind the
 /// host's back.
-fn send_all_nosignal(stream: &std::os::unix::net::UnixStream, mut buf: &[u8]) -> std::io::Result<()> {
+fn send_all_nosignal(
+    stream: &std::os::unix::net::UnixStream,
+    mut buf: &[u8],
+) -> std::io::Result<()> {
     use std::os::unix::io::AsRawFd;
     let fd = stream.as_raw_fd();
     while !buf.is_empty() {
@@ -90,14 +92,15 @@ fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
     // Connect to session D-Bus
     let bus_addr = std::env::var("DBUS_SESSION_BUS_ADDRESS").ok()?;
     // Parse "unix:path=/run/user/1000/bus" or similar
-    let path = bus_addr
-        .strip_prefix("unix:path=")?;
+    let path = bus_addr.strip_prefix("unix:path=")?;
     // Handle additional parameters after comma
     let path = path.split(',').next()?;
 
     let mut stream = UnixStream::connect(path).ok()?;
     stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
-    stream.set_write_timeout(Some(Duration::from_secs(2))).ok()?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .ok()?;
 
     // D-Bus authentication: simplest method is EXTERNAL with uid
     let uid = unsafe { libc_getuid() };
@@ -108,7 +111,9 @@ fn query_xdg_portal() -> Option<(u32, Option<(f64, f64, f64)>)> {
     let mut buf = [0u8; 256];
     let n = stream.read(&mut buf).ok()?;
     let resp = core::str::from_utf8(&buf[..n]).ok()?;
-    if !resp.contains("OK") { return None; }
+    if !resp.contains("OK") {
+        return None;
+    }
 
     // Send Hello message to get our unique name (required before any method call)
     let hello_msg = build_dbus_method_call(
@@ -199,8 +204,10 @@ fn build_dbus_method_call(
                 body.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
                 body.extend_from_slice(bytes);
                 body.push(0); // NUL terminator
-                // Pad to 4-byte alignment
-                while body.len() % 4 != 0 { body.push(0); }
+                              // Pad to 4-byte alignment
+                while body.len() % 4 != 0 {
+                    body.push(0);
+                }
             }
         }
     }
@@ -226,7 +233,9 @@ fn build_dbus_method_call(
         //   u8  body-sig length
         //   ... body-sig bytes
         //   u8  NUL terminator for the body signature
-        while header_fields.len() % 8 != 0 { header_fields.push(0); }
+        while header_fields.len() % 8 != 0 {
+            header_fields.push(0);
+        }
         header_fields.push(8); // field code
         header_fields.push(1); // variant signature length: 1 byte
         header_fields.push(b'g'); // variant signature: SIGNATURE type
@@ -237,15 +246,17 @@ fn build_dbus_method_call(
         header_fields.push(0);
     }
     // Pad header fields to 8-byte alignment
-    while header_fields.len() % 8 != 0 { header_fields.push(0); }
+    while header_fields.len() % 8 != 0 {
+        header_fields.push(0);
+    }
 
     let mut msg = alloc::vec::Vec::new();
     // Fixed header: endianness(1) + type(1) + flags(1) + version(1)
     msg.push(b'l'); // little-endian
-    msg.push(1);    // METHOD_CALL
-    msg.push(0);    // flags
-    msg.push(1);    // protocol version
-    // body length (uint32)
+    msg.push(1); // METHOD_CALL
+    msg.push(0); // flags
+    msg.push(1); // protocol version
+                 // body length (uint32)
     msg.extend_from_slice(&(body.len() as u32).to_le_bytes());
     // serial (uint32)
     msg.extend_from_slice(&serial.to_le_bytes());
@@ -254,7 +265,9 @@ fn build_dbus_method_call(
     // header fields
     msg.extend_from_slice(&header_fields);
     // Pad to 8-byte alignment before body
-    while msg.len() % 8 != 0 { msg.push(0); }
+    while msg.len() % 8 != 0 {
+        msg.push(0);
+    }
     // body
     msg.extend_from_slice(&body);
 
@@ -265,14 +278,18 @@ fn build_dbus_method_call(
 /// value is a VARIANT containing a string or object-path.
 fn append_header_field(buf: &mut alloc::vec::Vec<u8>, code: u8, sig: char, value: &str) {
     // Align to 8 bytes (start of struct)
-    while buf.len() % 8 != 0 { buf.push(0); }
+    while buf.len() % 8 != 0 {
+        buf.push(0);
+    }
     buf.push(code);
     // variant signature
     buf.push(1); // sig length
     buf.push(sig as u8);
     buf.push(0); // NUL
-    // Pad to 4 bytes for the string/object-path value
-    while buf.len() % 4 != 0 { buf.push(0); }
+                 // Pad to 4 bytes for the string/object-path value
+    while buf.len() % 4 != 0 {
+        buf.push(0);
+    }
     let bytes = value.as_bytes();
     buf.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
     buf.extend_from_slice(bytes);
@@ -285,19 +302,25 @@ fn append_header_field(buf: &mut alloc::vec::Vec<u8>, code: u8, sig: char, value
 fn parse_uint32_from_variant_response(data: &[u8]) -> Option<u32> {
     // Very simplified: scan backwards for a plausible uint32 value (0, 1, or 2)
     // in the response body.  A full parser is overkill for this single value.
-    if data.len() < 16 { return None; }
+    if data.len() < 16 {
+        return None;
+    }
     // Skip the 12-byte fixed header + header fields to find the body
     let body_len = u32::from_le_bytes(data[4..8].try_into().ok()?) as usize;
     let header_fields_len = u32::from_le_bytes(data[12..16].try_into().ok()?) as usize;
     let body_start = 16 + header_fields_len;
     // Align to 8
     let body_start = (body_start + 7) & !7;
-    if body_start + body_len > data.len() { return None; }
+    if body_start + body_len > data.len() {
+        return None;
+    }
     let body = &data[body_start..body_start + body_len];
     // The body is variant(variant(uint32)).  The uint32 is at the end.
     if body.len() >= 4 {
-        let val = u32::from_le_bytes(body[body.len()-4..].try_into().ok()?);
-        if val <= 2 { return Some(val); }
+        let val = u32::from_le_bytes(body[body.len() - 4..].try_into().ok()?);
+        if val <= 2 {
+            return Some(val);
+        }
     }
     None
 }
@@ -312,8 +335,12 @@ fn parse_rgb_from_variant_response(_data: &[u8]) -> Option<(f64, f64, f64)> {
     None
 }
 
-extern "C" { fn getuid() -> u32; }
-unsafe fn libc_getuid() -> u32 { getuid() }
+extern "C" {
+    fn getuid() -> u32;
+}
+unsafe fn libc_getuid() -> u32 {
+    getuid()
+}
 
 /// Hex-encode a UID for the D-Bus `AUTH EXTERNAL` handshake.
 ///
@@ -340,7 +367,12 @@ fn gsettings_get(schema: &str, key: &str) -> Option<String> {
         .output()
         .ok()?;
     if out.status.success() {
-        Some(String::from_utf8_lossy(&out.stdout).trim().trim_matches('\'').to_string())
+        Some(
+            String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .trim_matches('\'')
+                .to_string(),
+        )
     } else {
         None
     }
@@ -490,8 +522,8 @@ fn run_command_with_timeout(program: &str, args: &[&str], timeout_ms: u64) -> Re
 /// monospace font, and color-scheme preference.
 fn discover_gnome_style() -> Result<SystemStyle, ()> {
     // Check color-scheme first (GNOME 42+)
-    let color_scheme = gsettings_get("org.gnome.desktop.interface", "color-scheme")
-        .unwrap_or_default();
+    let color_scheme =
+        gsettings_get("org.gnome.desktop.interface", "color-scheme").unwrap_or_default();
 
     let is_dark = color_scheme.contains("prefer-dark")
         || gsettings_get("org.gnome.desktop.interface", "gtk-theme")
@@ -537,15 +569,15 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
     if let Some(accent) = gsettings_get("org.gnome.desktop.interface", "accent-color") {
         // GNOME accent-color is a named color like "blue", "teal", "green", etc.
         let color = match accent.trim() {
-            "blue"    => Some(ColorU::new_rgb( 53, 132, 228)),
-            "teal"    => Some(ColorU::new_rgb( 38, 162, 105)),
-            "green"   => Some(ColorU::new_rgb( 46, 194,  82)),
-            "yellow"  => Some(ColorU::new_rgb(246, 211,  45)),
-            "orange"  => Some(ColorU::new_rgb(255, 120,   0)),
-            "red"     => Some(ColorU::new_rgb(237,  51,  59)),
-            "pink"    => Some(ColorU::new_rgb(220,  79, 133)),
-            "purple"  => Some(ColorU::new_rgb(145,  65, 172)),
-            "slate"   => Some(ColorU::new_rgb(111, 131, 150)),
+            "blue" => Some(ColorU::new_rgb(53, 132, 228)),
+            "teal" => Some(ColorU::new_rgb(38, 162, 105)),
+            "green" => Some(ColorU::new_rgb(46, 194, 82)),
+            "yellow" => Some(ColorU::new_rgb(246, 211, 45)),
+            "orange" => Some(ColorU::new_rgb(255, 120, 0)),
+            "red" => Some(ColorU::new_rgb(237, 51, 59)),
+            "pink" => Some(ColorU::new_rgb(220, 79, 133)),
+            "purple" => Some(ColorU::new_rgb(145, 65, 172)),
+            "slate" => Some(ColorU::new_rgb(111, 131, 150)),
             _ => None,
         };
         if let Some(c) = color {
@@ -570,11 +602,9 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     };
 
     // Detect dark/light from color scheme name
-    let color_scheme_name = run_command_with_timeout(
-        kread,
-        &["--group", "General", "--key", "ColorScheme"],
-        1000,
-    ).unwrap_or_default();
+    let color_scheme_name =
+        run_command_with_timeout(kread, &["--group", "General", "--key", "ColorScheme"], 1000)
+            .unwrap_or_default();
 
     let is_dark = color_scheme_name.to_lowercase().contains("dark");
 
@@ -596,11 +626,9 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     style.fonts.ui_font = OptionString::Some("Noto Sans".into());
 
     // Font discovery
-    if let Ok(font_str) = run_command_with_timeout(
-        kread,
-        &["--group", "General", "--key", "font"],
-        1000,
-    ) {
+    if let Ok(font_str) =
+        run_command_with_timeout(kread, &["--group", "General", "--key", "font"], 1000)
+    {
         // KDE font format: "Noto Sans,10,-1,5,50,0,0,0,0,0"
         let parts: Vec<&str> = font_str.split(',').collect();
         if parts.len() >= 2 {
@@ -611,11 +639,9 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
         }
     }
 
-    if let Ok(fixed_font) = run_command_with_timeout(
-        kread,
-        &["--group", "General", "--key", "fixed"],
-        1000,
-    ) {
+    if let Ok(fixed_font) =
+        run_command_with_timeout(kread, &["--group", "General", "--key", "fixed"], 1000)
+    {
         let parts: Vec<&str> = fixed_font.split(',').collect();
         if parts.len() >= 2 {
             style.fonts.monospace_font = OptionString::Some(parts[0].trim().into());
@@ -820,20 +846,23 @@ fn parse_hyprland_config(conf: &str, style: &mut SystemStyle) {
     for line in conf.lines() {
         let line = line.trim();
         // Skip comments
-        if line.starts_with('#') { continue; }
+        if line.starts_with('#') {
+            continue;
+        }
 
         if let Some(val) = extract_config_value(line, "rounding") {
             if let Ok(px) = val.parse::<f32>() {
-                style.metrics.corner_radius = OptionPixelValue::Some(
-                    PixelValue::from_metric(azul_css::props::basic::length::SizeMetric::Px, px)
-                );
+                style.metrics.corner_radius = OptionPixelValue::Some(PixelValue::from_metric(
+                    azul_css::props::basic::length::SizeMetric::Px,
+                    px,
+                ));
             }
         }
 
         if let Some(val) = extract_config_value(line, "border_size") {
             if let Ok(px) = val.parse::<f32>() {
                 style.focus_visuals.focus_border_width = OptionPixelValue::Some(
-                    PixelValue::from_metric(azul_css::props::basic::length::SizeMetric::Px, px)
+                    PixelValue::from_metric(azul_css::props::basic::length::SizeMetric::Px, px),
                 );
             }
         }
@@ -841,11 +870,17 @@ fn parse_hyprland_config(conf: &str, style: &mut SystemStyle) {
         if let Some(val) = extract_config_value(line, "col.active_border") {
             // Hyprland colors: "rgba(33ccffee)" or "rgb(33ccff)"
             let color_str = val.trim();
-            if let Some(hex) = color_str.strip_prefix("rgba(").and_then(|s| s.strip_suffix(')')) {
+            if let Some(hex) = color_str
+                .strip_prefix("rgba(")
+                .and_then(|s| s.strip_suffix(')'))
+            {
                 if let Ok(c) = parse_css_color(&alloc::format!("#{}", hex)) {
                     style.colors.accent = OptionColorU::Some(c);
                 }
-            } else if let Some(hex) = color_str.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
+            } else if let Some(hex) = color_str
+                .strip_prefix("rgb(")
+                .and_then(|s| s.strip_suffix(')'))
+            {
                 if let Ok(c) = parse_css_color(&alloc::format!("#{}", hex)) {
                     style.colors.accent = OptionColorU::Some(c);
                 }
@@ -858,7 +893,9 @@ fn parse_hyprland_config(conf: &str, style: &mut SystemStyle) {
 fn parse_sway_config(conf: &str, style: &mut SystemStyle) {
     for line in conf.lines() {
         let line = line.trim();
-        if line.starts_with('#') { continue; }
+        if line.starts_with('#') {
+            continue;
+        }
 
         // "default_border pixel 2"
         if line.starts_with("default_border") {
@@ -866,7 +903,7 @@ fn parse_sway_config(conf: &str, style: &mut SystemStyle) {
             if parts.len() >= 3 && parts[1] == "pixel" {
                 if let Ok(px) = parts[2].parse::<f32>() {
                     style.focus_visuals.focus_border_width = OptionPixelValue::Some(
-                        PixelValue::from_metric(azul_css::props::basic::length::SizeMetric::Px, px)
+                        PixelValue::from_metric(azul_css::props::basic::length::SizeMetric::Px, px),
                     );
                 }
             }
@@ -1053,7 +1090,8 @@ fn load_app_specific_stylesheet() -> Option<Css> {
         return None;
     }
 
-    let exe_name = std::env::current_exe().ok()
+    let exe_name = std::env::current_exe()
+        .ok()
         .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))?;
 
     let config_dir = get_config_dir()?;
@@ -1061,7 +1099,11 @@ fn load_app_specific_stylesheet() -> Option<Css> {
     let css_path = alloc::format!("{}/azul/styles/{}.css", config_dir, exe_name);
     let css_str = std::fs::read_to_string(&css_path).ok()?;
     let (css, _warnings) = new_from_str(&css_str);
-    if css.is_empty() { None } else { Some(css) }
+    if css.is_empty() {
+        None
+    } else {
+        Some(css)
+    }
 }
 
 /// Get the platform-appropriate user config directory.
@@ -1101,16 +1143,18 @@ fn parse_font_name_and_size(s: &str) -> Option<(String, f32)> {
 /// Tries XDG Desktop Portal first (raw D-Bus), then CLI-based discovery
 /// (KDE, GNOME, riced desktops), and finally hardcoded GNOME Adwaita defaults.
 pub(crate) fn discover() -> SystemStyle {
-
     // ── 1. Try XDG Desktop Portal (D-Bus) ───────────────────────────
     let portal_result = query_xdg_portal();
 
     if let Some((color_scheme, accent_rgb)) = portal_result {
-        crate::plog_debug!("system style: xdg-desktop-portal color-scheme={}", color_scheme);
+        crate::plog_debug!(
+            "system style: xdg-desktop-portal color-scheme={}",
+            color_scheme
+        );
         let mut style = match color_scheme {
-            1 => defaults::gnome_adwaita_dark(),   // prefer-dark
-            2 => defaults::gnome_adwaita_light(),   // prefer-light
-            _ => defaults::gnome_adwaita_light(),   // no preference
+            1 => defaults::gnome_adwaita_dark(),  // prefer-dark
+            2 => defaults::gnome_adwaita_light(), // prefer-light
+            _ => defaults::gnome_adwaita_light(), // no preference
         };
 
         if let Some((r, g, b)) = accent_rgb {
@@ -1134,7 +1178,9 @@ pub(crate) fn discover() -> SystemStyle {
 
     // Portal probe unavailable or rejected (e.g. the raw-D-Bus handshake) —
     // non-fatal; fall back to CLI/defaults. Visible only with AZ_LOG on.
-    crate::plog_debug!("system style: xdg-desktop-portal unavailable; falling back to CLI/defaults");
+    crate::plog_debug!(
+        "system style: xdg-desktop-portal unavailable; falling back to CLI/defaults"
+    );
 
     // ── 2. CLI-based discovery ──────────────────────────────────────
     // `AZ_RICING=force` reorders the chain so riced-desktop sources
@@ -1155,22 +1201,16 @@ pub(crate) fn discover() -> SystemStyle {
         // Normal priority: KDE > GNOME > riced > defaults
         let desktop_env = azul_css::system::detect_linux_desktop_env();
         match &desktop_env {
-            DesktopEnvironment::Kde => {
-                discover_kde_style()
-                    .or_else(|_| discover_gnome_style())
-                    .unwrap_or_else(|_| defaults::gnome_adwaita_light())
-            }
-            DesktopEnvironment::Gnome => {
-                discover_gnome_style()
-                    .or_else(|_| discover_kde_style())
-                    .unwrap_or_else(|_| defaults::gnome_adwaita_light())
-            }
-            DesktopEnvironment::Other(_) => {
-                discover_riced_style()
-                    .or_else(|_| discover_gnome_style())
-                    .or_else(|_| discover_kde_style())
-                    .unwrap_or_else(|_| defaults::gnome_adwaita_light())
-            }
+            DesktopEnvironment::Kde => discover_kde_style()
+                .or_else(|_| discover_gnome_style())
+                .unwrap_or_else(|_| defaults::gnome_adwaita_light()),
+            DesktopEnvironment::Gnome => discover_gnome_style()
+                .or_else(|_| discover_kde_style())
+                .unwrap_or_else(|_| defaults::gnome_adwaita_light()),
+            DesktopEnvironment::Other(_) => discover_riced_style()
+                .or_else(|_| discover_gnome_style())
+                .or_else(|_| discover_kde_style())
+                .unwrap_or_else(|_| defaults::gnome_adwaita_light()),
         }
     };
 
@@ -1207,8 +1247,7 @@ pub(crate) fn discover() -> SystemStyle {
 /// exactly one of them. Each window instead compares this against the theme it
 /// is already carrying (`current_window_state.theme`), which it has anyway — so
 /// no window needs to store a "last seen" of its own.
-static OBSERVED_COLOR_SCHEME: core::sync::atomic::AtomicU8 =
-    core::sync::atomic::AtomicU8::new(0);
+static OBSERVED_COLOR_SCHEME: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 static THEME_WATCHER: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 
@@ -1255,18 +1294,14 @@ fn ensure_theme_watcher() {
     THEME_WATCHER.get_or_init(|| {
         let _ = std::thread::Builder::new()
             .name("azul-theme-watch".into())
-            .spawn(|| {
-                loop {
-                    if let Some((scheme, _accent)) = query_xdg_portal() {
-                        if color_scheme_to_theme(scheme).is_some() {
-                            OBSERVED_COLOR_SCHEME.store(
-                                scheme as u8,
-                                core::sync::atomic::Ordering::Relaxed,
-                            );
-                        }
+            .spawn(|| loop {
+                if let Some((scheme, _accent)) = query_xdg_portal() {
+                    if color_scheme_to_theme(scheme).is_some() {
+                        OBSERVED_COLOR_SCHEME
+                            .store(scheme as u8, core::sync::atomic::Ordering::Relaxed);
                     }
-                    std::thread::sleep(core::time::Duration::from_secs(2));
                 }
+                std::thread::sleep(core::time::Duration::from_secs(2));
             });
     });
 }

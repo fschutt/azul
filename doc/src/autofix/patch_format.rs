@@ -638,9 +638,7 @@ fn explain_change(change: &ModifyChange) -> String {
         } => {
             format!(
                 "+ {} type: {} (for element {})",
-                dependency_kind,
-                dependency_type,
-                element_type
+                dependency_kind, dependency_type, element_type
             )
         }
     }
@@ -671,7 +669,10 @@ impl AutofixPatch {
 
     /// Like `to_api_patch`, but with optional access to the existing API data
     /// to resolve module names for types that already exist.
-    pub fn to_api_patch_with_context(&self, existing_api: Option<&crate::api::ApiData>) -> ApiPatch {
+    pub fn to_api_patch_with_context(
+        &self,
+        existing_api: Option<&crate::api::ApiData>,
+    ) -> ApiPatch {
         // Helper: find which module a type currently lives in (searching existing api.json)
         let find_existing_module = |type_name: &str| -> Option<String> {
             let api = existing_api?;
@@ -685,7 +686,7 @@ impl AutofixPatch {
             None
         };
         let mut api_patch = ApiPatch::default();
-        
+
         // First pass: collect AddDependencyType changes and generate AddStruct patches for them
         for op in &self.operations {
             if let PatchOperation::Modify(m) = op {
@@ -694,12 +695,14 @@ impl AutofixPatch {
                         dependency_type,
                         dependency_kind,
                         element_type,
-                    } = change {
+                    } = change
+                    {
                         // Look up the element type's external path from existing API
                         let element_external = existing_api.and_then(|api| {
                             for (_ver, ver_data) in api.0.iter() {
                                 for (_mod_name, mod_data) in &ver_data.api {
-                                    if let Some(class) = mod_data.classes.get(element_type.as_str()) {
+                                    if let Some(class) = mod_data.classes.get(element_type.as_str())
+                                    {
                                         return class.external.as_deref();
                                     }
                                 }
@@ -714,7 +717,7 @@ impl AutofixPatch {
                             element_type,
                             element_external,
                         );
-                        
+
                         // Determine the module for the new type
                         let module_name = if dependency_kind == "option" {
                             "option".to_string()
@@ -722,7 +725,7 @@ impl AutofixPatch {
                             // Slice types go in the "vec" module
                             "vec".to_string()
                         };
-                        
+
                         insert_class_patch(
                             &mut api_patch,
                             API_VERSION,
@@ -741,7 +744,9 @@ impl AutofixPatch {
                 PatchOperation::Modify(m) => {
                     let class_patch = self.modify_to_class_patch(m);
                     // Use explicit module, or look up existing module, or determine from type name
-                    let module_name = m.module.clone()
+                    let module_name = m
+                        .module
+                        .clone()
                         .or_else(|| find_existing_module(&m.type_name))
                         .unwrap_or_else(|| {
                             let (module, warn) = determine_module(&m.type_name);
@@ -793,10 +798,8 @@ impl AutofixPatch {
                                 // and structs are plain #[repr(C)]. Without this
                                 // the codegen validator rejects the added type
                                 // ("expected repr(C, u8)").
-                                let has_data_variant = a
-                                    .enum_variants
-                                    .as_ref()
-                                    .map_or(false, |vs| {
+                                let has_data_variant =
+                                    a.enum_variants.as_ref().map_or(false, |vs| {
                                         vs.iter().any(|v| v.variant_type.is_some())
                                     });
                                 if has_data_variant {
@@ -1506,8 +1509,10 @@ fn generate_dependency_type_patch(
 
     // Derive the module prefix from the element type's external path.
     // e.g. "azul_layout::widgets::ribbon::RibbonSection" → "azul_layout::widgets::ribbon::"
-    let module_prefix = element_external_path
-        .and_then(|p| p.rsplit_once("::").map(|(prefix, _)| format!("{}::", prefix)));
+    let module_prefix = element_external_path.and_then(|p| {
+        p.rsplit_once("::")
+            .map(|(prefix, _)| format!("{}::", prefix))
+    });
 
     match dependency_kind {
         "option" => {
@@ -1515,7 +1520,7 @@ fn generate_dependency_type_patch(
                 Some(prefix) => format!("{}{}", prefix, dependency_type),
                 None => format!("azul_core::option::{}", dependency_type),
             };
-            
+
             let mut enum_variants = IndexMap::new();
             enum_variants.insert(
                 "None".to_string(),
@@ -1533,14 +1538,11 @@ fn generate_dependency_type_patch(
                     ref_kind: Default::default(),
                 },
             );
-            
+
             ClassPatch {
                 external: Some(external_path),
                 repr: Some("C, u8".to_string()),
-                derive: Some(vec![
-                    "Debug".to_string(),
-                    "Clone".to_string(),
-                ]),
+                derive: Some(vec!["Debug".to_string(), "Clone".to_string()]),
                 enum_fields: Some(vec![enum_variants]),
                 ..Default::default()
             }
@@ -1553,7 +1555,7 @@ fn generate_dependency_type_patch(
                 Some(prefix) => format!("{}{}", prefix, dependency_type),
                 None => format!("azul_css::{}", dependency_type),
             };
-            
+
             let mut struct_fields = IndexMap::new();
             struct_fields.insert(
                 "ptr".to_string(),
@@ -1575,7 +1577,7 @@ fn generate_dependency_type_patch(
                     derive: None,
                 },
             );
-            
+
             ClassPatch {
                 external: Some(external_path),
                 repr: Some("C".to_string()),
@@ -1589,7 +1591,10 @@ fn generate_dependency_type_patch(
             }
         }
         _ => {
-            eprintln!("Warning: Unknown dependency kind '{}' for type '{}'", dependency_kind, dependency_type);
+            eprintln!(
+                "Warning: Unknown dependency kind '{}' for type '{}'",
+                dependency_kind, dependency_type
+            );
             ClassPatch::default()
         }
     }

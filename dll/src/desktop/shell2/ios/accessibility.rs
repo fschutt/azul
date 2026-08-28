@@ -462,7 +462,9 @@ fn queue_from_element(this: &Object, action: AccessibilityAction) -> bool {
     let Some(window) = (unsafe { super::azul_ios_window() }) else {
         return false;
     };
-    window.accessibility_adapter.queue_action_for(index, &action)
+    window
+        .accessibility_adapter
+        .queue_action_for(index, &action)
 }
 
 #[cfg(feature = "a11y")]
@@ -536,10 +538,9 @@ pub extern "C" fn view_accessibility_element_at_index(
     let Ok(index) = usize::try_from(index) else {
         return core::ptr::null_mut();
     };
-    unsafe { super::azul_ios_window() }
-        .map_or(core::ptr::null_mut(), |w| {
-            w.accessibility_adapter.element_at(index)
-        })
+    unsafe { super::azul_ios_window() }.map_or(core::ptr::null_mut(), |w| {
+        w.accessibility_adapter.element_at(index)
+    })
 }
 
 #[cfg(feature = "a11y")]
@@ -569,8 +570,7 @@ pub fn install_container_methods(decl: &mut ClassDecl) {
         );
         decl.add_method(
             sel!(accessibilityElementAtIndex:),
-            view_accessibility_element_at_index
-                as extern "C" fn(&Object, Sel, i64) -> *mut Object,
+            view_accessibility_element_at_index as extern "C" fn(&Object, Sel, i64) -> *mut Object,
         );
         decl.add_method(
             sel!(indexOfAccessibilityElement:),

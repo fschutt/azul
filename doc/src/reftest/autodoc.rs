@@ -145,10 +145,8 @@ pub fn manifest_path(project_root: &Path) -> PathBuf {
 
 pub fn load_manifest(project_root: &Path) -> Result<Manifest, String> {
     let p = manifest_path(project_root);
-    let text = fs::read_to_string(&p)
-        .map_err(|e| format!("read {}: {}", p.display(), e))?;
-    let m: Manifest = toml::from_str(&text)
-        .map_err(|e| format!("parse {}: {}", p.display(), e))?;
+    let text = fs::read_to_string(&p).map_err(|e| format!("read {}: {}", p.display(), e))?;
+    let m: Manifest = toml::from_str(&text).map_err(|e| format!("parse {}: {}", p.display(), e))?;
     validate_manifest(&m)?;
     Ok(m)
 }
@@ -219,7 +217,14 @@ pub fn expand_glob(project_root: &Path, glob: &str) -> Vec<PathBuf> {
     }
     let recursive = pattern.contains("**");
     let mut out = Vec::new();
-    walk_collect(&walk_root, &walk_root, recursive, &pattern, &mut out, project_root);
+    walk_collect(
+        &walk_root,
+        &walk_root,
+        recursive,
+        &pattern,
+        &mut out,
+        project_root,
+    );
     out
 }
 
@@ -291,8 +296,7 @@ fn simple_match(pattern: &str, path: &str) -> bool {
                 && simple_match(pattern, path.split_once('/').map(|x| x.1).unwrap_or(path));
     }
     if let Some(ext) = pattern.strip_prefix("*.") {
-        return path.rsplit_once('.').map(|x| x.1) == Some(ext)
-            && !path.contains('/');
+        return path.rsplit_once('.').map(|x| x.1) == Some(ext) && !path.contains('/');
     }
     if !pattern.contains('*') {
         return pattern == path;
@@ -335,11 +339,7 @@ pub fn relevant_reports(project_root: &Path, group: &Group) -> Vec<PathBuf> {
 const SOURCE_INCLUSION_BUDGET: usize = 40_000; // chars; agent reads larger files itself
 const REPORT_INCLUSION_BUDGET: usize = 30_000;
 
-pub fn build_autodoc_prompt(
-    project_root: &Path,
-    manifest: &Manifest,
-    group: &Group,
-) -> String {
+pub fn build_autodoc_prompt(project_root: &Path, manifest: &Manifest, group: &Group) -> String {
     let tracked = resolve_tracked(project_root, group);
     let reports = relevant_reports(project_root, group);
 
@@ -357,7 +357,9 @@ pub fn build_autodoc_prompt(
         if let Some(td) = manifest.meta.trees.iter().find(|t| t.id == group.tree) {
             s.push_str(&format!(
                 "## Book tree: `{}` — {}\n\n{}\n\n",
-                td.id, td.title, td.description.trim()
+                td.id,
+                td.title,
+                td.description.trim()
             ));
         } else {
             s.push_str(&format!("## Book tree: `{}`\n\n", group.tree));
@@ -373,8 +375,10 @@ pub fn build_autodoc_prompt(
     // ── Shared context (read first) ───────────────────────────────
     if !manifest.meta.shared_context_files.is_empty() {
         s.push_str("## Shared context — READ THESE FIRST\n\n");
-        s.push_str("Before writing any output, load these files. They anchor your work \
-                    in the project's existing structure and conventions:\n\n");
+        s.push_str(
+            "Before writing any output, load these files. They anchor your work \
+                    in the project's existing structure and conventions:\n\n",
+        );
         for f in &manifest.meta.shared_context_files {
             s.push_str(&format!("- `{f}`\n"));
         }
@@ -428,10 +432,16 @@ pub fn build_autodoc_prompt(
 
     // ── Max-effort thinking ──────────────────────────────────────
     if let Some(at) = &manifest.meta.agent_thinking {
-        let mode = if at.mode.is_empty() { "max-effort" } else { &at.mode };
+        let mode = if at.mode.is_empty() {
+            "max-effort"
+        } else {
+            &at.mode
+        };
         s.push_str(&format!("## Thinking mode: `{mode}`\n\n"));
-        s.push_str("Use extended thinking. Do not skim — actually load and reason about \
-                    the source. Quality over speed.\n\n");
+        s.push_str(
+            "Use extended thinking. Do not skim — actually load and reason about \
+                    the source. Quality over speed.\n\n",
+        );
         if !at.instructions.is_empty() {
             for (i, inst) in at.instructions.iter().enumerate() {
                 s.push_str(&format!("{}. {inst}\n", i + 1));
@@ -444,10 +454,16 @@ pub fn build_autodoc_prompt(
     for o in &group.outputs {
         s.push_str(&format!("- `{}` — *{}*", o.path, o.title));
         let mut tags = Vec::new();
-        if let Some(a) = &o.audience { tags.push(format!("audience={}", a)); }
+        if let Some(a) = &o.audience {
+            tags.push(format!("audience={}", a));
+        }
         tags.push(format!("maturity={}", o.maturity));
-        if let Some(n) = o.guide_order { tags.push(format!("guide_order={}", n)); }
-        if o.topic_only { tags.push("topic_only".to_string()); }
+        if let Some(n) = o.guide_order {
+            tags.push(format!("guide_order={}", n));
+        }
+        if o.topic_only {
+            tags.push("topic_only".to_string());
+        }
         if !tags.is_empty() {
             s.push_str(&format!(" ({})", tags.join(", ")));
         }
@@ -463,7 +479,8 @@ pub fn build_autodoc_prompt(
 
     s.push_str("## Required frontmatter\n\n");
     s.push_str("Each output file MUST start with YAML frontmatter:\n\n");
-    s.push_str("```yaml\n---\n\
+    s.push_str(
+        "```yaml\n---\n\
                 slug: <slug>            # URL slug; for English == canonical_slug\n\
                 title: <title>\n\
                 language: en             # canonical pages are always English\n\
@@ -476,7 +493,8 @@ pub fn build_autodoc_prompt(
                 tracked_files:\n  - <path>\n  - ...\n\
                 last_generated_rev: <git-sha-here>\n\
                 generated_at: <iso8601>\n\
-                ---\n```\n\n");
+                ---\n```\n\n",
+    );
     s.push_str(&format!(
         "Use git rev `{}` and the current ISO timestamp. Tracked files come from the manifest \
          (listed below). `language: en` and `canonical_slug == slug` because this run \
@@ -499,16 +517,20 @@ pub fn build_autodoc_prompt(
     // ── Design docs (INTENT, may be outdated) ────────────────────
     if !group.design_docs.is_empty() {
         s.push_str("## Design docs (INTENT — read after the source)\n\n");
-        s.push_str("These files in `scripts/` are *design intent*. They were written \
+        s.push_str(
+            "These files in `scripts/` are *design intent*. They were written \
                     when the system was being planned and may now disagree with the \
                     code. Read them to understand the **why** and the original mental \
                     model — then verify everything against the tracked source files \
-                    above. **The code is truth, the design docs are context.**\n\n");
-        s.push_str("If the doc and the code disagree, document what the code does. \
+                    above. **The code is truth, the design docs are context.**\n\n",
+        );
+        s.push_str(
+            "If the doc and the code disagree, document what the code does. \
                     If a divergence is significant (e.g. a planned approach was \
                     abandoned), add a one-line note like *\"The original design \
                     proposed X; the implementation took approach Y because [reason \
-                    visible in commit history or comments].\"*\n\n");
+                    visible in commit history or comments].\"*\n\n",
+        );
         for d in &group.design_docs {
             s.push_str(&format!("- `scripts/{d}`\n"));
         }
@@ -530,10 +552,14 @@ pub fn build_autodoc_prompt(
             }
             design_budget -= content.len();
             embedded += 1;
-            s.push_str(&format!("\n#### `scripts/{d}`\n\n```markdown\n{content}\n```\n"));
+            s.push_str(&format!(
+                "\n#### `scripts/{d}`\n\n```markdown\n{content}\n```\n"
+            ));
         }
         if embedded == 0 {
-            s.push_str("(All design docs exceeded the inline budget. Read with the Read tool.)\n\n");
+            s.push_str(
+                "(All design docs exceeded the inline budget. Read with the Read tool.)\n\n",
+            );
         }
     }
 
@@ -551,7 +577,11 @@ pub fn build_autodoc_prompt(
         }
         budget -= content.len();
         included += 1;
-        s.push_str(&format!("\n#### `{}`\n\n```rust\n{}\n```\n", p.display(), content));
+        s.push_str(&format!(
+            "\n#### `{}`\n\n```rust\n{}\n```\n",
+            p.display(),
+            content
+        ));
     }
     if included == 0 {
         s.push_str("(All tracked files exceed the inline budget. Use the Read tool.)\n\n");
@@ -755,10 +785,7 @@ pub fn hash_body(body: &str) -> String {
 
 /// Read a canonical English file and return the SHA-256 of its body.
 /// Returns None if the file is missing or has no frontmatter.
-pub fn read_canonical_hash(
-    project_root: &Path,
-    canonical_slug: &str,
-) -> Option<String> {
+pub fn read_canonical_hash(project_root: &Path, canonical_slug: &str) -> Option<String> {
     let path = project_root.join(format!("doc/guide/en/{}.md", canonical_slug));
     let content = fs::read_to_string(&path).ok()?;
     let (_fm, body) = parse_frontmatter(&content)?;
@@ -828,12 +855,15 @@ pub fn run_autodoc(config: &AutoreviewConfig) -> Result<(), String> {
     println!(
         "Loaded manifest: {} groups, {} outputs",
         manifest.groups.len(),
-        manifest.groups.iter().map(|g| g.outputs.len()).sum::<usize>()
+        manifest
+            .groups
+            .iter()
+            .map(|g| g.outputs.len())
+            .sum::<usize>()
     );
 
     let pdir = prompts_dir(&project_root);
-    fs::create_dir_all(&pdir)
-        .map_err(|e| format!("create {}: {}", pdir.display(), e))?;
+    fs::create_dir_all(&pdir).map_err(|e| format!("create {}: {}", pdir.display(), e))?;
 
     // Phase 1: generate prompts
     println!("\n=== Phase 1: Generating autodoc prompts ===\n");
@@ -880,8 +910,7 @@ fn dispatch_autodoc_agents(config: &AutoreviewConfig) -> Result<(), String> {
     let project_root = &config.project_root;
     let prompts = prompts_dir(project_root);
 
-    let (pending, done, failed, taken) =
-        executor::scan_prompts_dir(&prompts, config.retry_failed);
+    let (pending, done, failed, taken) = executor::scan_prompts_dir(&prompts, config.retry_failed);
 
     println!(
         "Prompt status: {} pending, {} done, {} failed, {} in-progress",
@@ -1210,7 +1239,10 @@ pub fn run_autodoc_check(config: &AutoreviewConfig) -> Result<(), String> {
             let mut reasons: Vec<String> = Vec::new();
 
             // 1) Content hash check — the authoritative "did the body change" signal.
-            match (&fm.source_hash, read_canonical_hash(project_root, &canonical_slug)) {
+            match (
+                &fm.source_hash,
+                read_canonical_hash(project_root, &canonical_slug),
+            ) {
                 (Some(recorded), Some(current)) if recorded == &current => {
                     // body matches — no drift
                 }
@@ -1456,7 +1488,9 @@ pub fn parse_attrs(s: &str) -> Vec<(String, String)> {
         while i < bytes.len() && bytes[i] != b'=' && !bytes[i].is_ascii_whitespace() {
             i += 1;
         }
-        let key = std::str::from_utf8(&bytes[key_start..i]).unwrap_or("").to_string();
+        let key = std::str::from_utf8(&bytes[key_start..i])
+            .unwrap_or("")
+            .to_string();
         if key.is_empty() {
             break;
         }
@@ -1465,14 +1499,16 @@ pub fn parse_attrs(s: &str) -> Vec<(String, String)> {
             continue;
         }
         i += 1; // consume '='
-        // Read value
+                // Read value
         let value = if i < bytes.len() && bytes[i] == b'"' {
             i += 1;
             let v_start = i;
             while i < bytes.len() && bytes[i] != b'"' {
                 i += 1;
             }
-            let v = std::str::from_utf8(&bytes[v_start..i]).unwrap_or("").to_string();
+            let v = std::str::from_utf8(&bytes[v_start..i])
+                .unwrap_or("")
+                .to_string();
             if i < bytes.len() {
                 i += 1; // consume closing quote
             }
@@ -1482,7 +1518,9 @@ pub fn parse_attrs(s: &str) -> Vec<(String, String)> {
             while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
                 i += 1;
             }
-            std::str::from_utf8(&bytes[v_start..i]).unwrap_or("").to_string()
+            std::str::from_utf8(&bytes[v_start..i])
+                .unwrap_or("")
+                .to_string()
         };
         out.push((key, value));
     }
@@ -1725,8 +1763,8 @@ fn write_screenshot_manifest(
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| format!("manifest json: {}", e))?;
+    let json =
+        serde_json::to_string_pretty(&manifest).map_err(|e| format!("manifest json: {}", e))?;
     fs::write(&path, json).map_err(|e| format!("write {}: {}", path.display(), e))?;
     Ok(())
 }
@@ -1787,8 +1825,7 @@ pub fn run_autodoc_screenshots(config: &AutoreviewConfig) -> Result<(), String> 
         let mut succeeded: Vec<RenderBlock> = Vec::new();
         for block in blocks {
             let out = screenshots_dir.join(format!("{}.png", block.name));
-            match render_xml_to_png(&font_context, &block.xml, &out, block.width, block.height)
-            {
+            match render_xml_to_png(&font_context, &block.xml, &out, block.width, block.height) {
                 Ok(()) => {
                     let badge = match (&block.slideshow, block.subtitle.is_empty()) {
                         (Some(sid), false) => {
@@ -2044,12 +2081,14 @@ pub fn render_all_screenshots(project_root: &Path) -> Result<(usize, usize), Str
     let mut failed = 0usize;
     for (lang, block) in &work {
         let dir = guide_dir.join(lang).join("screenshots");
-        fs::create_dir_all(&dir)
-            .map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
+        fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {}", dir.display(), e))?;
         let png = dir.join(format!("{}.png", block.name));
         match render_xml_to_png(&font_context, &block.xml, &png, block.width, block.height) {
             Ok(()) => {
-                println!("  [{}/ok] {}.png ({}x{})", lang, block.name, block.width, block.height);
+                println!(
+                    "  [{}/ok] {}.png ({}x{})",
+                    lang, block.name, block.width, block.height
+                );
                 rendered += 1;
             }
             Err(e) => {

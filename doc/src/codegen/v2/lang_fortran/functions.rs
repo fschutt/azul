@@ -28,9 +28,7 @@ use anyhow::Result;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{ArgRefKind, CodegenIR, FunctionDef, TypeCategory};
-use super::{
-    map_type_to_fortran, pascal_to_snake_case, sanitize_identifier, truncate_identifier,
-};
+use super::{map_type_to_fortran, pascal_to_snake_case, sanitize_identifier, truncate_identifier};
 
 pub fn generate_externals(
     builder: &mut CodeBuilder,

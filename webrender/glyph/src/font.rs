@@ -14,15 +14,15 @@ use azul_layout::font::parsed::{OwnedGlyph, ParsedFont};
 use agg_rust::{
     basics::{FillingRule, VertexSource, PATH_FLAGS_NONE},
     color::Rgba8,
+    conv_transform::ConvTransform,
     path_storage::PathStorage,
-    pixfmt_rgba::{PixfmtRgba32, PixelFormat},
+    pixfmt_rgba::{PixelFormat, PixfmtRgba32},
     rasterizer_scanline_aa::RasterizerScanlineAa,
     renderer_base::RendererBase,
     renderer_scanline::render_scanlines_aa_solid,
     rendering_buffer::RowAccessor,
     scanline_u::ScanlineU8,
     trans_affine::TransAffine,
-    conv_transform::ConvTransform,
 };
 
 use crate::{
@@ -244,20 +244,33 @@ fn build_path_from_outline(glyph: &OwnedGlyph) -> Option<PathStorage> {
                     path.line_to(*x as f64, -(*y as f64));
                 }
                 GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
-                    ctrl_1_x, ctrl_1_y, end_x, end_y,
+                    ctrl_1_x,
+                    ctrl_1_y,
+                    end_x,
+                    end_y,
                 }) => {
                     path.curve3(
-                        *ctrl_1_x as f64, -(*ctrl_1_y as f64),
-                        *end_x as f64, -(*end_y as f64),
+                        *ctrl_1_x as f64,
+                        -(*ctrl_1_y as f64),
+                        *end_x as f64,
+                        -(*end_y as f64),
                     );
                 }
                 GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo {
-                    ctrl_1_x, ctrl_1_y, ctrl_2_x, ctrl_2_y, end_x, end_y,
+                    ctrl_1_x,
+                    ctrl_1_y,
+                    ctrl_2_x,
+                    ctrl_2_y,
+                    end_x,
+                    end_y,
                 }) => {
                     path.curve4(
-                        *ctrl_1_x as f64, -(*ctrl_1_y as f64),
-                        *ctrl_2_x as f64, -(*ctrl_2_y as f64),
-                        *end_x as f64, -(*end_y as f64),
+                        *ctrl_1_x as f64,
+                        -(*ctrl_1_y as f64),
+                        *ctrl_2_x as f64,
+                        -(*ctrl_2_y as f64),
+                        *end_x as f64,
+                        -(*end_y as f64),
                     );
                 }
                 GlyphOutlineOperation::ClosePath => {
@@ -266,6 +279,8 @@ fn build_path_from_outline(glyph: &OwnedGlyph) -> Option<PathStorage> {
             }
         }
     }
-    if !has_ops { return None; }
+    if !has_ops {
+        return None;
+    }
     Some(path)
 }

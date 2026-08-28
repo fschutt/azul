@@ -106,9 +106,10 @@ pub fn send_dump_file(
     user_message: &str,
 ) -> Result<(), String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let name = path
-        .file_name()
-        .map_or_else(|| "crash.json".to_owned(), |n| n.to_string_lossy().into_owned());
+    let name = path.file_name().map_or_else(
+        || "crash.json".to_owned(),
+        |n| n.to_string_lossy().into_owned(),
+    );
     send_attachments(config, user_message, &[(name, bytes)])?;
     drop(std::fs::remove_file(path));
     Ok(())
@@ -169,9 +170,10 @@ pub fn send_crash_reports(
     let mut attachments: Vec<(String, Vec<u8>)> = Vec::new();
     for path in &dumps {
         if let Ok(bytes) = std::fs::read(path) {
-            let name = path
-                .file_name()
-                .map_or_else(|| "crash.json".to_owned(), |n| n.to_string_lossy().into_owned());
+            let name = path.file_name().map_or_else(
+                || "crash.json".to_owned(),
+                |n| n.to_string_lossy().into_owned(),
+            );
             attachments.push((name, bytes));
         }
     }
@@ -241,9 +243,7 @@ pub fn send_attachments(
         .from(config.from.clone())
         .to(config.to.clone())
         .subject(subject)
-        .content_type(format!(
-            "multipart/mixed; boundary=\"{MIME_BOUNDARY}\""
-        ))
+        .content_type(format!("multipart/mixed; boundary=\"{MIME_BOUNDARY}\""))
         .body(mime);
 
     mailer
@@ -285,8 +285,7 @@ fn build_mime_body(text: &str, attachments: &[(String, Vec<u8>)]) -> String {
 /// Standard-alphabet base64 with `=` padding. ~20 lines beats a dependency
 /// for the one place this crate needs an encoder.
 fn base64_encode(input: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
         let b = [
@@ -331,7 +330,10 @@ mod tests {
     fn mime_body_carries_message_and_attachment() {
         let body = build_mime_body(
             "it crashed while I scrolled",
-            &[("0-1-crash.json".to_owned(), br#"{"kind":"azul-crash-dump"}"#.to_vec())],
+            &[(
+                "0-1-crash.json".to_owned(),
+                br#"{"kind":"azul-crash-dump"}"#.to_vec(),
+            )],
         );
         assert!(body.contains("it crashed while I scrolled"));
         assert!(body.contains("filename=\"0-1-crash.json\""));

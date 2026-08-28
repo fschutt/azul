@@ -97,7 +97,9 @@ pub fn get_blog_list() -> Vec<BlogPost> {
 
 /// Minimal HTML escape for text that came out of markdown source.
 fn escape_html(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Strip markdown inline links: `[text](url)` becomes `text`.
@@ -142,7 +144,9 @@ fn post_excerpt(post: &BlogPost) -> String {
         started = true;
         lines.push(trimmed);
     }
-    let text = strip_md_links(&lines.join(" ")).replace("**", "").replace('`', "");
+    let text = strip_md_links(&lines.join(" "))
+        .replace("**", "")
+        .replace('`', "");
     escape_html(&text)
 }
 

@@ -38,24 +38,29 @@ fn three_paragraph_dom() -> StyledDom {
         body { font-size: 14px; width: 600px; }
         .p { display: block; }
     "#;
-    let class = |name: &str| -> azul_core::dom::IdOrClassVec {
-        vec![IdOrClass::Class(name.into())].into()
-    };
+    let class =
+        |name: &str| -> azul_core::dom::IdOrClassVec { vec![IdOrClass::Class(name.into())].into() };
     let mut dom = Dom::create_body()
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("first paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "first paragraph",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("second paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "second paragraph",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("third paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "third paragraph",
+                )),
         );
     let (css, _) = azul_css::parser2::new_from_str(CSS);
     StyledDom::create(&mut dom, css)
@@ -135,7 +140,10 @@ fn provider_emits_exactly_one_document_edit_event_per_changeset() {
 fn a_new_changeset_notifies_again() {
     let mut lw = window_with_pending_edit();
     lw.mark_document_edit_notified();
-    assert!(lw.document_edit_event_provider().get_pending_events(now()).is_empty());
+    assert!(lw
+        .document_edit_event_provider()
+        .get_pending_events(now())
+        .is_empty());
 
     // Recording a REPLACEMENT changeset (same one-pending-slot model) resets
     // the delivered flag: the new edit gets its own notification.
@@ -189,7 +197,10 @@ fn acked_edit_is_cleared_and_nothing_is_dropped_later() {
     let mut lw = window_with_pending_edit();
     lw.mark_document_edit_notified();
     let id = lw.get_pending_document_edit().unwrap().id;
-    assert!(lw.mark_document_edit_applied(id), "handshake ids must match");
+    assert!(
+        lw.mark_document_edit_applied(id),
+        "handshake ids must match"
+    );
     assert!(lw.get_pending_document_edit().is_none());
     // The post-ack re-render is the APPLY path, not a rejection.
     relayout(&mut lw);

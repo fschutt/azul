@@ -4,9 +4,9 @@
 //! (behind the `parser` feature) has a corresponding `parse_style_*` function
 //! with borrowed/owned error type pairs.
 
+use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::fmt;
-use crate::corety::AzString;
 
 use crate::{
     codegen::format::FormatAsRustCode,
@@ -40,7 +40,8 @@ impl fmt::Debug for StyleTextColor {
 }
 
 impl StyleTextColor {
-    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             inner: self.inner.interpolate(&other.inner, t),
         }
@@ -211,7 +212,7 @@ impl PrintAsCssValue for StyleTabSize {
 // -- StyleWhiteSpace --
 
 /// How to handle white space inside an element.
-/// 
+///
 /// CSS Text Level 3: <https://www.w3.org/TR/css-text-3/#white-space-property>
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -635,7 +636,10 @@ impl FormatAsRustCode for StyleVerticalAlign {
             Self::Superscript => "StyleVerticalAlign::Superscript".to_string(),
             Self::TextTop => "StyleVerticalAlign::TextTop".to_string(),
             Self::TextBottom => "StyleVerticalAlign::TextBottom".to_string(),
-            Self::Percentage(p) => format!("StyleVerticalAlign::Percentage(PercentageValue::new({}))", p.normalized() * 100.0),
+            Self::Percentage(p) => format!(
+                "StyleVerticalAlign::Percentage(PercentageValue::new({}))",
+                p.normalized() * 100.0
+            ),
             Self::Length(l) => format!("StyleVerticalAlign::Length({l})"),
         }
     }
@@ -675,7 +679,8 @@ pub enum StyleTextColorParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTextColorParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTextColorParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextColorParseErrorOwned {
         match self {
             Self::ColorParseError(e) => {
                 StyleTextColorParseErrorOwned::ColorParseError(e.to_contained())
@@ -686,7 +691,8 @@ impl StyleTextColorParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleTextColorParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTextColorParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextColorParseError<'_> {
         match self {
             Self::ColorParseError(e) => StyleTextColorParseError::ColorParseError(e.to_shared()),
         }
@@ -726,7 +732,8 @@ pub enum StyleTextAlignParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTextAlignParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTextAlignParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextAlignParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleTextAlignParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -735,7 +742,8 @@ impl StyleTextAlignParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleTextAlignParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTextAlignParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextAlignParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextAlignParseError::InvalidValue(e.to_shared()),
         }
@@ -786,7 +794,8 @@ pub enum StyleLetterSpacingParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleLetterSpacingParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleLetterSpacingParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleLetterSpacingParseErrorOwned {
         match self {
             Self::PixelValue(e) => StyleLetterSpacingParseErrorOwned::PixelValue(e.to_contained()),
         }
@@ -795,7 +804,8 @@ impl StyleLetterSpacingParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleLetterSpacingParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleLetterSpacingParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleLetterSpacingParseError<'_> {
         match self {
             Self::PixelValue(e) => StyleLetterSpacingParseError::PixelValue(e.to_shared()),
         }
@@ -836,64 +846,142 @@ impl fmt::Debug for StyleTextIndent {
 
 impl StyleTextIndent {
     #[inline]
-    #[must_use] pub const fn zero() -> Self {
-        Self { inner: PixelValue::zero(), each_line: false, hanging: false }
+    #[must_use]
+    pub const fn zero() -> Self {
+        Self {
+            inner: PixelValue::zero(),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub const fn const_px(value: isize) -> Self {
-        Self { inner: PixelValue::const_px(value), each_line: false, hanging: false }
+    #[must_use]
+    pub const fn const_px(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_px(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub const fn const_em(value: isize) -> Self {
-        Self { inner: PixelValue::const_em(value), each_line: false, hanging: false }
+    #[must_use]
+    pub const fn const_em(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_em(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub const fn const_pt(value: isize) -> Self {
-        Self { inner: PixelValue::const_pt(value), each_line: false, hanging: false }
+    #[must_use]
+    pub const fn const_pt(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_pt(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub const fn const_percent(value: isize) -> Self {
-        Self { inner: PixelValue::const_percent(value), each_line: false, hanging: false }
+    #[must_use]
+    pub const fn const_percent(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_percent(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub const fn const_in(value: isize) -> Self {
-        Self { inner: PixelValue::const_in(value), each_line: false, hanging: false }
+    #[must_use]
+    pub const fn const_in(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_in(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub const fn const_cm(value: isize) -> Self {
-        Self { inner: PixelValue::const_cm(value), each_line: false, hanging: false }
+    #[must_use]
+    pub const fn const_cm(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_cm(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub const fn const_mm(value: isize) -> Self {
-        Self { inner: PixelValue::const_mm(value), each_line: false, hanging: false }
+    #[must_use]
+    pub const fn const_mm(value: isize) -> Self {
+        Self {
+            inner: PixelValue::const_mm(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub const fn const_from_metric(metric: crate::props::basic::length::SizeMetric, value: isize) -> Self {
-        Self { inner: PixelValue::const_from_metric(metric, value), each_line: false, hanging: false }
+    #[must_use]
+    pub const fn const_from_metric(
+        metric: crate::props::basic::length::SizeMetric,
+        value: isize,
+    ) -> Self {
+        Self {
+            inner: PixelValue::const_from_metric(metric, value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub fn px(value: f32) -> Self {
-        Self { inner: PixelValue::px(value), each_line: false, hanging: false }
+    #[must_use]
+    pub fn px(value: f32) -> Self {
+        Self {
+            inner: PixelValue::px(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub fn em(value: f32) -> Self {
-        Self { inner: PixelValue::em(value), each_line: false, hanging: false }
+    #[must_use]
+    pub fn em(value: f32) -> Self {
+        Self {
+            inner: PixelValue::em(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub fn pt(value: f32) -> Self {
-        Self { inner: PixelValue::pt(value), each_line: false, hanging: false }
+    #[must_use]
+    pub fn pt(value: f32) -> Self {
+        Self {
+            inner: PixelValue::pt(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub fn percent(value: f32) -> Self {
-        Self { inner: PixelValue::percent(value), each_line: false, hanging: false }
+    #[must_use]
+    pub fn percent(value: f32) -> Self {
+        Self {
+            inner: PixelValue::percent(value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub fn from_metric(metric: crate::props::basic::length::SizeMetric, value: f32) -> Self {
-        Self { inner: PixelValue::from_metric(metric, value), each_line: false, hanging: false }
+    #[must_use]
+    pub fn from_metric(metric: crate::props::basic::length::SizeMetric, value: f32) -> Self {
+        Self {
+            inner: PixelValue::from_metric(metric, value),
+            each_line: false,
+            hanging: false,
+        }
     }
     #[inline]
-    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
-        Self { inner: self.inner.interpolate(&other.inner, t), each_line: self.each_line, hanging: self.hanging }
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+        Self {
+            inner: self.inner.interpolate(&other.inner, t),
+            each_line: self.each_line,
+            hanging: self.hanging,
+        }
     }
 }
 
@@ -914,7 +1002,9 @@ impl FormatAsRustCode for StyleTextIndent {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
             "StyleTextIndent {{ inner: {}, each_line: {}, hanging: {} }}",
-            self.inner.format_as_rust_code(0), self.each_line, self.hanging
+            self.inner.format_as_rust_code(0),
+            self.each_line,
+            self.hanging
         )
     }
 }
@@ -945,7 +1035,8 @@ pub enum StyleTextIndentParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTextIndentParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTextIndentParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextIndentParseErrorOwned {
         match self {
             Self::PixelValue(e) => StyleTextIndentParseErrorOwned::PixelValue(e.to_contained()),
         }
@@ -954,7 +1045,8 @@ impl StyleTextIndentParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleTextIndentParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTextIndentParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextIndentParseError<'_> {
         match self {
             Self::PixelValue(e) => StyleTextIndentParseError::PixelValue(e.to_shared()),
         }
@@ -965,7 +1057,9 @@ impl StyleTextIndentParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `text-indent` value.
-pub fn parse_style_text_indent(input: &str) -> Result<StyleTextIndent, StyleTextIndentParseError<'_>> {
+pub fn parse_style_text_indent(
+    input: &str,
+) -> Result<StyleTextIndent, StyleTextIndentParseError<'_>> {
     let mut each_line = false;
     let mut hanging = false;
     let mut pixel_part: Option<&str> = None;
@@ -983,7 +1077,11 @@ pub fn parse_style_text_indent(input: &str) -> Result<StyleTextIndent, StyleText
     let pixel_str = pixel_part.unwrap_or("0px");
 
     crate::props::basic::pixel::parse_pixel_value(pixel_str)
-        .map(|inner| StyleTextIndent { inner, each_line, hanging })
+        .map(|inner| StyleTextIndent {
+            inner,
+            each_line,
+            hanging,
+        })
         .map_err(StyleTextIndentParseError::PixelValue)
 }
 
@@ -1038,20 +1136,26 @@ pub enum StyleInitialLetterParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleInitialLetterParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleInitialLetterParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleInitialLetterParseErrorOwned {
         match self {
             Self::InvalidFormat(s) => {
                 StyleInitialLetterParseErrorOwned::InvalidFormat((*s).to_string().into())
             }
-            Self::InvalidSize(s) => StyleInitialLetterParseErrorOwned::InvalidSize((*s).to_string().into()),
-            Self::InvalidSink(s) => StyleInitialLetterParseErrorOwned::InvalidSink((*s).to_string().into()),
+            Self::InvalidSize(s) => {
+                StyleInitialLetterParseErrorOwned::InvalidSize((*s).to_string().into())
+            }
+            Self::InvalidSink(s) => {
+                StyleInitialLetterParseErrorOwned::InvalidSink((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleInitialLetterParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleInitialLetterParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleInitialLetterParseError<'_> {
         match self {
             Self::InvalidFormat(s) => StyleInitialLetterParseError::InvalidFormat(s.as_str()),
             Self::InvalidSize(s) => StyleInitialLetterParseError::InvalidSize(s.as_str()),
@@ -1067,12 +1171,8 @@ impl From<StyleInitialLetterParseError<'_>> for StyleInitialLetterParseErrorOwne
             StyleInitialLetterParseError::InvalidFormat(s) => {
                 Self::InvalidFormat(s.to_string().into())
             }
-            StyleInitialLetterParseError::InvalidSize(s) => {
-                Self::InvalidSize(s.to_string().into())
-            }
-            StyleInitialLetterParseError::InvalidSink(s) => {
-                Self::InvalidSink(s.to_string().into())
-            }
+            StyleInitialLetterParseError::InvalidSize(s) => Self::InvalidSize(s.to_string().into()),
+            StyleInitialLetterParseError::InvalidSink(s) => Self::InvalidSink(s.to_string().into()),
         }
     }
 }
@@ -1153,7 +1253,8 @@ impl_display! { StyleLineClampParseError<'a>, {
     InvalidValue(e) => format!("Invalid line-clamp value: {}", e),
     ZeroValue => format!("line-clamp cannot be zero"),
 }}
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -1164,9 +1265,12 @@ pub enum StyleLineClampParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleLineClampParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleLineClampParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleLineClampParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleLineClampParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                StyleLineClampParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
             Self::ZeroValue => StyleLineClampParseErrorOwned::ZeroValue,
         }
     }
@@ -1174,7 +1278,8 @@ impl StyleLineClampParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleLineClampParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleLineClampParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleLineClampParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleLineClampParseError::InvalidValue(s.as_str()),
             Self::ZeroValue => StyleLineClampParseError::ZeroValue,
@@ -1199,9 +1304,7 @@ impl_display! { StyleLineClampParseErrorOwned, {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `line-clamp` value.
-pub fn parse_style_line_clamp(
-    input: &str,
-) -> Result<StyleLineClamp, StyleLineClampParseError<'_>> {
+pub fn parse_style_line_clamp(input: &str) -> Result<StyleLineClamp, StyleLineClampParseError<'_>> {
     let input = input.trim();
 
     let max_lines = input
@@ -1229,7 +1332,8 @@ pub struct StyleHangingPunctuation {
 }
 
 impl StyleHangingPunctuation {
-    #[must_use] pub const fn is_enabled(&self) -> bool {
+    #[must_use]
+    pub const fn is_enabled(&self) -> bool {
         self.first || self.force_end || self.allow_end || self.last
     }
 }
@@ -1246,10 +1350,18 @@ impl PrintAsCssValue for StyleHangingPunctuation {
             return "none".to_string();
         }
         let mut parts = Vec::new();
-        if self.first { parts.push("first"); }
-        if self.force_end { parts.push("force-end"); }
-        if self.allow_end { parts.push("allow-end"); }
-        if self.last { parts.push("last"); }
+        if self.first {
+            parts.push("first");
+        }
+        if self.force_end {
+            parts.push("force-end");
+        }
+        if self.allow_end {
+            parts.push("allow-end");
+        }
+        if self.last {
+            parts.push("last");
+        }
         parts.join(" ")
     }
 }
@@ -1275,7 +1387,8 @@ pub enum StyleHangingPunctuationParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleHangingPunctuationParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleHangingPunctuationParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleHangingPunctuationParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
                 StyleHangingPunctuationParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -1286,7 +1399,8 @@ impl StyleHangingPunctuationParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleHangingPunctuationParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleHangingPunctuationParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleHangingPunctuationParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleHangingPunctuationParseError::InvalidValue(s.as_str()),
         }
@@ -1337,7 +1451,12 @@ pub fn parse_style_hanging_punctuation(
         return Err(StyleHangingPunctuationParseError::InvalidValue(input));
     }
 
-    Ok(StyleHangingPunctuation { first, force_end, allow_end, last })
+    Ok(StyleHangingPunctuation {
+        first,
+        force_end,
+        allow_end,
+        last,
+    })
 }
 
 /// text-combine-upright property for combining horizontal text in vertical layout
@@ -1350,7 +1469,6 @@ pub enum StyleTextCombineUpright {
     All,
     Digits(u8),
 }
-
 
 impl FormatAsRustCode for StyleTextCombineUpright {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
@@ -1392,7 +1510,8 @@ pub enum StyleTextCombineUprightParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTextCombineUprightParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTextCombineUprightParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextCombineUprightParseErrorOwned {
         match self {
             Self::InvalidValue(s) => {
                 StyleTextCombineUprightParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -1406,7 +1525,8 @@ impl StyleTextCombineUprightParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleTextCombineUprightParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTextCombineUprightParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextCombineUprightParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleTextCombineUprightParseError::InvalidValue(s.as_str()),
             Self::InvalidDigits(s) => StyleTextCombineUprightParseError::InvalidDigits(s.as_str()),
@@ -1486,7 +1606,8 @@ pub enum StyleWordSpacingParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleWordSpacingParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleWordSpacingParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleWordSpacingParseErrorOwned {
         match self {
             Self::PixelValue(e) => StyleWordSpacingParseErrorOwned::PixelValue(e.to_contained()),
         }
@@ -1495,7 +1616,8 @@ impl StyleWordSpacingParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleWordSpacingParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleWordSpacingParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleWordSpacingParseError<'_> {
         match self {
             Self::PixelValue(e) => StyleWordSpacingParseError::PixelValue(e.to_shared()),
         }
@@ -1537,7 +1659,8 @@ pub enum StyleLineHeightParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleLineHeightParseError {
-    #[must_use] pub fn to_contained(&self) -> StyleLineHeightParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleLineHeightParseErrorOwned {
         match self {
             Self::Percentage(e) => StyleLineHeightParseErrorOwned::Percentage(e.to_contained()),
         }
@@ -1546,7 +1669,8 @@ impl StyleLineHeightParseError {
 
 #[cfg(feature = "parser")]
 impl StyleLineHeightParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleLineHeightParseError {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleLineHeightParseError {
         match self {
             Self::Percentage(e) => StyleLineHeightParseError::Percentage(e.to_shared()),
         }
@@ -1604,7 +1728,8 @@ pub enum StyleTabSizeParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTabSizeParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTabSizeParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTabSizeParseErrorOwned {
         match self {
             Self::PixelValue(e) => StyleTabSizeParseErrorOwned::PixelValue(e.to_contained()),
         }
@@ -1613,7 +1738,8 @@ impl StyleTabSizeParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleTabSizeParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTabSizeParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTabSizeParseError<'_> {
         match self {
             Self::PixelValue(e) => StyleTabSizeParseError::PixelValue(e.to_shared()),
         }
@@ -1662,7 +1788,8 @@ pub enum StyleWhiteSpaceParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleWhiteSpaceParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleWhiteSpaceParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleWhiteSpaceParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleWhiteSpaceParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1671,7 +1798,8 @@ impl StyleWhiteSpaceParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleWhiteSpaceParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleWhiteSpaceParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleWhiteSpaceParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleWhiteSpaceParseError::InvalidValue(e.to_shared()),
         }
@@ -1682,7 +1810,9 @@ impl StyleWhiteSpaceParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `white-space` value.
-pub fn parse_style_white_space(input: &str) -> Result<StyleWhiteSpace, StyleWhiteSpaceParseError<'_>> {
+pub fn parse_style_white_space(
+    input: &str,
+) -> Result<StyleWhiteSpace, StyleWhiteSpaceParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleWhiteSpace::Normal),
         "pre" => Ok(StyleWhiteSpace::Pre),
@@ -1719,7 +1849,8 @@ pub enum StyleHyphensParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleHyphensParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleHyphensParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleHyphensParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleHyphensParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1728,7 +1859,8 @@ impl StyleHyphensParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleHyphensParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleHyphensParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleHyphensParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleHyphensParseError::InvalidValue(e.to_shared()),
         }
@@ -1773,7 +1905,8 @@ pub enum StyleLineBreakParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleLineBreakParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleLineBreakParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleLineBreakParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleLineBreakParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1782,7 +1915,8 @@ impl StyleLineBreakParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleLineBreakParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleLineBreakParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleLineBreakParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleLineBreakParseError::InvalidValue(e.to_shared()),
         }
@@ -1800,7 +1934,9 @@ pub fn parse_style_line_break(input: &str) -> Result<StyleLineBreak, StyleLineBr
         "normal" => Ok(StyleLineBreak::Normal),
         "strict" => Ok(StyleLineBreak::Strict),
         "anywhere" => Ok(StyleLineBreak::Anywhere),
-        other => Err(StyleLineBreakParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleLineBreakParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
 
@@ -1829,7 +1965,8 @@ pub enum StyleWordBreakParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleWordBreakParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleWordBreakParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleWordBreakParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleWordBreakParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -1838,7 +1975,8 @@ impl StyleWordBreakParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleWordBreakParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleWordBreakParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleWordBreakParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleWordBreakParseError::InvalidValue(e.to_shared()),
         }
@@ -1855,7 +1993,9 @@ pub fn parse_style_word_break(input: &str) -> Result<StyleWordBreak, StyleWordBr
         "break-all" => Ok(StyleWordBreak::BreakAll),
         "keep-all" => Ok(StyleWordBreak::KeepAll),
         "break-word" => Ok(StyleWordBreak::BreakWord),
-        other => Err(StyleWordBreakParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleWordBreakParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
 
@@ -1873,7 +2013,10 @@ impl_display! { StyleOverflowWrapParseError<'a>, {
     InvalidValue(e) => format!("Invalid overflow-wrap value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleOverflowWrapParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleOverflowWrapParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1884,16 +2027,20 @@ pub enum StyleOverflowWrapParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleOverflowWrapParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleOverflowWrapParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleOverflowWrapParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleOverflowWrapParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleOverflowWrapParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleOverflowWrapParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleOverflowWrapParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleOverflowWrapParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleOverflowWrapParseError::InvalidValue(e.to_shared()),
         }
@@ -1904,12 +2051,16 @@ impl StyleOverflowWrapParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `overflow-wrap` value.
-pub fn parse_style_overflow_wrap(input: &str) -> Result<StyleOverflowWrap, StyleOverflowWrapParseError<'_>> {
+pub fn parse_style_overflow_wrap(
+    input: &str,
+) -> Result<StyleOverflowWrap, StyleOverflowWrapParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleOverflowWrap::Normal),
         "anywhere" => Ok(StyleOverflowWrap::Anywhere),
         "break-word" => Ok(StyleOverflowWrap::BreakWord),
-        other => Err(StyleOverflowWrapParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleOverflowWrapParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
 
@@ -1927,7 +2078,10 @@ impl_display! { StyleTextAlignLastParseError<'a>, {
     InvalidValue(e) => format!("Invalid text-align-last value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleTextAlignLastParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleTextAlignLastParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1938,16 +2092,20 @@ pub enum StyleTextAlignLastParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTextAlignLastParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTextAlignLastParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextAlignLastParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleTextAlignLastParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleTextAlignLastParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleTextAlignLastParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTextAlignLastParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextAlignLastParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextAlignLastParseError::InvalidValue(e.to_shared()),
         }
@@ -1958,7 +2116,9 @@ impl StyleTextAlignLastParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `text-align-last` value.
-pub fn parse_style_text_align_last(input: &str) -> Result<StyleTextAlignLast, StyleTextAlignLastParseError<'_>> {
+pub fn parse_style_text_align_last(
+    input: &str,
+) -> Result<StyleTextAlignLast, StyleTextAlignLastParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleTextAlignLast::Auto),
         "start" => Ok(StyleTextAlignLast::Start),
@@ -1967,7 +2127,9 @@ pub fn parse_style_text_align_last(input: &str) -> Result<StyleTextAlignLast, St
         "right" => Ok(StyleTextAlignLast::Right),
         "center" => Ok(StyleTextAlignLast::Center),
         "justify" => Ok(StyleTextAlignLast::Justify),
-        other => Err(StyleTextAlignLastParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleTextAlignLastParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
 
@@ -1985,7 +2147,10 @@ impl_display! { StyleTextTransformParseError<'a>, {
     InvalidValue(e) => format!("Invalid text-transform value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleTextTransformParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleTextTransformParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1996,16 +2161,20 @@ pub enum StyleTextTransformParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTextTransformParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTextTransformParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextTransformParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleTextTransformParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleTextTransformParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleTextTransformParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTextTransformParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextTransformParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextTransformParseError::InvalidValue(e.to_shared()),
         }
@@ -2016,14 +2185,18 @@ impl StyleTextTransformParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `text-transform` value.
-pub fn parse_style_text_transform(input: &str) -> Result<StyleTextTransform, StyleTextTransformParseError<'_>> {
+pub fn parse_style_text_transform(
+    input: &str,
+) -> Result<StyleTextTransform, StyleTextTransformParseError<'_>> {
     match input.trim() {
         "none" => Ok(StyleTextTransform::None),
         "capitalize" => Ok(StyleTextTransform::Capitalize),
         "uppercase" => Ok(StyleTextTransform::Uppercase),
         "lowercase" => Ok(StyleTextTransform::Lowercase),
         "full-width" => Ok(StyleTextTransform::FullWidth),
-        other => Err(StyleTextTransformParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleTextTransformParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
 
@@ -2050,7 +2223,8 @@ pub enum StyleDirectionParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleDirectionParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleDirectionParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleDirectionParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleDirectionParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -2059,7 +2233,8 @@ impl StyleDirectionParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleDirectionParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleDirectionParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleDirectionParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleDirectionParseError::InvalidValue(e.to_shared()),
         }
@@ -2103,7 +2278,8 @@ pub enum StyleUserSelectParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleUserSelectParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleUserSelectParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleUserSelectParseErrorOwned {
         match self {
             Self::InvalidValue(e) => StyleUserSelectParseErrorOwned::InvalidValue(e.to_contained()),
         }
@@ -2112,7 +2288,8 @@ impl StyleUserSelectParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleUserSelectParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleUserSelectParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleUserSelectParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleUserSelectParseError::InvalidValue(e.to_shared()),
         }
@@ -2123,7 +2300,9 @@ impl StyleUserSelectParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `user-select` value.
-pub fn parse_style_user_select(input: &str) -> Result<StyleUserSelect, StyleUserSelectParseError<'_>> {
+pub fn parse_style_user_select(
+    input: &str,
+) -> Result<StyleUserSelect, StyleUserSelectParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleUserSelect::Auto),
         "text" => Ok(StyleUserSelect::Text),
@@ -2161,7 +2340,8 @@ pub enum StyleTextDecorationParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTextDecorationParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTextDecorationParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextDecorationParseErrorOwned {
         match self {
             Self::InvalidValue(e) => {
                 StyleTextDecorationParseErrorOwned::InvalidValue(e.to_contained())
@@ -2172,7 +2352,8 @@ impl StyleTextDecorationParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleTextDecorationParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTextDecorationParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextDecorationParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextDecorationParseError::InvalidValue(e.to_shared()),
         }
@@ -2223,7 +2404,8 @@ pub enum StyleVerticalAlignParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleVerticalAlignParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleVerticalAlignParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleVerticalAlignParseErrorOwned {
         match self {
             Self::InvalidValue(e) => {
                 StyleVerticalAlignParseErrorOwned::InvalidValue(e.to_contained())
@@ -2234,7 +2416,8 @@ impl StyleVerticalAlignParseError<'_> {
 
 #[cfg(feature = "parser")]
 impl StyleVerticalAlignParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleVerticalAlignParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleVerticalAlignParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleVerticalAlignParseError::InvalidValue(e.to_shared()),
         }
@@ -2260,12 +2443,20 @@ pub fn parse_style_vertical_align(
         other if other.ends_with('%') => {
             let num_str = other.trim_end_matches('%').trim();
             num_str.parse::<f32>().map_or_else(
-                |_| Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(other))),
+                |_| {
+                    Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(
+                        other,
+                    )))
+                },
                 |val| Ok(StyleVerticalAlign::Percentage(PercentageValue::new(val))),
             )
         }
         other => crate::props::basic::pixel::parse_pixel_value(other).map_or_else(
-            |_| Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(other))),
+            |_| {
+                Err(StyleVerticalAlignParseError::InvalidValue(InvalidValueErr(
+                    other,
+                )))
+            },
             |pv| Ok(StyleVerticalAlign::Length(pv)),
         ),
     }
@@ -2576,7 +2767,10 @@ impl_display! { StyleUnicodeBidiParseError<'a>, {
     InvalidValue(e) => format!("Invalid unicode-bidi value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleUnicodeBidiParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleUnicodeBidiParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2587,16 +2781,20 @@ pub enum StyleUnicodeBidiParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleUnicodeBidiParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleUnicodeBidiParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleUnicodeBidiParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleUnicodeBidiParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleUnicodeBidiParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleUnicodeBidiParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleUnicodeBidiParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleUnicodeBidiParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleUnicodeBidiParseError::InvalidValue(e.to_shared()),
         }
@@ -2607,7 +2805,9 @@ impl StyleUnicodeBidiParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `unicode-bidi` value.
-pub fn parse_style_unicode_bidi(input: &str) -> Result<StyleUnicodeBidi, StyleUnicodeBidiParseError<'_>> {
+pub fn parse_style_unicode_bidi(
+    input: &str,
+) -> Result<StyleUnicodeBidi, StyleUnicodeBidiParseError<'_>> {
     match input.trim() {
         "normal" => Ok(StyleUnicodeBidi::Normal),
         "embed" => Ok(StyleUnicodeBidi::Embed),
@@ -2615,7 +2815,9 @@ pub fn parse_style_unicode_bidi(input: &str) -> Result<StyleUnicodeBidi, StyleUn
         "bidi-override" => Ok(StyleUnicodeBidi::BidiOverride),
         "isolate-override" => Ok(StyleUnicodeBidi::IsolateOverride),
         "plaintext" => Ok(StyleUnicodeBidi::Plaintext),
-        other => Err(StyleUnicodeBidiParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleUnicodeBidiParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
 
@@ -2666,7 +2868,10 @@ impl_display! { StyleTextBoxTrimParseError<'a>, {
     InvalidValue(e) => format!("Invalid text-box-trim value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleTextBoxTrimParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleTextBoxTrimParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2677,16 +2882,20 @@ pub enum StyleTextBoxTrimParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTextBoxTrimParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTextBoxTrimParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextBoxTrimParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleTextBoxTrimParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleTextBoxTrimParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleTextBoxTrimParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTextBoxTrimParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextBoxTrimParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextBoxTrimParseError::InvalidValue(e.to_shared()),
         }
@@ -2697,13 +2906,17 @@ impl StyleTextBoxTrimParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `text-box-trim` value.
-pub fn parse_style_text_box_trim(input: &str) -> Result<StyleTextBoxTrim, StyleTextBoxTrimParseError<'_>> {
+pub fn parse_style_text_box_trim(
+    input: &str,
+) -> Result<StyleTextBoxTrim, StyleTextBoxTrimParseError<'_>> {
     match input.trim() {
         "none" => Ok(StyleTextBoxTrim::None),
         "trim-start" => Ok(StyleTextBoxTrim::TrimStart),
         "trim-end" => Ok(StyleTextBoxTrim::TrimEnd),
         "trim-both" => Ok(StyleTextBoxTrim::TrimBoth),
-        other => Err(StyleTextBoxTrimParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleTextBoxTrimParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
 
@@ -2796,7 +3009,9 @@ impl PrintAsCssValue for StyleTextBoxEdge {
         // Serialize the shortest form: omit the under edge when the single-
         // value form round-trips to the same pair.
         let single_round_trips = match self.over {
-            TextBoxEdgeOver::Text => matches!(self.under, TextBoxEdgeUnder::Text | TextBoxEdgeUnder::Auto),
+            TextBoxEdgeOver::Text => {
+                matches!(self.under, TextBoxEdgeUnder::Text | TextBoxEdgeUnder::Auto)
+            }
             TextBoxEdgeOver::Cap | TextBoxEdgeOver::Ex => {
                 matches!(self.under, TextBoxEdgeUnder::Text | TextBoxEdgeUnder::Auto)
             }
@@ -2826,7 +3041,10 @@ impl_display! { StyleTextBoxEdgeParseError<'a>, {
     InvalidValue(e) => format!("Invalid text-box-edge value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleTextBoxEdgeParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleTextBoxEdgeParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2837,16 +3055,20 @@ pub enum StyleTextBoxEdgeParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTextBoxEdgeParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTextBoxEdgeParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextBoxEdgeParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleTextBoxEdgeParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleTextBoxEdgeParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleTextBoxEdgeParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTextBoxEdgeParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextBoxEdgeParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleTextBoxEdgeParseError::InvalidValue(e.to_shared()),
         }
@@ -2857,20 +3079,26 @@ impl StyleTextBoxEdgeParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `text-box-edge` value.
-pub fn parse_style_text_box_edge(input: &str) -> Result<StyleTextBoxEdge, StyleTextBoxEdgeParseError<'_>> {
+pub fn parse_style_text_box_edge(
+    input: &str,
+) -> Result<StyleTextBoxEdge, StyleTextBoxEdgeParseError<'_>> {
     let trimmed = input.trim();
     let mut parts = trimmed.split_whitespace();
     let first = parts.next().unwrap_or("");
     let second = parts.next();
     if parts.next().is_some() {
-        return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(input)));
+        return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(
+            input,
+        )));
     }
 
     let over = match first {
         "auto" => {
             // `auto` is single-value only.
             if second.is_some() {
-                return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(input)));
+                return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(
+                    input,
+                )));
             }
             return Ok(StyleTextBoxEdge::AUTO);
         }
@@ -2879,7 +3107,11 @@ pub fn parse_style_text_box_edge(input: &str) -> Result<StyleTextBoxEdge, StyleT
         "ex" => TextBoxEdgeOver::Ex,
         "ideographic" => TextBoxEdgeOver::Ideographic,
         "ideographic-ink" => TextBoxEdgeOver::IdeographicInk,
-        other => return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(other))),
+        other => {
+            return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(
+                other,
+            )))
+        }
     };
 
     let under = match second {
@@ -2888,7 +3120,9 @@ pub fn parse_style_text_box_edge(input: &str) -> Result<StyleTextBoxEdge, StyleT
         Some("ideographic") => TextBoxEdgeUnder::Ideographic,
         Some("ideographic-ink") => TextBoxEdgeUnder::IdeographicInk,
         Some(other) => {
-            return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(other)))
+            return Err(StyleTextBoxEdgeParseError::InvalidValue(InvalidValueErr(
+                other,
+            )))
         }
         // Single-value form: both edges take the keyword when it exists on
         // both axes; otherwise `text` is assumed for the missing under edge.
@@ -2964,7 +3198,10 @@ impl_display! { StyleDominantBaselineParseError<'a>, {
     InvalidValue(e) => format!("Invalid dominant-baseline value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleDominantBaselineParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleDominantBaselineParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2975,16 +3212,20 @@ pub enum StyleDominantBaselineParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleDominantBaselineParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleDominantBaselineParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleDominantBaselineParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleDominantBaselineParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleDominantBaselineParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleDominantBaselineParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleDominantBaselineParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleDominantBaselineParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleDominantBaselineParseError::InvalidValue(e.to_shared()),
         }
@@ -2995,7 +3236,9 @@ impl StyleDominantBaselineParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `dominant-baseline` value.
-pub fn parse_style_dominant_baseline(input: &str) -> Result<StyleDominantBaseline, StyleDominantBaselineParseError<'_>> {
+pub fn parse_style_dominant_baseline(
+    input: &str,
+) -> Result<StyleDominantBaseline, StyleDominantBaselineParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleDominantBaseline::Auto),
         "text-bottom" => Ok(StyleDominantBaseline::TextBottom),
@@ -3006,7 +3249,9 @@ pub fn parse_style_dominant_baseline(input: &str) -> Result<StyleDominantBaselin
         "mathematical" => Ok(StyleDominantBaseline::Mathematical),
         "hanging" => Ok(StyleDominantBaseline::Hanging),
         "text-top" => Ok(StyleDominantBaseline::TextTop),
-        other => Err(StyleDominantBaselineParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleDominantBaselineParseError::InvalidValue(
+            InvalidValueErr(other),
+        )),
     }
 }
 
@@ -3073,7 +3318,10 @@ impl_display! { StyleAlignmentBaselineParseError<'a>, {
     InvalidValue(e) => format!("Invalid alignment-baseline value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleAlignmentBaselineParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleAlignmentBaselineParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3084,16 +3332,20 @@ pub enum StyleAlignmentBaselineParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleAlignmentBaselineParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleAlignmentBaselineParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleAlignmentBaselineParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleAlignmentBaselineParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleAlignmentBaselineParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleAlignmentBaselineParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleAlignmentBaselineParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleAlignmentBaselineParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleAlignmentBaselineParseError::InvalidValue(e.to_shared()),
         }
@@ -3104,7 +3356,9 @@ impl StyleAlignmentBaselineParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `alignment-baseline` value.
-pub fn parse_style_alignment_baseline(input: &str) -> Result<StyleAlignmentBaseline, StyleAlignmentBaselineParseError<'_>> {
+pub fn parse_style_alignment_baseline(
+    input: &str,
+) -> Result<StyleAlignmentBaseline, StyleAlignmentBaselineParseError<'_>> {
     match input.trim() {
         "baseline" => Ok(StyleAlignmentBaseline::Baseline),
         "text-bottom" => Ok(StyleAlignmentBaseline::TextBottom),
@@ -3114,7 +3368,9 @@ pub fn parse_style_alignment_baseline(input: &str) -> Result<StyleAlignmentBasel
         "central" => Ok(StyleAlignmentBaseline::Central),
         "mathematical" => Ok(StyleAlignmentBaseline::Mathematical),
         "text-top" => Ok(StyleAlignmentBaseline::TextTop),
-        other => Err(StyleAlignmentBaselineParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleAlignmentBaselineParseError::InvalidValue(
+            InvalidValueErr(other),
+        )),
     }
 }
 
@@ -3164,7 +3420,10 @@ impl_display! { StyleBaselineSourceParseError<'a>, {
     InvalidValue(e) => format!("Invalid baseline-source value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleBaselineSourceParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleBaselineSourceParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3175,16 +3434,20 @@ pub enum StyleBaselineSourceParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleBaselineSourceParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleBaselineSourceParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleBaselineSourceParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleBaselineSourceParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleBaselineSourceParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleBaselineSourceParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleBaselineSourceParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleBaselineSourceParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleBaselineSourceParseError::InvalidValue(e.to_shared()),
         }
@@ -3195,12 +3458,16 @@ impl StyleBaselineSourceParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `baseline-source` value.
-pub fn parse_style_baseline_source(input: &str) -> Result<StyleBaselineSource, StyleBaselineSourceParseError<'_>> {
+pub fn parse_style_baseline_source(
+    input: &str,
+) -> Result<StyleBaselineSource, StyleBaselineSourceParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleBaselineSource::Auto),
         "first" => Ok(StyleBaselineSource::First),
         "last" => Ok(StyleBaselineSource::Last),
-        other => Err(StyleBaselineSourceParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleBaselineSourceParseError::InvalidValue(
+            InvalidValueErr(other),
+        )),
     }
 }
 
@@ -3264,7 +3531,10 @@ impl_display! { StyleLineFitEdgeParseError<'a>, {
     InvalidValue(e) => format!("Invalid line-fit-edge value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleLineFitEdgeParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleLineFitEdgeParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3275,16 +3545,20 @@ pub enum StyleLineFitEdgeParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleLineFitEdgeParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleLineFitEdgeParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleLineFitEdgeParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleLineFitEdgeParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleLineFitEdgeParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleLineFitEdgeParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleLineFitEdgeParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleLineFitEdgeParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleLineFitEdgeParseError::InvalidValue(e.to_shared()),
         }
@@ -3295,7 +3569,9 @@ impl StyleLineFitEdgeParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `line-fit-edge` value.
-pub fn parse_style_line_fit_edge(input: &str) -> Result<StyleLineFitEdge, StyleLineFitEdgeParseError<'_>> {
+pub fn parse_style_line_fit_edge(
+    input: &str,
+) -> Result<StyleLineFitEdge, StyleLineFitEdgeParseError<'_>> {
     match input.trim() {
         "leading" => Ok(StyleLineFitEdge::Leading),
         "text" => Ok(StyleLineFitEdge::Text),
@@ -3304,7 +3580,9 @@ pub fn parse_style_line_fit_edge(input: &str) -> Result<StyleLineFitEdge, StyleL
         "ideographic" => Ok(StyleLineFitEdge::Ideographic),
         "ideographic-ink" => Ok(StyleLineFitEdge::IdeographicInk),
         "alphabetic" => Ok(StyleLineFitEdge::Alphabetic),
-        other => Err(StyleLineFitEdgeParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleLineFitEdgeParseError::InvalidValue(InvalidValueErr(
+            other,
+        ))),
     }
 }
 
@@ -3355,7 +3633,10 @@ impl_display! { StyleInitialLetterAlignParseError<'a>, {
     InvalidValue(e) => format!("Invalid initial-letter-align value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleInitialLetterAlignParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleInitialLetterAlignParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3366,16 +3647,20 @@ pub enum StyleInitialLetterAlignParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleInitialLetterAlignParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleInitialLetterAlignParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleInitialLetterAlignParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleInitialLetterAlignParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleInitialLetterAlignParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleInitialLetterAlignParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleInitialLetterAlignParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleInitialLetterAlignParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleInitialLetterAlignParseError::InvalidValue(e.to_shared()),
         }
@@ -3386,13 +3671,17 @@ impl StyleInitialLetterAlignParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `initial-letter-align` value.
-pub fn parse_style_initial_letter_align(input: &str) -> Result<StyleInitialLetterAlign, StyleInitialLetterAlignParseError<'_>> {
+pub fn parse_style_initial_letter_align(
+    input: &str,
+) -> Result<StyleInitialLetterAlign, StyleInitialLetterAlignParseError<'_>> {
     match input.trim() {
         "auto" => Ok(StyleInitialLetterAlign::Auto),
         "alphabetic" => Ok(StyleInitialLetterAlign::Alphabetic),
         "hanging" => Ok(StyleInitialLetterAlign::Hanging),
         "ideographic" => Ok(StyleInitialLetterAlign::Ideographic),
-        other => Err(StyleInitialLetterAlignParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleInitialLetterAlignParseError::InvalidValue(
+            InvalidValueErr(other),
+        )),
     }
 }
 
@@ -3443,7 +3732,10 @@ impl_display! { StyleInitialLetterWrapParseError<'a>, {
     InvalidValue(e) => format!("Invalid initial-letter-wrap value: \"{}\"", e.0),
 }}
 #[cfg(feature = "parser")]
-impl_from!(InvalidValueErr<'a>, StyleInitialLetterWrapParseError::InvalidValue);
+impl_from!(
+    InvalidValueErr<'a>,
+    StyleInitialLetterWrapParseError::InvalidValue
+);
 
 #[cfg(feature = "parser")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3454,16 +3746,20 @@ pub enum StyleInitialLetterWrapParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleInitialLetterWrapParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleInitialLetterWrapParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleInitialLetterWrapParseErrorOwned {
         match self {
-            Self::InvalidValue(e) => StyleInitialLetterWrapParseErrorOwned::InvalidValue(e.to_contained()),
+            Self::InvalidValue(e) => {
+                StyleInitialLetterWrapParseErrorOwned::InvalidValue(e.to_contained())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleInitialLetterWrapParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleInitialLetterWrapParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleInitialLetterWrapParseError<'_> {
         match self {
             Self::InvalidValue(e) => StyleInitialLetterWrapParseError::InvalidValue(e.to_shared()),
         }
@@ -3474,13 +3770,17 @@ impl StyleInitialLetterWrapParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `initial-letter-wrap` value.
-pub fn parse_style_initial_letter_wrap(input: &str) -> Result<StyleInitialLetterWrap, StyleInitialLetterWrapParseError<'_>> {
+pub fn parse_style_initial_letter_wrap(
+    input: &str,
+) -> Result<StyleInitialLetterWrap, StyleInitialLetterWrapParseError<'_>> {
     match input.trim() {
         "none" => Ok(StyleInitialLetterWrap::None),
         "first" => Ok(StyleInitialLetterWrap::First),
         "all" => Ok(StyleInitialLetterWrap::All),
         "grid" => Ok(StyleInitialLetterWrap::Grid),
-        other => Err(StyleInitialLetterWrapParseError::InvalidValue(InvalidValueErr(other))),
+        other => Err(StyleInitialLetterWrapParseError::InvalidValue(
+            InvalidValueErr(other),
+        )),
     }
 }
 
@@ -3490,9 +3790,24 @@ mod autotest_generated {
     use super::*;
     use crate::props::basic::length::SizeMetric;
 
-    const OPAQUE_BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
-    const OPAQUE_WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-    const TRANSPARENT_BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+    const OPAQUE_BLACK: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    const OPAQUE_WHITE: ColorU = ColorU {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    const TRANSPARENT_BLACK: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
 
     /// `FloatValue` encodes an f32 as `isize` scaled by this factor.
     const SCALE: isize = 1000;
@@ -3542,10 +3857,19 @@ mod autotest_generated {
 
         let max = isize::MAX / SCALE;
         let min = isize::MIN / SCALE;
-        assert_eq!(StyleTextIndent::const_px(max).inner.number.number(), max * SCALE);
-        assert_eq!(StyleTextIndent::const_px(min).inner.number.number(), min * SCALE);
         assert_eq!(
-            StyleTextIndent::const_from_metric(SizeMetric::Em, max).inner.number.number(),
+            StyleTextIndent::const_px(max).inner.number.number(),
+            max * SCALE
+        );
+        assert_eq!(
+            StyleTextIndent::const_px(min).inner.number.number(),
+            min * SCALE
+        );
+        assert_eq!(
+            StyleTextIndent::const_from_metric(SizeMetric::Em, max)
+                .inner
+                .number
+                .number(),
             max * SCALE
         );
         // NOTE: one step past those bounds (e.g. `const_px(isize::MAX)`) overflows the
@@ -3559,32 +3883,71 @@ mod autotest_generated {
         assert_eq!(StyleTextIndent::px(f32::NAN).inner.number.get(), 0.0);
         assert_eq!(StyleTextIndent::em(f32::NAN).inner.number.get(), 0.0);
 
-        assert_eq!(StyleTextIndent::px(f32::INFINITY).inner.number.number(), isize::MAX);
-        assert_eq!(StyleTextIndent::px(f32::NEG_INFINITY).inner.number.number(), isize::MIN);
-        assert_eq!(StyleTextIndent::pt(f32::MAX).inner.number.number(), isize::MAX);
-        assert_eq!(StyleTextIndent::pt(-f32::MAX).inner.number.number(), isize::MIN);
+        assert_eq!(
+            StyleTextIndent::px(f32::INFINITY).inner.number.number(),
+            isize::MAX
+        );
+        assert_eq!(
+            StyleTextIndent::px(f32::NEG_INFINITY).inner.number.number(),
+            isize::MIN
+        );
+        assert_eq!(
+            StyleTextIndent::pt(f32::MAX).inner.number.number(),
+            isize::MAX
+        );
+        assert_eq!(
+            StyleTextIndent::pt(-f32::MAX).inner.number.number(),
+            isize::MIN
+        );
 
         // Sub-precision magnitudes collapse to zero rather than trapping.
-        assert_eq!(StyleTextIndent::percent(f32::MIN_POSITIVE).inner.number.number(), 0);
+        assert_eq!(
+            StyleTextIndent::percent(f32::MIN_POSITIVE)
+                .inner
+                .number
+                .number(),
+            0
+        );
         assert_eq!(StyleTextIndent::px(-0.0).inner.number.number(), 0);
 
         // Every saturated result is still a finite, readable f32.
-        for v in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX, -f32::MAX] {
+        for v in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MAX,
+            -f32::MAX,
+        ] {
             assert!(StyleTextIndent::px(v).inner.number.get().is_finite());
         }
     }
 
     #[test]
     fn text_indent_from_metric_agrees_with_the_typed_ctors() {
-        assert_eq!(StyleTextIndent::from_metric(SizeMetric::Px, 1.5), StyleTextIndent::px(1.5));
-        assert_eq!(StyleTextIndent::from_metric(SizeMetric::Em, -2.5), StyleTextIndent::em(-2.5));
-        assert_eq!(StyleTextIndent::from_metric(SizeMetric::Pt, 0.0), StyleTextIndent::pt(0.0));
+        assert_eq!(
+            StyleTextIndent::from_metric(SizeMetric::Px, 1.5),
+            StyleTextIndent::px(1.5)
+        );
+        assert_eq!(
+            StyleTextIndent::from_metric(SizeMetric::Em, -2.5),
+            StyleTextIndent::em(-2.5)
+        );
+        assert_eq!(
+            StyleTextIndent::from_metric(SizeMetric::Pt, 0.0),
+            StyleTextIndent::pt(0.0)
+        );
         assert_eq!(
             StyleTextIndent::from_metric(SizeMetric::Percent, 50.0),
             StyleTextIndent::percent(50.0)
         );
-        assert_eq!(StyleTextIndent::const_from_metric(SizeMetric::Cm, 3), StyleTextIndent::const_cm(3));
-        assert_eq!(StyleTextIndent::const_from_metric(SizeMetric::Mm, -3), StyleTextIndent::const_mm(-3));
+        assert_eq!(
+            StyleTextIndent::const_from_metric(SizeMetric::Cm, 3),
+            StyleTextIndent::const_cm(3)
+        );
+        assert_eq!(
+            StyleTextIndent::const_from_metric(SizeMetric::Mm, -3),
+            StyleTextIndent::const_mm(-3)
+        );
 
         // A metric with no typed ctor still round-trips through from_metric.
         let vw = StyleTextIndent::from_metric(SizeMetric::Vw, 10.0);
@@ -3615,8 +3978,14 @@ mod autotest_generated {
         // NaN propagates into the f32 -> isize cast, which saturates NaN to 0.
         assert_eq!(a.interpolate(&b, f32::NAN).inner.number.get(), 0.0);
         // +/-inf saturate to the isize bounds instead of panicking.
-        assert_eq!(a.interpolate(&b, f32::INFINITY).inner.number.number(), isize::MAX);
-        assert_eq!(a.interpolate(&b, f32::NEG_INFINITY).inner.number.number(), isize::MIN);
+        assert_eq!(
+            a.interpolate(&b, f32::INFINITY).inner.number.number(),
+            isize::MAX
+        );
+        assert_eq!(
+            a.interpolate(&b, f32::NEG_INFINITY).inner.number.number(),
+            isize::MIN
+        );
         // 0 * inf is NaN, so interpolating equal endpoints by inf collapses to zero.
         assert_eq!(b.interpolate(&b, f32::INFINITY).inner.number.get(), 0.0);
 
@@ -3627,8 +3996,16 @@ mod autotest_generated {
 
     #[test]
     fn text_indent_interpolate_keeps_self_flags_and_normalizes_mixed_metrics() {
-        let a = StyleTextIndent { each_line: true, hanging: true, ..StyleTextIndent::px(0.0) };
-        let b = StyleTextIndent { each_line: false, hanging: false, ..StyleTextIndent::px(10.0) };
+        let a = StyleTextIndent {
+            each_line: true,
+            hanging: true,
+            ..StyleTextIndent::px(0.0)
+        };
+        let b = StyleTextIndent {
+            each_line: false,
+            hanging: false,
+            ..StyleTextIndent::px(10.0)
+        };
 
         // Flags are taken from `self`, never blended.
         let mid = a.interpolate(&b, 0.5);
@@ -3647,20 +4024,36 @@ mod autotest_generated {
 
     #[test]
     fn text_color_interpolate_endpoints_are_exact() {
-        let a = StyleTextColor { inner: OPAQUE_BLACK };
-        let b = StyleTextColor { inner: OPAQUE_WHITE };
+        let a = StyleTextColor {
+            inner: OPAQUE_BLACK,
+        };
+        let b = StyleTextColor {
+            inner: OPAQUE_WHITE,
+        };
 
         assert_eq!(a.interpolate(&b, 0.0), a);
         assert_eq!(a.interpolate(&b, 1.0), b);
         // 0 + 255*0.5 = 127.5, rounded half-away-from-zero.
-        assert_eq!(a.interpolate(&b, 0.5).inner, ColorU { r: 128, g: 128, b: 128, a: 255 });
+        assert_eq!(
+            a.interpolate(&b, 0.5).inner,
+            ColorU {
+                r: 128,
+                g: 128,
+                b: 128,
+                a: 255
+            }
+        );
         assert_eq!(a.print_as_css_value(), "#000000ff");
     }
 
     #[test]
     fn text_color_interpolate_saturates_out_of_range_t() {
-        let a = StyleTextColor { inner: OPAQUE_BLACK };
-        let b = StyleTextColor { inner: OPAQUE_WHITE };
+        let a = StyleTextColor {
+            inner: OPAQUE_BLACK,
+        };
+        let b = StyleTextColor {
+            inner: OPAQUE_WHITE,
+        };
 
         // 0 + 255*2 = 510 -> clamped to 255 by the saturating u8 cast (no wrap to 254).
         assert_eq!(a.interpolate(&b, 2.0).inner, OPAQUE_WHITE);
@@ -3670,8 +4063,12 @@ mod autotest_generated {
 
     #[test]
     fn text_color_interpolate_with_nonfinite_t_is_defined() {
-        let a = StyleTextColor { inner: OPAQUE_BLACK };
-        let b = StyleTextColor { inner: OPAQUE_WHITE };
+        let a = StyleTextColor {
+            inner: OPAQUE_BLACK,
+        };
+        let b = StyleTextColor {
+            inner: OPAQUE_WHITE,
+        };
 
         // NaN saturates to 0 in every channel — including alpha, so the result is
         // transparent black rather than a panic or garbage.
@@ -3682,11 +4079,21 @@ mod autotest_generated {
         // A fully-opaque pair therefore interpolates to a fully-transparent colour.
         assert_eq!(
             a.interpolate(&b, f32::INFINITY).inner,
-            ColorU { r: 255, g: 255, b: 255, a: 0 }
+            ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 0
+            }
         );
         assert_eq!(
             a.interpolate(&b, f32::NEG_INFINITY).inner,
-            ColorU { r: 0, g: 0, b: 0, a: 0 }
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0
+            }
         );
     }
 
@@ -3707,16 +4114,29 @@ mod autotest_generated {
             };
             assert_eq!(hp.is_enabled(), bits != 0, "bits={bits}");
             // is_enabled() is exactly the "prints as something other than none" predicate.
-            assert_eq!(hp.print_as_css_value() == "none", !hp.is_enabled(), "bits={bits}");
+            assert_eq!(
+                hp.print_as_css_value() == "none",
+                !hp.is_enabled(),
+                "bits={bits}"
+            );
         }
     }
 
     #[test]
     fn hanging_punctuation_prints_flags_in_spec_order() {
-        let all = StyleHangingPunctuation { first: true, force_end: true, allow_end: true, last: true };
+        let all = StyleHangingPunctuation {
+            first: true,
+            force_end: true,
+            allow_end: true,
+            last: true,
+        };
         assert_eq!(all.print_as_css_value(), "first force-end allow-end last");
         assert_eq!(
-            StyleHangingPunctuation { last: true, ..Default::default() }.print_as_css_value(),
+            StyleHangingPunctuation {
+                last: true,
+                ..Default::default()
+            }
+            .print_as_css_value(),
             "last"
         );
     }
@@ -3754,12 +4174,20 @@ mod autotest_generated {
             ($parse:ident, $variants:expr) => {{
                 for v in $variants {
                     let printed = v.print_as_css_value();
-                    assert_eq!($parse(&printed).as_ref(), Ok(&v), "round-trip of {printed:?}");
+                    assert_eq!(
+                        $parse(&printed).as_ref(),
+                        Ok(&v),
+                        "round-trip of {printed:?}"
+                    );
                     // Surrounding whitespace is trimmed, not rejected.
                     assert_eq!($parse(&format!("  {printed}  ")).as_ref(), Ok(&v));
                 }
                 for g in GARBAGE.iter().copied() {
-                    assert!($parse(g).is_err(), "{} accepted garbage {g:?}", stringify!($parse));
+                    assert!(
+                        $parse(g).is_err(),
+                        "{} accepted garbage {g:?}",
+                        stringify!($parse)
+                    );
                 }
             }};
         }
@@ -3769,12 +4197,26 @@ mod autotest_generated {
             type TA = StyleTextAlign;
             assert_keyword_round_trip!(
                 parse_style_text_align,
-                [TA::Left, TA::Center, TA::Right, TA::Justify, TA::Start, TA::End]
+                [
+                    TA::Left,
+                    TA::Center,
+                    TA::Right,
+                    TA::Justify,
+                    TA::Start,
+                    TA::End
+                ]
             );
             type WS = StyleWhiteSpace;
             assert_keyword_round_trip!(
                 parse_style_white_space,
-                [WS::Normal, WS::Pre, WS::Nowrap, WS::PreWrap, WS::PreLine, WS::BreakSpaces]
+                [
+                    WS::Normal,
+                    WS::Pre,
+                    WS::Nowrap,
+                    WS::PreWrap,
+                    WS::PreLine,
+                    WS::BreakSpaces
+                ]
             );
             type H = StyleHyphens;
             assert_keyword_round_trip!(parse_style_hyphens, [H::None, H::Manual, H::Auto]);
@@ -3796,12 +4238,26 @@ mod autotest_generated {
             type Tal = StyleTextAlignLast;
             assert_keyword_round_trip!(
                 parse_style_text_align_last,
-                [Tal::Auto, Tal::Start, Tal::End, Tal::Left, Tal::Right, Tal::Center, Tal::Justify]
+                [
+                    Tal::Auto,
+                    Tal::Start,
+                    Tal::End,
+                    Tal::Left,
+                    Tal::Right,
+                    Tal::Center,
+                    Tal::Justify
+                ]
             );
             type TT = StyleTextTransform;
             assert_keyword_round_trip!(
                 parse_style_text_transform,
-                [TT::None, TT::Capitalize, TT::Uppercase, TT::Lowercase, TT::FullWidth]
+                [
+                    TT::None,
+                    TT::Capitalize,
+                    TT::Uppercase,
+                    TT::Lowercase,
+                    TT::FullWidth
+                ]
             );
             type D = StyleDirection;
             assert_keyword_round_trip!(parse_style_direction, [D::Ltr, D::Rtl]);
@@ -3818,7 +4274,14 @@ mod autotest_generated {
             type UB = StyleUnicodeBidi;
             assert_keyword_round_trip!(
                 parse_style_unicode_bidi,
-                [UB::Normal, UB::Embed, UB::Isolate, UB::BidiOverride, UB::IsolateOverride, UB::Plaintext]
+                [
+                    UB::Normal,
+                    UB::Embed,
+                    UB::Isolate,
+                    UB::BidiOverride,
+                    UB::IsolateOverride,
+                    UB::Plaintext
+                ]
             );
             type Tbt = StyleTextBoxTrim;
             assert_keyword_round_trip!(
@@ -3831,18 +4294,59 @@ mod autotest_generated {
                 use crate::props::style::text::{TextBoxEdgeOver as O, TextBoxEdgeUnder as U};
                 let cases = [
                     ("auto", StyleTextBoxEdge::AUTO),
-                    ("text", StyleTextBoxEdge { over: O::Text, under: U::Text }),
-                    ("cap", StyleTextBoxEdge { over: O::Cap, under: U::Text }),
-                    ("ex", StyleTextBoxEdge { over: O::Ex, under: U::Text }),
-                    ("ideographic", StyleTextBoxEdge { over: O::Ideographic, under: U::Ideographic }),
-                    ("ideographic-ink", StyleTextBoxEdge { over: O::IdeographicInk, under: U::IdeographicInk }),
-                    ("cap alphabetic", StyleTextBoxEdge { over: O::Cap, under: U::Alphabetic }),
-                    ("text ideographic", StyleTextBoxEdge { over: O::Text, under: U::Ideographic }),
+                    (
+                        "text",
+                        StyleTextBoxEdge {
+                            over: O::Text,
+                            under: U::Text,
+                        },
+                    ),
+                    (
+                        "cap",
+                        StyleTextBoxEdge {
+                            over: O::Cap,
+                            under: U::Text,
+                        },
+                    ),
+                    (
+                        "ex",
+                        StyleTextBoxEdge {
+                            over: O::Ex,
+                            under: U::Text,
+                        },
+                    ),
+                    (
+                        "ideographic",
+                        StyleTextBoxEdge {
+                            over: O::Ideographic,
+                            under: U::Ideographic,
+                        },
+                    ),
+                    (
+                        "ideographic-ink",
+                        StyleTextBoxEdge {
+                            over: O::IdeographicInk,
+                            under: U::IdeographicInk,
+                        },
+                    ),
+                    (
+                        "cap alphabetic",
+                        StyleTextBoxEdge {
+                            over: O::Cap,
+                            under: U::Alphabetic,
+                        },
+                    ),
+                    (
+                        "text ideographic",
+                        StyleTextBoxEdge {
+                            over: O::Text,
+                            under: U::Ideographic,
+                        },
+                    ),
                 ];
                 for (input, expected) in cases {
-                    let parsed = parse_style_text_box_edge(input).unwrap_or_else(|e| {
-                        panic!("`{input}` must parse: {e:?}")
-                    });
+                    let parsed = parse_style_text_box_edge(input)
+                        .unwrap_or_else(|e| panic!("`{input}` must parse: {e:?}"));
                     assert_eq!(parsed, expected, "parse of `{input}`");
                     let printed = parsed.print_as_css_value();
                     let reparsed = parse_style_text_box_edge(&printed)
@@ -3851,24 +4355,43 @@ mod autotest_generated {
                 }
                 // `auto` cannot take a second value; junk is rejected.
                 assert!(parse_style_text_box_edge("auto text").is_err());
-                assert!(parse_style_text_box_edge("cap cap").is_err(), "cap is over-only");
-                assert!(parse_style_text_box_edge("alphabetic").is_err(), "alphabetic is under-only");
+                assert!(
+                    parse_style_text_box_edge("cap cap").is_err(),
+                    "cap is over-only"
+                );
+                assert!(
+                    parse_style_text_box_edge("alphabetic").is_err(),
+                    "alphabetic is under-only"
+                );
                 assert!(parse_style_text_box_edge("bogus").is_err());
             }
             type DB = StyleDominantBaseline;
             assert_keyword_round_trip!(
                 parse_style_dominant_baseline,
                 [
-                    DB::Auto, DB::TextBottom, DB::Alphabetic, DB::Ideographic, DB::Middle,
-                    DB::Central, DB::Mathematical, DB::Hanging, DB::TextTop
+                    DB::Auto,
+                    DB::TextBottom,
+                    DB::Alphabetic,
+                    DB::Ideographic,
+                    DB::Middle,
+                    DB::Central,
+                    DB::Mathematical,
+                    DB::Hanging,
+                    DB::TextTop
                 ]
             );
             type AB = StyleAlignmentBaseline;
             assert_keyword_round_trip!(
                 parse_style_alignment_baseline,
                 [
-                    AB::Baseline, AB::TextBottom, AB::Alphabetic, AB::Ideographic, AB::Middle,
-                    AB::Central, AB::Mathematical, AB::TextTop
+                    AB::Baseline,
+                    AB::TextBottom,
+                    AB::Alphabetic,
+                    AB::Ideographic,
+                    AB::Middle,
+                    AB::Central,
+                    AB::Mathematical,
+                    AB::TextTop
                 ]
             );
             type Bs = StyleBaselineSource;
@@ -3880,8 +4403,13 @@ mod autotest_generated {
             assert_keyword_round_trip!(
                 parse_style_line_fit_edge,
                 [
-                    Lfe::Leading, Lfe::Text, Lfe::Cap, Lfe::Ex, Lfe::Ideographic,
-                    Lfe::IdeographicInk, Lfe::Alphabetic
+                    Lfe::Leading,
+                    Lfe::Text,
+                    Lfe::Cap,
+                    Lfe::Ex,
+                    Lfe::Ideographic,
+                    Lfe::IdeographicInk,
+                    Lfe::Alphabetic
                 ]
             );
             type Ila = StyleInitialLetterAlign;
@@ -3953,27 +4481,58 @@ mod autotest_generated {
                 PixelValue::zero(),
             ] {
                 let ls = StyleLetterSpacing { inner: pv };
-                assert_eq!(parse_style_letter_spacing(&ls.print_as_css_value()).unwrap(), ls);
+                assert_eq!(
+                    parse_style_letter_spacing(&ls.print_as_css_value()).unwrap(),
+                    ls
+                );
                 let ws = StyleWordSpacing { inner: pv };
-                assert_eq!(parse_style_word_spacing(&ws.print_as_css_value()).unwrap(), ws);
+                assert_eq!(
+                    parse_style_word_spacing(&ws.print_as_css_value()).unwrap(),
+                    ws
+                );
             }
             // tab-size: unitless numbers mean `em`, lengths keep their unit.
             let ts = StyleTabSize::default();
             assert_eq!(ts.inner, PixelValue::em(8.0));
             assert_eq!(parse_style_tab_size(&ts.print_as_css_value()).unwrap(), ts);
-            assert_eq!(parse_style_tab_size("4").unwrap().inner, PixelValue::em(4.0));
-            assert_eq!(parse_style_tab_size("20px").unwrap().inner, PixelValue::px(20.0));
+            assert_eq!(
+                parse_style_tab_size("4").unwrap().inner,
+                PixelValue::em(4.0)
+            );
+            assert_eq!(
+                parse_style_tab_size("20px").unwrap().inner,
+                PixelValue::px(20.0)
+            );
         }
 
         #[test]
         fn pixel_parsers_reject_empty_and_unit_only_input() {
-            for bad in ["", "   ", "\t\n", "px", "em", "abc", "px px", "10pxx", "\u{1F600}"] {
-                assert!(parse_style_letter_spacing(bad).is_err(), "letter-spacing {bad:?}");
-                assert!(parse_style_word_spacing(bad).is_err(), "word-spacing {bad:?}");
+            for bad in [
+                "",
+                "   ",
+                "\t\n",
+                "px",
+                "em",
+                "abc",
+                "px px",
+                "10pxx",
+                "\u{1F600}",
+            ] {
+                assert!(
+                    parse_style_letter_spacing(bad).is_err(),
+                    "letter-spacing {bad:?}"
+                );
+                assert!(
+                    parse_style_word_spacing(bad).is_err(),
+                    "word-spacing {bad:?}"
+                );
             }
             // BUG: the shared pixel parser trims *after* stripping the unit suffix, so a space
             // between the number and its unit is accepted even though CSS forbids it.
-            assert_eq!(parse_style_letter_spacing("10 px").unwrap().inner, PixelValue::px(10.0));
+            assert_eq!(
+                parse_style_letter_spacing("10 px").unwrap().inner,
+                PixelValue::px(10.0)
+            );
         }
 
         #[test]
@@ -3981,38 +4540,94 @@ mod autotest_generated {
             // BUG: `f32::from_str` accepts "NaN"/"inf"/"1e400", so these are *not* rejected
             // as CSS lengths. They cannot panic (the isize cast saturates), but they should
             // be Err. Pinned as-is; see the report.
-            assert_eq!(parse_style_letter_spacing("NaN").unwrap().inner.number.number(), 0);
             assert_eq!(
-                parse_style_letter_spacing("inf").unwrap().inner.number.number(),
+                parse_style_letter_spacing("NaN")
+                    .unwrap()
+                    .inner
+                    .number
+                    .number(),
+                0
+            );
+            assert_eq!(
+                parse_style_letter_spacing("inf")
+                    .unwrap()
+                    .inner
+                    .number
+                    .number(),
                 isize::MAX
             );
             assert_eq!(
-                parse_style_letter_spacing("-inf").unwrap().inner.number.number(),
+                parse_style_letter_spacing("-inf")
+                    .unwrap()
+                    .inner
+                    .number
+                    .number(),
                 isize::MIN
             );
             assert_eq!(
-                parse_style_word_spacing("1e400px").unwrap().inner.number.number(),
+                parse_style_word_spacing("1e400px")
+                    .unwrap()
+                    .inner
+                    .number
+                    .number(),
                 isize::MAX
             );
             // Same story via the tab-size unitless branch.
-            assert_eq!(parse_style_tab_size("NaN").unwrap().inner, PixelValue::em(0.0));
-            assert!(parse_style_tab_size("inf").unwrap().inner.number.get().is_finite());
+            assert_eq!(
+                parse_style_tab_size("NaN").unwrap().inner,
+                PixelValue::em(0.0)
+            );
+            assert!(parse_style_tab_size("inf")
+                .unwrap()
+                .inner
+                .number
+                .get()
+                .is_finite());
 
             // Boundary numeric strings that *are* legal still parse to the right value.
-            assert_eq!(parse_style_letter_spacing("0").unwrap().inner, PixelValue::px(0.0));
-            assert_eq!(parse_style_letter_spacing("-0").unwrap().inner.number.number(), 0);
-            assert!(parse_style_letter_spacing("9223372036854775807px").unwrap().inner.number.get().is_finite());
+            assert_eq!(
+                parse_style_letter_spacing("0").unwrap().inner,
+                PixelValue::px(0.0)
+            );
+            assert_eq!(
+                parse_style_letter_spacing("-0")
+                    .unwrap()
+                    .inner
+                    .number
+                    .number(),
+                0
+            );
+            assert!(parse_style_letter_spacing("9223372036854775807px")
+                .unwrap()
+                .inner
+                .number
+                .get()
+                .is_finite());
         }
 
         // -- text-indent --------------------------------------------------------
 
         #[test]
         fn text_indent_round_trips_length_and_keywords() {
-            for pv in [PixelValue::px(10.0), PixelValue::em(-2.0), PixelValue::percent(50.0)] {
-                for (each_line, hanging) in [(false, false), (true, false), (false, true), (true, true)] {
-                    let ti = StyleTextIndent { inner: pv, each_line, hanging };
+            for pv in [
+                PixelValue::px(10.0),
+                PixelValue::em(-2.0),
+                PixelValue::percent(50.0),
+            ] {
+                for (each_line, hanging) in
+                    [(false, false), (true, false), (false, true), (true, true)]
+                {
+                    let ti = StyleTextIndent {
+                        inner: pv,
+                        each_line,
+                        hanging,
+                    };
                     let printed = ti.print_as_css_value();
-                    assert_eq!(parse_style_text_indent(&printed).unwrap(), ti, "{printed:?}");
+                    assert_eq!(
+                        parse_style_text_indent(&printed).unwrap(),
+                        ti,
+                        "{printed:?}"
+                    );
                 }
             }
             assert!(parse_style_text_indent("10px hanging").unwrap().hanging);
@@ -4024,14 +4639,26 @@ mod autotest_generated {
             // BUG: `text-indent` requires a <length-percentage>; these should all be Err.
             // Instead an absent length silently defaults to 0px, so empty/whitespace/keyword-
             // only input parses Ok. Pinned as-is; see the report.
-            assert_eq!(parse_style_text_indent("").unwrap(), StyleTextIndent::zero());
-            assert_eq!(parse_style_text_indent("   ").unwrap(), StyleTextIndent::zero());
+            assert_eq!(
+                parse_style_text_indent("").unwrap(),
+                StyleTextIndent::zero()
+            );
+            assert_eq!(
+                parse_style_text_indent("   ").unwrap(),
+                StyleTextIndent::zero()
+            );
             assert_eq!(
                 parse_style_text_indent("hanging").unwrap(),
-                StyleTextIndent { hanging: true, ..StyleTextIndent::zero() }
+                StyleTextIndent {
+                    hanging: true,
+                    ..StyleTextIndent::zero()
+                }
             );
             // BUG: repeated lengths are not rejected — the last token silently wins.
-            assert_eq!(parse_style_text_indent("10px 20px").unwrap().inner, PixelValue::px(20.0));
+            assert_eq!(
+                parse_style_text_indent("10px 20px").unwrap().inner,
+                PixelValue::px(20.0)
+            );
 
             // Junk in the length slot is still rejected.
             assert!(parse_style_text_indent("garbage").is_err());
@@ -4044,38 +4671,62 @@ mod autotest_generated {
         fn initial_letter_parses_size_and_optional_sink() {
             assert_eq!(
                 parse_style_initial_letter("3").unwrap(),
-                StyleInitialLetter { size: 3, sink: crate::corety::OptionU32::None }
+                StyleInitialLetter {
+                    size: 3,
+                    sink: crate::corety::OptionU32::None
+                }
             );
-            let with_sink = StyleInitialLetter { size: 3, sink: crate::corety::OptionU32::Some(2) };
+            let with_sink = StyleInitialLetter {
+                size: 3,
+                sink: crate::corety::OptionU32::Some(2),
+            };
             assert_eq!(parse_style_initial_letter("3 2").unwrap(), with_sink);
             // Printed form round-trips.
-            assert_eq!(parse_style_initial_letter(&with_sink.print_as_css_value()).unwrap(), with_sink);
+            assert_eq!(
+                parse_style_initial_letter(&with_sink.print_as_css_value()).unwrap(),
+                with_sink
+            );
         }
 
         #[test]
         fn initial_letter_rejects_zero_negative_and_overflowing_sizes() {
-            assert!(parse_style_initial_letter("0").is_err(), "size 0 must be rejected");
+            assert!(
+                parse_style_initial_letter("0").is_err(),
+                "size 0 must be rejected"
+            );
             assert!(parse_style_initial_letter("-1").is_err());
             assert!(parse_style_initial_letter("1.5").is_err());
-            assert!(parse_style_initial_letter("4294967296").is_err(), "u32::MAX + 1");
+            assert!(
+                parse_style_initial_letter("4294967296").is_err(),
+                "u32::MAX + 1"
+            );
             assert!(parse_style_initial_letter("3 -1").is_err(), "negative sink");
             assert!(parse_style_initial_letter("3 x").is_err());
             assert!(parse_style_initial_letter("").is_err());
             assert!(parse_style_initial_letter("   ").is_err());
             // u32::MAX itself is in range.
-            assert_eq!(parse_style_initial_letter("4294967295").unwrap().size, u32::MAX);
+            assert_eq!(
+                parse_style_initial_letter("4294967295").unwrap().size,
+                u32::MAX
+            );
             // BUG: a third component should be a parse error, but it is silently dropped.
-            assert_eq!(parse_style_initial_letter("3 2 9").unwrap(), StyleInitialLetter {
-                size: 3,
-                sink: crate::corety::OptionU32::Some(2),
-            });
+            assert_eq!(
+                parse_style_initial_letter("3 2 9").unwrap(),
+                StyleInitialLetter {
+                    size: 3,
+                    sink: crate::corety::OptionU32::Some(2),
+                }
+            );
         }
 
         // -- line-clamp ---------------------------------------------------------
 
         #[test]
         fn line_clamp_rejects_zero_and_out_of_range_values() {
-            assert_eq!(parse_style_line_clamp("3").unwrap(), StyleLineClamp { max_lines: 3 });
+            assert_eq!(
+                parse_style_line_clamp("3").unwrap(),
+                StyleLineClamp { max_lines: 3 }
+            );
             assert_eq!(parse_style_line_clamp("  7  ").unwrap().max_lines, 7);
             assert_eq!(
                 parse_style_line_clamp("0").unwrap_err(),
@@ -4092,7 +4743,10 @@ mod autotest_generated {
             assert_eq!(parse_style_line_clamp(&max).unwrap().max_lines, usize::MAX);
             // Printed form round-trips.
             let lc = StyleLineClamp { max_lines: 42 };
-            assert_eq!(parse_style_line_clamp(&lc.print_as_css_value()).unwrap(), lc);
+            assert_eq!(
+                parse_style_line_clamp(&lc.print_as_css_value()).unwrap(),
+                lc
+            );
         }
 
         // -- hanging-punctuation ------------------------------------------------
@@ -4109,9 +4763,16 @@ mod autotest_generated {
                 let printed = hp.print_as_css_value();
                 if hp.force_end && hp.allow_end {
                     // `force-end` and `allow-end` are mutually exclusive per CSS Text 3 §8.
-                    assert!(parse_style_hanging_punctuation(&printed).is_err(), "{printed:?}");
+                    assert!(
+                        parse_style_hanging_punctuation(&printed).is_err(),
+                        "{printed:?}"
+                    );
                 } else {
-                    assert_eq!(parse_style_hanging_punctuation(&printed).unwrap(), hp, "{printed:?}");
+                    assert_eq!(
+                        parse_style_hanging_punctuation(&printed).unwrap(),
+                        hp,
+                        "{printed:?}"
+                    );
                 }
             }
             assert!(parse_style_hanging_punctuation("first bogus").is_err());
@@ -4132,22 +4793,45 @@ mod autotest_generated {
                 StyleHangingPunctuation::default()
             );
             // Duplicate keywords are also accepted (idempotent flag set).
-            assert!(parse_style_hanging_punctuation("first first").unwrap().first);
+            assert!(
+                parse_style_hanging_punctuation("first first")
+                    .unwrap()
+                    .first
+            );
         }
 
         // -- text-combine-upright -----------------------------------------------
 
         #[test]
         fn text_combine_upright_bounds_the_digits_operand() {
-            assert_eq!(parse_style_text_combine_upright("none").unwrap(), StyleTextCombineUpright::None);
-            assert_eq!(parse_style_text_combine_upright("all").unwrap(), StyleTextCombineUpright::All);
+            assert_eq!(
+                parse_style_text_combine_upright("none").unwrap(),
+                StyleTextCombineUpright::None
+            );
+            assert_eq!(
+                parse_style_text_combine_upright("all").unwrap(),
+                StyleTextCombineUpright::All
+            );
             for n in 2_u8..=4 {
                 let v = StyleTextCombineUpright::Digits(n);
-                assert_eq!(parse_style_text_combine_upright(&v.print_as_css_value()).unwrap(), v);
+                assert_eq!(
+                    parse_style_text_combine_upright(&v.print_as_css_value()).unwrap(),
+                    v
+                );
             }
             // Outside the spec'd 2..=4 range -> Err, not a silent clamp or wrap.
-            for bad in ["digits 0", "digits 1", "digits 5", "digits 255", "digits 256", "digits -1"] {
-                assert!(parse_style_text_combine_upright(bad).is_err(), "{bad:?} accepted");
+            for bad in [
+                "digits 0",
+                "digits 1",
+                "digits 5",
+                "digits 255",
+                "digits 256",
+                "digits -1",
+            ] {
+                assert!(
+                    parse_style_text_combine_upright(bad).is_err(),
+                    "{bad:?} accepted"
+                );
             }
             assert!(parse_style_text_combine_upright("").is_err());
             assert!(parse_style_text_combine_upright("bogus").is_err());
@@ -4176,17 +4860,29 @@ mod autotest_generated {
 
         #[test]
         fn line_height_parses_numbers_percentages_and_px() {
-            assert_eq!(parse_style_line_height("1.5").unwrap().inner, PercentageValue::new(150.0));
-            assert_eq!(parse_style_line_height("120%").unwrap().inner, PercentageValue::new(120.0));
+            assert_eq!(
+                parse_style_line_height("1.5").unwrap().inner,
+                PercentageValue::new(150.0)
+            );
+            assert_eq!(
+                parse_style_line_height("120%").unwrap().inner,
+                PercentageValue::new(120.0)
+            );
             // px lengths are encoded as a *negative* percentage (documented convention).
-            assert_eq!(parse_style_line_height("20px").unwrap().inner, PercentageValue::new(-2000.0));
+            assert_eq!(
+                parse_style_line_height("20px").unwrap().inner,
+                PercentageValue::new(-2000.0)
+            );
             assert!(parse_style_line_height("").is_err());
             assert!(parse_style_line_height("   ").is_err());
             assert!(parse_style_line_height("abc").is_err());
             assert!(parse_style_line_height("\u{1F600}").is_err());
             // Printed form round-trips as a value.
             let lh = StyleLineHeight::default();
-            assert_eq!(parse_style_line_height(&lh.print_as_css_value()).unwrap(), lh);
+            assert_eq!(
+                parse_style_line_height(&lh.print_as_css_value()).unwrap(),
+                lh
+            );
         }
 
         #[test]
@@ -4231,15 +4927,25 @@ mod autotest_generated {
         fn vertical_align_round_trips_keywords_percentages_and_lengths() {
             type VA = StyleVerticalAlign;
             for v in [
-                VA::Baseline, VA::Top, VA::Middle, VA::Bottom, VA::Sub, VA::Superscript,
-                VA::TextTop, VA::TextBottom,
+                VA::Baseline,
+                VA::Top,
+                VA::Middle,
+                VA::Bottom,
+                VA::Sub,
+                VA::Superscript,
+                VA::TextTop,
+                VA::TextBottom,
                 VA::Percentage(PercentageValue::new(50.0)),
                 VA::Percentage(PercentageValue::new(-25.0)),
                 VA::Length(PixelValue::px(12.0)),
                 VA::Length(PixelValue::em(1.5)),
             ] {
                 let printed = v.print_as_css_value();
-                assert_eq!(parse_style_vertical_align(&printed).unwrap(), v, "{printed:?}");
+                assert_eq!(
+                    parse_style_vertical_align(&printed).unwrap(),
+                    v,
+                    "{printed:?}"
+                );
             }
             assert!(parse_style_vertical_align("").is_err());
             assert!(parse_style_vertical_align("%").is_err());
@@ -4251,7 +4957,10 @@ mod autotest_generated {
 
         #[test]
         fn caret_parsers_reject_garbage_and_accept_minimal_input() {
-            assert_eq!(parse_caret_color("red").unwrap().inner, parse_style_text_color("red").unwrap().inner);
+            assert_eq!(
+                parse_caret_color("red").unwrap().inner,
+                parse_style_text_color("red").unwrap().inner
+            );
             assert!(parse_caret_color("").is_err());
             assert!(parse_caret_color("not-a-color").is_err());
             assert_eq!(parse_caret_width("2px").unwrap().inner, PixelValue::px(2.0));
@@ -4307,7 +5016,11 @@ mod autotest_generated {
             assert_error_round_trip!(parse_style_line_height, "", "abc", "1.5em");
             assert_error_round_trip!(parse_style_initial_letter, "", "x", "0", "3 x");
             assert_error_round_trip!(parse_style_line_clamp, "", "x", "0");
-            assert_error_round_trip!(parse_style_hanging_punctuation, "bogus", "force-end allow-end");
+            assert_error_round_trip!(
+                parse_style_hanging_punctuation,
+                "bogus",
+                "force-end allow-end"
+            );
             assert_error_round_trip!(parse_style_text_combine_upright, "bogus", "digits 9");
         }
 
@@ -4321,7 +5034,10 @@ mod autotest_generated {
             assert!(parse_style_text_color("#gggggg").is_err());
             assert!(parse_style_text_color("\u{1F600}").is_err());
             // Positive control.
-            assert_eq!(parse_style_text_color("#aabbcc").unwrap().inner.to_hash(), "#aabbccff");
+            assert_eq!(
+                parse_style_text_color("#aabbcc").unwrap().inner.to_hash(),
+                "#aabbccff"
+            );
         }
 
         #[test]

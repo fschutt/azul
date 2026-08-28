@@ -116,8 +116,7 @@ pub struct HydratedBbox {
 impl HydratedBbox {
     /// Standard rectangle hit-test.
     pub fn contains(&self, px: f32, py: f32) -> bool {
-        px >= self.x && px < self.x + self.w
-            && py >= self.y && py < self.y + self.h
+        px >= self.x && px < self.x + self.w && py >= self.y && py < self.y + self.h
     }
 }
 
@@ -128,7 +127,12 @@ mod tests {
     fn sample_payload() -> HydrationPayload {
         HydrationPayload {
             version: HYDRATION_PAYLOAD_VERSION,
-            window: HydratedWindow { width: 400.0, height: 300.0, dpi: 1.0, theme: 0 },
+            window: HydratedWindow {
+                width: 400.0,
+                height: 300.0,
+                dpi: 1.0,
+                theme: 0,
+            },
             layout_cb: HydratedCallbackRef {
                 symbol_name: "layout".to_string(),
                 content_hash: "9c4f784aa5ce135f".to_string(),
@@ -147,7 +151,12 @@ mod tests {
                         prev_sibling: None,
                         next_sibling: None,
                         callbacks: vec![],
-                        bbox: HydratedBbox { x: 0.0, y: 0.0, w: 400.0, h: 300.0 },
+                        bbox: HydratedBbox {
+                            x: 0.0,
+                            y: 0.0,
+                            w: 400.0,
+                            h: 300.0,
+                        },
                     },
                     HydratedNode {
                         az_id: 3,
@@ -162,7 +171,12 @@ mod tests {
                             event_kind: 0, // CLICK
                             fn_addr: 0xCAFE_BABE_DEAD_BEEF,
                         }],
-                        bbox: HydratedBbox { x: 10.0, y: 50.0, w: 200.0, h: 40.0 },
+                        bbox: HydratedBbox {
+                            x: 10.0,
+                            y: 50.0,
+                            w: 200.0,
+                            h: 40.0,
+                        },
                     },
                 ],
                 root_az_id: 0,
@@ -174,13 +188,15 @@ mod tests {
     fn payload_roundtrips_via_postcard() {
         let original = sample_payload();
         let bytes = postcard::to_stdvec(&original).expect("serialize");
-        let decoded: HydrationPayload =
-            postcard::from_bytes(&bytes).expect("deserialize");
+        let decoded: HydrationPayload = postcard::from_bytes(&bytes).expect("deserialize");
         assert_eq!(decoded.version, original.version);
         assert_eq!(decoded.window.width, 400.0);
         assert_eq!(decoded.refany_json, "5");
         assert_eq!(decoded.dom.nodes.len(), 2);
-        assert_eq!(decoded.dom.nodes[1].callbacks[0].fn_addr, 0xCAFE_BABE_DEAD_BEEF);
+        assert_eq!(
+            decoded.dom.nodes[1].callbacks[0].fn_addr,
+            0xCAFE_BABE_DEAD_BEEF
+        );
     }
 
     #[test]
@@ -188,17 +204,25 @@ mod tests {
         let bytes = postcard::to_stdvec(&sample_payload()).expect("serialize");
         // Hello-world's 2-node payload should fit in well under 1 KiB.
         // (Sanity check that postcard isn't accidentally bloating.)
-        assert!(bytes.len() < 1024,
-                "hello-world payload {} bytes (expected < 1024)", bytes.len());
+        assert!(
+            bytes.len() < 1024,
+            "hello-world payload {} bytes (expected < 1024)",
+            bytes.len()
+        );
     }
 
     #[test]
     fn bbox_hit_test() {
-        let b = HydratedBbox { x: 10.0, y: 50.0, w: 200.0, h: 40.0 };
+        let b = HydratedBbox {
+            x: 10.0,
+            y: 50.0,
+            w: 200.0,
+            h: 40.0,
+        };
         assert!(b.contains(15.0, 60.0));
-        assert!(!b.contains(5.0, 60.0));   // left of x
-        assert!(!b.contains(15.0, 45.0));  // above y
+        assert!(!b.contains(5.0, 60.0)); // left of x
+        assert!(!b.contains(15.0, 45.0)); // above y
         assert!(!b.contains(211.0, 60.0)); // right of x+w
-        assert!(!b.contains(15.0, 91.0));  // below y+h
+        assert!(!b.contains(15.0, 91.0)); // below y+h
     }
 }

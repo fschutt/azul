@@ -2,16 +2,14 @@
 //! `border-top-right-radius`, `border-bottom-left-radius`,
 //! `border-bottom-right-radius`) and the `border-radius` shorthand parser.
 
-use alloc::string::{String, ToString};
 use crate::corety::AzString;
+use alloc::string::{String, ToString};
 
-use crate::{
-    props::{
-        basic::pixel::{
-            parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
-        },
-        macros::PixelValueTaker,
+use crate::props::{
+    basic::pixel::{
+        parse_pixel_value, CssPixelValueParseError, CssPixelValueParseErrorOwned, PixelValue,
     },
+    macros::PixelValueTaker,
 };
 
 // --- Property Struct Definitions ---
@@ -104,7 +102,8 @@ impl From<CssBorderRadiusParseErrorOwned> for CssStyleBorderRadiusParseErrorOwne
 }
 
 impl CssBorderRadiusParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> CssBorderRadiusParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssBorderRadiusParseErrorOwned {
         match self {
             CssBorderRadiusParseError::TooManyValues(s) => {
                 CssBorderRadiusParseErrorOwned::TooManyValues((*s).to_string().into())
@@ -117,14 +116,11 @@ impl CssBorderRadiusParseError<'_> {
 }
 
 impl CssBorderRadiusParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> CssBorderRadiusParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssBorderRadiusParseError<'_> {
         match self {
-            Self::TooManyValues(s) => {
-                CssBorderRadiusParseError::TooManyValues(s)
-            }
-            Self::PixelValue(e) => {
-                CssBorderRadiusParseError::PixelValue(e.to_shared())
-            }
+            Self::TooManyValues(s) => CssBorderRadiusParseError::TooManyValues(s),
+            Self::PixelValue(e) => CssBorderRadiusParseError::PixelValue(e.to_shared()),
         }
     }
 }
@@ -151,7 +147,8 @@ macro_rules! define_border_radius_parse_error {
         }
 
         impl $error_name<'_> {
-            #[must_use] pub fn to_contained(&self) -> $error_name_owned {
+            #[must_use]
+            pub fn to_contained(&self) -> $error_name_owned {
                 match self {
                     $error_name::PixelValue(e) => $error_name_owned::PixelValue(e.to_contained()),
                 }
@@ -159,7 +156,8 @@ macro_rules! define_border_radius_parse_error {
         }
 
         impl $error_name_owned {
-            #[must_use] pub fn to_shared(&self) -> $error_name<'_> {
+            #[must_use]
+            pub fn to_shared(&self) -> $error_name<'_> {
                 match self {
                     $error_name_owned::PixelValue(e) => $error_name::PixelValue(e.to_shared()),
                 }
@@ -442,7 +440,9 @@ mod autotest_generated {
         let err = parse_style_border_radius("1px 2px 3px 4px 5px bad").unwrap_err();
         assert_eq!(
             err,
-            CssBorderRadiusParseError::PixelValue(CssPixelValueParseError::InvalidPixelValue("bad"))
+            CssBorderRadiusParseError::PixelValue(CssPixelValueParseError::InvalidPixelValue(
+                "bad"
+            ))
         );
     }
 
@@ -710,8 +710,24 @@ mod autotest_generated {
         // The four parsers are macro-free copies of each other; a copy-paste
         // bug (wrong metric, wrong field) would show up as a disagreement.
         let inputs = [
-            "0", "10px", "-3.25em", "50%", "1.5rem", "2pt", "1in", "2.54cm", "10mm", "5vw", "5vh",
-            "5vmax", "bad", "", "   ", "\u{1F600}", "1e30px", "NaNpx",
+            "0",
+            "10px",
+            "-3.25em",
+            "50%",
+            "1.5rem",
+            "2pt",
+            "1in",
+            "2.54cm",
+            "10mm",
+            "5vw",
+            "5vh",
+            "5vmax",
+            "bad",
+            "",
+            "   ",
+            "\u{1F600}",
+            "1e30px",
+            "NaNpx",
         ];
         for input in inputs {
             let [tl, tr, bl, br] = all_longhands(input);
@@ -787,7 +803,9 @@ mod autotest_generated {
 
                 let tl = StyleBorderTopLeftRadius { inner: pixel };
                 let reparsed = parse_style_border_top_left_radius(&tl.print_as_css_value())
-                    .unwrap_or_else(|e| panic!("{:?} did not re-parse: {e}", tl.print_as_css_value()));
+                    .unwrap_or_else(|e| {
+                        panic!("{:?} did not re-parse: {e}", tl.print_as_css_value())
+                    });
                 assert_eq!(reparsed, tl);
 
                 let tr = StyleBorderTopRightRadius { inner: pixel };
@@ -940,10 +958,7 @@ mod autotest_generated {
             assert!(!n.is_nan(), "t={t} produced NaN");
         }
         // NaN t collapses to 0 rather than poisoning the value.
-        assert_eq!(
-            a.interpolate(&b, f32::NAN).inner.number.get(),
-            0.0
-        );
+        assert_eq!(a.interpolate(&b, f32::NAN).inner.number.get(), 0.0);
     }
 
     #[test]

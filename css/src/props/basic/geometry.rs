@@ -30,11 +30,13 @@ impl fmt::Display for LayoutPoint {
 
 impl LayoutPoint {
     #[inline]
-    #[must_use] pub const fn new(x: isize, y: isize) -> Self {
+    #[must_use]
+    pub const fn new(x: isize, y: isize) -> Self {
         Self { x, y }
     }
     #[inline]
-    #[must_use] pub const fn zero() -> Self {
+    #[must_use]
+    pub const fn zero() -> Self {
         Self::new(0, 0)
     }
 }
@@ -66,15 +68,18 @@ impl fmt::Display for LayoutSize {
 
 impl LayoutSize {
     #[inline]
-    #[must_use] pub const fn new(width: isize, height: isize) -> Self {
+    #[must_use]
+    pub const fn new(width: isize, height: isize) -> Self {
         Self { width, height }
     }
     #[inline]
-    #[must_use] pub const fn zero() -> Self {
+    #[must_use]
+    pub const fn zero() -> Self {
         Self::new(0, 0)
     }
     #[inline]
-    #[must_use] pub fn round(width: f32, height: f32) -> Self {
+    #[must_use]
+    pub fn round(width: f32, height: f32) -> Self {
         Self {
             width: crate::cast::f32_to_isize(libm::roundf(width)),
             height: crate::cast::f32_to_isize(libm::roundf(height)),
@@ -101,7 +106,14 @@ impl_option!(
     OptionLayoutRect,
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd]
 );
-impl_vec!(LayoutRect, LayoutRectVec, LayoutRectVecDestructor, LayoutRectVecDestructorType, LayoutRectVecSlice, OptionLayoutRect);
+impl_vec!(
+    LayoutRect,
+    LayoutRectVec,
+    LayoutRectVecDestructor,
+    LayoutRectVecDestructorType,
+    LayoutRectVecSlice,
+    OptionLayoutRect
+);
 impl_vec_clone!(LayoutRect, LayoutRectVec, LayoutRectVecDestructor);
 impl_vec_debug!(LayoutRect, LayoutRectVec);
 impl_vec_mut!(LayoutRect, LayoutRectVec);
@@ -121,46 +133,56 @@ impl fmt::Display for LayoutRect {
 
 impl LayoutRect {
     #[inline]
-    #[must_use] pub const fn new(origin: LayoutPoint, size: LayoutSize) -> Self {
+    #[must_use]
+    pub const fn new(origin: LayoutPoint, size: LayoutSize) -> Self {
         Self { origin, size }
     }
     #[inline]
-    #[must_use] pub const fn zero() -> Self {
+    #[must_use]
+    pub const fn zero() -> Self {
         Self::new(LayoutPoint::zero(), LayoutSize::zero())
     }
     #[inline]
-    #[must_use] pub const fn max_x(&self) -> isize {
+    #[must_use]
+    pub const fn max_x(&self) -> isize {
         self.origin.x.saturating_add(self.size.width)
     }
     #[inline]
-    #[must_use] pub const fn min_x(&self) -> isize {
+    #[must_use]
+    pub const fn min_x(&self) -> isize {
         self.origin.x
     }
     #[inline]
-    #[must_use] pub const fn max_y(&self) -> isize {
+    #[must_use]
+    pub const fn max_y(&self) -> isize {
         self.origin.y.saturating_add(self.size.height)
     }
     #[inline]
-    #[must_use] pub const fn min_y(&self) -> isize {
+    #[must_use]
+    pub const fn min_y(&self) -> isize {
         self.origin.y
     }
     #[inline]
-    #[must_use] pub const fn width(&self) -> isize {
+    #[must_use]
+    pub const fn width(&self) -> isize {
         self.size.width
     }
     #[inline]
-    #[must_use] pub const fn height(&self) -> isize {
+    #[must_use]
+    pub const fn height(&self) -> isize {
         self.size.height
     }
 
-    #[must_use] pub const fn contains(&self, other: &LayoutPoint) -> bool {
+    #[must_use]
+    pub const fn contains(&self, other: &LayoutPoint) -> bool {
         self.min_x() <= other.x
             && other.x < self.max_x()
             && self.min_y() <= other.y
             && other.y < self.max_y()
     }
 
-    #[must_use] pub fn contains_f32(&self, other_x: f32, other_y: f32) -> bool {
+    #[must_use]
+    pub fn contains_f32(&self, other_x: f32, other_y: f32) -> bool {
         crate::cast::isize_to_f32(self.min_x()) <= other_x
             && other_x < crate::cast::isize_to_f32(self.max_x())
             && crate::cast::isize_to_f32(self.min_y()) <= other_y
@@ -171,7 +193,8 @@ impl LayoutRect {
     /// relative to the rectangle origin. Unlike `contains()`, points exactly
     /// on the boundary are excluded (returns `None`).
     #[inline]
-    #[must_use] pub const fn hit_test(&self, other: &LayoutPoint) -> Option<LayoutPoint> {
+    #[must_use]
+    pub const fn hit_test(&self, other: &LayoutPoint) -> Option<LayoutPoint> {
         let dx_left_edge = other.x.saturating_sub(self.min_x());
         let dx_right_edge = self.max_x().saturating_sub(other.x);
         let dy_top_edge = other.y.saturating_sub(self.min_y());
@@ -186,7 +209,8 @@ impl LayoutRect {
     /// Returns the bounding rectangle that covers every rectangle in the slice,
     /// or `OptionLayoutRect::None` if the slice is empty.
     #[inline]
-    #[must_use] pub fn union(rects: LayoutRectVecSlice) -> OptionLayoutRect {
+    #[must_use]
+    pub fn union(rects: LayoutRectVecSlice) -> OptionLayoutRect {
         let mut iter = rects.as_slice().iter().copied();
         let Some(first) = iter.next() else {
             return OptionLayoutRect::None;
@@ -223,7 +247,8 @@ impl LayoutRect {
     // `b.bottom <= a.bottom`) as a copy-paste slip and suggests `a_x + b_width`,
     // which would be the actual bug — the operands are intentional.
     #[allow(clippy::suspicious_operation_groupings)]
-    #[must_use] pub const fn contains_rect(&self, b: &Self) -> bool {
+    #[must_use]
+    pub const fn contains_rect(&self, b: &Self) -> bool {
         let a = self;
 
         let a_x = a.origin.x;
@@ -274,7 +299,11 @@ mod tests {
 }
 
 #[cfg(test)]
-#[allow(clippy::float_cmp, clippy::unreadable_literal, clippy::cognitive_complexity)]
+#[allow(
+    clippy::float_cmp,
+    clippy::unreadable_literal,
+    clippy::cognitive_complexity
+)]
 mod autotest_generated {
     use core::hash::{Hash, Hasher};
 
@@ -492,9 +521,21 @@ mod autotest_generated {
                 let s = LayoutSize::new(a, b);
                 let r = LayoutRect::new(p, s);
 
-                assert_eq!(parse_point(&alloc::format!("{p}")), p, "point {p} decoded wrong");
-                assert_eq!(parse_size(&alloc::format!("{s}")), s, "size {s} decoded wrong");
-                assert_eq!(parse_rect(&alloc::format!("{r}")), r, "rect {r} decoded wrong");
+                assert_eq!(
+                    parse_point(&alloc::format!("{p}")),
+                    p,
+                    "point {p} decoded wrong"
+                );
+                assert_eq!(
+                    parse_size(&alloc::format!("{s}")),
+                    s,
+                    "size {s} decoded wrong"
+                );
+                assert_eq!(
+                    parse_rect(&alloc::format!("{r}")),
+                    r,
+                    "rect {r} decoded wrong"
+                );
             }
         }
     }
@@ -612,7 +653,10 @@ mod autotest_generated {
         let r = rect(0, 0, -5, -5);
         for x in -8..8 {
             for y in -8..8 {
-                assert!(!r.contains(&point(x, y)), "({x}, {y}) must not be inside {r}");
+                assert!(
+                    !r.contains(&point(x, y)),
+                    "({x}, {y}) must not be inside {r}"
+                );
                 assert_eq!(r.hit_test(&point(x, y)), None);
             }
         }
@@ -712,7 +756,10 @@ mod autotest_generated {
         let r = rect(TWO_POW_40 + 1, 0, 1_000_000, 1_000_000);
         let p = point(TWO_POW_40, 1);
 
-        assert!(!r.contains(&p), "exact integer math: the point is left of the rect");
+        assert!(
+            !r.contains(&p),
+            "exact integer math: the point is left of the rect"
+        );
         assert!(
             r.contains_f32(isize_to_f32(TWO_POW_40), 1.0),
             "f32 math: the rounded-down left edge swallows the point"
@@ -749,7 +796,12 @@ mod autotest_generated {
 
     #[test]
     fn hit_test_some_always_implies_contains_and_the_offset_is_exact() {
-        for r in [rect(0, 0, 10, 10), rect(-5, -5, 3, 4), rect(2, 2, 1, 1), rect(0, 0, 0, 0)] {
+        for r in [
+            rect(0, 0, 10, 10),
+            rect(-5, -5, 3, 4),
+            rect(2, 2, 1, 1),
+            rect(0, 0, 0, 0),
+        ] {
             for x in -8..=12_isize {
                 for y in -8..=12_isize {
                     let p = point(x, y);
@@ -892,7 +944,10 @@ mod autotest_generated {
         );
 
         let aa = rect_vec(&[a, a, a]);
-        assert_eq!(LayoutRect::union(aa.as_c_slice()), OptionLayoutRect::Some(a));
+        assert_eq!(
+            LayoutRect::union(aa.as_c_slice()),
+            OptionLayoutRect::Some(a)
+        );
     }
 
     #[test]
@@ -912,7 +967,11 @@ mod autotest_generated {
 
     #[test]
     fn union_only_reads_the_slice_it_was_given() {
-        let vec = rect_vec(&[rect(0, 0, 1, 1), rect(100, 100, 1, 1), rect(-100, -100, 1, 1)]);
+        let vec = rect_vec(&[
+            rect(0, 0, 1, 1),
+            rect(100, 100, 1, 1),
+            rect(-100, -100, 1, 1),
+        ]);
         // A sub-range must not pull in the neighbouring rects.
         assert_eq!(
             LayoutRect::union(vec.as_c_slice_range(0, 1)),
@@ -930,7 +989,10 @@ mod autotest_generated {
     fn union_of_an_empty_and_a_default_constructed_vec_is_none() {
         let empty = LayoutRectVec::new();
         assert!(empty.is_empty());
-        assert_eq!(LayoutRect::union(empty.as_c_slice()), OptionLayoutRect::None);
+        assert_eq!(
+            LayoutRect::union(empty.as_c_slice()),
+            OptionLayoutRect::None
+        );
         assert!(LayoutRect::union(LayoutRectVecSlice::empty()).is_none());
         assert_eq!(OptionLayoutRect::default(), OptionLayoutRect::None);
     }
@@ -1045,7 +1107,10 @@ mod autotest_generated {
             LayoutSize::round(f32::MAX, f32::MIN),
             size(isize::MAX, isize::MIN)
         );
-        assert_eq!(LayoutSize::round(1.0e30, -1.0e30), size(isize::MAX, isize::MIN));
+        assert_eq!(
+            LayoutSize::round(1.0e30, -1.0e30),
+            size(isize::MAX, isize::MIN)
+        );
     }
 
     #[test]
@@ -1054,13 +1119,22 @@ mod autotest_generated {
             LayoutSize::round(f32::MIN_POSITIVE, -f32::MIN_POSITIVE),
             LayoutSize::zero()
         );
-        assert_eq!(LayoutSize::round(f32::EPSILON, f32::from_bits(1)), LayoutSize::zero());
+        assert_eq!(
+            LayoutSize::round(f32::EPSILON, f32::from_bits(1)),
+            LayoutSize::zero()
+        );
     }
 
     #[test]
     fn round_is_exact_for_values_inside_the_f32_integer_range() {
-        assert_eq!(LayoutSize::round(1.0e9, -1.0e9), size(1_000_000_000, -1_000_000_000));
-        assert_eq!(LayoutSize::round(16_777_216.0, -16_777_216.0), size(1 << 24, -(1 << 24)));
+        assert_eq!(
+            LayoutSize::round(1.0e9, -1.0e9),
+            size(1_000_000_000, -1_000_000_000)
+        );
+        assert_eq!(
+            LayoutSize::round(16_777_216.0, -16_777_216.0),
+            size(1 << 24, -(1 << 24))
+        );
         assert_eq!(LayoutSize::round(-1.0, 1.0), size(-1, 1));
     }
 
@@ -1136,7 +1210,10 @@ mod autotest_generated {
         // (x, y) and (y, x) must not collide — a field-order bug would show here.
         assert_ne!(hash_of(&point(3, -4)), hash_of(&point(-4, 3)));
         assert_ne!(hash_of(&point(0, 0)), hash_of(&point(0, 1)));
-        assert_eq!(hash_of(&LayoutPoint::zero()), hash_of(&LayoutPoint::default()));
+        assert_eq!(
+            hash_of(&LayoutPoint::zero()),
+            hash_of(&LayoutPoint::default())
+        );
     }
 
     #[test]

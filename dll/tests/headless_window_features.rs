@@ -86,15 +86,11 @@ fn accelerator_key_matches_individual_modifiers() {
 
     // Press Ctrl+S.
     let kb = window.common.keyboard_state_mut();
-    kb.pressed_virtual_keycodes =
-        vec![VirtualKeyCode::LControl, VirtualKeyCode::S].into();
+    kb.pressed_virtual_keycodes = vec![VirtualKeyCode::LControl, VirtualKeyCode::S].into();
     kb.current_virtual_keycode = OptionVirtualKeyCode::Some(VirtualKeyCode::S);
 
     // The chord [Ctrl, Key(S)] should fire now.
-    let chord = [
-        AcceleratorKey::Ctrl,
-        AcceleratorKey::Key(VirtualKeyCode::S),
-    ];
+    let chord = [AcceleratorKey::Ctrl, AcceleratorKey::Key(VirtualKeyCode::S)];
     assert!(window.matches_accelerator(&chord));
 
     // Adding Shift to the chord should make it not fire (shift isn't down).
@@ -233,10 +229,7 @@ fn process_system_scroll_returns_populated_scroll_result() {
 
     // The free helper is also callable directly (used by embedders that want
     // a `ScrollResult` without going through a window handle).
-    let direct = azul_core::window::process_system_scroll(
-        LogicalPosition::new(10.0, 10.0),
-        false,
-    );
+    let direct = azul_core::window::process_system_scroll(LogicalPosition::new(10.0, 10.0), false);
     assert_eq!(direct.scrolled_nodes, 1);
     assert!(!direct.hit_scrollbar);
 }

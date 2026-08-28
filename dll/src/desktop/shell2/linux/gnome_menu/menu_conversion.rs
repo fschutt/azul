@@ -207,7 +207,6 @@ impl MenuConversion {
 
         format!("app.{}", sanitized)
     }
-
 }
 
 #[cfg(test)]

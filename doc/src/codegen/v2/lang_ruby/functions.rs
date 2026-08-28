@@ -23,17 +23,11 @@
 
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
-use super::super::ir::{
-    ArgRefKind, CodegenIR, FieldRefKind, FunctionDef, FunctionKind,
-};
+use super::super::ir::{ArgRefKind, CodegenIR, FieldRefKind, FunctionDef, FunctionKind};
 use super::types::{should_emit_enum, should_emit_struct, type_with_ref_to_ruby};
 
 /// Emit `attach_function` lines for every IR function.
-pub fn emit_attach_functions(
-    builder: &mut CodeBuilder,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) {
+pub fn emit_attach_functions(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     builder.line("# --- attach_function declarations -----------------------------");
 
     for func in &ir.functions {
@@ -239,4 +233,3 @@ fn ruby_attach_name(c_name: &str) -> String {
     }
     out
 }
-

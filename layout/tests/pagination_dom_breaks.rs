@@ -9,7 +9,6 @@
 //! - Forced breaks carry `causing_node` end to end (display-list recording
 //!   through `PageBreakPosition`).
 
-use azul_layout::solver3::LayoutNodeId;
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -18,6 +17,7 @@ use azul_layout::font_traits::{FontManager, TextLayoutCache};
 use azul_layout::paged::FragmentationContext;
 use azul_layout::solver3::paged_layout::{compute_document_pagination, pagination_to_dom_breaks};
 use azul_layout::solver3::pagination::FakePageConfig;
+use azul_layout::solver3::LayoutNodeId;
 use azul_layout::text3::default::PathLoader;
 use azul_layout::xml::DomXmlExt;
 use azul_layout::{BreakKind, Solver3LayoutCache};
@@ -206,8 +206,8 @@ fn pagination_session_reports_unchanged_prefix_on_identical_re_estimate() {
 
     let mut session = PaginationSession::new();
     let run = |session: &mut PaginationSession,
-                   dom: &azul_core::styled_dom::StyledDom,
-                   fm: &mut FontManager<_>| {
+               dom: &azul_core::styled_dom::StyledDom,
+               fm: &mut FontManager<_>| {
         let mut debug_messages = Some(Vec::new());
         session
             .re_estimate(
@@ -279,10 +279,11 @@ fn materialized_breaks_reproduce_the_estimated_boundaries() {
         (0..n)
             .map(|i| {
                 let mut d = Dom::create_div();
-                d.root.set_ids_and_classes(vec![
-                    azul_core::dom::IdOrClass::Class("p".into()),
-                ].into());
-                d.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("block {i}")))
+                d.root
+                    .set_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("p".into())].into());
+                d.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    format!("block {i}"),
+                ))
             })
             .collect()
     }
@@ -317,9 +318,11 @@ fn materialized_breaks_reproduce_the_estimated_boundaries() {
         "the break must land on the page boundary at 300: {:?}",
         pagination_a.breaks
     );
-    let breaks_a = pagination_to_dom_breaks(&cache_a, &styled_a, &pagination_a)
-        .expect("mapped");
-    let path = breaks_a[0].path.clone().expect("aligned break maps to block 2");
+    let breaks_a = pagination_to_dom_breaks(&cache_a, &styled_a, &pagination_a).expect("mapped");
+    let path = breaks_a[0]
+        .path
+        .clone()
+        .expect("aligned break maps to block 2");
     let body_child_idx = *path.last().expect("non-empty path") as usize;
 
     // Materialize the canonical element at the estimated position.
@@ -345,7 +348,11 @@ fn materialized_breaks_reproduce_the_estimated_boundaries() {
         .get(&block2_dom)
         .and_then(|v| v.first())
         .expect("block 2 laid out");
-    let block2_y = cache_b.calculated_positions.get(li.index()).map(|p| p.y).unwrap();
+    let block2_y = cache_b
+        .calculated_positions
+        .get(li.index())
+        .map(|p| p.y)
+        .unwrap();
     assert!(
         (block2_y - 300.0).abs() < 1.0,
         "inserting the empty break element must not move block 2 (margin \
@@ -375,10 +382,11 @@ fn midblock_breaks_materialize_at_the_spine_block_top() {
         (0..n)
             .map(|i| {
                 let mut d = Dom::create_div();
-                d.root.set_ids_and_classes(vec![
-                    azul_core::dom::IdOrClass::Class("p".into()),
-                ].into());
-                d.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("block {i}")))
+                d.root
+                    .set_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("p".into())].into());
+                d.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    format!("block {i}"),
+                ))
             })
             .collect()
     }
@@ -398,10 +406,15 @@ fn midblock_breaks_materialize_at_the_spine_block_top() {
     };
     let styled_a = build(&[]);
     let (cache_a, pagination_a) = paginate_styled(&styled_a, 800.0, 200.0);
-    let breaks_a = pagination_to_dom_breaks(&cache_a, &styled_a, &pagination_a)
-        .expect("mapped");
-    let first = breaks_a.iter().find(|b| b.path.is_some()).expect("mappable break");
-    assert!((first.y - 200.0).abs() < 1.0, "estimated mid-block: {first:?}");
+    let breaks_a = pagination_to_dom_breaks(&cache_a, &styled_a, &pagination_a).expect("mapped");
+    let first = breaks_a
+        .iter()
+        .find(|b| b.path.is_some())
+        .expect("mappable break");
+    assert!(
+        (first.y - 200.0).abs() < 1.0,
+        "estimated mid-block: {first:?}"
+    );
     let idx = *first.path.as_ref().unwrap().last().unwrap() as usize;
 
     let styled_b = build(&[idx]);
@@ -596,8 +609,8 @@ fn deletion_shifts_the_window_via_breaks_delta() {
     };
     let mut session = PaginationSession::new();
     let run = |session: &mut PaginationSession,
-                   dom: &azul_core::styled_dom::StyledDom,
-                   fm: &mut FontManager<_>| {
+               dom: &azul_core::styled_dom::StyledDom,
+               fm: &mut FontManager<_>| {
         let mut debug_messages = Some(Vec::new());
         session
             .re_estimate(
@@ -666,7 +679,6 @@ fn deletion_shifts_the_window_via_breaks_delta() {
     // Structural mapping stays available for the re-derived region.
     assert!(session.dom_breaks(&doc_b).is_some());
 }
-
 
 #[allow(dead_code)] // diagnostic helper: re-enabled by hand when a break moves
 fn estimator_node_heights(xml: &str, label: &str) {
@@ -992,16 +1004,25 @@ fn applied_edit_inverse_resume_makes_undo_a_verbatim_replay() {
             EditResumePoint {
                 anchor_key: 0,
                 node_path: path.into(),
-                position: NodePosition { child_index: 0, text_byte: Some(0).into() },
+                position: NodePosition {
+                    child_index: 0,
+                    text_byte: Some(0).into(),
+                },
             },
             azul_core::task::Instant::from(std::time::Instant::now()),
         )
     }
 
     let mut model = Dom::create_div()
-        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("First paragraph here.")))
-        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Second.")))
-        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Third.")));
+        .with_child(Dom::create_p().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("First paragraph here."),
+        ))
+        .with_child(Dom::create_p().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Second."),
+        ))
+        .with_child(Dom::create_p().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Third."),
+        ));
     model.fixup_children_estimated();
     let before = block_texts(&model);
 
@@ -1009,7 +1030,10 @@ fn applied_edit_inverse_resume_makes_undo_a_verbatim_replay() {
     let forward = cs(
         DocumentOperation::SplitNode(DocOpSplitNode {
             node: null_node(),
-            at: NodePosition { child_index: 0, text_byte: Some(5).into() },
+            at: NodePosition {
+                child_index: 0,
+                text_byte: Some(5).into(),
+            },
         }),
         vec![1],
     );
@@ -1028,7 +1052,10 @@ fn applied_edit_inverse_resume_makes_undo_a_verbatim_replay() {
     );
 
     // UNDO: replay the inverse verbatim with the resume the engine handed back.
-    let undo = cs(applied.inverse.clone(), applied.inverse_resume.node_path.as_ref().to_vec());
+    let undo = cs(
+        applied.inverse.clone(),
+        applied.inverse_resume.node_path.as_ref().to_vec(),
+    );
     azul_layout::document_edit::apply_document_operation(&mut model, &[], &undo)
         .expect("apply inverse");
     assert_eq!(
@@ -1041,14 +1068,22 @@ fn applied_edit_inverse_resume_makes_undo_a_verbatim_replay() {
     // naively reach for) must NOT restore it — otherwise this test would
     // pass even with inverse_resume removed.
     let mut model2 = Dom::create_div()
-        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("First paragraph here.")))
-        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Second.")))
-        .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Third.")));
+        .with_child(Dom::create_p().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("First paragraph here."),
+        ))
+        .with_child(Dom::create_p().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Second."),
+        ))
+        .with_child(Dom::create_p().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Third."),
+        ));
     model2.fixup_children_estimated();
-    let applied2 =
-        azul_layout::document_edit::apply_document_operation(&mut model2, &[], &forward)
-            .expect("apply split 2");
-    let naive = cs(applied2.inverse.clone(), applied2.resume.node_path.as_ref().to_vec());
+    let applied2 = azul_layout::document_edit::apply_document_operation(&mut model2, &[], &forward)
+        .expect("apply split 2");
+    let naive = cs(
+        applied2.inverse.clone(),
+        applied2.resume.node_path.as_ref().to_vec(),
+    );
     let _ = azul_layout::document_edit::apply_document_operation(&mut model2, &[], &naive);
     assert_ne!(
         block_texts(&model2),

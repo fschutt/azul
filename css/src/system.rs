@@ -24,11 +24,6 @@
 
 #![cfg(feature = "parser")]
 
-use alloc::{
-    boxed::Box,
-    string::{String, ToString},
-    vec::Vec,
-};
 use crate::{
     corety::{AzString, OptionF32, OptionString, OptionU16},
     css::Css,
@@ -36,10 +31,17 @@ use crate::{
     props::{
         basic::{
             color::{parse_css_color, ColorU, OptionColorU},
-            pixel::{PixelValue, OptionPixelValue},
+            pixel::{OptionPixelValue, PixelValue},
         },
-        style::scrollbar::{ComputedScrollbarStyle, OverscrollBehavior, ScrollBehavior, ScrollPhysics},
+        style::scrollbar::{
+            ComputedScrollbarStyle, OverscrollBehavior, ScrollBehavior, ScrollPhysics,
+        },
     },
+};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
 };
 
 use crate::dynamic_selector::{BoolCondition, OsVersion};
@@ -50,8 +52,7 @@ use core::fmt::Write;
 /// User-customization mode controlled by the `AZ_RICING` env var.
 ///
 /// See the module-level documentation for the full description.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RicingMode {
     /// `AZ_RICING=off` (or `disabled` / `none` / `0`). Skip the user
     /// CSS file *and* the riced-desktop sources. Vanilla detection.
@@ -66,11 +67,11 @@ pub enum RicingMode {
     Force,
 }
 
-
 /// Read the `AZ_RICING` env var and classify it. Case-insensitive.
 /// Anything we don't recognise falls through to `Default` so a typo
 /// degrades gracefully instead of disabling the feature silently.
-#[must_use] pub fn ricing_mode() -> RicingMode {
+#[must_use]
+pub fn ricing_mode() -> RicingMode {
     let Ok(raw) = std::env::var("AZ_RICING") else {
         return RicingMode::Default;
     };
@@ -83,12 +84,14 @@ pub enum RicingMode {
 
 /// True when the user CSS file at `~/.config/azul/styles/<app>.css`
 /// should be read. False only when `AZ_RICING=off` is set.
-#[must_use] pub fn ricing_enabled() -> bool {
+#[must_use]
+pub fn ricing_enabled() -> bool {
     !matches!(ricing_mode(), RicingMode::Off)
 }
 
 // --- Public Data Structures ---
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents the detected platform.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -105,22 +108,44 @@ pub enum Platform {
 impl Platform {
     /// Get the current platform at compile time.
     #[inline]
-    #[must_use] pub const fn current() -> Self {
+    #[must_use]
+    pub const fn current() -> Self {
         #[cfg(target_os = "macos")]
-        { Self::MacOs }
+        {
+            Self::MacOs
+        }
         #[cfg(target_os = "windows")]
-        { Self::Windows }
+        {
+            Self::Windows
+        }
         #[cfg(target_os = "linux")]
-        { Self::Linux(DesktopEnvironment::Other(AzString::from_const_str("unknown"))) }
+        {
+            Self::Linux(DesktopEnvironment::Other(AzString::from_const_str(
+                "unknown",
+            )))
+        }
         #[cfg(target_os = "android")]
-        { Self::Android }
+        {
+            Self::Android
+        }
         #[cfg(target_os = "ios")]
-        { Self::Ios }
-        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux", target_os = "android", target_os = "ios")))]
-        { Self::Unknown }
+        {
+            Self::Ios
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "android",
+            target_os = "ios"
+        )))]
+        {
+            Self::Unknown
+        }
     }
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents the detected Linux Desktop Environment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
@@ -280,14 +305,14 @@ pub struct IconStyleOptions {
 }
 
 /// System font types that can be resolved at runtime based on OS settings.
-/// 
+///
 /// This enum allows specifying semantic font roles that get resolved to
 /// actual font families based on the current platform and user preferences.
 /// For example, `Monospace` resolves to:
 /// - macOS: SF Mono or Menlo
 /// - Windows: Cascadia Mono or Consolas
 /// - Linux: Ubuntu Mono or `DejaVu` Sans Mono
-/// 
+///
 /// Font variants (bold, italic) can be combined with the base type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
@@ -317,10 +342,9 @@ pub enum SystemFontType {
     SerifBold,
 }
 
-
 impl SystemFontType {
     /// Parse a `SystemFontType` from a CSS string.
-    /// 
+    ///
     /// Supported formats:
     /// - `system:ui`, `system:ui:bold`
     /// - `system:monospace`, `system:monospace:bold`, `system:monospace:italic`
@@ -328,7 +352,8 @@ impl SystemFontType {
     /// - `system:menu`
     /// - `system:small`
     /// - `system:serif`, `system:serif:bold`
-    #[must_use] pub fn from_css_str(s: &str) -> Option<Self> {
+    #[must_use]
+    pub fn from_css_str(s: &str) -> Option<Self> {
         let s = s.trim();
         if !s.starts_with("system:") {
             return None;
@@ -349,9 +374,10 @@ impl SystemFontType {
             _ => None,
         }
     }
-    
+
     /// Get the CSS syntax for this system font type.
-    #[must_use] pub const fn as_css_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_css_str(&self) -> &'static str {
         match self {
             Self::Ui => "system:ui",
             Self::UiBold => "system:ui:bold",
@@ -366,27 +392,26 @@ impl SystemFontType {
             Self::SerifBold => "system:serif:bold",
         }
     }
-    
+
     /// Returns true if this system font type implies bold weight.
     /// Used when resolving system fonts to pass the correct weight to fontconfig.
-    #[must_use] pub const fn is_bold(&self) -> bool {
+    #[must_use]
+    pub const fn is_bold(&self) -> bool {
         matches!(
             self,
-            Self::UiBold
-                | Self::MonospaceBold
-                | Self::TitleBold
-                | Self::SerifBold
+            Self::UiBold | Self::MonospaceBold | Self::TitleBold | Self::SerifBold
         )
     }
-    
+
     /// Returns true if this system font type implies italic style.
-    #[must_use] pub const fn is_italic(&self) -> bool {
+    #[must_use]
+    pub const fn is_italic(&self) -> bool {
         matches!(self, Self::MonospaceItalic)
     }
 }
 
 /// Accessibility settings detected from the operating system.
-/// 
+///
 /// These settings allow apps to adapt their UI for users with accessibility needs.
 /// Detection methods:
 /// - macOS: `UIAccessibility` APIs (isBoldTextEnabled, isReduceMotionEnabled, etc.)
@@ -430,10 +455,10 @@ pub struct AccessibilitySettings {
 }
 
 /// Common system colors used for UI elements.
-/// 
+///
 /// These colors are queried from the operating system and automatically adapt
 /// to the current theme (light/dark mode) and accent color settings.
-/// 
+///
 /// On macOS, these correspond to `NSColor` semantic colors.
 /// On Windows, these come from `UISettings`.
 /// On Linux/GTK, these come from the GTK theme.
@@ -449,13 +474,13 @@ pub struct SystemColors {
     pub tertiary_text: OptionColorU,
     /// Background color for content areas (NSColor.textBackgroundColor)
     pub background: OptionColorU,
-    
+
     // === Accent colors ===
     /// System accent color chosen by user (NSColor.controlAccentColor on macOS)
     pub accent: OptionColorU,
     /// Text color on accent backgrounds
     pub accent_text: OptionColorU,
-    
+
     // === Control colors ===
     /// Button/control background (NSColor.controlColor)
     pub button_face: OptionColorU,
@@ -463,13 +488,13 @@ pub struct SystemColors {
     pub button_text: OptionColorU,
     /// Disabled control text color (NSColor.disabledControlTextColor)
     pub disabled_text: OptionColorU,
-    
+
     // === Window colors ===
     /// Window background color (NSColor.windowBackgroundColor)
     pub window_background: OptionColorU,
     /// Under-page background color (NSColor.underPageBackgroundColor)
     pub under_page_background: OptionColorU,
-    
+
     // === Selection colors ===
     /// Selection background when window is focused (NSColor.selectedContentBackgroundColor)
     pub selection_background: OptionColorU,
@@ -480,7 +505,7 @@ pub struct SystemColors {
     pub selection_background_inactive: OptionColorU,
     /// Selection text color when window is NOT focused
     pub selection_text_inactive: OptionColorU,
-    
+
     // === Additional semantic colors ===
     /// Link color (NSColor.linkColor)
     pub link: OptionColorU,
@@ -490,7 +515,7 @@ pub struct SystemColors {
     pub grid: OptionColorU,
     /// Find/search highlight color (NSColor.findHighlightColor)
     pub find_highlight: OptionColorU,
-    
+
     // === Sidebar colors (macOS-specific) ===
     /// Sidebar background color
     pub sidebar_background: OptionColorU,
@@ -499,7 +524,7 @@ pub struct SystemColors {
 }
 
 /// Common system font settings.
-/// 
+///
 /// On macOS, these are queried from `NSFont`.
 /// On Windows, these come from `SystemParametersInfo`.
 /// On Linux, these come from GTK/gsettings.
@@ -589,7 +614,7 @@ impl Default for TitlebarButtons {
 }
 
 /// Safe area insets for devices with notches, rounded corners, or sensor housings.
-/// 
+///
 /// On devices like iPhones with notches or Dynamic Island, the safe area
 /// indicates regions where content should not be placed to avoid being
 /// obscured by hardware features.
@@ -607,7 +632,7 @@ pub struct SafeAreaInsets {
 }
 
 /// Metrics for titlebar layout and window chrome.
-/// 
+///
 /// This provides information needed to correctly position custom titlebar
 /// content when using `WindowDecorations::NoTitle` (expanded title mode).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -656,7 +681,8 @@ impl Default for TitlebarMetrics {
 
 impl TitlebarMetrics {
     /// Windows-style titlebar (buttons on right)
-    #[must_use] pub fn windows() -> Self {
+    #[must_use]
+    pub fn windows() -> Self {
         Self {
             button_side: TitlebarButtonSide::Right,
             buttons: TitlebarButtons {
@@ -674,9 +700,10 @@ impl TitlebarMetrics {
             title_font_weight: OptionU16::Some(400), // Normal
         }
     }
-    
+
     /// macOS-style titlebar (buttons on left, "traffic lights")
-    #[must_use] pub fn macos() -> Self {
+    #[must_use]
+    pub fn macos() -> Self {
         Self {
             button_side: TitlebarButtonSide::Left,
             buttons: TitlebarButtons {
@@ -694,9 +721,10 @@ impl TitlebarMetrics {
             title_font_weight: OptionU16::Some(600), // Semibold
         }
     }
-    
+
     /// Linux GNOME-style titlebar (buttons on right by default)
-    #[must_use] pub fn linux_gnome() -> Self {
+    #[must_use]
+    pub fn linux_gnome() -> Self {
         Self {
             button_side: TitlebarButtonSide::Right, // Default, can be changed in settings
             buttons: TitlebarButtons {
@@ -714,9 +742,10 @@ impl TitlebarMetrics {
             title_font_weight: OptionU16::Some(700), // Bold
         }
     }
-    
+
     /// iOS-style safe area (for notched devices)
-    #[must_use] pub fn ios() -> Self {
+    #[must_use]
+    pub fn ios() -> Self {
         Self {
             button_side: TitlebarButtonSide::Left,
             buttons: TitlebarButtons {
@@ -740,9 +769,10 @@ impl TitlebarMetrics {
             title_font_weight: OptionU16::Some(600),
         }
     }
-    
+
     /// Android-style titlebar (action bar)
-    #[must_use] pub fn android() -> Self {
+    #[must_use]
+    pub fn android() -> Self {
         Self {
             button_side: TitlebarButtonSide::Left, // Back button on left
             buttons: TitlebarButtons {
@@ -1074,7 +1104,7 @@ impl Default for AudioMetrics {
 }
 
 /// Apple system font family names for font fallback chains.
-/// 
+///
 /// These are the canonical names for Apple's system fonts, which should
 /// be used in font fallback chains for proper rendering on Apple platforms.
 /// Note: The names here must match what rust-fontconfig indexes from the font metadata.
@@ -1082,34 +1112,34 @@ pub mod apple_fonts {
     /// System Font - Primary system font for macOS
     /// This is how rust-fontconfig indexes the SF Pro font family
     pub const SYSTEM_FONT: &str = "System Font";
-    
+
     /// SF NS variants as indexed by rust-fontconfig
     pub const SF_NS_ROUNDED: &str = "SF NS Rounded";
-    
+
     /// SF Compact - System font optimized for watchOS
     /// Optimized for small sizes and narrow columns
     pub const SF_COMPACT: &str = "SF Compact";
-    
+
     /// SF Mono - Monospaced font used in Xcode
     /// Enables alignment between rows and columns of text
     pub const SF_MONO: &str = "SF NS Mono Light";
-    
+
     /// New York - Serif font for reading
     /// Performs as traditional reading face at small sizes
     pub const NEW_YORK: &str = "New York";
-    
+
     /// SF Arabic - Arabic system font
     pub const SF_ARABIC: &str = "SF Arabic";
-    
+
     /// SF Armenian - Armenian system font
     pub const SF_ARMENIAN: &str = "SF Armenian";
-    
+
     /// SF Georgian - Georgian system font
     pub const SF_GEORGIAN: &str = "SF Georgian";
-    
+
     /// SF Hebrew - Hebrew system font with niqqud support
     pub const SF_HEBREW: &str = "SF Hebrew";
-    
+
     /// Legacy macOS fonts for fallback
     pub const MENLO: &str = "Menlo";
     pub const MENLO_REGULAR: &str = "Menlo Regular";
@@ -1127,13 +1157,13 @@ pub mod windows_fonts {
     pub const SEGOE_UI_VARIABLE: &str = "Segoe UI Variable";
     pub const SEGOE_UI_VARIABLE_TEXT: &str = "Segoe UI Variable Text";
     pub const SEGOE_UI_VARIABLE_DISPLAY: &str = "Segoe UI Variable Display";
-    
+
     /// Standard Windows fonts
     pub const SEGOE_UI: &str = "Segoe UI";
     pub const CONSOLAS: &str = "Consolas";
     pub const CASCADIA_CODE: &str = "Cascadia Code";
     pub const CASCADIA_MONO: &str = "Cascadia Mono";
-    
+
     /// Legacy Windows fonts
     pub const TAHOMA: &str = "Tahoma";
     pub const MS_SANS_SERIF: &str = "MS Sans Serif";
@@ -1146,29 +1176,29 @@ pub mod linux_fonts {
     /// GNOME default fonts
     pub const CANTARELL: &str = "Cantarell";
     pub const ADWAITA: &str = "Adwaita";
-    
+
     /// Ubuntu fonts
     pub const UBUNTU: &str = "Ubuntu";
     pub const UBUNTU_MONO: &str = "Ubuntu Mono";
-    
+
     /// `DejaVu` fonts (widely available)
     pub const DEJAVU_SANS: &str = "DejaVu Sans";
     pub const DEJAVU_SANS_MONO: &str = "DejaVu Sans Mono";
     pub const DEJAVU_SERIF: &str = "DejaVu Serif";
-    
+
     /// Liberation fonts (metrically compatible with Windows fonts)
     pub const LIBERATION_SANS: &str = "Liberation Sans";
     pub const LIBERATION_MONO: &str = "Liberation Mono";
     pub const LIBERATION_SERIF: &str = "Liberation Serif";
-    
+
     /// Noto fonts (broad Unicode coverage)
     pub const NOTO_SANS: &str = "Noto Sans";
     pub const NOTO_MONO: &str = "Noto Sans Mono";
     pub const NOTO_SERIF: &str = "Noto Serif";
-    
+
     /// KDE default fonts
     pub const HACK: &str = "Hack";
-    
+
     /// Generic fallback names
     pub const MONOSPACE: &str = "Monospace";
     pub const SANS_SERIF: &str = "Sans";
@@ -1177,10 +1207,11 @@ pub mod linux_fonts {
 
 impl SystemFontType {
     /// Returns the font fallback chain for this font type on the given platform.
-    /// 
+    ///
     /// The returned list contains font family names in order of preference.
     /// The first available font should be used.
-    #[must_use] pub fn get_fallback_chain(&self, platform: &Platform) -> Vec<&'static str> {
+    #[must_use]
+    pub fn get_fallback_chain(&self, platform: &Platform) -> Vec<&'static str> {
         match platform {
             Platform::MacOs | Platform::Ios => self.macos_fallback_chain(),
             Platform::Windows => self.windows_fallback_chain(),
@@ -1189,7 +1220,7 @@ impl SystemFontType {
             Platform::Unknown => self.generic_fallback_chain(),
         }
     }
-    
+
     fn macos_fallback_chain(self) -> Vec<&'static str> {
         match self {
             // Normal weight: System Font first, then Helvetica Neue.
@@ -1199,33 +1230,26 @@ impl SystemFontType {
                 apple_fonts::LUCIDA_GRANDE,
             ],
             // Bold weights: Helvetica Neue first (System Font has no Bold variant in fontconfig).
-            Self::UiBold | Self::TitleBold => vec![
-                apple_fonts::HELVETICA_NEUE,
-                apple_fonts::LUCIDA_GRANDE,
-            ],
+            Self::UiBold | Self::TitleBold => {
+                vec![apple_fonts::HELVETICA_NEUE, apple_fonts::LUCIDA_GRANDE]
+            }
             // Monospace: Menlo (has a Bold variant), then Monaco.
-            Self::Monospace | Self::MonospaceBold | Self::MonospaceItalic => vec![
-                apple_fonts::MENLO,
-                apple_fonts::MONACO,
-            ],
+            Self::Monospace | Self::MonospaceBold | Self::MonospaceItalic => {
+                vec![apple_fonts::MENLO, apple_fonts::MONACO]
+            }
             // Title / Menu / Small: System Font then Helvetica Neue.
-            Self::Title | Self::Menu | Self::Small => vec![
-                apple_fonts::SYSTEM_FONT,
-                apple_fonts::HELVETICA_NEUE,
-            ],
+            Self::Title | Self::Menu | Self::Small => {
+                vec![apple_fonts::SYSTEM_FONT, apple_fonts::HELVETICA_NEUE]
+            }
             // Serif fonts - Georgia has bold variant
-            Self::Serif => vec![
-                apple_fonts::NEW_YORK,
-                "Georgia",
-                "Times New Roman",
-            ],
+            Self::Serif => vec![apple_fonts::NEW_YORK, "Georgia", "Times New Roman"],
             Self::SerifBold => vec![
                 "Georgia", // Georgia Bold exists
                 "Times New Roman",
             ],
         }
     }
-    
+
     fn windows_fallback_chain(self) -> Vec<&'static str> {
         match self {
             Self::Ui | Self::UiBold => vec![
@@ -1244,21 +1268,12 @@ impl SystemFontType {
                 windows_fonts::SEGOE_UI_VARIABLE_DISPLAY,
                 windows_fonts::SEGOE_UI,
             ],
-            Self::Menu => vec![
-                windows_fonts::SEGOE_UI,
-                windows_fonts::TAHOMA,
-            ],
-            Self::Small => vec![
-                windows_fonts::SEGOE_UI,
-            ],
-            Self::Serif | Self::SerifBold => vec![
-                "Cambria",
-                "Georgia",
-                "Times New Roman",
-            ],
+            Self::Menu => vec![windows_fonts::SEGOE_UI, windows_fonts::TAHOMA],
+            Self::Small => vec![windows_fonts::SEGOE_UI],
+            Self::Serif | Self::SerifBold => vec!["Cambria", "Georgia", "Times New Roman"],
         }
     }
-    
+
     fn linux_fallback_chain(self) -> Vec<&'static str> {
         match self {
             Self::Ui | Self::UiBold => vec![
@@ -1290,7 +1305,7 @@ impl SystemFontType {
             ],
         }
     }
-    
+
     fn android_fallback_chain(self) -> Vec<&'static str> {
         match self {
             Self::Ui | Self::UiBold | Self::Title | Self::TitleBold => vec!["Roboto", "Noto Sans"],
@@ -1301,7 +1316,7 @@ impl SystemFontType {
             Self::Serif | Self::SerifBold => vec!["Noto Serif", "Droid Serif", "serif"],
         }
     }
-    
+
     fn generic_fallback_chain(self) -> Vec<&'static str> {
         match self {
             Self::Ui | Self::UiBold | Self::Title | Self::TitleBold | Self::Menu | Self::Small => {
@@ -1316,13 +1331,14 @@ impl SystemFontType {
 }
 
 impl SystemStyle {
-
     /// Format the `SystemStyle` as a human-readable JSON string for debugging.
     ///
     /// This does NOT use serde — it manually formats the most important fields
     /// so that they can be verified against OS-reported values in a test script.
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
-    #[must_use] pub fn to_json_string(&self) -> AzString {
+    #[allow(clippy::too_many_lines)]
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[must_use]
+    pub fn to_json_string(&self) -> AzString {
         use alloc::format;
 
         fn opt_color(c: OptionColorU) -> alloc::string::String {
@@ -1361,7 +1377,7 @@ impl SystemStyle {
         let audio = &self.audio;
 
         let json = format!(
-r#"{{
+            r#"{{
   "theme": "{:?}",
   "platform": "{:?}",
   "os_version": "{:?}:{}",
@@ -1467,7 +1483,8 @@ r#"{{
             // top-level
             self.theme,
             self.platform,
-            self.os_version.os, self.os_version.version_id,
+            self.os_version.os,
+            self.os_version.version_id,
             self.language.as_str(),
             self.prefers_reduced_motion,
             self.prefers_high_contrast,
@@ -1565,22 +1582,34 @@ r#"{{
     /// This returns hard-coded defaults based on the target OS. For actual
     /// runtime detection of the user's theme, colors, and fonts, use the
     /// platform discovery in `azul-dll` (called automatically by `App::create()`).
-    #[must_use] pub fn detect() -> Self {
+    #[must_use]
+    pub fn detect() -> Self {
         Self::default_for_platform()
     }
 
     /// Returns hard-coded defaults for the current compile-time platform.
-    #[must_use] pub fn default_for_platform() -> Self {
+    #[must_use]
+    pub fn default_for_platform() -> Self {
         #[cfg(target_os = "windows")]
-        { defaults::windows_11_light() }
+        {
+            defaults::windows_11_light()
+        }
         #[cfg(target_os = "macos")]
-        { defaults::macos_modern_light() }
+        {
+            defaults::macos_modern_light()
+        }
         #[cfg(target_os = "linux")]
-        { defaults::gnome_adwaita_light() }
+        {
+            defaults::gnome_adwaita_light()
+        }
         #[cfg(target_os = "android")]
-        { defaults::android_material_light() }
+        {
+            defaults::android_material_light()
+        }
         #[cfg(target_os = "ios")]
-        { defaults::ios_light() }
+        {
+            defaults::ios_light()
+        }
         #[cfg(not(any(
             target_os = "linux",
             target_os = "windows",
@@ -1588,12 +1617,15 @@ r#"{{
             target_os = "android",
             target_os = "ios"
         )))]
-        { Self::default() }
+        {
+            Self::default()
+        }
     }
 
     /// Alias for `detect` - kept for internal compatibility, not exposed in FFI.
     #[inline]
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::detect()
     }
 
@@ -1602,7 +1634,8 @@ r#"{{
     /// This generates CSS rules for the CSD titlebar using system colors,
     /// fonts, and metrics to match the native platform look. Returned rules
     /// carry `rule_priority::SYSTEM`.
-    #[must_use] pub fn create_csd_stylesheet(&self) -> Css {
+    #[must_use]
+    pub fn create_csd_stylesheet(&self) -> Css {
         use alloc::format;
 
         use crate::parser2::new_from_str;
@@ -1640,12 +1673,16 @@ r#"{{
             .corner_radius
             .map(|px| {
                 use crate::props::basic::pixel::DEFAULT_FONT_SIZE;
-                format!("{}px", px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+                format!(
+                    "{}px",
+                    px.to_pixels_internal(1.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+                )
             })
             .unwrap_or_else(|| "4px".to_string());
 
         // Titlebar container
-        let _ = write!(css,
+        let _ = write!(
+            css,
             ".csd-titlebar {{ width: 100%; height: 32px; background: rgb({}, {}, {}); \
              border-bottom: 1px solid rgb({}, {}, {}); display: flex; flex-direction: row; \
              align-items: center; justify-content: space-between; padding: 0 8px; \
@@ -1654,7 +1691,8 @@ r#"{{
         );
 
         // Title text
-        let _ = write!(css,
+        let _ = write!(
+            css,
             ".csd-title {{ color: rgb({}, {}, {}); font-size: 13px; flex-grow: 1; text-align: \
              center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \
              user-select: none; }} ",
@@ -1665,7 +1703,8 @@ r#"{{
         css.push_str(".csd-buttons { display: flex; flex-direction: row; gap: 4px; } ");
 
         // Buttons
-        let _ = write!(css,
+        let _ = write!(
+            css,
             ".csd-button {{ width: 32px; height: 24px; border-radius: {}; background: \
              transparent; color: rgb({}, {}, {}); font-size: 16px; line-height: 24px; text-align: \
              center; cursor: pointer; user-select: none; }} ",
@@ -1677,7 +1716,8 @@ r#"{{
             Theme::Dark => ColorU::new_rgb(60, 60, 60),
             Theme::Light => ColorU::new_rgb(220, 220, 220),
         };
-        let _ = write!(css,
+        let _ = write!(
+            css,
             ".csd-button:hover {{ background: rgb({}, {}, {}); }} ",
             hover_color.r, hover_color.g, hover_color.b,
         );
@@ -1728,7 +1768,8 @@ r#"{{
 ///
 /// Checks `XDG_CURRENT_DESKTOP`, `DESKTOP_SESSION`, and specific env markers
 /// to identify GNOME, KDE, XFCE, Cinnamon, MATE, Hyprland, Sway, i3, etc.
-#[must_use] pub fn detect_linux_desktop_env() -> DesktopEnvironment {
+#[must_use]
+pub fn detect_linux_desktop_env() -> DesktopEnvironment {
     // Check XDG_CURRENT_DESKTOP first (most reliable)
     if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
         let desktop_lower = desktop.to_lowercase();
@@ -1817,7 +1858,8 @@ r#"{{
 /// Checks `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, and `LANG` in priority order.
 /// Returns `"en-US"` if detection fails. For runtime detection via native
 /// OS APIs, the platform discovery in `azul-dll` overrides this.
-#[must_use] pub fn detect_system_language() -> AzString {
+#[must_use]
+pub fn detect_system_language() -> AzString {
     let env_vars = ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"];
     for var in &env_vars {
         if let Ok(value) = std::env::var(var) {
@@ -1859,7 +1901,7 @@ pub mod defaults {
         props::{
             basic::{
                 color::{ColorU, OptionColorU},
-                pixel::{PixelValue, OptionPixelValue},
+                pixel::{OptionPixelValue, PixelValue},
             },
             layout::{
                 dimensions::LayoutWidth,
@@ -1869,17 +1911,16 @@ pub mod defaults {
                 background::StyleBackgroundContent,
                 scrollbar::{
                     ComputedScrollbarStyle, OverflowScrolling, OverscrollBehavior, ScrollBehavior,
-                    ScrollPhysics, ScrollbarInfo,
-                    SCROLLBAR_ANDROID_DARK, SCROLLBAR_ANDROID_LIGHT, SCROLLBAR_CLASSIC_DARK,
-                    SCROLLBAR_CLASSIC_LIGHT, SCROLLBAR_IOS_DARK, SCROLLBAR_IOS_LIGHT,
-                    SCROLLBAR_MACOS_DARK, SCROLLBAR_MACOS_LIGHT, SCROLLBAR_WINDOWS_DARK,
-                    SCROLLBAR_WINDOWS_LIGHT,
+                    ScrollPhysics, ScrollbarInfo, SCROLLBAR_ANDROID_DARK, SCROLLBAR_ANDROID_LIGHT,
+                    SCROLLBAR_CLASSIC_DARK, SCROLLBAR_CLASSIC_LIGHT, SCROLLBAR_IOS_DARK,
+                    SCROLLBAR_IOS_LIGHT, SCROLLBAR_MACOS_DARK, SCROLLBAR_MACOS_LIGHT,
+                    SCROLLBAR_WINDOWS_DARK, SCROLLBAR_WINDOWS_LIGHT,
                 },
             },
         },
         system::{
-            DesktopEnvironment, Platform, SystemColors, SystemFonts, SystemMetrics, SystemStyle,
-            Theme, IconStyleOptions, TitlebarMetrics,
+            DesktopEnvironment, IconStyleOptions, Platform, SystemColors, SystemFonts,
+            SystemMetrics, SystemStyle, Theme, TitlebarMetrics,
         },
     };
 
@@ -2016,7 +2057,8 @@ pub mod defaults {
     // --- Windows Styles ---
 
     /// Windows 11 light mode defaults (Segoe UI Variable, `WinUI` 3 colors).
-    #[must_use] pub fn windows_11_light() -> SystemStyle {
+    #[must_use]
+    pub fn windows_11_light() -> SystemStyle {
         SystemStyle {
             theme: Theme::Light,
             platform: Platform::Windows,
@@ -2042,7 +2084,9 @@ pub mod defaults {
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
                 titlebar: TitlebarMetrics::windows(),
             },
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_LIGHT))),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(
+                &SCROLLBAR_WINDOWS_LIGHT,
+            ))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
@@ -2065,7 +2109,8 @@ pub mod defaults {
     }
 
     /// Windows 11 dark mode defaults (Segoe UI Variable, `WinUI` 3 dark colors).
-    #[must_use] pub fn windows_11_dark() -> SystemStyle {
+    #[must_use]
+    pub fn windows_11_dark() -> SystemStyle {
         SystemStyle {
             theme: Theme::Dark,
             platform: Platform::Windows,
@@ -2091,7 +2136,9 @@ pub mod defaults {
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
                 titlebar: TitlebarMetrics::windows(),
             },
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_DARK))),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(
+                &SCROLLBAR_WINDOWS_DARK,
+            ))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
@@ -2114,7 +2161,8 @@ pub mod defaults {
     }
 
     /// Windows 7 Aero theme defaults (Segoe UI, classic Aero colors).
-    #[must_use] pub fn windows_7_aero() -> SystemStyle {
+    #[must_use]
+    pub fn windows_7_aero() -> SystemStyle {
         SystemStyle {
             theme: Theme::Light,
             platform: Platform::Windows,
@@ -2140,7 +2188,9 @@ pub mod defaults {
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(5.0)),
                 titlebar: TitlebarMetrics::windows(),
             },
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(
+                &SCROLLBAR_CLASSIC_LIGHT,
+            ))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
@@ -2163,7 +2213,8 @@ pub mod defaults {
     }
 
     /// Windows XP Luna theme defaults (Tahoma, classic Luna blue).
-    #[must_use] pub fn windows_xp_luna() -> SystemStyle {
+    #[must_use]
+    pub fn windows_xp_luna() -> SystemStyle {
         SystemStyle {
             theme: Theme::Light,
             platform: Platform::Windows,
@@ -2189,7 +2240,9 @@ pub mod defaults {
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(4.0)),
                 titlebar: TitlebarMetrics::windows(),
             },
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_WINDOWS_CLASSIC))),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(
+                &SCROLLBAR_WINDOWS_CLASSIC,
+            ))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
@@ -2214,7 +2267,8 @@ pub mod defaults {
     // --- macOS Styles ---
 
     /// Modern macOS light mode defaults (SF Pro, rounded corners).
-    #[must_use] pub fn macos_modern_light() -> SystemStyle {
+    #[must_use]
+    pub fn macos_modern_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
             theme: Theme::Light,
@@ -2264,7 +2318,8 @@ pub mod defaults {
     }
 
     /// Modern macOS dark mode defaults (SF Pro, dark background).
-    #[must_use] pub fn macos_modern_dark() -> SystemStyle {
+    #[must_use]
+    pub fn macos_modern_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
             theme: Theme::Dark,
@@ -2321,7 +2376,8 @@ pub mod defaults {
     }
 
     /// Classic macOS Aqua theme defaults (Lucida Grande, gel scrollbars).
-    #[must_use] pub fn macos_aqua() -> SystemStyle {
+    #[must_use]
+    pub fn macos_aqua() -> SystemStyle {
         SystemStyle {
             platform: Platform::MacOs,
             theme: Theme::Light,
@@ -2371,7 +2427,8 @@ pub mod defaults {
     // --- Linux Styles ---
 
     /// GNOME Adwaita light theme defaults (Cantarell font).
-    #[must_use] pub fn gnome_adwaita_light() -> SystemStyle {
+    #[must_use]
+    pub fn gnome_adwaita_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
             theme: Theme::Light,
@@ -2395,7 +2452,9 @@ pub mod defaults {
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(8.0)),
                 titlebar: TitlebarMetrics::linux_gnome(),
             },
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(
+                &SCROLLBAR_CLASSIC_LIGHT,
+            ))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
@@ -2418,7 +2477,8 @@ pub mod defaults {
     }
 
     /// GNOME Adwaita dark theme defaults (Cantarell font, dark background).
-    #[must_use] pub fn gnome_adwaita_dark() -> SystemStyle {
+    #[must_use]
+    pub fn gnome_adwaita_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
             theme: Theme::Dark,
@@ -2442,7 +2502,9 @@ pub mod defaults {
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(8.0)),
                 titlebar: TitlebarMetrics::linux_gnome(),
             },
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_DARK))),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(
+                &SCROLLBAR_CLASSIC_DARK,
+            ))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
@@ -2465,7 +2527,8 @@ pub mod defaults {
     }
 
     /// GTK2 Clearlooks theme defaults (`DejaVu` Sans, orange accent).
-    #[must_use] pub fn gtk2_clearlooks() -> SystemStyle {
+    #[must_use]
+    pub fn gtk2_clearlooks() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Gnome),
             theme: Theme::Light,
@@ -2488,7 +2551,9 @@ pub mod defaults {
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(6.0)),
                 titlebar: TitlebarMetrics::linux_gnome(),
             },
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_LIGHT))),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(
+                &SCROLLBAR_CLASSIC_LIGHT,
+            ))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
@@ -2511,7 +2576,8 @@ pub mod defaults {
     }
 
     /// KDE Breeze light theme defaults (Noto Sans, Oxygen scrollbars).
-    #[must_use] pub fn kde_breeze_light() -> SystemStyle {
+    #[must_use]
+    pub fn kde_breeze_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Linux(DesktopEnvironment::Kde),
             theme: Theme::Light,
@@ -2559,7 +2625,8 @@ pub mod defaults {
     // --- Mobile Styles ---
 
     /// Android Material Design light theme defaults (Roboto font).
-    #[must_use] pub fn android_material_light() -> SystemStyle {
+    #[must_use]
+    pub fn android_material_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Android,
             theme: Theme::Light,
@@ -2582,7 +2649,9 @@ pub mod defaults {
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(10.0)),
                 titlebar: TitlebarMetrics::android(),
             },
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_LIGHT))),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(
+                &SCROLLBAR_ANDROID_LIGHT,
+            ))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
@@ -2605,7 +2674,8 @@ pub mod defaults {
     }
 
     /// Android Holo dark theme defaults (Roboto font, dark background).
-    #[must_use] pub fn android_holo_dark() -> SystemStyle {
+    #[must_use]
+    pub fn android_holo_dark() -> SystemStyle {
         SystemStyle {
             platform: Platform::Android,
             theme: Theme::Dark,
@@ -2628,7 +2698,9 @@ pub mod defaults {
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(8.0)),
                 titlebar: TitlebarMetrics::android(),
             },
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_ANDROID_DARK))),
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(
+                &SCROLLBAR_ANDROID_DARK,
+            ))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),
@@ -2651,7 +2723,8 @@ pub mod defaults {
     }
 
     /// iOS light theme defaults (SF UI font, rounded corners).
-    #[must_use] pub fn ios_light() -> SystemStyle {
+    #[must_use]
+    pub fn ios_light() -> SystemStyle {
         SystemStyle {
             platform: Platform::Ios,
             theme: Theme::Light,
@@ -2722,7 +2795,9 @@ mod autotest_generated {
             Platform::MacOs,
             Platform::Linux(DesktopEnvironment::Gnome),
             Platform::Linux(DesktopEnvironment::Kde),
-            Platform::Linux(DesktopEnvironment::Other(AzString::from_const_str("Hyprland"))),
+            Platform::Linux(DesktopEnvironment::Other(AzString::from_const_str(
+                "Hyprland",
+            ))),
             Platform::Android,
             Platform::Ios,
             Platform::Unknown,
@@ -2753,7 +2828,10 @@ mod autotest_generated {
 
     #[test]
     fn from_css_str_valid_minimal() {
-        assert_eq!(SystemFontType::from_css_str("system:ui"), Some(SystemFontType::Ui));
+        assert_eq!(
+            SystemFontType::from_css_str("system:ui"),
+            Some(SystemFontType::Ui)
+        );
         assert_eq!(
             SystemFontType::from_css_str("system:monospace:italic"),
             Some(SystemFontType::MonospaceItalic)
@@ -2803,7 +2881,10 @@ mod autotest_generated {
     #[test]
     fn from_css_str_leading_trailing_junk() {
         // Surrounding ASCII whitespace is trimmed …
-        assert_eq!(SystemFontType::from_css_str("  system:ui  "), Some(SystemFontType::Ui));
+        assert_eq!(
+            SystemFontType::from_css_str("  system:ui  "),
+            Some(SystemFontType::Ui)
+        );
         assert_eq!(
             SystemFontType::from_css_str("\t\nsystem:monospace\r\n"),
             Some(SystemFontType::Monospace)
@@ -2820,7 +2901,13 @@ mod autotest_generated {
     fn from_css_str_is_case_sensitive() {
         // Documents current behaviour: unlike `AZ_RICING`, the font keyword
         // is matched case-sensitively, so upper/mixed case is rejected.
-        for s in ["SYSTEM:UI", "System:Ui", "system:UI", "System:ui", "sYsTeM:ui"] {
+        for s in [
+            "SYSTEM:UI",
+            "System:Ui",
+            "system:UI",
+            "System:ui",
+            "sYsTeM:ui",
+        ] {
             assert_eq!(SystemFontType::from_css_str(s), None, "input {s:?}");
         }
     }
@@ -2851,13 +2938,13 @@ mod autotest_generated {
         for s in [
             "\u{1F600}",
             "system:\u{1F600}",
-            "system:ui\u{0301}",          // combining acute accent
+            "system:ui\u{0301}", // combining acute accent
             "\u{1F600}system:ui",
-            "systém:ui",                   // non-ASCII inside the prefix
-            "ｓｙｓｔｅｍ:ui",              // fullwidth latin
-            "system:\u{202E}ui",           // right-to-left override
+            "systém:ui",         // non-ASCII inside the prefix
+            "ｓｙｓｔｅｍ:ui",   // fullwidth latin
+            "system:\u{202E}ui", // right-to-left override
             "system:\u{FFFD}",
-            "system:ui\u{200B}",           // zero-width space (not trimmed)
+            "system:ui\u{200B}", // zero-width space (not trimmed)
         ] {
             assert_eq!(SystemFontType::from_css_str(s), None, "input {s:?}");
         }
@@ -2874,7 +2961,10 @@ mod autotest_generated {
 
         // A megabyte of whitespace around a valid keyword still parses.
         let padded = format!("{}system:ui{}", " ".repeat(100_000), " ".repeat(100_000));
-        assert_eq!(SystemFontType::from_css_str(&padded), Some(SystemFontType::Ui));
+        assert_eq!(
+            SystemFontType::from_css_str(&padded),
+            Some(SystemFontType::Ui)
+        );
     }
 
     #[test]
@@ -2892,7 +2982,11 @@ mod autotest_generated {
     fn font_type_css_str_round_trips() {
         for ty in ALL_FONT_TYPES {
             let s = ty.as_css_str();
-            assert_eq!(SystemFontType::from_css_str(s), Some(ty), "round-trip of {ty:?}");
+            assert_eq!(
+                SystemFontType::from_css_str(s),
+                Some(ty),
+                "round-trip of {ty:?}"
+            );
             // Padding must not change the decoded value.
             assert_eq!(
                 SystemFontType::from_css_str(&format!("  {s}\t")),
@@ -2964,7 +3058,10 @@ mod autotest_generated {
             assert_eq!(ty.is_bold(), s.ends_with(":bold"), "{ty:?} -> {s:?}");
             assert_eq!(ty.is_italic(), s.ends_with(":italic"), "{ty:?} -> {s:?}");
             // No variant is both bold and italic.
-            assert!(!(ty.is_bold() && ty.is_italic()), "{ty:?} is bold *and* italic");
+            assert!(
+                !(ty.is_bold() && ty.is_italic()),
+                "{ty:?} is bold *and* italic"
+            );
         }
     }
 
@@ -2975,7 +3072,10 @@ mod autotest_generated {
         for platform in all_platforms() {
             for ty in ALL_FONT_TYPES {
                 let chain = ty.get_fallback_chain(&platform);
-                assert!(!chain.is_empty(), "{ty:?} on {platform:?} has an empty chain");
+                assert!(
+                    !chain.is_empty(),
+                    "{ty:?} on {platform:?} has an empty chain"
+                );
                 assert!(
                     chain.iter().all(|f| !f.trim().is_empty()),
                     "{ty:?} on {platform:?} has a blank family: {chain:?}"
@@ -3031,10 +3131,11 @@ mod autotest_generated {
         for ty in ALL_FONT_TYPES {
             let chain = ty.get_fallback_chain(&Platform::Unknown);
             assert_eq!(chain.len(), 1, "{ty:?} -> {chain:?}");
-            let expected = if ty.is_italic() || matches!(
-                ty,
-                SystemFontType::Monospace | SystemFontType::MonospaceBold
-            ) {
+            let expected = if ty.is_italic()
+                || matches!(
+                    ty,
+                    SystemFontType::Monospace | SystemFontType::MonospaceBold
+                ) {
                 "monospace"
             } else if matches!(ty, SystemFontType::Serif | SystemFontType::SerifBold) {
                 "serif"
@@ -3115,7 +3216,10 @@ mod autotest_generated {
                 .as_ref()
                 .map(|p| p.to_pixels_internal(0.0, 0.0, 0.0))
                 .expect("titlebar height must be set");
-            assert!(height.is_finite() && height > 0.0, "{name}: height {height}");
+            assert!(
+                height.is_finite() && height > 0.0,
+                "{name}: height {height}"
+            );
 
             let button_area = tm
                 .button_area_width
@@ -3132,12 +3236,21 @@ mod autotest_generated {
                 .as_ref()
                 .map(|p| p.to_pixels_internal(0.0, 0.0, 0.0))
                 .expect("padding must be set");
-            assert!(padding.is_finite() && padding >= 0.0, "{name}: padding {padding}");
+            assert!(
+                padding.is_finite() && padding >= 0.0,
+                "{name}: padding {padding}"
+            );
 
-            let size = tm.title_font_size.into_option().expect("font size must be set");
+            let size = tm
+                .title_font_size
+                .into_option()
+                .expect("font size must be set");
             assert!(size.is_finite() && size > 0.0, "{name}: font size {size}");
 
-            let weight = tm.title_font_weight.into_option().expect("font weight must be set");
+            let weight = tm
+                .title_font_weight
+                .into_option()
+                .expect("font weight must be set");
             assert!((100..=900).contains(&weight), "{name}: weight {weight}");
         }
     }
@@ -3155,10 +3268,16 @@ mod autotest_generated {
         assert!(mac.buttons.has_fullscreen);
         assert!(!mac.buttons.has_maximize);
 
-        assert_eq!(TitlebarMetrics::linux_gnome().button_side, TitlebarButtonSide::Right);
+        assert_eq!(
+            TitlebarMetrics::linux_gnome().button_side,
+            TitlebarButtonSide::Right
+        );
 
         // Mobile: no window controls at all.
-        for (name, tm) in [("ios", TitlebarMetrics::ios()), ("android", TitlebarMetrics::android())] {
+        for (name, tm) in [
+            ("ios", TitlebarMetrics::ios()),
+            ("android", TitlebarMetrics::android()),
+        ] {
             let b = tm.buttons;
             assert!(
                 !b.has_close && !b.has_minimize && !b.has_maximize && !b.has_fullscreen,
@@ -3170,7 +3289,10 @@ mod autotest_generated {
         let ios = TitlebarMetrics::ios();
         assert!(ios.safe_area.top.is_some());
         assert!(ios.safe_area.bottom.is_some());
-        assert_eq!(TitlebarMetrics::windows().safe_area, SafeAreaInsets::default());
+        assert_eq!(
+            TitlebarMetrics::windows().safe_area,
+            SafeAreaInsets::default()
+        );
     }
 
     // ── SystemStyle::new / detect / default_for_platform ─────────────────
@@ -3192,8 +3314,14 @@ mod autotest_generated {
         assert!(SystemStyle::new().run_destructor);
         assert!(SystemStyle::detect().run_destructor);
         for (name, style) in all_default_styles() {
-            assert!(style.run_destructor, "{name} does not own its heap pointers");
-            assert!(style.clone().run_destructor, "clone of {name} lost the guard");
+            assert!(
+                style.run_destructor,
+                "{name} does not own its heap pointers"
+            );
+            assert!(
+                style.clone().run_destructor,
+                "clone of {name} lost the guard"
+            );
         }
     }
 
@@ -3214,15 +3342,35 @@ mod autotest_generated {
     fn default_styles_are_fully_populated() {
         for (name, style) in all_default_styles() {
             assert!(style.colors.text.is_some(), "{name}: no text color");
-            assert!(style.colors.background.is_some(), "{name}: no background color");
+            assert!(
+                style.colors.background.is_some(),
+                "{name}: no background color"
+            );
             assert!(style.colors.accent.is_some(), "{name}: no accent color");
             assert!(style.fonts.ui_font.is_some(), "{name}: no UI font");
-            assert!(style.fonts.monospace_font.is_some(), "{name}: no monospace font");
-            assert!(!style.language.as_str().is_empty(), "{name}: empty language");
-            assert_ne!(style.platform, Platform::Unknown, "{name}: unknown platform");
+            assert!(
+                style.fonts.monospace_font.is_some(),
+                "{name}: no monospace font"
+            );
+            assert!(
+                !style.language.as_str().is_empty(),
+                "{name}: empty language"
+            );
+            assert_ne!(
+                style.platform,
+                Platform::Unknown,
+                "{name}: unknown platform"
+            );
 
-            let size = style.fonts.ui_font_size.into_option().expect("ui font size");
-            assert!(size.is_finite() && size > 0.0, "{name}: ui font size {size}");
+            let size = style
+                .fonts
+                .ui_font_size
+                .into_option()
+                .expect("ui font size");
+            assert!(
+                size.is_finite() && size > 0.0,
+                "{name}: ui font size {size}"
+            );
 
             let radius = style
                 .metrics
@@ -3230,7 +3378,10 @@ mod autotest_generated {
                 .as_ref()
                 .map(|p| p.to_pixels_internal(0.0, 0.0, 0.0))
                 .expect("corner radius");
-            assert!(radius.is_finite() && radius >= 0.0, "{name}: corner radius {radius}");
+            assert!(
+                radius.is_finite() && radius >= 0.0,
+                "{name}: corner radius {radius}"
+            );
         }
     }
 
@@ -3239,7 +3390,10 @@ mod autotest_generated {
         // Exercises the private `scrollbar_info_to_computed` helper: every
         // built-in ScrollbarInfo uses solid colors, so nothing may map to None.
         for (name, style) in all_default_styles() {
-            let sb = style.scrollbar.as_ref().unwrap_or_else(|| panic!("{name}: no scrollbar"));
+            let sb = style
+                .scrollbar
+                .as_ref()
+                .unwrap_or_else(|| panic!("{name}: no scrollbar"));
             assert!(sb.width.is_some(), "{name}: scrollbar width lost");
             assert!(sb.thumb_color.is_some(), "{name}: thumb color lost");
             assert!(sb.track_color.is_some(), "{name}: track color lost");
@@ -3249,16 +3403,28 @@ mod autotest_generated {
     #[test]
     fn light_and_dark_default_styles_differ() {
         assert_ne!(defaults::windows_11_light(), defaults::windows_11_dark());
-        assert_ne!(defaults::macos_modern_light(), defaults::macos_modern_dark());
-        assert_ne!(defaults::gnome_adwaita_light(), defaults::gnome_adwaita_dark());
-        assert_ne!(defaults::android_material_light(), defaults::android_holo_dark());
+        assert_ne!(
+            defaults::macos_modern_light(),
+            defaults::macos_modern_dark()
+        );
+        assert_ne!(
+            defaults::gnome_adwaita_light(),
+            defaults::gnome_adwaita_dark()
+        );
+        assert_ne!(
+            defaults::android_material_light(),
+            defaults::android_holo_dark()
+        );
 
         assert_eq!(defaults::windows_11_dark().theme, Theme::Dark);
         assert_eq!(defaults::macos_modern_dark().theme, Theme::Dark);
         assert_eq!(defaults::gnome_adwaita_dark().theme, Theme::Dark);
         assert_eq!(defaults::android_holo_dark().theme, Theme::Dark);
 
-        assert_eq!(defaults::kde_breeze_light().platform, Platform::Linux(DesktopEnvironment::Kde));
+        assert_eq!(
+            defaults::kde_breeze_light().platform,
+            Platform::Linux(DesktopEnvironment::Kde)
+        );
         assert_eq!(defaults::ios_light().platform, Platform::Ios);
     }
 
@@ -3336,7 +3502,10 @@ mod autotest_generated {
         let s = json.as_str();
         assert!(!s.is_empty());
         assert!(s.contains(&format!("\"cursor_size\": {}", u32::MAX)), "{s}");
-        assert!(s.contains(&format!("\"double_click_time_ms\": {}", u32::MAX)), "{s}");
+        assert!(
+            s.contains(&format!("\"double_click_time_ms\": {}", u32::MAX)),
+            "{s}"
+        );
     }
 
     #[test]
@@ -3474,7 +3643,10 @@ mod autotest_generated {
         let mode = ricing_mode();
         assert_eq!(mode, ricing_mode(), "ricing_mode() is not deterministic");
         assert!(
-            matches!(mode, RicingMode::Off | RicingMode::Default | RicingMode::Force),
+            matches!(
+                mode,
+                RicingMode::Off | RicingMode::Default | RicingMode::Force
+            ),
             "{mode:?}"
         );
         assert_eq!(RicingMode::default(), RicingMode::Default);

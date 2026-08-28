@@ -3,9 +3,9 @@
 //! Defines [`LayoutTextJustify`] and its parser [`parse_layout_text_justify`],
 //! used by the CSS property parsing pipeline.
 
+use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::fmt;
-use crate::corety::AzString;
 
 use crate::{codegen::format::FormatAsRustCode, props::formatter::PrintAsCssValue};
 
@@ -23,7 +23,6 @@ pub enum LayoutTextJustify {
     /// Retained for `#[repr(C)]` FFI backward compatibility.
     Distribute,
 }
-
 
 impl PrintAsCssValue for LayoutTextJustify {
     fn print_as_css_value(&self) -> String {
@@ -66,7 +65,8 @@ pub enum TextJustifyParseErrorOwned {
 }
 
 impl TextJustifyParseError<'_> {
-    #[must_use] pub fn to_owned(&self) -> TextJustifyParseErrorOwned {
+    #[must_use]
+    pub fn to_owned(&self) -> TextJustifyParseErrorOwned {
         match self {
             TextJustifyParseError::InvalidValue(s) => {
                 TextJustifyParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -76,11 +76,10 @@ impl TextJustifyParseError<'_> {
 }
 
 impl TextJustifyParseErrorOwned {
-    #[must_use] pub fn to_borrowed(&self) -> TextJustifyParseError<'_> {
+    #[must_use]
+    pub fn to_borrowed(&self) -> TextJustifyParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                TextJustifyParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => TextJustifyParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -338,7 +337,7 @@ mod autotest_generated {
             "invalid",
             "interword",
             "inter_word",
-            "inter–word",     // en dash, not hyphen-minus
+            "inter–word", // en dash, not hyphen-minus
             "inter-",
             "-character",
             "inter-characters",
@@ -412,15 +411,15 @@ mod autotest_generated {
     #[test]
     fn unicode_input_is_rejected_and_preserved_verbatim_in_the_error() {
         for input in [
-            "\u{1F600}",              // emoji
-            "auto\u{301}",            // combining acute on the last char
-            "\u{301}\u{301}\u{301}",  // lone combining marks
-            "ａｕｔｏ",               // fullwidth latin
-            "аuto",                   // Cyrillic homoglyph 'а'
-            "\u{202e}auto",           // RTL override
+            "\u{1F600}",             // emoji
+            "auto\u{301}",           // combining acute on the last char
+            "\u{301}\u{301}\u{301}", // lone combining marks
+            "ａｕｔｏ",              // fullwidth latin
+            "аuto",                  // Cyrillic homoglyph 'а'
+            "\u{202e}auto",          // RTL override
             "🙂🙃🙂",
             "日本語",
-            "\u{fffd}",               // replacement char
+            "\u{fffd}", // replacement char
         ] {
             assert_eq!(
                 parse_layout_text_justify(input),
@@ -511,7 +510,11 @@ mod autotest_generated {
             } else {
                 j
             };
-            assert_eq!(reparsed, Ok(expected), "round trip of {j:?} via {printed:?}");
+            assert_eq!(
+                reparsed,
+                Ok(expected),
+                "round trip of {j:?} via {printed:?}"
+            );
         }
     }
 
@@ -541,9 +544,7 @@ mod autotest_generated {
                 "{j:?} printed interior whitespace: {printed:?}"
             );
             assert!(
-                printed
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c == '-'),
+                printed.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "{j:?} printed a non-ident value: {printed:?}"
             );
             assert!(
@@ -690,7 +691,10 @@ mod autotest_generated {
         let huge = "x".repeat(1_000_000);
         let msg = TextJustifyParseError::InvalidValue(huge.as_str()).to_string();
         // prefix + payload + suffix, with nothing truncated.
-        assert_eq!(msg.len(), "Invalid text-justify value: ''.".len() + huge.len());
+        assert_eq!(
+            msg.len(),
+            "Invalid text-justify value: ''.".len() + huge.len()
+        );
         assert!(msg.contains(huge.as_str()));
     }
 

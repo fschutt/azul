@@ -86,5 +86,10 @@ fn test_no_ligature_without_fi() {
     )
     .expect("shaping should succeed");
 
-    assert_eq!(glyphs.len(), 5, "Expected 5 glyphs for 'hello', got {}", glyphs.len());
+    assert_eq!(
+        glyphs.len(),
+        5,
+        "Expected 5 glyphs for 'hello', got {}",
+        glyphs.len()
+    );
 }

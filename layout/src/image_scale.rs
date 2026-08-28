@@ -117,7 +117,11 @@ impl SrcImage<'_> {
 /// downscale (kills aliasing), bilinear on an upscale (no blocky enlargement),
 /// nearest at 1:1.
 #[must_use]
-#[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 #[allow(clippy::many_single_char_names)] // r/g/b/a channel accumulators + tap coords
 pub fn sample(src: &SrcImage<'_>, dst_w: u32, dst_h: u32, dx: u32, dy: u32) -> [u8; 4] {
     let scale_x = src.width as f32 / dst_w.max(1) as f32;
@@ -159,7 +163,11 @@ pub fn sample(src: &SrcImage<'_>, dst_w: u32, dst_h: u32, dx: u32, dy: u32) -> [
 
 /// Bilinear sample at source coordinate `(fx, fy)` in pixel units (a pixel's
 /// centre is at its integer index). Used on an upscale.
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 #[allow(clippy::many_single_char_names)] // p00/p10/.. corners + tx/ty weights
 fn bilinear(src: &SrcImage<'_>, fx: f32, fy: f32) -> [u8; 4] {
     let x0 = fx.floor();
@@ -270,7 +278,12 @@ mod tests {
     use super::*;
 
     fn rgba(bytes: &[u8], w: u32, h: u32) -> SrcImage<'_> {
-        SrcImage { bytes, format: RawImageFormat::RGBA8, width: w, height: h }
+        SrcImage {
+            bytes,
+            format: RawImageFormat::RGBA8,
+            width: w,
+            height: h,
+        }
     }
 
     // --- consumers ---------------------------------------------------------
@@ -281,7 +294,11 @@ mod tests {
         assert_eq!(covering_size([(500, 200), (100, 200)]), Some((500, 200)));
         // A tall and a wide consumer cover each other's axis.
         assert_eq!(covering_size([(100, 900), (800, 50)]), Some((800, 900)));
-        assert_eq!(covering_size([(0, 0), (0, 480)]), None, "zero sizes are not requests");
+        assert_eq!(
+            covering_size([(0, 0), (0, 480)]),
+            None,
+            "zero sizes are not requests"
+        );
         assert_eq!(covering_size([]), None);
     }
 
@@ -291,17 +308,24 @@ mod tests {
         let bytes = [0u8, 200, 0, 255].repeat(8);
         let src = rgba(&bytes, 4, 2);
         let consumers = [
-            FrameConsumer::new(7, 2, 1),   // Bob, a downscale
-            FrameConsumer::new(8, 4, 2),   // the recorder at the captured size -> copy
-            FrameConsumer::new(0, 4, 2),   // the preview id is NOT a fan-out consumer
-            FrameConsumer::new(9, 0, 10),  // a zero size is skipped
+            FrameConsumer::new(7, 2, 1),  // Bob, a downscale
+            FrameConsumer::new(8, 4, 2),  // the recorder at the captured size -> copy
+            FrameConsumer::new(0, 4, 2),  // the preview id is NOT a fan-out consumer
+            FrameConsumer::new(9, 0, 10), // a zero size is skipped
         ];
         let cuts = fan_out(&src, &consumers, resample_rgba);
         let ids: Vec<u32> = cuts.iter().map(|c| c.consumer.id).collect();
-        assert_eq!(ids, vec![7, 8], "only the valid consumers get a frame: {ids:?}");
+        assert_eq!(
+            ids,
+            vec![7, 8],
+            "only the valid consumers get a frame: {ids:?}"
+        );
         assert_eq!(cuts[0].frame.width, 2);
         assert_eq!(cuts[0].frame.height, 1);
-        assert_eq!(cuts[0].frame.bytes.as_ref(), &[0, 200, 0, 255, 0, 200, 0, 255]);
+        assert_eq!(
+            cuts[0].frame.bytes.as_ref(),
+            &[0, 200, 0, 255, 0, 200, 0, 255]
+        );
         assert_eq!(
             cuts[1].frame.bytes.as_ref(),
             &bytes[..],
@@ -315,8 +339,14 @@ mod tests {
         let src = rgba(&bytes, 1, 1);
         assert_eq!(cut(&src, 3, 2, resample_rgba).len(), 3 * 2 * 4);
         assert!(cut(&src, 0, 2, resample_rgba).is_empty());
-        let truncated = SrcImage { bytes: &bytes[..2], ..src };
-        assert!(cut(&truncated, 1, 1, resample_rgba).is_empty(), "an unsampleable source cuts nothing");
+        let truncated = SrcImage {
+            bytes: &bytes[..2],
+            ..src
+        };
+        assert!(
+            cut(&truncated, 1, 1, resample_rgba).is_empty(),
+            "an unsampleable source cuts nothing"
+        );
     }
 
     #[test]
@@ -324,19 +354,43 @@ mod tests {
         // one pixel, four formats
         assert_eq!(rgba(&[10, 20, 30, 40], 1, 1).pixel(0, 0), [10, 20, 30, 40]);
         assert_eq!(
-            SrcImage { bytes: &[10, 20, 30, 40], format: RawImageFormat::BGRA8, width: 1, height: 1 }.pixel(0, 0),
+            SrcImage {
+                bytes: &[10, 20, 30, 40],
+                format: RawImageFormat::BGRA8,
+                width: 1,
+                height: 1
+            }
+            .pixel(0, 0),
             [30, 20, 10, 40]
         );
         assert_eq!(
-            SrcImage { bytes: &[10, 20, 30], format: RawImageFormat::RGB8, width: 1, height: 1 }.pixel(0, 0),
+            SrcImage {
+                bytes: &[10, 20, 30],
+                format: RawImageFormat::RGB8,
+                width: 1,
+                height: 1
+            }
+            .pixel(0, 0),
             [10, 20, 30, 255]
         );
         assert_eq!(
-            SrcImage { bytes: &[10, 20, 30], format: RawImageFormat::BGR8, width: 1, height: 1 }.pixel(0, 0),
+            SrcImage {
+                bytes: &[10, 20, 30],
+                format: RawImageFormat::BGR8,
+                width: 1,
+                height: 1
+            }
+            .pixel(0, 0),
             [30, 20, 10, 255]
         );
         assert_eq!(
-            SrcImage { bytes: &[77], format: RawImageFormat::R8, width: 1, height: 1 }.pixel(0, 0),
+            SrcImage {
+                bytes: &[77],
+                format: RawImageFormat::R8,
+                width: 1,
+                height: 1
+            }
+            .pixel(0, 0),
             [77, 77, 77, 255]
         );
     }
@@ -349,7 +403,13 @@ mod tests {
         }
         // Unsupported format / short buffer → opaque black, no panic.
         assert_eq!(
-            SrcImage { bytes: &[], format: RawImageFormat::RGBAF32, width: 1, height: 1 }.pixel(0, 0),
+            SrcImage {
+                bytes: &[],
+                format: RawImageFormat::RGBAF32,
+                width: 1,
+                height: 1
+            }
+            .pixel(0, 0),
             [0, 0, 0, 255]
         );
     }
@@ -358,12 +418,15 @@ mod tests {
     fn a_2x2_downscaled_to_1x1_is_the_area_average() {
         // corners 0, 40, 80, 120 in every channel
         let bytes = [
-            0, 0, 0, 0,        40, 40, 40, 40,
-            80, 80, 80, 80,    120, 120, 120, 120,
+            0, 0, 0, 0, 40, 40, 40, 40, 80, 80, 80, 80, 120, 120, 120, 120,
         ];
         let out = sample(&rgba(&bytes, 2, 2), 1, 1, 0, 0);
         // (0+40+80+120)/4 = 60, exact
-        assert_eq!(out, [60, 60, 60, 60], "a 2x downscale must average, not pick one (nearest)");
+        assert_eq!(
+            out,
+            [60, 60, 60, 60],
+            "a 2x downscale must average, not pick one (nearest)"
+        );
     }
 
     #[test]
@@ -394,8 +457,14 @@ mod tests {
         let src = rgba(&bytes, 2, 1);
         let out = resample_rgba(&src, 5, 1);
         let reds: Vec<u8> = out.chunks_exact(4).map(|c| c[0]).collect();
-        assert!(reds[0] < reds[2] && reds[2] < reds[4], "not monotone: {reds:?}");
-        assert!((1..100).contains(&reds[2]), "the middle must interpolate: {reds:?}");
+        assert!(
+            reds[0] < reds[2] && reds[2] < reds[4],
+            "not monotone: {reds:?}"
+        );
+        assert!(
+            (1..100).contains(&reds[2]),
+            "the middle must interpolate: {reds:?}"
+        );
     }
 
     #[test]

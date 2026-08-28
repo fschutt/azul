@@ -95,8 +95,10 @@ fn quick_jump(version_data: &VersionData) -> String {
 
     let common = commonly_used(version_data);
     if !common.is_empty() {
-        out.push_str("              <h2>Commonly used</h2>\n              <div \
-                      class=\"guide-links\">\n");
+        out.push_str(
+            "              <h2>Commonly used</h2>\n              <div \
+                      class=\"guide-links\">\n",
+        );
         for name in &common {
             out.push_str(&format!(
                 "                <a class=\"guide-link\" href=\"#st.{name}\">{name}</a>\n"
@@ -186,10 +188,7 @@ fn identifiers(text: &str) -> impl Iterator<Item = &str> {
 /// own order, so curating a level means naming the handful of entries that
 /// belong at the top, not ranking all two hundred. Ordering here is a reading
 /// aid only - codegen walks the file itself, where the order is ABI-relevant.
-fn by_priority<'a, K, V, P>(
-    map: &'a indexmap::IndexMap<K, V>,
-    priority: P,
-) -> Vec<(&'a K, &'a V)>
+fn by_priority<'a, K, V, P>(map: &'a indexmap::IndexMap<K, V>, priority: P) -> Vec<(&'a K, &'a V)>
 where
     P: Fn(&V) -> f32,
 {
@@ -253,8 +252,7 @@ fn generate_api_content(version_data: &VersionData) -> String {
             body.push_str(&format!("<p class=\"m doc\">{}</p>", format_doc_lines(doc)));
         }
         body.push_str("<ul>");
-        for (class_name, class_data) in
-            by_priority(&module.classes, |c| c.priority.unwrap_or(0.0))
+        for (class_name, class_data) in by_priority(&module.classes, |c| c.priority.unwrap_or(0.0))
         {
             body.push_str(&render_class(version_data, class_name, class_data));
         }
@@ -286,14 +284,12 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
     let class_has_custom_destructor = class_data.custom_destructor.unwrap_or(false);
     let class_has_recursive_destructor = has_recursive_destructor(version_data, class_data);
 
-    let destructor_warning = if class_has_custom_destructor
-        || treat_external_as_ptr
-        || class_has_recursive_destructor
-    {
-        "&nbsp;<span class=\"chd\">has destructor</span>"
-    } else {
-        ""
-    };
+    let destructor_warning =
+        if class_has_custom_destructor || treat_external_as_ptr || class_has_recursive_destructor {
+            "&nbsp;<span class=\"chd\">has destructor</span>"
+        } else {
+            ""
+        };
 
     // What kind of thing is this, and what does its own body look like?
     let (li_class, kind_class, keyword, body) = if let Some(enum_fields) = &class_data.enum_fields {
@@ -316,7 +312,9 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
                         "<p class=\"f\" id=\"{id}\">{variant_name}({})</p>",
                         render_type(version_data, variant_type)
                     )),
-                    None => rows.push_str(&format!("<p class=\"f\" id=\"{id}\">{variant_name}</p>")),
+                    None => {
+                        rows.push_str(&format!("<p class=\"f\" id=\"{id}\">{variant_name}</p>"))
+                    }
                 }
             }
         }
@@ -324,7 +322,12 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
         // variants, and a reader scrolling for the next type should not have
         // to scroll through all of them. Search still lands inside - the
         // reveal script opens whatever ancestor is holding the anchor.
-        let body = group(&count_label(count, "variant"), &rows, false, " api-variants");
+        let body = group(
+            &count_label(count, "variant"),
+            &rows,
+            false,
+            " api-variants",
+        );
         ("st e pbi", "api-enum", keyword, body)
     } else if let Some(struct_fields) = &class_data.struct_fields {
         let mut rows = String::new();
@@ -347,7 +350,10 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
         let mut rows = String::new();
         for arg in &callback_typedef.fn_args {
             if let Some(doc) = &arg.doc {
-                rows.push_str(&format!("<p class=\"arg doc\">{}</p>", format_doc_lines(doc)));
+                rows.push_str(&format!(
+                    "<p class=\"arg doc\">{}</p>",
+                    format_doc_lines(doc)
+                ));
             }
             let (_, type_name, _) = analyze_type(&arg.r#type);
             let ref_prefix = arg.ref_kind.to_rust_prefix();
@@ -362,7 +368,10 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
         }
         if let Some(returns) = &callback_typedef.returns {
             if let Some(doc) = &returns.doc {
-                rows.push_str(&format!("<p class=\"ret doc\">{}</p>", format_doc_lines(doc)));
+                rows.push_str(&format!(
+                    "<p class=\"ret doc\">{}</p>",
+                    format_doc_lines(doc)
+                ));
             }
             rows.push_str(&format!(
                 "<p class=\"fnty ret\">-&gt;&nbsp;{}</p>",
@@ -380,7 +389,10 @@ fn render_class(version_data: &VersionData, class_name: &str, class_data: &Class
 
     let mut inner = String::new();
     if let Some(doc) = &class_data.doc {
-        inner.push_str(&format!("<p class=\"class doc\">{}</p>", format_doc_lines(doc)));
+        inner.push_str(&format!(
+            "<p class=\"class doc\">{}</p>",
+            format_doc_lines(doc)
+        ));
     }
     inner.push_str(&body);
 
@@ -489,7 +501,10 @@ fn render_member(
         Some(returns) => {
             out.push_str("<li>");
             if let Some(doc) = &returns.doc {
-                out.push_str(&format!("<p class=\"ret doc\">{}</p>", format_doc_lines(doc)));
+                out.push_str(&format!(
+                    "<p class=\"ret doc\">{}</p>",
+                    format_doc_lines(doc)
+                ));
             }
             out.push_str(&format!(
                 "<p class=\"{css_class} ret\">-&gt;&nbsp;{}</p>",

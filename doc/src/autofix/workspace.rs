@@ -881,7 +881,9 @@ pub fn generate_patches<T: TypeLookup>(
         for (class_name, class_data) in &module_data.classes {
             // Determine where this type should actually be
             let ext_path = class_data.external.as_deref();
-            if let Some(correct_module) = get_correct_module_with_path(class_name, module_name, ext_path) {
+            if let Some(correct_module) =
+                get_correct_module_with_path(class_name, module_name, ext_path)
+            {
                 // Type is in wrong module, generate move patch
                 let key = (module_name.clone(), class_name.clone());
                 all_patches
@@ -969,7 +971,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
     use crate::api::{FieldData, FunctionData, RefKind, ReturnTypeData};
 
     let destructor_type = type_name.trim_end_matches("Vec").to_string() + "VecDestructor";
-    
+
     // Use lowercase type name for fn_body variable names (legacy convention)
     // e.g., "DomVec" -> "domvec" (NOT "dom_vec")
     // The transmute_helpers.rs will convert this to snake_case if needed
@@ -1038,12 +1040,7 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
         // Empty derive list = don't generate any #[derive(...)] attributes
         // The impl_vec! macro provides Debug, Clone, PartialEq, PartialOrd, Drop
         derive: Some(vec![]),
-        struct_fields: Some(vec![
-            ptr_field,
-            len_field,
-            cap_field,
-            destructor_field,
-        ]),
+        struct_fields: Some(vec![ptr_field, len_field, cap_field, destructor_field]),
         vec_element_type: Some(element_type.to_string()),
         functions: Some(functions),
         ..Default::default()
@@ -1051,19 +1048,19 @@ fn generate_vec_structure(type_name: &str, element_type: &str, external_path: &s
 }
 
 /// Generate standard Vec functions: create(), len(), capacity(), is_empty(), get(), as_slice()
-/// If `known_types` is provided, only generates c_get/as_c_slice/as_c_slice_range 
+/// If `known_types` is provided, only generates c_get/as_c_slice/as_c_slice_range
 /// when the required Option/Slice types exist.
 pub fn generate_vec_functions(
-    type_name: &str, 
-    element_type: &str, 
+    type_name: &str,
+    element_type: &str,
     lowercase_type_name: &str,
     known_types: Option<&std::collections::HashSet<String>>,
 ) -> indexmap::IndexMap<String, crate::api::FunctionData> {
-    use indexmap::IndexMap;
     use crate::api::{FunctionData, ReturnTypeData};
-    
+    use indexmap::IndexMap;
+
     let mut functions = IndexMap::new();
-    
+
     // create() - creates an empty Vec
     let create_args = Vec::new();
     functions.insert(
@@ -1079,7 +1076,7 @@ pub fn generate_vec_functions(
             ..Default::default()
         },
     );
-    
+
     // with_capacity(cap: usize) - creates a Vec with given capacity
     let mut with_cap_args = Vec::new();
     let mut cap_arg = IndexMap::new();
@@ -1088,7 +1085,10 @@ pub fn generate_vec_functions(
     functions.insert(
         "with_capacity".to_string(),
         FunctionData {
-            doc: Some(vec![format!("Creates a `{}` with a given capacity", type_name)]),
+            doc: Some(vec![format!(
+                "Creates a `{}` with a given capacity",
+                type_name
+            )]),
             fn_args: with_cap_args,
             returns: Some(ReturnTypeData {
                 r#type: type_name.to_string(),
@@ -1098,7 +1098,7 @@ pub fn generate_vec_functions(
             ..Default::default()
         },
     );
-    
+
     // len(&self) -> usize
     let mut len_args = Vec::new();
     let mut self_arg = IndexMap::new();
@@ -1117,7 +1117,7 @@ pub fn generate_vec_functions(
             ..Default::default()
         },
     );
-    
+
     // capacity(&self) -> usize
     let mut cap_args = Vec::new();
     let mut self_arg = IndexMap::new();
@@ -1136,7 +1136,7 @@ pub fn generate_vec_functions(
             ..Default::default()
         },
     );
-    
+
     // is_empty(&self) -> bool
     let mut is_empty_args = Vec::new();
     let mut self_arg = IndexMap::new();
@@ -1155,7 +1155,7 @@ pub fn generate_vec_functions(
             ..Default::default()
         },
     );
-    
+
     // c_get(&self, index: usize) -> OptionElement
     // C-API compatible get function that returns a copy wrapped in OptionElement
     // NOTE: Returns OptionElement for FFI safety (wrapped in Option type)
@@ -1163,15 +1163,15 @@ pub fn generate_vec_functions(
     // Use canonicalize_option_type_name to get correct casing (OptionU8, not Optionu8)
     let option_element_type = super::utils::canonicalize_option_type_name(element_type);
     let slice_type = format!("{}Slice", type_name);
-    
+
     let option_type_exists = known_types
         .map(|kt| kt.contains(&option_element_type))
         .unwrap_or(true); // If no known_types provided, assume type exists
-    
+
     let slice_type_exists = known_types
         .map(|kt| kt.contains(&slice_type))
         .unwrap_or(true); // If no known_types provided, assume type exists
-    
+
     if option_type_exists {
         let mut get_args = Vec::new();
         let mut self_arg = IndexMap::new();
@@ -1194,7 +1194,7 @@ pub fn generate_vec_functions(
             },
         );
     }
-    
+
     // as_c_slice(&self) -> FooVecSlice
     // Returns a C-compatible slice struct with ptr and len
     // Only generate if Slice type exists (when known_types is provided)
@@ -1206,7 +1206,10 @@ pub fn generate_vec_functions(
         functions.insert(
             "as_c_slice".to_string(),
             FunctionData {
-                doc: Some(vec![format!("Returns a C-compatible slice of the entire Vec as a `{}`.", slice_type)]),
+                doc: Some(vec![format!(
+                    "Returns a C-compatible slice of the entire Vec as a `{}`.",
+                    slice_type
+                )]),
                 fn_args: as_c_slice_args,
                 returns: Some(ReturnTypeData {
                     r#type: slice_type.clone(),
@@ -1216,7 +1219,7 @@ pub fn generate_vec_functions(
                 ..Default::default()
             },
         );
-        
+
         // as_c_slice_range(&self, start: usize, end: usize) -> FooVecSlice
         // Returns a C-compatible slice of a range within the Vec
         let mut as_c_slice_range_args = Vec::new();
@@ -1243,7 +1246,7 @@ pub fn generate_vec_functions(
             },
         );
     }
-    
+
     // from_item(item: Element) -> Self
     // Creates a Vec containing a single element
     let mut from_item_args = Vec::new();
@@ -1253,7 +1256,10 @@ pub fn generate_vec_functions(
     functions.insert(
         "from_item".to_string(),
         FunctionData {
-            doc: Some(vec![format!("Creates a `{}` containing a single element", type_name)]),
+            doc: Some(vec![format!(
+                "Creates a `{}` containing a single element",
+                type_name
+            )]),
             fn_args: from_item_args,
             returns: Some(ReturnTypeData {
                 r#type: type_name.to_string(),
@@ -1263,7 +1269,7 @@ pub fn generate_vec_functions(
             ..Default::default()
         },
     );
-    
+
     // copy_from_ptr(ptr: *const Element, len: usize) -> Self
     // Copies elements from a C array into a Vec
     let mut copy_from_ptr_args = Vec::new();
@@ -1286,7 +1292,7 @@ pub fn generate_vec_functions(
             ..Default::default()
         },
     );
-    
+
     functions
 }
 
@@ -2209,7 +2215,7 @@ pub fn has_field_changes(
 }
 
 /// Convert CamelCase to snake_case
-/// 
+///
 /// Examples:
 /// - "DomVec" -> "dom_vec"
 /// - "AccessibilityActionVec" -> "accessibility_action_vec"

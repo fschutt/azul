@@ -78,9 +78,8 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     plain.add_child(content);
 
     // RIGHT: the VirtualView path — only ~visible rows exist at a time.
-    let vview = Dom::create_virtual_view(data.clone(), vv_rows).with_css(
-        "flex-grow: 1; min-height: 0px; width: 100%; overflow-y: auto;",
-    );
+    let vview = Dom::create_virtual_view(data.clone(), vv_rows)
+        .with_css("flex-grow: 1; min-height: 0px; width: 100%; overflow-y: auto;");
     let mut vv_wrap = Dom::create_div();
     vv_wrap.set_css(
         "flex-grow: 1; height: 100%; border: 2px solid #4caf50; margin: 8px; \

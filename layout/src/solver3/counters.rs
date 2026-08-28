@@ -25,12 +25,20 @@ pub fn format_counter(value: i32, style: StyleListStyleType) -> String {
         StyleListStyleType::Square => "▪".to_string(),
         StyleListStyleType::Decimal => value.to_string(),
         StyleListStyleType::DecimalLeadingZero => format!("{value:02}"),
-        StyleListStyleType::LowerAlpha => decimal_fallback(value, with_sign(value, |n| to_alphabetic(n, false))),
-        StyleListStyleType::UpperAlpha => decimal_fallback(value, with_sign(value, |n| to_alphabetic(n, true))),
+        StyleListStyleType::LowerAlpha => {
+            decimal_fallback(value, with_sign(value, |n| to_alphabetic(n, false)))
+        }
+        StyleListStyleType::UpperAlpha => {
+            decimal_fallback(value, with_sign(value, |n| to_alphabetic(n, true)))
+        }
         StyleListStyleType::LowerRoman => with_sign(value, |n| to_roman(n, false)),
         StyleListStyleType::UpperRoman => with_sign(value, |n| to_roman(n, true)),
-        StyleListStyleType::LowerGreek => decimal_fallback(value, with_sign(value, |n| to_greek(n, false))),
-        StyleListStyleType::UpperGreek => decimal_fallback(value, with_sign(value, |n| to_greek(n, true))),
+        StyleListStyleType::LowerGreek => {
+            decimal_fallback(value, with_sign(value, |n| to_greek(n, false)))
+        }
+        StyleListStyleType::UpperGreek => {
+            decimal_fallback(value, with_sign(value, |n| to_greek(n, true)))
+        }
     }
 }
 
@@ -670,7 +678,10 @@ mod autotest_generated {
     #[test]
     fn format_counter_decimal_matches_i32_display() {
         for v in EDGE_VALUES {
-            assert_eq!(format_counter(v, StyleListStyleType::Decimal), v.to_string());
+            assert_eq!(
+                format_counter(v, StyleListStyleType::Decimal),
+                v.to_string()
+            );
         }
     }
 
@@ -737,8 +748,14 @@ mod autotest_generated {
     fn format_counter_roman_known_values_and_limits() {
         assert_eq!(format_counter(1, StyleListStyleType::LowerRoman), "i");
         assert_eq!(format_counter(4, StyleListStyleType::LowerRoman), "iv");
-        assert_eq!(format_counter(2024, StyleListStyleType::UpperRoman), "MMXXIV");
-        assert_eq!(format_counter(3999, StyleListStyleType::LowerRoman), "mmmcmxcix");
+        assert_eq!(
+            format_counter(2024, StyleListStyleType::UpperRoman),
+            "MMXXIV"
+        );
+        assert_eq!(
+            format_counter(3999, StyleListStyleType::LowerRoman),
+            "mmmcmxcix"
+        );
         // Past the roman range -> decimal, never an unbounded "mmmm..." string.
         assert_eq!(format_counter(4000, StyleListStyleType::LowerRoman), "4000");
         assert_eq!(format_counter(4000, StyleListStyleType::UpperRoman), "4000");

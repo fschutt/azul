@@ -25,24 +25,27 @@ fn main() {
         }
     };
 
-    println!("Benchmark: chapter-8.xht ({} bytes, {} lines)\n",
-        xml_content.len(), xml_content.lines().count());
+    println!(
+        "Benchmark: chapter-8.xht ({} bytes, {} lines)\n",
+        xml_content.len(),
+        xml_content.lines().count()
+    );
 
     // =========================================================================
     // PRE-LOAD: Font cache (excluded from benchmark, same as real app startup)
     // =========================================================================
-    use std::collections::BTreeMap;
     use azul_core::{
         dom::DomId,
         geom::{LogicalPosition, LogicalRect, LogicalSize},
-        resources::{IdNamespace, RendererResources, ImageCache},
+        resources::{IdNamespace, ImageCache, RendererResources},
     };
     use azul_layout::{
-        solver3::{self, cache::LayoutCache},
         cpurender::{self, RenderOptions},
         glyph_cache::GlyphCache,
+        solver3::{self, cache::LayoutCache},
         FontManager, TextLayoutCache,
     };
+    use std::collections::BTreeMap;
 
     println!("--- Font pre-load (excluded from per-frame timing) ---");
 
@@ -50,7 +53,11 @@ fn main() {
     let registry = azul_layout::FcFontRegistry::new();
     let had_cache = registry.load_from_disk_cache();
     let disk_cache_ms = t0.elapsed().as_secs_f64() * 1000.0;
-    println!("  disk cache load:   {:.2}ms (had_cache={})", disk_cache_ms, had_cache.is_some());
+    println!(
+        "  disk cache load:   {:.2}ms (had_cache={})",
+        disk_cache_ms,
+        had_cache.is_some()
+    );
 
     let t1 = Instant::now();
     registry.spawn_scout_and_builders();
@@ -67,7 +74,11 @@ fn main() {
     let t3 = Instant::now();
     let fc_cache = registry.shared_cache();
     let snapshot_ms = t3.elapsed().as_secs_f64() * 1000.0;
-    println!("  snapshot cache:    {:.2}ms ({} font entries)", snapshot_ms, fc_cache.len());
+    println!(
+        "  snapshot cache:    {:.2}ms ({} font entries)",
+        snapshot_ms,
+        fc_cache.len()
+    );
 
     // Warm up: parse once to discover + load required fonts
     let mut font_manager = FontManager::new(fc_cache.clone()).expect("font manager");
@@ -78,7 +89,10 @@ fn main() {
 
         let t4 = Instant::now();
         let chains = collect_and_resolve_font_chains_with_registration(
-            &warmup_dom, &font_manager.fc_cache, &font_manager, &platform,
+            &warmup_dom,
+            &font_manager.fc_cache,
+            &font_manager,
+            &platform,
         );
         let chain_ms = t4.elapsed().as_secs_f64() * 1000.0;
 
@@ -90,19 +104,22 @@ fn main() {
         if !fonts_to_load.is_empty() {
             use azul_layout::text3::default::PathLoader;
             let loader = PathLoader::new();
-            let load_result = load_fonts_from_disk(
-                &fonts_to_load,
-                &font_manager.fc_cache,
-                |bytes, index| loader.load_font_shared(bytes, index),
-            );
+            let load_result =
+                load_fonts_from_disk(&fonts_to_load, &font_manager.fc_cache, |bytes, index| {
+                    loader.load_font_shared(bytes, index)
+                });
             font_manager.insert_fonts(load_result.loaded);
         }
         let load_ms = t6.elapsed().as_secs_f64() * 1000.0;
 
         font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
         println!("  collect+resolve:   {chain_ms:.2}ms (single pass)");
-        println!("  load from disk:    {:.2}ms ({} fonts needed, {} total loaded)",
-            load_ms, need_count, font_manager.get_loaded_font_ids().len());
+        println!(
+            "  load from disk:    {:.2}ms ({} fonts needed, {} total loaded)",
+            load_ms,
+            need_count,
+            font_manager.get_loaded_font_ids().len()
+        );
     }
     let total_prefont_ms = t0.elapsed().as_secs_f64() * 1000.0;
     println!("  TOTAL pre-load:    {total_prefont_ms:.2}ms\n");
@@ -135,7 +152,10 @@ fn main() {
             use azul_layout::solver3::getters::*;
             let platform = azul_css::system::Platform::current();
             let chains = collect_and_resolve_font_chains_with_registration(
-                &styled_dom, &font_manager.fc_cache, &font_manager, &platform,
+                &styled_dom,
+                &font_manager.fc_cache,
+                &font_manager,
+                &platform,
             );
             font_manager.set_font_chain_cache(chains.into_fontconfig_chains());
         }
@@ -145,7 +165,10 @@ fn main() {
         let t_s2 = Instant::now();
         let viewport = LogicalRect {
             origin: LogicalPosition::zero(),
-            size: LogicalSize { width: viewport_w, height: viewport_h },
+            size: LogicalSize {
+                width: viewport_w,
+                height: viewport_h,
+            },
         };
         let mut layout_cache = LayoutCache::default();
         let mut text_cache = TextLayoutCache::new();
@@ -174,8 +197,9 @@ fn main() {
             None, // content_overlay
             None, // system_style
             get_system_time_fn,
-        &[],
-        ).expect("layout failed");
+            &[],
+        )
+        .expect("layout failed");
         let dl_items = display_list.items.len();
         let s2_ms = t_s2.elapsed().as_secs_f64() * 1000.0;
 
@@ -186,9 +210,14 @@ fn main() {
             &display_list,
             &renderer_resources,
             &font_manager,
-            RenderOptions { width: viewport_w, height: viewport_h, dpi_factor: dpi },
+            RenderOptions {
+                width: viewport_w,
+                height: viewport_h,
+                dpi_factor: dpi,
+            },
             &mut glyph_cache,
-        ).expect("render failed");
+        )
+        .expect("render failed");
         let s3_ms = t_s3.elapsed().as_secs_f64() * 1000.0;
 
         let total_ms = t_pipeline.elapsed().as_secs_f64() * 1000.0;
@@ -202,7 +231,10 @@ fn main() {
     // =========================================================================
     // SUMMARY
     // =========================================================================
-    println!("\n--- Summary ({} nodes, {}x{}) ---", 50043, viewport_w as u32, viewport_h as u32);
+    println!(
+        "\n--- Summary ({} nodes, {}x{}) ---",
+        50043, viewport_w as u32, viewport_h as u32
+    );
     let avg = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
     let s1_avg = avg(&stage_times.iter().map(|s| s.0).collect::<Vec<_>>());
     let s1b_avg = avg(&stage_times.iter().map(|s| s.1).collect::<Vec<_>>());

@@ -189,11 +189,15 @@ pub fn autofix_api(
     let critical_error_count = ffi_warnings.iter().filter(|w| w.is_critical()).count();
 
     // Print info about non-critical warnings (exclude resolved generic type aliases)
-    let info_warnings = ffi_warnings.iter().filter(|w| {
-        !w.is_critical() && !matches!(&w.kind, FfiSafetyWarningKind::GenericTypeAlias {
+    let info_warnings = ffi_warnings
+        .iter()
+        .filter(|w| {
+            !w.is_critical()
+                && !matches!(&w.kind, FfiSafetyWarningKind::GenericTypeAlias {
             target_in_api, all_args_in_api, ..
         } if *target_in_api && *all_args_in_api)
-    }).count();
+        })
+        .count();
     if info_warnings > 0 {
         println!(
             "\n{} {} informational warnings (non-blocking)",
@@ -1345,8 +1349,8 @@ pub enum FfiSafetyWarningKind {
     /// Type uses `()` (unit type) which is not FFI-safe.
     /// Use `Void` type instead (e.g., `Result<Void, Error>` instead of `Result<(), Error>`).
     UnitTypeInSignature {
-        location: String,       // e.g., "return type" or "field 'foo'"
-        full_type: String,      // e.g., "Result<(), Error>"
+        location: String,  // e.g., "return type" or "field 'foo'"
+        full_type: String, // e.g., "Result<(), Error>"
     },
     /// Field uses BTreeMap or HashMap which is not FFI-safe.
     /// Replace with Vec-based pair type (e.g., StringPairVec).
@@ -1373,10 +1377,7 @@ pub enum FfiSafetyWarningKind {
     /// is not allowed. Use `impl_vec!` / `impl_option!` macros and reference
     /// the generated wrapper type instead. Generic args go in the `generic_args`
     /// field of `type_alias` in api.json.
-    AngleBracketInType {
-        location: String,
-        raw_type: String,
-    },
+    AngleBracketInType { location: String, raw_type: String },
     /// A type is referenced (as a field type, enum variant type, callback arg, etc.)
     /// in api.json but has no definition entry in api.json.
     /// This means codegen will emit code referencing a type that doesn't exist.
@@ -1488,9 +1489,11 @@ impl FfiSafetyWarningKind {
             // Generic type aliases are only critical if the target or args are NOT in api.json.
             // e.g. Vec<ComponentArgument> is critical (Vec not in api.json),
             // but CssPropertyValue<StyleBackgroundContent> is fine (both in api.json).
-            FfiSafetyWarningKind::GenericTypeAlias { target_in_api, all_args_in_api, .. } => {
-                !target_in_api || !all_args_in_api
-            }
+            FfiSafetyWarningKind::GenericTypeAlias {
+                target_in_api,
+                all_args_in_api,
+                ..
+            } => !target_in_api || !all_args_in_api,
             // Critical - multiple #[repr(...)] attributes are ambiguous
             FfiSafetyWarningKind::DuplicateReprAttribute { .. } => true,
             // Critical - source code uses non-C-compatible types like Arc<T>, Rc<T>
@@ -1515,30 +1518,34 @@ fn contains_unit_type(type_str: &str) -> bool {
     // - `()` as a standalone type
     // - `Result<(), Error>` - () in first position of Result
     // - `Option<()>` - () inside Option
-    
+
     // Simple check: look for `()` that is followed by `,` or `>` or end of string
     // or preceded by `<` or `,`
     let chars: Vec<char> = type_str.chars().collect();
     let len = chars.len();
-    
+
     for i in 0..len {
         if i + 1 < len && chars[i] == '(' && chars[i + 1] == ')' {
             // Found `()` - check context
             let before = if i > 0 { Some(chars[i - 1]) } else { None };
-            let after = if i + 2 < len { Some(chars[i + 2]) } else { None };
-            
+            let after = if i + 2 < len {
+                Some(chars[i + 2])
+            } else {
+                None
+            };
+
             // It's a unit type if:
             // - preceded by `<` or `,` or space or start
             // - followed by `,` or `>` or space or end
             let valid_before = matches!(before, None | Some('<') | Some(',') | Some(' '));
             let valid_after = matches!(after, None | Some(',') | Some('>') | Some(' '));
-            
+
             if valid_before && valid_after {
                 return true;
             }
         }
     }
-    
+
     false
 }
 
@@ -1561,8 +1568,12 @@ fn estimate_type_size_align(
 
     // Pointer / reference types are always 8 bytes on 64-bit
     match ref_kind {
-        RefKind::ConstPtr | RefKind::MutPtr | RefKind::Ref
-        | RefKind::RefMut | RefKind::Boxed | RefKind::OptionBoxed => return (8, 8),
+        RefKind::ConstPtr
+        | RefKind::MutPtr
+        | RefKind::Ref
+        | RefKind::RefMut
+        | RefKind::Boxed
+        | RefKind::OptionBoxed => return (8, 8),
         RefKind::Value => {}
     }
 
@@ -1594,7 +1605,9 @@ fn estimate_type_size_align_by_name(
     cache.insert(type_name.to_string(), (8, 8));
 
     // Look up the type definition in api.json
-    let class_def = api_data.0.values()
+    let class_def = api_data
+        .0
+        .values()
         .flat_map(|ver| ver.api.values())
         .find_map(|module| module.classes.get(type_name));
 
@@ -1607,9 +1620,9 @@ fn estimate_type_size_align_by_name(
 
     // --- Enum ---
     if let Some(enum_fields) = &class_def.enum_fields {
-        let has_data = enum_fields.iter().any(|m| {
-            m.values().any(|v| v.r#type.is_some())
-        });
+        let has_data = enum_fields
+            .iter()
+            .any(|m| m.values().any(|v| v.r#type.is_some()));
 
         // Discriminant: repr(C, u8) → u8 (1 byte), repr(C) → i32 (4 bytes)
         let (disc_size, disc_align): (usize, usize) = if repr_str.contains("u8") {
@@ -1631,9 +1644,8 @@ fn estimate_type_size_align_by_name(
         for m in enum_fields {
             for (_vname, vdata) in m {
                 if let Some(ref vtype) = vdata.r#type {
-                    let (vs, va) = estimate_type_size_align(
-                        vtype, &vdata.ref_kind, api_data, cache,
-                    );
+                    let (vs, va) =
+                        estimate_type_size_align(vtype, &vdata.ref_kind, api_data, cache);
                     max_payload_align = max_payload_align.max(va);
                     max_payload_size = max_payload_size.max(vs);
                 }
@@ -1644,10 +1656,14 @@ fn estimate_type_size_align_by_name(
         let align = max_payload_align;
         let mut offset = disc_size;
         let m = offset % align;
-        if m != 0 { offset += align - m; }
+        if m != 0 {
+            offset += align - m;
+        }
         offset += max_payload_size;
         let m = offset % align;
-        if m != 0 { offset += align - m; }
+        if m != 0 {
+            offset += align - m;
+        }
 
         let result = (offset, align);
         cache.insert(type_name.to_string(), result);
@@ -1663,25 +1679,26 @@ fn estimate_type_size_align_by_name(
             for (_fname, fd) in fm {
                 let (fs, fa) = if let Some(array_n) = fd.arraysize {
                     // Fixed-size array [T; N]: size = N * sizeof(T), align = align(T)
-                    let (elem_s, elem_a) = estimate_type_size_align(
-                        &fd.r#type, &fd.ref_kind, api_data, cache,
-                    );
+                    let (elem_s, elem_a) =
+                        estimate_type_size_align(&fd.r#type, &fd.ref_kind, api_data, cache);
                     (elem_s * array_n, elem_a)
                 } else {
-                    estimate_type_size_align(
-                        &fd.r#type, &fd.ref_kind, api_data, cache,
-                    )
+                    estimate_type_size_align(&fd.r#type, &fd.ref_kind, api_data, cache)
                 };
                 max_align = max_align.max(fa);
                 let misalign = offset % fa;
-                if misalign != 0 { offset += fa - misalign; }
+                if misalign != 0 {
+                    offset += fa - misalign;
+                }
                 offset += fs;
             }
         }
 
         // Trailing padding
         let misalign = offset % max_align;
-        if misalign != 0 { offset += max_align - misalign; }
+        if misalign != 0 {
+            offset += max_align - misalign;
+        }
 
         let result = (offset, max_align);
         cache.insert(type_name.to_string(), result);
@@ -1728,10 +1745,7 @@ fn estimate_padding_waste(fields: &[(String, usize, usize)]) -> usize {
 /// position where the sequences diverge — but ONLY when both sides contain
 /// the same field SET (membership drift is reported by the diff engine as
 /// a modification; double-reporting it here would be noise).
-fn first_order_divergence(
-    api_order: &[String],
-    rust_order: &[String],
-) -> Option<(String, String)> {
+fn first_order_divergence(api_order: &[String], rust_order: &[String]) -> Option<(String, String)> {
     use std::collections::BTreeSet;
     let api_set: BTreeSet<&String> = api_order.iter().collect();
     let rust_set: BTreeSet<&String> = rust_order.iter().collect();
@@ -1826,10 +1840,8 @@ pub fn check_ffi_safety(
                 let Some(fields_vec) = &class_data.struct_fields else {
                     continue;
                 };
-                let api_order: Vec<String> = fields_vec
-                    .iter()
-                    .flat_map(|m| m.keys().cloned())
-                    .collect();
+                let api_order: Vec<String> =
+                    fields_vec.iter().flat_map(|m| m.keys().cloned()).collect();
                 if api_order.is_empty() {
                     continue;
                 }
@@ -1935,7 +1947,8 @@ pub fn check_ffi_safety(
     }
 
     // Cache for recursive type size estimation (shared across all checks)
-    let mut type_size_cache: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+    let mut type_size_cache: std::collections::HashMap<String, (usize, usize)> =
+        std::collections::HashMap::new();
 
     // Iterate over all types, but only check those in api.json
     for (type_name, defs) in index.iter_all() {
@@ -2032,7 +2045,10 @@ pub fn check_ffi_safety(
                             .iter()
                             .map(|(name, fd)| {
                                 let (size, align) = estimate_type_size_align(
-                                    &fd.ty, &fd.ref_kind, api_data, &mut type_size_cache,
+                                    &fd.ty,
+                                    &fd.ref_kind,
+                                    api_data,
+                                    &mut type_size_cache,
                                 );
                                 (name.clone(), size, align)
                             })
@@ -2047,8 +2063,12 @@ pub fn check_ffi_safety(
                             let waste = estimate_padding_waste(&fields_with_size_align)
                                 .saturating_sub(estimate_padding_waste(&optimal));
                             if waste > 0 {
-                                let current_display: Vec<(String, usize)> = fields_with_size_align.iter().map(|(n, _, a)| (n.clone(), *a)).collect();
-                                let optimal_display: Vec<(String, usize)> = optimal.iter().map(|(n, _, a)| (n.clone(), *a)).collect();
+                                let current_display: Vec<(String, usize)> = fields_with_size_align
+                                    .iter()
+                                    .map(|(n, _, a)| (n.clone(), *a))
+                                    .collect();
+                                let optimal_display: Vec<(String, usize)> =
+                                    optimal.iter().map(|(n, _, a)| (n.clone(), *a)).collect();
                                 warnings.push(FfiSafetyWarning {
                                     type_name: type_name.clone(),
                                     file_path: file_path.clone(),
@@ -2065,7 +2085,13 @@ pub fn check_ffi_safety(
             }
 
             // Check enums
-            if let type_index::TypeDefKind::Enum { variants, repr, repr_attr_count, .. } = &typedef.kind {
+            if let type_index::TypeDefKind::Enum {
+                variants,
+                repr,
+                repr_attr_count,
+                ..
+            } = &typedef.kind
+            {
                 // Check for duplicate #[repr(...)] attributes
                 if *repr_attr_count > 1 {
                     warnings.push(FfiSafetyWarning {
@@ -2187,7 +2213,7 @@ pub fn check_ffi_safety(
         for (module_name, module) in &version.api {
             for (class_name, class_def) in &module.classes {
                 let file_path = format!("api.json - {}.{}", module_name, class_name);
-                
+
                 // Check functions
                 if let Some(functions) = &class_def.functions {
                     for (fn_name, fn_def) in functions {
@@ -2221,7 +2247,7 @@ pub fn check_ffi_safety(
                         }
                     }
                 }
-                
+
                 // Check constructors
                 if let Some(constructors) = &class_def.constructors {
                     for (ctor_name, ctor_def) in constructors {
@@ -2252,9 +2278,9 @@ pub fn check_ffi_safety(
 
                 // --- Enum checks ---
                 if let Some(variants) = &class_def.enum_fields {
-                    let has_data_variants = variants.iter().any(|v| {
-                        v.values().any(|variant_data| variant_data.r#type.is_some())
-                    });
+                    let has_data_variants = variants
+                        .iter()
+                        .any(|v| v.values().any(|variant_data| variant_data.r#type.is_some()));
 
                     if has_data_variants {
                         // Enum with data needs repr(C, u8) or repr(C, i8) etc.
@@ -2425,11 +2451,24 @@ pub fn check_ffi_safety(
                     if !ta.generic_args.is_empty() {
                         let target_in_api = api_types.contains(&ta.target);
                         let is_known_type = |t: &str| -> bool {
-                            api_types.contains(t) || matches!(t,
-                                "u8" | "u16" | "u32" | "u64" | "u128" |
-                                "i8" | "i16" | "i32" | "i64" | "i128" |
-                                "f32" | "f64" | "bool" | "usize" | "isize"
-                            )
+                            api_types.contains(t)
+                                || matches!(
+                                    t,
+                                    "u8" | "u16"
+                                        | "u32"
+                                        | "u64"
+                                        | "u128"
+                                        | "i8"
+                                        | "i16"
+                                        | "i32"
+                                        | "i64"
+                                        | "i128"
+                                        | "f32"
+                                        | "f64"
+                                        | "bool"
+                                        | "usize"
+                                        | "isize"
+                                )
                         };
                         let all_args_in_api = ta.generic_args.iter().all(|arg| is_known_type(arg));
                         warnings.push(FfiSafetyWarning {
@@ -2517,11 +2556,14 @@ pub fn print_ffi_safety_warnings(warnings: &[FfiSafetyWarning]) {
     }
 
     // Print info warnings (skip GenericTypeAlias where target+args are all in api.json)
-    let actionable_info: Vec<_> = info.iter().filter(|w| {
-        !matches!(&w.kind, FfiSafetyWarningKind::GenericTypeAlias {
+    let actionable_info: Vec<_> = info
+        .iter()
+        .filter(|w| {
+            !matches!(&w.kind, FfiSafetyWarningKind::GenericTypeAlias {
             target_in_api, all_args_in_api, ..
         } if *target_in_api && *all_args_in_api)
-    }).collect();
+        })
+        .collect();
     if !actionable_info.is_empty() {
         println!(
             "\n{} {} FFI safety warnings (non-blocking):",
@@ -2780,7 +2822,10 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
-        FfiSafetyWarningKind::UnitTypeInSignature { location, full_type } => {
+        FfiSafetyWarningKind::UnitTypeInSignature {
+            location,
+            full_type,
+        } => {
             println!("  {} {}", "✗".red(), warning.type_name.white());
             println!(
                 "    {} {} uses unit type '()' which is not FFI-safe: {}",
@@ -2798,7 +2843,10 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
-        FfiSafetyWarningKind::BTreeMapOrHashMapField { field_name, map_type } => {
+        FfiSafetyWarningKind::BTreeMapOrHashMapField {
+            field_name,
+            map_type,
+        } => {
             println!("  {} {}", "✗".red(), warning.type_name.white());
             println!(
                 "    {} Field '{}' uses map type: {}",
@@ -2824,7 +2872,10 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
-        FfiSafetyWarningKind::ResultTypeReference { location, result_type } => {
+        FfiSafetyWarningKind::ResultTypeReference {
+            location,
+            result_type,
+        } => {
             println!("  {} {}", "✗".red(), warning.type_name.white());
             println!(
                 "    {} {} uses Result type: {}",
@@ -2838,7 +2889,10 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
-        FfiSafetyWarningKind::TupleTypeReference { location, tuple_type } => {
+        FfiSafetyWarningKind::TupleTypeReference {
+            location,
+            tuple_type,
+        } => {
             println!("  {} {}", "✗".red(), warning.type_name.white());
             println!(
                 "    {} {} uses tuple type: {}",
@@ -2866,7 +2920,10 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
-        FfiSafetyWarningKind::UndefinedTypeReference { location, referenced_type } => {
+        FfiSafetyWarningKind::UndefinedTypeReference {
+            location,
+            referenced_type,
+        } => {
             println!("  {} {}", "✗".red(), warning.type_name.white());
             println!(
                 "    {} {} references undefined type: {}",
@@ -2881,7 +2938,12 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
-        FfiSafetyWarningKind::GenericTypeAlias { target, generic_args, target_in_api, all_args_in_api } => {
+        FfiSafetyWarningKind::GenericTypeAlias {
+            target,
+            generic_args,
+            target_in_api,
+            all_args_in_api,
+        } => {
             let display = format!("{}<{}>", target, generic_args.join(", "));
             if *target_in_api && *all_args_in_api {
                 // Non-critical: both target and args are in api.json
@@ -2928,7 +2990,11 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
-        FfiSafetyWarningKind::NonCCompatibleSourceType { type_expr, message, origin } => {
+        FfiSafetyWarningKind::NonCCompatibleSourceType {
+            type_expr,
+            message,
+            origin,
+        } => {
             println!("  {} {}", "✗".red(), warning.type_name.white());
             println!(
                 "    {} {}: {}",
@@ -2968,7 +3034,11 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             );
             println!("    {} {}", "FILE:".dimmed(), warning.file_path.dimmed());
         }
-        FfiSafetyWarningKind::SuboptimalFieldOrder { current_order, optimal_order, estimated_padding_waste } => {
+        FfiSafetyWarningKind::SuboptimalFieldOrder {
+            current_order,
+            optimal_order,
+            estimated_padding_waste,
+        } => {
             println!("  {} {}", "⚠".yellow(), warning.type_name.white());
             println!(
                 "    {} Struct field order wastes ~{} bytes of padding per instance",
@@ -2979,7 +3049,10 @@ fn print_single_warning(warning: &FfiSafetyWarning) {
             for (name, align) in current_order {
                 println!("       {} (align {})", name.cyan(), align);
             }
-            println!("    {} Suggested order (sort by decreasing alignment):", "FIX:".cyan());
+            println!(
+                "    {} Suggested order (sort by decreasing alignment):",
+                "FIX:".cyan()
+            );
             for (name, align) in optimal_order {
                 println!("       {} (align {})", name.cyan(), align);
             }

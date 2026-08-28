@@ -76,7 +76,10 @@ fn register_handle(handle: FilePickerHandle) -> u64 {
 
 #[cfg(target_os = "ios")]
 fn pop_handle(request_id: u64) -> Option<FilePickerHandle> {
-    PENDING_PICKERS.lock().ok().and_then(|mut g| g.remove(&request_id))
+    PENDING_PICKERS
+        .lock()
+        .ok()
+        .and_then(|mut g| g.remove(&request_id))
 }
 
 /// Convert a UTI-style extension descriptor (e.g. "*.png", "png", "image/png")
@@ -112,9 +115,7 @@ unsafe fn ut_type_for_descriptor(descriptor: &str) -> *mut Object {
     };
 
     if let Some(method) = class_method {
-        let sel = objc::runtime::Sel::register(
-            &format!("{}\0", method),
-        );
+        let sel = objc::runtime::Sel::register(&format!("{}\0", method));
         let t: *mut Object = msg_send![cls, performSelector: sel];
         if !t.is_null() {
             return t;
@@ -136,8 +137,7 @@ unsafe fn nsstring_from_str(s: &str) -> *mut Object {
     bytes.extend_from_slice(s.as_bytes());
     bytes.push(0);
     let cstr = bytes.as_ptr() as *const i8;
-    let ns: *mut Object =
-        msg_send![class!(NSString), stringWithUTF8String: cstr];
+    let ns: *mut Object = msg_send![class!(NSString), stringWithUTF8String: cstr];
     ns
 }
 
@@ -264,8 +264,7 @@ fn get_or_create_delegate_class() -> &'static Class {
         decl.add_ivar::<u64>("requestID");
         decl.add_method(
             sel!(documentPicker:didPickDocumentsAtURLs:),
-            document_picker_did_pick
-                as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
+            document_picker_did_pick as extern "C" fn(&Object, Sel, *mut Object, *mut Object),
         );
         decl.add_method(
             sel!(documentPickerWasCancelled:),
@@ -354,7 +353,9 @@ pub fn dispatch_open_file(
             // scene hasn't attached yet). Drop the registry entry and
             // resolve the handle to an error so the caller doesn't hang.
             let _ = pop_handle(request_id);
-            handle.set_status(FilePickerStatus::Error(AzString::from("no key window — file picker cannot present")));
+            handle.set_status(FilePickerStatus::Error(AzString::from(
+                "no key window — file picker cannot present",
+            )));
             return;
         }
 
@@ -370,7 +371,9 @@ pub fn dispatch_open_file(
         ];
         if picker.is_null() {
             let _ = pop_handle(request_id);
-            handle.set_status(FilePickerStatus::Error(AzString::from("UIDocumentPickerViewController alloc failed")));
+            handle.set_status(FilePickerStatus::Error(AzString::from(
+                "UIDocumentPickerViewController alloc failed",
+            )));
             return;
         }
 
@@ -434,7 +437,9 @@ pub fn dispatch_open_directory(
         let root = key_root_view_controller();
         if root.is_null() {
             let _ = pop_handle(request_id);
-            handle.set_status(FilePickerStatus::Error(AzString::from("no key window — directory picker cannot present")));
+            handle.set_status(FilePickerStatus::Error(AzString::from(
+                "no key window — directory picker cannot present",
+            )));
             return;
         }
 
@@ -464,7 +469,9 @@ pub fn dispatch_open_directory(
         ];
         if picker.is_null() {
             let _ = pop_handle(request_id);
-            handle.set_status(FilePickerStatus::Error(AzString::from("UIDocumentPickerViewController alloc failed")));
+            handle.set_status(FilePickerStatus::Error(AzString::from(
+                "UIDocumentPickerViewController alloc failed",
+            )));
             return;
         }
 

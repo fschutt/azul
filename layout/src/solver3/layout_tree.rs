@@ -43,7 +43,8 @@ pub struct IfcId(pub u32);
 
 impl IfcId {
     /// Generate a new unique IFC ID (within the current thread's layout pass).
-    #[must_use] pub fn unique() -> Self {
+    #[must_use]
+    pub fn unique() -> Self {
         IFC_ID_COUNTER.with(|c| {
             let v = c.get();
             c.set(v.wrapping_add(1));
@@ -102,9 +103,9 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_css::{
+    codegen::format::GetHash,
     corety::LayoutDebugMessage,
     css::CssPropertyValue,
-    codegen::format::GetHash,
     props::{
         basic::{
             pixel::DEFAULT_FONT_SIZE, PhysicalSize, PixelValue, PropertyContext, ResolutionContext,
@@ -131,9 +132,8 @@ use crate::{
         getters::{
             get_css_height, get_css_max_height, get_css_max_width, get_css_min_height,
             get_css_min_width, get_css_width, get_direction_property as get_direction,
-            get_display_property, get_float, get_overflow_x,
-            get_overflow_y, get_position, get_text_align,
-            get_text_orientation_property as get_text_orientation,
+            get_display_property, get_float, get_overflow_x, get_overflow_y, get_position,
+            get_text_align, get_text_orientation_property as get_text_orientation,
             get_white_space_property, get_writing_mode, MultiValue,
         },
         scrollbar::ScrollbarRequirements,
@@ -404,7 +404,11 @@ fn compute_glyph_runs_with_mode(
     let ours = crate::text3::dense::get_glyph_runs_simple_dense(&dense);
     if mode == 2 {
         let reference = crate::text3::glyphs::get_glyph_runs_simple(layout);
-        assert_eq!(reference.len(), ours.len(), "AZ_DENSE_TEXT=verify: run count diverged");
+        assert_eq!(
+            reference.len(),
+            ours.len(),
+            "AZ_DENSE_TEXT=verify: run count diverged"
+        );
         for (i, (r, o)) in reference.iter().zip(ours.iter()).enumerate() {
             assert!(
                 r.color == o.color
@@ -425,15 +429,28 @@ fn compute_glyph_runs_with_mode(
                  color {:?}/{:?} bg {:?}/{:?} font_hash {:?}/{:?} size {}/{} \
                  deco {:?}/{:?} node {:?}/{:?}\n  glyph count {} vs {}\n  \
                  ref glyphs {:?}\n  our glyphs {:?}",
-                r.color, o.color,
-                r.background_color, o.background_color,
-                r.font_hash, o.font_hash,
-                r.font_size_px, o.font_size_px,
-                r.text_decoration, o.text_decoration,
-                r.source_node_id, o.source_node_id,
-                r.glyphs.len(), o.glyphs.len(),
-                r.glyphs.iter().map(|g| (g.index, g.point.x, g.point.y)).collect::<Vec<_>>(),
-                o.glyphs.iter().map(|g| (g.index, g.point.x, g.point.y)).collect::<Vec<_>>(),
+                r.color,
+                o.color,
+                r.background_color,
+                o.background_color,
+                r.font_hash,
+                o.font_hash,
+                r.font_size_px,
+                o.font_size_px,
+                r.text_decoration,
+                o.text_decoration,
+                r.source_node_id,
+                o.source_node_id,
+                r.glyphs.len(),
+                o.glyphs.len(),
+                r.glyphs
+                    .iter()
+                    .map(|g| (g.index, g.point.x, g.point.y))
+                    .collect::<Vec<_>>(),
+                o.glyphs
+                    .iter()
+                    .map(|g| (g.index, g.point.x, g.point.y))
+                    .collect::<Vec<_>>(),
             );
         }
     }
@@ -499,7 +516,8 @@ fn extract_item_metrics_dense(
 
 impl CachedInlineLayout {
     /// Creates a new cached inline layout.
-    #[must_use] pub fn new(
+    #[must_use]
+    pub fn new(
         layout: Arc<UnifiedLayout>,
         available_width: AvailableSpace,
         has_floats: bool,
@@ -527,7 +545,8 @@ impl CachedInlineLayout {
     }
 
     /// Creates a new cached inline layout with full constraints.
-    #[must_use] pub fn new_with_constraints(
+    #[must_use]
+    pub fn new_with_constraints(
         layout: Arc<UnifiedLayout>,
         available_width: AvailableSpace,
         has_floats: bool,
@@ -538,7 +557,8 @@ impl CachedInlineLayout {
             _ => f32::MAX,
         };
         let line_breaks = Some(crate::text3::cache::extract_line_breaks(
-            &layout.items, available_width_px,
+            &layout.items,
+            available_width_px,
         ));
         let (runs, dense) = compute_glyph_runs(&layout);
         let glyph_runs = Arc::new(compact_glyph_runs(runs));
@@ -618,10 +638,12 @@ impl CachedInlineLayout {
         layout: &Arc<UnifiedLayout>,
         dense: Option<&Arc<crate::text3::dense::DenseText>>,
     ) -> Arc<dyn std::any::Any + Send + Sync> {
-        if let Some(d) = dense { Arc::new(TextPayload {
-            dense: d.clone(),
-            sparse: layout.clone(),
-        }) } else {
+        if let Some(d) = dense {
+            Arc::new(TextPayload {
+                dense: d.clone(),
+                sparse: layout.clone(),
+            })
+        } else {
             let shared: Arc<dyn std::any::Any + Send + Sync> = layout.clone();
             shared
         }
@@ -643,7 +665,11 @@ impl CachedInlineLayout {
         let verify = std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify");
         if verify {
             let reference = Self::extract_item_metrics(layout);
-            assert_eq!(reference.len(), from_dense.len(), "d2 verify: metrics count");
+            assert_eq!(
+                reference.len(),
+                from_dense.len(),
+                "d2 verify: metrics count"
+            );
             for (i, (r, o)) in reference.iter().zip(from_dense.iter()).enumerate() {
                 assert!(
                     r.source_node_id == o.source_node_id
@@ -667,39 +693,43 @@ impl CachedInlineLayout {
     /// for each positioned item.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     fn extract_item_metrics(layout: &UnifiedLayout) -> Vec<InlineItemMetrics> {
-        use crate::text3::cache::{ShapedItem, get_item_vertical_metrics_approx};
+        use crate::text3::cache::{get_item_vertical_metrics_approx, ShapedItem};
 
-        layout.items.iter().map(|positioned_item| {
-            let bounds = positioned_item.item.bounds();
-            let (ascent, descent) = get_item_vertical_metrics_approx(&positioned_item.item);
+        layout
+            .items
+            .iter()
+            .map(|positioned_item| {
+                let bounds = positioned_item.item.bounds();
+                let (ascent, descent) = get_item_vertical_metrics_approx(&positioned_item.item);
 
-            let source_node_id = match &positioned_item.item {
-                ShapedItem::Cluster(c) => c.source_node_id,
-                // Objects (inline-blocks, images) and other generated items
-                // don't expose source_node_id directly on ShapedItem.
-                // Phase 2c will refine this via the ContentIndex mapping.
-                ShapedItem::Object { .. }
-                | ShapedItem::CombinedBlock { .. }
-                | ShapedItem::Tab { .. }
-                | ShapedItem::Break { .. } => None,
-            };
+                let source_node_id = match &positioned_item.item {
+                    ShapedItem::Cluster(c) => c.source_node_id,
+                    // Objects (inline-blocks, images) and other generated items
+                    // don't expose source_node_id directly on ShapedItem.
+                    // Phase 2c will refine this via the ContentIndex mapping.
+                    ShapedItem::Object { .. }
+                    | ShapedItem::CombinedBlock { .. }
+                    | ShapedItem::Tab { .. }
+                    | ShapedItem::Break { .. } => None,
+                };
 
-            // For Phase 2a, default can_break = true for all items.
-            // Phase 2c will refine this by checking the white-space property
-            // on the IFC root's style or the item's own style context.
-            // (Note: text3::StyleProperties doesn't carry white-space;
-            //  that's resolved at the IFC/BFC boundary level.)
-            let can_break = !matches!(&positioned_item.item, ShapedItem::Break { .. });
+                // For Phase 2a, default can_break = true for all items.
+                // Phase 2c will refine this by checking the white-space property
+                // on the IFC root's style or the item's own style context.
+                // (Note: text3::StyleProperties doesn't carry white-space;
+                //  that's resolved at the IFC/BFC boundary level.)
+                let can_break = !matches!(&positioned_item.item, ShapedItem::Break { .. });
 
-            InlineItemMetrics {
-                source_node_id,
-                advance_width: bounds.width,
-                line_height_contribution: ascent + descent,
-                can_break,
-                line_index: positioned_item.line_index as u32,
-                x_offset: positioned_item.position.x,
-            }
-        }).collect()
+                InlineItemMetrics {
+                    source_node_id,
+                    advance_width: bounds.width,
+                    line_height_contribution: ascent + descent,
+                    can_break,
+                    line_index: positioned_item.line_index as u32,
+                    x_offset: positioned_item.position.x,
+                }
+            })
+            .collect()
     }
 
     /// Checks if this cached layout is valid for the given constraints.
@@ -711,7 +741,8 @@ impl CachedInlineLayout {
     ///
     /// The second condition preserves float-aware layouts, which are more "correct" than
     /// non-float layouts and shouldn't be overwritten.
-    #[must_use] pub fn is_valid_for(&self, new_width: AvailableSpace, new_has_floats: bool) -> bool {
+    #[must_use]
+    pub fn is_valid_for(&self, new_width: AvailableSpace, new_has_floats: bool) -> bool {
         // A cached layout with NO floats must not be reused when the new request DOES
         // have floats: the line boxes have to re-wrap around the float exclusions.
         // Without this, the two-pass IFC path (no-float sizing pass, then float-aware
@@ -758,7 +789,8 @@ impl CachedInlineLayout {
     /// Determines if this cached layout should be replaced by a new layout.
     ///
     /// Returns true if the new layout should replace this one.
-    #[must_use] pub fn should_replace_with(&self, new_width: AvailableSpace, new_has_floats: bool) -> bool {
+    #[must_use]
+    pub fn should_replace_with(&self, new_width: AvailableSpace, new_has_floats: bool) -> bool {
         // Always replace if we gain float information
         if new_has_floats && !self.has_floats {
             return true;
@@ -773,7 +805,8 @@ impl CachedInlineLayout {
     /// This is a convenience method for code that only needs the layout data
     /// and doesn't care about the caching metadata.
     #[inline]
-    #[must_use] pub const fn get_layout(&self) -> &Arc<UnifiedLayout> {
+    #[must_use]
+    pub const fn get_layout(&self) -> &Arc<UnifiedLayout> {
         &self.layout
     }
 
@@ -782,7 +815,8 @@ impl CachedInlineLayout {
     /// This is useful for APIs that need to return an owned reference
     /// to the layout without exposing the caching metadata.
     #[inline]
-    #[must_use] pub fn clone_layout(&self) -> Arc<UnifiedLayout> {
+    #[must_use]
+    pub fn clone_layout(&self) -> Arc<UnifiedLayout> {
         self.layout.clone()
     }
 }
@@ -813,7 +847,6 @@ impl CachedInlineLayout {
 pub struct LayoutNode {
     // ── HOT tier: accessed on every node in every layout pass ────────────
     // These fields should fit in the first 2-3 cache lines (~128-192 bytes).
-
     /// The resolved box model properties (margin, border, padding)
     /// in logical pixels. Cached after first resolution.
     /// (148 accesses — hottest field)
@@ -835,7 +868,6 @@ pub struct LayoutNode {
     pub parent: Option<usize>,
 
     // ── WARM tier: frequently accessed but not on every node ─────────────
-
     /// Cached intrinsic sizes (min-content, max-content, etc.)
     /// (16 accesses — sizing pass only)
     pub intrinsic_sizes: Option<IntrinsicSizes>,
@@ -847,7 +879,7 @@ pub struct LayoutNode {
     ///
     /// This field stores both the computed layout AND the constraints (available width,
     /// float state) under which it was computed. This is essential for correctness:
-    /// 
+    ///
     /// - Table cells are measured multiple times with different widths
     /// - Min-content/max-content intrinsic sizing uses special constraint values
     /// - The final layout must use the actual available width, not a measurement width
@@ -923,7 +955,6 @@ pub struct LayoutNode {
     pub containing_block_index: Option<usize>,
 
     // ── COLD tier: construction / reconciliation / debugging only ────────
-
     /// Type of anonymous box (if applicable)
     /// (2 accesses)
     pub anonymous_type: Option<AnonymousBoxType>,
@@ -955,7 +986,7 @@ pub struct LayoutNode {
 }
 
 /// Pre-computed CSS properties needed during layout.
-/// 
+///
 /// This struct stores resolved CSS values that are frequently accessed during
 /// layout calculations. By computing these once during layout tree construction,
 /// we avoid O(n * m) style lookups where n = nodes and m = layout passes.
@@ -1117,8 +1148,7 @@ pub struct LayoutNodeWarm {
 ///
 /// Stored in a separate `Vec`. These fields are rarely accessed during layout;
 /// mostly used during tree construction, reconciliation, and dirty tracking.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct LayoutNodeCold {
     /// Type of anonymous box (if applicable)
     pub anonymous_type: Option<AnonymousBoxType>,
@@ -1140,11 +1170,11 @@ pub struct LayoutNodeCold {
     pub ifc_id: Option<IfcId>,
 }
 
-
 impl LayoutNode {
     /// Split this full layout node into hot/warm/cold components.
     /// Used during `LayoutTreeBuilder::build()` to create the `SoA` layout.
-    #[must_use] pub fn split(self) -> (LayoutNodeHot, LayoutNodeWarm, LayoutNodeCold) {
+    #[must_use]
+    pub fn split(self) -> (LayoutNodeHot, LayoutNodeWarm, LayoutNodeCold) {
         (
             LayoutNodeHot {
                 box_props: crate::solver3::geometry::PackedBoxProps::pack(&self.box_props),
@@ -1319,7 +1349,8 @@ pub struct LayoutTreeMemoryReport {
 }
 
 impl LayoutTreeMemoryReport {
-    #[must_use] pub const fn total_bytes(&self) -> usize {
+    #[must_use]
+    pub const fn total_bytes(&self) -> usize {
         self.hot_bytes
             + self.warm_bytes
             + self.warm_inline_layout_bytes
@@ -1358,7 +1389,8 @@ impl Iterator for AncestorChain<'_> {
 
 impl LayoutTree {
     /// Approximate heap bytes retained by this `LayoutTree`.
-    #[must_use] pub fn memory_report(&self) -> LayoutTreeMemoryReport {
+    #[must_use]
+    pub fn memory_report(&self) -> LayoutTreeMemoryReport {
         let mut report = LayoutTreeMemoryReport {
             node_count: self.nodes.len(),
             hot_bytes: self.nodes.capacity() * size_of::<LayoutNodeHot>(),
@@ -1390,8 +1422,7 @@ impl LayoutTree {
             alloc::collections::BTreeSet::new();
         let mut style_arcs: alloc::collections::BTreeSet<usize> =
             alloc::collections::BTreeSet::new();
-        let mut run_arcs: alloc::collections::BTreeSet<usize> =
-            alloc::collections::BTreeSet::new();
+        let mut run_arcs: alloc::collections::BTreeSet<usize> = alloc::collections::BTreeSet::new();
         for w in &self.warm {
             if let Some(cached) = &w.inline_layout_result {
                 // The Box allocation itself — CachedInlineLayout is boxed off
@@ -1407,9 +1438,9 @@ impl LayoutTree {
                 }
                 // Cached line breaks (edit fast-path).
                 if let Some(lb) = &cached.line_breaks {
-                    report.warm_inline_layout_bytes +=
-                        lb.line_ranges.capacity() * size_of::<(usize, usize)>()
-                            + lb.line_widths.capacity() * size_of::<f32>();
+                    report.warm_inline_layout_bytes += lb.line_ranges.capacity()
+                        * size_of::<(usize, usize)>()
+                        + lb.line_widths.capacity() * size_of::<f32>();
                 }
                 // The payload Arc: when it is a TextPayload wrapper, that
                 // allocation holds two Arc CLONES of buffers counted
@@ -1420,9 +1451,7 @@ impl LayoutTree {
                 }
                 // Paint-run cache — its own report line (see the field doc).
                 // Distinct Arcs only: GlyphSwap reuse clones the Arc.
-                if run_arcs
-                    .insert(Arc::as_ptr(&cached.glyph_runs).cast::<u8>() as usize)
-                {
+                if run_arcs.insert(Arc::as_ptr(&cached.glyph_runs).cast::<u8>() as usize) {
                     report.glyph_run_bytes += cached.glyph_runs.capacity()
                         * size_of::<crate::text3::glyphs::CompactGlyphRun>();
                     for run in cached.glyph_runs.iter() {
@@ -1437,8 +1466,8 @@ impl LayoutTree {
                 report.warm_inline_layout_bytes += size_of::<UnifiedLayout>();
                 report.warm_inline_layout_bytes += cached.layout.items.capacity()
                     * size_of::<crate::text3::cache::PositionedItem>();
-                report.warm_inline_layout_bytes += cached.item_metrics.capacity()
-                    * size_of::<InlineItemMetrics>();
+                report.warm_inline_layout_bytes +=
+                    cached.item_metrics.capacity() * size_of::<InlineItemMetrics>();
                 // (d1): the retained dense view, when AZ_DENSE_TEXT keeps it.
                 // Counted per-field so the sparse-vs-dense split is honest
                 // during the reader migration (both alive = the transitional
@@ -1489,7 +1518,8 @@ impl LayoutTree {
 
     /// Returns the children of node `index` as a contiguous slice from the arena.
     #[inline]
-    #[must_use] pub fn children(&self, index: usize) -> &[usize] {
+    #[must_use]
+    pub fn children(&self, index: usize) -> &[usize] {
         if let Some(&(start, len)) = self.children_offsets.get(index) {
             &self.children_arena[(start as usize)..((start as usize) + (len as usize))]
         } else {
@@ -1499,7 +1529,8 @@ impl LayoutTree {
 
     /// Get hot layout data for a node (`box_props`, `dom_node_id`, `used_size`, etc.)
     #[inline]
-    #[must_use] pub fn get(&self, index: LayoutNodeId) -> Option<&LayoutNodeHot> {
+    #[must_use]
+    pub fn get(&self, index: LayoutNodeId) -> Option<&LayoutNodeHot> {
         self.nodes.get(index.index())
     }
 
@@ -1546,7 +1577,8 @@ impl LayoutTree {
     /// a malformed (cyclic) `parent` chain terminates instead of spinning,
     /// while a legitimately deep tree is never truncated.
     #[inline]
-    #[must_use] pub fn ancestor_chain(
+    #[must_use]
+    pub fn ancestor_chain(
         &self,
         index: LayoutNodeId,
         inclusivity: Inclusivity,
@@ -1571,7 +1603,8 @@ impl LayoutTree {
 
     /// Get warm layout data for a node (`intrinsic_sizes`, baseline, `inline_layout`, etc.)
     #[inline]
-    #[must_use] pub fn warm(&self, index: LayoutNodeId) -> Option<&LayoutNodeWarm> {
+    #[must_use]
+    pub fn warm(&self, index: LayoutNodeId) -> Option<&LayoutNodeWarm> {
         self.warm.get(index.index())
     }
 
@@ -1583,7 +1616,8 @@ impl LayoutTree {
 
     /// Get cold layout data for a node (`dirty_flag`, `subtree_hash`, fingerprint, etc.)
     #[inline]
-    #[must_use] pub fn cold(&self, index: LayoutNodeId) -> Option<&LayoutNodeCold> {
+    #[must_use]
+    pub fn cold(&self, index: LayoutNodeId) -> Option<&LayoutNodeCold> {
         self.cold.get(index.index())
     }
 
@@ -1600,7 +1634,8 @@ impl LayoutTree {
     /// Reconstruct a full `LayoutNode` from the split hot/warm/cold arrays.
     ///
     /// Used when passing node data to `LayoutTreeBuilder::clone_node_from_old()`.
-    #[must_use] pub fn get_full_node(&self, index: usize) -> Option<LayoutNode> {
+    #[must_use]
+    pub fn get_full_node(&self, index: usize) -> Option<LayoutNode> {
         let hot = self.nodes.get(index)?;
         let warm = self.warm.get(index).cloned().unwrap_or_default();
         let cold = self.cold.get(index).cloned().unwrap_or_default();
@@ -1653,8 +1688,11 @@ impl LayoutTree {
             element_font_size,
             root_font_size,
         };
-        if let (Some(hot), Some(cold)) = (self.nodes.get_mut(node_index), self.cold.get(node_index)) {
-            hot.box_props = crate::solver3::geometry::PackedBoxProps::pack(&cold.unresolved_box_props.resolve(&params));
+        if let (Some(hot), Some(cold)) = (self.nodes.get_mut(node_index), self.cold.get(node_index))
+        {
+            hot.box_props = crate::solver3::geometry::PackedBoxProps::pack(
+                &cold.unresolved_box_props.resolve(&params),
+            );
         }
     }
 
@@ -1706,7 +1744,11 @@ impl LayoutTree {
     /// (d4) The dense view for a node, resolved through the SAME IFC
     /// membership walk as [`Self::get_inline_layout_for_node`]. `None`
     /// when no dense view is retained (flag off) or the node has no IFC.
-    #[must_use] pub fn get_dense_for_node(&self, layout_index: usize) -> Option<&Arc<crate::text3::dense::DenseText>> {
+    #[must_use]
+    pub fn get_dense_for_node(
+        &self,
+        layout_index: usize,
+    ) -> Option<&Arc<crate::text3::dense::DenseText>> {
         let warm = self.warm.get(layout_index)?;
         if let Some(cached) = &warm.inline_layout_result {
             return cached.dense.as_ref();
@@ -1745,7 +1787,8 @@ impl LayoutTree {
         Some(cached.layout.clone())
     }
 
-    #[must_use] pub fn get_inline_layout_for_node(&self, layout_index: usize) -> Option<&Arc<UnifiedLayout>> {
+    #[must_use]
+    pub fn get_inline_layout_for_node(&self, layout_index: usize) -> Option<&Arc<UnifiedLayout>> {
         let warm = self.warm.get(layout_index)?;
 
         // First, check if this node has its own inline_layout_result (it's an IFC root)
@@ -1770,7 +1813,8 @@ impl LayoutTree {
     /// their own box position (it stays the `f32::MIN` sentinel) — their geometry lives
     /// in the IFC root's content box, so selection/inline painting must anchor to the
     /// IFC root's position, not the text node's. See `get_inline_layout_for_node`.
-    #[must_use] pub fn get_ifc_root_layout_index(&self, layout_index: usize) -> usize {
+    #[must_use]
+    pub fn get_ifc_root_layout_index(&self, layout_index: usize) -> usize {
         if let Some(warm) = self.warm.get(layout_index) {
             if warm.inline_layout_result.is_none() {
                 if let Some(ifc_membership) = &warm.ifc_membership {
@@ -1805,7 +1849,8 @@ impl LayoutTree {
     }
 
     /// Get the content size of a node (for scrollbar calculations).
-    #[must_use] pub fn get_content_size(&self, index: LayoutNodeId) -> LogicalSize {
+    #[must_use]
+    pub fn get_content_size(&self, index: LayoutNodeId) -> LogicalSize {
         let Some(warm) = self.warm.get(index.index()) else {
             return LogicalSize::default();
         };
@@ -1850,8 +1895,7 @@ pub fn generate_layout_tree<T: ParsedFontTrait>(
         .root
         .into_crate_internal()
         .unwrap_or(NodeId::ZERO);
-    let root_index =
-        builder.process_node(ctx.styled_dom, root_id, None, ctx.debug_messages)?;
+    let root_index = builder.process_node(ctx.styled_dom, root_id, None, ctx.debug_messages)?;
     builder.apply_split_previews(ctx.content_overlay, ctx.styled_dom);
     let mut layout_tree = builder.build(root_index);
 
@@ -1861,7 +1905,8 @@ pub fn generate_layout_tree<T: ParsedFontTrait>(
     // are frozen from here until the next layout-tree rebuild. The intrinsic
     // sizing pass reads this to skip subtrees whose intrinsics are never
     // consumed (§58 Win #3).
-    layout_tree.subtree_needs_intrinsic = compute_subtree_needs_intrinsic(ctx.styled_dom, &layout_tree);
+    layout_tree.subtree_needs_intrinsic =
+        compute_subtree_needs_intrinsic(ctx.styled_dom, &layout_tree);
 
     debug_log!(
         ctx,
@@ -1899,7 +1944,9 @@ pub(crate) fn is_shrink_to_fit_context(
         | FormattingContext::InlineBlock => return true,
         _ => {}
     }
-    let Some(dom_id) = dom_node_id else { return false; };
+    let Some(dom_id) = dom_node_id else {
+        return false;
+    };
     let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let float_val = match get_float(styled_dom, dom_id, node_state) {
         MultiValue::Exact(v) => v,
@@ -1922,15 +1969,13 @@ pub(crate) fn is_shrink_to_fit_context(
 /// context." Post-order walk: `out[i] = self_stf(i) || any(out[child_of_i])`.
 /// Layout tree nodes are built top-down (pre-order), so iterating from the end
 /// visits children before parents.
-fn compute_subtree_needs_intrinsic(
-    styled_dom: &StyledDom,
-    tree: &LayoutTree,
-) -> Vec<bool> {
+fn compute_subtree_needs_intrinsic(styled_dom: &StyledDom, tree: &LayoutTree) -> Vec<bool> {
     let n = tree.nodes.len();
     let mut out = vec![false; n];
     for idx in (0..n).rev() {
         let hot = &tree.nodes[idx];
-        let self_stf = is_shrink_to_fit_context(styled_dom, hot.dom_node_id, hot.formatting_context);
+        let self_stf =
+            is_shrink_to_fit_context(styled_dom, hot.dom_node_id, hot.formatting_context);
         let mut any = self_stf;
         if !any {
             for &child in tree.children(idx) {
@@ -1959,7 +2004,8 @@ pub struct LayoutTreeBuilder {
 }
 
 impl LayoutTreeBuilder {
-    #[must_use] pub const fn new(viewport_size: LogicalSize) -> Self {
+    #[must_use]
+    pub const fn new(viewport_size: LogicalSize) -> Self {
         Self {
             nodes: Vec::new(),
             dom_to_layout: BTreeMap::new(),
@@ -1967,7 +2013,8 @@ impl LayoutTreeBuilder {
         }
     }
 
-    #[must_use] pub fn get(&self, index: usize) -> Option<&LayoutNode> {
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<&LayoutNode> {
         self.nodes.get(index)
     }
 
@@ -2009,9 +2056,20 @@ impl LayoutTreeBuilder {
         // 2. position:absolute or position:fixed → float computes to 'none', blockify
         // 3. float is not 'none' → blockify
         // 4. Flex/Grid children → blockify
-        let node_position = self.nodes.get(node_idx).map(|n| n.computed_style.position).unwrap_or_default();
-        let node_float = self.nodes.get(node_idx).map(|n| n.computed_style.float).unwrap_or_default();
-        let is_absolute_or_fixed = matches!(node_position, LayoutPosition::Absolute | LayoutPosition::Fixed);
+        let node_position = self
+            .nodes
+            .get(node_idx)
+            .map(|n| n.computed_style.position)
+            .unwrap_or_default();
+        let node_float = self
+            .nodes
+            .get(node_idx)
+            .map(|n| n.computed_style.float)
+            .unwrap_or_default();
+        let is_absolute_or_fixed = matches!(
+            node_position,
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        );
         let is_floated = node_float != LayoutFloat::None;
         let is_root = parent_idx.is_none();
 
@@ -2023,20 +2081,30 @@ impl LayoutTreeBuilder {
         }
 
         let is_flex_grid_child = parent_idx
-            .and_then(|p| self.nodes.get(p).map(|n| matches!(n.formatting_context, FormattingContext::Flex | FormattingContext::Grid)))
+            .and_then(|p| {
+                self.nodes.get(p).map(|n| {
+                    matches!(
+                        n.formatting_context,
+                        FormattingContext::Flex | FormattingContext::Grid
+                    )
+                })
+            })
             .unwrap_or(false);
 
         let display_type = crate::solver3::getters::get_computed_display(
-            raw_display, is_absolute_or_fixed, is_floated, is_root, is_flex_grid_child,
+            raw_display,
+            is_absolute_or_fixed,
+            is_floated,
+            is_root,
+            is_flex_grid_child,
         );
 
         // If blockification changed the display type, update the node's formatting context
         if display_type != raw_display {
             if let Some(node) = self.nodes.get_mut(node_idx) {
                 node.computed_style.display = display_type;
-                node.formatting_context = determine_formatting_context_for_display(
-                    styled_dom, dom_id, display_type,
-                );
+                node.formatting_context =
+                    determine_formatting_context_for_display(styled_dom, dom_id, display_type);
             }
         }
 
@@ -2051,7 +2119,9 @@ impl LayoutTreeBuilder {
                 loop {
                     match ancestor {
                         Some(idx) => {
-                            let pos = self.nodes.get(idx)
+                            let pos = self
+                                .nodes
+                                .get(idx)
                                 .map(|n| n.computed_style.position)
                                 .unwrap_or_default();
                             if pos.is_positioned() {
@@ -2070,7 +2140,10 @@ impl LayoutTreeBuilder {
 
         if parent_idx.is_none() {
             if let Some(node) = self.nodes.get_mut(node_idx) {
-                if let FormattingContext::Block { ref mut establishes_new_context } = node.formatting_context {
+                if let FormattingContext::Block {
+                    ref mut establishes_new_context,
+                } = node.formatting_context
+                {
                     *establishes_new_context = true;
                 }
             }
@@ -2134,7 +2207,12 @@ impl LayoutTreeBuilder {
             // Process children as if they belong to the parent (or root if no parent)
             let effective_parent = parent_idx.unwrap_or(node_idx);
             for child_dom_id in layout_children(styled_dom, dom_id) {
-                self.process_node(styled_dom, child_dom_id, Some(effective_parent), debug_messages)?;
+                self.process_node(
+                    styled_dom,
+                    child_dom_id,
+                    Some(effective_parent),
+                    debug_messages,
+                )?;
             }
             return Ok(node_idx);
         }
@@ -2154,7 +2232,12 @@ impl LayoutTreeBuilder {
             LayoutDisplay::TableRowGroup
             | LayoutDisplay::TableHeaderGroup
             | LayoutDisplay::TableFooterGroup => {
-                self.process_table_row_group_children(styled_dom, dom_id, node_idx, debug_messages)?;
+                self.process_table_row_group_children(
+                    styled_dom,
+                    dom_id,
+                    node_idx,
+                    debug_messages,
+                )?;
             }
             LayoutDisplay::TableRow => {
                 self.process_table_row_children(styled_dom, dom_id, node_idx, debug_messages)?;
@@ -2171,7 +2254,12 @@ impl LayoutTreeBuilder {
                 for child_dom_id in layout_children(styled_dom, dom_id) {
                     let child_display = get_display_type(styled_dom, child_dom_id);
                     if child_display == LayoutDisplay::TableColumn {
-                        self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
+                        self.process_node(
+                            styled_dom,
+                            child_dom_id,
+                            Some(node_idx),
+                            debug_messages,
+                        )?;
                     }
                     // Non-table-column children are suppressed (treated as display:none)
                 }
@@ -2207,8 +2295,10 @@ impl LayoutTreeBuilder {
 
                 let is_flex_or_grid = matches!(
                     display_type,
-                    LayoutDisplay::Flex | LayoutDisplay::InlineFlex
-                    | LayoutDisplay::Grid | LayoutDisplay::InlineGrid
+                    LayoutDisplay::Flex
+                        | LayoutDisplay::InlineFlex
+                        | LayoutDisplay::Grid
+                        | LayoutDisplay::InlineGrid
                 );
 
                 for child_dom_id in children {
@@ -2222,11 +2312,23 @@ impl LayoutTreeBuilder {
                         let wrapper_idx = self.create_anonymous_node(
                             node_idx,
                             AnonymousBoxType::TableWrapper,
-                            FormattingContext::Block { establishes_new_context: true },
+                            FormattingContext::Block {
+                                establishes_new_context: true,
+                            },
                         );
-                        self.process_node(styled_dom, child_dom_id, Some(wrapper_idx), debug_messages)?;
+                        self.process_node(
+                            styled_dom,
+                            child_dom_id,
+                            Some(wrapper_idx),
+                            debug_messages,
+                        )?;
                     } else {
-                        let child_idx = self.process_node(styled_dom, child_dom_id, Some(node_idx), debug_messages)?;
+                        let child_idx = self.process_node(
+                            styled_dom,
+                            child_dom_id,
+                            Some(node_idx),
+                            debug_messages,
+                        )?;
                         // table-internal flex items are blockified, preventing anonymous table
                         // box generation (e.g. two display:table-cell flex items become two
                         // separate display:block flex items)
@@ -2365,12 +2467,9 @@ impl LayoutTreeBuilder {
 
             if is_expected_child(child_display) {
                 if !non_matching_children.is_empty() {
-                    let anon_idx = self.create_anonymous_node(
-                        parent_idx,
-                        anon_type,
-                        anon_fc,
-                    );
-                    #[allow(clippy::iter_with_drain)] // accumulator Vec reused across runs; drain(..) empties it while retaining the allocation
+                    let anon_idx = self.create_anonymous_node(parent_idx, anon_type, anon_fc);
+                    #[allow(clippy::iter_with_drain)]
+                    // accumulator Vec reused across runs; drain(..) empties it while retaining the allocation
                     for np_id in non_matching_children.drain(..) {
                         self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
                     }
@@ -2382,11 +2481,7 @@ impl LayoutTreeBuilder {
         }
 
         if !non_matching_children.is_empty() {
-            let anon_idx = self.create_anonymous_node(
-                parent_idx,
-                anon_type,
-                anon_fc,
-            );
+            let anon_idx = self.create_anonymous_node(parent_idx, anon_type, anon_fc);
             for np_id in non_matching_children {
                 self.process_node(styled_dom, np_id, Some(anon_idx), debug_messages)?;
             }
@@ -2403,7 +2498,9 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         self.process_table_level_children(
-            styled_dom, parent_dom_id, parent_idx,
+            styled_dom,
+            parent_dom_id,
+            parent_idx,
             is_proper_table_child,
             AnonymousBoxType::TableRow,
             FormattingContext::TableRow,
@@ -2419,7 +2516,9 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         self.process_table_level_children(
-            styled_dom, parent_dom_id, parent_idx,
+            styled_dom,
+            parent_dom_id,
+            parent_idx,
             |d| d == LayoutDisplay::TableRow,
             AnonymousBoxType::TableRow,
             FormattingContext::TableRow,
@@ -2435,10 +2534,14 @@ impl LayoutTreeBuilder {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<()> {
         self.process_table_level_children(
-            styled_dom, parent_dom_id, parent_idx,
+            styled_dom,
+            parent_dom_id,
+            parent_idx,
             |d| d == LayoutDisplay::TableCell,
             AnonymousBoxType::TableCell,
-            FormattingContext::Block { establishes_new_context: true },
+            FormattingContext::Block {
+                establishes_new_context: true,
+            },
             debug_messages,
         )
     }
@@ -2458,7 +2561,10 @@ impl LayoutTreeBuilder {
             if let Some(msgs) = debug_messages.as_mut() {
                 msgs.push(LayoutDebugMessage::info(format!(
                     "[process_block_children] Skipping whitespace-only inline run: {:?}",
-                    inline_run.iter().map(|c: &NodeId| c.index()).collect::<Vec<_>>()
+                    inline_run
+                        .iter()
+                        .map(|c: &NodeId| c.index())
+                        .collect::<Vec<_>>()
                 )));
             }
             inline_run.clear();
@@ -2466,7 +2572,10 @@ impl LayoutTreeBuilder {
             if let Some(msgs) = debug_messages.as_mut() {
                 msgs.push(LayoutDebugMessage::info(format!(
                     "[process_block_children] Creating anon wrapper for inline run: {:?}",
-                    inline_run.iter().map(|c: &NodeId| c.index()).collect::<Vec<_>>()
+                    inline_run
+                        .iter()
+                        .map(|c: &NodeId| c.index())
+                        .collect::<Vec<_>>()
                 )));
             }
             let anon_idx = self.create_anonymous_node(
@@ -2562,10 +2671,7 @@ impl LayoutTreeBuilder {
 
         // The marker references the same DOM node as the list-item
         // This is important for style resolution (the marker inherits from the list-item)
-        let parent_fc = self
-            .nodes
-            .get(list_item_idx)
-            .map(|n| n.formatting_context);
+        let parent_fc = self.nodes.get(list_item_idx).map(|n| n.formatting_context);
         self.nodes.push(LayoutNode {
             // ── HOT ──
             box_props: BoxProps::default(),
@@ -2656,14 +2762,12 @@ impl LayoutTreeBuilder {
             matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed);
         let is_floated = float != LayoutFloat::None;
         let is_root = parent_idx.is_none();
-        let is_flex_grid_child = parent_idx
-            .and_then(|p| self.nodes.get(p))
-            .is_some_and(|n| {
-                matches!(
-                    n.formatting_context,
-                    FormattingContext::Flex | FormattingContext::Grid
-                )
-            });
+        let is_flex_grid_child = parent_idx.and_then(|p| self.nodes.get(p)).is_some_and(|n| {
+            matches!(
+                n.formatting_context,
+                FormattingContext::Flex | FormattingContext::Grid
+            )
+        });
         let display_type = crate::solver3::getters::get_computed_display(
             raw_display,
             is_absolute_or_fixed,
@@ -2691,14 +2795,19 @@ impl LayoutTreeBuilder {
         let index = self.nodes.len();
         // as IT sees it). If this is 0 but build() sees 0 nodes, the push is lost
         // between here and build (builder &mut threading); if garbage, len mis-reads.
-        { let _ = (0xCE00_0000u32 | (index as u32 & 0xffff)); }
-        let parent_fc =
-            parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
+        {
+            let _ = (0xCE00_0000u32 | (index as u32 & 0xffff));
+        }
+        let parent_fc = parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
         // this is reached but step A is NOT, collect_box_props diverges; if this is
         // NOT reached, the parent Option discriminant mis-lifts (None→Some garbage).
-        { let _ = (0xCD00_0001u32 | (u32::from(parent_fc.is_some()) << 8)); }
+        {
+            let _ = (0xCD00_0001u32 | (u32::from(parent_fc.is_some()) << 8));
+        }
         let collected = collect_box_props(styled_dom, dom_id, debug_messages, self.viewport_size);
-        { let _ = (0xCA00_0001u32); }
+        {
+            let _ = (0xCA00_0001u32);
+        }
         self.nodes.push(LayoutNode {
             // ── HOT ──
             box_props: collected.resolved,
@@ -2749,14 +2858,20 @@ impl LayoutTreeBuilder {
             preview_byte_range: None,
             node_data_fingerprint: NodeDataFingerprint::compute(
                 &styled_dom.node_data.as_container()[dom_id],
-                styled_dom.styled_nodes.as_container().get(dom_id).map(|n| &n.styled_node_state),
+                styled_dom
+                    .styled_nodes
+                    .as_container()
+                    .get(dom_id)
+                    .map(|n| &n.styled_node_state),
             ),
             subtree_hash: SubtreeHash(0),
             dirty_flag: DirtyFlag::Layout,
             unresolved_box_props: collected.unresolved,
             ifc_id: None,
         });
-        { let _ = (0xCB00_0001u32 | ((self.nodes.len() as u32 & 0xff) << 8)); }
+        {
+            let _ = (0xCB00_0001u32 | ((self.nodes.len() as u32 & 0xff) << 8));
+        }
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
         }
@@ -2768,7 +2883,10 @@ impl LayoutTreeBuilder {
             let c = crate::az_mark_read(0x40500);
             crate::az_mark(0x60500_u32, (c.wrapping_add(1)));
             if (c as usize) < 14 {
-                crate::az_mark((0x40504 + (c as usize) * 4) as u32, (0xDD00_0000 | (dom_id.index() as u32 & 0xffff)));
+                crate::az_mark(
+                    (0x40504 + (c as usize) * 4) as u32,
+                    (0xDD00_0000 | (dom_id.index() as u32 & 0xffff)),
+                );
             }
         }
         index
@@ -2890,7 +3008,9 @@ impl LayoutTreeBuilder {
                     }
                 }
                 i += 1;
-                child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+                child = hierarchy
+                    .get(c)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
             }
             flat_at += byte;
 
@@ -2963,8 +3083,7 @@ impl LayoutTreeBuilder {
                 Some(_) => {
                     // Straddling: the wrapper itself splits at the boundary.
                     keep.push(c);
-                    if let Some(second) = self.split_anonymous_wrapper(c, split_index, ordinal_of)
-                    {
+                    if let Some(second) = self.split_anonymous_wrapper(c, split_index, ordinal_of) {
                         moved.push(second);
                     }
                 }
@@ -3004,7 +3123,10 @@ impl LayoutTreeBuilder {
             self.nodes[p].children.insert(pos, part2_idx);
             self.nodes[p].dirty_flag = DirtyFlag::Layout;
         }
-        self.dom_to_layout.entry(dom_node).or_default().push(part2_idx);
+        self.dom_to_layout
+            .entry(dom_node)
+            .or_default()
+            .push(part2_idx);
     }
 
     /// The min/max DOM ordinal among an anonymous wrapper's DIRECT layout
@@ -3103,9 +3225,7 @@ impl LayoutTreeBuilder {
         let mut changed = false;
         for c in children {
             if let Some(d) = self.nodes[c].dom_node_id {
-                let in_range = ordinal_of
-                    .get(&d)
-                    .is_some_and(|&o| o >= start && o < end);
+                let in_range = ordinal_of.get(&d).is_some_and(|&o| o >= start && o < end);
                 if in_range {
                     changed = true;
                 } else {
@@ -3239,7 +3359,8 @@ impl LayoutTreeBuilder {
     }
 
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    #[must_use] pub fn build(self, root_idx: usize) -> LayoutTree {
+    #[must_use]
+    pub fn build(self, root_idx: usize) -> LayoutTree {
         let nodes = self.nodes;
         let node_count = nodes.len();
 
@@ -3313,7 +3434,8 @@ fn ordinal_map(
 // +spec:display-property:697082 - outer display type determines principal box's role in flow layout (block vs inline)
 // +spec:display-property:0d251b - Block-level elements: display 'block', 'list-item', 'table' generate block-level boxes
 // +spec:display-property:9464be - block-level vs block container distinction: not all block-level boxes are block containers (e.g. replaced elements, flex containers)
-#[must_use] pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+#[must_use]
+pub fn is_block_level(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     matches!(
         get_display_type(styled_dom, node_id),
         LayoutDisplay::Block
@@ -3398,7 +3520,7 @@ pub(crate) fn has_only_inline_children(styled_dom: &StyledDom, node_id: NodeId) 
 }
 
 /// Pre-computes all CSS properties needed during layout for a single node.
-/// 
+///
 /// This is called once per node during layout tree construction, avoiding
 /// repeated style lookups during the actual layout pass (O(n) vs O(n²)).
 fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayoutStyle {
@@ -3418,7 +3540,7 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
     // Get position property
     let position = get_position(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
-    // Get float property  
+    // Get float property
     let float = get_float(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
     // Get overflow properties
@@ -3429,11 +3551,19 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
     );
     let overflow_x = {
         let v = get_overflow_x(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-        if is_replaced && v == LayoutOverflow::Hidden { LayoutOverflow::Clip } else { v }
+        if is_replaced && v == LayoutOverflow::Hidden {
+            LayoutOverflow::Clip
+        } else {
+            v
+        }
     };
     let overflow_y = {
         let v = get_overflow_y(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-        if is_replaced && v == LayoutOverflow::Hidden { LayoutOverflow::Clip } else { v }
+        if is_replaced && v == LayoutOverflow::Hidden {
+            LayoutOverflow::Clip
+        } else {
+            v
+        }
     };
 
     // Get writing mode, direction, and text-orientation
@@ -3451,12 +3581,11 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
                 .and_then(|child_id| {
                     let child_data = &styled_dom.node_data.as_container()[child_id];
                     if matches!(child_data.node_type, NodeType::Body) {
-                        let child_state = &styled_dom
-                            .styled_nodes
-                            .as_container()[child_id]
-                            .styled_node_state;
-                        Some(get_writing_mode(styled_dom, child_id, child_state)
-                            .unwrap_or_default())
+                        let child_state =
+                            &styled_dom.styled_nodes.as_container()[child_id].styled_node_state;
+                        Some(
+                            get_writing_mode(styled_dom, child_id, child_state).unwrap_or_default(),
+                        )
                     } else {
                         None
                     }
@@ -3467,7 +3596,8 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
         }
     };
     let direction = get_direction(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
-    let text_orientation = get_text_orientation(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
+    let text_orientation =
+        get_text_orientation(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
 
     // Get text-align
     let text_align = get_text_align(styled_dom, dom_id, &styled_node_state).unwrap_or_default();
@@ -3523,7 +3653,9 @@ fn compute_layout_style(styled_dom: &StyledDom, dom_id: NodeId) -> ComputedLayou
 
 /// Helper function to get element's computed font-size
 pub(crate) fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
-    { let _ = (0xC3_000001u32); } // 2-arg wrapper entered
+    {
+        let _ = (0xC3_000001u32);
+    } // 2-arg wrapper entered
     let node_state = styled_dom
         .styled_nodes
         .as_container()
@@ -3531,7 +3663,9 @@ pub(crate) fn get_element_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f
         .map(|n| &n.styled_node_state)
         .copied()
         .unwrap_or_default();
-    { let _ = (0xC3_000002u32); } // after node_state (clone); next = 3-arg call
+    {
+        let _ = (0xC3_000002u32);
+    } // after node_state (clone); next = 3-arg call
 
     crate::solver3::getters::get_element_font_size(styled_dom, dom_id, &node_state)
 }
@@ -3543,7 +3677,9 @@ fn get_parent_font_size(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
         .as_container()
         .get(dom_id)
         .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
-        .map_or(DEFAULT_FONT_SIZE, |parent_id| get_element_font_size(styled_dom, parent_id))
+        .map_or(DEFAULT_FONT_SIZE, |parent_id| {
+            get_element_font_size(styled_dom, parent_id)
+        })
 }
 
 /// Helper function to get root element's font-size
@@ -3559,13 +3695,21 @@ fn create_resolution_context(
     containing_block_size: Option<PhysicalSize>,
     viewport_size: LogicalSize,
 ) -> ResolutionContext {
-    { let _ = (0xC1_000001u32); } // create_resolution_context entered
+    {
+        let _ = (0xC1_000001u32);
+    } // create_resolution_context entered
     let element_font_size = get_element_font_size(styled_dom, dom_id);
-    { let _ = (0xC1_000002u32); } // after get_element_font_size
+    {
+        let _ = (0xC1_000002u32);
+    } // after get_element_font_size
     let parent_font_size = get_parent_font_size(styled_dom, dom_id);
-    { let _ = (0xC1_000003u32); } // after get_parent_font_size
+    {
+        let _ = (0xC1_000003u32);
+    } // after get_parent_font_size
     let root_font_size = get_root_font_size(styled_dom);
-    { let _ = (0xC1_000004u32); } // after get_root_font_size
+    {
+        let _ = (0xC1_000004u32);
+    } // after get_root_font_size
 
     ResolutionContext {
         vertical_writing_mode: false,
@@ -3598,11 +3742,14 @@ fn collect_box_props(
     viewport_size: LogicalSize,
 ) -> CollectedBoxProps {
     use crate::solver3::geometry::{UnresolvedBoxProps, UnresolvedEdge, UnresolvedMargin};
-    #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+    #[allow(clippy::wildcard_imports)]
+    // widget/render module pulls in the css property/value types it builds with
     use crate::solver3::getters::*;
     use azul_css::props::style::border::BorderStyle;
     // before create_node step A is the diverging call.
-    { let _ = (0xC0_000001u32); } // entered
+    {
+        let _ = (0xC0_000001u32);
+    } // entered
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
 
@@ -3614,17 +3761,23 @@ fn collect_box_props(
         .map(|n| &n.styled_node_state)
         .copied()
         .unwrap_or_default();
-    { let _ = (0xC0_000002u32); } // after node_state (clone)
+    {
+        let _ = (0xC0_000002u32);
+    } // after node_state (clone)
 
     // Create resolution context for this element
     // Note: containing_block_size is None here because we don't have it yet
     // This is fine for initial resolution - will be re-resolved during layout
     let context = create_resolution_context(styled_dom, dom_id, None, viewport_size);
-    { let _ = (0xC0_000003u32); } // after create_resolution_context
+    {
+        let _ = (0xC0_000003u32);
+    } // after create_resolution_context
 
     // Read margin values from styled_dom
     let margin_top_mv = get_css_margin_top(styled_dom, dom_id, &node_state);
-    { let _ = (0xC0_000004u32); } // after get_css_margin_top
+    {
+        let _ = (0xC0_000004u32);
+    } // after get_css_margin_top
     let margin_right_mv = get_css_margin_right(styled_dom, dom_id, &node_state);
     let margin_bottom_mv = get_css_margin_bottom(styled_dom, dom_id, &node_state);
     let margin_left_mv = get_css_margin_left(styled_dom, dom_id, &node_state);
@@ -3645,7 +3798,9 @@ fn collect_box_props(
         bottom: to_unresolved_margin(&margin_bottom_mv),
         left: to_unresolved_margin(&margin_left_mv),
     };
-    { let _ = (0xC0_000005u32); } // after margin block
+    {
+        let _ = (0xC0_000005u32);
+    } // after margin block
 
     // Read padding values
     let padding_top_mv = get_css_padding_top(styled_dom, dom_id, &node_state);
@@ -3668,7 +3823,9 @@ fn collect_box_props(
         bottom: to_pixel_value(padding_bottom_mv),
         left: to_pixel_value(padding_left_mv),
     };
-    { let _ = (0xC0_000056u32); } // after padding getters+values, before get_display_type
+    {
+        let _ = (0xC0_000056u32);
+    } // after padding getters+values, before get_display_type
 
     // +spec:table-layout:038f9d - padding does not apply to table-row-group, table-header-group, table-footer-group, table-row, table-column-group, table-column
     // Non-cell internal table elements (rows, row groups, columns, column groups) do not have padding.
@@ -3694,7 +3851,9 @@ fn collect_box_props(
         },
         _ => unresolved_padding,
     };
-    { let _ = (0xC0_000006u32); } // after padding block
+    {
+        let _ = (0xC0_000006u32);
+    } // after padding block
 
     // Read border values
     let border_top_mv = get_css_border_top_width(styled_dom, dom_id, &node_state);
@@ -3713,42 +3872,85 @@ fn collect_box_props(
     let (bs_top, bs_right, bs_bottom, bs_left) = {
         let cache_ptr = &styled_dom.css_property_cache.ptr;
         if node_state.is_normal() {
-            cache_ptr.compact_cache.as_ref().map_or_else(|| (
-                    cache_ptr.get_border_top_style(node_data, &dom_id, &node_state)
-                        .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
-                    cache_ptr.get_border_right_style(node_data, &dom_id, &node_state)
-                        .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
-                    cache_ptr.get_border_bottom_style(node_data, &dom_id, &node_state)
-                        .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
-                    cache_ptr.get_border_left_style(node_data, &dom_id, &node_state)
-                        .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
-                ), |cc| {
-                let idx = dom_id.index();
-                (cc.get_border_top_style(idx), cc.get_border_right_style(idx),
-                 cc.get_border_bottom_style(idx), cc.get_border_left_style(idx))
-            })
+            cache_ptr.compact_cache.as_ref().map_or_else(
+                || {
+                    (
+                        cache_ptr
+                            .get_border_top_style(node_data, &dom_id, &node_state)
+                            .and_then(|v| v.get_property())
+                            .map_or(BorderStyle::None, |s| s.inner),
+                        cache_ptr
+                            .get_border_right_style(node_data, &dom_id, &node_state)
+                            .and_then(|v| v.get_property())
+                            .map_or(BorderStyle::None, |s| s.inner),
+                        cache_ptr
+                            .get_border_bottom_style(node_data, &dom_id, &node_state)
+                            .and_then(|v| v.get_property())
+                            .map_or(BorderStyle::None, |s| s.inner),
+                        cache_ptr
+                            .get_border_left_style(node_data, &dom_id, &node_state)
+                            .and_then(|v| v.get_property())
+                            .map_or(BorderStyle::None, |s| s.inner),
+                    )
+                },
+                |cc| {
+                    let idx = dom_id.index();
+                    (
+                        cc.get_border_top_style(idx),
+                        cc.get_border_right_style(idx),
+                        cc.get_border_bottom_style(idx),
+                        cc.get_border_left_style(idx),
+                    )
+                },
+            )
         } else {
             (
-                cache_ptr.get_border_top_style(node_data, &dom_id, &node_state)
-                    .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
-                cache_ptr.get_border_right_style(node_data, &dom_id, &node_state)
-                    .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
-                cache_ptr.get_border_bottom_style(node_data, &dom_id, &node_state)
-                    .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
-                cache_ptr.get_border_left_style(node_data, &dom_id, &node_state)
-                    .and_then(|v| v.get_property()).map_or(BorderStyle::None, |s| s.inner),
+                cache_ptr
+                    .get_border_top_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property())
+                    .map_or(BorderStyle::None, |s| s.inner),
+                cache_ptr
+                    .get_border_right_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property())
+                    .map_or(BorderStyle::None, |s| s.inner),
+                cache_ptr
+                    .get_border_bottom_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property())
+                    .map_or(BorderStyle::None, |s| s.inner),
+                cache_ptr
+                    .get_border_left_style(node_data, &dom_id, &node_state)
+                    .and_then(|v| v.get_property())
+                    .map_or(BorderStyle::None, |s| s.inner),
             )
         }
     };
 
     // Build unresolved border, zeroing width when style is none or hidden
     let unresolved_border = UnresolvedEdge {
-        top: if style_zeroes_width(bs_top) { PixelValue::const_px(0) } else { to_pixel_value(border_top_mv) },
-        right: if style_zeroes_width(bs_right) { PixelValue::const_px(0) } else { to_pixel_value(border_right_mv) },
-        bottom: if style_zeroes_width(bs_bottom) { PixelValue::const_px(0) } else { to_pixel_value(border_bottom_mv) },
-        left: if style_zeroes_width(bs_left) { PixelValue::const_px(0) } else { to_pixel_value(border_left_mv) },
+        top: if style_zeroes_width(bs_top) {
+            PixelValue::const_px(0)
+        } else {
+            to_pixel_value(border_top_mv)
+        },
+        right: if style_zeroes_width(bs_right) {
+            PixelValue::const_px(0)
+        } else {
+            to_pixel_value(border_right_mv)
+        },
+        bottom: if style_zeroes_width(bs_bottom) {
+            PixelValue::const_px(0)
+        } else {
+            to_pixel_value(border_bottom_mv)
+        },
+        left: if style_zeroes_width(bs_left) {
+            PixelValue::const_px(0)
+        } else {
+            to_pixel_value(border_left_mv)
+        },
     };
-    { let _ = (0xC0_000007u32); } // after border block (incl is_normal/compact_cache fast-path)
+    {
+        let _ = (0xC0_000007u32);
+    } // after border block (incl is_normal/compact_cache fast-path)
 
     // +spec:box-model:8538a9 - Internal table elements do not have margins (CSS 2.2 §17.5)
     // "These boxes have content and borders and cells have padding as well.
@@ -3787,7 +3989,7 @@ fn collect_box_props(
                     ..unresolved_margin
                 }
             }
-        },
+        }
         _ => unresolved_margin,
     };
 
@@ -3851,13 +4053,18 @@ fn collect_box_props(
         if matches!(node_data.node_type, NodeType::Body) {
             msgs.push(LayoutDebugMessage::box_props(format!(
                 "Body margin resolved: top={:.2}, right={:.2}, bottom={:.2}, left={:.2}",
-                resolved.margin.top, resolved.margin.right,
-                resolved.margin.bottom, resolved.margin.left
+                resolved.margin.top,
+                resolved.margin.right,
+                resolved.margin.bottom,
+                resolved.margin.left
             )));
         }
     }
 
-    CollectedBoxProps { unresolved, resolved }
+    CollectedBoxProps {
+        unresolved,
+        resolved,
+    }
 }
 
 /// CSS 2.2 Section 17.2.1 - Anonymous box generation, Stage 1:
@@ -3870,14 +4077,18 @@ fn collect_box_props(
 /// Returns true if the node is a text node containing only whitespace characters
 /// that would be collapsed away by the white-space property.
 // according to the 'white-space' property does not generate any anonymous inline boxes (CSS2§9.2.2.1)
-#[must_use] pub fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+#[must_use]
+pub fn is_whitespace_only_text(styled_dom: &StyledDom, node_id: NodeId) -> bool {
     let binding = styled_dom.node_data.as_container();
     let node_data = binding.get(node_id);
     if let Some(data) = node_data {
         if let NodeType::Text(text) = data.get_node_type() {
             // Check if the text contains only CSS document white space characters
             // Per CSS Text 3 §4.1: document white space = U+0020, U+0009, segment breaks
-            if !text.chars().all(|c| matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0C')) {
+            if !text
+                .chars()
+                .all(|c| matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0C'))
+            {
                 return false;
             }
             // Per CSS2§9.2.2.1: "White space content that would subsequently be
@@ -3885,21 +4096,22 @@ fn collect_box_props(
             // generate any anonymous inline boxes."
             // For white-space: pre / pre-wrap / break-spaces, whitespace is preserved
             // and should NOT be treated as collapsible.
-            let white_space = styled_dom
-                .styled_nodes
-                .as_container()
-                .get(node_id)
-                .map_or(StyleWhiteSpace::Normal, |n| {
-                    match get_white_space_property(styled_dom, node_id, &n.styled_node_state) {
-                        MultiValue::Exact(ws) => ws,
-                        _ => StyleWhiteSpace::Normal,
-                    }
-                });
+            let white_space = styled_dom.styled_nodes.as_container().get(node_id).map_or(
+                StyleWhiteSpace::Normal,
+                |n| match get_white_space_property(styled_dom, node_id, &n.styled_node_state) {
+                    MultiValue::Exact(ws) => ws,
+                    _ => StyleWhiteSpace::Normal,
+                },
+            );
             return match white_space {
                 // These values collapse whitespace — whitespace-only text is collapsible
-                StyleWhiteSpace::Normal | StyleWhiteSpace::Nowrap | StyleWhiteSpace::PreLine => true,
+                StyleWhiteSpace::Normal | StyleWhiteSpace::Nowrap | StyleWhiteSpace::PreLine => {
+                    true
+                }
                 // These values preserve whitespace — whitespace-only text is NOT collapsible
-                StyleWhiteSpace::Pre | StyleWhiteSpace::PreWrap | StyleWhiteSpace::BreakSpaces => false,
+                StyleWhiteSpace::Pre | StyleWhiteSpace::PreWrap | StyleWhiteSpace::BreakSpaces => {
+                    false
+                }
             };
         }
     }
@@ -3969,7 +4181,8 @@ const fn is_proper_table_child(display: LayoutDisplay) -> bool {
 // the lift of a fn RETURNING a small fieldless enum (LayoutDisplay) corrupting control flow
 // (pixel/i16-returning getters lift fine). Needs the remill m12-q-reg-x8-sret fork's
 // enum-return handling — not fixable in Rust. (Original kept.)
-#[must_use] pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
+#[must_use]
+pub fn get_display_type(styled_dom: &StyledDom, node_id: NodeId) -> LayoutDisplay {
     use crate::solver3::getters::get_display_property;
 
     // A `<transient-window>` takes part in its PARENT's layout only while it
@@ -4012,7 +4225,10 @@ thread_local! {
 /// agree on which `<transient-window>` is inline and where it is grafted.
 /// Nests safely (the previous value is restored) and is per thread, so
 /// parallel headless layouts do not see each other's docks.
-pub fn with_transient_docks<R>(docks: crate::transient::TransientDocks, f: impl FnOnce() -> R) -> R {
+pub fn with_transient_docks<R>(
+    docks: crate::transient::TransientDocks,
+    f: impl FnOnce() -> R,
+) -> R {
     let previous = TRANSIENT_DOCKS.with(|d| d.replace(Some(docks)));
     struct Restore(Option<crate::transient::TransientDocks>);
     impl Drop for Restore {
@@ -4026,12 +4242,13 @@ pub fn with_transient_docks<R>(docks: crate::transient::TransientDocks, f: impl 
 }
 
 /// Is the `<transient-window>` `node` laid out inline this pass?
-fn transient_node_is_inline(node: NodeId, cfg: &azul_core::transient::TransientWindowConfig) -> bool {
+fn transient_node_is_inline(
+    node: NodeId,
+    cfg: &azul_core::transient::TransientWindowConfig,
+) -> bool {
     TRANSIENT_DOCKS.with(|d| match d.borrow().as_ref() {
         Some(docks) => docks.is_inline(node, cfg),
-        None => {
-            cfg.dock == azul_core::transient::TransientDock::Inline && cfg.open && !cfg.torn
-        }
+        None => cfg.dock == azul_core::transient::TransientDock::Inline && cfg.open && !cfg.torn,
     })
 }
 
@@ -4105,19 +4322,19 @@ const fn is_replaced_element(node_data: &NodeData) -> bool {
     matches!(
         node_data.get_node_type(),
         NodeType::Image(_)
-        | NodeType::VirtualView
-        | NodeType::Br
-        | NodeType::Wbr
-        | NodeType::Meter
-        | NodeType::Progress
-        | NodeType::Canvas
-        | NodeType::Embed
-        | NodeType::Object
-        | NodeType::Audio
-        | NodeType::Video
-        | NodeType::Input
-        | NodeType::TextArea
-        | NodeType::Select
+            | NodeType::VirtualView
+            | NodeType::Br
+            | NodeType::Wbr
+            | NodeType::Meter
+            | NodeType::Progress
+            | NodeType::Canvas
+            | NodeType::Embed
+            | NodeType::Object
+            | NodeType::Audio
+            | NodeType::Video
+            | NodeType::Input
+            | NodeType::TextArea
+            | NodeType::Select
     )
 }
 
@@ -4128,7 +4345,10 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
     let display = get_display_type(styled_dom, node_id);
     if matches!(
         display,
-        LayoutDisplay::InlineBlock | LayoutDisplay::TableCell | LayoutDisplay::TableCaption | LayoutDisplay::FlowRoot
+        LayoutDisplay::InlineBlock
+            | LayoutDisplay::TableCell
+            | LayoutDisplay::TableCaption
+            | LayoutDisplay::FlowRoot
     ) {
         return true;
     }
@@ -4160,9 +4380,12 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
     if let Some(styled_node) = styled_dom.styled_nodes.as_container().get(node_id) {
         let hierarchy = styled_dom.node_hierarchy.as_container();
         if let Some(parent_dom_id) = hierarchy[node_id].parent_id() {
-            let parent_state = &styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
-            let child_wm = get_writing_mode(styled_dom, node_id, &styled_node.styled_node_state).unwrap_or_default();
-            let parent_wm = get_writing_mode(styled_dom, parent_dom_id, parent_state).unwrap_or_default();
+            let parent_state =
+                &styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
+            let child_wm = get_writing_mode(styled_dom, node_id, &styled_node.styled_node_state)
+                .unwrap_or_default();
+            let parent_wm =
+                get_writing_mode(styled_dom, parent_dom_id, parent_state).unwrap_or_default();
             if child_wm != parent_wm {
                 return true;
             }
@@ -4189,7 +4412,8 @@ fn establishes_new_block_formatting_context(styled_dom: &StyledDom, node_id: Nod
 // +spec:display-property:80f43f - inner display type defines formatting context for non-replaced elements
 // +spec:display-property:46e71c - Maps outer display (block/inline) and inner display (flow/flow-root/table/flex/grid) to FormattingContext
 // +spec:display-property:aa582d - maps display types to formatting contexts (inline-level, block-level, atomic inline, block container)
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 /// A CHILDLESS block that is (or sits inside) a `contenteditable` editing host
 /// still establishes an inline formatting context.
 ///
@@ -4228,7 +4452,12 @@ fn determine_formatting_context_for_display(
         // For the divs (node_id 1,3): 2 ⇒ computed Inline correctly (bug is store/clone/read); 4 ⇒
         // has_only_inline_children mis-lifted to false (computed Block).
         #[cfg(feature = "web_lift")]
-        unsafe { crate::az_mark(((0x60B60 + (node_id.index() & 7) * 4)) as u32, (0xC0DE0001) as u32); }
+        unsafe {
+            crate::az_mark(
+                (0x60B60 + (node_id.index() & 7) * 4) as u32,
+                (0xC0DE0001) as u32,
+            );
+        }
         return FormattingContext::Inline;
     }
     // +spec:display-property:2a8d62 - block containers with inline-level content establish an IFC
@@ -4249,11 +4478,21 @@ fn determine_formatting_context_for_display(
                 || is_empty_editing_host_line(styled_dom, node_id)
             {
                 #[cfg(feature = "web_lift")]
-                unsafe { crate::az_mark(((0x60B60 + (node_id.index() & 7) * 4)) as u32, (0xC0DE0002) as u32); }
+                unsafe {
+                    crate::az_mark(
+                        (0x60B60 + (node_id.index() & 7) * 4) as u32,
+                        (0xC0DE0002) as u32,
+                    );
+                }
                 FormattingContext::Inline
             } else {
                 #[cfg(feature = "web_lift")]
-                unsafe { crate::az_mark(((0x60B60 + (node_id.index() & 7) * 4)) as u32, (0xC0DE0004) as u32); }
+                unsafe {
+                    crate::az_mark(
+                        (0x60B60 + (node_id.index() & 7) * 4) as u32,
+                        (0xC0DE0004) as u32,
+                    );
+                }
                 FormattingContext::Block {
                     establishes_new_context: establishes_new_block_formatting_context(
                         styled_dom, node_id,
@@ -4293,11 +4532,9 @@ fn determine_formatting_context_for_display(
         // +spec:display-property:7d77f5 - run-in treated as block (run-in sequencing fixup not yet implemented)
         // +spec:display-property:0c30c4 - run-in boxes fall back to block (run-in reparenting not implemented, matches browser behavior)
         // +spec:display-property:2f5c52 - run-in treated as block (full run-in merging not implemented)
-        LayoutDisplay::RunIn | LayoutDisplay::Marker => {
-            FormattingContext::Block {
-                establishes_new_context: true,
-            }
-        }
+        LayoutDisplay::RunIn | LayoutDisplay::Marker => FormattingContext::Block {
+            establishes_new_context: true,
+        },
     }
 }
 
@@ -4311,7 +4548,9 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
     // vs "value correct at build, corrupted later" (here says Inline, dispatch reads garbage).
     if matches!(node_data.get_node_type(), NodeType::Text(_)) {
         #[cfg(feature = "web_lift")]
-        unsafe { crate::az_mark(0x60BB0 + (node_id.index() & 7) as u32 * 4, 0xC0DE0001); }
+        unsafe {
+            crate::az_mark(0x60BB0 + (node_id.index() & 7) as u32 * 4, 0xC0DE0001);
+        }
         return FormattingContext::Inline;
     }
     let display_type = get_display_type(styled_dom, node_id);
@@ -4319,7 +4558,10 @@ fn determine_formatting_context(styled_dom: &StyledDom, node_id: NodeId) -> Form
     #[cfg(feature = "web_lift")]
     unsafe {
         let disc: u8 = core::ptr::read_volatile((&fc) as *const FormattingContext as *const u8);
-        crate::az_mark(0x60BB0 + (node_id.index() & 7) as u32 * 4, 0xC0DE0010 | disc as u32);
+        crate::az_mark(
+            0x60BB0 + (node_id.index() & 7) as u32 * 4,
+            0xC0DE0010 | disc as u32,
+        );
     }
     fc
 }
@@ -4394,14 +4636,22 @@ mod autotest_generated {
             Dom::create_body()
                 .with_child(
                     div_class("block")
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
-                        .with_child(div_class("inline").with_child(Dom::create_text_do_not_use_without_block_level_wrapper("world"))),
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "hello",
+                        ))
+                        .with_child(div_class("inline").with_child(
+                            Dom::create_text_do_not_use_without_block_level_wrapper("world"),
+                        )),
                 )
                 .with_child(
                     div_class("mixed")
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(" \n\t"))
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            " \n\t",
+                        ))
                         .with_child(div_class("block2"))
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("tail")),
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "tail",
+                        )),
                 ),
             ".block { display: block; } .inline { display: inline; } .mixed { display: block; } \
              .block2 { display: block; }",
@@ -4460,7 +4710,12 @@ mod autotest_generated {
     /// one shared default style/font — so same-line clusters MERGE into one
     /// paint run (the report fixtures need runs that actually hold glyphs;
     /// `tab_item` yields none).
-    fn glyph_cluster_item(text: &str, n_glyphs: usize, x: f32, line_index: usize) -> PositionedItem {
+    fn glyph_cluster_item(
+        text: &str,
+        n_glyphs: usize,
+        x: f32,
+        line_index: usize,
+    ) -> PositionedItem {
         let glyphs: Vec<ShapedGlyph> = (0..n_glyphs)
             .map(|i| ShapedGlyph {
                 kind: GlyphKind::Character,
@@ -4626,7 +4881,11 @@ mod autotest_generated {
         // thing, but a debug-mode overflow panic in the middle of layout is.
         IFC_ID_COUNTER.with(|c| c.set(u32::MAX));
         assert_eq!(IfcId::unique(), IfcId(u32::MAX));
-        assert_eq!(IfcId::unique(), IfcId(0), "wraps rather than overflow-panics");
+        assert_eq!(
+            IfcId::unique(),
+            IfcId(0),
+            "wraps rather than overflow-panics"
+        );
         assert_eq!(IfcId::unique(), IfcId(1));
         IfcId::reset_counter();
     }
@@ -4644,8 +4903,14 @@ mod autotest_generated {
         assert!(c.has_floats);
         assert!(c.constraints.is_none(), "new() carries no constraints");
         assert!(c.line_breaks.is_none(), "new() computes no line breaks");
-        assert_eq!(c.inline_content_hash, 0, "0 = unknown ⇒ never fast-path-reuse");
-        assert!(c.item_metrics.is_empty(), "an empty layout has no item metrics");
+        assert_eq!(
+            c.inline_content_hash, 0,
+            "0 = unknown ⇒ never fast-path-reuse"
+        );
+        assert!(
+            c.item_metrics.is_empty(),
+            "an empty layout has no item metrics"
+        );
     }
 
     #[test]
@@ -4669,7 +4934,10 @@ mod autotest_generated {
 
     #[test]
     fn extract_item_metrics_mirrors_every_positioned_item() {
-        let layout = layout_of(vec![tab_item(12.0, 20.0, 5.0, 3), tab_item(0.0, 0.0, 0.0, 0)]);
+        let layout = layout_of(vec![
+            tab_item(12.0, 20.0, 5.0, 3),
+            tab_item(0.0, 0.0, 0.0, 0),
+        ]);
         let m = CachedInlineLayout::extract_item_metrics(&layout);
         assert_eq!(m.len(), 2, "one metric entry per PositionedItem, in order");
 
@@ -4697,7 +4965,10 @@ mod autotest_generated {
         let layout = layout_of(vec![break_item(7)]);
         let m = CachedInlineLayout::extract_item_metrics(&layout);
         assert_eq!(m.len(), 1);
-        assert!(!m[0].can_break, "ShapedItem::Break is the one non-breakable item");
+        assert!(
+            !m[0].can_break,
+            "ShapedItem::Break is the one non-breakable item"
+        );
         assert_eq!(m[0].advance_width, 0.0, "a break has no visual geometry");
         assert_eq!(m[0].line_height_contribution, 0.0);
         assert_eq!(m[0].line_index, 7);
@@ -4711,13 +4982,21 @@ mod autotest_generated {
     #[test]
     fn extract_item_metrics_does_not_choke_on_non_finite_item_bounds() {
         let layout = layout_of(vec![
-            tab_item(f32::INFINITY, f32::NAN, f32::NEG_INFINITY, u32::MAX as usize),
+            tab_item(
+                f32::INFINITY,
+                f32::NAN,
+                f32::NEG_INFINITY,
+                u32::MAX as usize,
+            ),
             tab_item(f32::MAX, f32::MAX, f32::MIN, 0),
         ]);
         let m = CachedInlineLayout::extract_item_metrics(&layout);
         assert_eq!(m.len(), 2);
         assert!(m[0].advance_width.is_infinite());
-        assert!(m[0].line_height_contribution.is_nan(), "NaN in, NaN out — but no panic");
+        assert!(
+            m[0].line_height_contribution.is_nan(),
+            "NaN in, NaN out — but no panic"
+        );
         assert_eq!(m[1].advance_width, f32::MAX);
     }
 
@@ -4729,7 +5008,10 @@ mod autotest_generated {
         let m = CachedInlineLayout::extract_item_metrics(&layout_of(vec![tab_item(
             1.0, 1.0, 0.0, huge,
         )]));
-        assert_eq!(m[0].line_index, 4, "wrapping `as u32` truncation, not a panic");
+        assert_eq!(
+            m[0].line_index, 4,
+            "wrapping `as u32` truncation, not a panic"
+        );
     }
 
     #[test]
@@ -4742,7 +5024,9 @@ mod autotest_generated {
             UnifiedConstraints::default(),
         );
         assert!(c.constraints.is_some());
-        let lb = c.line_breaks.expect("new_with_constraints computes line breaks");
+        let lb = c
+            .line_breaks
+            .expect("new_with_constraints computes line breaks");
         assert_eq!(lb.available_width, 200.0);
         assert_eq!(c.item_metrics.len(), 1);
     }
@@ -4762,7 +5046,10 @@ mod autotest_generated {
                 f32::MAX,
                 "indefinite width collapses to f32::MAX for break extraction"
             );
-            assert_eq!(c.available_width, w, "but the cache key keeps the real variant");
+            assert_eq!(
+                c.available_width, w,
+                "but the cache key keeps the real variant"
+            );
         }
     }
 
@@ -4952,7 +5239,10 @@ mod autotest_generated {
         assert!(Arc::ptr_eq(c.get_layout(), &arc));
 
         let cloned = c.clone_layout();
-        assert!(Arc::ptr_eq(&cloned, &arc), "clone_layout must not deep-copy");
+        assert!(
+            Arc::ptr_eq(&cloned, &arc),
+            "clone_layout must not deep-copy"
+        );
         assert_eq!(
             Arc::strong_count(&arc),
             4,
@@ -5040,9 +5330,18 @@ mod autotest_generated {
             assert!(tree.get(LayoutNodeId::new(idx)).is_none(), "get({idx})");
             assert!(tree.warm(LayoutNodeId::new(idx)).is_none(), "warm({idx})");
             assert!(tree.cold(LayoutNodeId::new(idx)).is_none(), "cold({idx})");
-            assert!(tree.get_mut(LayoutNodeId::new(idx)).is_none(), "get_mut({idx})");
-            assert!(tree.warm_mut(LayoutNodeId::new(idx)).is_none(), "warm_mut({idx})");
-            assert!(tree.cold_mut(LayoutNodeId::new(idx)).is_none(), "cold_mut({idx})");
+            assert!(
+                tree.get_mut(LayoutNodeId::new(idx)).is_none(),
+                "get_mut({idx})"
+            );
+            assert!(
+                tree.warm_mut(LayoutNodeId::new(idx)).is_none(),
+                "warm_mut({idx})"
+            );
+            assert!(
+                tree.cold_mut(LayoutNodeId::new(idx)).is_none(),
+                "cold_mut({idx})"
+            );
             assert!(tree.get_inline_layout_for_node(idx).is_none());
         }
     }
@@ -5056,7 +5355,11 @@ mod autotest_generated {
         assert!(tree.get_mut(LayoutNodeId::new(0)).is_some());
         assert!(tree.warm_mut(LayoutNodeId::new(0)).is_some());
         assert!(tree.cold_mut(LayoutNodeId::new(0)).is_some());
-        assert_eq!(tree.get(LayoutNodeId::new(0)).unwrap().parent, None, "index 0 is the root");
+        assert_eq!(
+            tree.get(LayoutNodeId::new(0)).unwrap().parent,
+            None,
+            "index 0 is the root"
+        );
     }
 
     #[test]
@@ -5085,7 +5388,11 @@ mod autotest_generated {
         }
         seen.sort_unstable();
         seen.dedup();
-        assert_eq!(seen.len(), n - 1, "every node but the root is someone's child");
+        assert_eq!(
+            seen.len(),
+            n - 1,
+            "every node but the root is someone's child"
+        );
         assert!(!seen.contains(&tree.root), "the root is nobody's child");
     }
 
@@ -5107,8 +5414,14 @@ mod autotest_generated {
     #[test]
     fn get_content_size_is_default_for_an_out_of_range_index() {
         let tree = build_tree(&mixed_dom());
-        assert_eq!(tree.get_content_size(LayoutNodeId::new(usize::MAX)), LogicalSize::default());
-        assert_eq!(tree.get_content_size(LayoutNodeId::new(tree.nodes.len())), LogicalSize::default());
+        assert_eq!(
+            tree.get_content_size(LayoutNodeId::new(usize::MAX)),
+            LogicalSize::default()
+        );
+        assert_eq!(
+            tree.get_content_size(LayoutNodeId::new(tree.nodes.len())),
+            LogicalSize::default()
+        );
     }
 
     #[test]
@@ -5116,7 +5429,10 @@ mod autotest_generated {
         let mut tree = raw_tree(vec![hot(None)], &[vec![]]);
         tree.nodes[0].used_size = Some(LogicalSize::new(10.0, 10.0));
         tree.warm[0].overflow_content_size = Some(LogicalSize::new(999.0, 888.0));
-        assert_eq!(tree.get_content_size(LayoutNodeId::new(0)), LogicalSize::new(999.0, 888.0));
+        assert_eq!(
+            tree.get_content_size(LayoutNodeId::new(0)),
+            LogicalSize::new(999.0, 888.0)
+        );
     }
 
     #[test]
@@ -5143,13 +5459,19 @@ mod autotest_generated {
             AvailableSpace::MaxContent,
             false,
         )));
-        assert_eq!(tree.get_content_size(LayoutNodeId::new(0)), LogicalSize::new(500.0, 500.0));
+        assert_eq!(
+            tree.get_content_size(LayoutNodeId::new(0)),
+            LogicalSize::new(500.0, 500.0)
+        );
     }
 
     #[test]
     fn get_content_size_of_a_node_with_no_used_size_is_zero() {
         let tree = raw_tree(vec![hot(None)], &[vec![]]);
-        assert_eq!(tree.get_content_size(LayoutNodeId::new(0)), LogicalSize::default());
+        assert_eq!(
+            tree.get_content_size(LayoutNodeId::new(0)),
+            LogicalSize::default()
+        );
     }
 
     // ==================================================================
@@ -5179,7 +5501,11 @@ mod autotest_generated {
             run_index: 0,
         });
 
-        assert_eq!(tree.get_ifc_root_layout_index(1), 0, "a text node anchors to its IFC root");
+        assert_eq!(
+            tree.get_ifc_root_layout_index(1),
+            0,
+            "a text node anchors to its IFC root"
+        );
         assert_eq!(
             tree.get_ifc_root_layout_index(0),
             0,
@@ -5211,8 +5537,14 @@ mod autotest_generated {
             run_index: 0,
         });
         // Node 2 has neither its own layout nor a membership.
-        assert!(Arc::ptr_eq(tree.get_inline_layout_for_node(0).unwrap(), &arc));
-        assert!(Arc::ptr_eq(tree.get_inline_layout_for_node(1).unwrap(), &arc));
+        assert!(Arc::ptr_eq(
+            tree.get_inline_layout_for_node(0).unwrap(),
+            &arc
+        ));
+        assert!(Arc::ptr_eq(
+            tree.get_inline_layout_for_node(1).unwrap(),
+            &arc
+        ));
         assert!(tree.get_inline_layout_for_node(2).is_none());
     }
 
@@ -5253,9 +5585,18 @@ mod autotest_generated {
     fn mark_dirty_walks_up_to_the_root() {
         let mut tree = dirty_tree();
         tree.mark_dirty(2, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
         assert_eq!(
             tree.cold(LayoutNodeId::new(3)).unwrap().dirty_flag,
             DirtyFlag::None,
@@ -5286,10 +5627,19 @@ mod autotest_generated {
     fn mark_dirty_upgrades_paint_to_layout_and_keeps_propagating() {
         let mut tree = dirty_tree();
         tree.mark_dirty(2, DirtyFlag::Paint);
-        assert_eq!(tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag, DirtyFlag::Paint);
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag,
+            DirtyFlag::Paint
+        );
         tree.mark_dirty(2, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
     }
 
     #[test]
@@ -5297,8 +5647,14 @@ mod autotest_generated {
         let mut tree = dirty_tree();
         tree.mark_dirty(3, DirtyFlag::Layout); // marks 3, 1, 0
         tree.mark_dirty(2, DirtyFlag::Layout); // marks 2, then stops at 1
-        assert_eq!(tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
     }
 
     #[test]
@@ -5315,24 +5671,42 @@ mod autotest_generated {
         // only thing standing between a corrupted parent pointer and a hang.
         let mut tree = raw_tree(vec![hot(Some(1)), hot(Some(0))], &[vec![], vec![]]);
         tree.mark_dirty(0, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
     }
 
     #[test]
     fn mark_dirty_terminates_when_a_node_is_its_own_parent() {
         let mut tree = raw_tree(vec![hot(Some(0))], &[vec![]]);
         tree.mark_dirty(0, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
     }
 
     #[test]
     fn mark_subtree_dirty_marks_descendants_but_not_ancestors_or_siblings() {
         let mut tree = dirty_tree();
         tree.mark_subtree_dirty(1, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag, DirtyFlag::Layout);
-        assert_eq!(tree.cold(LayoutNodeId::new(3)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(1)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(2)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(3)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
         assert_eq!(
             tree.cold(LayoutNodeId::new(0)).unwrap().dirty_flag,
             DirtyFlag::None,
@@ -5468,7 +5842,11 @@ mod autotest_generated {
         let mut tree = raw_tree(vec![hot(None), hot(Some(0))], &[vec![1], vec![]]);
         let r0 = tree.memory_report();
         assert_eq!(
-            (r0.glyph_run_bytes, r0.glyph_run_count, r0.glyph_instance_count),
+            (
+                r0.glyph_run_bytes,
+                r0.glyph_run_count,
+                r0.glyph_instance_count
+            ),
             (0, 0, 0)
         );
 
@@ -5487,8 +5865,7 @@ mod autotest_generated {
         assert_eq!(r1.glyph_run_count, 1, "same style+font+baseline must merge");
         assert_eq!(r1.glyph_instance_count, 3);
         assert!(
-            r1.glyph_run_bytes
-                >= size_of::<CompactGlyphRun>() + 3 * size_of::<(u32, f32)>(),
+            r1.glyph_run_bytes >= size_of::<CompactGlyphRun>() + 3 * size_of::<(u32, f32)>(),
             "bytes must cover the run header and all three compact entries \
              (got {}, header {})",
             r1.glyph_run_bytes,
@@ -5512,8 +5889,16 @@ mod autotest_generated {
         tree.warm[1].inline_layout_result = Some(Box::new(second));
         let r2 = tree.memory_report();
         assert_eq!(
-            (r2.glyph_run_bytes, r2.glyph_run_count, r2.glyph_instance_count),
-            (r1.glyph_run_bytes, r1.glyph_run_count, r1.glyph_instance_count),
+            (
+                r2.glyph_run_bytes,
+                r2.glyph_run_count,
+                r2.glyph_instance_count
+            ),
+            (
+                r1.glyph_run_bytes,
+                r1.glyph_run_count,
+                r1.glyph_instance_count
+            ),
             "a shared Arc must not be double-counted"
         );
 
@@ -5655,7 +6040,8 @@ mod autotest_generated {
         let tree = build_tree(&sd);
         let wrappers: Vec<usize> = (0..tree.nodes.len())
             .filter(|&i| {
-                tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type == Some(AnonymousBoxType::InlineWrapper)
+                tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type
+                    == Some(AnonymousBoxType::InlineWrapper)
             })
             .collect();
         assert_eq!(
@@ -5665,12 +6051,22 @@ mod autotest_generated {
         );
 
         let w = wrappers[0];
-        assert_eq!(tree.get(LayoutNodeId::new(w)).unwrap().dom_node_id, None, "anon boxes have no DOM node");
-        assert_eq!(tree.cold(LayoutNodeId::new(w)).unwrap().dirty_flag, DirtyFlag::Layout);
+        assert_eq!(
+            tree.get(LayoutNodeId::new(w)).unwrap().dom_node_id,
+            None,
+            "anon boxes have no DOM node"
+        );
+        assert_eq!(
+            tree.cold(LayoutNodeId::new(w)).unwrap().dirty_flag,
+            DirtyFlag::Layout
+        );
         let tail = text_node(&sd, "tail");
         let kids = tree.children(w);
         assert_eq!(kids.len(), 1);
-        assert_eq!(tree.get(LayoutNodeId::new(kids[0])).unwrap().dom_node_id, Some(tail));
+        assert_eq!(
+            tree.get(LayoutNodeId::new(kids[0])).unwrap().dom_node_id,
+            Some(tail)
+        );
     }
 
     #[test]
@@ -5685,12 +6081,17 @@ mod autotest_generated {
         let kids = tree.children(block_idx);
         assert_eq!(kids.len(), 2, "the text run and the inline div, unwrapped");
         assert!(
-            kids.iter()
-                .all(|&c| tree.cold(LayoutNodeId::new(c)).unwrap().anonymous_type.is_none()),
+            kids.iter().all(|&c| tree
+                .cold(LayoutNodeId::new(c))
+                .unwrap()
+                .anonymous_type
+                .is_none()),
             "an all-inline block container needs no anonymous wrapper"
         );
         assert_eq!(
-            tree.get(LayoutNodeId::new(block_idx)).unwrap().formatting_context,
+            tree.get(LayoutNodeId::new(block_idx))
+                .unwrap()
+                .formatting_context,
             FormattingContext::Inline,
             "it establishes an IFC instead"
         );
@@ -5699,15 +6100,24 @@ mod autotest_generated {
     #[test]
     fn the_marker_pseudo_element_is_inserted_as_the_first_child_of_a_list_item() {
         let sd = styled(
-            Dom::create_body().with_child(div_class("li").with_child(Dom::create_text_do_not_use_without_block_level_wrapper("item"))),
+            Dom::create_body().with_child(div_class("li").with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("item"),
+            )),
             ".li { display: list-item; }",
         );
         let tree = build_tree(&sd);
 
         let marker = (0..tree.nodes.len())
-            .find(|&i| tree.warm(LayoutNodeId::new(i)).unwrap().pseudo_element == Some(PseudoElement::Marker))
+            .find(|&i| {
+                tree.warm(LayoutNodeId::new(i)).unwrap().pseudo_element
+                    == Some(PseudoElement::Marker)
+            })
             .expect("display:list-item must generate a ::marker");
-        let li = tree.get(LayoutNodeId::new(marker)).unwrap().parent.expect("marker has a parent");
+        let li = tree
+            .get(LayoutNodeId::new(marker))
+            .unwrap()
+            .parent
+            .expect("marker has a parent");
         assert_eq!(
             tree.children(li)[0],
             marker,
@@ -5718,9 +6128,19 @@ mod autotest_generated {
             tree.get(LayoutNodeId::new(li)).unwrap().dom_node_id,
             "the marker shares the list-item's DOM node for counter/style resolution"
         );
-        assert_eq!(tree.get(LayoutNodeId::new(marker)).unwrap().formatting_context, FormattingContext::Inline);
+        assert_eq!(
+            tree.get(LayoutNodeId::new(marker))
+                .unwrap()
+                .formatting_context,
+            FormattingContext::Inline
+        );
         assert!(
-            tree.dom_to_layout[&tree.get(LayoutNodeId::new(li)).unwrap().dom_node_id.unwrap()].contains(&LayoutNodeId::new(marker)),
+            tree.dom_to_layout[&tree
+                .get(LayoutNodeId::new(li))
+                .unwrap()
+                .dom_node_id
+                .unwrap()]
+                .contains(&LayoutNodeId::new(marker)),
             "the marker is registered in dom_to_layout for counter resolution"
         );
     }
@@ -5751,9 +6171,12 @@ mod autotest_generated {
         // The `.c` box is removed from its parent's child list; `.kid` is hoisted.
         let root_kids = tree.children(tree.root);
         assert!(
-            root_kids
-                .iter()
-                .any(|&i| tree.warm(LayoutNodeId::new(i)).unwrap().computed_style.display == LayoutDisplay::Block),
+            root_kids.iter().any(|&i| tree
+                .warm(LayoutNodeId::new(i))
+                .unwrap()
+                .computed_style
+                .display
+                == LayoutDisplay::Block),
             "the promoted child must be a direct child of the root"
         );
     }
@@ -5767,7 +6190,8 @@ mod autotest_generated {
         let tree = build_tree(&sd);
         assert!(
             (0..tree.nodes.len()).any(|i| {
-                tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type == Some(AnonymousBoxType::TableRow)
+                tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type
+                    == Some(AnonymousBoxType::TableRow)
             }),
             "CSS 2.2 §17.2.1 stage 2: a non-proper table child is wrapped in an anonymous row"
         );
@@ -5778,7 +6202,9 @@ mod autotest_generated {
         let sd = styled(
             Dom::create_body().with_child(
                 div_class("t")
-                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("   "))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        "   ",
+                    ))
                     .with_child(div_class("row")),
             ),
             ".t { display: table; } .row { display: table-row; }",
@@ -5790,8 +6216,8 @@ mod autotest_generated {
             "stage 1: irrelevant (whitespace) boxes are removed"
         );
         assert!(
-            !(0..tree.nodes.len())
-                .any(|i| tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type == Some(AnonymousBoxType::TableRow)),
+            !(0..tree.nodes.len()).any(|i| tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type
+                == Some(AnonymousBoxType::TableRow)),
             "and no anonymous row is generated for it"
         );
     }
@@ -5858,7 +6284,11 @@ mod autotest_generated {
         let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
         let root_fc = b.get(root).unwrap().formatting_context;
 
-        let anon = b.create_anonymous_node(root, AnonymousBoxType::TableCell, FormattingContext::TableCell);
+        let anon = b.create_anonymous_node(
+            root,
+            AnonymousBoxType::TableCell,
+            FormattingContext::TableCell,
+        );
         assert_eq!(anon, 1, "anon nodes are appended");
 
         let n = b.get(anon).unwrap();
@@ -5884,8 +6314,16 @@ mod autotest_generated {
         let mut b = LayoutTreeBuilder::new(VIEWPORT);
         let mut msgs = None;
         let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
-        let a = b.create_anonymous_node(root, AnonymousBoxType::TableRow, FormattingContext::TableRow);
-        let c = b.create_anonymous_node(root, AnonymousBoxType::TableCell, FormattingContext::TableCell);
+        let a = b.create_anonymous_node(
+            root,
+            AnonymousBoxType::TableRow,
+            FormattingContext::TableRow,
+        );
+        let c = b.create_anonymous_node(
+            root,
+            AnonymousBoxType::TableCell,
+            FormattingContext::TableCell,
+        );
         assert_eq!((a, c), (1, 2));
         assert_eq!(b.get(root).unwrap().children, vec![a, c]);
     }
@@ -5908,7 +6346,10 @@ mod autotest_generated {
     #[test]
     fn create_node_from_dom_turns_the_roots_visible_overflow_into_auto() {
         // CSS Overflow 3 §3.3 — only for the root (parent == None).
-        let sd = styled(Dom::create_body().with_child(div_class("d")), ".d { display: block; }");
+        let sd = styled(
+            Dom::create_body().with_child(div_class("d")),
+            ".d { display: block; }",
+        );
         let mut b = LayoutTreeBuilder::new(VIEWPORT);
         let mut msgs = None;
         let root = b.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
@@ -5932,7 +6373,10 @@ mod autotest_generated {
         let tree = build_tree(&sd);
         let old_root = tree.get_full_node(0).unwrap();
         let old_child = tree.get_full_node(1).unwrap();
-        assert!(!old_root.children.is_empty(), "the source root has children");
+        assert!(
+            !old_root.children.is_empty(),
+            "the source root has children"
+        );
 
         let mut b = LayoutTreeBuilder::new(VIEWPORT);
         let root = b.clone_node_from_old(&old_root, None, old_root.dom_node_id);
@@ -5947,7 +6391,10 @@ mod autotest_generated {
         assert_eq!(b.get(child).unwrap().parent, Some(root));
         assert_eq!(b.get(child).unwrap().dirty_flag, DirtyFlag::None);
         let root_fc = b.get(root).unwrap().formatting_context;
-        assert_eq!(b.get(child).unwrap().parent_formatting_context, Some(root_fc));
+        assert_eq!(
+            b.get(child).unwrap().parent_formatting_context,
+            Some(root_fc)
+        );
     }
 
     #[test]
@@ -5955,7 +6402,12 @@ mod autotest_generated {
         let sd = mixed_dom();
         let tree = build_tree(&sd);
         let anon = (0..tree.nodes.len())
-            .find(|&i| tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type.is_some())
+            .find(|&i| {
+                tree.cold(LayoutNodeId::new(i))
+                    .unwrap()
+                    .anonymous_type
+                    .is_some()
+            })
             .expect("mixed_dom generates one anonymous wrapper");
         let old = tree.get_full_node(anon).unwrap();
         assert_eq!(old.dom_node_id, None);
@@ -6048,7 +6500,10 @@ mod autotest_generated {
         assert!(tree.subtree_needs_intrinsic.is_empty());
         assert!(tree.get(LayoutNodeId::new(0)).is_none());
         assert!(tree.children(0).is_empty());
-        assert_eq!(tree.get_content_size(LayoutNodeId::new(0)), LogicalSize::default());
+        assert_eq!(
+            tree.get_content_size(LayoutNodeId::new(0)),
+            LogicalSize::default()
+        );
         assert_eq!(tree.memory_report().node_count, 0);
     }
 
@@ -6057,7 +6512,9 @@ mod autotest_generated {
         let sd = mixed_dom();
         let mut builder = LayoutTreeBuilder::new(VIEWPORT);
         let mut msgs = None;
-        builder.process_node(&sd, NodeId::ZERO, None, &mut msgs).unwrap();
+        builder
+            .process_node(&sd, NodeId::ZERO, None, &mut msgs)
+            .unwrap();
 
         let tree = builder.build(usize::MAX);
         assert_eq!(tree.root, usize::MAX, "build() stores the index verbatim");
@@ -6078,8 +6535,14 @@ mod autotest_generated {
         let flex = b.create_node_from_dom(&sd, NodeId::new(1), Some(root), &mut msgs);
         let item = b.create_node_from_dom(&sd, NodeId::new(2), Some(flex), &mut msgs);
 
-        assert_eq!(b.get(flex).unwrap().formatting_context, FormattingContext::Flex);
-        assert_eq!(b.get(item).unwrap().computed_style.display, LayoutDisplay::Inline);
+        assert_eq!(
+            b.get(flex).unwrap().formatting_context,
+            FormattingContext::Flex
+        );
+        assert_eq!(
+            b.get(item).unwrap().computed_style.display,
+            LayoutDisplay::Inline
+        );
 
         b.blockify_node_display(&sd, NodeId::new(2), item, Some(flex));
 
@@ -6108,7 +6571,10 @@ mod autotest_generated {
         let before = b.get(child).unwrap().formatting_context;
 
         b.blockify_node_display(&sd, NodeId::new(2), child, Some(p));
-        assert_eq!(b.get(child).unwrap().computed_style.display, LayoutDisplay::Block);
+        assert_eq!(
+            b.get(child).unwrap().computed_style.display,
+            LayoutDisplay::Block
+        );
         assert_eq!(b.get(child).unwrap().formatting_context, before);
     }
 
@@ -6204,7 +6670,11 @@ mod autotest_generated {
         );
         let tree = build_tree(&sd);
         assert!(
-            (0..tree.nodes.len()).all(|i| tree.cold(LayoutNodeId::new(i)).unwrap().anonymous_type.is_none()),
+            (0..tree.nodes.len()).all(|i| tree
+                .cold(LayoutNodeId::new(i))
+                .unwrap()
+                .anonymous_type
+                .is_none()),
             "no anonymous table boxes for blockified flex items"
         );
         let flex = tree.children(tree.root)[0];
@@ -6271,9 +6741,18 @@ mod autotest_generated {
         let block = FormattingContext::Block {
             establishes_new_context: false,
         };
-        assert!(is_shrink_to_fit_context(&sd, Some(NodeId::new(1)), block), "float:left");
-        assert!(is_shrink_to_fit_context(&sd, Some(NodeId::new(2)), block), "position:absolute");
-        assert!(is_shrink_to_fit_context(&sd, Some(NodeId::new(3)), block), "position:fixed");
+        assert!(
+            is_shrink_to_fit_context(&sd, Some(NodeId::new(1)), block),
+            "float:left"
+        );
+        assert!(
+            is_shrink_to_fit_context(&sd, Some(NodeId::new(2)), block),
+            "position:absolute"
+        );
+        assert!(
+            is_shrink_to_fit_context(&sd, Some(NodeId::new(3)), block),
+            "position:fixed"
+        );
         assert!(
             !is_shrink_to_fit_context(&sd, Some(NodeId::new(4)), block),
             "an in-flow static block is sized top-down ⇒ not STF"
@@ -6304,16 +6783,20 @@ mod autotest_generated {
     #[test]
     fn compute_subtree_needs_intrinsic_propagates_a_deep_flex_up_to_the_root() {
         let sd = styled(
-            Dom::create_body().with_child(
-                div_class("a")
-                    .with_child(div_class("b").with_child(div_class("f"))),
-            ),
+            Dom::create_body()
+                .with_child(div_class("a").with_child(div_class("b").with_child(div_class("f")))),
             ".a { display: block; } .b { display: block; } .f { display: flex; }",
         );
         let tree = build_tree(&sd);
         let bits = compute_subtree_needs_intrinsic(&sd, &tree);
-        assert!(bits[tree.root], "out[i] = self || any(children) — must reach the root");
-        assert!(bits.iter().all(|b| *b), "every node on the chain is on the flex path");
+        assert!(
+            bits[tree.root],
+            "out[i] = self || any(children) — must reach the root"
+        );
+        assert!(
+            bits.iter().all(|b| *b),
+            "every node on the chain is on the flex path"
+        );
     }
 
     #[test]
@@ -6330,11 +6813,21 @@ mod autotest_generated {
         let flex = kids
             .iter()
             .copied()
-            .find(|&i| tree.get(LayoutNodeId::new(i)).unwrap().formatting_context == FormattingContext::Flex)
+            .find(|&i| {
+                tree.get(LayoutNodeId::new(i)).unwrap().formatting_context
+                    == FormattingContext::Flex
+            })
             .expect("the flex child");
-        let plain = kids.iter().copied().find(|&i| i != flex).expect("the plain child");
+        let plain = kids
+            .iter()
+            .copied()
+            .find(|&i| i != flex)
+            .expect("the plain child");
         assert!(bits[flex]);
-        assert!(!bits[plain], "a sibling that reads no intrinsics stays false");
+        assert!(
+            !bits[plain],
+            "a sibling that reads no intrinsics stays false"
+        );
         assert!(bits[tree.root], "…but the root still sees the flex branch");
     }
 
@@ -6395,12 +6888,21 @@ mod autotest_generated {
     #[test]
     fn is_inline_level_is_always_true_for_text_regardless_of_display() {
         let sd = styled(
-            Dom::create_body().with_child(div_class("b").with_child(Dom::create_text_do_not_use_without_block_level_wrapper("t"))),
+            Dom::create_body().with_child(
+                div_class("b")
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("t")),
+            ),
             ".b { display: block; }",
         );
         let t = text_node(&sd, "t");
-        assert!(is_inline_level(&sd, t), "text nodes are inline-level by definition");
-        assert!(!is_inline_level(&sd, NodeId::new(1)), "the block div is not");
+        assert!(
+            is_inline_level(&sd, t),
+            "text nodes are inline-level by definition"
+        );
+        assert!(
+            !is_inline_level(&sd, NodeId::new(1)),
+            "the block div is not"
+        );
     }
 
     #[test]
@@ -6454,7 +6956,10 @@ mod autotest_generated {
 
     #[test]
     fn has_only_inline_children_is_false_for_a_childless_node() {
-        let sd = styled(Dom::create_body().with_child(div_class("e")), ".e { display: block; }");
+        let sd = styled(
+            Dom::create_body().with_child(div_class("e")),
+            ".e { display: block; }",
+        );
         assert!(
             !has_only_inline_children(&sd, NodeId::new(1)),
             "no children ⇒ no IFC (it's empty, not inline)"
@@ -6492,7 +6997,9 @@ mod autotest_generated {
 
     fn ws_dom(text: &str, css: &str) -> StyledDom {
         styled(
-            Dom::create_body().with_child(div_class("p").with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text))),
+            Dom::create_body().with_child(div_class("p").with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(text),
+            )),
             css,
         )
     }
@@ -6569,8 +7076,14 @@ mod autotest_generated {
     #[test]
     fn is_whitespace_only_text_is_false_for_non_text_and_bogus_nodes() {
         let sd = mixed_dom();
-        assert!(!is_whitespace_only_text(&sd, NodeId::new(1)), "a div is not text");
-        assert!(!is_whitespace_only_text(&sd, NodeId::ZERO), "the body is not text");
+        assert!(
+            !is_whitespace_only_text(&sd, NodeId::new(1)),
+            "a div is not text"
+        );
+        assert!(
+            !is_whitespace_only_text(&sd, NodeId::ZERO),
+            "the body is not text"
+        );
         let past_end = NodeId::new(sd.node_data.len() + 1);
         assert!(
             !is_whitespace_only_text(&sd, past_end),
@@ -6680,13 +7193,12 @@ mod autotest_generated {
             assert!(is_replaced_element(&nd), "{nt:?} is a replaced element");
         }
 
-        let img = NodeData::create_image(ImageRef::null_image(
-            1,
-            1,
-            RawImageFormat::R8,
-            Vec::new(),
-        ));
-        assert!(is_replaced_element(&img), "an <img> is the canonical replaced element");
+        let img =
+            NodeData::create_image(ImageRef::null_image(1, 1, RawImageFormat::R8, Vec::new()));
+        assert!(
+            is_replaced_element(&img),
+            "an <img> is the canonical replaced element"
+        );
     }
 
     #[test]
@@ -6705,7 +7217,9 @@ mod autotest_generated {
             let nd = NodeData::create_node(nt.clone());
             assert!(!is_replaced_element(&nd), "{nt:?} is not replaced");
         }
-        assert!(!is_replaced_element(&NodeData::create_text_do_not_use_without_block_level_wrapper("hello")));
+        assert!(!is_replaced_element(
+            &NodeData::create_text_do_not_use_without_block_level_wrapper("hello")
+        ));
     }
 
     #[test]
@@ -6727,10 +7241,16 @@ mod autotest_generated {
             .find(|&i| tree.get(LayoutNodeId::new(i)).unwrap().dom_node_id == Some(NodeId::new(1)))
             .expect("the node object still exists, just unparented");
         assert_eq!(
-            tree.warm(LayoutNodeId::new(br)).unwrap().computed_style.display,
+            tree.warm(LayoutNodeId::new(br))
+                .unwrap()
+                .computed_style
+                .display,
             LayoutDisplay::None
         );
-        assert_eq!(tree.get(LayoutNodeId::new(br)).unwrap().formatting_context, FormattingContext::None);
+        assert_eq!(
+            tree.get(LayoutNodeId::new(br)).unwrap().formatting_context,
+            FormattingContext::None
+        );
     }
 
     // ==================================================================
@@ -6810,7 +7330,10 @@ mod autotest_generated {
 
     #[test]
     fn determine_formatting_context_for_display_maps_each_display_value() {
-        let sd = styled(Dom::create_body().with_child(div_class("x")), ".x { display: block; }");
+        let sd = styled(
+            Dom::create_body().with_child(div_class("x")),
+            ".x { display: block; }",
+        );
         let id = NodeId::new(1);
         for (d, want) in [
             (LayoutDisplay::Inline, FormattingContext::Inline),
@@ -6823,12 +7346,24 @@ mod autotest_generated {
             (LayoutDisplay::InlineBlock, FormattingContext::InlineBlock),
             (LayoutDisplay::Table, FormattingContext::Table),
             (LayoutDisplay::InlineTable, FormattingContext::Table),
-            (LayoutDisplay::TableRowGroup, FormattingContext::TableRowGroup),
-            (LayoutDisplay::TableHeaderGroup, FormattingContext::TableRowGroup),
-            (LayoutDisplay::TableFooterGroup, FormattingContext::TableRowGroup),
+            (
+                LayoutDisplay::TableRowGroup,
+                FormattingContext::TableRowGroup,
+            ),
+            (
+                LayoutDisplay::TableHeaderGroup,
+                FormattingContext::TableRowGroup,
+            ),
+            (
+                LayoutDisplay::TableFooterGroup,
+                FormattingContext::TableRowGroup,
+            ),
             (LayoutDisplay::TableRow, FormattingContext::TableRow),
             (LayoutDisplay::TableCell, FormattingContext::TableCell),
-            (LayoutDisplay::TableColumnGroup, FormattingContext::TableColumnGroup),
+            (
+                LayoutDisplay::TableColumnGroup,
+                FormattingContext::TableColumnGroup,
+            ),
             (LayoutDisplay::TableCaption, FormattingContext::TableCaption),
             (LayoutDisplay::TableColumn, FormattingContext::None),
             (LayoutDisplay::None, FormattingContext::None),
@@ -6860,7 +7395,10 @@ mod autotest_generated {
 
     #[test]
     fn determine_formatting_context_for_display_never_panics_on_any_display_value() {
-        let sd = styled(Dom::create_body().with_child(div_class("x")), ".x { display: block; }");
+        let sd = styled(
+            Dom::create_body().with_child(div_class("x")),
+            ".x { display: block; }",
+        );
         for d in ALL_DISPLAYS {
             let _ = determine_formatting_context_for_display(&sd, NodeId::new(1), d);
             let _ = determine_formatting_context_for_display(&sd, NodeId::ZERO, d);
@@ -6934,7 +7472,8 @@ mod autotest_generated {
     #[test]
     fn establishes_new_bfc_for_the_root_and_for_replaced_elements() {
         let sd = styled(
-            Dom::create_body().with_child(Dom::create_from_data(NodeData::create_node(NodeType::Br))),
+            Dom::create_body()
+                .with_child(Dom::create_from_data(NodeData::create_node(NodeType::Br))),
             "",
         );
         assert!(
@@ -7020,7 +7559,10 @@ mod autotest_generated {
             DEFAULT_FONT_SIZE,
             "the root has no parent ⇒ documented DEFAULT_FONT_SIZE fallback"
         );
-        assert_eq!(get_element_font_size(&sd, NodeId::new(1)), DEFAULT_FONT_SIZE);
+        assert_eq!(
+            get_element_font_size(&sd, NodeId::new(1)),
+            DEFAULT_FONT_SIZE
+        );
     }
 
     #[test]
@@ -7044,8 +7586,15 @@ mod autotest_generated {
             .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
             .with_child(div_class("x"));
         let sd = styled(root, ".root { font-size: 20px; }");
-        assert_eq!(get_root_font_size(&sd), 20.0, "get_root_font_size hard-codes NodeId(0)");
-        assert_eq!(get_root_font_size(&sd), get_element_font_size(&sd, NodeId::ZERO));
+        assert_eq!(
+            get_root_font_size(&sd),
+            20.0,
+            "get_root_font_size hard-codes NodeId(0)"
+        );
+        assert_eq!(
+            get_root_font_size(&sd),
+            get_element_font_size(&sd, NodeId::ZERO)
+        );
     }
 
     #[test]
@@ -7053,9 +7602,15 @@ mod autotest_generated {
         let sd = mixed_dom();
         for i in 0..sd.node_data.len() {
             let id = NodeId::new(i);
-            for size in [get_element_font_size(&sd, id), get_parent_font_size(&sd, id)] {
+            for size in [
+                get_element_font_size(&sd, id),
+                get_parent_font_size(&sd, id),
+            ] {
                 assert!(size.is_finite(), "node {i}: {size}");
-                assert!(size > 0.0, "node {i}: a zero/negative font-size breaks em math");
+                assert!(
+                    size > 0.0,
+                    "node {i}: a zero/negative font-size breaks em math"
+                );
             }
         }
     }
@@ -7148,7 +7703,11 @@ mod autotest_generated {
         assert_eq!(c.resolved.border.top, 0.0);
         assert_eq!(c.resolved.border.left, 0.0);
 
-        let c = collect_for(".x { border-width: 9px; border-style: hidden; }", 1, VIEWPORT);
+        let c = collect_for(
+            ".x { border-width: 9px; border-style: hidden; }",
+            1,
+            VIEWPORT,
+        );
         assert_eq!(c.resolved.border.right, 0.0);
     }
 
@@ -7174,7 +7733,11 @@ mod autotest_generated {
         }
 
         // A cell keeps its padding but loses its margin.
-        let c = collect_for(".x { display: table-cell; margin: 10px; padding: 7px; }", 1, VIEWPORT);
+        let c = collect_for(
+            ".x { display: table-cell; margin: 10px; padding: 7px; }",
+            1,
+            VIEWPORT,
+        );
         assert_eq!(c.resolved.margin.left, 0.0, "cells have no margins");
         assert_eq!(c.resolved.padding.left, 7.0, "…but they do have padding");
     }
@@ -7199,7 +7762,11 @@ mod autotest_generated {
         assert_eq!(c.resolved.margin.top, 99_999.0);
 
         let packed = PackedBoxProps::pack(&c.resolved);
-        assert_eq!(packed.margin[0], i16::MAX, "the packing saturates, it does not wrap");
+        assert_eq!(
+            packed.margin[0],
+            i16::MAX,
+            "the packing saturates, it does not wrap"
+        );
     }
 
     #[test]
@@ -7281,7 +7848,10 @@ mod autotest_generated {
                 ".t { display: table; } .c { display: table-cell; }",
             ),
             styled(
-                Dom::create_body().with_child(div_class("li").with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"))),
+                Dom::create_body().with_child(
+                    div_class("li")
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x")),
+                ),
                 ".li { display: list-item; }",
             ),
         ] {
@@ -7306,7 +7876,10 @@ mod autotest_generated {
             }
             for (dom_id, indices) in &tree.dom_to_layout {
                 for &i in indices {
-                    assert!(i < LayoutNodeId::new(n), "dom_to_layout[{dom_id:?}] points at {i}, out of range");
+                    assert!(
+                        i < LayoutNodeId::new(n),
+                        "dom_to_layout[{dom_id:?}] points at {i}, out of range"
+                    );
                     assert_eq!(tree.get(i).unwrap().dom_node_id, Some(*dom_id));
                 }
             }
@@ -7328,10 +7901,17 @@ mod autotest_generated {
     #[test]
     fn the_root_box_always_establishes_a_new_block_formatting_context() {
         let tree = build_tree(&mixed_dom());
-        match tree.get(LayoutNodeId::new(tree.root)).unwrap().formatting_context {
+        match tree
+            .get(LayoutNodeId::new(tree.root))
+            .unwrap()
+            .formatting_context
+        {
             FormattingContext::Block {
                 establishes_new_context,
-            } => assert!(establishes_new_context, "process_node forces this for the root"),
+            } => assert!(
+                establishes_new_context,
+                "process_node forces this for the root"
+            ),
             other => panic!("the root should be a Block FC, got {other:?}"),
         }
     }
@@ -7423,7 +8003,11 @@ mod autotest_generated {
     fn ancestor_chain_terminates_on_a_cyclic_parent_link() {
         let mut tree = chain_tree();
         // Forge a cycle: root's parent points at its own child.
-        let child = tree.children(tree.root).first().copied().expect("body has a child");
+        let child = tree
+            .children(tree.root)
+            .first()
+            .copied()
+            .expect("body has a child");
         tree.nodes[tree.root].parent = Some(child);
         let walked = chain_from(&tree, child, Inclusivity::SelfAndAncestors);
         assert!(

@@ -110,10 +110,7 @@ fn portal_access_blocking(capability: Capability) -> PermissionState {
         return no_portal_fallback(capability, "no unique bus name");
     };
     let sender_token = unique.trim_start_matches(':').replace('.', "_");
-    let token = format!(
-        "azulperm{}",
-        REQUEST_COUNTER.fetch_add(1, Ordering::SeqCst)
-    );
+    let token = format!("azulperm{}", REQUEST_COUNTER.fetch_add(1, Ordering::SeqCst));
     let request_path = format!(
         "/org/freedesktop/portal/desktop/request/{}/{}",
         sender_token, token

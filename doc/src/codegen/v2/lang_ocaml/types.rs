@@ -33,9 +33,12 @@ pub fn emit_interface_types(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("(* -------------------------------------------------------------------------- *)");
-    builder.line("(* FFI type stubs (interface).                                                *)");
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* FFI type stubs (interface).                                                *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
     builder.line("open Ctypes");
@@ -53,10 +56,7 @@ pub fn emit_interface_types(
         }
         let ffi = ocaml_ffi_type_name(&s.name);
         builder.line(&format!("type {}", ffi));
-        builder.line(&format!(
-            "val {} : {} structure typ",
-            ffi, ffi
-        ));
+        builder.line(&format!("val {} : {} structure typ", ffi, ffi));
     }
 
     for e in &ir.enums {
@@ -72,10 +72,7 @@ pub fn emit_interface_types(
         let ffi = ocaml_ffi_type_name(&e.name);
         if e.is_union {
             builder.line(&format!("type {}", ffi));
-            builder.line(&format!(
-                "val {} : {} structure typ",
-                ffi, ffi
-            ));
+            builder.line(&format!("val {} : {} structure typ", ffi, ffi));
             // I.5.6 (OCaml): expose the Option/Result payload extractor
             // signatures so users can call `Azul.az_option_dom_intoSome opt`
             // from outside the umbrella module. The .ml emits the bodies
@@ -194,9 +191,11 @@ pub fn emit_forward_struct_decls(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) {
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.line("(* Phase 1: struct typ stubs (fields are added after every typ exists).      *)");
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
     for s in &ir.structs {
@@ -209,7 +208,9 @@ pub fn emit_forward_struct_decls(
         builder.line(&format!("type {}", ffi));
         builder.line(&format!(
             "let ({} : {} structure typ) = structure \"{}\"",
-            ffi, ffi, format_c_struct_name(&s.name)
+            ffi,
+            ffi,
+            format_c_struct_name(&s.name)
         ));
     }
 
@@ -222,7 +223,9 @@ pub fn emit_forward_struct_decls(
             builder.line(&format!("type {}", ffi));
             builder.line(&format!(
                 "let ({} : {} structure typ) = structure \"{}\"",
-                ffi, ffi, format_c_struct_name(&e.name)
+                ffi,
+                ffi,
+                format_c_struct_name(&e.name)
             ));
         }
     }
@@ -320,9 +323,11 @@ pub fn emit_struct_fields_and_enums(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.line("(* Phase 2: struct fields, sealing, enum integer-mapping helpers.            *)");
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
     // Unit enums FIRST — struct fields reference them by typ value
@@ -351,10 +356,7 @@ pub fn emit_struct_fields_and_enums(
     for s in &ir.structs {
         if !should_emit_struct(s, config) {
             if !s.generic_params.is_empty() {
-                builder.line(&format!(
-                    "(* SKIPPED: generic struct {} *)",
-                    s.name
-                ));
+                builder.line(&format!("(* SKIPPED: generic struct {} *)", s.name));
             } else {
                 builder.line(&format!(
                     "(* SKIPPED: struct {} ({}) *)",
@@ -369,10 +371,7 @@ pub fn emit_struct_fields_and_enums(
     for e in &ir.enums {
         if !should_emit_enum(e, config) {
             if !e.generic_params.is_empty() {
-                builder.line(&format!(
-                    "(* SKIPPED: generic enum {} *)",
-                    e.name
-                ));
+                builder.line(&format!("(* SKIPPED: generic enum {} *)", e.name));
             } else {
                 builder.line(&format!(
                     "(* SKIPPED: enum {} ({}) *)",
@@ -552,8 +551,7 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
             .variants
             .iter()
             .position(|v| v.name == "None" || v.name == "Err");
-        let is_option_or_result = e.name.starts_with("Option")
-            || e.name.starts_with("Result");
+        let is_option_or_result = e.name.starts_with("Option") || e.name.starts_with("Result");
         if is_option_or_result && some_or_ok_idx.is_some() && none_or_err_idx.is_some() {
             let positive_idx = some_or_ok_idx.unwrap();
             let (positive_name, negative_name) = if e.name.starts_with("Option") {
@@ -610,8 +608,9 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                     // / GenericTemplate payloads — those types are
                     // either pointer-typedefs (no struct typ to
                     // coerce into) or codegen-internal scaffolding.
-                    let payload_is_proper_struct =
-                        ir.find_struct(payload_ty).map(|s| {
+                    let payload_is_proper_struct = ir
+                        .find_struct(payload_ty)
+                        .map(|s| {
                             !matches!(
                                 s.category,
                                 super::super::ir::TypeCategory::VecRef
@@ -620,7 +619,8 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                                     | super::super::ir::TypeCategory::DestructorOrClone
                                     | super::super::ir::TypeCategory::GenericTemplate
                             )
-                        }).unwrap_or(false);
+                        })
+                        .unwrap_or(false);
                     if payload_is_proper_struct {
                         let payload_ffi = super::ocaml_ffi_type_name(payload_ty);
                         let into_name = if e.name.starts_with("Option") {
@@ -635,10 +635,7 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                             ffi, into_name, ffi, payload_ffi
                         ));
                         builder.indent();
-                        builder.line(&format!(
-                            "if not ({}_{} r) then None",
-                            ffi, positive_name
-                        ));
+                        builder.line(&format!("if not ({}_{} r) then None", ffi, positive_name));
                         builder.line("else");
                         builder.indent();
                         builder.line("let raw_ptr = Ctypes.addr r in");
@@ -652,7 +649,8 @@ fn emit_tagged_union_fields(builder: &mut CodeBuilder, e: &EnumDef, ir: &Codegen
                             "let payload_align = max 1 (Ctypes.alignment {}) in",
                             payload_ffi
                         ));
-                        builder.line("let payload_byte_ptr = Ctypes.(+@) byte_ptr payload_align in");
+                        builder
+                            .line("let payload_byte_ptr = Ctypes.(+@) byte_ptr payload_align in");
                         builder.line(&format!(
                             "let payload_ptr = Ctypes.coerce (Ctypes.ptr Ctypes.char) (Ctypes.ptr {}) payload_byte_ptr in",
                             payload_ffi
@@ -685,8 +683,7 @@ fn emit_into_signature_if_option_or_result(
     if !e.is_union {
         return;
     }
-    let is_option_or_result =
-        e.name.starts_with("Option") || e.name.starts_with("Result");
+    let is_option_or_result = e.name.starts_with("Option") || e.name.starts_with("Result");
     if !is_option_or_result {
         return;
     }
@@ -907,7 +904,11 @@ fn c_size_of_tagged_enum(
                     off = (off + fa - 1) / fa * fa;
                     off += fs;
                 }
-                let sz = if al > 0 { (off + al - 1) / al * al } else { off };
+                let sz = if al > 0 {
+                    (off + al - 1) / al * al
+                } else {
+                    off
+                };
                 (sz, al)
             }
             EnumVariantKind::Struct(fields) => {
@@ -924,7 +925,11 @@ fn c_size_of_tagged_enum(
                     off = (off + fa - 1) / fa * fa;
                     off += fs;
                 }
-                let sz = if al > 0 { (off + al - 1) / al * al } else { off };
+                let sz = if al > 0 {
+                    (off + al - 1) / al * al
+                } else {
+                    off
+                };
                 (sz, al)
             }
         };
@@ -984,14 +989,8 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
     // 0..N-1), but we expose the helpers so call sites can be
     // syntactically clean and we can change the encoding later
     // without breaking users.
-    builder.line(&format!(
-        "let {}_to_int (i : int) : int = i",
-        ffi
-    ));
-    builder.line(&format!(
-        "let {}_of_int (i : int) : int = i",
-        ffi
-    ));
+    builder.line(&format!("let {}_to_int (i : int) : int = i", ffi));
+    builder.line(&format!("let {}_of_int (i : int) : int = i", ffi));
     // Emit named constants for each variant. Use `<ffi>_variant_<v>`
     // (not just `<ffi>_<v>`) so the constant doesn't collide with a
     // struct of the same flattened name — e.g. `az_shape_ellipse`
@@ -999,10 +998,7 @@ fn emit_unit_enum(builder: &mut CodeBuilder, e: &EnumDef) {
     // the `Shape` enum. Disambiguate at the variant side.
     for (idx, v) in e.variants.iter().enumerate() {
         let lit = sanitize_identifier(&super::to_snake_case(&v.name));
-        builder.line(&format!(
-            "let {}_variant_{} : int = {}",
-            ffi, lit, idx
-        ));
+        builder.line(&format!("let {}_variant_{} : int = {}", ffi, lit, idx));
     }
     builder.blank();
 

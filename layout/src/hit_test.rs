@@ -53,7 +53,7 @@ impl CursorTypeHitTest {
     /// `cursor_hit_test_nodes` (text runs) and `regular_hit_test_nodes` (DOM nodes).
     pub fn new(hit_test: &FullHitTest, layout_window: &LayoutWindow) -> Self {
         use azul_core::hit_test::CursorType;
-        
+
         let mut cursor_node = None;
         let mut cursor_icon = MouseCursorType::Default;
         // Start with MAX so any node with a cursor property will be selected
@@ -74,15 +74,15 @@ impl CursorTypeHitTest {
             // type encoded in the tag, no CSS lookup needed)
             for (node_id, cursor_hit) in &hit_nodes.cursor_hit_test_nodes {
                 let node_depth = cursor_hit.hit_depth;
-                
+
                 // Only consider if it's in front of our current best
                 if node_depth >= best_depth {
                     continue;
                 }
-                
+
                 // Convert CursorType to MouseCursorType
                 let mouse_cursor = translate_cursor_type(cursor_hit.cursor_type);
-                
+
                 // Only use this cursor if it's not the default
                 // (allows containers behind text to show their cursor if text has default)
                 if mouse_cursor != MouseCursorType::Default {
@@ -122,7 +122,7 @@ impl CursorTypeHitTest {
                     node_id,
                     &styled_node.styled_node_state,
                 );
-                
+
                 // If this node has an explicit cursor property, use it
                 if let Some(cursor_prop) = cursor_prop {
                     let css_cursor = cursor_prop.get_property().copied().unwrap_or_default();
@@ -159,7 +159,7 @@ impl CursorTypeHitTest {
 /// Translate `CursorType` (from hit-test tag) to `MouseCursorType`
 const fn translate_cursor_type(cursor_type: azul_core::hit_test::CursorType) -> MouseCursorType {
     use azul_core::hit_test::CursorType;
-    
+
     match cursor_type {
         CursorType::Default => MouseCursorType::Default,
         CursorType::Pointer => MouseCursorType::Hand,
@@ -371,7 +371,8 @@ mod autotest_generated {
     fn window_with(dom_ids: &[DomId]) -> LayoutWindow {
         let mut lw = LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         for dom_id in dom_ids {
-            lw.layout_results.insert(*dom_id, layout_result(fixture_dom()));
+            lw.layout_results
+                .insert(*dom_id, layout_result(fixture_dom()));
         }
         lw
     }
@@ -416,7 +417,10 @@ mod autotest_generated {
     }
 
     /// Hit-test the fixture (loaded as the root DOM) and return the resolved cursor.
-    fn resolve(regular: &[(usize, u32)], cursors: &[(usize, CursorType, u32)]) -> CursorTypeHitTest {
+    fn resolve(
+        regular: &[(usize, u32)],
+        cursors: &[(usize, CursorType, u32)],
+    ) -> CursorTypeHitTest {
         let lw = window_with(&[DomId::ROOT_ID]);
         let hit = make_hit_test(&[(DomId::ROOT_ID, regular, cursors)]);
         CursorTypeHitTest::new(&hit, &lw)
@@ -746,7 +750,11 @@ mod autotest_generated {
         let lw = window_with(&[DomId::ROOT_ID]);
         let hit = make_hit_test(&[
             (dom(1), &[(POINTER_DIV, 0)], &[]),
-            (dom(usize::MAX), &[(BUTTON, 0)], &[(PLAIN_DIV, CursorType::Text, 0)]),
+            (
+                dom(usize::MAX),
+                &[(BUTTON, 0)],
+                &[(PLAIN_DIV, CursorType::Text, 0)],
+            ),
         ]);
         let result = CursorTypeHitTest::new(&hit, &lw);
         assert_eq!(result.cursor_node, None);
@@ -950,7 +958,10 @@ mod autotest_generated {
             (dom(1), &[(CROSSHAIR_DIV, 0)], &[]),
         ]);
         let result = CursorTypeHitTest::new(&hit, &lw);
-        assert_eq!(result.cursor_node, Some((dom(1), NodeId::new(CROSSHAIR_DIV))));
+        assert_eq!(
+            result.cursor_node,
+            Some((dom(1), NodeId::new(CROSSHAIR_DIV)))
+        );
         assert_eq!(result.cursor_icon, MouseCursorType::Crosshair);
 
         // ... and in the *first* DOM: the later DOM must not clobber it.

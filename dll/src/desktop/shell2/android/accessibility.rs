@@ -317,8 +317,7 @@ impl AndroidAccessibilityAdapter {
         if !element.supports(&action) {
             return false;
         }
-        self.queue
-            .push(element.dom_id, element.node_id, action);
+        self.queue.push(element.dom_id, element.node_id, action);
         true
     }
 }
@@ -456,7 +455,11 @@ mod jni_bridge {
         _class: jni::sys::jclass,
         native_ptr: i64,
     ) -> jni::sys::jint {
-        with_adapter(native_ptr, 0, super::AndroidAccessibilityAdapter::node_count)
+        with_adapter(
+            native_ptr,
+            0,
+            super::AndroidAccessibilityAdapter::node_count,
+        )
     }
 
     /// One node, packed. See the module docs for the field layout.
@@ -469,8 +472,7 @@ mod jni_bridge {
         virtual_view_id: jni::sys::jint,
     ) -> jni::sys::jstring {
         let null = core::ptr::null_mut();
-        let described =
-            with_adapter(native_ptr, None, |a| a.describe_node(virtual_view_id));
+        let described = with_adapter(native_ptr, None, |a| a.describe_node(virtual_view_id));
         let Some(text) = described else {
             return null;
         };

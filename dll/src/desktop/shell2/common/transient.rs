@@ -203,7 +203,9 @@ pub fn popup_create_options(
     cursor: Option<LogicalPosition>,
 ) -> (WindowCreateOptions, RefAny) {
     let size = open.content_size;
-    let origin = open.placement.resolve_within(size, cursor, placement_bounds(parent));
+    let origin = open
+        .placement
+        .resolve_within(size, cursor, placement_bounds(parent));
 
     let mailbox = RefAny::new(TransientWindowData {
         parent_window_id,
@@ -262,7 +264,9 @@ pub fn toplevel_create_options(
     title: &str,
 ) -> (WindowCreateOptions, RefAny) {
     let size = open.content_size;
-    let origin = open.torn.unwrap_or_else(|| open.placement.resolve(size, None));
+    let origin = open
+        .torn
+        .unwrap_or_else(|| open.placement.resolve(size, None));
 
     let mailbox = RefAny::new(TransientWindowData {
         parent_window_id,
@@ -333,7 +337,9 @@ fn placement_bounds(parent: &FullWindowState) -> azul_core::geom::LogicalRect {
     if objc2_foundation::MainThreadMarker::new().is_none() {
         return own;
     }
-    let Some(display) = crate::desktop::display::get_window_display(parent_origin, parent.size.dimensions) else {
+    let Some(display) =
+        crate::desktop::display::get_window_display(parent_origin, parent.size.dimensions)
+    else {
         return own;
     };
     let wa = display.work_area;
@@ -433,7 +439,12 @@ pub fn sync_parent(
         })
         .collect();
     for (node, report) in drops {
-        if let Some(w) = lw.transient_windows.open_windows().iter().find(|w| w.source_node == node) {
+        if let Some(w) = lw
+            .transient_windows
+            .open_windows()
+            .iter()
+            .find(|w| w.source_node == node)
+        {
             if let OptionRefAny::Some(m) = &w.surface {
                 write(m, |d| d.drop = None);
             }
@@ -489,7 +500,10 @@ pub fn sync_parent(
         azul_core::window::CursorPosition::InWindow(p) => Some(p),
         _ => None,
     };
-    let root = lw.layout_results.get(&DomId::ROOT_ID).map(|r| r.styled_dom.clone());
+    let root = lw
+        .layout_results
+        .get(&DomId::ROOT_ID)
+        .map(|r| r.styled_dom.clone());
     let open: Vec<OpenTransientWindow> = lw.transient_windows.open_windows().to_vec();
     for w in open {
         if w.is_inline() {
@@ -526,7 +540,11 @@ pub fn sync_parent(
                 log_debug!(
                     LogCategory::Window,
                     "[transient] opening {} {:?}: {}x{} at {:?}",
-                    if w.torn.is_some() { "toplevel" } else { "popup" },
+                    if w.torn.is_some() {
+                        "toplevel"
+                    } else {
+                        "popup"
+                    },
                     w.content_dom,
                     w.content_size.width,
                     w.content_size.height,
@@ -544,7 +562,11 @@ pub fn sync_parent(
                     let origin = if w.torn.is_some() {
                         None
                     } else {
-                        Some(w.placement.resolve_within(w.content_size, cursor, placement_bounds(parent_state)))
+                        Some(w.placement.resolve_within(
+                            w.content_size,
+                            cursor,
+                            placement_bounds(parent_state),
+                        ))
                     };
                     write(m, |d| {
                         d.content = content;
@@ -625,9 +647,17 @@ pub fn poll_popup(state: &FullWindowState) -> PopupAction {
     let Some(m) = mailbox_of(state) else {
         return PopupAction::Nothing;
     };
-    let Some((closed, generation, origin, size, torn, dragging, following)) =
-        read(&m, |d| (d.closed, d.generation, d.origin, d.content_size, d.torn, d.drag.is_some(), d.following))
-    else {
+    let Some((closed, generation, origin, size, torn, dragging, following)) = read(&m, |d| {
+        (
+            d.closed,
+            d.generation,
+            d.origin,
+            d.content_size,
+            d.torn,
+            d.drag.is_some(),
+            d.following,
+        )
+    }) else {
         return PopupAction::Nothing;
     };
     if closed {
@@ -645,7 +675,10 @@ pub fn poll_popup(state: &FullWindowState) -> PopupAction {
     // one putting it, one frame at a time).
     if following {
         if state.position != relative_position(origin) {
-            return PopupAction::Place { origin: Some(origin), size };
+            return PopupAction::Place {
+                origin: Some(origin),
+                size,
+            };
         }
         return PopupAction::Nothing;
     }
@@ -783,9 +816,10 @@ pub fn tear_drag_move(state: &FullWindowState, window_follows: bool) -> Option<W
     #[allow(clippy::cast_possible_truncation)] // whole pixels
     let position = if torn {
         match state.position {
-            WindowPosition::Initialized(p) => {
-                WindowPosition::Initialized(PhysicalPosition::new(p.x + dx.round() as i32, p.y + dy.round() as i32))
-            }
+            WindowPosition::Initialized(p) => WindowPosition::Initialized(PhysicalPosition::new(
+                p.x + dx.round() as i32,
+                p.y + dy.round() as i32,
+            )),
             // No screen coordinates (Wayland): a torn toplevel cannot be
             // moved by its content; the compositor's own move does that.
             other => other,
@@ -811,8 +845,16 @@ pub fn tear_drag_end(state: &FullWindowState, window_follows: bool) -> bool {
     let Some(drag) = drag else {
         return false;
     };
-    let local = state.mouse_state.cursor_position.get_position().unwrap_or(LogicalPosition::zero());
-    let actual = if window_follows { origin } else { drag.origin_at_press };
+    let local = state
+        .mouse_state
+        .cursor_position
+        .get_position()
+        .unwrap_or(LogicalPosition::zero());
+    let actual = if window_follows {
+        origin
+    } else {
+        drag.origin_at_press
+    };
     let cursor = LogicalPosition::new(actual.x + local.x, actual.y + local.y);
     write(&m, |d| {
         d.drag = None;
@@ -920,7 +962,10 @@ pub fn dismiss_on_escape(
     lw: &mut LayoutWindow,
 ) -> bool {
     let esc = |s: &FullWindowState| {
-        s.keyboard_state.pressed_virtual_keycodes.as_ref().contains(&VirtualKeyCode::Escape)
+        s.keyboard_state
+            .pressed_virtual_keycodes
+            .as_ref()
+            .contains(&VirtualKeyCode::Escape)
     };
     if !(esc(current) && !esc(previous)) {
         return false;
@@ -1003,10 +1048,7 @@ pub fn dismiss_outside_on_press(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use azul_core::{
-        geom::LogicalRect,
-        transient::TransientAnchor,
-    };
+    use azul_core::{geom::LogicalRect, transient::TransientAnchor};
     use azul_layout::transient::placement_for;
 
     fn open_window(dom: usize) -> OpenTransientWindow {
@@ -1016,7 +1058,10 @@ mod tests {
             content_dom: azul_layout::transient::transient_dom_id(dom),
             placement: placement_for(
                 NodeId::new(3),
-                LogicalRect::new(LogicalPosition::new(48.0, 48.0), LogicalSize::new(60.0, 24.0)),
+                LogicalRect::new(
+                    LogicalPosition::new(48.0, 48.0),
+                    LogicalSize::new(60.0, 24.0),
+                ),
                 &cfg,
             ),
             content_size: LogicalSize::new(240.0, 160.0),
@@ -1035,7 +1080,10 @@ mod tests {
         let w = open_window(0);
         let (opts, mailbox) = popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None);
         assert_eq!(opts.parent_window_id, 0xABCD);
-        assert!(!opts.size_to_content, "the engine measured it; no resize dance");
+        assert!(
+            !opts.size_to_content,
+            "the engine measured it; no resize dance"
+        );
         let st = &opts.window_state;
         assert_eq!(st.flags.window_type, WindowType::Menu);
         assert_eq!(st.flags.decorations, WindowDecorations::None);
@@ -1063,15 +1111,18 @@ mod tests {
             opts.window_state
         };
         let press_escape = |s: &mut FullWindowState| {
-            s.keyboard_state.pressed_virtual_keycodes =
-                alloc::vec![VirtualKeyCode::Escape].into();
+            s.keyboard_state.pressed_virtual_keycodes = alloc::vec![VirtualKeyCode::Escape].into();
         };
 
         for policy in [TransientDismiss::Outside, TransientDismiss::Escape] {
             let before = mk(policy);
             let mut after = mk(policy);
             press_escape(&mut after);
-            assert_eq!(popup_dismiss_cause(&before, &after), Some(DismissCause::Escape), "{policy:?}");
+            assert_eq!(
+                popup_dismiss_cause(&before, &after),
+                Some(DismissCause::Escape),
+                "{policy:?}"
+            );
             // Held Escape is not a new press.
             let mut held = mk(policy);
             press_escape(&mut held);
@@ -1082,19 +1133,34 @@ mod tests {
         focused.window_focused = true;
         let mut unfocused = mk(TransientDismiss::Outside);
         unfocused.window_focused = false;
-        assert_eq!(popup_dismiss_cause(&focused, &unfocused), Some(DismissCause::FocusLost));
-        assert_eq!(popup_dismiss_cause(&unfocused, &unfocused), None, "never focused: no edge");
+        assert_eq!(
+            popup_dismiss_cause(&focused, &unfocused),
+            Some(DismissCause::FocusLost)
+        );
+        assert_eq!(
+            popup_dismiss_cause(&unfocused, &unfocused),
+            None,
+            "never focused: no edge"
+        );
 
         let mut f2 = mk(TransientDismiss::Escape);
         f2.window_focused = true;
         let mut u2 = mk(TransientDismiss::Escape);
         u2.window_focused = false;
-        assert_eq!(popup_dismiss_cause(&f2, &u2), None, "escape-only ignores focus");
+        assert_eq!(
+            popup_dismiss_cause(&f2, &u2),
+            None,
+            "escape-only ignores focus"
+        );
 
         let before = mk(TransientDismiss::None);
         let mut after = mk(TransientDismiss::None);
         press_escape(&mut after);
-        assert_eq!(popup_dismiss_cause(&before, &after), None, "none never dismisses");
+        assert_eq!(
+            popup_dismiss_cause(&before, &after),
+            None,
+            "none never dismisses"
+        );
     }
 
     /// A popup reports itself dismissed through the mailbox, and the parent
@@ -1110,7 +1176,10 @@ mod tests {
         assert!(write(&mailbox, |d| d.closed = true));
         assert_eq!(poll_popup(&opts.window_state), PopupAction::Close);
         // A window that is not a popup has no mailbox and nothing to do.
-        assert_eq!(poll_popup(&FullWindowState::default()), PopupAction::Nothing);
+        assert_eq!(
+            poll_popup(&FullWindowState::default()),
+            PopupAction::Nothing
+        );
         assert!(!post_dismissed(&FullWindowState::default()));
     }
 }

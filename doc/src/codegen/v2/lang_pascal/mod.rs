@@ -172,7 +172,8 @@ fn emit_header(builder: &mut CodeBuilder) {
     builder.line("  Compatible with Free Pascal Compiler 3.2+ in {$mode objfpc}.");
     builder.line("  The {$PACKRECORDS C} directive is critical: it forces C-ABI struct");
     builder.line("  layout so values passed by value match the Rust extern \"C\" ABI.");
-    builder.line("  ============================================================================ }");
+    builder
+        .line("  ============================================================================ }");
     builder.blank();
 }
 
@@ -320,9 +321,23 @@ pub fn sanitize_identifier(name: &str) -> String {
 fn is_pascal_method_shadow(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
-        "len" | "cap" | "clone" | "create" | "delete" | "free" | "raw"
-            | "wrap" | "destroy" | "ptr" | "string" | "self"
-            | "tag" | "get" | "set" | "id" | "value"
+        "len"
+            | "cap"
+            | "clone"
+            | "create"
+            | "delete"
+            | "free"
+            | "raw"
+            | "wrap"
+            | "destroy"
+            | "ptr"
+            | "string"
+            | "self"
+            | "tag"
+            | "get"
+            | "set"
+            | "id"
+            | "value"
     )
 }
 

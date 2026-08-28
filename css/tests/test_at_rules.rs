@@ -802,7 +802,11 @@ fn test_os_aliases() {
 
         let rule = &rules[0];
         let conditions: Vec<_> = rule.conditions.iter().collect();
-        assert_eq!(conditions.len(), 1, "Expected 1 condition for alias '{alias}'");
+        assert_eq!(
+            conditions.len(),
+            1,
+            "Expected 1 condition for alias '{alias}'"
+        );
 
         match &conditions[0] {
             DynamicSelector::Os(os) if os == &expected => {}
@@ -832,7 +836,7 @@ fn test_nested_os_and_media() {
 
     let rule = &rules[0];
     let conditions: Vec<_> = rule.conditions.iter().collect();
-    
+
     // Should have both Os(Linux) and Media(Screen) conditions
     assert_eq!(
         conditions.len(),
@@ -868,7 +872,7 @@ fn test_nested_media_and_os() {
 
     let rule = &rules[0];
     let conditions: Vec<_> = rule.conditions.iter().collect();
-    
+
     assert_eq!(
         conditions.len(),
         2,
@@ -907,7 +911,10 @@ fn test_mixed_os_media_and_regular_rules() {
     assert_eq!(rules.len(), 4, "Expected 4 rules");
 
     // First rule: no conditions
-    assert!(rules[0].conditions.iter().count() == 0, "Rule 0 should have no conditions");
+    assert!(
+        rules[0].conditions.iter().count() == 0,
+        "Rule 0 should have no conditions"
+    );
 
     // Second rule: @os linux condition
     let cond1: Vec<_> = rules[1].conditions.iter().collect();
@@ -917,10 +924,16 @@ fn test_mixed_os_media_and_regular_rules() {
     // Third rule: @media screen condition
     let cond2: Vec<_> = rules[2].conditions.iter().collect();
     assert_eq!(cond2.len(), 1);
-    assert!(matches!(cond2[0], DynamicSelector::Media(MediaType::Screen)));
+    assert!(matches!(
+        cond2[0],
+        DynamicSelector::Media(MediaType::Screen)
+    ));
 
     // Fourth rule: no conditions
-    assert!(rules[3].conditions.iter().count() == 0, "Rule 3 should have no conditions");
+    assert!(
+        rules[3].conditions.iter().count() == 0,
+        "Rule 3 should have no conditions"
+    );
 }
 
 // ============================================================================
@@ -945,9 +958,12 @@ fn test_os_condition_any_matches_all() {
     };
 
     let selector_any = DynamicSelector::Os(OsCondition::Any);
-    
+
     assert!(selector_any.matches(&ctx_linux), "Any should match Linux");
-    assert!(selector_any.matches(&ctx_windows), "Any should match Windows");
+    assert!(
+        selector_any.matches(&ctx_windows),
+        "Any should match Windows"
+    );
     assert!(selector_any.matches(&ctx_macos), "Any should match macOS");
 }
 
@@ -969,10 +985,16 @@ fn test_os_condition_apple_matches_macos_and_ios() {
     };
 
     let selector_apple = DynamicSelector::Os(OsCondition::Apple);
-    
-    assert!(selector_apple.matches(&ctx_macos), "Apple should match macOS");
+
+    assert!(
+        selector_apple.matches(&ctx_macos),
+        "Apple should match macOS"
+    );
     assert!(selector_apple.matches(&ctx_ios), "Apple should match iOS");
-    assert!(!selector_apple.matches(&ctx_linux), "Apple should NOT match Linux");
+    assert!(
+        !selector_apple.matches(&ctx_linux),
+        "Apple should NOT match Linux"
+    );
 }
 
 #[test]
@@ -990,12 +1012,24 @@ fn test_os_condition_specific_matches() {
 
     let selector_linux = DynamicSelector::Os(OsCondition::Linux);
     let selector_windows = DynamicSelector::Os(OsCondition::Windows);
-    
-    assert!(selector_linux.matches(&ctx_linux), "Linux should match Linux");
-    assert!(!selector_linux.matches(&ctx_windows), "Linux should NOT match Windows");
-    
-    assert!(selector_windows.matches(&ctx_windows), "Windows should match Windows");
-    assert!(!selector_windows.matches(&ctx_linux), "Windows should NOT match Linux");
+
+    assert!(
+        selector_linux.matches(&ctx_linux),
+        "Linux should match Linux"
+    );
+    assert!(
+        !selector_linux.matches(&ctx_windows),
+        "Linux should NOT match Windows"
+    );
+
+    assert!(
+        selector_windows.matches(&ctx_windows),
+        "Windows should match Windows"
+    );
+    assert!(
+        !selector_windows.matches(&ctx_linux),
+        "Windows should NOT match Linux"
+    );
 }
 
 #[test]
@@ -1014,7 +1048,7 @@ fn test_combined_conditions_all_must_match() {
     let selector_linux = DynamicSelector::Os(OsCondition::Linux);
     let selector_dark = DynamicSelector::Theme(ThemeCondition::Dark);
     let selector_screen = DynamicSelector::Media(MediaType::Screen);
-    
+
     assert!(selector_linux.matches(&ctx));
     assert!(selector_dark.matches(&ctx));
     assert!(selector_screen.matches(&ctx));
@@ -1053,7 +1087,9 @@ fn test_os_paren_form_with_de() {
         conds,
         vec![
             DynamicSelector::Os(OsCondition::Linux),
-            DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvironment(LinuxDesktopEnv::Gnome)),
+            DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvironment(
+                LinuxDesktopEnv::Gnome
+            )),
         ]
     );
 }
@@ -1087,22 +1123,48 @@ fn test_os_version_synonyms() {
     // Each line below should parse to the same DynamicSelector vec.
     let cases: &[(&str, OsVersion)] = &[
         // Windows: bare number, win-prefix, windows-prefix variants.
-        ("@os(windows >= 11) { div { color: red; } }",        OsVersion::WIN_11),
-        ("@os(windows >= win-11) { div { color: red; } }",    OsVersion::WIN_11),
-        ("@os(windows >= win11) { div { color: red; } }",     OsVersion::WIN_11),
-        ("@os(windows >= windows-11) { div { color: red; } }", OsVersion::WIN_11),
+        (
+            "@os(windows >= 11) { div { color: red; } }",
+            OsVersion::WIN_11,
+        ),
+        (
+            "@os(windows >= win-11) { div { color: red; } }",
+            OsVersion::WIN_11,
+        ),
+        (
+            "@os(windows >= win11) { div { color: red; } }",
+            OsVersion::WIN_11,
+        ),
+        (
+            "@os(windows >= windows-11) { div { color: red; } }",
+            OsVersion::WIN_11,
+        ),
         // macOS: codename and number.
-        ("@os(macos >= 14) { div { color: red; } }",          OsVersion::MACOS_SONOMA),
-        ("@os(macos >= sonoma) { div { color: red; } }",      OsVersion::MACOS_SONOMA),
+        (
+            "@os(macos >= 14) { div { color: red; } }",
+            OsVersion::MACOS_SONOMA,
+        ),
+        (
+            "@os(macos >= sonoma) { div { color: red; } }",
+            OsVersion::MACOS_SONOMA,
+        ),
         // Linux: bare major now expands to <major>.0.
-        ("@os(linux >= 5) { div { color: red; } }",           OsVersion::LINUX_5_0),
-        ("@os(linux >= 5.0) { div { color: red; } }",         OsVersion::LINUX_5_0),
+        (
+            "@os(linux >= 5) { div { color: red; } }",
+            OsVersion::LINUX_5_0,
+        ),
+        (
+            "@os(linux >= 5.0) { div { color: red; } }",
+            OsVersion::LINUX_5_0,
+        ),
     ];
     for (css, expected_ver) in cases {
         let conds = os_conditions(css);
         assert_eq!(conds.len(), 2, "expected 2 conditions for: {css}");
         match &conds[1] {
-            DynamicSelector::OsVersion(OsVersionCondition::Min(v)) => assert_eq!(v, expected_ver, "for: {css}"),
+            DynamicSelector::OsVersion(OsVersionCondition::Min(v)) => {
+                assert_eq!(v, expected_ver, "for: {css}")
+            }
             other => panic!("expected Min(...) version, got {other:?} for: {css}"),
         }
     }
@@ -1116,9 +1178,10 @@ fn test_os_paren_form_with_de_and_version() {
         conds,
         vec![
             DynamicSelector::Os(OsCondition::Linux),
-            DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvMin(
-                DesktopEnvVersion { env: LinuxDesktopEnv::Gnome, version_id: 40 }
-            )),
+            DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvMin(DesktopEnvVersion {
+                env: LinuxDesktopEnv::Gnome,
+                version_id: 40
+            })),
         ]
     );
 }
@@ -1129,9 +1192,10 @@ fn test_os_de_version_match() {
         DesktopEnvVersion, DynamicSelectorContext, LinuxDesktopEnv, OptionLinuxDesktopEnv,
         OsVersionCondition,
     };
-    let sel = DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvMin(
-        DesktopEnvVersion { env: LinuxDesktopEnv::Gnome, version_id: 40 },
-    ));
+    let sel = DynamicSelector::OsVersion(OsVersionCondition::DesktopEnvMin(DesktopEnvVersion {
+        env: LinuxDesktopEnv::Gnome,
+        version_id: 40,
+    }));
     // GNOME 42 — matches.
     let ctx_42 = DynamicSelectorContext {
         os: OsCondition::Linux,
@@ -1141,10 +1205,16 @@ fn test_os_de_version_match() {
     };
     assert!(sel.matches(&ctx_42));
     // GNOME 38 — fails the >= 40 constraint.
-    let ctx_38 = DynamicSelectorContext { de_version: 38, ..ctx_42.clone() };
+    let ctx_38 = DynamicSelectorContext {
+        de_version: 38,
+        ..ctx_42.clone()
+    };
     assert!(!sel.matches(&ctx_38));
     // Unknown DE version (0) — never satisfies any DE-version constraint.
-    let ctx_unknown = DynamicSelectorContext { de_version: 0, ..ctx_42.clone() };
+    let ctx_unknown = DynamicSelectorContext {
+        de_version: 0,
+        ..ctx_42.clone()
+    };
     assert!(!sel.matches(&ctx_unknown));
     // KDE — wrong DE.
     let ctx_kde = DynamicSelectorContext {

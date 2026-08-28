@@ -16,7 +16,6 @@
 //!   '-' 300u => 6px · CJK 1000u => 20px · Hebrew 550u => 11px · U+0301 => 0px
 //!   kern (A,V)=(V,A)=-100u => -2px.
 
-
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -121,8 +120,8 @@ fn layout_content(
 
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None)
-        .expect("shaping must succeed");
+    let shaped =
+        shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shaping must succeed");
 
     let mut cursor = BreakCursor::new(&shaped);
     perform_fragment_layout(&mut cursor, &logical, constraints, &mut None, &loaded)
@@ -181,7 +180,9 @@ fn widest_line(layout: &UnifiedLayout) -> f32 {
     let mut per_line: HashMap<usize, (f32, f32)> = HashMap::new();
     for it in &layout.items {
         if let ShapedItem::Cluster(c) = &it.item {
-            let e = per_line.entry(it.line_index).or_insert((f32::MAX, f32::MIN));
+            let e = per_line
+                .entry(it.line_index)
+                .or_insert((f32::MAX, f32::MIN));
             e.0 = e.0.min(it.position.x);
             e.1 = e.1.max(it.position.x + c.advance);
         }
@@ -267,7 +268,11 @@ fn break_at_exact_48_hangs_trailing_space() {
     // CSS Text §4.1.2: a soft-wrap opportunity's trailing space hangs; the first
     // word fills exactly 48px, the space hangs, the second word wraps.
     let l = layout("aaaa aaaa", AvailableSpace::Definite(48.0));
-    assert_eq!(line_count(&l), 2, "aaaa aaaa @48px must wrap after the exact-fit word");
+    assert_eq!(
+        line_count(&l),
+        2,
+        "aaaa aaaa @48px must wrap after the exact-fit word"
+    );
     assert_px(line_width(&l, 0), 48.0);
 }
 
@@ -275,7 +280,11 @@ fn break_at_exact_48_hangs_trailing_space() {
 fn trailing_space_only_stays_one_line() {
     // CSS Text §4.1.2: a line's trailing space is trimmed, so "aaaa " (48+5) fits in 48.
     let l = layout("aaaa ", AvailableSpace::Definite(48.0));
-    assert_eq!(line_count(&l), 1, "'aaaa ' @48px keeps 1 line (trailing space trimmed)");
+    assert_eq!(
+        line_count(&l),
+        1,
+        "'aaaa ' @48px keeps 1 line (trailing space trimmed)"
+    );
     assert_px(line_width(&l, 0), 48.0);
 }
 
@@ -337,7 +346,10 @@ fn overlong_unbreakable_word_terminates() {
     // No break opportunity exists inside a run of 20 'a's (240px). The line
     // breaker must terminate (overflow the 50px box) rather than spin forever.
     let l = layout("aaaaaaaaaaaaaaaaaaaa", AvailableSpace::Definite(50.0));
-    assert!(line_count(&l) >= 1, "overlong word must still place >= 1 line");
+    assert!(
+        line_count(&l) >= 1,
+        "overlong word must still place >= 1 line"
+    );
 }
 
 #[test]
@@ -354,7 +366,11 @@ fn nbsp_does_not_offer_a_break() {
     // UAX#14: U+00A0 NBSP is class GL (glue) — no break opportunity, so the whole
     // 101px string stays on one line even though it overflows the 60px box.
     let l = layout("aaaa\u{00A0}aaaa", AvailableSpace::Definite(60.0));
-    assert_eq!(line_count(&l), 1, "NBSP must not offer a soft-wrap opportunity");
+    assert_eq!(
+        line_count(&l),
+        1,
+        "NBSP must not offer a soft-wrap opportunity"
+    );
 }
 
 #[test]
@@ -423,7 +439,11 @@ fn cjk_breaks_between_ideographs() {
     // UAX#14: CJK ideographs (class ID) offer a break opportunity between each
     // other. Each is 1000u => 20px; "你好" (40px) fills the 45px box, "世界" wraps.
     let l = layout("你好世界", AvailableSpace::Definite(45.0));
-    assert_eq!(line_count(&l), 2, "CJK must break between ideographs at 45px");
+    assert_eq!(
+        line_count(&l),
+        2,
+        "CJK must break between ideographs at 45px"
+    );
     assert_eq!(clusters_on_line(&l, 0), 2, "line 1 holds 2 ideographs");
     assert_px(line_width(&l, 0), 40.0);
 }
@@ -435,7 +455,10 @@ fn combining_mark_stays_in_cluster_and_has_zero_advance() {
     let g = shape_latin("a\u{0301}");
     assert_px(advance_sum(&g), 12.0);
     // The mark contributes a glyph but adds no advance.
-    assert!(g.len() >= 2, "base + combining mark should produce >= 2 glyphs");
+    assert!(
+        g.len() >= 2,
+        "base + combining mark should produce >= 2 glyphs"
+    );
     // In the positioned layout the pair is a single cluster of advance 12.
     let l = layout("a\u{0301}a", AvailableSpace::MaxContent);
     if let Some(ShapedItem::Cluster(c)) = l.items.iter().find_map(|it| match &it.item {
@@ -459,9 +482,7 @@ fn hebrew_run_is_rtl_reversed_and_33px_wide() {
         .items
         .iter()
         .filter_map(|it| match &it.item {
-            ShapedItem::Cluster(c) => {
-                Some((c.source_cluster_id.start_byte_in_run, it.position.x))
-            }
+            ShapedItem::Cluster(c) => Some((c.source_cluster_id.start_byte_in_run, it.position.x)),
             _ => None,
         })
         .collect();
@@ -489,7 +510,11 @@ fn bidi_mixed_run_is_80px_and_reverses_hebrew() {
         .items
         .iter()
         .filter_map(|it| match &it.item {
-            ShapedItem::Cluster(c) if c.text().chars().any(|ch| ('\u{0590}'..='\u{05FF}').contains(&ch)) => {
+            ShapedItem::Cluster(c)
+                if c.text()
+                    .chars()
+                    .any(|ch| ('\u{0590}'..='\u{05FF}').contains(&ch)) =>
+            {
                 Some((c.source_cluster_id.start_byte_in_run, it.position.x))
             }
             _ => None,

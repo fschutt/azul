@@ -74,6 +74,7 @@
 
 use std::collections::BTreeSet;
 
+use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
     ArgRefKind, CodegenIR, FunctionArg, FunctionDef, FunctionKind, StructDef, TypeCategory,
@@ -81,10 +82,7 @@ use super::super::ir::{
 use super::super::managed_host_invoker::{
     callback_typedef_for, has_callback_wrapper_arg, is_callback_wrapper,
 };
-use super::super::config::CodegenConfig;
-use super::{
-    arg_type_for_ref_kind, ffi_type_name, map_type_to_d, sanitize_identifier,
-};
+use super::{arg_type_for_ref_kind, ffi_type_name, map_type_to_d, sanitize_identifier};
 
 /// Emit the idiomatic wrapper-struct section.
 pub fn generate_wrappers(b: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
@@ -249,7 +247,13 @@ fn emit_static_factory(
     }
 
     let cb_mode = has_callback_wrapper_arg(f);
-    let params = format_params(&f.args, self_arg_name, /* skip_self */ false, cb_mode, ir);
+    let params = format_params(
+        &f.args,
+        self_arg_name,
+        /* skip_self */ false,
+        cb_mode,
+        ir,
+    );
     let call_args = format_call_args(&f.args, self_arg_name, /* skip_self */ false);
 
     let returns_self = returns_self(f);
@@ -292,7 +296,13 @@ fn emit_instance_method(
     }
 
     let cb_mode = has_callback_wrapper_arg(f);
-    let params = format_params(&f.args, self_arg_name, /* skip_self */ true, cb_mode, ir);
+    let params = format_params(
+        &f.args,
+        self_arg_name,
+        /* skip_self */ true,
+        cb_mode,
+        ir,
+    );
     let user_call_args = format_call_args(&f.args, self_arg_name, /* skip_self */ true);
 
     let returns_self = returns_self(f);

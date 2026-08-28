@@ -40,18 +40,35 @@ use azul_core::{
         ComponentEventFilter, Dom, EventFilter, HoverEventFilter, IdOrClass, IdOrClass::Class,
         IdOrClassVec, NodeData, NodeType, TabIndex,
     },
-    transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
     refany::{OptionRefAny, RefAny},
+    transient::{TransientAnchor, TransientDismiss, TransientWindowConfig},
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_css::{OptionString, 
+use azul_css::{
+    impl_option_inner,
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignSelf, LayoutFlexGrow, LayoutPosition, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutAlignItems, LayoutWidth, LayoutHeight},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            StyleFontSize,
+        },
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutHeight, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+            LayoutPaddingTop, LayoutPosition, LayoutWidth,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleCursor, StyleUserSelect, StyleTextColor},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString,
+    AzString, OptionString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -72,22 +89,30 @@ static DATE_PICKER_VALUE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 static DATE_PICKER_PANEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-date-picker-panel",
 ))];
-static HEADER_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-date-picker-header"))];
-static HEADER_LABEL_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-date-picker-label"))];
-static NAV_BTN_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-date-picker-nav"))];
-static WEEKDAY_ROW_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-date-picker-weekdays"))];
-static WEEKDAY_CELL_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-date-picker-weekday"))];
-static GRID_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-date-picker-grid"))];
-static WEEK_ROW_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-date-picker-week"))];
-static DAY_CELL_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-date-picker-day"))];
+static HEADER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-header",
+))];
+static HEADER_LABEL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-label",
+))];
+static NAV_BTN_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-nav",
+))];
+static WEEKDAY_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-weekdays",
+))];
+static WEEKDAY_CELL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-weekday",
+))];
+static GRID_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-grid",
+))];
+static WEEK_ROW_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-week",
+))];
+static DAY_CELL_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-date-picker-day",
+))];
 
 const PREV_ARROW: AzString = AzString::from_const_str("\u{2039}"); // ‹
 const NEXT_ARROW: AzString = AzString::from_const_str("\u{203A}"); // ›
@@ -238,12 +263,42 @@ const fn month_name(month: u32) -> &'static str {
 }
 
 // ---- colours ----
-const BORDER_COLOR: ColorU = ColorU { r: 206, g: 212, b: 218, a: 255 };
-const TEXT_COLOR: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
-const MUTED_COLOR: ColorU = ColorU { r: 108, g: 117, b: 125, a: 255 };
-const ACCENT_BG: ColorU = ColorU { r: 13, g: 110, b: 253, a: 255 };
-const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-const TRANSPARENT: ColorU = ColorU { r: 0, g: 0, b: 0, a: 0 };
+const BORDER_COLOR: ColorU = ColorU {
+    r: 206,
+    g: 212,
+    b: 218,
+    a: 255,
+};
+const TEXT_COLOR: ColorU = ColorU {
+    r: 33,
+    g: 37,
+    b: 41,
+    a: 255,
+};
+const MUTED_COLOR: ColorU = ColorU {
+    r: 108,
+    g: 117,
+    b: 125,
+    a: 255,
+};
+const ACCENT_BG: ColorU = ColorU {
+    r: 13,
+    g: 110,
+    b: 253,
+    a: 255,
+};
+const WHITE: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+const TRANSPARENT: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 0,
+};
 
 const DAY_SELECTED_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(ACCENT_BG)];
@@ -272,85 +327,15 @@ static FIELD_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(4))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        4,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(4),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        8,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
-        LayoutPaddingRight::const_px(8),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(8),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
-        LayoutBorderTopWidth::const_px(1),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
-        LayoutBorderBottomWidth::const_px(1),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
-        LayoutBorderLeftWidth::const_px(1),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
-        LayoutBorderRightWidth::const_px(1),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-        inner: BorderStyle::Solid,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
-        StyleBorderBottomStyle { inner: BorderStyle::Solid },
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
-        inner: BorderStyle::Solid,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
-        StyleBorderRightStyle { inner: BorderStyle::Solid },
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
-        inner: BORDER_COLOR,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor { inner: BORDER_COLOR },
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
-        inner: BORDER_COLOR,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
-        StyleBorderRightColor { inner: BORDER_COLOR },
-    )),
-];
-
-/// The date text inside the field.
-static FIELD_VALUE_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-];
-
-/// The little calendar glyph at the field's right edge.
-static FIELD_ICON_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        6,
-    ))),
-    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
-];
-
-static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
-    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(8))),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
-        LayoutPaddingBottom::const_px(8),
-    )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        8,
-    ))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(8),
     )),
@@ -387,13 +372,101 @@ static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
         inner: BORDER_COLOR,
     })),
     CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
-        StyleBorderBottomColor { inner: BORDER_COLOR },
+        StyleBorderBottomColor {
+            inner: BORDER_COLOR,
+        },
     )),
     CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
         inner: BORDER_COLOR,
     })),
     CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
-        StyleBorderRightColor { inner: BORDER_COLOR },
+        StyleBorderRightColor {
+            inner: BORDER_COLOR,
+        },
+    )),
+];
+
+/// The date text inside the field.
+static FIELD_VALUE_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+    CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(1))),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+/// The little calendar glyph at the field's right edge.
+static FIELD_ICON_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(16))),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(6),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
+];
+
+static CONTAINER_STYLE: &[CssPropertyWithConditions] = &[
+    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
+    CssPropertyWithConditions::simple(CssProperty::align_self(LayoutAlignSelf::Start)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        8,
+    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
+        LayoutPaddingBottom::const_px(8),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(8),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_right(
+        LayoutPaddingRight::const_px(8),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_background_content(WHITE_BG_VEC)),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_width(
+        LayoutBorderTopWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_width(
+        LayoutBorderBottomWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_width(
+        LayoutBorderLeftWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
+        LayoutBorderRightWidth::const_px(1),
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
+        StyleBorderBottomStyle {
+            inner: BorderStyle::Solid,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_style(StyleBorderLeftStyle {
+        inner: BorderStyle::Solid,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_style(
+        StyleBorderRightStyle {
+            inner: BorderStyle::Solid,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
+        inner: BORDER_COLOR,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
+        StyleBorderBottomColor {
+            inner: BORDER_COLOR,
+        },
+    )),
+    CssPropertyWithConditions::simple(CssProperty::const_border_left_color(StyleBorderLeftColor {
+        inner: BORDER_COLOR,
+    })),
+    CssPropertyWithConditions::simple(CssProperty::const_border_right_color(
+        StyleBorderRightColor {
+            inner: BORDER_COLOR,
+        },
     )),
     CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
         StyleBorderTopLeftRadius::const_px(6),
@@ -466,7 +539,9 @@ static WEEKDAY_CELL_STYLE: &[CssPropertyWithConditions] = &[
 /// Grid: column of week rows.
 static GRID_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
 ];
 
@@ -487,12 +562,16 @@ fn build_day_cell_style(selected: bool) -> CssPropertyWithConditionsVec {
     };
     CssPropertyWithConditionsVec::from_vec(alloc::vec![
         CssPropertyWithConditions::simple(CssProperty::const_width(LayoutWidth::const_px(CELL_W))),
-        CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(CELL_H))),
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-        CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-            5,
+        CssPropertyWithConditions::simple(CssProperty::const_height(LayoutHeight::const_px(
+            CELL_H
         ))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(5,)
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_cursor(StyleCursor::Pointer)),
         CssPropertyWithConditions::simple(CssProperty::user_select(StyleUserSelect::None)),
         CssPropertyWithConditions::simple(CssProperty::const_border_top_left_radius(
@@ -544,7 +623,8 @@ impl DatePicker {
         self
     }
 
-    #[must_use] pub fn create(year: u32, month: u32, day: u32) -> Self {
+    #[must_use]
+    pub fn create(year: u32, month: u32, day: u32) -> Self {
         let month = month.clamp(1, 12);
         let dim = days_in_month(year, month);
         let day = day.clamp(1, dim);
@@ -559,7 +639,11 @@ impl DatePicker {
     }
 
     /// Sets the callback invoked when the selection or month changes.
-    pub fn set_on_change<C: Into<DatePickerOnChangeCallback>>(&mut self, data: RefAny, callback: C) {
+    pub fn set_on_change<C: Into<DatePickerOnChangeCallback>>(
+        &mut self,
+        data: RefAny,
+        callback: C,
+    ) {
         self.state.on_change = Some(DatePickerOnChange {
             callback: callback.into(),
             refany: data,
@@ -568,7 +652,8 @@ impl DatePicker {
     }
 
     /// Builder variant of [`Self::set_on_change`].
-    #[must_use] pub fn with_on_change<C: Into<DatePickerOnChangeCallback>>(
+    #[must_use]
+    pub fn with_on_change<C: Into<DatePickerOnChangeCallback>>(
         mut self,
         data: RefAny,
         callback: C,
@@ -578,13 +663,15 @@ impl DatePicker {
     }
 
     /// Replaces `self` with the default value and returns the original.
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(2000, 1, 1);
         core::mem::swap(&mut s, self);
         s
     }
 
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         let inner = self.state.inner;
         let year = inner.year;
         let month = inner.month.clamp(1, 12);
@@ -654,10 +741,9 @@ impl DatePicker {
                         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
                             FIELD_VALUE_STYLE
                         )),
-                    Dom::create_icon(AzString::from_const_str("calendar_today"))
-                        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
-                            FIELD_ICON_STYLE
-                        )),
+                    Dom::create_icon(AzString::from_const_str("calendar_today")).with_css_props(
+                        CssPropertyWithConditionsVec::from_const_slice(FIELD_ICON_STYLE)
+                    ),
                     popup,
                 ]
                 .into(),
@@ -770,7 +856,9 @@ fn build_grid(year: u32, month: u32, sel_day: u32, shared: RefAny) -> Dom {
 fn build_blank_cell() -> Dom {
     Dom::create_div()
         .with_ids_and_classes(IdOrClassVec::from_const_slice(DAY_CELL_CLASS))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(BLANK_CELL_STYLE))
+        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+            BLANK_CELL_STYLE,
+        ))
 }
 
 fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
@@ -1176,7 +1264,12 @@ mod autotest_generated {
     /// The `<transient-window>` node: the field's LAST child.
     fn popup_of(dom: &Dom) -> &Dom {
         let c = dom.children.as_ref();
-        assert_eq!(c.len(), 3, "the field is [value, icon, popup], got {}", c.len());
+        assert_eq!(
+            c.len(),
+            3,
+            "the field is [value, icon, popup], got {}",
+            c.len()
+        );
         let popup = &c[2];
         assert!(
             matches!(popup.root.get_node_type(), NodeType::TransientWindow(_)),
@@ -1283,7 +1376,8 @@ mod autotest_generated {
             for cb in nd.callbacks.as_ref() {
                 let matches = {
                     let mut r = cb.refany.clone();
-                    r.downcast_ref::<DayCellData>().is_some_and(|c| c.day == day)
+                    r.downcast_ref::<DayCellData>()
+                        .is_some_and(|c| c.day == day)
                 };
                 if matches {
                     return (node(i), cb.refany.clone());
@@ -1451,7 +1545,9 @@ mod autotest_generated {
             .iter()
             .filter_map(|c| match c {
                 CallbackChange::ChangeNodeCssProperties {
-                    node_id, properties, ..
+                    node_id,
+                    properties,
+                    ..
                 } => {
                     let col = properties.as_ref().iter().find_map(|p| match p {
                         CssProperty::BackgroundContent(b) => {
@@ -1475,7 +1571,9 @@ mod autotest_generated {
             .iter()
             .filter_map(|c| match c {
                 CallbackChange::ChangeNodeCssProperties {
-                    node_id, properties, ..
+                    node_id,
+                    properties,
+                    ..
                 } => {
                     let col = properties.as_ref().iter().find_map(|p| match p {
                         CssProperty::TextColor(t) => t.get_property().map(|t| t.inner),
@@ -1608,7 +1706,10 @@ mod autotest_generated {
         }
         // ... and exactly 97 of every 400 years are leap.
         let leaps = (0..400u32).filter(|y| is_leap(*y)).count();
-        assert_eq!(leaps, 97, "a 400-year cycle must contain exactly 97 leap years");
+        assert_eq!(
+            leaps, 97,
+            "a 400-year cycle must contain exactly 97 leap years"
+        );
     }
 
     #[test]
@@ -1644,12 +1745,12 @@ mod autotest_generated {
     #[test]
     fn days_in_month_february_tracks_the_leap_rule_at_the_extremes() {
         for (year, want) in [
-            (0u32, 29),      // divisible by 400
-            (1900, 28),      // century, not divisible by 400
-            (2000, 29),      // divisible by 400
+            (0u32, 29), // divisible by 400
+            (1900, 28), // century, not divisible by 400
+            (2000, 29), // divisible by 400
             (2023, 28),
             (2024, 29),
-            (u32::MAX, 28),  // 4294967295 % 4 == 3
+            (u32::MAX, 28), // 4294967295 % 4 == 3
         ] {
             assert_eq!(
                 days_in_month(year, 2),
@@ -1692,7 +1793,10 @@ mod autotest_generated {
         for year in [1900u32, 1999, 2000, 2023, 2024, 2100, 2400] {
             let total: u32 = (1..=12).map(|m| days_in_month(year, m)).sum();
             let want = if is_leap(year) { 366 } else { 365 };
-            assert_eq!(total, want, "the twelve months of {year} do not add up to a year");
+            assert_eq!(
+                total, want,
+                "the twelve months of {year} do not add up to a year"
+            );
         }
     }
 
@@ -1703,12 +1807,12 @@ mod autotest_generated {
     #[test]
     fn weekday_matches_independently_known_dates() {
         for (y, m, d, want) in [
-            (1900u32, 1u32, 1u32, 1u32),  // Monday
-            (1970, 1, 1, 4),              // Thursday (the unix epoch)
-            (2000, 1, 1, 6),              // Saturday
-            (2000, 3, 1, 3),              // Wednesday (across a leap February)
-            (2024, 2, 29, 4),             // Thursday (a leap day)
-            (2024, 12, 31, 2),            // Tuesday
+            (1900u32, 1u32, 1u32, 1u32), // Monday
+            (1970, 1, 1, 4),             // Thursday (the unix epoch)
+            (2000, 1, 1, 6),             // Saturday
+            (2000, 3, 1, 3),             // Wednesday (across a leap February)
+            (2024, 2, 29, 4),            // Thursday (a leap day)
+            (2024, 12, 31, 2),           // Tuesday
         ] {
             assert_eq!(
                 weekday(y, m, d),
@@ -1747,7 +1851,10 @@ mod autotest_generated {
         // through `dom()`, so it must not panic.
         for month in 0..=13u32 {
             let w = weekday(u32::MAX, month, 1);
-            assert!(w < 7, "weekday(u32::MAX, {month}, 1) = {w} is not a weekday index");
+            assert!(
+                w < 7,
+                "weekday(u32::MAX, {month}, 1) = {w} is not a weekday index"
+            );
         }
         assert!(weekday(u32::MAX, 12, u32::MAX) < 7);
         assert!(weekday(MAX_SAFE_WEEKDAY_YEAR, 12, 1) < 7);
@@ -1777,7 +1884,11 @@ mod autotest_generated {
         // chain breaks.
         for year in 1995..2025u32 {
             for month in 1..=12u32 {
-                let (ny, nm) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+                let (ny, nm) = if month == 12 {
+                    (year + 1, 1)
+                } else {
+                    (year, month + 1)
+                };
                 assert_eq!(
                     weekday(ny, nm, 1),
                     (weekday(year, month, 1) + days_in_month(year, month)) % 7,
@@ -1831,8 +1942,18 @@ mod autotest_generated {
     #[test]
     fn month_name_maps_each_real_month_to_a_distinct_english_name() {
         let expected = [
-            "January", "February", "March", "April", "May", "June",
-            "July", "August", "September", "October", "November", "December",
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
         ];
         for (i, want) in expected.iter().enumerate() {
             let month = u32::try_from(i).unwrap() + 1;
@@ -1850,7 +1971,11 @@ mod autotest_generated {
         // "January" instead of the empty string the >12 arm produces. `dom()` clamps
         // the month first, so this only shows through a direct `build_header` call —
         // but it *is* the behaviour, and it is not symmetric with the upper bound.
-        assert_eq!(month_name(0), "January", "the zero month stopped saturating to January");
+        assert_eq!(
+            month_name(0),
+            "January",
+            "the zero month stopped saturating to January"
+        );
         for month in [13u32, 14, 99, 1000, u32::MAX / 2, u32::MAX - 1, u32::MAX] {
             assert_eq!(
                 month_name(month),
@@ -1930,11 +2055,27 @@ mod autotest_generated {
 
         for selected in [false, true] {
             let v = build_day_cell_style(selected);
-            assert_eq!(width_px(&v), want_w, "selected={selected}: wrong cell width");
-            assert_eq!(height_px(&v), want_h, "selected={selected}: wrong cell height");
+            assert_eq!(
+                width_px(&v),
+                want_w,
+                "selected={selected}: wrong cell width"
+            );
+            assert_eq!(
+                height_px(&v),
+                want_h,
+                "selected={selected}: wrong cell height"
+            );
         }
-        assert_eq!(width_px(&blanks), want_w, "a blank cell is not a full column wide");
-        assert_eq!(height_px(&blanks), want_h, "a blank cell is not a full row tall");
+        assert_eq!(
+            width_px(&blanks),
+            want_w,
+            "a blank cell is not a full column wide"
+        );
+        assert_eq!(
+            height_px(&blanks),
+            want_h,
+            "a blank cell is not a full row tall"
+        );
         assert_eq!(
             width_px(&headers),
             want_w,
@@ -1962,7 +2103,11 @@ mod autotest_generated {
         let p = DatePicker::create(2024, 7, 4);
         assert_eq!(
             p.state.inner,
-            DatePickerState { year: 2024, month: 7, day: 4 },
+            DatePickerState {
+                year: 2024,
+                month: 7,
+                day: 4
+            },
         );
         assert!(
             p.state.on_change.as_ref().is_none(),
@@ -1990,12 +2135,12 @@ mod autotest_generated {
             (2024u32, 2u32, 31u32, 29u32), // leap February
             (2023, 2, 31, 28),             // ordinary February
             (2024, 2, 30, 29),
-            (2024, 4, 31, 30),             // 30-day month
-            (2024, 1, 31, 31),             // exact fit, untouched
-            (2024, 1, 0, 1),               // lower clamp
+            (2024, 4, 31, 30), // 30-day month
+            (2024, 1, 31, 31), // exact fit, untouched
+            (2024, 1, 0, 1),   // lower clamp
             (2024, 6, u32::MAX, 30),
-            (2024, 0, 99, 31),             // month clamps to January first
-            (2024, 13, 99, 31),            // ... and to December
+            (2024, 0, 99, 31),  // month clamps to January first
+            (2024, 13, 99, 31), // ... and to December
         ] {
             assert_eq!(
                 DatePicker::create(y, m, d).state.inner.day,
@@ -2039,12 +2184,27 @@ mod autotest_generated {
 
     #[test]
     fn create_is_pure_and_distinct_dates_stay_distinguishable() {
-        assert_eq!(DatePicker::create(2024, 7, 4), DatePicker::create(2024, 7, 4));
-        assert_ne!(DatePicker::create(2024, 7, 4), DatePicker::create(2024, 7, 5));
-        assert_ne!(DatePicker::create(2024, 7, 4), DatePicker::create(2024, 8, 4));
-        assert_ne!(DatePicker::create(2024, 7, 4), DatePicker::create(2025, 7, 4));
+        assert_eq!(
+            DatePicker::create(2024, 7, 4),
+            DatePicker::create(2024, 7, 4)
+        );
+        assert_ne!(
+            DatePicker::create(2024, 7, 4),
+            DatePicker::create(2024, 7, 5)
+        );
+        assert_ne!(
+            DatePicker::create(2024, 7, 4),
+            DatePicker::create(2024, 8, 4)
+        );
+        assert_ne!(
+            DatePicker::create(2024, 7, 4),
+            DatePicker::create(2025, 7, 4)
+        );
         // ... but two inputs that clamp to the same date *are* the same picker.
-        assert_eq!(DatePicker::create(2023, 2, 31), DatePicker::create(2023, 2, 28));
+        assert_eq!(
+            DatePicker::create(2023, 2, 31),
+            DatePicker::create(2023, 2, 28)
+        );
     }
 
     #[test]
@@ -2052,7 +2212,11 @@ mod autotest_generated {
         assert_eq!(DatePicker::default(), DatePicker::create(2000, 1, 1));
         assert_eq!(
             DatePickerState::default(),
-            DatePickerState { year: 2000, month: 1, day: 1 },
+            DatePickerState {
+                year: 2000,
+                month: 1,
+                day: 1
+            },
         );
         assert_eq!(
             DatePickerStateWrapper::default().inner,
@@ -2078,13 +2242,14 @@ mod autotest_generated {
             .as_ref()
             .expect("set_on_change did not store anything");
         assert_eq!(
-            c.callback.cb as *const () as usize,
-            change_do_nothing as *const () as usize,
+            c.callback.cb as *const () as usize, change_do_nothing as *const () as usize,
             "the stored function pointer is not the one that was handed in",
         );
         let mut payload = c.refany.clone();
         assert_eq!(
-            *payload.downcast_ref::<u32>().expect("the payload changed type"),
+            *payload
+                .downcast_ref::<u32>()
+                .expect("the payload changed type"),
             0xDEAD_BEEF,
         );
     }
@@ -2092,26 +2257,40 @@ mod autotest_generated {
     #[test]
     fn set_on_change_replaces_rather_than_accumulates() {
         let mut p = DatePicker::create(2024, 1, 1);
-        p.set_on_change(RefAny::new(1u8), change_do_nothing as DatePickerOnChangeCallbackType);
-        p.set_on_change(RefAny::new(2u8), change_refresh_all as DatePickerOnChangeCallbackType);
+        p.set_on_change(
+            RefAny::new(1u8),
+            change_do_nothing as DatePickerOnChangeCallbackType,
+        );
+        p.set_on_change(
+            RefAny::new(2u8),
+            change_refresh_all as DatePickerOnChangeCallbackType,
+        );
 
         let c = p.state.on_change.as_ref().expect("the callback vanished");
         assert_eq!(
-            c.callback.cb as *const () as usize,
-            change_refresh_all as *const () as usize,
+            c.callback.cb as *const () as usize, change_refresh_all as *const () as usize,
             "the second set_on_change did not win",
         );
         let mut payload = c.refany.clone();
-        assert_eq!(*payload.downcast_ref::<u8>().expect("wrong payload type"), 2);
+        assert_eq!(
+            *payload.downcast_ref::<u8>().expect("wrong payload type"),
+            2
+        );
     }
 
     #[test]
     fn set_on_change_does_not_disturb_the_date_or_the_container_style() {
         let before = DatePicker::create(2023, 2, 31);
         let mut after = DatePicker::create(2023, 2, 31);
-        after.set_on_change(RefAny::new(0u8), change_do_nothing as DatePickerOnChangeCallbackType);
+        after.set_on_change(
+            RefAny::new(0u8),
+            change_do_nothing as DatePickerOnChangeCallbackType,
+        );
 
-        assert_eq!(after.state.inner, before.state.inner, "installing a callback moved the date");
+        assert_eq!(
+            after.state.inner, before.state.inner,
+            "installing a callback moved the date"
+        );
         assert_eq!(
             properties(&after.container_style),
             properties(&before.container_style),
@@ -2121,20 +2300,38 @@ mod autotest_generated {
 
     #[test]
     fn with_on_change_is_exactly_set_on_change_in_builder_form() {
-        let built = DatePicker::create(2024, 5, 9)
-            .with_on_change(RefAny::new(7u32), change_do_nothing as DatePickerOnChangeCallbackType);
+        let built = DatePicker::create(2024, 5, 9).with_on_change(
+            RefAny::new(7u32),
+            change_do_nothing as DatePickerOnChangeCallbackType,
+        );
         let mut set = DatePicker::create(2024, 5, 9);
-        set.set_on_change(RefAny::new(7u32), change_do_nothing as DatePickerOnChangeCallbackType);
+        set.set_on_change(
+            RefAny::new(7u32),
+            change_do_nothing as DatePickerOnChangeCallbackType,
+        );
 
         assert_eq!(built.state.inner, set.state.inner);
-        let a = built.state.on_change.as_ref().expect("builder dropped the callback");
-        let b = set.state.on_change.as_ref().expect("setter dropped the callback");
-        assert_eq!(a.callback.cb as *const () as usize, b.callback.cb as *const () as usize);
+        let a = built
+            .state
+            .on_change
+            .as_ref()
+            .expect("builder dropped the callback");
+        let b = set
+            .state
+            .on_change
+            .as_ref()
+            .expect("setter dropped the callback");
+        assert_eq!(
+            a.callback.cb as *const () as usize,
+            b.callback.cb as *const () as usize
+        );
 
         let (mut pa, mut pb) = (a.refany.clone(), b.refany.clone());
         assert_eq!(
-            *pa.downcast_ref::<u32>().expect("builder payload changed type"),
-            *pb.downcast_ref::<u32>().expect("setter payload changed type"),
+            *pa.downcast_ref::<u32>()
+                .expect("builder payload changed type"),
+            *pb.downcast_ref::<u32>()
+                .expect("setter payload changed type"),
         );
     }
 
@@ -2150,10 +2347,13 @@ mod autotest_generated {
         let expected = generic_shaped as *const () as usize;
 
         let p = DatePicker::create(2024, 1, 1).with_on_change(RefAny::new(0u8), generic);
-        let c = p.state.on_change.as_ref().expect("the generic callback was dropped");
+        let c = p
+            .state
+            .on_change
+            .as_ref()
+            .expect("the generic callback was dropped");
         assert_eq!(
-            c.callback.cb as *const () as usize,
-            expected,
+            c.callback.cb as *const () as usize, expected,
             "the Callback -> DatePickerOnChangeCallback transmute mangled the pointer",
         );
     }
@@ -2167,20 +2367,39 @@ mod autotest_generated {
         let mut p = DatePicker::create(2024, 7, 4);
         let taken = p.swap_with_default();
 
-        assert_eq!(taken.state.inner, DatePickerState { year: 2024, month: 7, day: 4 });
-        assert_eq!(p, DatePicker::default(), "the picker left behind is not a default one");
+        assert_eq!(
+            taken.state.inner,
+            DatePickerState {
+                year: 2024,
+                month: 7,
+                day: 4
+            }
+        );
+        assert_eq!(
+            p,
+            DatePicker::default(),
+            "the picker left behind is not a default one"
+        );
     }
 
     #[test]
     fn swap_with_default_carries_the_callback_out_with_the_original() {
         // If the callback stayed behind on the *default* picker, the host would keep
         // getting change notifications from a widget it thought it had taken away.
-        let mut p = DatePicker::create(2024, 7, 4)
-            .with_on_change(RefAny::new(3u8), change_do_nothing as DatePickerOnChangeCallbackType);
+        let mut p = DatePicker::create(2024, 7, 4).with_on_change(
+            RefAny::new(3u8),
+            change_do_nothing as DatePickerOnChangeCallbackType,
+        );
         let taken = p.swap_with_default();
 
-        assert!(taken.state.on_change.as_ref().is_some(), "the callback did not leave with the original");
-        assert!(p.state.on_change.as_ref().is_none(), "the callback stayed behind on the default");
+        assert!(
+            taken.state.on_change.as_ref().is_some(),
+            "the callback did not leave with the original"
+        );
+        assert!(
+            p.state.on_change.as_ref().is_none(),
+            "the callback stayed behind on the default"
+        );
     }
 
     #[test]
@@ -2205,9 +2424,18 @@ mod autotest_generated {
         assert_eq!(classes(&dom), vec!["__azul-native-date-picker".to_string()]);
 
         let (header, weekdays, grid) = sections(&dom);
-        assert_eq!(classes(header), vec!["__azul-native-date-picker-header".to_string()]);
-        assert_eq!(classes(weekdays), vec!["__azul-native-date-picker-weekdays".to_string()]);
-        assert_eq!(classes(grid), vec!["__azul-native-date-picker-grid".to_string()]);
+        assert_eq!(
+            classes(header),
+            vec!["__azul-native-date-picker-header".to_string()]
+        );
+        assert_eq!(
+            classes(weekdays),
+            vec!["__azul-native-date-picker-weekdays".to_string()]
+        );
+        assert_eq!(
+            classes(grid),
+            vec!["__azul-native-date-picker-grid".to_string()]
+        );
         assert_eq!(
             header.children.as_ref().len(),
             3,
@@ -2226,9 +2454,21 @@ mod autotest_generated {
             let dom = DatePicker::create(y, m, 1).dom();
             let (header, _, _) = sections(&dom);
             let kids = header.children.as_ref();
-            assert_eq!(text_of(&kids[0]).as_deref(), Some("\u{2039}"), "wrong prev arrow");
-            assert_eq!(text_of(&kids[1]).as_deref(), Some(want), "wrong header label");
-            assert_eq!(text_of(&kids[2]).as_deref(), Some("\u{203A}"), "wrong next arrow");
+            assert_eq!(
+                text_of(&kids[0]).as_deref(),
+                Some("\u{2039}"),
+                "wrong prev arrow"
+            );
+            assert_eq!(
+                text_of(&kids[1]).as_deref(),
+                Some(want),
+                "wrong header label"
+            );
+            assert_eq!(
+                text_of(&kids[2]).as_deref(),
+                Some("\u{203A}"),
+                "wrong next arrow"
+            );
         }
     }
 
@@ -2272,7 +2512,11 @@ mod autotest_generated {
                 weekday(y, m, 1),
                 "{y}-{m}: the leading blanks disagree with the weekday of the 1st",
             );
-            assert_eq!(days[leading], Some(1), "{y}-{m}: the 1st is not the first day cell");
+            assert_eq!(
+                days[leading],
+                Some(1),
+                "{y}-{m}: the 1st is not the first day cell"
+            );
         }
     }
 
@@ -2313,7 +2557,10 @@ mod autotest_generated {
                         7,
                         "{year}-{month}: week row {i} is not seven columns wide",
                     );
-                    assert_eq!(classes(row), vec!["__azul-native-date-picker-week".to_string()]);
+                    assert_eq!(
+                        classes(row),
+                        vec!["__azul-native-date-picker-week".to_string()]
+                    );
                 }
                 let last = &rows[rows.len() - 1];
                 assert!(
@@ -2347,7 +2594,11 @@ mod autotest_generated {
         // `dom()` re-clamps rather than trusting the state field, because the state
         // is `pub` and a host can write 0 or 13 into it directly. Without the clamp,
         // `month_name` and `days_in_month` would disagree about the same month.
-        for (raw, want_name, want_dim) in [(0u32, "January", 31u32), (13, "December", 31), (u32::MAX, "December", 31)] {
+        for (raw, want_name, want_dim) in [
+            (0u32, "January", 31u32),
+            (13, "December", 31),
+            (u32::MAX, "December", 31),
+        ] {
             let mut p = DatePicker::create(2024, 1, 1);
             p.state.inner.month = raw;
             let dom = p.dom();
@@ -2371,7 +2622,12 @@ mod autotest_generated {
     fn dom_survives_a_saturated_or_zero_year_without_panicking() {
         // `create` does not clamp the year, so `dom()` is reachable with u32::MAX.
         // The `u32 -> i32` cast in `weekday` wraps it to -1, which is fine.
-        for (y, m, d) in [(u32::MAX, u32::MAX, u32::MAX), (u32::MAX, 1, 1), (0, 0, 0), (1, 12, 31)] {
+        for (y, m, d) in [
+            (u32::MAX, u32::MAX, u32::MAX),
+            (u32::MAX, 1, 1),
+            (0, 0, 0),
+            (1, 12, 31),
+        ] {
             let dom = DatePicker::create(y, m, d).dom();
             let (_, _, grid) = sections(&dom);
             let days: Vec<u32> = day_numbers(grid).into_iter().flatten().collect();
@@ -2411,7 +2667,11 @@ mod autotest_generated {
                 assert!(cbs.is_empty(), "a blank cell registered a click handler");
             }
         }
-        assert_eq!(with_handler, days_in_month(2024, 2), "not every day is clickable");
+        assert_eq!(
+            with_handler,
+            days_in_month(2024, 2),
+            "not every day is clickable"
+        );
     }
 
     #[test]
@@ -2468,8 +2728,14 @@ mod autotest_generated {
         let via_from: Dom = DatePicker::create(2024, 3, 7).into();
         let via_dom = DatePicker::create(2024, 3, 7).dom();
         assert_eq!(classes(&via_from), classes(&via_dom));
-        assert_eq!(via_from.children.as_ref().len(), via_dom.children.as_ref().len());
-        assert_eq!(via_from.estimated_total_children, via_dom.estimated_total_children);
+        assert_eq!(
+            via_from.children.as_ref().len(),
+            via_dom.children.as_ref().len()
+        );
+        assert_eq!(
+            via_from.estimated_total_children,
+            via_dom.estimated_total_children
+        );
     }
 
     // ==================================================================
@@ -2481,7 +2747,12 @@ mod autotest_generated {
         // Reachable only directly (`dom()` clamps first), but it must still produce
         // a coherent grid rather than an empty or unbounded one.
         for month in [0u32, 13, u32::MAX] {
-            let grid = build_grid(2024, month, 1, RefAny::new(DatePickerStateWrapper::default()));
+            let grid = build_grid(
+                2024,
+                month,
+                1,
+                RefAny::new(DatePickerStateWrapper::default()),
+            );
             let days: Vec<u32> = day_numbers(&grid).into_iter().flatten().collect();
             assert_eq!(
                 days,
@@ -2513,7 +2784,12 @@ mod autotest_generated {
     fn build_grid_is_total_across_extreme_years() {
         for year in [0u32, 1, 1900, 2024, MAX_SAFE_WEEKDAY_YEAR, u32::MAX] {
             for month in [0u32, 1, 2, 12, 13] {
-                let grid = build_grid(year, month, 1, RefAny::new(DatePickerStateWrapper::default()));
+                let grid = build_grid(
+                    year,
+                    month,
+                    1,
+                    RefAny::new(DatePickerStateWrapper::default()),
+                );
                 let rows = grid.children.as_ref();
                 assert!(
                     (4..=6).contains(&rows.len()),
@@ -2531,7 +2807,12 @@ mod autotest_generated {
     fn build_header_is_total_for_out_of_range_months() {
         // `month_name` yields "" above December, so the label degrades to a bare
         // year rather than panicking or indexing out of bounds.
-        for (month, want) in [(0u32, "January 2024"), (12, "December 2024"), (13, " 2024"), (u32::MAX, " 2024")] {
+        for (month, want) in [
+            (0u32, "January 2024"),
+            (12, "December 2024"),
+            (13, " 2024"),
+            (u32::MAX, " 2024"),
+        ] {
             let header = build_header(2024, month, RefAny::new(DatePickerStateWrapper::default()));
             let kids = header.children.as_ref();
             assert_eq!(kids.len(), 3);
@@ -2558,7 +2839,10 @@ mod autotest_generated {
         assert_eq!(next[0].callback.cb, on_next_month as usize);
         assert_ne!(prev[0].callback.cb, next[0].callback.cb);
         // The label between them is inert.
-        assert!(kids[1].root.callbacks.as_ref().is_empty(), "the header label is clickable");
+        assert!(
+            kids[1].root.callbacks.as_ref().is_empty(),
+            "the header label is clickable"
+        );
     }
 
     #[test]
@@ -2567,8 +2851,14 @@ mod autotest_generated {
         let cells = row.children.as_ref();
         assert_eq!(cells.len(), 7);
         for cell in cells {
-            assert!(cell.root.callbacks.as_ref().is_empty(), "a weekday header is clickable");
-            assert_eq!(classes(cell), vec!["__azul-native-date-picker-weekday".to_string()]);
+            assert!(
+                cell.root.callbacks.as_ref().is_empty(),
+                "a weekday header is clickable"
+            );
+            assert_eq!(
+                classes(cell),
+                vec!["__azul-native-date-picker-weekday".to_string()]
+            );
         }
     }
 
@@ -2577,9 +2867,15 @@ mod autotest_generated {
         let blank = build_blank_cell();
         assert!(matches!(blank.root.get_node_type(), NodeType::Div));
         assert_eq!(text_of(&blank), None, "a blank cell renders text");
-        assert!(blank.root.callbacks.as_ref().is_empty(), "a blank cell is clickable");
+        assert!(
+            blank.root.callbacks.as_ref().is_empty(),
+            "a blank cell is clickable"
+        );
         assert!(blank.children.as_ref().is_empty());
-        assert_eq!(classes(&blank), vec!["__azul-native-date-picker-day".to_string()]);
+        assert_eq!(
+            classes(&blank),
+            vec!["__azul-native-date-picker-day".to_string()]
+        );
     }
 
     #[test]
@@ -2588,7 +2884,11 @@ mod autotest_generated {
         // so the extremes must at least round-trip rather than panic.
         for day in [0u32, 1, 31, 99, u32::MAX] {
             for selected in [false, true] {
-                let cell = build_day_cell(day, selected, RefAny::new(DatePickerStateWrapper::default()));
+                let cell = build_day_cell(
+                    day,
+                    selected,
+                    RefAny::new(DatePickerStateWrapper::default()),
+                );
                 assert_eq!(
                     text_of(&cell).as_deref(),
                     Some(day.to_string().as_str()),
@@ -2626,7 +2926,11 @@ mod autotest_generated {
 
         assert_eq!(
             read_state(&shared),
-            DatePickerState { year: 2024, month: 2, day: 17 },
+            DatePickerState {
+                year: 2024,
+                month: 2,
+                day: 17
+            },
             "the click did not move the selection to the clicked day",
         );
         assert_eq!(
@@ -2652,14 +2956,24 @@ mod autotest_generated {
             "exactly the clicked cell must end up accented",
         );
         assert!(
-            bgs.iter().filter(|(n, _)| *n != accented[0]).all(|(_, c)| *c == TRANSPARENT),
+            bgs.iter()
+                .filter(|(n, _)| *n != accented[0])
+                .all(|(_, c)| *c == TRANSPARENT),
             "a cell other than the clicked one kept a background",
         );
 
         let texts = pushed_text_colours(&changes);
-        assert_eq!(texts.len(), rows * 7, "every cell needs its text colour resynced too");
         assert_eq!(
-            texts.iter().filter(|(_, c)| *c == WHITE).map(|(n, _)| *n).collect::<Vec<_>>(),
+            texts.len(),
+            rows * 7,
+            "every cell needs its text colour resynced too"
+        );
+        assert_eq!(
+            texts
+                .iter()
+                .filter(|(_, c)| *c == WHITE)
+                .map(|(n, _)| *n)
+                .collect::<Vec<_>>(),
             accented,
             "the white-on-accent text did not land on the accented cell",
         );
@@ -2676,8 +2990,15 @@ mod autotest_generated {
         let (update, changes) = click(styled, &RefAny::new(0xBAD_u32), cell);
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a foreign payload still restyled the grid");
-        assert_eq!(read_state(&shared), before, "a foreign payload moved the selection");
+        assert!(
+            changes.is_empty(),
+            "a foreign payload still restyled the grid"
+        );
+        assert_eq!(
+            read_state(&shared),
+            before,
+            "a foreign payload moved the selection"
+        );
     }
 
     #[test]
@@ -2692,8 +3013,15 @@ mod autotest_generated {
             let (update, changes) = click(styled, &payload, hit);
 
             assert_eq!(update, Update::DoNothing, "{hit:?}: unexpected verdict");
-            assert!(changes.is_empty(), "{hit:?}: a detached hit still pushed a style change");
-            assert_eq!(read_state(&shared).day, 17, "{hit:?}: the selection was not committed");
+            assert!(
+                changes.is_empty(),
+                "{hit:?}: a detached hit still pushed a style change"
+            );
+            assert_eq!(
+                read_state(&shared).day,
+                17,
+                "{hit:?}: the selection was not committed"
+            );
         }
     }
 
@@ -2707,7 +3035,10 @@ mod autotest_generated {
 
         let (_, changes) = click(styled, &payload, node(0));
 
-        assert!(changes.is_empty(), "restyling from the root touched nodes anyway");
+        assert!(
+            changes.is_empty(),
+            "restyling from the root touched nodes anyway"
+        );
         assert_eq!(read_state(&shared).day, 3);
     }
 
@@ -2716,10 +3047,10 @@ mod autotest_generated {
         // Order matters: the state is written *before* the user callback runs, so
         // the callback observes the date the user just asked for, not the stale one.
         let probe = log_refany();
-        let (styled, shared) = laid_out(
-            DatePicker::create(2024, 2, 1)
-                .with_on_change(probe.clone(), record_change as DatePickerOnChangeCallbackType),
-        );
+        let (styled, shared) = laid_out(DatePicker::create(2024, 2, 1).with_on_change(
+            probe.clone(),
+            record_change as DatePickerOnChangeCallbackType,
+        ));
         let (cell, payload) = day_cell(&styled, 29);
 
         let (update, changes) = click(styled, &payload, cell);
@@ -2727,25 +3058,36 @@ mod autotest_generated {
         let log = read_log(&probe);
         assert_eq!(
             log.seen,
-            vec![DatePickerState { year: 2024, month: 2, day: 29 }],
+            vec![DatePickerState {
+                year: 2024,
+                month: 2,
+                day: 29
+            }],
             "the change callback was not called exactly once with the NEW state",
         );
         assert_eq!(
             log.payload, 0xDEAD_BEEF,
             "the callback was handed something other than the user's own RefAny",
         );
-        assert_eq!(update, Update::RefreshDom, "the user callback's Update was swallowed");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user callback's Update was swallowed"
+        );
         assert_eq!(read_state(&shared).day, 29);
         // ... and the restyle still happens after the user callback returns.
-        assert!(!changes.is_empty(), "a RefreshDom callback suppressed the restyle");
+        assert!(
+            !changes.is_empty(),
+            "a RefreshDom callback suppressed the restyle"
+        );
     }
 
     #[test]
     fn a_change_callback_that_declines_the_update_still_gets_the_grid_restyled() {
-        let (styled, shared) = laid_out(
-            DatePicker::create(2024, 2, 1)
-                .with_on_change(RefAny::new(0u8), change_do_nothing as DatePickerOnChangeCallbackType),
-        );
+        let (styled, shared) = laid_out(DatePicker::create(2024, 2, 1).with_on_change(
+            RefAny::new(0u8),
+            change_do_nothing as DatePickerOnChangeCallbackType,
+        ));
         let (cell, payload) = day_cell(&styled, 12);
 
         let (update, changes) = click(styled, &payload, cell);
@@ -2769,7 +3111,11 @@ mod autotest_generated {
 
             let (_, changes) = click(styled, &payload, cell);
 
-            assert_eq!(read_state(&shared).day, day, "click #{day}: the state drifted");
+            assert_eq!(
+                read_state(&shared).day,
+                day,
+                "click #{day}: the state drifted"
+            );
             let accented: Vec<NodeId> = pushed_backgrounds(&changes)
                 .into_iter()
                 .filter(|(_, c)| *c == ACCENT_BG)
@@ -2806,32 +3152,95 @@ mod autotest_generated {
 
     #[test]
     fn next_month_wraps_december_into_january_of_the_following_year() {
-        let (s, _, _) = press_nav(DatePickerState { year: 2024, month: 12, day: 15 }, true, 1);
-        assert_eq!(s, DatePickerState { year: 2025, month: 1, day: 15 });
+        let (s, _, _) = press_nav(
+            DatePickerState {
+                year: 2024,
+                month: 12,
+                day: 15,
+            },
+            true,
+            1,
+        );
+        assert_eq!(
+            s,
+            DatePickerState {
+                year: 2025,
+                month: 1,
+                day: 15
+            }
+        );
     }
 
     #[test]
     fn prev_month_wraps_january_into_december_of_the_preceding_year() {
-        let (s, _, _) = press_nav(DatePickerState { year: 2024, month: 1, day: 15 }, false, 1);
-        assert_eq!(s, DatePickerState { year: 2023, month: 12, day: 15 });
+        let (s, _, _) = press_nav(
+            DatePickerState {
+                year: 2024,
+                month: 1,
+                day: 15,
+            },
+            false,
+            1,
+        );
+        assert_eq!(
+            s,
+            DatePickerState {
+                year: 2023,
+                month: 12,
+                day: 15
+            }
+        );
     }
 
     #[test]
     fn twelve_presses_in_either_direction_land_on_the_same_month_one_year_away() {
-        let start = DatePickerState { year: 2024, month: 5, day: 15 };
+        let start = DatePickerState {
+            year: 2024,
+            month: 5,
+            day: 15,
+        };
         let (fwd, _, _) = press_nav(start, true, 12);
         let (back, _, _) = press_nav(start, false, 12);
-        assert_eq!(fwd, DatePickerState { year: 2025, month: 5, day: 15 });
-        assert_eq!(back, DatePickerState { year: 2023, month: 5, day: 15 });
+        assert_eq!(
+            fwd,
+            DatePickerState {
+                year: 2025,
+                month: 5,
+                day: 15
+            }
+        );
+        assert_eq!(
+            back,
+            DatePickerState {
+                year: 2023,
+                month: 5,
+                day: 15
+            }
+        );
     }
 
     #[test]
     fn month_nav_walks_every_month_in_order_across_a_year_boundary() {
-        let mut state = DatePickerState { year: 2023, month: 11, day: 10 };
+        let mut state = DatePickerState {
+            year: 2023,
+            month: 11,
+            day: 10,
+        };
         let expected = [
-            (2023u32, 12u32), (2024, 1), (2024, 2), (2024, 3), (2024, 4), (2024, 5),
-            (2024, 6), (2024, 7), (2024, 8), (2024, 9), (2024, 10), (2024, 11),
-            (2024, 12), (2025, 1),
+            (2023u32, 12u32),
+            (2024, 1),
+            (2024, 2),
+            (2024, 3),
+            (2024, 4),
+            (2024, 5),
+            (2024, 6),
+            (2024, 7),
+            (2024, 8),
+            (2024, 9),
+            (2024, 10),
+            (2024, 11),
+            (2024, 12),
+            (2025, 1),
         ];
         for (i, (y, m)) in expected.iter().enumerate() {
             let (next, _, _) = press_nav(state, true, 1);
@@ -2850,19 +3259,61 @@ mod autotest_generated {
         // rather than restoring the 31 the user originally picked. Lossy, but the
         // alternative (remembering the original) is not what the code does — and a
         // silently un-clamped 31 February would highlight a cell that isn't there.
-        let jan31 = DatePickerState { year: 2024, month: 1, day: 31 };
+        let jan31 = DatePickerState {
+            year: 2024,
+            month: 1,
+            day: 31,
+        };
         let (feb, _, _) = press_nav(jan31, true, 1);
-        assert_eq!(feb, DatePickerState { year: 2024, month: 2, day: 29 });
+        assert_eq!(
+            feb,
+            DatePickerState {
+                year: 2024,
+                month: 2,
+                day: 29
+            }
+        );
 
         let (mar, _, _) = press_nav(feb, true, 1);
-        assert_eq!(mar, DatePickerState { year: 2024, month: 3, day: 29 }, "the clamp grew back");
+        assert_eq!(
+            mar,
+            DatePickerState {
+                year: 2024,
+                month: 3,
+                day: 29
+            },
+            "the clamp grew back"
+        );
 
         // Non-leap February clamps one day further.
-        let (feb23, _, _) = press_nav(DatePickerState { year: 2023, month: 1, day: 31 }, true, 1);
+        let (feb23, _, _) = press_nav(
+            DatePickerState {
+                year: 2023,
+                month: 1,
+                day: 31,
+            },
+            true,
+            1,
+        );
         assert_eq!(feb23.day, 28);
         // A 31st into a 30-day month.
-        let (apr, _, _) = press_nav(DatePickerState { year: 2024, month: 3, day: 31 }, true, 1);
-        assert_eq!(apr, DatePickerState { year: 2024, month: 4, day: 30 });
+        let (apr, _, _) = press_nav(
+            DatePickerState {
+                year: 2024,
+                month: 3,
+                day: 31,
+            },
+            true,
+            1,
+        );
+        assert_eq!(
+            apr,
+            DatePickerState {
+                year: 2024,
+                month: 4,
+                day: 30
+            }
+        );
     }
 
     #[test]
@@ -2871,7 +3322,11 @@ mod autotest_generated {
         // the day still exists in the displayed month, so the grid always has a cell
         // to accent.
         for start_day in [1u32, 28, 29, 30, 31] {
-            let mut state = DatePickerState { year: 2023, month: 1, day: start_day };
+            let mut state = DatePickerState {
+                year: 2023,
+                month: 1,
+                day: start_day,
+            };
             for step in 0..24 {
                 let (next, _, _) = press_nav(state, true, 1);
                 assert!(
@@ -2895,14 +3350,52 @@ mod autotest_generated {
     fn month_nav_floors_the_year_at_one_instead_of_wrapping_below_zero() {
         // Stepping back out of January of year 1 would give year 0; the `max(1)`
         // pins it. Year 0 itself is likewise lifted to 1.
-        let (from_one, _, _) = press_nav(DatePickerState { year: 1, month: 1, day: 1 }, false, 1);
-        assert_eq!(from_one, DatePickerState { year: 1, month: 12, day: 1 });
+        let (from_one, _, _) = press_nav(
+            DatePickerState {
+                year: 1,
+                month: 1,
+                day: 1,
+            },
+            false,
+            1,
+        );
+        assert_eq!(
+            from_one,
+            DatePickerState {
+                year: 1,
+                month: 12,
+                day: 1
+            }
+        );
 
-        let (from_zero, _, _) = press_nav(DatePickerState { year: 0, month: 1, day: 1 }, false, 1);
-        assert_eq!(from_zero, DatePickerState { year: 1, month: 12, day: 1 });
+        let (from_zero, _, _) = press_nav(
+            DatePickerState {
+                year: 0,
+                month: 1,
+                day: 1,
+            },
+            false,
+            1,
+        );
+        assert_eq!(
+            from_zero,
+            DatePickerState {
+                year: 1,
+                month: 12,
+                day: 1
+            }
+        );
 
         // Twenty more presses cannot push it below the floor.
-        let (deep, _, _) = press_nav(DatePickerState { year: 1, month: 1, day: 1 }, false, 20);
+        let (deep, _, _) = press_nav(
+            DatePickerState {
+                year: 1,
+                month: 1,
+                day: 1,
+            },
+            false,
+            20,
+        );
         assert!(deep.year >= 1, "the year floor leaked, got {}", deep.year);
         assert!((1..=12).contains(&deep.month));
     }
@@ -2912,16 +3405,57 @@ mod autotest_generated {
         // `year as i32` turns u32::MAX into -1, so the ±1 lands at 0 or -2 and the
         // `max(1)` floor catches both. Deterministic, and above all not a panic.
         for next in [false, true] {
-            let (s, _, _) = press_nav(DatePickerState { year: u32::MAX, month: 6, day: 1 }, next, 1);
-            assert_eq!(s.year, 1, "next={next}: a saturated year did not collapse to the floor");
+            let (s, _, _) = press_nav(
+                DatePickerState {
+                    year: u32::MAX,
+                    month: 6,
+                    day: 1,
+                },
+                next,
+                1,
+            );
+            assert_eq!(
+                s.year, 1,
+                "next={next}: a saturated year did not collapse to the floor"
+            );
             assert!((1..=12).contains(&s.month));
         }
         // Month 12 + next is the year-incrementing branch, month 1 + prev the
         // decrementing one — both must survive the wrapped year.
-        let (a, _, _) = press_nav(DatePickerState { year: u32::MAX, month: 12, day: 1 }, true, 1);
-        assert_eq!(a, DatePickerState { year: 1, month: 1, day: 1 });
-        let (b, _, _) = press_nav(DatePickerState { year: u32::MAX, month: 1, day: 1 }, false, 1);
-        assert_eq!(b, DatePickerState { year: 1, month: 12, day: 1 });
+        let (a, _, _) = press_nav(
+            DatePickerState {
+                year: u32::MAX,
+                month: 12,
+                day: 1,
+            },
+            true,
+            1,
+        );
+        assert_eq!(
+            a,
+            DatePickerState {
+                year: 1,
+                month: 1,
+                day: 1
+            }
+        );
+        let (b, _, _) = press_nav(
+            DatePickerState {
+                year: u32::MAX,
+                month: 1,
+                day: 1,
+            },
+            false,
+            1,
+        );
+        assert_eq!(
+            b,
+            DatePickerState {
+                year: 1,
+                month: 12,
+                day: 1
+            }
+        );
     }
 
     #[test]
@@ -2931,7 +3465,15 @@ mod autotest_generated {
         // on — i.e. a month in 1..=12.
         for raw in [0u32, 13, 99, u32::MAX] {
             for next in [false, true] {
-                let (s, _, _) = press_nav(DatePickerState { year: 2024, month: raw, day: 1 }, next, 1);
+                let (s, _, _) = press_nav(
+                    DatePickerState {
+                        year: 2024,
+                        month: raw,
+                        day: 1,
+                    },
+                    next,
+                    1,
+                );
                 assert!(
                     (1..=12).contains(&s.month),
                     "raw month {raw}, next={next}: nav left month {}",
@@ -2948,7 +3490,15 @@ mod autotest_generated {
         // deliberately push *no* DOM change at all. A restyle here would leave the
         // old month's grid wearing the new month's highlighting.
         for next in [false, true] {
-            let (_, _, changes) = press_nav(DatePickerState { year: 2024, month: 3, day: 15 }, next, 1);
+            let (_, _, changes) = press_nav(
+                DatePickerState {
+                    year: 2024,
+                    month: 3,
+                    day: 15,
+                },
+                next,
+                1,
+            );
             assert!(
                 changes.is_empty(),
                 "next={next}: month navigation pushed {} DOM change(s)",
@@ -2964,7 +3514,11 @@ mod autotest_generated {
         let probe = log_refany();
         let shared = RefAny::new(DatePickerData {
             state: DatePickerStateWrapper {
-                inner: DatePickerState { year: 2024, month: 1, day: 31 },
+                inner: DatePickerState {
+                    year: 2024,
+                    month: 1,
+                    day: 31,
+                },
                 on_change: Some(DatePickerOnChange {
                     callback: DatePickerOnChangeCallback::from(
                         record_change as DatePickerOnChangeCallbackType,
@@ -2982,10 +3536,18 @@ mod autotest_generated {
 
         assert_eq!(
             read_log(&probe).seen,
-            vec![DatePickerState { year: 2024, month: 2, day: 29 }],
+            vec![DatePickerState {
+                year: 2024,
+                month: 2,
+                day: 29
+            }],
             "the host was not told the new (clamped) month",
         );
-        assert_eq!(update, Update::RefreshDom, "the host's verdict was swallowed");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the host's verdict was swallowed"
+        );
     }
 
     #[test]
@@ -2993,8 +3555,22 @@ mod autotest_generated {
         // End-to-end through `dom()`: the arrows the widget actually renders are
         // wired to the state the widget actually shares.
         for (handler, want) in [
-            (on_prev_month as usize, DatePickerState { year: 2024, month: 5, day: 10 }),
-            (on_next_month as usize, DatePickerState { year: 2024, month: 7, day: 10 }),
+            (
+                on_prev_month as usize,
+                DatePickerState {
+                    year: 2024,
+                    month: 5,
+                    day: 10,
+                },
+            ),
+            (
+                on_next_month as usize,
+                DatePickerState {
+                    year: 2024,
+                    month: 7,
+                    day: 10,
+                },
+            ),
         ] {
             let (styled, shared) = laid_out(DatePicker::create(2024, 6, 10));
             let (hit, payload) = nav_button(&styled, handler);
@@ -3007,8 +3583,15 @@ mod autotest_generated {
                 }
             });
 
-            assert_eq!(read_state(&shared), want, "the header arrow did not move the state");
-            assert!(changes.is_empty(), "the header arrow tried to restyle the stale grid");
+            assert_eq!(
+                read_state(&shared),
+                want,
+                "the header arrow did not move the state"
+            );
+            assert!(
+                changes.is_empty(),
+                "the header arrow tried to restyle the stale grid"
+            );
         }
     }
 
@@ -3023,8 +3606,15 @@ mod autotest_generated {
                     on_prev_month(foreign.clone(), *info)
                 }
             });
-            assert_eq!(update, Update::DoNothing, "next={next}: a foreign payload was acted on");
-            assert!(changes.is_empty(), "next={next}: a foreign payload pushed a DOM change");
+            assert_eq!(
+                update,
+                Update::DoNothing,
+                "next={next}: a foreign payload was acted on"
+            );
+            assert!(
+                changes.is_empty(),
+                "next={next}: a foreign payload pushed a DOM change"
+            );
         }
     }
 
@@ -3037,15 +3627,28 @@ mod autotest_generated {
         let (nav_hit, nav_payload) = nav_button(&styled, on_next_month as usize);
         let (cell, cell_payload) = day_cell(&styled, 23);
 
-        let (_, _) = with_info(styled, nav_hit, |info| on_next_month(nav_payload.clone(), *info));
-        assert_eq!(read_state(&shared), DatePickerState { year: 2024, month: 7, day: 10 });
+        let (_, _) = with_info(styled, nav_hit, |info| {
+            on_next_month(nav_payload.clone(), *info)
+        });
+        assert_eq!(
+            read_state(&shared),
+            DatePickerState {
+                year: 2024,
+                month: 7,
+                day: 10
+            }
+        );
 
         let fresh = StyledDom::create_from_dom(DatePicker::create(2024, 6, 10).dom());
         let (_, changes) = click(fresh, &cell_payload, cell);
 
         assert_eq!(
             read_state(&shared),
-            DatePickerState { year: 2024, month: 7, day: 23 },
+            DatePickerState {
+                year: 2024,
+                month: 7,
+                day: 23
+            },
             "a click on the stale grid did not write the displayed day into the state",
         );
         assert!(!changes.is_empty(), "the stale grid was not restyled");

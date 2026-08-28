@@ -8,10 +8,7 @@
 //! - X11: the X11 Window ID (`u64`)
 //! - Wayland: the `wl_surface` pointer cast to `u64` (unique per window)
 
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-};
+use std::{cell::RefCell, collections::HashMap};
 
 use super::LinuxWindow;
 
@@ -46,9 +43,7 @@ pub unsafe fn register_window(window_id: LinuxWindowId, window_ptr: *mut LinuxWi
 ///
 /// Returns the window pointer if it was found.
 pub fn unregister_window(window_id: LinuxWindowId) -> Option<*mut LinuxWindow> {
-    WINDOW_REGISTRY.with(|registry| {
-        registry.borrow_mut().windows.remove(&window_id)
-    })
+    WINDOW_REGISTRY.with(|registry| registry.borrow_mut().windows.remove(&window_id))
 }
 
 /// Get window pointer for a window ID.
@@ -57,21 +52,15 @@ pub fn unregister_window(window_id: LinuxWindowId) -> Option<*mut LinuxWindow> {
 /// The returned pointer is only valid if the window is still registered
 /// and has not been dropped.
 pub unsafe fn get_window(window_id: LinuxWindowId) -> Option<*mut LinuxWindow> {
-    WINDOW_REGISTRY.with(|registry| {
-        registry.borrow().windows.get(&window_id).copied()
-    })
+    WINDOW_REGISTRY.with(|registry| registry.borrow().windows.get(&window_id).copied())
 }
 
 /// Get all registered window IDs.
 pub fn get_all_window_ids() -> Vec<LinuxWindowId> {
-    WINDOW_REGISTRY.with(|registry| {
-        registry.borrow().windows.keys().copied().collect()
-    })
+    WINDOW_REGISTRY.with(|registry| registry.borrow().windows.keys().copied().collect())
 }
 
 /// Get count of registered windows.
 pub fn window_count() -> usize {
-    WINDOW_REGISTRY.with(|registry| {
-        registry.borrow().windows.len()
-    })
+    WINDOW_REGISTRY.with(|registry| registry.borrow().windows.len())
 }

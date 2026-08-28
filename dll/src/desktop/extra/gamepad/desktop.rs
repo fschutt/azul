@@ -110,14 +110,10 @@ pub fn poll() {
             // bitwise between polls, so state_bitwise_eq saw a "change" and
             // the 16ms pump fired GamepadInput events continuously while a
             // pad was merely plugged in.
-            let (lx, ly) = apply_radial_deadzone(
-                pad.value(Axis::LeftStickX),
-                pad.value(Axis::LeftStickY),
-            );
-            let (rx, ry) = apply_radial_deadzone(
-                pad.value(Axis::RightStickX),
-                pad.value(Axis::RightStickY),
-            );
+            let (lx, ly) =
+                apply_radial_deadzone(pad.value(Axis::LeftStickX), pad.value(Axis::LeftStickY));
+            let (rx, ry) =
+                apply_radial_deadzone(pad.value(Axis::RightStickX), pad.value(Axis::RightStickY));
             push_gamepad_state(GamepadState {
                 id: GamepadId {
                     id: usize::from(gid) as u32,

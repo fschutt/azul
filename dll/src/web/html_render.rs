@@ -22,8 +22,8 @@ use azul_css::dynamic_selector::PseudoStateType;
 use azul_css::props::property::CssPropertyType;
 use azul_css::system::SystemStyle;
 use azul_layout::window_state::FullWindowState;
-use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
+use rust_fontconfig::FcFontCache;
 
 use super::DiscoveredCallback;
 
@@ -121,7 +121,13 @@ pub fn render_initial_page(
         (len, hex)
     };
     // 1. Run layout callback → Dom (recursive tree with CSS attached)
-    let dom = call_layout(app_data, layout_callback, window_state, fc_cache, active_route);
+    let dom = call_layout(
+        app_data,
+        layout_callback,
+        window_state,
+        fc_cache,
+        active_route,
+    );
 
     // Was `if cfg!(debug_assertions)` around a raw eprintln walk, justified as
     // "only in debug builds to avoid polluting production stderr". That made
@@ -170,8 +176,11 @@ pub fn render_initial_page(
 
     log::debug!(
         "[azul-web] Rendered {} nodes, {} with callbacks, {} CSS rules, {} images, {} fonts",
-        ctx.node_counter, ctx.callback_count, ctx.css_rules.len(),
-        ctx.images.len(), ctx.fonts.len(),
+        ctx.node_counter,
+        ctx.callback_count,
+        ctx.css_rules.len(),
+        ctx.images.len(),
+        ctx.fonts.len(),
     );
 
     // 4. Generate preload hints + loader JS now that the walk has populated
@@ -244,12 +253,7 @@ pub fn render_initial_page(
 </script>
 </body>
 </html>"#,
-        preload_hints,
-        hydrate_block,
-        RESET_CSS,
-        stylesheet,
-        body_html,
-        loader_js_content,
+        preload_hints, hydrate_block, RESET_CSS, stylesheet, body_html, loader_js_content,
     );
 
     RenderOutput {
@@ -315,7 +319,10 @@ impl RenderContext {
         }
 
         // The root is typically node 0 (or styled_dom.root)
-        let root_id = styled_dom.root.into_crate_internal().unwrap_or(NodeId::ZERO);
+        let root_id = styled_dom
+            .root
+            .into_crate_internal()
+            .unwrap_or(NodeId::ZERO);
         self.render_node_recursive(root_id, node_data, hierarchy.internal, cache)
     }
 
@@ -411,7 +418,9 @@ impl RenderContext {
     /// one page-level listener that flips `data-open` on an outside click /
     /// Escape — the same light-dismiss contract as the native popup.
     fn transient_window_attrs(&mut self, nd: &NodeData, attrs: &mut String) {
-        let NodeType::TransientWindow(cfg) = &nd.node_type else { return };
+        let NodeType::TransientWindow(cfg) = &nd.node_type else {
+            return;
+        };
         use azul_core::transient::TransientAnchor;
         attrs.push_str(" class=\"az-transient-window\"");
         attrs.push_str(&format!(
@@ -437,23 +446,32 @@ impl RenderContext {
 
     /// If the node is an image, collect it and append the `src` attribute.
     fn collect_image(&mut self, nd: &NodeData, attrs: &mut String) {
-        let NodeType::Image(ref img_ref) = nd.node_type else { return };
-        let image_ref: &ImageRef = img_ref.as_ref();
-        let Some(raw_image) = image_ref.get_rawimage() else { return };
-        let img_id = self.images.len();
-        let (data, content_type) = match azul_layout::image::encode::encode_png(&raw_image).into_result() {
-            Ok(encoded) => (encoded.into_library_owned_vec(), "image/png"),
-            Err(_) => {
-                // Fallback to raw pixel bytes (rarely useful in a browser but
-                // avoids dropping the image entirely if PNG encoding fails).
-                let bytes = match raw_image.pixels {
-                    azul_core::resources::RawImageData::U8(v) => v.into_library_owned_vec(),
-                    _ => Vec::new(),
-                };
-                (bytes, "application/octet-stream")
-            }
+        let NodeType::Image(ref img_ref) = nd.node_type else {
+            return;
         };
-        self.images.push(CollectedImage { id: img_id, data, content_type });
+        let image_ref: &ImageRef = img_ref.as_ref();
+        let Some(raw_image) = image_ref.get_rawimage() else {
+            return;
+        };
+        let img_id = self.images.len();
+        let (data, content_type) =
+            match azul_layout::image::encode::encode_png(&raw_image).into_result() {
+                Ok(encoded) => (encoded.into_library_owned_vec(), "image/png"),
+                Err(_) => {
+                    // Fallback to raw pixel bytes (rarely useful in a browser but
+                    // avoids dropping the image entirely if PNG encoding fails).
+                    let bytes = match raw_image.pixels {
+                        azul_core::resources::RawImageData::U8(v) => v.into_library_owned_vec(),
+                        _ => Vec::new(),
+                    };
+                    (bytes, "application/octet-stream")
+                }
+            };
+        self.images.push(CollectedImage {
+            id: img_id,
+            data,
+            content_type,
+        });
         attrs.push_str(&format!(" src=\"/az/img/{}\"", img_id));
     }
 
@@ -475,7 +493,9 @@ impl RenderContext {
         }
         self.callback_count += 1;
         attrs.push_str(&format!(" data-az-cb=\"{}\"", az_id));
-        let Some(first_cb) = nd.callbacks.as_ref().first() else { return };
+        let Some(first_cb) = nd.callbacks.as_ref().first() else {
+            return;
+        };
         let ev_name = event_filter_to_js_name(&first_cb.event);
         attrs.push_str(&format!(" data-az-ev=\"{}\"", ev_name));
         let core_cb = first_cb.callback.clone();
@@ -514,10 +534,12 @@ impl RenderContext {
         if let Some(first_child) = hierarchy.get(idx).and_then(|h| h.first_child_id(node_id)) {
             let mut child_id = first_child;
             loop {
-                children_html.push_str(
-                    &self.render_node_recursive(child_id, node_data, hierarchy, cache),
-                );
-                match hierarchy.get(child_id.index()).and_then(|h| h.next_sibling_id()) {
+                children_html
+                    .push_str(&self.render_node_recursive(child_id, node_data, hierarchy, cache));
+                match hierarchy
+                    .get(child_id.index())
+                    .and_then(|h| h.next_sibling_id())
+                {
                     Some(next) => child_id = next,
                     None => break,
                 }
@@ -536,10 +558,12 @@ impl RenderContext {
         // Base computed styles (all conditions already resolved by Azul)
         if let Some(computed) = cache.computed_values.get(node_idx) {
             if !computed.is_empty() {
-                let decls: Vec<String> = computed.iter()
+                let decls: Vec<String> = computed
+                    .iter()
                     .map(|(_ptype, pwith)| pwith.property.format_css())
                     .collect();
-                self.css_rules.push(format!("#az_{} {{ {} }}", az_id, decls.join(" ")));
+                self.css_rules
+                    .push(format!("#az_{} {{ {} }}", az_id, decls.join(" ")));
             }
         }
 
@@ -550,12 +574,16 @@ impl RenderContext {
             let mut pseudo_groups: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
             for sp in props_slice.iter() {
                 if let Some(css_pseudo) = pseudo_state_to_css(&sp.state) {
-                    pseudo_groups.entry(css_pseudo).or_default().push(sp.property.format_css());
+                    pseudo_groups
+                        .entry(css_pseudo)
+                        .or_default()
+                        .push(sp.property.format_css());
                 }
                 // Normal state properties are already in computed_values, skip them here
             }
             for (pseudo, decls) in pseudo_groups {
-                self.css_rules.push(format!("#az_{}{} {{ {} }}", az_id, pseudo, decls.join(" ")));
+                self.css_rules
+                    .push(format!("#az_{}{} {{ {} }}", az_id, pseudo, decls.join(" ")));
             }
         }
     }
@@ -600,11 +628,8 @@ fn call_layout(
         monitors: azul_core::window::MonitorVec::from_const_slice(&[]),
     };
 
-    let mut info = LayoutCallbackInfo::new(
-        &ref_data,
-        window_state.size.clone(),
-        window_state.theme,
-    );
+    let mut info =
+        LayoutCallbackInfo::new(&ref_data, window_state.size.clone(), window_state.theme);
     // Same wiring as the desktop shell: the host-invoker thunk reads
     // `info.get_ctx()` to find its host handle. Without this the
     // macro-generated thunk returns the kind's default (empty body).
@@ -629,9 +654,15 @@ fn debug_print_dom(dom: &Dom, depth: usize, counter: &mut usize) {
     let attr_count = node_data.attributes().as_ref().len();
 
     let mut extras = Vec::new();
-    if css_count > 0 { extras.push(format!("{} css rules", css_count)); }
-    if cb_count > 0 { extras.push(format!("{} callbacks", cb_count)); }
-    if attr_count > 0 { extras.push(format!("{} attrs", attr_count)); }
+    if css_count > 0 {
+        extras.push(format!("{} css rules", css_count));
+    }
+    if cb_count > 0 {
+        extras.push(format!("{} callbacks", cb_count));
+    }
+    if attr_count > 0 {
+        extras.push(format!("{} attrs", attr_count));
+    }
 
     let extras_str = if extras.is_empty() {
         String::new()
@@ -643,7 +674,10 @@ fn debug_print_dom(dom: &Dom, depth: usize, counter: &mut usize) {
         let preview: String = text.as_str().chars().take(40).collect();
         eprintln!("[azul-web]   {}[{}] #text \"{}\"", indent, node_id, preview);
     } else {
-        eprintln!("[azul-web]   {}[{}] <{}>{}", indent, node_id, tag, extras_str);
+        eprintln!(
+            "[azul-web]   {}[{}] <{}>{}",
+            indent, node_id, tag, extras_str
+        );
     }
 
     for rule_block in node_data.style.rules.as_ref().iter() {
@@ -748,58 +782,149 @@ fn extract_head_meta(styled_dom: &StyledDom) -> (Option<String>, Option<String>)
 /// Map NodeType to HTML tag name.
 fn node_type_to_html_tag(node_type: &NodeType) -> &'static str {
     match node_type {
-        NodeType::Html => "html", NodeType::Head => "head", NodeType::Body => "body",
-        NodeType::Div => "div", NodeType::P => "p", NodeType::Article => "article",
-        NodeType::Section => "section", NodeType::Nav => "nav", NodeType::Aside => "aside",
-        NodeType::Header => "header", NodeType::Footer => "footer", NodeType::Main => "main",
-        NodeType::Figure => "figure", NodeType::FigCaption => "figcaption",
-        NodeType::H1 => "h1", NodeType::H2 => "h2", NodeType::H3 => "h3",
-        NodeType::H4 => "h4", NodeType::H5 => "h5", NodeType::H6 => "h6",
-        NodeType::Br => "br", NodeType::Hr => "hr", NodeType::Pre => "pre",
-        NodeType::BlockQuote => "blockquote", NodeType::Address => "address",
-        NodeType::Details => "details", NodeType::Summary => "summary", NodeType::Dialog => "dialog",
-        NodeType::Ul => "ul", NodeType::Ol => "ol", NodeType::Li => "li",
-        NodeType::Dl => "dl", NodeType::Dt => "dt", NodeType::Dd => "dd",
-        NodeType::Menu => "menu", NodeType::MenuItem => "menuitem", NodeType::Dir => "dir",
-        NodeType::Table => "table", NodeType::Caption => "caption", NodeType::THead => "thead",
-        NodeType::TBody => "tbody", NodeType::TFoot => "tfoot", NodeType::Tr => "tr",
-        NodeType::Th => "th", NodeType::Td => "td", NodeType::ColGroup => "colgroup",
-        NodeType::Col => "col", NodeType::Form => "form", NodeType::FieldSet => "fieldset",
-        NodeType::Legend => "legend", NodeType::Label => "label", NodeType::Input => "input",
-        NodeType::Button => "button", NodeType::Select => "select", NodeType::OptGroup => "optgroup",
-        NodeType::SelectOption => "option", NodeType::TextArea => "textarea",
-        NodeType::Output => "output", NodeType::Progress => "progress", NodeType::Meter => "meter",
-        NodeType::DataList => "datalist", NodeType::Span => "span", NodeType::A => "a",
-        NodeType::Em => "em", NodeType::Strong => "strong", NodeType::B => "b",
-        NodeType::I => "i", NodeType::U => "u", NodeType::S => "s", NodeType::Mark => "mark",
-        NodeType::Del => "del", NodeType::Ins => "ins", NodeType::Code => "code",
-        NodeType::Samp => "samp", NodeType::Kbd => "kbd", NodeType::Var => "var",
-        NodeType::Cite => "cite", NodeType::Dfn => "dfn", NodeType::Abbr => "abbr",
-        NodeType::Acronym => "acronym", NodeType::Q => "q", NodeType::Time => "time",
-        NodeType::Sub => "sub", NodeType::Sup => "sup", NodeType::Small => "small",
-        NodeType::Big => "big", NodeType::Bdo => "bdo", NodeType::Bdi => "bdi",
-        NodeType::Wbr => "wbr", NodeType::Ruby => "ruby", NodeType::Rt => "rt",
-        NodeType::Rtc => "rtc", NodeType::Rp => "rp", NodeType::Data => "data",
-        NodeType::Canvas => "canvas", NodeType::Object => "object", NodeType::Param => "param",
-        NodeType::Embed => "embed", NodeType::Audio => "audio", NodeType::Video => "video",
-        NodeType::Source => "source", NodeType::Track => "track", NodeType::Map => "map",
-        NodeType::Area => "area", NodeType::Image(_) => "img",
-        NodeType::Svg => "svg", NodeType::SvgG => "g", NodeType::SvgDefs => "defs",
-        NodeType::SvgSymbol => "symbol", NodeType::SvgUse => "use", NodeType::SvgSwitch => "switch",
-        NodeType::SvgPath => "path", NodeType::SvgCircle => "circle", NodeType::SvgRect => "rect",
-        NodeType::SvgEllipse => "ellipse", NodeType::SvgLine => "line",
-        NodeType::SvgPolygon => "polygon", NodeType::SvgPolyline => "polyline",
-        NodeType::SvgText(_) => "text", NodeType::SvgTspan => "tspan",
-        NodeType::SvgTextPath => "textPath", NodeType::SvgLinearGradient => "linearGradient",
-        NodeType::SvgRadialGradient => "radialGradient", NodeType::SvgStop => "stop",
-        NodeType::SvgPattern => "pattern", NodeType::SvgClipPathElement => "clipPath",
-        NodeType::SvgMask => "mask", NodeType::SvgFilter => "filter",
-        NodeType::SvgImage(_) => "image", NodeType::SvgForeignObject => "foreignObject",
-        NodeType::SvgTitle => "title", NodeType::SvgA => "a", NodeType::SvgMarker => "marker",
-        NodeType::Title => "title", NodeType::Meta => "meta", NodeType::Link => "link",
-        NodeType::Script => "script", NodeType::Style => "style", NodeType::Base => "base",
+        NodeType::Html => "html",
+        NodeType::Head => "head",
+        NodeType::Body => "body",
+        NodeType::Div => "div",
+        NodeType::P => "p",
+        NodeType::Article => "article",
+        NodeType::Section => "section",
+        NodeType::Nav => "nav",
+        NodeType::Aside => "aside",
+        NodeType::Header => "header",
+        NodeType::Footer => "footer",
+        NodeType::Main => "main",
+        NodeType::Figure => "figure",
+        NodeType::FigCaption => "figcaption",
+        NodeType::H1 => "h1",
+        NodeType::H2 => "h2",
+        NodeType::H3 => "h3",
+        NodeType::H4 => "h4",
+        NodeType::H5 => "h5",
+        NodeType::H6 => "h6",
+        NodeType::Br => "br",
+        NodeType::Hr => "hr",
+        NodeType::Pre => "pre",
+        NodeType::BlockQuote => "blockquote",
+        NodeType::Address => "address",
+        NodeType::Details => "details",
+        NodeType::Summary => "summary",
+        NodeType::Dialog => "dialog",
+        NodeType::Ul => "ul",
+        NodeType::Ol => "ol",
+        NodeType::Li => "li",
+        NodeType::Dl => "dl",
+        NodeType::Dt => "dt",
+        NodeType::Dd => "dd",
+        NodeType::Menu => "menu",
+        NodeType::MenuItem => "menuitem",
+        NodeType::Dir => "dir",
+        NodeType::Table => "table",
+        NodeType::Caption => "caption",
+        NodeType::THead => "thead",
+        NodeType::TBody => "tbody",
+        NodeType::TFoot => "tfoot",
+        NodeType::Tr => "tr",
+        NodeType::Th => "th",
+        NodeType::Td => "td",
+        NodeType::ColGroup => "colgroup",
+        NodeType::Col => "col",
+        NodeType::Form => "form",
+        NodeType::FieldSet => "fieldset",
+        NodeType::Legend => "legend",
+        NodeType::Label => "label",
+        NodeType::Input => "input",
+        NodeType::Button => "button",
+        NodeType::Select => "select",
+        NodeType::OptGroup => "optgroup",
+        NodeType::SelectOption => "option",
+        NodeType::TextArea => "textarea",
+        NodeType::Output => "output",
+        NodeType::Progress => "progress",
+        NodeType::Meter => "meter",
+        NodeType::DataList => "datalist",
+        NodeType::Span => "span",
+        NodeType::A => "a",
+        NodeType::Em => "em",
+        NodeType::Strong => "strong",
+        NodeType::B => "b",
+        NodeType::I => "i",
+        NodeType::U => "u",
+        NodeType::S => "s",
+        NodeType::Mark => "mark",
+        NodeType::Del => "del",
+        NodeType::Ins => "ins",
+        NodeType::Code => "code",
+        NodeType::Samp => "samp",
+        NodeType::Kbd => "kbd",
+        NodeType::Var => "var",
+        NodeType::Cite => "cite",
+        NodeType::Dfn => "dfn",
+        NodeType::Abbr => "abbr",
+        NodeType::Acronym => "acronym",
+        NodeType::Q => "q",
+        NodeType::Time => "time",
+        NodeType::Sub => "sub",
+        NodeType::Sup => "sup",
+        NodeType::Small => "small",
+        NodeType::Big => "big",
+        NodeType::Bdo => "bdo",
+        NodeType::Bdi => "bdi",
+        NodeType::Wbr => "wbr",
+        NodeType::Ruby => "ruby",
+        NodeType::Rt => "rt",
+        NodeType::Rtc => "rtc",
+        NodeType::Rp => "rp",
+        NodeType::Data => "data",
+        NodeType::Canvas => "canvas",
+        NodeType::Object => "object",
+        NodeType::Param => "param",
+        NodeType::Embed => "embed",
+        NodeType::Audio => "audio",
+        NodeType::Video => "video",
+        NodeType::Source => "source",
+        NodeType::Track => "track",
+        NodeType::Map => "map",
+        NodeType::Area => "area",
+        NodeType::Image(_) => "img",
+        NodeType::Svg => "svg",
+        NodeType::SvgG => "g",
+        NodeType::SvgDefs => "defs",
+        NodeType::SvgSymbol => "symbol",
+        NodeType::SvgUse => "use",
+        NodeType::SvgSwitch => "switch",
+        NodeType::SvgPath => "path",
+        NodeType::SvgCircle => "circle",
+        NodeType::SvgRect => "rect",
+        NodeType::SvgEllipse => "ellipse",
+        NodeType::SvgLine => "line",
+        NodeType::SvgPolygon => "polygon",
+        NodeType::SvgPolyline => "polyline",
+        NodeType::SvgText(_) => "text",
+        NodeType::SvgTspan => "tspan",
+        NodeType::SvgTextPath => "textPath",
+        NodeType::SvgLinearGradient => "linearGradient",
+        NodeType::SvgRadialGradient => "radialGradient",
+        NodeType::SvgStop => "stop",
+        NodeType::SvgPattern => "pattern",
+        NodeType::SvgClipPathElement => "clipPath",
+        NodeType::SvgMask => "mask",
+        NodeType::SvgFilter => "filter",
+        NodeType::SvgImage(_) => "image",
+        NodeType::SvgForeignObject => "foreignObject",
+        NodeType::SvgTitle => "title",
+        NodeType::SvgA => "a",
+        NodeType::SvgMarker => "marker",
+        NodeType::Title => "title",
+        NodeType::Meta => "meta",
+        NodeType::Link => "link",
+        NodeType::Script => "script",
+        NodeType::Style => "style",
+        NodeType::Base => "base",
         NodeType::Before | NodeType::After | NodeType::Marker | NodeType::Placeholder => "span",
-        NodeType::Text(_) => "span", NodeType::VirtualView => "div", NodeType::Icon(_) => "span",
+        NodeType::Text(_) => "span",
+        NodeType::VirtualView => "div",
+        NodeType::Icon(_) => "span",
         _ => "div",
     }
 }
@@ -813,9 +938,22 @@ fn node_type_inline_text(node_type: &NodeType) -> Option<&str> {
 }
 
 fn is_void_element(tag: &str) -> bool {
-    matches!(tag,
-        "area" | "base" | "br" | "col" | "embed" | "hr" | "img"
-            | "input" | "link" | "meta" | "param" | "source" | "track" | "wbr"
+    matches!(
+        tag,
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "param"
+            | "source"
+            | "track"
+            | "wbr"
     )
 }
 
@@ -870,7 +1008,12 @@ fn event_filter_to_js_name(event: &azul_core::events::EventFilter) -> &'static s
 fn html_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        match c { '&' => out.push_str("&amp;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(c) }
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(c),
+        }
     }
     out
 }
@@ -878,7 +1021,13 @@ fn html_escape(s: &str) -> String {
 fn html_escape_attr(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        match c { '&' => out.push_str("&amp;"), '"' => out.push_str("&quot;"), '<' => out.push_str("&lt;"), '>' => out.push_str("&gt;"), _ => out.push(c) }
+        match c {
+            '&' => out.push_str("&amp;"),
+            '"' => out.push_str("&quot;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(c),
+        }
     }
     out
 }

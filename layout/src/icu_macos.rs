@@ -15,12 +15,15 @@ use azul_css::AzString;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_foundation::{
-    NSArray, NSCalendar, NSCalendarIdentifierGregorian, NSDate,
-    NSDateComponents, NSDateFormatter, NSDateFormatterStyle, NSListFormatter, NSLocale, NSNumber,
-    NSNumberFormatter, NSNumberFormatterStyle, NSRange, NSString, NSStringCompareOptions,
+    NSArray, NSCalendar, NSCalendarIdentifierGregorian, NSDate, NSDateComponents, NSDateFormatter,
+    NSDateFormatterStyle, NSListFormatter, NSLocale, NSNumber, NSNumberFormatter,
+    NSNumberFormatterStyle, NSRange, NSString, NSStringCompareOptions,
 };
 
-use super::{FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType, PluralCategory, decimal_string, plural_for};
+use super::{
+    decimal_string, plural_for, FormatLength, IcuDate, IcuDateTime, IcuResult, IcuTime, ListType,
+    PluralCategory,
+};
 
 // ─── IcuLocalizer ─────────────────────────────────────────────────────────────
 
@@ -36,7 +39,9 @@ pub struct IcuLocalizer {
 
 impl IcuLocalizer {
     pub fn new(locale_str: &str) -> Self {
-        Self { locale_string: AzString::from(locale_str) }
+        Self {
+            locale_string: AzString::from(locale_str),
+        }
     }
 
     pub fn from_system_language(system_language: &AzString) -> Self {
@@ -48,7 +53,9 @@ impl IcuLocalizer {
     }
 
     pub fn get_language(&self) -> AzString {
-        let lang = self.locale_string.as_str()
+        let lang = self
+            .locale_string
+            .as_str()
             .split(['-', '_'])
             .next()
             .unwrap_or(self.locale_string.as_str());
@@ -56,7 +63,11 @@ impl IcuLocalizer {
     }
 
     pub fn get_region(&self) -> Option<AzString> {
-        self.locale_string.as_str().split(['-', '_']).nth(1).map(AzString::from)
+        self.locale_string
+            .as_str()
+            .split(['-', '_'])
+            .nth(1)
+            .map(AzString::from)
     }
 
     pub fn set_locale(&mut self, locale_str: &str) -> bool {
@@ -113,7 +124,9 @@ impl IcuLocalizer {
     // ── Plural rules ────────────────────────────────────────────────────────
 
     pub fn get_plural_category(&mut self, value: i64) -> PluralCategory {
-        let lang = self.locale_string.as_str()
+        let lang = self
+            .locale_string
+            .as_str()
             .split(['-', '_'])
             .next()
             .unwrap_or("en");
@@ -149,10 +162,14 @@ impl IcuLocalizer {
             return AzString::from(strs.join(", "));
         }
         unsafe {
-            let ns_strings: Vec<Retained<NSString>> =
-                items.iter().map(|s| NSString::from_str(s.as_str())).collect();
-            let any_refs: Vec<&AnyObject> =
-                ns_strings.iter().map(|s| s.deref().deref().deref()).collect();
+            let ns_strings: Vec<Retained<NSString>> = items
+                .iter()
+                .map(|s| NSString::from_str(s.as_str()))
+                .collect();
+            let any_refs: Vec<&AnyObject> = ns_strings
+                .iter()
+                .map(|s| s.deref().deref().deref())
+                .collect();
             let array = NSArray::<AnyObject>::from_slice(&any_refs);
             let formatter = NSListFormatter::new();
             formatter.setLocale(Some(&self.make_ns_locale()));
@@ -192,7 +209,11 @@ impl IcuLocalizer {
             NSDateFormatterStyle::ShortStyle // HH:MM
         };
         unsafe {
-            match make_ns_time(time.hour as isize, time.minute as isize, time.second as isize) {
+            match make_ns_time(
+                time.hour as isize,
+                time.minute as isize,
+                time.second as isize,
+            ) {
                 None => IcuResult::err("Invalid time"),
                 Some(ns_date) => {
                     let fmt = NSDateFormatter::new();
@@ -278,7 +299,9 @@ impl Default for IcuLocalizer {
 
 impl Clone for IcuLocalizer {
     fn clone(&self) -> Self {
-        Self { locale_string: self.locale_string.clone() }
+        Self {
+            locale_string: self.locale_string.clone(),
+        }
     }
 }
 
@@ -397,9 +420,14 @@ mod autotest_generated {
     /// an `Ok("")` is a silently-broken format, an `Err("")` is a useless error.
     fn assert_payload_non_empty(r: &IcuResult) {
         match *r {
-            IcuResult::Ok(ref s) => assert!(!s.as_str().is_empty(), "Ok variant carried an empty string"),
+            IcuResult::Ok(ref s) => {
+                assert!(!s.as_str().is_empty(), "Ok variant carried an empty string")
+            }
             IcuResult::Err(ref e) => {
-                assert!(!e.message.as_str().is_empty(), "Err variant carried an empty message");
+                assert!(
+                    !e.message.as_str().is_empty(),
+                    "Err variant carried an empty message"
+                );
             }
         }
     }
@@ -421,10 +449,10 @@ mod autotest_generated {
             "\t\r\n".to_string(),
             "a\0b".to_string(),
             "\u{7f}\u{1}".to_string(),
-            "e\u{301}".to_string(),      // e + combining acute
-            "é".to_string(),             // precomposed — canonically equivalent to the above
-            "😀👨‍👩‍👧‍👦".to_string(), // astral plane + ZWJ sequence
-            "مرحبا".to_string(),         // RTL
+            "e\u{301}".to_string(), // e + combining acute
+            "é".to_string(),        // precomposed — canonically equivalent to the above
+            "😀👨‍👩‍👧‍👦".to_string(),     // astral plane + ZWJ sequence
+            "مرحبا".to_string(),    // RTL
             "日本語".to_string(),
             "\u{FEFF}bom".to_string(),
             "ß".to_string(),
@@ -456,11 +484,18 @@ mod autotest_generated {
         ];
         for c in cases {
             let loc = IcuLocalizer::new(c);
-            assert_eq!(loc.get_locale().as_str(), c, "locale not preserved for {c:?}");
+            assert_eq!(
+                loc.get_locale().as_str(),
+                c,
+                "locale not preserved for {c:?}"
+            );
         }
 
         let huge = "x".repeat(10_000);
-        assert_eq!(IcuLocalizer::new(&huge).get_locale().as_str(), huge.as_str());
+        assert_eq!(
+            IcuLocalizer::new(&huge).get_locale().as_str(),
+            huge.as_str()
+        );
     }
 
     #[test]
@@ -478,7 +513,10 @@ mod autotest_generated {
         let d = IcuLocalizer::default();
         assert_eq!(d.get_locale().as_str(), "en-US");
         assert_eq!(d.get_language().as_str(), "en");
-        assert_eq!(d.get_region().map(|r| r.as_str().to_string()), Some("US".to_string()));
+        assert_eq!(
+            d.get_region().map(|r| r.as_str().to_string()),
+            Some("US".to_string())
+        );
 
         let mut c = d.clone();
         assert_eq!(c.get_locale().as_str(), "en-US");
@@ -498,7 +536,7 @@ mod autotest_generated {
             ("en", "en"),
             ("zh-Hans-CN", "zh"),
             ("", ""),
-            ("-US", ""),   // leading separator ⇒ empty language, not "US"
+            ("-US", ""), // leading separator ⇒ empty language, not "US"
             ("_US", ""),
             ("-", ""),
             ("日本-語", "日本"),
@@ -515,8 +553,7 @@ mod autotest_generated {
     #[test]
     fn get_language_never_contains_a_subtag_separator() {
         // Invariant: whatever the input, the language is a *single* subtag.
-        let mut inputs: Vec<String> =
-            hostile_strings().into_iter().collect();
+        let mut inputs: Vec<String> = hostile_strings().into_iter().collect();
         inputs.extend(
             ["en-US", "a-b-c-d-e", "---", "___", "-_-", "x_y-z"]
                 .iter()
@@ -530,7 +567,10 @@ mod autotest_generated {
                 "get_language({i:?}) = {lang:?} still contains a separator"
             );
             // It must also be a prefix of the original locale string.
-            assert!(i.starts_with(lang), "get_language({i:?}) = {lang:?} is not a prefix");
+            assert!(
+                i.starts_with(lang),
+                "get_language({i:?}) = {lang:?} is not a prefix"
+            );
         }
     }
 
@@ -560,7 +600,10 @@ mod autotest_generated {
         // returns the *script* ("Hans"), not the region ("CN"). Locked in here
         // so that fixing it is a deliberate, visible change.
         let loc = IcuLocalizer::new("zh-Hans-CN");
-        assert_eq!(loc.get_region().as_ref().map(AzString::as_str), Some("Hans"));
+        assert_eq!(
+            loc.get_region().as_ref().map(AzString::as_str),
+            Some("Hans")
+        );
     }
 
     #[test]
@@ -667,8 +710,16 @@ mod autotest_generated {
         ] {
             let out = loc.format_integer(v);
             let out = out.as_str();
-            assert_eq!(digits_only(out), abs_digits(v), "format_integer({v}) = {out:?}");
-            assert_eq!(has_minus(out), v < 0, "sign mismatch for format_integer({v}) = {out:?}");
+            assert_eq!(
+                digits_only(out),
+                abs_digits(v),
+                "format_integer({v}) = {out:?}"
+            );
+            assert_eq!(
+                has_minus(out),
+                v < 0,
+                "sign mismatch for format_integer({v}) = {out:?}"
+            );
         }
     }
 
@@ -684,14 +735,21 @@ mod autotest_generated {
         for v in [i64::MIN, i64::MIN + 1, i64::MAX, i64::MAX - 1] {
             let out = loc.format_integer(v);
             let out = out.as_str();
-            assert!(!out.is_empty(), "format_integer({v}) returned an empty string");
+            assert!(
+                !out.is_empty(),
+                "format_integer({v}) returned an empty string"
+            );
             // NSNumberFormatter may round beyond 2^53, so assert only the shape:
             // 19 significant digits and the correct sign.
             assert!(
                 digits_only(out).len() >= 19,
                 "format_integer({v}) = {out:?} lost magnitude"
             );
-            assert_eq!(has_minus(out), v < 0, "sign mismatch for format_integer({v})");
+            assert_eq!(
+                has_minus(out),
+                v < 0,
+                "sign mismatch for format_integer({v})"
+            );
         }
     }
 
@@ -726,7 +784,11 @@ mod autotest_generated {
         let mut loc = en();
         let out = loc.format_decimal(123, -2);
         assert_eq!(digits_only(out.as_str()), "12300", "got {:?}", out.as_str());
-        assert!(!out.as_str().contains('.'), "unexpected fraction part in {:?}", out.as_str());
+        assert!(
+            !out.as_str().contains('.'),
+            "unexpected fraction part in {:?}",
+            out.as_str()
+        );
     }
 
     #[test]
@@ -741,7 +803,10 @@ mod autotest_generated {
         for v in [i64::MIN, i64::MAX] {
             for dp in [0i16, 2, -2] {
                 let out = loc.format_decimal(v, dp);
-                assert!(!out.as_str().is_empty(), "format_decimal({v}, {dp}) was empty");
+                assert!(
+                    !out.as_str().is_empty(),
+                    "format_decimal({v}, {dp}) was empty"
+                );
                 assert_eq!(
                     has_minus(out.as_str()),
                     v < 0,
@@ -800,8 +865,16 @@ mod autotest_generated {
     fn plural_category_unknown_or_empty_locale_falls_back_to_english() {
         for tag in ["", "qqq", "!!!", "-", "zz-ZZ"] {
             let mut loc = IcuLocalizer::new(tag);
-            assert_eq!(loc.get_plural_category(1), PluralCategory::One, "tag {tag:?}");
-            assert_eq!(loc.get_plural_category(5), PluralCategory::Other, "tag {tag:?}");
+            assert_eq!(
+                loc.get_plural_category(1),
+                PluralCategory::One,
+                "tag {tag:?}"
+            );
+            assert_eq!(
+                loc.get_plural_category(5),
+                PluralCategory::Other,
+                "tag {tag:?}"
+            );
         }
     }
 
@@ -856,7 +929,9 @@ mod autotest_generated {
     fn plural_category_negative_values_do_not_panic() {
         // Every branch of the CLDR table, exercised with negatives — but *not*
         // i64::MIN, which is covered separately below.
-        for tag in ["en", "ar", "ru", "pl", "cs", "sl", "lt", "lv", "ro", "mt", "he", "ga", "cy", "fr"] {
+        for tag in [
+            "en", "ar", "ru", "pl", "cs", "sl", "lt", "lv", "ro", "mt", "he", "ga", "cy", "fr",
+        ] {
             let mut loc = IcuLocalizer::new(tag);
             for v in [-1i64, -2, -11, -100, i64::MIN + 1] {
                 let _ = loc.get_plural_category(v);
@@ -919,7 +994,11 @@ mod autotest_generated {
     #[test]
     fn pluralize_without_a_placeholder_returns_the_template_verbatim() {
         let mut loc = en();
-        assert_eq!(loc.pluralize(3, "z", "o", "t", "f", "m", "no digits here").as_str(), "no digits here");
+        assert_eq!(
+            loc.pluralize(3, "z", "o", "t", "f", "m", "no digits here")
+                .as_str(),
+            "no digits here"
+        );
         // Empty templates stay empty rather than panicking.
         assert_eq!(loc.pluralize(3, "", "", "", "", "", "").as_str(), "");
     }
@@ -936,9 +1015,21 @@ mod autotest_generated {
     #[test]
     fn pluralize_uses_the_russian_table() {
         let mut loc = IcuLocalizer::new("ru");
-        assert_eq!(loc.pluralize(1, "z", "one", "t", "few", "many", "o").as_str(), "one");
-        assert_eq!(loc.pluralize(3, "z", "one", "t", "few", "many", "o").as_str(), "few");
-        assert_eq!(loc.pluralize(5, "z", "one", "t", "few", "many", "o").as_str(), "many");
+        assert_eq!(
+            loc.pluralize(1, "z", "one", "t", "few", "many", "o")
+                .as_str(),
+            "one"
+        );
+        assert_eq!(
+            loc.pluralize(3, "z", "one", "t", "few", "many", "o")
+                .as_str(),
+            "few"
+        );
+        assert_eq!(
+            loc.pluralize(5, "z", "one", "t", "few", "many", "o")
+                .as_str(),
+            "many"
+        );
     }
 
     #[test]
@@ -956,10 +1047,20 @@ mod autotest_generated {
     fn format_list_unit_is_a_plain_comma_join() {
         // The `Unit` path never touches Foundation, so it is exactly specified.
         let mut loc = en();
-        assert_eq!(loc.format_list(&az(&["a", "b", "c"]), ListType::Unit).as_str(), "a, b, c");
-        assert_eq!(loc.format_list(&az(&["solo"]), ListType::Unit).as_str(), "solo");
+        assert_eq!(
+            loc.format_list(&az(&["a", "b", "c"]), ListType::Unit)
+                .as_str(),
+            "a, b, c"
+        );
+        assert_eq!(
+            loc.format_list(&az(&["solo"]), ListType::Unit).as_str(),
+            "solo"
+        );
         assert_eq!(loc.format_list(&[], ListType::Unit).as_str(), "");
-        assert_eq!(loc.format_list(&az(&["", ""]), ListType::Unit).as_str(), ", ");
+        assert_eq!(
+            loc.format_list(&az(&["", ""]), ListType::Unit).as_str(),
+            ", "
+        );
     }
 
     #[test]
@@ -982,7 +1083,11 @@ mod autotest_generated {
         let mut loc = en();
         for lt in [ListType::And, ListType::Or] {
             let out = loc.format_list(&az(&["only"]), lt);
-            assert!(out.as_str().contains("only"), "{lt:?} -> {:?}", out.as_str());
+            assert!(
+                out.as_str().contains("only"),
+                "{lt:?} -> {:?}",
+                out.as_str()
+            );
         }
     }
 
@@ -991,7 +1096,11 @@ mod autotest_generated {
         let mut loc = en();
         for lt in [ListType::And, ListType::Or, ListType::Unit] {
             let out = loc.format_list(&[], lt);
-            assert!(out.as_str().is_empty(), "{lt:?} on [] -> {:?}", out.as_str());
+            assert!(
+                out.as_str().is_empty(),
+                "{lt:?} on [] -> {:?}",
+                out.as_str()
+            );
         }
     }
 
@@ -1011,7 +1120,10 @@ mod autotest_generated {
         // Interior NULs, ZWJ emoji, RTL, BOM, 100k-char items — NSString::from_str
         // must survive all of them.
         let mut loc = en();
-        let items: Vec<AzString> = hostile_strings().iter().map(|s| AzString::from(s.as_str())).collect();
+        let items: Vec<AzString> = hostile_strings()
+            .iter()
+            .map(|s| AzString::from(s.as_str()))
+            .collect();
         for lt in [ListType::And, ListType::Or, ListType::Unit] {
             let _ = loc.format_list(&items, lt);
         }
@@ -1023,7 +1135,11 @@ mod autotest_generated {
     fn compare_is_reflexive_and_deterministic() {
         let mut loc = en();
         for s in hostile_strings() {
-            assert_eq!(loc.compare(&s, &s), Ordering::Equal, "compare({s:?}, itself) != Equal");
+            assert_eq!(
+                loc.compare(&s, &s),
+                Ordering::Equal,
+                "compare({s:?}, itself) != Equal"
+            );
             let a = loc.compare(&s, "m");
             let b = loc.compare(&s, "m");
             assert_eq!(a, b, "compare is not deterministic for {s:?}");
@@ -1047,7 +1163,11 @@ mod autotest_generated {
         for (a, b) in pairs {
             let ab = loc.compare(a, b);
             let ba = loc.compare(b, a);
-            assert_eq!(ab, ba.reverse(), "compare({a:?}, {b:?}) = {ab:?} but the reverse was {ba:?}");
+            assert_eq!(
+                ab,
+                ba.reverse(),
+                "compare({a:?}, {b:?}) = {ab:?} but the reverse was {ba:?}"
+            );
         }
     }
 
@@ -1106,14 +1226,25 @@ mod autotest_generated {
         let mut loc = en();
         let mut v = az(&["delta", "alpha", "charlie", "bravo"]);
         loc.sort_strings(&mut v);
-        let once = as_strs(&v).iter().map(|s| (*s).to_string()).collect::<Vec<_>>();
+        let once = as_strs(&v)
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect::<Vec<_>>();
         loc.sort_strings(&mut v);
-        assert_eq!(as_strs(&v), once, "sorting an already-sorted slice changed it");
+        assert_eq!(
+            as_strs(&v),
+            once,
+            "sorting an already-sorted slice changed it"
+        );
 
         // Adjacent pairs must be non-decreasing under the very comparator used.
         for w in 0..v.len().saturating_sub(1) {
             let (a, b) = (v[w].as_str().to_string(), v[w + 1].as_str().to_string());
-            assert_ne!(loc.compare(&a, &b), Ordering::Greater, "{a:?} sorted before {b:?}");
+            assert_ne!(
+                loc.compare(&a, &b),
+                Ordering::Greater,
+                "{a:?} sorted before {b:?}"
+            );
         }
     }
 
@@ -1140,7 +1271,11 @@ mod autotest_generated {
         let input = az(&["c", "a", "b"]);
         let out = loc.sorted_strings(&input);
 
-        assert_eq!(as_strs(&input), vec!["c", "a", "b"], "sorted_strings mutated its input");
+        assert_eq!(
+            as_strs(&input),
+            vec!["c", "a", "b"],
+            "sorted_strings mutated its input"
+        );
         assert_eq!(out.len(), input.len());
         let mut got = as_strs(&out);
         got.sort_unstable();
@@ -1161,8 +1296,15 @@ mod autotest_generated {
         let mut loc = en();
         for s in hostile_strings() {
             let key = loc.get_sort_key(&s);
-            assert_eq!(key.as_slice(), s.as_bytes(), "sort key is not the UTF-8 bytes of {s:?}");
-            assert_eq!(String::from_utf8(key).expect("sort key must stay valid UTF-8"), s);
+            assert_eq!(
+                key.as_slice(),
+                s.as_bytes(),
+                "sort key is not the UTF-8 bytes of {s:?}"
+            );
+            assert_eq!(
+                String::from_utf8(key).expect("sort key must stay valid UTF-8"),
+                s
+            );
         }
     }
 
@@ -1189,9 +1331,18 @@ mod autotest_generated {
 
     #[test]
     fn ns_date_style_maps_every_length_distinctly() {
-        assert_eq!(ns_date_style(FormatLength::Short), NSDateFormatterStyle::ShortStyle);
-        assert_eq!(ns_date_style(FormatLength::Medium), NSDateFormatterStyle::MediumStyle);
-        assert_eq!(ns_date_style(FormatLength::Long), NSDateFormatterStyle::LongStyle);
+        assert_eq!(
+            ns_date_style(FormatLength::Short),
+            NSDateFormatterStyle::ShortStyle
+        );
+        assert_eq!(
+            ns_date_style(FormatLength::Medium),
+            NSDateFormatterStyle::MediumStyle
+        );
+        assert_eq!(
+            ns_date_style(FormatLength::Long),
+            NSDateFormatterStyle::LongStyle
+        );
 
         // No two lengths may collapse onto the same style, and none may be NoStyle
         // (that would silently blank the date component out).
@@ -1203,7 +1354,10 @@ mod autotest_generated {
         for (i, a) in all.iter().enumerate() {
             assert_ne!(*a, NSDateFormatterStyle::NoStyle);
             for b in all.iter().skip(i + 1) {
-                assert_ne!(a, b, "two FormatLengths map to the same NSDateFormatterStyle");
+                assert_ne!(
+                    a, b,
+                    "two FormatLengths map to the same NSDateFormatterStyle"
+                );
             }
         }
     }
@@ -1293,7 +1447,14 @@ mod autotest_generated {
             let _ = make_ns_date(i32::MIN, isize::MIN, isize::MIN);
             let _ = make_ns_time(isize::MAX, isize::MAX, isize::MAX);
             let _ = make_ns_time(isize::MIN, isize::MIN, isize::MIN);
-            let _ = make_ns_datetime(i32::MIN, isize::MIN, isize::MIN, isize::MIN, isize::MIN, isize::MIN);
+            let _ = make_ns_datetime(
+                i32::MIN,
+                isize::MIN,
+                isize::MIN,
+                isize::MIN,
+                isize::MIN,
+                isize::MIN,
+            );
         }
     }
 
@@ -1302,7 +1463,11 @@ mod autotest_generated {
     #[test]
     fn format_date_produces_a_non_empty_ok_for_a_valid_date() {
         let mut loc = en();
-        for length in [FormatLength::Short, FormatLength::Medium, FormatLength::Long] {
+        for length in [
+            FormatLength::Short,
+            FormatLength::Medium,
+            FormatLength::Long,
+        ] {
             let r = loc.format_date(IcuDate::new(2025, 1, 15), length);
             assert!(is_ok(&r), "format_date(2025-01-15, {length:?}) was an Err");
             assert!(!unwrap_ok(r).is_empty());
@@ -1316,7 +1481,10 @@ mod autotest_generated {
         let d = IcuDate::new(2025, 1, 15);
         let short = unwrap_ok(loc.format_date(d, FormatLength::Short));
         let long = unwrap_ok(loc.format_date(d, FormatLength::Long));
-        assert_ne!(short, long, "Short and Long rendered identically: {short:?}");
+        assert_ne!(
+            short, long,
+            "Short and Long rendered identically: {short:?}"
+        );
     }
 
     #[test]
@@ -1350,7 +1518,10 @@ mod autotest_generated {
             "include_seconds made no difference: {without:?}"
         );
         // The seconds-bearing rendering must be the longer one.
-        assert!(with.len() > without.len(), "{with:?} is not longer than {without:?}");
+        assert!(
+            with.len() > without.len(),
+            "{with:?} is not longer than {without:?}"
+        );
     }
 
     #[test]
@@ -1374,7 +1545,11 @@ mod autotest_generated {
     fn format_datetime_is_ok_and_non_empty() {
         let mut loc = en();
         let dt = IcuDateTime::new(IcuDate::new(2025, 1, 15), IcuTime::new(12, 34, 56));
-        for length in [FormatLength::Short, FormatLength::Medium, FormatLength::Long] {
+        for length in [
+            FormatLength::Short,
+            FormatLength::Medium,
+            FormatLength::Long,
+        ] {
             let r = loc.format_datetime(dt, length);
             assert!(is_ok(&r), "format_datetime(.., {length:?}) was an Err");
             let s = unwrap_ok(r);
@@ -1393,11 +1568,21 @@ mod autotest_generated {
         let mut loc = en();
         let cases = [
             IcuDateTime::new(IcuDate::new(0, 0, 0), IcuTime::new(0, 0, 0)),
-            IcuDateTime::new(IcuDate::new(i32::MIN, 255, 255), IcuTime::new(255, 255, 255)),
-            IcuDateTime::new(IcuDate::new(i32::MAX, 255, 255), IcuTime::new(255, 255, 255)),
+            IcuDateTime::new(
+                IcuDate::new(i32::MIN, 255, 255),
+                IcuTime::new(255, 255, 255),
+            ),
+            IcuDateTime::new(
+                IcuDate::new(i32::MAX, 255, 255),
+                IcuTime::new(255, 255, 255),
+            ),
         ];
         for dt in cases {
-            for length in [FormatLength::Short, FormatLength::Medium, FormatLength::Long] {
+            for length in [
+                FormatLength::Short,
+                FormatLength::Medium,
+                FormatLength::Long,
+            ] {
                 let r = loc.format_datetime(dt, length);
                 assert_payload_non_empty(&r);
             }

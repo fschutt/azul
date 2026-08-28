@@ -40,7 +40,8 @@ impl PercentageValue {
     /// Same as `PercentageValue::new()`, but only accepts whole numbers.
     /// Uses isize arithmetic to avoid floating-point in const context.
     #[inline]
-    #[must_use] pub const fn const_new(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_new(value: isize) -> Self {
         Self {
             number: FloatValue::const_new(value),
         }
@@ -58,14 +59,16 @@ impl PercentageValue {
     /// // 50.5% = const_new_fractional(50, 5)
     /// ```
     #[inline]
-    #[must_use] pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
+    #[must_use]
+    pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
         Self {
             number: FloatValue::const_new_fractional(pre_comma, post_comma),
         }
     }
 
     #[inline]
-    #[must_use] pub fn new(value: f32) -> Self {
+    #[must_use]
+    pub fn new(value: f32) -> Self {
         Self {
             number: value.into(),
         }
@@ -74,12 +77,14 @@ impl PercentageValue {
     // NOTE: no get() function, to avoid confusion with "150%"
 
     #[inline]
-    #[must_use] pub fn normalized(&self) -> f32 {
+    #[must_use]
+    pub fn normalized(&self) -> f32 {
         self.number.get() / 100.0
     }
 
     #[inline]
-    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         Self {
             number: self.number.interpolate(&other.number, t),
         }
@@ -117,7 +122,8 @@ impl FloatValue {
     /// Same as `FloatValue::new()`, but only accepts whole numbers.
     /// Uses isize arithmetic to avoid floating-point in const context.
     #[inline]
-    #[must_use] pub const fn const_new(value: isize) -> Self {
+    #[must_use]
+    pub const fn const_new(value: isize) -> Self {
         Self {
             number: value * FP_PRECISION_MULTIPLIER_CONST,
         }
@@ -146,7 +152,8 @@ impl FloatValue {
     /// // 2.123456 -> 2.123 (truncated to 3 decimal places)
     /// ```
     #[inline]
-    #[must_use] pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
+    #[must_use]
+    pub const fn const_new_fractional(pre_comma: isize, post_comma: isize) -> Self {
         // Get absolute value for digit counting
         let abs_post = if post_comma < 0 {
             -post_comma
@@ -203,14 +210,16 @@ impl FloatValue {
     }
 
     #[inline]
-    #[must_use] pub fn new(value: f32) -> Self {
+    #[must_use]
+    pub fn new(value: f32) -> Self {
         Self {
             number: crate::cast::f32_to_isize(value * FP_PRECISION_MULTIPLIER),
         }
     }
 
     #[inline]
-    #[must_use] pub fn get(&self) -> f32 {
+    #[must_use]
+    pub fn get(&self) -> f32 {
         crate::cast::isize_to_f32(self.number) / FP_PRECISION_MULTIPLIER
     }
 
@@ -219,13 +228,15 @@ impl FloatValue {
     /// round-trip the value through the compact-cache encoding without
     /// re-multiplying through f32.
     #[inline]
-    #[must_use] pub const fn number(&self) -> isize {
+    #[must_use]
+    pub const fn number(&self) -> isize {
         self.number
     }
 
     #[inline]
     #[allow(clippy::suboptimal_flops)] // explicit FP; mul_add slower without +fma
-    #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+    #[must_use]
+    pub fn interpolate(&self, other: &Self, t: f32) -> Self {
         let self_val_f32 = self.get();
         let other_val_f32 = other.get();
         let interpolated = self_val_f32 + ((other_val_f32 - self_val_f32) * t);
@@ -264,10 +275,9 @@ pub enum SizeMetric {
     Vmax,
 }
 
-
 impl fmt::Display for SizeMetric {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::SizeMetric::{Px, Pt, Em, Rem, In, Cm, Mm, Percent, Vw, Vh, Vmin, Vmax};
+        use self::SizeMetric::{Cm, Em, In, Mm, Percent, Pt, Px, Rem, Vh, Vmax, Vmin, Vw};
         match self {
             Px => write!(f, "px"),
             Pt => write!(f, "pt"),
@@ -291,7 +301,8 @@ impl fmt::Display for SizeMetric {
 pub fn parse_float_value(input: &str) -> Result<FloatValue, ParseFloatError> {
     Ok(FloatValue::new(input.trim().parse::<f32>()?))
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum PercentageParseError {
@@ -313,7 +324,8 @@ impl_display! { PercentageParseError, {
     NoPercentSign => format!("No percent sign after number"),
     InvalidUnit(u) => format!("Error parsing percentage: invalid unit \"{}\"", u.as_str()),
 }}
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum PercentageParseErrorOwned {
@@ -323,7 +335,8 @@ pub enum PercentageParseErrorOwned {
 }
 
 impl PercentageParseError {
-    #[must_use] pub fn to_contained(&self) -> PercentageParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> PercentageParseErrorOwned {
         match self {
             Self::ValueParseErr(e) => PercentageParseErrorOwned::ValueParseErr(*e),
             Self::NoPercentSign => PercentageParseErrorOwned::NoPercentSign,
@@ -333,7 +346,8 @@ impl PercentageParseError {
 }
 
 impl PercentageParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> PercentageParseError {
+    #[must_use]
+    pub fn to_shared(&self) -> PercentageParseError {
         match self {
             Self::ValueParseErr(e) => PercentageParseError::ValueParseErr(*e),
             Self::NoPercentSign => PercentageParseError::NoPercentSign,
@@ -351,7 +365,9 @@ pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, Percentage
 
     if input.is_empty() {
         return Err(PercentageParseError::ValueParseErr(
-            crate::props::basic::error::ParseFloatError::from("empty string".parse::<f32>().unwrap_err()),
+            crate::props::basic::error::ParseFloatError::from(
+                "empty string".parse::<f32>().unwrap_err(),
+            ),
         ));
     }
 
@@ -369,15 +385,16 @@ pub fn parse_percentage_value(input: &str) -> Result<PercentageValue, Percentage
 
     if !found_numeric {
         return Err(PercentageParseError::ValueParseErr(
-            crate::props::basic::error::ParseFloatError::from("no numeric value".parse::<f32>().unwrap_err()),
+            crate::props::basic::error::ParseFloatError::from(
+                "no numeric value".parse::<f32>().unwrap_err(),
+            ),
         ));
     }
 
     let unit = input[split_pos..].trim();
-    let mut number = input[..split_pos]
-        .trim()
-        .parse::<f32>()
-        .map_err(|e| PercentageParseError::ValueParseErr(crate::props::basic::error::ParseFloatError::from(e)))?;
+    let mut number = input[..split_pos].trim().parse::<f32>().map_err(|e| {
+        PercentageParseError::ValueParseErr(crate::props::basic::error::ParseFloatError::from(e))
+    })?;
 
     match unit {
         "" => {
@@ -930,7 +947,13 @@ mod autotest_generated {
         // inf * 0.0 delta is NaN -> collapses to 0 (self is NOT preserved here).
         assert_eq!(a.interpolate(&a, f32::INFINITY).number(), 0);
 
-        for t in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN] {
+        for t in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MAX,
+            f32::MIN,
+        ] {
             assert!(
                 a.interpolate(&b, t).get().is_finite(),
                 "interpolate(t = {t}) leaked a non-finite value"
@@ -1043,7 +1066,13 @@ mod autotest_generated {
 
     #[test]
     fn percentage_value_normalized_is_always_finite() {
-        for v in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN] {
+        for v in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::MAX,
+            f32::MIN,
+        ] {
             let n = PercentageValue::new(v).normalized();
             assert!(
                 n.is_finite(),
@@ -1093,7 +1122,10 @@ mod autotest_generated {
         // NaN / inf t must not panic and must stay finite.
         assert_eq!(a.interpolate(&b, f32::NAN).normalized(), 0.0);
         assert!(a.interpolate(&b, f32::INFINITY).normalized().is_finite());
-        assert!(a.interpolate(&b, f32::NEG_INFINITY).normalized().is_finite());
+        assert!(a
+            .interpolate(&b, f32::NEG_INFINITY)
+            .normalized()
+            .is_finite());
     }
 
     #[test]
@@ -1134,8 +1166,21 @@ mod autotest_generated {
     #[test]
     fn parse_float_value_rejects_garbage() {
         for input in [
-            "abc", "1_000", "1,5", "0x10", "1.2.3", "--1", "1e", "e5", "5 5", "1/2", ";", "\0",
-            "5;garbage", "50px", "5%",
+            "abc",
+            "1_000",
+            "1,5",
+            "0x10",
+            "1.2.3",
+            "--1",
+            "1e",
+            "e5",
+            "5 5",
+            "1/2",
+            ";",
+            "\0",
+            "5;garbage",
+            "50px",
+            "5%",
         ] {
             assert!(
                 parse_float_value(input).is_err(),
@@ -1326,7 +1371,7 @@ mod autotest_generated {
         // Multi-byte chars that are NOT `char::is_numeric()` are safe to slice
         // around; they must be rejected, not panic.
         for input in [
-            "\u{1F600}",  // emoji only
+            "\u{1F600}",   // emoji only
             "50\u{1F600}", // digits then emoji -> InvalidUnit
             "\u{20AC}50",  // €50 -> unparseable number
             "abc\u{00E9}%",
@@ -1347,7 +1392,9 @@ mod autotest_generated {
     #[test]
     fn parse_percentage_value_extremely_long_input_terminates() {
         let huge = format!("{}%", "9".repeat(200_000));
-        if let Ok(v) = parse_percentage_value(&huge) { assert!(v.normalized().is_finite()) }
+        if let Ok(v) = parse_percentage_value(&huge) {
+            assert!(v.normalized().is_finite())
+        }
         let long_junk = format!("{}%", "a".repeat(200_000));
         assert!(parse_percentage_value(&long_junk).is_err());
     }

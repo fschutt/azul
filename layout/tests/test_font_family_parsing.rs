@@ -86,8 +86,8 @@ fn test_font_family_parsing_japanese() {
     "#;
 
     let (css, _errors) = azul_css::parser2::new_from_str(css_str);
-    let mut dom = Dom::create_div()
-        .with_ids_and_classes(vec![IdOrClass::Class("recipe-body".into())].into());
+    let mut dom =
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("recipe-body".into())].into());
     let styled_dom = StyledDom::create(&mut dom, css);
 
     let families = font_families_for(&styled_dom, azul_core::id::NodeId::ZERO);

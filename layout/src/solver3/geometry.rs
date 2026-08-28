@@ -40,12 +40,14 @@ pub struct EdgeSizes {
 
 impl EdgeSizes {
     /// Sum of horizontal edges (left + right).
-    #[must_use] pub fn horizontal_sum(&self) -> f32 {
+    #[must_use]
+    pub fn horizontal_sum(&self) -> f32 {
         self.left + self.right
     }
 
     /// Sum of vertical edges (top + bottom).
-    #[must_use] pub fn vertical_sum(&self) -> f32 {
+    #[must_use]
+    pub fn vertical_sum(&self) -> f32 {
         self.top + self.bottom
     }
 
@@ -72,7 +74,8 @@ impl EdgeSizes {
     // +spec:writing-modes:fd8c18 - block/inline axis mapping based on writing mode
     // +spec:writing-modes:0e549a - writing-mode computed value influences physical/logical axis mapping
     /// Returns the size of the edge at the start of the main/block axis.
-    #[must_use] pub const fn main_start(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use]
+    pub const fn main_start(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.top,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.left,
@@ -80,7 +83,8 @@ impl EdgeSizes {
     }
 
     /// Returns the size of the edge at the end of the main/block axis.
-    #[must_use] pub const fn main_end(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use]
+    pub const fn main_end(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.bottom,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.right,
@@ -88,13 +92,15 @@ impl EdgeSizes {
     }
 
     /// Returns the sum of the start and end sizes on the main/block axis.
-    #[must_use] pub fn main_sum(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use]
+    pub fn main_sum(&self, wm: LayoutWritingMode) -> f32 {
         self.main_start(wm) + self.main_end(wm)
     }
 
     // +spec:block-formatting-context:6225cb - line-relative directions: vertical modes map line-over/under to top/bottom
     /// Returns the size of the edge at the start of the cross/inline axis.
-    #[must_use] pub const fn cross_start(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use]
+    pub const fn cross_start(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.left,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.top,
@@ -102,7 +108,8 @@ impl EdgeSizes {
     }
 
     /// Returns the size of the edge at the end of the cross/inline axis.
-    #[must_use] pub const fn cross_end(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use]
+    pub const fn cross_end(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.right,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.bottom,
@@ -110,7 +117,8 @@ impl EdgeSizes {
     }
 
     /// Returns the sum of the start and end sizes on the cross/inline axis.
-    #[must_use] pub fn cross_sum(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use]
+    pub fn cross_sum(&self, wm: LayoutWritingMode) -> f32 {
         self.cross_start(wm) + self.cross_end(wm)
     }
 
@@ -126,7 +134,8 @@ impl EdgeSizes {
     /// [`Self::main_start`] (a physical block-axis accessor), this is the
     /// *line-relative* over side and coincides with `main_start` only in
     /// `horizontal-tb`.
-    #[must_use] pub const fn line_over(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use]
+    pub const fn line_over(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.top,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.right,
@@ -137,7 +146,8 @@ impl EdgeSizes {
     ///
     /// Per CSS Writing Modes L4 §6.3, the line-under side is `bottom` in
     /// `horizontal-tb` and `left` in both vertical writing modes.
-    #[must_use] pub const fn line_under(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use]
+    pub const fn line_under(&self, wm: LayoutWritingMode) -> f32 {
         match wm {
             LayoutWritingMode::HorizontalTb => self.bottom,
             LayoutWritingMode::VerticalRl | LayoutWritingMode::VerticalLr => self.left,
@@ -145,7 +155,8 @@ impl EdgeSizes {
     }
 
     /// Returns the sum of the line-over and line-under edges.
-    #[must_use] pub fn line_over_under_sum(&self, wm: LayoutWritingMode) -> f32 {
+    #[must_use]
+    pub fn line_over_under_sum(&self, wm: LayoutWritingMode) -> f32 {
         self.line_over(wm) + self.line_under(wm)
     }
 
@@ -160,7 +171,8 @@ impl EdgeSizes {
     /// when it is RTL. This is the direction-aware counterpart that
     /// `cross_start`/`cross_end` (which are direction-blind line-left/line-right)
     /// cannot express on their own.
-    #[must_use] pub const fn inline_start(&self, wm: LayoutWritingMode, dir: StyleDirection) -> f32 {
+    #[must_use]
+    pub const fn inline_start(&self, wm: LayoutWritingMode, dir: StyleDirection) -> f32 {
         match dir {
             StyleDirection::Ltr => self.cross_start(wm),
             StyleDirection::Rtl => self.cross_end(wm),
@@ -171,7 +183,8 @@ impl EdgeSizes {
     ///
     /// The inline-end side is `line-right` when the inline base direction is
     /// LTR, and `line-left` when it is RTL.
-    #[must_use] pub const fn inline_end(&self, wm: LayoutWritingMode, dir: StyleDirection) -> f32 {
+    #[must_use]
+    pub const fn inline_end(&self, wm: LayoutWritingMode, dir: StyleDirection) -> f32 {
         match dir {
             StyleDirection::Ltr => self.cross_end(wm),
             StyleDirection::Rtl => self.cross_start(wm),
@@ -182,7 +195,8 @@ impl EdgeSizes {
     ///
     /// Direction-independent (start + end covers the whole inline axis), but
     /// takes `dir` for call-site symmetry with the individual accessors.
-    #[must_use] pub fn inline_sum(&self, wm: LayoutWritingMode, dir: StyleDirection) -> f32 {
+    #[must_use]
+    pub fn inline_sum(&self, wm: LayoutWritingMode, dir: StyleDirection) -> f32 {
         self.inline_start(wm, dir) + self.inline_end(wm, dir)
     }
 }
@@ -209,7 +223,8 @@ pub enum UnresolvedMargin {
 
 impl UnresolvedMargin {
     /// Returns true if this is an auto margin
-    #[must_use] pub const fn is_auto(&self) -> bool {
+    #[must_use]
+    pub const fn is_auto(&self) -> bool {
         matches!(self, Self::Auto)
     }
 
@@ -218,8 +233,10 @@ impl UnresolvedMargin {
     /// - `Auto` returns 0.0 (actual auto margin calculation happens in layout)
     /// - `Zero` returns 0.0
     /// - `Length` is resolved using the resolution context
-    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-    #[must_use] pub fn resolve(&self, ctx: &ResolutionContext) -> f32 {
+    #[allow(clippy::match_same_arms)]
+    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[must_use]
+    pub fn resolve(&self, ctx: &ResolutionContext) -> f32 {
         match self {
             Self::Zero => 0.0,
             // +spec:box-model:c921aa - auto margin-top/bottom used value is 0 for block-level non-replaced elements in normal flow
@@ -244,13 +261,19 @@ pub struct UnresolvedEdge<T> {
 
 impl<T> UnresolvedEdge<T> {
     pub const fn new(top: T, right: T, bottom: T, left: T) -> Self {
-        Self { top, right, bottom, left }
+        Self {
+            top,
+            right,
+            bottom,
+            left,
+        }
     }
 }
 
 impl UnresolvedEdge<UnresolvedMargin> {
     /// Resolve all margin edges to pixel values.
-    #[must_use] pub fn resolve(&self, ctx: &ResolutionContext) -> EdgeSizes {
+    #[must_use]
+    pub fn resolve(&self, ctx: &ResolutionContext) -> EdgeSizes {
         EdgeSizes {
             top: self.top.resolve(ctx),
             right: self.right.resolve(ctx),
@@ -260,7 +283,8 @@ impl UnresolvedEdge<UnresolvedMargin> {
     }
 
     /// Extract which margins are set to `auto`.
-    #[must_use] pub const fn get_margin_auto(&self) -> MarginAuto {
+    #[must_use]
+    pub const fn get_margin_auto(&self) -> MarginAuto {
         MarginAuto {
             top: self.top.is_auto(),
             right: self.right.is_auto(),
@@ -272,7 +296,8 @@ impl UnresolvedEdge<UnresolvedMargin> {
 
 impl UnresolvedEdge<PixelValue> {
     /// Resolve all edges to pixel values.
-    #[must_use] pub fn resolve(&self, ctx: &ResolutionContext, prop_ctx: PropertyContext) -> EdgeSizes {
+    #[must_use]
+    pub fn resolve(&self, ctx: &ResolutionContext, prop_ctx: PropertyContext) -> EdgeSizes {
         EdgeSizes {
             top: self.top.resolve_with_context(ctx, prop_ctx),
             right: self.right.resolve_with_context(ctx, prop_ctx),
@@ -298,7 +323,8 @@ pub struct ResolutionParams {
 
 impl ResolutionParams {
     /// Create a `ResolutionContext` from these parameters.
-    #[must_use] pub const fn to_resolution_context(&self) -> ResolutionContext {
+    #[must_use]
+    pub const fn to_resolution_context(&self) -> ResolutionContext {
         ResolutionContext {
             vertical_writing_mode: false,
             element_font_size: self.element_font_size,
@@ -312,10 +338,7 @@ impl ResolutionParams {
                 self.containing_block.width,
                 self.containing_block.height,
             ),
-            viewport_size: PhysicalSize::new(
-                self.viewport_size.width,
-                self.viewport_size.height,
-            ),
+            viewport_size: PhysicalSize::new(self.viewport_size.width, self.viewport_size.height),
         }
     }
 }
@@ -343,7 +366,8 @@ pub struct UnresolvedBoxProps {
 
 impl UnresolvedBoxProps {
     /// Resolve all box properties to pixel values.
-    #[must_use] pub fn resolve(&self, params: &ResolutionParams) -> ResolvedBoxProps {
+    #[must_use]
+    pub fn resolve(&self, params: &ResolutionParams) -> ResolvedBoxProps {
         let mut ctx = params.to_resolution_context();
         ctx.vertical_writing_mode = self.vertical_writing_mode;
         ResolvedBoxProps {
@@ -392,7 +416,8 @@ impl ResolvedBoxProps {
     // +spec:writing-modes:a58616 - abstract dimensions: inline size maps to physical width/height per writing-mode
     /// Calculates the inner content-box size from an outer border-box size,
     /// correctly accounting for the specified writing mode.
-    #[must_use] pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
+    #[must_use]
+    pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
         let outer_main = outer_size.main(wm);
         let outer_cross = outer_size.cross(wm);
 
@@ -415,52 +440,80 @@ impl ResolvedBoxProps {
     /// Returns the content-box rect from a border-box rect.
     /// Shrinks inward by border + padding on each side.
     // +spec:box-model:1720a5 - content of a block box is confined to its content edges
-    #[must_use] pub fn content_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use]
+    pub fn content_box(&self, border_box: LogicalRect) -> LogicalRect {
         let x = border_box.origin.x + self.border.left + self.padding.left;
         let y = border_box.origin.y + self.border.top + self.padding.top;
-        let w = (border_box.size.width - self.border.horizontal_sum() - self.padding.horizontal_sum()).max(0.0);
-        let h = (border_box.size.height - self.border.vertical_sum() - self.padding.vertical_sum()).max(0.0);
-        LogicalRect { origin: LogicalPosition { x, y }, size: LogicalSize { width: w, height: h } }
+        let w =
+            (border_box.size.width - self.border.horizontal_sum() - self.padding.horizontal_sum())
+                .max(0.0);
+        let h = (border_box.size.height - self.border.vertical_sum() - self.padding.vertical_sum())
+            .max(0.0);
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize {
+                width: w,
+                height: h,
+            },
+        }
     }
 
     /// Returns the padding-box rect from a border-box rect.
     /// Shrinks inward by border on each side.
-    #[must_use] pub fn padding_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use]
+    pub fn padding_box(&self, border_box: LogicalRect) -> LogicalRect {
         let x = border_box.origin.x + self.border.left;
         let y = border_box.origin.y + self.border.top;
         let w = (border_box.size.width - self.border.horizontal_sum()).max(0.0);
         let h = (border_box.size.height - self.border.vertical_sum()).max(0.0);
-        LogicalRect { origin: LogicalPosition { x, y }, size: LogicalSize { width: w, height: h } }
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize {
+                width: w,
+                height: h,
+            },
+        }
     }
 
     /// Returns the margin-box rect from a border-box rect.
     /// Expands outward by margin on each side.
-    #[must_use] pub fn margin_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use]
+    pub fn margin_box(&self, border_box: LogicalRect) -> LogicalRect {
         let x = border_box.origin.x - self.margin.left;
         let y = border_box.origin.y - self.margin.top;
         let w = border_box.size.width + self.margin.horizontal_sum();
         let h = border_box.size.height + self.margin.vertical_sum();
-        LogicalRect { origin: LogicalPosition { x, y }, size: LogicalSize { width: w, height: h } }
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize {
+                width: w,
+                height: h,
+            },
+        }
     }
 
     // +spec:box-model:0e75c1 - margin, padding, border contribute to layout bounds (default line-fit-edge: leading uses line-height model)
     /// Total horizontal space consumed by margin + border + padding.
-    #[must_use] pub fn horizontal_mbp(&self) -> f32 {
+    #[must_use]
+    pub fn horizontal_mbp(&self) -> f32 {
         self.margin.horizontal_sum() + self.border.horizontal_sum() + self.padding.horizontal_sum()
     }
 
     /// Total vertical space consumed by margin + border + padding.
-    #[must_use] pub fn vertical_mbp(&self) -> f32 {
+    #[must_use]
+    pub fn vertical_mbp(&self) -> f32 {
         self.margin.vertical_sum() + self.border.vertical_sum() + self.padding.vertical_sum()
     }
 
     /// Total horizontal space consumed by border + padding only (no margin).
-    #[must_use] pub fn horizontal_bp(&self) -> f32 {
+    #[must_use]
+    pub fn horizontal_bp(&self) -> f32 {
         self.border.horizontal_sum() + self.padding.horizontal_sum()
     }
 
     /// Total vertical space consumed by border + padding only (no margin).
-    #[must_use] pub fn vertical_bp(&self) -> f32 {
+    #[must_use]
+    pub fn vertical_bp(&self) -> f32 {
         self.border.vertical_sum() + self.padding.vertical_sum()
     }
 }
@@ -479,16 +532,17 @@ pub type BoxProps = ResolvedBoxProps;
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(C)]
 pub struct PackedBoxProps {
-    pub margin: [i16; 4],     // top, right, bottom, left — ×10
-    pub padding: [i16; 4],    // ×10
-    pub border: [i16; 4],     // ×10
+    pub margin: [i16; 4],  // top, right, bottom, left — ×10
+    pub padding: [i16; 4], // ×10
+    pub border: [i16; 4],  // ×10
     pub margin_auto: MarginAuto,
 }
 
 impl PackedBoxProps {
     /// Pack a `ResolvedBoxProps` into compact i16×10 encoding.
     #[inline]
-    #[must_use] pub fn pack(bp: &ResolvedBoxProps) -> Self {
+    #[must_use]
+    pub fn pack(bp: &ResolvedBoxProps) -> Self {
         Self {
             margin: Self::pack_edge(&bp.margin),
             padding: Self::pack_edge(&bp.padding),
@@ -499,7 +553,8 @@ impl PackedBoxProps {
 
     /// Unpack to full `ResolvedBoxProps` with f32 values.
     #[inline]
-    #[must_use] pub fn unpack(&self) -> ResolvedBoxProps {
+    #[must_use]
+    pub fn unpack(&self) -> ResolvedBoxProps {
         ResolvedBoxProps {
             margin: Self::unpack_edge(&self.margin),
             padding: Self::unpack_edge(&self.padding),
@@ -510,49 +565,57 @@ impl PackedBoxProps {
 
     /// Convenience: unpack and call `inner_size` on the result.
     #[inline]
-    #[must_use] pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
+    #[must_use]
+    pub fn inner_size(&self, outer_size: LogicalSize, wm: LayoutWritingMode) -> LogicalSize {
         self.unpack().inner_size(outer_size, wm)
     }
 
     /// Convenience: unpack and call `content_box` on the result.
     #[inline]
-    #[must_use] pub fn content_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use]
+    pub fn content_box(&self, border_box: LogicalRect) -> LogicalRect {
         self.unpack().content_box(border_box)
     }
 
     /// Convenience: unpack and call `padding_box` on the result.
     #[inline]
-    #[must_use] pub fn padding_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use]
+    pub fn padding_box(&self, border_box: LogicalRect) -> LogicalRect {
         self.unpack().padding_box(border_box)
     }
 
     /// Convenience: unpack and call `margin_box` on the result.
     #[inline]
-    #[must_use] pub fn margin_box(&self, border_box: LogicalRect) -> LogicalRect {
+    #[must_use]
+    pub fn margin_box(&self, border_box: LogicalRect) -> LogicalRect {
         self.unpack().margin_box(border_box)
     }
 
     /// Convenience: unpack and return horizontal MBP.
     #[inline]
-    #[must_use] pub fn horizontal_mbp(&self) -> f32 {
+    #[must_use]
+    pub fn horizontal_mbp(&self) -> f32 {
         self.unpack().horizontal_mbp()
     }
 
     /// Convenience: unpack and return vertical MBP.
     #[inline]
-    #[must_use] pub fn vertical_mbp(&self) -> f32 {
+    #[must_use]
+    pub fn vertical_mbp(&self) -> f32 {
         self.unpack().vertical_mbp()
     }
 
     /// Convenience: unpack and return horizontal BP.
     #[inline]
-    #[must_use] pub fn horizontal_bp(&self) -> f32 {
+    #[must_use]
+    pub fn horizontal_bp(&self) -> f32 {
         self.unpack().horizontal_bp()
     }
 
     /// Convenience: unpack and return vertical BP.
     #[inline]
-    #[must_use] pub fn vertical_bp(&self) -> f32 {
+    #[must_use]
+    pub fn vertical_bp(&self) -> f32 {
         self.unpack().vertical_bp()
     }
 
@@ -685,7 +748,8 @@ impl Default for WritingModeContext {
 impl WritingModeContext {
     /// Constructs a `WritingModeContext`, applying spec-mandated overrides.
     // +spec:writing-modes:8307e4 - text-orientation: upright forces used direction to ltr
-    #[must_use] pub fn new(
+    #[must_use]
+    pub fn new(
         writing_mode: LayoutWritingMode,
         direction: StyleDirection,
         text_orientation: StyleTextOrientation,
@@ -710,7 +774,8 @@ impl WritingModeContext {
     ///
     /// The upright override is already applied in `new()`, so this just
     /// returns the stored direction.
-    #[must_use] pub const fn used_direction(&self) -> StyleDirection {
+    #[must_use]
+    pub const fn used_direction(&self) -> StyleDirection {
         self.direction
     }
 
@@ -721,7 +786,8 @@ impl WritingModeContext {
     /// Returns true if the writing mode is horizontal (`HorizontalTb`).
     ///
     /// When true, the inline axis is horizontal and the block axis is vertical.
-    #[must_use] pub const fn is_horizontal(&self) -> bool {
+    #[must_use]
+    pub const fn is_horizontal(&self) -> bool {
         matches!(self.writing_mode, LayoutWritingMode::HorizontalTb)
     }
 
@@ -730,7 +796,8 @@ impl WritingModeContext {
     /// In horizontal writing modes, inline size = width.
     /// In vertical writing modes, inline size = height.
     // +spec:block-formatting-context:bb9845 - orthogonal flows: inline/block axis mapping
-    #[must_use] pub const fn inline_size_is_width(&self) -> bool {
+    #[must_use]
+    pub const fn inline_size_is_width(&self) -> bool {
         self.is_horizontal()
     }
 
@@ -738,14 +805,16 @@ impl WritingModeContext {
     ///
     /// In horizontal writing modes, block size = height.
     /// In vertical writing modes, block size = width.
-    #[must_use] pub const fn block_size_is_height(&self) -> bool {
+    #[must_use]
+    pub const fn block_size_is_height(&self) -> bool {
         self.is_horizontal()
     }
 
     // +spec:writing-modes:32541a - direction property controls inline text direction via stylesheet
     /// Returns true if the inline direction is reversed (RTL in horizontal,
     /// or bottom-to-top in certain vertical modes).
-    #[must_use] pub fn is_inline_reversed(&self) -> bool {
+    #[must_use]
+    pub fn is_inline_reversed(&self) -> bool {
         self.used_direction() == StyleDirection::Rtl
     }
 }
@@ -765,13 +834,21 @@ mod autotest_generated {
     ];
 
     fn edges(top: f32, right: f32, bottom: f32, left: f32) -> EdgeSizes {
-        EdgeSizes { top, right, bottom, left }
+        EdgeSizes {
+            top,
+            right,
+            bottom,
+            left,
+        }
     }
 
     fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
         LogicalRect {
             origin: LogicalPosition { x, y },
-            size: LogicalSize { width: w, height: h },
+            size: LogicalSize {
+                width: w,
+                height: h,
+            },
         }
     }
 
@@ -802,7 +879,12 @@ mod autotest_generated {
     }
 
     fn props(margin: EdgeSizes, padding: EdgeSizes, border: EdgeSizes) -> ResolvedBoxProps {
-        ResolvedBoxProps { margin, padding, border, margin_auto: MarginAuto::default() }
+        ResolvedBoxProps {
+            margin,
+            padding,
+            border,
+            margin_auto: MarginAuto::default(),
+        }
     }
 
     // ================================================================
@@ -839,7 +921,12 @@ mod autotest_generated {
     fn edge_sizes_opposing_infinities_produce_nan_not_a_panic() {
         // inf + (-inf) is NaN by IEEE-754. The point is that it is deterministic
         // and does not trap — nothing downstream may assume a finite sum.
-        let e = edges(f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+        let e = edges(
+            f32::INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+        );
         assert!(e.horizontal_sum().is_nan());
         assert!(e.vertical_sum().is_nan());
     }
@@ -848,7 +935,11 @@ mod autotest_generated {
     fn edge_sizes_nan_edges_propagate_without_panicking() {
         let e = edges(f32::NAN, 1.0, 2.0, 3.0);
         assert!(e.vertical_sum().is_nan());
-        assert_eq!(e.horizontal_sum(), 4.0, "a NaN top must not poison left+right");
+        assert_eq!(
+            e.horizontal_sum(),
+            4.0,
+            "a NaN top must not poison left+right"
+        );
         for wm in ALL_WM {
             let _ = e.main_sum(wm);
             let _ = e.cross_sum(wm);
@@ -888,7 +979,11 @@ mod autotest_generated {
         let h = LayoutWritingMode::HorizontalTb;
         assert_eq!(e.line_over(h), 1.0, "line-over = top in horizontal-tb");
         assert_eq!(e.line_under(h), 4.0, "line-under = bottom in horizontal-tb");
-        assert_eq!(e.line_over(h), e.main_start(h), "over == main-start only in horizontal-tb");
+        assert_eq!(
+            e.line_over(h),
+            e.main_start(h),
+            "over == main-start only in horizontal-tb"
+        );
 
         // vertical modes: over = right, under = left (CSS Writing Modes L4 §6.3).
         // Crucially this differs from main_start/main_end (left/right), proving the
@@ -896,7 +991,11 @@ mod autotest_generated {
         for wm in [LayoutWritingMode::VerticalRl, LayoutWritingMode::VerticalLr] {
             assert_eq!(e.line_over(wm), 2.0, "line-over = right in vertical modes");
             assert_eq!(e.line_under(wm), 8.0, "line-under = left in vertical modes");
-            assert_ne!(e.line_over(wm), e.main_start(wm), "over != main-start in vertical modes");
+            assert_ne!(
+                e.line_over(wm),
+                e.main_start(wm),
+                "over != main-start in vertical modes"
+            );
         }
 
         // Sum picks the line-relative pair, independent of writing mode orientation.
@@ -989,7 +1088,10 @@ mod autotest_generated {
         assert!(!UnresolvedMargin::Length(PixelValue::const_px(10)).is_auto());
         // A zero-valued length is still *not* `auto`.
         assert!(!UnresolvedMargin::Length(PixelValue::zero()).is_auto());
-        assert!(!UnresolvedMargin::default().is_auto(), "default is Zero, not Auto");
+        assert!(
+            !UnresolvedMargin::default().is_auto(),
+            "default is Zero, not Auto"
+        );
     }
 
     #[test]
@@ -1017,7 +1119,10 @@ mod autotest_generated {
         let ctx = distinct_params().to_resolution_context();
         let got = UnresolvedMargin::Length(PixelValue::percent(50.0)).resolve(&ctx);
         assert_eq!(got, 400.0);
-        assert_ne!(got, 300.0, "percentage margin must not use the block height");
+        assert_ne!(
+            got, 300.0,
+            "percentage margin must not use the block height"
+        );
     }
 
     #[test]
@@ -1050,7 +1155,8 @@ mod autotest_generated {
             16.0,
             10.0,
         );
-        let got = UnresolvedMargin::Length(PixelValue::percent(50.0)).resolve(&p.to_resolution_context());
+        let got =
+            UnresolvedMargin::Length(PixelValue::percent(50.0)).resolve(&p.to_resolution_context());
         assert!(got.is_nan());
     }
 
@@ -1080,10 +1186,10 @@ mod autotest_generated {
     #[test]
     fn get_margin_auto_flags_exactly_the_auto_sides() {
         let e = UnresolvedEdge::new(
-            UnresolvedMargin::Zero,                                 // top
-            UnresolvedMargin::Auto,                                 // right
-            UnresolvedMargin::Length(PixelValue::const_px(5)),      // bottom
-            UnresolvedMargin::Auto,                                 // left
+            UnresolvedMargin::Zero,                            // top
+            UnresolvedMargin::Auto,                            // right
+            UnresolvedMargin::Length(PixelValue::const_px(5)), // bottom
+            UnresolvedMargin::Auto,                            // left
         );
         let a = e.get_margin_auto();
         assert!(!a.top);
@@ -1102,10 +1208,10 @@ mod autotest_generated {
     fn unresolved_margin_edge_resolve_keeps_each_side_separate() {
         let ctx = distinct_params().to_resolution_context();
         let e = UnresolvedEdge::new(
-            UnresolvedMargin::Length(PixelValue::px(1.0)),   // top
-            UnresolvedMargin::Length(PixelValue::px(2.0)),   // right
-            UnresolvedMargin::Auto,                          // bottom -> 0
-            UnresolvedMargin::Length(PixelValue::px(8.0)),   // left
+            UnresolvedMargin::Length(PixelValue::px(1.0)), // top
+            UnresolvedMargin::Length(PixelValue::px(2.0)), // right
+            UnresolvedMargin::Auto,                        // bottom -> 0
+            UnresolvedMargin::Length(PixelValue::px(8.0)), // left
         );
         let r = e.resolve(&ctx);
         assert_eq!(r.top, 1.0);
@@ -1179,7 +1285,10 @@ mod autotest_generated {
         assert_eq!(ctx.containing_block_size.height, 600.0);
         assert_eq!(ctx.viewport_size.width, 1000.0);
         assert_eq!(ctx.viewport_size.height, 500.0);
-        assert!(ctx.element_size.is_none(), "element size is unknown pre-layout");
+        assert!(
+            ctx.element_size.is_none(),
+            "element size is unknown pre-layout"
+        );
     }
 
     #[test]
@@ -1212,11 +1321,20 @@ mod autotest_generated {
     fn zero_font_size_context_resolves_em_to_zero_without_dividing_by_it() {
         let p = params(LogicalSize::zero(), LogicalSize::zero(), 0.0, 0.0);
         let ctx = p.to_resolution_context();
-        assert_eq!(PixelValue::em(10.0).resolve_with_context(&ctx, PropertyContext::Margin), 0.0);
-        assert_eq!(PixelValue::rem(10.0).resolve_with_context(&ctx, PropertyContext::Margin), 0.0);
+        assert_eq!(
+            PixelValue::em(10.0).resolve_with_context(&ctx, PropertyContext::Margin),
+            0.0
+        );
+        assert_eq!(
+            PixelValue::rem(10.0).resolve_with_context(&ctx, PropertyContext::Margin),
+            0.0
+        );
         // A zero-sized viewport must not turn vmin/vmax into NaN.
         let vmin = PixelValue::from_metric(SizeMetric::Vmin, 50.0);
-        assert_eq!(vmin.resolve_with_context(&ctx, PropertyContext::Padding), 0.0);
+        assert_eq!(
+            vmin.resolve_with_context(&ctx, PropertyContext::Padding),
+            0.0
+        );
     }
 
     // ================================================================
@@ -1293,7 +1411,10 @@ mod autotest_generated {
         );
         // width  loses left+right: (8+2) + (40+20) = 70
         // height loses top+bottom: (1+4) + (10+30) = 45
-        let s = bp.inner_size(LogicalSize::new(200.0, 100.0), LayoutWritingMode::HorizontalTb);
+        let s = bp.inner_size(
+            LogicalSize::new(200.0, 100.0),
+            LayoutWritingMode::HorizontalTb,
+        );
         assert_eq!(s.width, 130.0);
         assert_eq!(s.height, 55.0);
     }
@@ -1336,13 +1457,24 @@ mod autotest_generated {
     #[test]
     fn inner_size_never_returns_nan() {
         // `.max(0.0)` discards a NaN operand, so NaN can only ever collapse to 0.
-        let nan_bp = props(EdgeSizes::default(), edges(f32::NAN, 0.0, 0.0, 0.0), EdgeSizes::default());
+        let nan_bp = props(
+            EdgeSizes::default(),
+            edges(f32::NAN, 0.0, 0.0, 0.0),
+            EdgeSizes::default(),
+        );
         let cases = [
-            (ResolvedBoxProps::default(), LogicalSize::new(f32::NAN, f32::NAN)),
+            (
+                ResolvedBoxProps::default(),
+                LogicalSize::new(f32::NAN, f32::NAN),
+            ),
             (nan_bp, LogicalSize::new(100.0, 100.0)),
             (
                 // inf - inf = NaN, which must still floor to 0 rather than escape.
-                props(EdgeSizes::default(), edges(f32::INFINITY, 0.0, f32::INFINITY, 0.0), EdgeSizes::default()),
+                props(
+                    EdgeSizes::default(),
+                    edges(f32::INFINITY, 0.0, f32::INFINITY, 0.0),
+                    EdgeSizes::default(),
+                ),
                 LogicalSize::new(f32::INFINITY, f32::INFINITY),
             ),
         ];
@@ -1358,7 +1490,11 @@ mod autotest_generated {
 
     #[test]
     fn inner_size_at_f32_max_stays_finite_and_non_negative() {
-        let bp = props(EdgeSizes::default(), edges(1.0, 2.0, 4.0, 8.0), edges(1.0, 1.0, 1.0, 1.0));
+        let bp = props(
+            EdgeSizes::default(),
+            edges(1.0, 2.0, 4.0, 8.0),
+            edges(1.0, 1.0, 1.0, 1.0),
+        );
         for wm in ALL_WM {
             let s = bp.inner_size(LogicalSize::new(f32::MAX, f32::MAX), wm);
             assert!(s.width.is_finite() && s.height.is_finite());
@@ -1381,8 +1517,15 @@ mod autotest_generated {
         // Negative border/padding is not reachable from CSS, but the struct permits
         // it — assert the arithmetic is plain subtraction rather than something that
         // silently clamps mid-way.
-        let bp = props(EdgeSizes::default(), edges(-5.0, -5.0, -5.0, -5.0), EdgeSizes::default());
-        let s = bp.inner_size(LogicalSize::new(100.0, 100.0), LayoutWritingMode::HorizontalTb);
+        let bp = props(
+            EdgeSizes::default(),
+            edges(-5.0, -5.0, -5.0, -5.0),
+            EdgeSizes::default(),
+        );
+        let s = bp.inner_size(
+            LogicalSize::new(100.0, 100.0),
+            LayoutWritingMode::HorizontalTb,
+        );
         assert_eq!(s.width, 110.0);
         assert_eq!(s.height, 110.0);
     }
@@ -1471,7 +1614,11 @@ mod autotest_generated {
 
     #[test]
     fn padding_box_size_floors_at_zero_for_an_oversized_border() {
-        let bp = props(EdgeSizes::default(), EdgeSizes::default(), edges(99.0, 99.0, 99.0, 99.0));
+        let bp = props(
+            EdgeSizes::default(),
+            EdgeSizes::default(),
+            edges(99.0, 99.0, 99.0, 99.0),
+        );
         let got = bp.padding_box(rect(0.0, 0.0, 10.0, 10.0));
         assert_eq!(got.size.width, 0.0);
         assert_eq!(got.size.height, 0.0);
@@ -1482,11 +1629,18 @@ mod autotest_generated {
         // Unlike content_box/padding_box, margin_box does NOT floor at 0 — negative
         // margins are legal CSS and the box genuinely inverts. Pinning the real
         // behaviour so a later "helpful" clamp cannot land unnoticed.
-        let bp = props(edges(-10.0, -10.0, -10.0, -10.0), EdgeSizes::default(), EdgeSizes::default());
+        let bp = props(
+            edges(-10.0, -10.0, -10.0, -10.0),
+            EdgeSizes::default(),
+            EdgeSizes::default(),
+        );
         let got = bp.margin_box(rect(0.0, 0.0, 10.0, 10.0));
         assert_eq!(got.size.width, -10.0);
         assert_eq!(got.size.height, -10.0);
-        assert_eq!(got.origin.x, 10.0, "a negative left margin pushes the origin right");
+        assert_eq!(
+            got.origin.x, 10.0,
+            "a negative left margin pushes the origin right"
+        );
         assert_eq!(got.origin.y, 10.0);
     }
 
@@ -1516,8 +1670,8 @@ mod autotest_generated {
     #[test]
     fn mbp_and_bp_getters_sum_the_expected_layers() {
         let bp = props(
-            edges(1.0, 2.0, 4.0, 8.0),      // margin: h=10, v=5
-            edges(10.0, 20.0, 40.0, 80.0),  // padding: h=100, v=50
+            edges(1.0, 2.0, 4.0, 8.0),         // margin: h=10, v=5
+            edges(10.0, 20.0, 40.0, 80.0),     // padding: h=100, v=50
             edges(100.0, 200.0, 400.0, 800.0), // border: h=1000, v=500
         );
         assert_eq!(bp.horizontal_bp(), 1100.0);
@@ -1526,8 +1680,14 @@ mod autotest_generated {
         assert_eq!(bp.vertical_mbp(), 555.0);
 
         // mbp is exactly bp plus the margins — the two must never drift apart.
-        assert_eq!(bp.horizontal_mbp(), bp.horizontal_bp() + bp.margin.horizontal_sum());
-        assert_eq!(bp.vertical_mbp(), bp.vertical_bp() + bp.margin.vertical_sum());
+        assert_eq!(
+            bp.horizontal_mbp(),
+            bp.horizontal_bp() + bp.margin.horizontal_sum()
+        );
+        assert_eq!(
+            bp.vertical_mbp(),
+            bp.vertical_bp() + bp.margin.vertical_sum()
+        );
     }
 
     #[test]
@@ -1589,7 +1749,8 @@ mod autotest_generated {
 
     #[test]
     fn pack_edge_clamps_infinities_to_the_i16_bounds() {
-        let p = PackedBoxProps::pack_edge(&edges(f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN));
+        let p =
+            PackedBoxProps::pack_edge(&edges(f32::INFINITY, f32::NEG_INFINITY, f32::MAX, f32::MIN));
         assert_eq!(p[0], i16::MAX);
         assert_eq!(p[1], i16::MIN);
         assert_eq!(p[2], i16::MAX);
@@ -1676,7 +1837,12 @@ mod autotest_generated {
     fn pack_carries_the_margin_auto_flags_through_verbatim() {
         // margin_auto is NOT part of the lossy i16 encoding, so it must come back bit-exact.
         let bp = ResolvedBoxProps {
-            margin_auto: MarginAuto { left: true, right: false, top: true, bottom: false },
+            margin_auto: MarginAuto {
+                left: true,
+                right: false,
+                top: true,
+                bottom: false,
+            },
             ..ResolvedBoxProps::default()
         };
         let out = PackedBoxProps::pack(&bp).unpack();
@@ -1708,7 +1874,10 @@ mod autotest_generated {
             EdgeSizes::default(),
         );
         let out = PackedBoxProps::pack(&bp).unpack();
-        assert!(out.margin.top > 0.0, "a huge margin must not decode as negative");
+        assert!(
+            out.margin.top > 0.0,
+            "a huge margin must not decode as negative"
+        );
         assert!(close(out.margin.top, 3276.7, 1e-2));
     }
 
@@ -1720,7 +1889,10 @@ mod autotest_generated {
         assert_eq!(p.vertical_mbp(), 0.0);
         assert_eq!(p.horizontal_bp(), 0.0);
         assert_eq!(p.vertical_bp(), 0.0);
-        let s = p.inner_size(LogicalSize::new(10.0, 10.0), LayoutWritingMode::HorizontalTb);
+        let s = p.inner_size(
+            LogicalSize::new(10.0, 10.0),
+            LayoutWritingMode::HorizontalTb,
+        );
         assert_eq!(s.width, 10.0);
         assert_eq!(s.height, 10.0);
     }
@@ -1818,7 +1990,10 @@ mod autotest_generated {
             StyleTextOrientation::Upright,
         );
         assert_eq!(c.used_direction(), StyleDirection::Ltr);
-        assert!(!c.is_inline_reversed(), "upright must cancel the RTL reversal");
+        assert!(
+            !c.is_inline_reversed(),
+            "upright must cancel the RTL reversal"
+        );
     }
 
     #[test]

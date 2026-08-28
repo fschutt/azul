@@ -851,15 +851,8 @@ pub type XSetForeground = unsafe extern "C" fn(*mut Display, GC, c_ulong) -> c_i
 pub type XFillRectangle =
     unsafe extern "C" fn(*mut Display, Drawable, GC, c_int, c_int, c_uint, c_uint) -> c_int;
 pub type XClearWindow = unsafe extern "C" fn(*mut Display, Window) -> c_int;
-pub type XDrawString = unsafe extern "C" fn(
-    *mut Display,
-    Drawable,
-    GC,
-    c_int,
-    c_int,
-    *const c_char,
-    c_int,
-) -> c_int;
+pub type XDrawString =
+    unsafe extern "C" fn(*mut Display, Drawable, GC, c_int, c_int, *const c_char, c_int) -> c_int;
 pub type XFlush = unsafe extern "C" fn(*mut Display) -> c_int;
 pub type XSync = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 
@@ -968,8 +961,7 @@ pub type XRefreshKeyboardMapping = unsafe extern "C" fn(*mut XMappingEvent) -> c
 pub type XQueryKeymap = unsafe extern "C" fn(*mut Display, *mut c_char) -> c_int;
 /// XKB keycode → keysym for a given group/level. Used to identify which
 /// `ModN` bit actually carries Alt / Super / AltGr on THIS keyboard.
-pub type XkbKeycodeToKeysym =
-    unsafe extern "C" fn(*mut Display, KeyCode, c_int, c_int) -> KeySym;
+pub type XkbKeycodeToKeysym = unsafe extern "C" fn(*mut Display, KeyCode, c_int, c_int) -> KeySym;
 /// XTranslateCoordinates(display, src_w, dest_w, src_x, src_y,
 ///   dest_x_return, dest_y_return, child_return) -> Bool (0 = different screens).
 pub type XTranslateCoordinates = unsafe extern "C" fn(
@@ -1115,7 +1107,16 @@ pub type XVaCreateNestedList = unsafe extern "C" fn(c_int, ...) -> XVaNestedList
 pub type XDisplayWidth = unsafe extern "C" fn(*mut Display, c_int) -> c_int;
 /// (display, drawable, x, y, w, h, plane_mask, format) - the eyedropper's
 /// one-shot read of the root window (`ZPixmap`).
-pub type XGetImage = unsafe extern "C" fn(*mut Display, Drawable, c_int, c_int, c_uint, c_uint, c_ulong, c_int) -> *mut XImage;
+pub type XGetImage = unsafe extern "C" fn(
+    *mut Display,
+    Drawable,
+    c_int,
+    c_int,
+    c_uint,
+    c_uint,
+    c_ulong,
+    c_int,
+) -> *mut XImage;
 /// `XGetImage` format: pixels packed as in the framebuffer.
 pub const ZPixmap: c_int = 2;
 /// `XGetImage` plane mask: every plane.

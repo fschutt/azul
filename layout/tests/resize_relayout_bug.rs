@@ -14,13 +14,13 @@
 //! asserts the absolutely-positioned grandchild grows to fill the new viewport.
 //! Without the fix the second layout leaves it at 480 tall (the bug).
 
-use azul_layout::solver3::LayoutNodeId;
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
     geom::LogicalSize,
     resources::RendererResources,
     styled_dom::{NodeHierarchyItemId, StyledDom},
 };
+use azul_layout::solver3::LayoutNodeId;
 use azul_layout::{
     callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
@@ -36,9 +36,8 @@ fn absolute_inset_child_grows_on_viewport_resize() {
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("child".into())].into())
                 .with_child(
-                    Dom::create_div().with_ids_and_classes(
-                        vec![IdOrClass::Class("grandchild".into())].into(),
-                    ),
+                    Dom::create_div()
+                        .with_ids_and_classes(vec![IdOrClass::Class("grandchild".into())].into()),
                 ),
         );
 
@@ -151,11 +150,15 @@ fn absolute_inset_child_grows_on_viewport_resize() {
 fn viewport_resize_reuses_every_reconciled_node() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("some shaped text that must not be re-shaped"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "some shaped text that must not be re-shaped",
+        ))
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("child".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a second paragraph of shaped text")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "a second paragraph of shaped text",
+                )),
         );
 
     let css_str = r#"
@@ -189,7 +192,10 @@ fn viewport_resize_reuses_every_reconciled_node() {
 
     // Cold pass: everything is fresh by definition.
     let cold_fresh = layout_window.layout_cache.last_reconcile_fresh;
-    assert!(cold_fresh > 0, "cold layout must create nodes (got {cold_fresh})");
+    assert!(
+        cold_fresh > 0,
+        "cold layout must create nodes (got {cold_fresh})"
+    );
     assert_eq!(
         layout_window.layout_cache.last_reconcile_reused, 0,
         "cold layout has nothing to reuse"
@@ -260,7 +266,9 @@ fn viewport_resize_reuses_every_reconciled_node() {
 fn vw_font_size_sets_the_viewport_units_flag() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("vw sized text"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "vw sized text",
+        ));
 
     let css_str = r#"
         * { margin: 0px; padding: 0px; }
@@ -277,15 +285,20 @@ fn vw_font_size_sets_the_viewport_units_flag() {
         .compact_cache
         .as_ref()
         .map(|cc| cc.uses_viewport_units);
-    assert_eq!(flag, Some(true), "5vw font-size must set uses_viewport_units");
+    assert_eq!(
+        flag,
+        Some(true),
+        "5vw font-size must set uses_viewport_units"
+    );
 }
 
 #[test]
 fn px_only_document_does_not_set_uses_viewport_units() {
-    let mut dom = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("plain"));
-    let (css, _) = azul_css::parser2::new_from_str(
-        "* { margin: 0px; } div { width: 100%; font-size: 20px; }",
+    let mut dom = Dom::create_div().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("plain"),
     );
+    let (css, _) =
+        azul_css::parser2::new_from_str("* { margin: 0px; } div { width: 100%; font-size: 20px; }");
     let styled_dom = StyledDom::create(&mut dom, css);
     let flag = styled_dom
         .css_property_cache
@@ -311,7 +324,9 @@ fn scrollbar_toggle_does_not_remeasure_all_intrinsics() {
     // but not 800px (scrollbar OFF) — the resize crosses the toggle.
     let mut children = Vec::new();
     for i in 0..24 {
-        children.push(Dom::create_text_do_not_use_without_block_level_wrapper(format!("line of overflow text number {i}")));
+        children.push(Dom::create_text_do_not_use_without_block_level_wrapper(
+            format!("line of overflow text number {i}"),
+        ));
     }
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("scroller".into())].into())
@@ -385,8 +400,12 @@ fn scrollbar_toggle_does_not_remeasure_all_intrinsics() {
 fn resize_only_hint_skips_reconcile_but_still_resizes() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("skip-path paragraph one"))
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("skip-path paragraph two"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "skip-path paragraph one",
+        ))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "skip-path paragraph two",
+        ));
 
     let css_str = r#"
         * { margin: 0px; padding: 0px; }
@@ -484,8 +503,12 @@ fn dom_diff_clean_hint_skips_fingerprint_recompute() {
     let dom = || {
         Dom::create_div()
             .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("granular diff paragraph one"))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("granular diff paragraph two"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "granular diff paragraph one",
+            ))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "granular diff paragraph two",
+            ))
     };
     let css_str = r#"* { margin: 0px; } .root { width: 100%; }"#;
 

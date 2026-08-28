@@ -22,23 +22,18 @@ use rust_fontconfig::FcFontCache;
 fn build_dom() -> StyledDom {
     let mut children = Vec::new();
     for i in 0..8 {
-        children.push(
-            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("paragraph number {i}"))),
-        );
+        children.push(Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(format!(
+                "paragraph number {i}"
+            )),
+        ));
     }
     let mut dom = Dom::create_div().with_children(children.into());
-    let (css, _) = azul_css::parser2::new_from_str(
-        "* { margin: 0px; } div { padding: 2px; } ",
-    );
+    let (css, _) = azul_css::parser2::new_from_str("* { margin: 0px; } div { padding: 2px; } ");
     StyledDom::create(&mut dom, css)
 }
 
-fn layout_at(
-    lw: &mut LayoutWindow,
-    sd: StyledDom,
-    w: f32,
-    h: f32,
-) {
+fn layout_at(lw: &mut LayoutWindow, sd: StyledDom, w: f32, h: f32) {
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(w, h);
     let rr = RendererResources::default();

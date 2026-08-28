@@ -72,7 +72,9 @@ fn store(key: &str, secret: &[u8]) -> io::Result<()> {
     cred.UserName = user_w.as_mut_ptr(); // must be non-empty for generic creds
     let ok = unsafe { CredWriteW(&mut cred as PCREDENTIALW, 0) };
     if ok == FALSE {
-        return Err(io::Error::from_raw_os_error(unsafe { GetLastError() } as i32));
+        return Err(io::Error::from_raw_os_error(
+            unsafe { GetLastError() } as i32
+        ));
     }
     Ok(())
 }

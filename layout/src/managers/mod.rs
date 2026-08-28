@@ -31,10 +31,10 @@ pub mod a11y;
 #[cfg(feature = "a11y")]
 pub mod a11y_snapshot;
 pub mod biometric;
-pub mod eyedropper;
 pub mod changeset;
 pub mod clipboard;
 pub mod drag_drop;
+pub mod eyedropper;
 pub mod file_drop;
 pub mod focus_cursor;
 pub mod gamepad;
@@ -44,7 +44,6 @@ pub mod gpu_state;
 pub mod hover;
 pub mod keyring;
 pub mod permission;
-pub mod virtual_view;
 pub mod scroll_into_view;
 pub mod scroll_registration;
 pub mod scroll_state;
@@ -53,6 +52,7 @@ pub mod sensors;
 pub mod text_edit;
 pub mod text_input;
 pub mod undo_redo;
+pub mod virtual_view;
 
 use alloc::collections::BTreeMap;
 
@@ -293,12 +293,20 @@ mod preceding_sibling_remap_tests {
             m.get_scroll_state(ROOT, NodeId::new(3)).is_none(),
             "no state may remain at a NodeId that no longer exists"
         );
-        assert_eq!(m.get_scroll_states_for_dom(ROOT).len(), 2, "A's state must be GC'd");
+        assert_eq!(
+            m.get_scroll_states_for_dom(ROOT).len(),
+            2,
+            "A's state must be GC'd"
+        );
     }
 
     // ------------------------------------------------------------- undo/redo
 
-    fn undo_op(changeset_id: usize, node: NodeId, text: &str) -> super::undo_redo::UndoableOperation {
+    fn undo_op(
+        changeset_id: usize,
+        node: NodeId,
+        text: &str,
+    ) -> super::undo_redo::UndoableOperation {
         super::undo_redo::UndoableOperation {
             changeset: TextChangeset {
                 id: changeset_id,
@@ -350,8 +358,15 @@ mod preceding_sibling_remap_tests {
         assert_eq!(undo_on_c.pre_state.node_id, C_NEW);
 
         // GC: A is gone, its history must be gone.
-        assert_eq!(m.node_stacks.len(), 2, "the deleted node's undo stack must be GC'd");
-        assert!(!m.can_undo(NodeId::new(3)), "no history at a NodeId that no longer exists");
+        assert_eq!(
+            m.node_stacks.len(),
+            2,
+            "the deleted node's undo stack must be GC'd"
+        );
+        assert!(
+            !m.can_undo(NodeId::new(3)),
+            "no history at a NodeId that no longer exists"
+        );
     }
 
     // ----------------------------------------------------------- virtual view
@@ -389,7 +404,9 @@ mod preceding_sibling_remap_tests {
             cache.current_opacity_values.insert(A, 0.1);
             cache.current_opacity_values.insert(B_OLD, 0.2);
             cache.current_opacity_values.insert(C_OLD, 0.3);
-            cache.css_transform_keys.insert(C_OLD, TransformKey::unique());
+            cache
+                .css_transform_keys
+                .insert(C_OLD, TransformKey::unique());
         }
         let c_key = m.get_cache(ROOT).unwrap().css_transform_keys[&C_OLD];
 
@@ -407,7 +424,10 @@ mod preceding_sibling_remap_tests {
             Some(c_key),
             "C's GPU transform key must follow C"
         );
-        assert!(cache.opacity_keys.is_empty(), "the deleted node's GPU keys must be GC'd");
+        assert!(
+            cache.opacity_keys.is_empty(),
+            "the deleted node's GPU keys must be GC'd"
+        );
         assert_eq!(cache.current_opacity_values.len(), 2);
     }
 
@@ -419,7 +439,8 @@ mod preceding_sibling_remap_tests {
         m.set_focused_node(Some(dom_node(C_OLD)));
         m.remap_node_ids(ROOT, &delete_a());
         assert_eq!(
-            m.get_focused_node().and_then(|f| f.node.into_crate_internal()),
+            m.get_focused_node()
+                .and_then(|f| f.node.into_crate_internal()),
             Some(C_NEW),
             "focus must follow the focused element, not stay on a recycled index"
         );
@@ -445,23 +466,37 @@ mod preceding_sibling_remap_tests {
             affinity: CursorAffinity::Leading,
         };
         let mut m = TextEditManager::new();
-        m.multi_cursor = Some(MultiCursorState::new_with_cursor(cursor, dom_node(C_OLD), 0));
+        m.multi_cursor = Some(MultiCursorState::new_with_cursor(
+            cursor,
+            dom_node(C_OLD),
+            0,
+        ));
 
         m.remap_node_ids(ROOT, &delete_a());
 
-        let mc = m.multi_cursor.as_ref().expect("the editing session survives");
+        let mc = m
+            .multi_cursor
+            .as_ref()
+            .expect("the editing session survives");
         assert_eq!(
             mc.node_id.node.into_crate_internal(),
             Some(C_NEW),
             "the caret must stay in the element the user is editing"
         );
-        assert_eq!(mc.selections.len(), 1, "surviving node keeps its selections");
+        assert_eq!(
+            mc.selections.len(),
+            1,
+            "surviving node keeps its selections"
+        );
 
         // Editing a node that gets deleted ends the session (no retarget).
         let mut m = TextEditManager::new();
         m.multi_cursor = Some(MultiCursorState::new_with_cursor(cursor, dom_node(A), 0));
         m.remap_node_ids(ROOT, &delete_a());
-        assert!(m.multi_cursor.is_none(), "editing an unmounted node must end the session");
+        assert!(
+            m.multi_cursor.is_none(),
+            "editing an unmounted node must end the session"
+        );
     }
 
     // ----------------------------------------------------------------- drag
@@ -490,7 +525,10 @@ mod preceding_sibling_remap_tests {
         let mut m = GestureAndDragManager::new();
         m.active_drag = Some(node_drag(A));
         m.remap_node_ids(ROOT, &delete_a());
-        assert!(m.get_drag_context().is_none(), "a drag whose source vanished is cancelled");
+        assert!(
+            m.get_drag_context().is_none(),
+            "a drag whose source vanished is cancelled"
+        );
     }
 
     // ----------------------------------------------------------- text input
@@ -498,7 +536,12 @@ mod preceding_sibling_remap_tests {
     #[test]
     fn a_pending_text_edit_is_not_applied_to_the_wrong_node() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(C_OLD), "x".into(), String::new(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(C_OLD),
+            "x".into(),
+            String::new(),
+            TextInputSource::Keyboard,
+        );
         m.remap_node_ids(ROOT, &delete_a());
         assert_eq!(
             m.get_pending_changeset()
@@ -508,7 +551,12 @@ mod preceding_sibling_remap_tests {
         );
 
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(A), "x".into(), String::new(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(A),
+            "x".into(),
+            String::new(),
+            TextInputSource::Keyboard,
+        );
         m.remap_node_ids(ROOT, &delete_a());
         assert!(
             m.get_pending_changeset().is_none(),
@@ -541,10 +589,7 @@ mod preceding_sibling_remap_tests {
 
         m.remap_node_ids(ROOT, &delete_a());
 
-        let nodes = &m
-            .get_current(&InputPointId::Mouse)
-            .unwrap()
-            .hovered_nodes[&ROOT]
+        let nodes = &m.get_current(&InputPointId::Mouse).unwrap().hovered_nodes[&ROOT]
             .regular_hit_test_nodes;
         assert_eq!(
             nodes.get(&C_NEW).map(|h| h.hit_depth),
@@ -654,7 +699,11 @@ mod autotest_generated {
     #[test]
     fn from_node_moves_with_a_duplicated_old_id_keeps_the_last_entry() {
         let map = NodeIdMap::from_node_moves(&[mv(1, 10), mv(1, 20), mv(1, 30)]);
-        assert_eq!(map.as_btree_map().len(), 1, "duplicates collapse to one key");
+        assert_eq!(
+            map.as_btree_map().len(),
+            1,
+            "duplicates collapse to one key"
+        );
         assert_eq!(
             map.resolve(nid(1)),
             Some(nid(30)),
@@ -667,7 +716,11 @@ mod autotest_generated {
     #[test]
     fn from_node_moves_with_a_non_injective_mapping_does_not_panic() {
         let map = NodeIdMap::from_node_moves(&[mv(1, 7), mv(2, 7)]);
-        assert_eq!(map.as_btree_map().len(), 2, "both old ids are retained as keys");
+        assert_eq!(
+            map.as_btree_map().len(),
+            2,
+            "both old ids are retained as keys"
+        );
         assert_eq!(map.resolve(nid(1)), Some(nid(7)));
         assert_eq!(map.resolve(nid(2)), Some(nid(7)));
     }
@@ -717,7 +770,10 @@ mod autotest_generated {
             assert_eq!(map.resolve(nid(i)), Some(nid(n - 1 - i)));
             assert!(!map.is_unmounted(nid(i)));
         }
-        assert!(map.resolve(nid(n)).is_none(), "an id never inserted is unmounted");
+        assert!(
+            map.resolve(nid(n)).is_none(),
+            "an id never inserted is unmounted"
+        );
         assert!(map.is_unmounted(nid(n)));
     }
 
@@ -883,14 +939,16 @@ mod autotest_generated {
     /// encoding, i.e. the last value that fits.
     #[test]
     fn resolve_dom_node_id_survives_boundary_ids() {
-        let map = NodeIdMap::from_pairs([
-            (nid(MAX_ENCODABLE), nid(0)),
-            (nid(0), nid(MAX_ENCODABLE)),
-        ]);
+        let map =
+            NodeIdMap::from_pairs([(nid(MAX_ENCODABLE), nid(0)), (nid(0), nid(MAX_ENCODABLE))]);
 
         // Largest encodable index as the OLD id.
         let big_old = dom_node_at(DOM0, nid(MAX_ENCODABLE));
-        assert_eq!(big_old.node.into_raw(), usize::MAX, "1-based encoding is saturated");
+        assert_eq!(
+            big_old.node.into_raw(),
+            usize::MAX,
+            "1-based encoding is saturated"
+        );
         assert_eq!(
             map.resolve_dom_node_id(DOM0, big_old),
             Some(dom_node_at(DOM0, nid(0)))
@@ -919,7 +977,10 @@ mod autotest_generated {
     #[test]
     fn resolve_dom_node_id_on_an_empty_map_drops_own_dom_and_keeps_foreign() {
         let map = NodeIdMap::default();
-        assert_eq!(map.resolve_dom_node_id(DOM0, dom_node_at(DOM0, nid(0))), None);
+        assert_eq!(
+            map.resolve_dom_node_id(DOM0, dom_node_at(DOM0, nid(0))),
+            None
+        );
         let foreign = dom_node_at(DOM1, nid(0));
         assert_eq!(map.resolve_dom_node_id(DOM0, foreign), Some(foreign));
     }
@@ -959,7 +1020,10 @@ mod autotest_generated {
         assert_eq!(map.len(), 2, "node 1's state must be GC'd");
         assert_eq!(map.get(&nid(1)).copied(), Some(20));
         assert_eq!(map.get(&nid(2)).copied(), Some(30));
-        assert!(!map.contains_key(&nid(3)), "no state may remain at a dead index");
+        assert!(
+            !map.contains_key(&nid(3)),
+            "no state may remain at a dead index"
+        );
     }
 
     #[test]
@@ -1007,7 +1071,11 @@ mod autotest_generated {
 
         remap_keys(&mut map, &node_map);
 
-        assert_eq!(map.len(), 1, "two old keys collapsing onto one new key lose one entry");
+        assert_eq!(
+            map.len(),
+            1,
+            "two old keys collapsing onto one new key lose one entry"
+        );
         assert_eq!(
             map.get(&nid(5)).copied(),
             Some("from-2"),
@@ -1040,7 +1108,10 @@ mod autotest_generated {
                 i - 1
             );
         }
-        assert!(!map.contains_key(&nid(n - 1)), "the vacated tail index is empty");
+        assert!(
+            !map.contains_key(&nid(n - 1)),
+            "the vacated tail index is empty"
+        );
     }
 
     /// Ordering trap: an entry is rewritten ONTO an index that another (about to
@@ -1078,8 +1149,15 @@ mod autotest_generated {
 
         remap_dom_keys(&mut map, DOM0, &node_map);
 
-        assert_eq!(map.get(&(DOM0, nid(1))).copied(), Some(20), "DOM 0's entry is remapped");
-        assert!(!map.contains_key(&(DOM0, nid(2))), "the old DOM 0 key is gone");
+        assert_eq!(
+            map.get(&(DOM0, nid(1))).copied(),
+            Some(20),
+            "DOM 0's entry is remapped"
+        );
+        assert!(
+            !map.contains_key(&(DOM0, nid(2))),
+            "the old DOM 0 key is gone"
+        );
         assert_eq!(
             map.get(&(DOM1, nid(2))).copied(),
             Some(99),

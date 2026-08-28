@@ -50,14 +50,14 @@ use objc2_app_kit::{
     NSAppKitVersionNumber, NSAppKitVersionNumber10_12, NSApplication,
     NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSBitmapImageRep,
     NSColor, NSCompositingOperation, NSDragOperation, NSDraggingInfo, NSEvent, NSEventMask,
-    NSEventType, NSFilenamesPboardType, NSMenu,
-    NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat, NSOpenGLPixelFormatAttribute, NSOpenGLView,
-    NSResponder, NSScreen, NSTextInputClient, NSTrackingArea, NSTrackingAreaOptions, NSView,
-    NSVisualEffectView, NSWindow, NSWindowDelegate, NSWindowStyleMask, NSWindowTitleVisibility,
+    NSEventType, NSFilenamesPboardType, NSMenu, NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat,
+    NSOpenGLPixelFormatAttribute, NSOpenGLView, NSResponder, NSScreen, NSTextInputClient,
+    NSTrackingArea, NSTrackingAreaOptions, NSView, NSVisualEffectView, NSWindow, NSWindowDelegate,
+    NSWindowStyleMask, NSWindowTitleVisibility,
 };
 use objc2_foundation::{
-    ns_string, NSAttributedString, NSNotification, NSObject, NSPoint, NSRange, NSRect,
-    NSSize, NSString, NSTimer, NSUndoManager,
+    ns_string, NSAttributedString, NSNotification, NSObject, NSPoint, NSRange, NSRect, NSSize,
+    NSString, NSTimer, NSUndoManager,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -218,7 +218,8 @@ pub fn wake_all_windows() {
             continue;
         }
         let w = unsafe { &mut *wptr };
-        w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        w.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         w.request_redraw();
     }
 }
@@ -243,7 +244,9 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             crate::desktop::shell2::common::debug_server::LogCategory::Input,
-            "[mouseDown] LEFT at ({:.1}, {:.1})", loc.x, loc.y
+            "[mouseDown] LEFT at ({:.1}, {:.1})",
+            loc.x,
+            loc.y
         );
         if let Some(window_ptr) = window_ptr {
             // Control+click is the macOS secondary click: AppKit hands it to a
@@ -261,17 +264,23 @@ mod view_handlers {
             }
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
+                let result =
+                    macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Left);
                 crate::log_debug!(
                     crate::desktop::shell2::common::debug_server::LogCategory::Input,
                     "[mouseDown] result={:?}, focused={:?}",
                     result,
-                    macos_window.common.layout_window.as_ref()
+                    macos_window
+                        .common
+                        .layout_window
+                        .as_ref()
                         .and_then(|lw| lw.focus_manager.get_focused_node().copied())
                 );
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        macos_window
+                            .common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -295,7 +304,9 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             crate::desktop::shell2::common::debug_server::LogCategory::Input,
-            "[mouseUp] LEFT at ({:.1}, {:.1})", loc.x, loc.y
+            "[mouseUp] LEFT at ({:.1}, {:.1})",
+            loc.x,
+            loc.y
         );
         if let Some(window_ptr) = window_ptr {
             // The release of a Control+click (see `mouse_down`): finish it as
@@ -309,10 +320,13 @@ mod view_handlers {
             }
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
+                let result =
+                    macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Left);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        macos_window
+                            .common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -339,7 +353,9 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_move(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        macos_window
+                            .common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -363,10 +379,13 @@ mod view_handlers {
         if let Some(window_ptr) = window_ptr {
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                let result = macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
+                let result =
+                    macos_window.handle_mouse_down(event, azul_core::events::MouseButton::Right);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        macos_window
+                            .common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -395,7 +414,8 @@ mod view_handlers {
             // timers fire and take their own `&mut` to this same window.
             let pending_menu = unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                let result = macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
+                let result =
+                    macos_window.handle_mouse_up(event, azul_core::events::MouseButton::Right);
                 route_result(macos_window, result);
                 macos_window.sync_window_state();
                 macos_window.take_pending_context_menu()
@@ -520,8 +540,8 @@ mod view_handlers {
                 // Synthesized distances: only the RATIO is meaningful for a
                 // native recognizer (a trackpad magnify event carries no
                 // real touch points).
-                lw.gesture_drag_manager.inject_native_gesture(
-                    NativeGestureEvent::Pinch(DetectedPinch {
+                lw.gesture_drag_manager
+                    .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
                         scale,
                         center,
                         initial_distance: 100.0,
@@ -529,8 +549,7 @@ mod view_handlers {
                         // Trackpad magnify events are deltas without a
                         // gesture clock; consumers key off scale/center.
                         duration_ms: 0,
-                    }),
-                );
+                    }));
             }
             macos_window.snapshot_window_state_baseline("macos.magnify");
             let result = macos_window.process_window_events(0);
@@ -555,13 +574,12 @@ mod view_handlers {
                 .unwrap_or(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
             if let Some(lw) = macos_window.common.layout_window.as_mut() {
                 use azul_layout::managers::gesture::{DetectedRotation, NativeGestureEvent};
-                lw.gesture_drag_manager.inject_native_gesture(
-                    NativeGestureEvent::Rotation(DetectedRotation {
+                lw.gesture_drag_manager
+                    .inject_native_gesture(NativeGestureEvent::Rotation(DetectedRotation {
                         angle_radians: -degrees_ccw.to_radians(),
                         center,
                         duration_ms: 0, // per-event delta from the OS recognizer
-                    }),
-                );
+                    }));
             }
             macos_window.snapshot_window_state_baseline("macos.rotate");
             let result = macos_window.process_window_events(0);
@@ -573,7 +591,9 @@ mod view_handlers {
         let (dx, dy) = unsafe { (event.scrollingDeltaX(), event.scrollingDeltaY()) };
         crate::log_debug!(
             crate::desktop::shell2::common::debug_server::LogCategory::Input,
-            "[scrollWheel] dx={:.2}, dy={:.2}", dx, dy
+            "[scrollWheel] dx={:.2}, dy={:.2}",
+            dx,
+            dy
         );
         if let Some(window_ptr) = window_ptr {
             unsafe {
@@ -581,7 +601,9 @@ mod view_handlers {
                 let result = macos_window.handle_scroll_wheel(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        macos_window
+                            .common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -613,7 +635,9 @@ mod view_handlers {
                 let result = macos_window.handle_key_up(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        macos_window
+                            .common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -641,7 +665,9 @@ mod view_handlers {
                 let result = macos_window.handle_flags_changed(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        macos_window
+                            .common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -668,7 +694,9 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_entered(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        macos_window
+                            .common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -695,7 +723,9 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_exited(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        macos_window
+                            .common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -722,7 +752,9 @@ mod view_handlers {
                 let result = macos_window.handle_mouse_move(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
-                        macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        macos_window
+                            .common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         macos_window.request_redraw();
                     }
                     EventProcessResult::UpdateDisplayList => {
@@ -780,7 +812,9 @@ mod view_handlers {
     unsafe fn route_result(macos_window: &mut MacOSWindow, result: EventProcessResult) {
         match result {
             EventProcessResult::RegenerateDisplayList => {
-                macos_window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                macos_window
+                    .common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 macos_window.request_redraw();
             }
             EventProcessResult::UpdateDisplayList => {
@@ -812,8 +846,12 @@ mod view_handlers {
                 // an OS drag (window coords, bottom-left origin — same flip
                 // as the mouse handlers).
                 let location = info.draggingLocation();
-                let window_height =
-                    macos_window.common.current_window_state().size.dimensions.height;
+                let window_height = macos_window
+                    .common
+                    .current_window_state()
+                    .size
+                    .dimensions
+                    .height;
                 let position = events::macos_to_azul_coords(location, window_height);
                 let result = macos_window.handle_file_drag_entered(position, paths);
                 route_result(macos_window, result);
@@ -846,8 +884,12 @@ mod view_handlers {
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 let location = info.draggingLocation();
-                let window_height =
-                    macos_window.common.current_window_state().size.dimensions.height;
+                let window_height = macos_window
+                    .common
+                    .current_window_state()
+                    .size
+                    .dimensions
+                    .height;
                 let position = events::macos_to_azul_coords(location, window_height);
                 let result = macos_window.handle_file_drop(position, paths);
                 route_result(macos_window, result);
@@ -1670,18 +1712,36 @@ mod dirty_rows_tests {
     fn only_the_dirty_rows_are_copied_flipped_from_the_views_bottom_left_origin() {
         // A 100x80 framebuffer; the dirty rect covers x 10..30, and y 20..50
         // measured from the BOTTOM (view space) = rows 30..60 from the top.
-        assert_eq!(dirty_rows_to_copy(false, (10.0, 20.0, 20.0, 30.0), 100, 80), (10, 30, 30, 60));
+        assert_eq!(
+            dirty_rows_to_copy(false, (10.0, 20.0, 20.0, 30.0), 100, 80),
+            (10, 30, 30, 60)
+        );
         // Fractional edges widen outward (floor/ceil), never inward.
-        assert_eq!(dirty_rows_to_copy(false, (10.5, 20.5, 19.0, 29.0), 100, 80), (10, 30, 30, 60));
+        assert_eq!(
+            dirty_rows_to_copy(false, (10.5, 20.5, 19.0, 29.0), 100, 80),
+            (10, 30, 30, 60)
+        );
         // A rect beyond the framebuffer is clamped, not out-of-bounds.
-        assert_eq!(dirty_rows_to_copy(false, (90.0, -5.0, 50.0, 20.0), 100, 80), (90, 100, 65, 80));
+        assert_eq!(
+            dirty_rows_to_copy(false, (90.0, -5.0, 50.0, 20.0), 100, 80),
+            (90, 100, 65, 80)
+        );
     }
 
     #[test]
     fn a_fresh_bitmap_or_an_empty_rect_copies_everything_once() {
-        assert_eq!(dirty_rows_to_copy(true, (10.0, 20.0, 20.0, 30.0), 100, 80), (0, 100, 0, 80));
-        assert_eq!(dirty_rows_to_copy(false, (0.0, 0.0, 0.0, 0.0), 100, 80), (0, 100, 0, 80));
-        assert_eq!(dirty_rows_to_copy(false, (0.0, 0.0, 5.0, 5.0), 0, 0), (0, 0, 0, 0));
+        assert_eq!(
+            dirty_rows_to_copy(true, (10.0, 20.0, 20.0, 30.0), 100, 80),
+            (0, 100, 0, 80)
+        );
+        assert_eq!(
+            dirty_rows_to_copy(false, (0.0, 0.0, 0.0, 0.0), 100, 80),
+            (0, 100, 0, 80)
+        );
+        assert_eq!(
+            dirty_rows_to_copy(false, (0.0, 0.0, 5.0, 5.0), 0, 0),
+            (0, 0, 0, 0)
+        );
     }
 }
 
@@ -2621,7 +2681,9 @@ impl CPUView {
         }
 
         drop(fb);
-        unsafe { self.setNeedsDisplay(true); }
+        unsafe {
+            self.setNeedsDisplay(true);
+        }
     }
 
     /// #27 native backbuffer: hand out the view's retained framebuffer as
@@ -3458,9 +3520,7 @@ impl event::PlatformWindow for MacOSWindow {
                 .layout_window
                 .as_mut()
                 .and_then(|lw| lw.a11y_manager.last_tree_update.take());
-            if let (Some(update), Some(adapter)) =
-                (pending, self.accessibility_adapter.as_mut())
-            {
+            if let (Some(update), Some(adapter)) = (pending, self.accessibility_adapter.as_mut()) {
                 adapter.update_tree(update);
             }
         }
@@ -3553,11 +3613,17 @@ impl event::PlatformWindow for MacOSWindow {
 
     fn start_thread_poll_timer(&mut self) {
         if self.thread_timer_running.is_some() {
-            log_debug!(LogCategory::Timer, "[start_thread_poll_timer] Timer already running, skipping");
+            log_debug!(
+                LogCategory::Timer,
+                "[start_thread_poll_timer] Timer already running, skipping"
+            );
             return; // Already running
         }
 
-        log_debug!(LogCategory::Timer, "[start_thread_poll_timer] Starting thread poll timer (16ms interval)");
+        log_debug!(
+            LogCategory::Timer,
+            "[start_thread_poll_timer] Starting thread poll timer (16ms interval)"
+        );
 
         // Create a timer that fires every 16ms (~60 FPS) to poll threads.
         //
@@ -3618,7 +3684,11 @@ impl event::PlatformWindow for MacOSWindow {
         &mut self,
         threads: std::collections::BTreeMap<azul_core::task::ThreadId, azul_layout::thread::Thread>,
     ) {
-        log_debug!(LogCategory::Timer, "[add_threads] Adding {} threads", threads.len());
+        log_debug!(
+            LogCategory::Timer,
+            "[add_threads] Adding {} threads",
+            threads.len()
+        );
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             for (thread_id, thread) in threads {
                 layout_window.threads.insert(thread_id, thread);
@@ -3644,7 +3714,8 @@ impl event::PlatformWindow for MacOSWindow {
                 continue;
             }
             let w = unsafe { &mut *wptr };
-            w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            w.common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             w.request_redraw();
         }
     }
@@ -3668,7 +3739,12 @@ impl event::PlatformWindow for MacOSWindow {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Check if native menus are enabled
-        if self.common.current_window_state().flags.use_native_context_menus {
+        if self
+            .common
+            .current_window_state()
+            .flags
+            .use_native_context_menus
+        {
             // QUEUE the native NSMenu — never pop it up from here. This runs
             // inside `apply_user_change`, i.e. in the middle of a pass, with
             // the handler's `&mut MacOSWindow` (reconstructed from the
@@ -3730,7 +3806,9 @@ impl MacOSWindow {
     /// then maps `Auto` → try OpenGL, fall back on blacklist/failure.
     fn determine_backend(options: &WindowCreateOptions) -> RenderBackend {
         use crate::desktop::shell2::AzBackend;
-        let hw_accel = options.renderer.as_option()
+        let hw_accel = options
+            .renderer
+            .as_option()
             .map(|r| r.hw_accel)
             .or(Some(options.window_state.renderer_options.hw_accel));
         match AzBackend::resolve(hw_accel) {
@@ -3778,8 +3856,7 @@ impl MacOSWindow {
 
         // Register for file drag-and-drop so the NSDraggingDestination methods fire.
         unsafe {
-            let types =
-                objc2_foundation::NSArray::from_slice(&[NSFilenamesPboardType]);
+            let types = objc2_foundation::NSArray::from_slice(&[NSFilenamesPboardType]);
             gl_view.registerForDraggedTypes(&types);
         }
 
@@ -3801,8 +3878,7 @@ impl MacOSWindow {
         let view = view.expect("Failed to create CPUView");
         // Register for file drag-and-drop so the NSDraggingDestination methods fire.
         unsafe {
-            let types =
-                objc2_foundation::NSArray::from_slice(&[NSFilenamesPboardType]);
+            let types = objc2_foundation::NSArray::from_slice(&[NSFilenamesPboardType]);
             view.registerForDraggedTypes(&types);
         }
         view
@@ -3896,10 +3972,9 @@ impl MacOSWindow {
                 };
                 let monitor_id = MonitorId { index, hash };
 
-                self.common
-                    .update_unsynced_state(|ws| {
-                        ws.monitor_id = OptionU32::Some(monitor_id.index as u32);
-                    });
+                self.common.update_unsynced_state(|ws| {
+                    ws.monitor_id = OptionU32::Some(monitor_id.index as u32);
+                });
 
                 log_debug!(
                     LogCategory::Window,
@@ -3914,7 +3989,8 @@ impl MacOSWindow {
                     "[MacOSWindow] Failed to get CGDirectDisplayID from screen"
                 );
                 // Fallback: Use index 0 (main display)
-                self.common.update_unsynced_state(|ws| ws.monitor_id = OptionU32::Some(0));
+                self.common
+                    .update_unsynced_state(|ws| ws.monitor_id = OptionU32::Some(0));
             }
         } else {
             log_warn!(
@@ -3922,7 +3998,8 @@ impl MacOSWindow {
                 "[MacOSWindow] No screen associated with window"
             );
             // Fallback: Use index 0 (main display)
-            self.common.update_unsynced_state(|ws| ws.monitor_id = OptionU32::Some(0));
+            self.common
+                .update_unsynced_state(|ws| ws.monitor_id = OptionU32::Some(0));
         }
     }
 
@@ -4028,7 +4105,9 @@ impl MacOSWindow {
                 let Ok(_guard) = target.lock.lock() else {
                     return corevideo::K_CV_RETURN_SUCCESS;
                 };
-                if target.alive.load(std::sync::atomic::Ordering::Acquire) && !target.window.is_null() {
+                if target.alive.load(std::sync::atomic::Ordering::Acquire)
+                    && !target.window.is_null()
+                {
                     objc2::ffi::objc_retain(target.window.cast());
                     dispatch_async_f(
                         std::ptr::addr_of!(_dispatch_main_q),
@@ -4047,7 +4126,8 @@ impl MacOSWindow {
             window: &*self.window as *const NSWindow as *mut std::ffi::c_void,
         }));
         self.display_link_target = Some(target);
-        let result = display_link.set_output_callback(display_link_callback, target as *mut std::ffi::c_void);
+        let result = display_link
+            .set_output_callback(display_link_callback, target as *mut std::ffi::c_void);
 
         if result != corevideo::K_CV_RETURN_SUCCESS {
             return Err(format!("CVDisplayLinkSetOutputCallback failed: {}", result));
@@ -4085,11 +4165,24 @@ impl MacOSWindow {
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
         // THE app-level font manager. A top-level window shares it rather than
         // building a private one; see `layout_window_sharing_fonts`.
-        app_font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+        app_font_manager: Option<
+            Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+        >,
         parent_lw: Option<&LayoutWindow>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, Some(fc_cache), font_registry, app_font_manager, parent_lw, mtm)
+        Self::new_with_options_internal(
+            options,
+            app_data,
+            undo_manager,
+            config,
+            shared_icon_provider,
+            Some(fc_cache),
+            font_registry,
+            app_font_manager,
+            parent_lw,
+            mtm,
+        )
     }
 
     /// Create a new macOS window with given options.
@@ -4101,7 +4194,18 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
-        Self::new_with_options_internal(options, app_data, undo_manager, config, shared_icon_provider, None, None, None, None, mtm)
+        Self::new_with_options_internal(
+            options,
+            app_data,
+            undo_manager,
+            config,
+            shared_icon_provider,
+            None,
+            None,
+            None,
+            None,
+            mtm,
+        )
     }
 
     /// Internal constructor with optional fc_cache parameter
@@ -4113,18 +4217,24 @@ impl MacOSWindow {
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache_opt: Option<Arc<rust_fontconfig::FcFontCache>>,
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
-        app_font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+        app_font_manager: Option<
+            Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
+        >,
         parent_lw: Option<&LayoutWindow>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
         if options.window_state.background_color.is_none()
-            && matches!(options.window_state.flags.background_material, WindowBackgroundMaterial::Opaque) {
-                options.window_state.background_color = config.system_style.colors.window_background;
-            }
-            // For materials, leave background_color as None - renderer handles transparency
-        
+            && matches!(
+                options.window_state.flags.background_material,
+                WindowBackgroundMaterial::Opaque
+            )
+        {
+            options.window_state.background_color = config.system_style.colors.window_background;
+        }
+        // For materials, leave background_color as None - renderer handles transparency
+
         log_debug!(
             LogCategory::Window,
             "[MacOSWindow::new] Starting window creation"
@@ -4201,7 +4311,9 @@ impl MacOSWindow {
                     // the GL context down and fall back to CPU rendering.
                     let gpu_check = unsafe {
                         ctx.makeCurrentContext();
-                        crate::desktop::shell2::common::compositor::query_gpu_info(&*funcs.functions)
+                        crate::desktop::shell2::common::compositor::query_gpu_info(
+                            &*funcs.functions,
+                        )
                     };
 
                     match gpu_check {
@@ -4221,7 +4333,10 @@ impl MacOSWindow {
                                 None,
                             )
                         }
-                        crate::desktop::shell2::common::GpuCheckResult::Blacklisted { info, reason } => {
+                        crate::desktop::shell2::common::GpuCheckResult::Blacklisted {
+                            info,
+                            reason,
+                        } => {
                             log_warn!(
                                 LogCategory::Rendering,
                                 "[MacOSWindow::new] GPU blacklisted (vendor={:?} renderer={:?}): {} — falling back to CPU",
@@ -4284,32 +4399,34 @@ impl MacOSWindow {
             LogCategory::Window,
             "[MacOSWindow::new] Allocating NSWindow..."
         );
-        let is_popup_child = options.window_state.flags.window_type == azul_core::window::WindowType::Menu
+        let is_popup_child = options.window_state.flags.window_type
+            == azul_core::window::WindowType::Menu
             && options.parent_window_id != 0;
-        let window: Retained<NSWindow> = if is_popup_child {
-            let popup: Option<Retained<PopupWindow>> = unsafe {
-                msg_send_id![
-                    mtm.alloc::<PopupWindow>(),
-                    initWithContentRect: content_rect,
-                    styleMask: style_mask,
-                    backing: NSBackingStoreType::Buffered,
-                    defer: false,
-                ]
+        let window: Retained<NSWindow> =
+            if is_popup_child {
+                let popup: Option<Retained<PopupWindow>> = unsafe {
+                    msg_send_id![
+                        mtm.alloc::<PopupWindow>(),
+                        initWithContentRect: content_rect,
+                        styleMask: style_mask,
+                        backing: NSBackingStoreType::Buffered,
+                        defer: false,
+                    ]
+                };
+                Retained::into_super(popup.ok_or_else(|| {
+                    WindowError::PlatformError("AzulPopupWindow init failed".into())
+                })?)
+            } else {
+                unsafe {
+                    NSWindow::initWithContentRect_styleMask_backing_defer(
+                        mtm.alloc(),
+                        content_rect,
+                        style_mask,
+                        NSBackingStoreType::Buffered,
+                        false,
+                    )
+                }
             };
-            Retained::into_super(popup.ok_or_else(|| {
-                WindowError::PlatformError("AzulPopupWindow init failed".into())
-            })?)
-        } else {
-            unsafe {
-                NSWindow::initWithContentRect_styleMask_backing_defer(
-                    mtm.alloc(),
-                    content_rect,
-                    style_mask,
-                    NSBackingStoreType::Buffered,
-                    false,
-                )
-            }
-        };
         log_trace!(LogCategory::Window, "[MacOSWindow::new] NSWindow created");
         // We hold the window in a `Retained` (+1) and release it in `Drop`.
         // NSWindow's default `releasedWhenClosed = YES` makes `close()` release
@@ -4419,10 +4536,15 @@ impl MacOSWindow {
         // application after its parent was sent to the background.
         if is_popup_child {
             if let Some(parent) = unsafe {
-                registry::get_window(options.parent_window_id as usize as *mut objc2::runtime::AnyObject)
+                registry::get_window(
+                    options.parent_window_id as usize as *mut objc2::runtime::AnyObject,
+                )
             } {
                 unsafe {
-                    (*parent).window.addChildWindow_ordered(&window, objc2_app_kit::NSWindowOrderingMode::Above);
+                    (*parent).window.addChildWindow_ordered(
+                        &window,
+                        objc2_app_kit::NSWindowOrderingMode::Above,
+                    );
                 }
             }
         }
@@ -4502,7 +4624,7 @@ impl MacOSWindow {
         unsafe {
             let delegate_obj = ProtocolObject::from_ref(&*window_delegate);
             window.setDelegate(Some(delegate_obj));
-            
+
             // Enable mouse moved events - required for cursor updates on hover
             // Without this, macOS only sends mouse events when a button is pressed
             window.setAcceptsMouseMovedEvents(true);
@@ -4630,10 +4752,9 @@ impl MacOSWindow {
             let hit_tester = render_api
                 .request_hit_tester(wr_translate_document_id(document_id))
                 .resolve();
-            let gl_ctx_inner =
-                gl_context.as_ref().map(|_| {
-                    GlContextPtr::new(RendererType::Hardware, gl_funcs.clone())
-                });
+            let gl_ctx_inner = gl_context
+                .as_ref()
+                .map(|_| GlContextPtr::new(RendererType::Hardware, gl_funcs.clone()));
             // PROVE the context: if our SVG/brush shaders won't compile at any
             // GLSL version the driver is too broken for GPU rendering -- fall back
             // to CPU (mirror the X11/Windows backends). The GPU renderer/render_api
@@ -4811,8 +4932,9 @@ impl MacOSWindow {
         let initial_viewport_height = current_window_state.size.dimensions.height;
         let system_style = Arc::new(config.system_style.clone());
         let dynamic_selector_context = {
-            let mut ctx =
-                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&system_style);
+            let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(
+                &system_style,
+            );
             ctx.viewport_width = initial_viewport_width;
             ctx.viewport_height = initial_viewport_height;
             ctx.orientation = if initial_viewport_width > initial_viewport_height {
@@ -4856,7 +4978,11 @@ impl MacOSWindow {
             #[cfg(feature = "cpurender")]
             cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
             is_open: true,
-            child_of: if is_popup_child { options.parent_window_id } else { 0 },
+            child_of: if is_popup_child {
+                options.parent_window_id
+            } else {
+                0
+            },
             mtm,
             menu_state: menu::MenuState::new(), // TODO: build initial menu state from layout_window
             common,
@@ -4869,7 +4995,7 @@ impl MacOSWindow {
             pending_window_creates: Vec::new(),
             pending_context_menu: None,
             ctrl_click_as_right: false,
-            tooltip: None,         // Created lazily when first needed
+            tooltip: None, // Created lazily when first needed
             gpu_damage_rects: Vec::new(),
             pm_assertion_id: None, // No sleep prevention by default
             timers: std::collections::HashMap::new(),
@@ -4880,7 +5006,7 @@ impl MacOSWindow {
             cg_functions,
             current_display_id: None, // Will be set after monitor detection
             surface_needs_update: true, // First frame always needs update
-            redraw_requested: true,     // First frame must not be skipped
+            redraw_requested: true,   // First frame must not be skipped
         };
 
         // NOTE: Do NOT set the delegate pointer here!
@@ -4942,7 +5068,9 @@ impl MacOSWindow {
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    window
+                        .common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 }
             }
             // Sync window state to OS (handles close_requested, title, size, etc.)
@@ -4983,7 +5111,9 @@ impl MacOSWindow {
         }
 
         // Request a regeneration so drawRect will build and send the transaction
-        window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
 
         // Detect current monitor and set monitor_id
         window.detect_current_monitor();
@@ -5000,7 +5130,10 @@ impl MacOSWindow {
 
         // Apply initial background material if not Opaque
         // This must be done after the window struct is built but before showing
-        if !matches!(initial_background_material, WindowBackgroundMaterial::Opaque) {
+        if !matches!(
+            initial_background_material,
+            WindowBackgroundMaterial::Opaque
+        ) {
             log_trace!(
                 LogCategory::Window,
                 "[Window Init] Applying initial background material: {:?}",
@@ -5045,7 +5178,8 @@ impl MacOSWindow {
                 let pos = azul_core::window::WindowPosition::Initialized(
                     azul_core::geom::PhysicalPositionI32::new(top_left_x, top_left_y),
                 );
-                window.common
+                window
+                    .common
                     .update_window_state(event::WindowStateSource::Os, |ws| ws.position = pos);
                 if let Some(ref mut lw) = window.common.layout_window {
                     lw.current_window_state.position = pos;
@@ -5076,17 +5210,16 @@ impl MacOSWindow {
     /// - The window is resized
     /// - The DOM changes (via callbacks)
     /// - Layout callback changes
-    pub fn regenerate_layout_inner(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+    pub fn regenerate_layout_inner(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         // Populate safe-area insets (notch / rounded corners) from the content
         // view so `CallbackInfo::get_safe_area_insets` + CSS env(safe-area-inset-*)
         // reflect the display. NSView is main-thread-only, so the read is safe.
-        let safe_area = self
-            .window
-            .contentView()
-            .map(|cv| {
-                let i = cv.safeAreaInsets();
-                (i.top, i.left, i.bottom, i.right)
-            });
+        let safe_area = self.window.contentView().map(|cv| {
+            let i = cv.safeAreaInsets();
+            (i.top, i.left, i.bottom, i.right)
+        });
         // Consume the reason tag BEFORE borrowing the layout window: this is
         // the regeneration this window asked for, and the tag travels with
         // the request (see CommonWindowState::request_regeneration).
@@ -5097,7 +5230,9 @@ impl MacOSWindow {
         if let Some((top, left, bottom, right)) = safe_area {
             let mk = |v: f64| {
                 if v > 0.5 {
-                    azul_css::props::basic::OptionPixelValue::Some(azul_css::props::basic::PixelValue::px(v as f32))
+                    azul_css::props::basic::OptionPixelValue::Some(
+                        azul_css::props::basic::PixelValue::px(v as f32),
+                    )
                 } else {
                     azul_css::props::basic::OptionPixelValue::None
                 }
@@ -5130,7 +5265,6 @@ impl MacOSWindow {
             borrows.system_style,
             &self.icon_provider,
             &mut debug_messages,
-        
             relayout_reason,
         )?;
 
@@ -5187,14 +5321,12 @@ impl MacOSWindow {
         if let Some(layout_window) = &self.common.layout_window {
             if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
                 // Successfully calculated cursor position from text layout
-                self.common
-                    .update_unsynced_state(|ws| {
-                        ws.ime_position = ImePosition::Initialized(cursor_rect);
-                    });
+                self.common.update_unsynced_state(|ws| {
+                    ws.ime_position = ImePosition::Initialized(cursor_rect);
+                });
             }
         }
     }
-
 
     /// Get the current HiDPI scale factor from the NSWindow's screen
     ///
@@ -5332,7 +5464,9 @@ impl MacOSWindow {
         use azul_core::window::WindowPosition;
 
         // Min dimensions
-        if let OptionLogicalSize::Some(dims) = self.common.current_window_state().size.min_dimensions {
+        if let OptionLogicalSize::Some(dims) =
+            self.common.current_window_state().size.min_dimensions
+        {
             let min_size = NSSize::new(dims.width as f64, dims.height as f64);
             unsafe {
                 self.window.setContentMinSize(min_size);
@@ -5340,7 +5474,9 @@ impl MacOSWindow {
         }
 
         // Max dimensions
-        if let OptionLogicalSize::Some(dims) = self.common.current_window_state().size.max_dimensions {
+        if let OptionLogicalSize::Some(dims) =
+            self.common.current_window_state().size.max_dimensions
+        {
             let max_size = NSSize::new(dims.width as f64, dims.height as f64);
             unsafe {
                 self.window.setContentMaxSize(max_size);
@@ -5384,7 +5520,12 @@ impl MacOSWindow {
         }
 
         // prevent_system_sleep
-        if self.common.current_window_state().flags.prevent_system_sleep {
+        if self
+            .common
+            .current_window_state()
+            .flags
+            .prevent_system_sleep
+        {
             let _ = self.set_prevent_system_sleep(true);
         }
 
@@ -5486,7 +5627,8 @@ impl MacOSWindow {
                         primary_screen_height(),
                     ) {
                         let top_left_y = cy + f64::from(offset.y);
-                        let origin = NSPoint::new(cx + f64::from(offset.x), primary_height - top_left_y);
+                        let origin =
+                            NSPoint::new(cx + f64::from(offset.x), primary_height - top_left_y);
                         unsafe { self.window.setFrameTopLeftPoint(origin) };
                     }
                 }
@@ -5688,9 +5830,14 @@ impl MacOSWindow {
                     crate::desktop::shell2::common::event::IncrementalRelayout::Restyle,
                     &mut debug_messages,
                 ) {
-                    log_warn!(LogCategory::Layout, "[process_close_event] Incremental relayout failed: {}", e);
+                    log_warn!(
+                        LogCategory::Layout,
+                        "[process_close_event] Incremental relayout failed: {}",
+                        e
+                    );
                 }
-                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             }
             azul_core::events::ProcessEventResult::ShouldReRenderCurrentWindow => {
                 self.request_redraw();
@@ -5744,10 +5891,16 @@ impl MacOSWindow {
         let should_close = self.process_close_event();
 
         if should_close {
-            log_debug!(LogCategory::Window, "[handle_window_should_close] Close confirmed");
+            log_debug!(
+                LogCategory::Window,
+                "[handle_window_should_close] Close confirmed"
+            );
             self.is_open = false;
         } else {
-            log_debug!(LogCategory::Window, "[handle_window_should_close] Close prevented by callback");
+            log_debug!(
+                LogCategory::Window,
+                "[handle_window_should_close] Close prevented by callback"
+            );
         }
 
         Ok(should_close)
@@ -5755,13 +5908,22 @@ impl MacOSWindow {
 
     /// Handle close request from WindowDelegate
     fn handle_close_request(&mut self) {
-        log_debug!(LogCategory::Window, "[MacOSWindow] Processing close request");
+        log_debug!(
+            LogCategory::Window,
+            "[MacOSWindow] Processing close request"
+        );
 
         if self.process_close_event() {
-            log_debug!(LogCategory::Window, "[MacOSWindow] Close confirmed, closing window");
+            log_debug!(
+                LogCategory::Window,
+                "[MacOSWindow] Close confirmed, closing window"
+            );
             self.close_window();
         } else {
-            log_debug!(LogCategory::Window, "[MacOSWindow] Close cancelled by callback");
+            log_debug!(
+                LogCategory::Window,
+                "[MacOSWindow] Close cancelled by callback"
+            );
         }
     }
 
@@ -5794,9 +5956,9 @@ impl MacOSWindow {
             return;
         }
         let parent_key = core::mem::replace(&mut self.child_of, 0);
-        if let Some(parent) = unsafe {
-            registry::get_window(parent_key as usize as *mut objc2::runtime::AnyObject)
-        } {
+        if let Some(parent) =
+            unsafe { registry::get_window(parent_key as usize as *mut objc2::runtime::AnyObject) }
+        {
             unsafe {
                 (*parent).window.removeChildWindow(&self.window);
             }
@@ -5811,7 +5973,9 @@ impl MacOSWindow {
             // SAFETY: the target is leaked and therefore always valid.
             let target = unsafe { &*target };
             let guard = target.lock.lock();
-            target.alive.store(false, std::sync::atomic::Ordering::Release);
+            target
+                .alive
+                .store(false, std::sync::atomic::Ordering::Release);
             drop(guard);
         }
         if let Some(link) = self.display_link.take() {
@@ -6034,16 +6198,16 @@ impl MacOSWindow {
                             // Set autoresizing mask on effect view so IT resizes with window
                             use objc2_app_kit::NSAutoresizingMaskOptions;
                             effect_view.setAutoresizingMask(
-                                NSAutoresizingMaskOptions::ViewWidthSizable |
-                                NSAutoresizingMaskOptions::ViewHeightSizable
+                                NSAutoresizingMaskOptions::ViewWidthSizable
+                                    | NSAutoresizingMaskOptions::ViewHeightSizable,
                             );
-                            
+
                             // Set autoresizing mask on original view so it resizes with effect view
                             content_view.setAutoresizingMask(
-                                NSAutoresizingMaskOptions::ViewWidthSizable |
-                                NSAutoresizingMaskOptions::ViewHeightSizable
+                                NSAutoresizingMaskOptions::ViewWidthSizable
+                                    | NSAutoresizingMaskOptions::ViewHeightSizable,
                             );
-                            
+
                             // Set frame to match effect view
                             content_view.setFrame(frame);
 
@@ -6146,7 +6310,9 @@ impl MacOSWindow {
         // requests a rebuild when asked. Only the redraw is ours.
         match self.invoke_menu_callback(
             callback,
-            super::common::event::MenuInvocation::Native { site: "macos.handle_menu_action" },
+            super::common::event::MenuInvocation::Native {
+                site: "macos.handle_menu_action",
+            },
         ) {
             ProcessEventResult::DoNothing => {}
             _ => self.request_redraw(),
@@ -6214,7 +6380,8 @@ impl MacOSWindow {
             // Win32 DPI paths report. This site used to leave the tag untouched,
             // so the same physical event reached the user's `layout()` under a
             // different reason depending on the OS.
-            self.common.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+            self.common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
 
             log_debug!(
                 LogCategory::Window,
@@ -6322,11 +6489,13 @@ impl MacOSWindow {
                 Some(lw) => lw,
                 None => return,
             };
-            let layout_result =
-                match layout_window.layout_results.get(&azul_core::dom::DomId::ROOT_ID) {
-                    Some(lr) => lr,
-                    None => return,
-                };
+            let layout_result = match layout_window
+                .layout_results
+                .get(&azul_core::dom::DomId::ROOT_ID)
+            {
+                Some(lr) => lr,
+                None => return,
+            };
             let binding = layout_result.styled_dom.node_data.as_container();
             let root = match binding.get(azul_core::id::NodeId::ZERO) {
                 Some(nd) => nd,
@@ -6546,7 +6715,7 @@ impl MacOSWindow {
     }
 
     /// Process an NSEvent and dispatch to appropriate handler
-    /// 
+    ///
     /// NOTE: Mouse events (mouseDown, mouseUp, mouseMoved, etc.) are NOT processed here.
     /// They are handled by the NSView subclass (GLView/CPUView) via Cocoa's responder chain.
     /// Calling sendEvent() forwards the event to the view, which then calls our handlers.
@@ -6774,7 +6943,8 @@ impl MacOSWindow {
             // Only regenerate layout when DOM actually changed, not for mere re-renders
             match thread_update {
                 Update::RefreshDom | Update::RefreshDomAllWindows => {
-                    self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    self.common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 }
                 _ => {}
             }
@@ -6792,7 +6962,8 @@ impl MacOSWindow {
                     | ProcessEventResult::ShouldRegenerateDomAllWindows
                     | ProcessEventResult::ShouldIncrementalRelayout
                     | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        self.common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         self.request_redraw();
                     }
                     ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
@@ -6876,7 +7047,8 @@ impl MacOSWindow {
         // Force layout on first frame — layout_results is empty until the first
         // regenerate_layout() call. Both GPU and CPU paths need this.
         if !self.common.display_list_initialized {
-            self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            self.common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         }
 
         // CRITICAL: Regenerate layout FIRST if needed
@@ -6928,7 +7100,8 @@ impl MacOSWindow {
             // Retire ONLY the request this frame observed: a lifecycle callback
             // running inside the render above can raise a new one, and a bare
             // `= false` here would erase it.
-            self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+            self.common
+                .clear_regeneration_unless_reraised(regen_epoch_seen);
             self.common.display_list_dirty = false;
             true
         } else if self.common.regeneration_pending() {
@@ -6944,17 +7117,17 @@ impl MacOSWindow {
                         "[build_atomic_txn] Layout failed: {}",
                         e
                     );
-                    return Err(WindowError::PlatformError(
-                        format!("Layout failed: {}", e),
-                    ));
+                    return Err(WindowError::PlatformError(format!("Layout failed: {}", e)));
                 }
             };
             // Retire ONLY the request this frame observed: a lifecycle callback
             // running inside the render above can raise a new one, and a bare
             // `= false` here would erase it.
-            self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+            self.common
+                .clear_regeneration_unless_reraised(regen_epoch_seen);
             // Layout was regenerated — rebuild display list unless layout result is identical
-            let mut needs_rebuild = result != crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged;
+            let mut needs_rebuild = result
+                != crate::desktop::shell2::common::layout::LayoutRegenerateResult::LayoutUnchanged;
             // If layout is unchanged but display_list_dirty is set (e.g. cursor blink
             // toggled the display list without changing the DOM structure), we still
             // need to rebuild the display list so the visual change reaches WebRender.
@@ -6968,8 +7141,14 @@ impl MacOSWindow {
             self.common.display_list_dirty = false;
             needs_rebuild
         } else if self.common.display_list_dirty {
-            log_trace!(LogCategory::Rendering, "[RENDER] display_list_dirty=true, regenerating display list. preedit={:?}",
-                self.common.layout_window.as_ref().map(|lw| lw.text_edit_manager.preedit_text.clone()));
+            log_trace!(
+                LogCategory::Rendering,
+                "[RENDER] display_list_dirty=true, regenerating display list. preedit={:?}",
+                self.common
+                    .layout_window
+                    .as_ref()
+                    .map(|lw| lw.text_edit_manager.preedit_text.clone())
+            );
             // Regenerate the display list from the layout tree so it picks up
             // preedit text, cursor changes, selection changes, etc.
             if let Some(ref mut lw) = self.common.layout_window {
@@ -7023,7 +7202,8 @@ impl MacOSWindow {
         // Get layout_window
         let window_state = self.common.current_window_state().clone();
         let layout_window = self
-            .common.layout_window
+            .common
+            .layout_window
             .as_mut()
             .ok_or_else(|| WindowError::PlatformError("No layout window".into()))?;
 
@@ -7037,7 +7217,8 @@ impl MacOSWindow {
             #[cfg(feature = "std")]
             let now = azul_core::task::Instant::System(std::time::Instant::now().into());
             #[cfg(not(feature = "std"))]
-            let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+            let now =
+                azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
             let tick_result = layout_window.scroll_manager.tick(now);
             scroll_needs_repaint = tick_result.needs_repaint;
             if scroll_needs_repaint {
@@ -7150,15 +7331,16 @@ impl MacOSWindow {
                     // Transparent material: the frame clears to alpha 0
                     // and the view composites it (macOS shapes the window's
                     // hit-testing by that alpha on its own).
-                    self.cpu_backend.sync_window_flags(&layout_window.current_window_state);
+                    self.cpu_backend
+                        .sync_window_flags(&layout_window.current_window_state);
                     if let Some(ref cpu_view) = self.cpu_view {
                         cpu_view.set_transparent(self.cpu_backend.transparent);
                     }
 
                     if crate::desktop::shell2::headless::native_backbuffer_enabled() {
                         if let Some(ref cpu_view) = self.cpu_view {
-                            if let Some(ptr) = cpu_view
-                                .native_target_ptr(native_pw as usize, native_ph as usize)
+                            if let Some(ptr) =
+                                cpu_view.native_target_ptr(native_pw as usize, native_ph as usize)
                             {
                                 self.cpu_backend.native_target = unsafe {
                                     azul_layout::cpurender::AzulPixmap::from_external(
@@ -7188,9 +7370,9 @@ impl MacOSWindow {
                             match &self.cpu_backend.last_present_damage {
                                 crate::desktop::shell2::headless::FrameDamage::None => {}
                                 damage => {
-                                    if let Some(rects) = damage.to_present_rects_physical(
-                                        dpi, native_pw, native_ph, false,
-                                    ) {
+                                    if let Some(rects) = damage
+                                        .to_present_rects_physical(dpi, native_pw, native_ph, false)
+                                    {
                                         cpu_view.invalidate_present_rects(&rects);
                                     }
                                 }
@@ -7253,8 +7435,13 @@ impl MacOSWindow {
         // ─── GPU backend: WebRender transaction ───
 
         // Build transaction: full rebuild if display list changed, lightweight otherwise
-        log_trace!(LogCategory::Rendering, "[RENDER] display_list_needs_rebuild={} frame_needs_regen={} initialized={}",
-            display_list_needs_rebuild, regen_pending_at_entry, display_list_initialized_at_entry);
+        log_trace!(
+            LogCategory::Rendering,
+            "[RENDER] display_list_needs_rebuild={} frame_needs_regen={} initialized={}",
+            display_list_needs_rebuild,
+            regen_pending_at_entry,
+            display_list_initialized_at_entry
+        );
         if display_list_needs_rebuild {
             // Full rebuild: fonts, images, display lists, everything
             crate::desktop::wr_translate2::build_webrender_transaction(
@@ -7292,8 +7479,16 @@ impl MacOSWindow {
                 "[WebRender] send_transaction({:?})",
                 doc_id
             );
-            self.common.render_api.as_mut().unwrap().send_transaction(doc_id, txn);
-            self.common.render_api.as_mut().unwrap().flush_scene_builder();
+            self.common
+                .render_api
+                .as_mut()
+                .unwrap()
+                .send_transaction(doc_id, txn);
+            self.common
+                .render_api
+                .as_mut()
+                .unwrap()
+                .flush_scene_builder();
         }
         log_trace!(LogCategory::Rendering, "[WebRender] Transaction sent");
 
@@ -7326,8 +7521,10 @@ impl MacOSWindow {
                     // request_redraw() uses these to call setNeedsDisplayInRect: instead
                     // of setNeedsDisplay: so macOS only recomposites changed regions.
                     let dpi_scale = self.common.current_window_state().size.dpi as f32 / BASE_DPI;
-                    self.gpu_damage_rects = results.dirty_rects.iter().map(|dr| {
-                        azul_core::geom::LogicalRect {
+                    self.gpu_damage_rects = results
+                        .dirty_rects
+                        .iter()
+                        .map(|dr| azul_core::geom::LogicalRect {
                             origin: azul_core::geom::LogicalPosition {
                                 x: dr.min.x as f32 / dpi_scale,
                                 y: dr.min.y as f32 / dpi_scale,
@@ -7336,15 +7533,22 @@ impl MacOSWindow {
                                 width: dr.width() as f32 / dpi_scale,
                                 height: dr.height() as f32 / dpi_scale,
                             },
-                        }
-                    }).collect();
+                        })
+                        .collect();
 
                     // Update hit tester after render - WebRender now has valid scene data
                     if let Some(layout_window) = self.common.layout_window.as_ref() {
                         let doc_id = wr_translate_document_id(layout_window.document_id);
-                        let new_hit_tester = self.common.render_api.as_ref().unwrap().request_hit_tester(doc_id).resolve();
-                        self.common.hit_tester =
-                            Some(crate::desktop::wr_translate2::AsyncHitTester::Resolved(new_hit_tester));
+                        let new_hit_tester = self
+                            .common
+                            .render_api
+                            .as_ref()
+                            .unwrap()
+                            .request_hit_tester(doc_id)
+                            .resolve();
+                        self.common.hit_tester = Some(
+                            crate::desktop::wr_translate2::AsyncHitTester::Resolved(new_hit_tester),
+                        );
                         log_trace!(
                             LogCategory::Rendering,
                             "[WebRender] Hit tester updated after render"
@@ -7357,9 +7561,10 @@ impl MacOSWindow {
                         "[WebRender] Render errors: {:?}",
                         errors
                     );
-                    return Err(WindowError::PlatformError(
-                        format!("WebRender render failed: {:?}", errors),
-                    ));
+                    return Err(WindowError::PlatformError(format!(
+                        "WebRender render failed: {:?}",
+                        errors
+                    )));
                 }
             }
         } else {
@@ -7399,7 +7604,10 @@ impl MacOSWindow {
         // another frame so the fade-out animation runs to completion.
         // This fires for opacity == 1.0 too (during the fade_delay period)
         // because the scroll physics timer may have already terminated.
-        let needs_fade_frame = self.common.layout_window.as_ref()
+        let needs_fade_frame = self
+            .common
+            .layout_window
+            .as_ref()
             .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
             .unwrap_or(false);
         if needs_fade_frame {
@@ -7678,7 +7886,8 @@ impl MacOSWindow {
                 self.apply_incremental_relayout_result();
             }
             _ => {
-                self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                self.common
+                    .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 self.request_redraw();
             }
         }
@@ -7708,9 +7917,7 @@ impl MacOSWindow {
                 Some(Retained::as_ptr(cpu_view) as *const NSView)
             } else {
                 content_view_fallback = self.window.contentView();
-                content_view_fallback
-                    .as_deref()
-                    .map(|v| v as *const NSView)
+                content_view_fallback.as_deref().map(|v| v as *const NSView)
             };
             if let Some(view_ptr) = view_ptr {
                 // The damage rects are azul-logical: points with a TOP-left
@@ -8023,7 +8230,10 @@ impl MacOSWindow {
         }
 
         // Take the tree update and submit to OS
-        let tree_update = self.common.layout_window.as_mut()
+        let tree_update = self
+            .common
+            .layout_window
+            .as_mut()
             .and_then(|lw| lw.a11y_manager.last_tree_update.take());
         if let Some(tree_update) = tree_update {
             adapter.update_tree(tree_update);
@@ -8085,7 +8295,6 @@ impl MacOSWindow {
     fn get_backing_scale_factor(&self) -> f64 {
         self.window.backingScaleFactor()
     }
-
 }
 
 /// Position window on requested monitor, or center on primary monitor
@@ -8191,15 +8400,12 @@ fn position_window_on_monitor(
             // is flipped" and then didn't flip), so a window asked to open at
             // (0, 0) opened at the BOTTOM of the screen — and it was the one
             // site in this backend that broke the MWA-B9 convention.
-            primary_screen_height().map_or(
-                (f64::from(pos.x), f64::from(pos.y)),
-                |primary_height| {
-                    (
-                        f64::from(pos.x),
-                        primary_height - f64::from(pos.y) - window_frame.size.height,
-                    )
-                },
-            )
+            primary_screen_height().map_or((f64::from(pos.x), f64::from(pos.y)), |primary_height| {
+                (
+                    f64::from(pos.x),
+                    primary_height - f64::from(pos.y) - window_frame.size.height,
+                )
+            })
         }
         WindowPosition::Uninitialized => {
             // No explicit position - center on target monitor
@@ -8226,7 +8432,9 @@ fn position_window_on_monitor(
                     // the borderless style mask is applied, so the frame still
                     // carries a title bar here; it is shed from the top
                     // afterwards, which would leave the popup that much too low.
-                    let content_height = unsafe { window.contentRectForFrameRect(window_frame) }.size.height;
+                    let content_height = unsafe { window.contentRectForFrameRect(window_frame) }
+                        .size
+                        .height;
                     (
                         cx + f64::from(offset.x),
                         primary_height - top_left_y - content_height,

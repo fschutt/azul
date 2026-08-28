@@ -85,7 +85,10 @@ pub fn probe_hw_decode() -> HwDecodeProbe {
     }
     // Apple build without `libloading`: the runtime-loaded backend is not
     // compiled in — the codec is a stub and the probe must say so.
-    #[cfg(all(any(target_os = "macos", target_os = "ios"), not(feature = "libloading")))]
+    #[cfg(all(
+        any(target_os = "macos", target_os = "ios"),
+        not(feature = "libloading")
+    ))]
     {
         return HwDecodeProbe {
             available: false,
@@ -132,7 +135,7 @@ pub fn probe_hw_decode() -> HwDecodeProbe {
                     can_remediate: plan.possible,
                 }
             }
-        }
+        };
     }
     #[cfg(not(any(
         target_os = "macos",
@@ -290,7 +293,8 @@ fn vulkan_has_ext(want: &[u8]) -> Option<bool> {
                     extension_name: [0; 256],
                     spec_version: 0,
                 });
-                if enum_dev_ext(dev, ptr::null(), &mut ext_count, props.as_mut_ptr()) != VK_SUCCESS {
+                if enum_dev_ext(dev, ptr::null(), &mut ext_count, props.as_mut_ptr()) != VK_SUCCESS
+                {
                     continue;
                 }
                 for p in props.iter().take(ext_count as usize) {
@@ -568,7 +572,9 @@ pub fn reboot_now() -> Result<(), String> {
         if try_spawn("shutdown", &["/r", "/t", "0"]) {
             return Ok(());
         }
-        Err(String::from("could not initiate reboot (shutdown /r failed)"))
+        Err(String::from(
+            "could not initiate reboot (shutdown /r failed)",
+        ))
     }
     #[cfg(any(target_os = "macos", target_os = "ios", target_os = "android"))]
     {
@@ -649,7 +655,9 @@ pub fn reboot_safety_check(kernel_version: &str) -> RebootSafety {
         match root_disk_driver() {
             Some(driver) => {
                 if kernel_has_module(kernel_version, &driver) {
-                    reasons.push(format!("root-disk driver `{driver}` is in {kernel_version}"));
+                    reasons.push(format!(
+                        "root-disk driver `{driver}` is in {kernel_version}"
+                    ));
                 } else {
                     safe = false;
                     reasons.push(format!(
@@ -806,11 +814,7 @@ pub fn repair_kernel_plan(kernel_version: &str) -> ProvisionPlan {
                 true, // a reboot is needed to actually run the repaired kernel
                 vec![
                     ProvisionCommand::new("apt-get", &["install", "-y", extra.as_str()], true),
-                    ProvisionCommand::new(
-                        "update-initramfs",
-                        &["-u", "-k", kernel_version],
-                        true,
-                    ),
+                    ProvisionCommand::new("update-initramfs", &["-u", "-k", kernel_version], true),
                 ],
             );
         }
@@ -884,7 +888,11 @@ fn startup_boot_check() -> (bool, String, bool) {
                 !s.safe && repair_kernel_plan(&k).possible,
             )
         }
-        None => (true, String::from("no installed-kernel info available"), false),
+        None => (
+            true,
+            String::from("no installed-kernel info available"),
+            false,
+        ),
     };
     // "Safe to reboot" must also mean "won't boot to a black screen".
     let (disp_safe, disp_detail) = display_boot_safe();
@@ -1201,7 +1209,9 @@ fn detect_gpu_vendors() -> Vec<GpuVendor> {
         let name = e.file_name();
         let name = name.to_string_lossy();
         // Match `cardN` exactly (skip connector nodes like `card0-eDP-1`).
-        if !name.starts_with("card") || name.len() <= 4 || !name[4..].bytes().all(|b| b.is_ascii_digit())
+        if !name.starts_with("card")
+            || name.len() <= 4
+            || !name[4..].bytes().all(|b| b.is_ascii_digit())
         {
             continue;
         }
@@ -1295,7 +1305,10 @@ fn parse_nvidia_listing(listing: &str) -> Option<NvidiaDriverChoice> {
         let pkg = line.split(',').next().unwrap_or("").trim();
         // Plain desktop branch only: `nvidia-driver-<N>` parses; `-open`/`-server`
         // suffixes make the parse fail and are skipped.
-        let branch = match pkg.strip_prefix("nvidia-driver-").and_then(|s| s.parse::<u32>().ok()) {
+        let branch = match pkg
+            .strip_prefix("nvidia-driver-")
+            .and_then(|s| s.parse::<u32>().ok())
+        {
             Some(b) => b,
             None => continue,
         };
@@ -1377,7 +1390,15 @@ fn x11_fallback_session() -> Option<String> {
             return Some(m.clone());
         }
     }
-    for pref in ["plasmax11", "plasma", "cinnamon", "xfce", "gnome-xorg", "mate", "lxqt"] {
+    for pref in [
+        "plasmax11",
+        "plasma",
+        "cinnamon",
+        "xfce",
+        "gnome-xorg",
+        "mate",
+        "lxqt",
+    ] {
         if let Some(m) = sessions.iter().find(|s| s.as_str() == pref) {
             return Some(m.clone());
         }
@@ -1481,7 +1502,10 @@ fn display_boot_safe() -> (bool, String) {
         return (true, String::from("not on the proprietary NVIDIA driver"));
     }
     if !is_uefi() {
-        return (true, String::from("BIOS/CSM boot — no simple-framebuffer handoff"));
+        return (
+            true,
+            String::from("BIOS/CSM boot — no simple-framebuffer handoff"),
+        );
     }
     if nvidia_drm_has_fbdev() {
         return (
@@ -1546,7 +1570,11 @@ fn nvidia_plan() -> ProvisionPlan {
     if which("ubuntu-drivers") {
         let mut commands = vec![ProvisionCommand::new("ubuntu-drivers", &["install"], true)];
         let net = visible_login_net_commands();
-        let s = if net.is_empty() { base.clone() } else { format!("{base}{net_note}") };
+        let s = if net.is_empty() {
+            base.clone()
+        } else {
+            format!("{base}{net_note}")
+        };
         commands.extend(net);
         return ProvisionPlan::from_commands(s, true, commands);
     }
@@ -1556,7 +1584,11 @@ fn nvidia_plan() -> ProvisionPlan {
             ProvisionCommand::new("apt-get", &["install", "-y", "nvidia-driver"], true),
         ];
         let net = visible_login_net_commands();
-        let s = if net.is_empty() { base.clone() } else { format!("{base}{net_note}") };
+        let s = if net.is_empty() {
+            base.clone()
+        } else {
+            format!("{base}{net_note}")
+        };
         commands.extend(net);
         return ProvisionPlan::from_commands(s, true, commands);
     }
@@ -1564,7 +1596,11 @@ fn nvidia_plan() -> ProvisionPlan {
         return ProvisionPlan::from_commands(
             format!("{base} (Fedora: requires the RPM Fusion nonfree repo.)"),
             true,
-            vec![ProvisionCommand::new("dnf", &["install", "-y", "akmod-nvidia"], true)],
+            vec![ProvisionCommand::new(
+                "dnf",
+                &["install", "-y", "akmod-nvidia"],
+                true,
+            )],
         );
     }
     if which("pacman") {
@@ -1804,7 +1840,10 @@ mod provision_tests {
             plan.commands.len()
         );
         for c in &plan.commands {
-            assert!(!c.display.is_empty(), "every command renders for the consent UI");
+            assert!(
+                !c.display.is_empty(),
+                "every command renders for the consent UI"
+            );
             assert!(!c.program.is_empty());
             eprintln!("  - {} (elevated={})", c.display, c.elevated);
         }
@@ -1843,8 +1882,9 @@ mod provision_tests {
         assert!((dl.percent - 13.3766).abs() < 0.001);
         assert_eq!(dl.description, "Hole http://archive.ubuntu.com/x");
 
-        let pm = parse_apt_status_line("pmstatus:nvidia-driver-535:50.0:Setting up nvidia-driver-535")
-            .expect("pmstatus parses");
+        let pm =
+            parse_apt_status_line("pmstatus:nvidia-driver-535:50.0:Setting up nvidia-driver-535")
+                .expect("pmstatus parses");
         assert_eq!(pm.phase, AptPhase::Install);
         assert_eq!(pm.percent, 50.0);
 
@@ -1853,7 +1893,9 @@ mod provision_tests {
             AptPhase::Error
         );
         assert_eq!(
-            parse_apt_status_line("pmconffile:/etc/x:0:prompt").unwrap().phase,
+            parse_apt_status_line("pmconffile:/etc/x:0:prompt")
+                .unwrap()
+                .phase,
             AptPhase::ConfFile
         );
         // Plain apt output / arbitrary lines are not status lines.
@@ -1864,11 +1906,23 @@ mod provision_tests {
     /// Download fills the lower half of a command, install the upper half.
     #[test]
     fn command_percent_splits_download_and_install() {
-        let dl = AptStatus { phase: AptPhase::Download, percent: 100.0, description: String::new() };
+        let dl = AptStatus {
+            phase: AptPhase::Download,
+            percent: 100.0,
+            description: String::new(),
+        };
         assert_eq!(command_percent(&dl), 50.0);
-        let pm0 = AptStatus { phase: AptPhase::Install, percent: 0.0, description: String::new() };
+        let pm0 = AptStatus {
+            phase: AptPhase::Install,
+            percent: 0.0,
+            description: String::new(),
+        };
         assert_eq!(command_percent(&pm0), 50.0);
-        let pm100 = AptStatus { phase: AptPhase::Install, percent: 100.0, description: String::new() };
+        let pm100 = AptStatus {
+            phase: AptPhase::Install,
+            percent: 100.0,
+            description: String::new(),
+        };
         assert_eq!(command_percent(&pm100), 100.0);
     }
 
@@ -1916,7 +1970,11 @@ mod provision_tests {
         let c = VideoStartupCheck::run();
         eprintln!(
             "[startup] hw_ready={} boot_safe={} remediable={} reboot={} :: {}",
-            c.hw_decode_ready, c.boot_safe, c.can_remediate, c.needs_reboot, c.summary.as_str()
+            c.hw_decode_ready,
+            c.boot_safe,
+            c.can_remediate,
+            c.needs_reboot,
+            c.summary.as_str()
         );
         assert!(!c.summary.as_str().is_empty());
         assert!(!c.detail.as_str().is_empty());
@@ -1967,7 +2025,10 @@ nvidia-driver-580, (kernel modules provided by linux-modules-nvidia-580-generic-
 nvidia-driver-535-server, (kernel modules provided by linux-modules-nvidia-535-server-generic-hwe-24.04)
 nvidia-driver-580-open, (kernel modules provided by linux-modules-nvidia-580-open-generic-hwe-24.04)";
         let choice = parse_nvidia_listing(listing).expect("a branch is chosen");
-        assert_eq!(choice.driver_pkg, "nvidia-driver-580", "the fbdev branch wins");
+        assert_eq!(
+            choice.driver_pkg, "nvidia-driver-580",
+            "the fbdev branch wins"
+        );
         assert!(choice.has_fbdev);
         assert_eq!(
             choice.modules_pkg.as_deref(),

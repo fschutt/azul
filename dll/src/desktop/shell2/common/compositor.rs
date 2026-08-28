@@ -23,8 +23,7 @@ use super::debug_server::LogCategory;
 use crate::log_warn;
 
 /// Compositor mode selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum CompositorMode {
     /// Hardware GPU rendering (OpenGL/Metal/D3D/Vulkan)
     GPU,
@@ -36,7 +35,6 @@ pub enum CompositorMode {
     #[default]
     Auto,
 }
-
 
 impl CompositorMode {
     /// Parse compositor mode from environment variable string.
@@ -72,8 +70,7 @@ impl CompositorMode {
 /// or `AZ_BACKEND=auto` (try GPU, fall back to CPU).
 ///
 /// `AZ_BACKEND` fully replaces those older variables; they are no longer read.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[allow(missing_copy_implementations)] // `Web(WebConfig)` carries non-Copy fields
 pub enum AzBackend {
     /// Try GPU, fall back to CPU on GL init failure or blacklisted GPU.
@@ -97,7 +94,6 @@ pub enum AzBackend {
     #[cfg(feature = "web")]
     Web(crate::web::config::WebConfig),
 }
-
 
 impl AzBackend {
     /// Resolve the backend from environment variable and config.
@@ -175,7 +171,6 @@ impl AzBackend {
         // to CPU) — or programmatically via `HwAcceleration::Enabled`.
         AzBackend::Cpu
     }
-
 }
 
 // ============================================================================
@@ -215,9 +210,7 @@ pub enum GpuCheckResult {
 /// Returns [`GpuCheckResult::QueryFailed`] when the vendor / renderer / version
 /// strings are missing, which is the symptom of a broken / partially loaded
 /// driver (azul#220).
-pub fn query_gpu_info(
-    gl: &gl_context_loader::GenericGlContext,
-) -> GpuCheckResult {
+pub fn query_gpu_info(gl: &gl_context_loader::GenericGlContext) -> GpuCheckResult {
     const GL_VENDOR: u32 = 0x1F00;
     const GL_RENDERER: u32 = 0x1F01;
     const GL_VERSION: u32 = 0x1F02;
@@ -234,7 +227,12 @@ pub fn query_gpu_info(
         );
     }
 
-    let info = GpuInfo { vendor, renderer, version, glsl_version };
+    let info = GpuInfo {
+        vendor,
+        renderer,
+        version,
+        glsl_version,
+    };
     let result = check_gpu_blacklist(&info);
     publish_gpu_status(&result);
     result
@@ -296,21 +294,23 @@ pub fn check_gpu_blacklist(info: &GpuInfo) -> GpuCheckResult {
         return GpuCheckResult::Blacklisted {
             info: info.clone(),
             reason: "Mesa software rasteriser (llvmpipe/softpipe/swrast) detected — \
-                     cpurender is faster and avoids desktop-GLSL shader-compile errors".into(),
+                     cpurender is faster and avoids desktop-GLSL shader-compile errors"
+                .into(),
         };
     }
 
     // NVIDIA shader compiler missing (azul#220)
     // Detected by GLSL version being empty or "0.0"
-    if vendor_lower.contains("nvidia") && (
-        info.glsl_version.is_empty() ||
-        info.glsl_version.starts_with("0.") ||
-        info.glsl_version == "0"
-    ) {
+    if vendor_lower.contains("nvidia")
+        && (info.glsl_version.is_empty()
+            || info.glsl_version.starts_with("0.")
+            || info.glsl_version == "0")
+    {
         return GpuCheckResult::Blacklisted {
             info: info.clone(),
             reason: "NVIDIA driver without shader compiler (azul#220) — \
-                     the GL driver loads but cannot compile shaders".into(),
+                     the GL driver loads but cannot compile shaders"
+                .into(),
         };
     }
 
@@ -417,16 +417,24 @@ pub trait Compositor {
     fn present(&mut self) -> Result<(), CompositorError>;
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_compositor_mode_parsing() {
-        assert_eq!(CompositorMode::from_env_str("cpu"), Some(CompositorMode::CPU));
-        assert_eq!(CompositorMode::from_env_str("GPU"), Some(CompositorMode::GPU));
-        assert_eq!(CompositorMode::from_env_str("Auto"), Some(CompositorMode::Auto));
+        assert_eq!(
+            CompositorMode::from_env_str("cpu"),
+            Some(CompositorMode::CPU)
+        );
+        assert_eq!(
+            CompositorMode::from_env_str("GPU"),
+            Some(CompositorMode::GPU)
+        );
+        assert_eq!(
+            CompositorMode::from_env_str("Auto"),
+            Some(CompositorMode::Auto)
+        );
         assert_eq!(CompositorMode::from_env_str("invalid"), None);
     }
 }

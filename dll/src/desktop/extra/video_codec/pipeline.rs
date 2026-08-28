@@ -41,7 +41,12 @@ pub struct DecodedVideo {
 
 // FFI Option wrapper — the C ABI has no `Result`, so `decode_mp4_h264` reports
 // failure as `None`. `copy = false` (carries a `VideoFrameVec`).
-impl_option!(DecodedVideo, OptionDecodedVideo, copy = false, [Clone, Debug]);
+impl_option!(
+    DecodedVideo,
+    OptionDecodedVideo,
+    copy = false,
+    [Clone, Debug]
+);
 
 /// Demux + decode an in-memory MP4, returning the clip or `None` on any error —
 /// the C-ABI-friendly entry point (mirrors [`decode_mp4_h264_bytes`], which

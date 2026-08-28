@@ -281,10 +281,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     b.indent();
     b.line("this._ptr = ptr;");
     if has_delete {
-        b.line(&format!(
-            "{}._registry.register(this, ptr, this);",
-            class
-        ));
+        b.line(&format!("{}._registry.register(this, ptr, this);", class));
     }
     b.dedent();
     b.line("}");
@@ -395,9 +392,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
     // nested field path are all IR-derived via
     // [`layout_callback_factory_info`] — adding/renaming the eligible
     // class in api.json lights this up without touching this emitter.
-    if let Some(info) =
-        super::super::managed_host_invoker::layout_callback_factory_info(s, ir)
-    {
+    if let Some(info) = super::super::managed_host_invoker::layout_callback_factory_info(s, ir) {
         b.line("/**");
         b.line(" * Smart factory: pass a layout-callback function; the host-invoker");
         b.line(" * registration and field-copy plumbing happen internally. The");
@@ -411,10 +406,7 @@ fn emit_struct_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, s: &StructDef) {
         ));
         b.line(&format!("const opts = lib.{}();", info.default_c_name));
         b.line(&format!("opts.{} = cb;", info.field_path.join(".")));
-        b.line(&format!(
-            "return new {}(opts);",
-            info.class_name
-        ));
+        b.line(&format!("return new {}(opts);", info.class_name));
         b.dedent();
         b.line("}");
         b.blank();
@@ -521,10 +513,7 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
             "// {0} is a unit-only enum; numeric constants live on Enums.{0}.",
             e.name
         ));
-        b.line(&format!(
-            "const {0} = Enums.{0};",
-            class
-        ));
+        b.line(&format!("const {0} = Enums.{0};", class));
         b.blank();
         return;
     }
@@ -561,10 +550,7 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
     b.indent();
     b.line("this._ptr = ptr;");
     if has_delete {
-        b.line(&format!(
-            "{}._registry.register(this, ptr, this);",
-            class
-        ));
+        b.line(&format!("{}._registry.register(this, ptr, this);", class));
     }
     b.dedent();
     b.line("}");
@@ -606,7 +592,11 @@ fn emit_enum_wrapper(b: &mut CodeBuilder, ir: &CodegenIR, e: &EnumDef) {
             ));
             b.line(&format!("{}() {{", pred));
             b.indent();
-            b.line(&format!("return this.tag() === {}.Tag.{};", class, sanitize_js_identifier(&v.name)));
+            b.line(&format!(
+                "return this.tag() === {}.Tag.{};",
+                class,
+                sanitize_js_identifier(&v.name)
+            ));
             b.dedent();
             b.line("}");
             b.blank();
@@ -680,10 +670,7 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     if s.fields.len() != 4 {
         return;
     }
-    if s.fields[0].name != "ptr"
-        || s.fields[1].name != "len"
-        || s.fields[2].name != "cap"
-    {
+    if s.fields[0].name != "ptr" || s.fields[1].name != "len" || s.fields[2].name != "cap" {
         return;
     }
     if s.fields[1].type_name.trim() != "usize" {
@@ -731,9 +718,10 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
                 )
             })
             .unwrap_or(false)
-            && ir.functions.iter().any(|f| {
-                f.class_name == elem_ty && matches!(f.kind, FunctionKind::Delete)
-            })
+            && ir
+                .functions
+                .iter()
+                .any(|f| f.class_name == elem_ty && matches!(f.kind, FunctionKind::Delete))
     };
 
     b.line("/**");
@@ -762,7 +750,10 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
     if is_primitive {
         b.line("yield buf[i];");
     } else if has_clone && has_wrapper {
-        b.line(&format!("const __cloned = lib.Az{}_deepCopy(buf[i]);", elem_ty));
+        b.line(&format!(
+            "const __cloned = lib.Az{}_deepCopy(buf[i]);",
+            elem_ty
+        ));
         b.line(&format!("yield new {}(__cloned);", elem_ty));
     } else {
         b.line("yield buf[i];");
@@ -777,17 +768,12 @@ fn emit_node_iterator_if_vec(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR)
 /// Phase I.3.4 (Node): emit `toString()` instance method routed
 /// through `Az<X>_toDbgString`. Decodes the returned AzString to a JS
 /// string via `_azStringDecode`. Skips AzString itself.
-fn emit_node_toString_if_supported(
-    b: &mut CodeBuilder,
-    s: &StructDef,
-    ir: &CodegenIR,
-) {
+fn emit_node_toString_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR) {
     if matches!(s.category, TypeCategory::String) {
         return;
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug
-        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
     if !has_dbg {
         return;
     }
@@ -820,15 +806,9 @@ fn emit_node_toString_if_supported(
 /// Phase I.2.6 (Node): emit `equals(other)` instance method routed
 /// through `Az<X>_partialEq` when TypeTraits flags it and the C export
 /// exists. Pure type-driven; no method-name allowlist.
-fn emit_node_equals_if_supported(
-    b: &mut CodeBuilder,
-    s: &StructDef,
-    ir: &CodegenIR,
-    class: &str,
-) {
+fn emit_node_equals_if_supported(b: &mut CodeBuilder, s: &StructDef, ir: &CodegenIR, class: &str) {
     let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq
-        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
     if !has_eq {
         return;
     }
@@ -990,11 +970,7 @@ fn node_payload_has_wrapper(payload_ty: &str, ir: &CodegenIR) -> bool {
 /// koffi auto-encodes JS objects into temp buffers when passing to
 /// struct-pointer params, so `lib.Az<Outer>_delete(_ret)` works
 /// even though `_ret` is a JS object rather than a raw pointer.
-fn emit_node_option_result_body(
-    b: &mut CodeBuilder,
-    info: &NodeOptResultInfo,
-    ir: &CodegenIR,
-) {
+fn emit_node_option_result_body(b: &mut CodeBuilder, info: &NodeOptResultInfo, ir: &CodegenIR) {
     let outer_delete = if node_has_delete(&info.outer_name, ir) {
         format!("lib.Az{}_delete(_ret);", info.outer_name)
     } else {
@@ -1051,17 +1027,14 @@ fn emit_node_option_result_body(
         b.dedent();
         b.line("} else {");
         b.indent();
-        b.line(
-            "__out = Buffer.from(koffi.decode(__vp, 'char', __vl)).toString('utf8');",
-        );
+        b.line("__out = Buffer.from(koffi.decode(__vp, 'char', __vl)).toString('utf8');");
         b.dedent();
         b.line("}");
         if !outer_delete.is_empty() {
             b.line(&outer_delete);
         }
         b.line("return __out;");
-    } else if node_payload_has_wrapper(&info.payload_ty, ir)
-        && node_has_clone(&info.payload_ty, ir)
+    } else if node_payload_has_wrapper(&info.payload_ty, ir) && node_has_clone(&info.payload_ty, ir)
     {
         // Wrapper-class payload — clone for an independent
         // allocation, then delete the outer (drops the original
@@ -1115,7 +1088,10 @@ fn emit_instance_method(
         for d in &f.doc {
             b.line(&format!(" * {}", jsdoc_escape(d)));
         }
-        b.line(&format!(" * Wraps `lib.{}` with `this` bound as the receiver.", f.c_name));
+        b.line(&format!(
+            " * Wraps `lib.{}` with `this` bound as the receiver.",
+            f.c_name
+        ));
         b.line(" */");
     }
     b.line(&format!("{}({}) {{", method, params));
@@ -1364,8 +1340,7 @@ fn render_call_args(args: &[&super::super::ir::FunctionArg]) -> String {
 /// level. The call site routes the value through `_azString` (emitted
 /// in the module preamble).
 fn is_az_string_owned_arg(a: &super::super::ir::FunctionArg) -> bool {
-    a.type_name.trim() == "String"
-        && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
+    a.type_name.trim() == "String" && matches!(a.ref_kind, super::super::ir::ArgRefKind::Owned)
 }
 
 fn jsdoc_escape(s: &str) -> String {

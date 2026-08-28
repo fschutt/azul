@@ -24,19 +24,19 @@
 
 use azul_core::tray::{TrayEvent, TrayIconData};
 
-#[cfg(target_os = "windows")]
-mod windows;
-#[cfg(target_os = "macos")]
-pub(crate) mod macos;
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 mod linux;
-
-#[cfg(target_os = "windows")]
-use windows as platform;
 #[cfg(target_os = "macos")]
-use macos as platform;
+pub(crate) mod macos;
+#[cfg(target_os = "windows")]
+mod windows;
+
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 use linux as platform;
+#[cfg(target_os = "macos")]
+use macos as platform;
+#[cfg(target_os = "windows")]
+use windows as platform;
 
 /// Why a tray icon could not be created or updated.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -269,7 +269,8 @@ impl TrayIcon {
             all(target_os = "linux", not(target_arch = "wasm32"))
         ))]
         {
-            self.inner.update(&self.data, &data, provider, font_manager)?;
+            self.inner
+                .update(&self.data, &data, provider, font_manager)?;
         }
         self.data = data;
         Ok(())

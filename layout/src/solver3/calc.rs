@@ -8,10 +8,7 @@
 //! to taffy. Percentages use the `basis` value provided by taffy (container width/height).
 
 use azul_css::props::{
-    basic::{
-        pixel::PT_TO_PX,
-        PixelValue, SizeMetric,
-    },
+    basic::{pixel::PT_TO_PX, PixelValue, SizeMetric},
     layout::dimensions::{CalcAstItem, CalcAstItemVec},
 };
 
@@ -59,8 +56,10 @@ enum CalcOp {
 
 /// Evaluate a `CalcResolveContext` using the given `basis` (the "100 %" reference value,
 /// e.g. containing-block width for `width: calc(…)`).
-#[inline(never)] // M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill PC-dispatch loop that mis-delivers auto_w
-#[must_use] pub fn evaluate_calc(ctx: &CalcResolveContext, basis: f32) -> f32 {
+#[inline(never)]
+// M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill PC-dispatch loop that mis-delivers auto_w
+#[must_use]
+pub fn evaluate_calc(ctx: &CalcResolveContext, basis: f32) -> f32 {
     evaluate_calc_ast(ctx.items.as_slice(), basis, ctx.em_size, ctx.rem_size)
 }
 
@@ -75,12 +74,7 @@ enum CalcOp {
 ///   Pass 2: evaluate `+` and `-`
 /// Parenthesised sub-expressions are resolved recursively.
 #[inline(never)] // M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill PC-dispatch loop that mis-delivers auto_w
-fn evaluate_calc_ast(
-    items: &[CalcAstItem],
-    basis: f32,
-    em_size: f32,
-    rem_size: f32,
-) -> f32 {
+fn evaluate_calc_ast(items: &[CalcAstItem], basis: f32, em_size: f32, rem_size: f32) -> f32 {
     // Convert into a working vec of resolved numbers and operators.
     let mut flat: Vec<CalcFlatItem> = Vec::with_capacity(items.len());
     let mut i = 0;
@@ -156,8 +150,7 @@ fn evaluate_calc_ast(
     };
     let mut m = 1;
     while m < pass2.len() {
-        if let (CalcFlatItem::Op(op), Some(CalcFlatItem::Num(rhs))) =
-            (&pass2[m], pass2.get(m + 1))
+        if let (CalcFlatItem::Op(op), Some(CalcFlatItem::Num(rhs))) = (&pass2[m], pass2.get(m + 1))
         {
             match op {
                 CalcOp::Add => result += rhs,
@@ -183,12 +176,8 @@ fn evaluate_calc_ast(
 /// `vmin`/`vmax`) fall back to their raw number (i.e. `50vw` → `50px`). Callers
 /// that may see viewport units must use [`resolve_pixel_value_with_viewport`]
 /// (or [`resolve_pixel_value_no_percent_with_viewport`]) instead.
-#[must_use] pub fn resolve_pixel_value(
-    pv: &PixelValue,
-    basis: f32,
-    em_size: f32,
-    rem_size: f32,
-) -> f32 {
+#[must_use]
+pub fn resolve_pixel_value(pv: &PixelValue, basis: f32, em_size: f32, rem_size: f32) -> f32 {
     match pv.metric {
         SizeMetric::Px => pv.number.get(),
         SizeMetric::Pt => pv.number.get() * PT_TO_PX,
@@ -206,8 +195,10 @@ fn evaluate_calc_ast(
 }
 
 /// Like `resolve_pixel_value`, but with proper viewport unit resolution.
-#[inline(never)] // M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill PC-dispatch loop that mis-delivers auto_w
-#[must_use] pub fn resolve_pixel_value_with_viewport(
+#[inline(never)]
+// M12.7: keep out of calc_used_size — its loop/jump-table inlined into the huge fn forces a remill PC-dispatch loop that mis-delivers auto_w
+#[must_use]
+pub fn resolve_pixel_value_with_viewport(
     pv: &PixelValue,
     basis: f32,
     em_size: f32,
@@ -225,11 +216,8 @@ fn evaluate_calc_ast(
 }
 
 /// Resolve a `PixelValue` to pixels, returning `None` for percentage and viewport units.
-#[must_use] pub fn resolve_pixel_value_no_percent(
-    pv: &PixelValue,
-    em_size: f32,
-    rem_size: f32,
-) -> Option<f32> {
+#[must_use]
+pub fn resolve_pixel_value_no_percent(pv: &PixelValue, em_size: f32, rem_size: f32) -> Option<f32> {
     match pv.metric {
         SizeMetric::Px => Some(pv.number.get()),
         SizeMetric::Pt => Some(pv.number.get() * PT_TO_PX),
@@ -248,7 +236,8 @@ fn evaluate_calc_ast(
 
 /// Like `resolve_pixel_value_no_percent`, but resolves viewport units using
 /// the provided viewport dimensions. Returns `None` only for percentages.
-#[must_use] pub fn resolve_pixel_value_no_percent_with_viewport(
+#[must_use]
+pub fn resolve_pixel_value_no_percent_with_viewport(
     pv: &PixelValue,
     em_size: f32,
     rem_size: f32,
@@ -265,7 +254,11 @@ fn evaluate_calc_ast(
 }
 
 #[cfg(test)]
-#[allow(clippy::float_cmp, clippy::cast_precision_loss, clippy::unreadable_literal)]
+#[allow(
+    clippy::float_cmp,
+    clippy::cast_precision_loss,
+    clippy::unreadable_literal
+)]
 mod autotest_generated {
     use azul_css::props::basic::FP_PRECISION_MULTIPLIER;
 
@@ -408,38 +401,77 @@ mod autotest_generated {
 
     #[test]
     fn resolve_pixel_value_absolute_unit_conversions() {
-        assert_eq!(resolve_pixel_value(&PixelValue::px(10.0), 0.0, EM, REM), 10.0);
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::px(10.0), 0.0, EM, REM),
+            10.0
+        );
         assert_close(
             resolve_pixel_value(&PixelValue::pt(12.0), 0.0, EM, REM),
             12.0 * PT_TO_PX,
         );
         // 1in == 96px, 2.54cm == 1in, 25.4mm == 1in.
-        assert_close(resolve_pixel_value(&PixelValue::inch(1.0), 0.0, EM, REM), 96.0);
-        assert_close(resolve_pixel_value(&PixelValue::cm(2.54), 0.0, EM, REM), 96.0);
-        assert_close(resolve_pixel_value(&PixelValue::mm(25.4), 0.0, EM, REM), 96.0);
+        assert_close(
+            resolve_pixel_value(&PixelValue::inch(1.0), 0.0, EM, REM),
+            96.0,
+        );
+        assert_close(
+            resolve_pixel_value(&PixelValue::cm(2.54), 0.0, EM, REM),
+            96.0,
+        );
+        assert_close(
+            resolve_pixel_value(&PixelValue::mm(25.4), 0.0, EM, REM),
+            96.0,
+        );
     }
 
     #[test]
     fn resolve_pixel_value_em_and_rem_use_their_own_font_size() {
-        assert_eq!(resolve_pixel_value(&PixelValue::em(2.0), 0.0, 16.0, 10.0), 32.0);
-        assert_eq!(resolve_pixel_value(&PixelValue::rem(2.0), 0.0, 16.0, 10.0), 20.0);
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::em(2.0), 0.0, 16.0, 10.0),
+            32.0
+        );
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::rem(2.0), 0.0, 16.0, 10.0),
+            20.0
+        );
     }
 
     #[test]
     fn resolve_pixel_value_percent_uses_basis() {
-        assert_eq!(resolve_pixel_value(&PixelValue::percent(50.0), 200.0, EM, REM), 100.0);
-        assert_eq!(resolve_pixel_value(&PixelValue::percent(0.0), 200.0, EM, REM), 0.0);
-        assert_eq!(resolve_pixel_value(&PixelValue::percent(100.0), 0.0, EM, REM), 0.0);
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::percent(50.0), 200.0, EM, REM),
+            100.0
+        );
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::percent(0.0), 200.0, EM, REM),
+            0.0
+        );
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::percent(100.0), 0.0, EM, REM),
+            0.0
+        );
     }
 
     #[test]
     fn resolve_pixel_value_handles_negative_inputs_deterministically() {
-        assert_eq!(resolve_pixel_value(&PixelValue::px(-10.0), 0.0, EM, REM), -10.0);
-        assert_eq!(resolve_pixel_value(&PixelValue::em(-2.0), 0.0, 16.0, REM), -32.0);
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::px(-10.0), 0.0, EM, REM),
+            -10.0
+        );
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::em(-2.0), 0.0, 16.0, REM),
+            -32.0
+        );
         // Negative percentage of a positive basis, and positive percentage of a
         // negative basis, both yield a negative length (no clamping here).
-        assert_eq!(resolve_pixel_value(&PixelValue::percent(-50.0), 200.0, EM, REM), -100.0);
-        assert_eq!(resolve_pixel_value(&PixelValue::percent(50.0), -200.0, EM, REM), -100.0);
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::percent(-50.0), 200.0, EM, REM),
+            -100.0
+        );
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::percent(50.0), -200.0, EM, REM),
+            -100.0
+        );
     }
 
     #[test]
@@ -462,7 +494,16 @@ mod autotest_generated {
         // a realistic basis/em/rem into a non-finite length. (An absurd basis
         // *can* still overflow; that is pinned separately below.)
         for metric in ALL_METRICS {
-            for n in [0.0, -0.0, 1.0, -1.0, f32::MAX, f32::MIN, f32::NAN, f32::INFINITY] {
+            for n in [
+                0.0,
+                -0.0,
+                1.0,
+                -1.0,
+                f32::MAX,
+                f32::MIN,
+                f32::NAN,
+                f32::INFINITY,
+            ] {
                 let pv = PixelValue::from_metric(metric, n);
                 for basis in [0.0_f32, -1000.0, 1920.0, 1_000_000.0] {
                     let got = resolve_pixel_value(&pv, basis, EM, REM);
@@ -491,8 +532,14 @@ mod autotest_generated {
     #[test]
     fn resolve_pixel_value_nan_basis_only_pollutes_percentages() {
         // A NaN basis must not leak into units that never read it.
-        assert_eq!(resolve_pixel_value(&PixelValue::px(10.0), f32::NAN, EM, REM), 10.0);
-        assert_eq!(resolve_pixel_value(&PixelValue::em(1.0), f32::NAN, 16.0, REM), 16.0);
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::px(10.0), f32::NAN, EM, REM),
+            10.0
+        );
+        assert_eq!(
+            resolve_pixel_value(&PixelValue::em(1.0), f32::NAN, 16.0, REM),
+            16.0
+        );
         assert!(resolve_pixel_value(&PixelValue::percent(50.0), f32::NAN, EM, REM).is_nan());
     }
 
@@ -600,9 +647,7 @@ mod autotest_generated {
 
         // 0vw of an infinite viewport is 0 * inf == NaN, same quirk as `0em`.
         let vw0 = PixelValue::from_metric(SizeMetric::Vw, 0.0);
-        assert!(
-            resolve_pixel_value_with_viewport(&vw0, 0.0, EM, REM, f32::INFINITY, 0.0).is_nan()
-        );
+        assert!(resolve_pixel_value_with_viewport(&vw0, 0.0, EM, REM, f32::INFINITY, 0.0).is_nan());
     }
 
     // ==================================================================
@@ -669,7 +714,9 @@ mod autotest_generated {
             let pv = PixelValue::from_metric(metric, 25.0);
             assert_eq!(
                 resolve_pixel_value_no_percent_with_viewport(&pv, EM, REM, 1920.0, 1080.0),
-                Some(resolve_pixel_value_with_viewport(&pv, 0.0, EM, REM, 1920.0, 1080.0)),
+                Some(resolve_pixel_value_with_viewport(
+                    &pv, 0.0, EM, REM, 1920.0, 1080.0
+                )),
                 "{metric:?} disagrees between the viewport resolvers",
             );
         }
@@ -711,31 +758,61 @@ mod autotest_generated {
 
     #[test]
     fn eval_add_and_sub_are_left_associative() {
-        let items = [px(10.0), CalcAstItem::Sub, px(3.0), CalcAstItem::Sub, px(2.0)];
+        let items = [
+            px(10.0),
+            CalcAstItem::Sub,
+            px(3.0),
+            CalcAstItem::Sub,
+            px(2.0),
+        ];
         assert_eq!(eval(&items, 0.0), 5.0, "must be (10-3)-2, not 10-(3-2)");
     }
 
     #[test]
     fn eval_div_is_left_associative() {
-        let items = [px(10.0), CalcAstItem::Div, px(4.0), CalcAstItem::Div, px(2.0)];
+        let items = [
+            px(10.0),
+            CalcAstItem::Div,
+            px(4.0),
+            CalcAstItem::Div,
+            px(2.0),
+        ];
         assert_eq!(eval(&items, 0.0), 1.25, "must be (10/4)/2, not 10/(4/2)");
     }
 
     #[test]
     fn eval_mul_binds_tighter_than_add() {
         // 1 + 2 * 3 == 7, not 9
-        let items = [px(1.0), CalcAstItem::Add, px(2.0), CalcAstItem::Mul, px(3.0)];
+        let items = [
+            px(1.0),
+            CalcAstItem::Add,
+            px(2.0),
+            CalcAstItem::Mul,
+            px(3.0),
+        ];
         assert_eq!(eval(&items, 0.0), 7.0);
 
         // 2 * 3 + 4 == 10 (operator on the left of the sum)
-        let items = [px(2.0), CalcAstItem::Mul, px(3.0), CalcAstItem::Add, px(4.0)];
+        let items = [
+            px(2.0),
+            CalcAstItem::Mul,
+            px(3.0),
+            CalcAstItem::Add,
+            px(4.0),
+        ];
         assert_eq!(eval(&items, 0.0), 10.0);
     }
 
     #[test]
     fn eval_div_binds_tighter_than_sub() {
         // 10 - 6 / 2 == 7, not 2
-        let items = [px(10.0), CalcAstItem::Sub, px(6.0), CalcAstItem::Div, px(2.0)];
+        let items = [
+            px(10.0),
+            CalcAstItem::Sub,
+            px(6.0),
+            CalcAstItem::Div,
+            px(2.0),
+        ];
         assert_eq!(eval(&items, 0.0), 7.0);
     }
 
@@ -808,7 +885,11 @@ mod autotest_generated {
     #[test]
     fn eval_em_and_rem_come_from_the_evaluator_args_not_the_basis() {
         // 2em + 1rem with em=10, rem=20 -> 40
-        let items = [val(SizeMetric::Em, 2.0), CalcAstItem::Add, val(SizeMetric::Rem, 1.0)];
+        let items = [
+            val(SizeMetric::Em, 2.0),
+            CalcAstItem::Add,
+            val(SizeMetric::Rem, 1.0),
+        ];
         assert_eq!(evaluate_calc_ast(&items, 0.0, 10.0, 20.0), 40.0);
     }
 
@@ -827,24 +908,14 @@ mod autotest_generated {
         // `(5px` — the unterminated body is still evaluated.
         assert_eq!(eval(&[CalcAstItem::BraceOpen, px(5.0)], 500.0), 5.0);
         // `1px + (2px` -> 3
-        let items = [
-            px(1.0),
-            CalcAstItem::Add,
-            CalcAstItem::BraceOpen,
-            px(2.0),
-        ];
+        let items = [px(1.0), CalcAstItem::Add, CalcAstItem::BraceOpen, px(2.0)];
         assert_eq!(eval(&items, 500.0), 3.0);
     }
 
     #[test]
     fn eval_stray_brace_close_is_ignored() {
         // `5px ) + 3px` -> the stray `)` is skipped at top level.
-        let items = [
-            px(5.0),
-            CalcAstItem::BraceClose,
-            CalcAstItem::Add,
-            px(3.0),
-        ];
+        let items = [px(5.0), CalcAstItem::BraceClose, CalcAstItem::Add, px(3.0)];
         assert_eq!(eval(&items, 0.0), 8.0);
 
         // A leading `)` is likewise ignored.
@@ -867,7 +938,11 @@ mod autotest_generated {
             CalcAstItem::Mul,
             CalcAstItem::Div,
         ] {
-            assert_eq!(eval(&[px(10.0), op], 0.0), 10.0, "trailing {op:?} dropped the lhs");
+            assert_eq!(
+                eval(&[px(10.0), op], 0.0),
+                10.0,
+                "trailing {op:?} dropped the lhs"
+            );
         }
     }
 
@@ -892,12 +967,7 @@ mod autotest_generated {
     #[test]
     fn eval_adjacent_operators_do_not_panic() {
         // `1px + * 2px` — the orphaned `*` survives pass 1 and is skipped in pass 2.
-        let items = [
-            px(1.0),
-            CalcAstItem::Add,
-            CalcAstItem::Mul,
-            px(2.0),
-        ];
+        let items = [px(1.0), CalcAstItem::Add, CalcAstItem::Mul, px(2.0)];
         assert_eq!(eval(&items, 0.0), 1.0);
     }
 
@@ -981,7 +1051,10 @@ mod autotest_generated {
         assert_close(PixelValue::px(0.001).number.get(), 0.001);
         let items = [px(10.0), CalcAstItem::Div, px(0.001)];
         let got = eval(&items, 0.0);
-        assert!(got.is_finite(), "10px / 0.001px should be finite, got {got}");
+        assert!(
+            got.is_finite(),
+            "10px / 0.001px should be finite, got {got}"
+        );
         assert_close(got, 10_000.0);
     }
 
@@ -1060,14 +1133,21 @@ mod autotest_generated {
         let c = ctx(items.clone(), 12.0, 20.0);
         // 100% of 500 - (2*12 + 1*20) == 500 - 44 == 456
         assert_eq!(evaluate_calc(&c, 500.0), 456.0);
-        assert_eq!(evaluate_calc(&c, 500.0), evaluate_calc_ast(&items, 500.0, 12.0, 20.0));
+        assert_eq!(
+            evaluate_calc(&c, 500.0),
+            evaluate_calc_ast(&items, 500.0, 12.0, 20.0)
+        );
     }
 
     #[test]
     fn evaluate_calc_forwards_its_own_em_and_rem_sizes_without_swapping_them() {
         // `2em + 1rem` is asymmetric on purpose: swapping em/rem must change the
         // answer, which a transposed-argument bug in the wrapper would not.
-        let items = vec![val(SizeMetric::Em, 2.0), CalcAstItem::Add, val(SizeMetric::Rem, 1.0)];
+        let items = vec![
+            val(SizeMetric::Em, 2.0),
+            CalcAstItem::Add,
+            val(SizeMetric::Rem, 1.0),
+        ];
         assert_eq!(evaluate_calc(&ctx(items.clone(), 10.0, 20.0), 0.0), 40.0);
         assert_eq!(evaluate_calc(&ctx(items, 20.0, 10.0), 0.0), 50.0);
     }
@@ -1098,4 +1178,3 @@ mod autotest_generated {
         assert_eq!(evaluate_calc(&c, 100.0), 60.0);
     }
 }
-

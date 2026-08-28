@@ -1,14 +1,11 @@
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use super::*;
 
-use std::collections::HashMap;
-use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-use azul_core::resources::{DecodedImage, ImageRef, RendererResources};
-use azul_core::ui_solver::GlyphInstance;
-use azul_css::props::basic::{ColorOrSystem, ColorU, FontRef};
-use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
-use azul_css::props::style::filter::StyleFilter;
-use azul_css::props::style::box_shadow::StyleBoxShadow;
+use crate::font::parsed::ParsedFont;
+use crate::glyph_cache::GlyphCache;
+use crate::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, LocalScrollId};
+use crate::text3::cache::{FontHash, FontManager};
 use agg_rust::basics::{FillingRule, PATH_FLAGS_NONE};
 use agg_rust::blur::stack_blur_rgba32;
 use agg_rust::color::Rgba8;
@@ -24,10 +21,14 @@ use agg_rust::rounded_rect::RoundedRect;
 use agg_rust::scanline_u::ScanlineU8;
 use agg_rust::span_gradient::{GradientConic, GradientRadialD, GradientX};
 use agg_rust::trans_affine::TransAffine;
-use crate::font::parsed::ParsedFont;
-use crate::glyph_cache::GlyphCache;
-use crate::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem, LocalScrollId};
-use crate::text3::cache::{FontHash, FontManager};
+use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+use azul_core::resources::{DecodedImage, ImageRef, RendererResources};
+use azul_core::ui_solver::GlyphInstance;
+use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+use azul_css::props::basic::{ColorOrSystem, ColorU, FontRef};
+use azul_css::props::style::box_shadow::StyleBoxShadow;
+use azul_css::props::style::filter::StyleFilter;
+use std::collections::HashMap;
 
 const MAX_SHADOW_PIXBUF_SIZE: u32 = 4096;
 
@@ -82,7 +83,12 @@ fn build_gradient_lut_linear(
         let c = resolve_color(&stop.color, system_colors);
         lut.add_color(
             offset,
-            Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a)),
+            Rgba8::new(
+                u32::from(c.r),
+                u32::from(c.g),
+                u32::from(c.b),
+                u32::from(c.a),
+            ),
         );
     }
     lut.build_lut();
@@ -114,7 +120,12 @@ fn build_gradient_lut_radial(
         let c = resolve_color(&stop.color, system_colors);
         lut.add_color(
             offset,
-            Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a)),
+            Rgba8::new(
+                u32::from(c.r),
+                u32::from(c.g),
+                u32::from(c.b),
+                u32::from(c.a),
+            ),
         );
     }
     lut.build_lut();
@@ -385,7 +396,11 @@ fn render_conic_gradient(
 // ============================================================================
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)] // software rasterizer: bounded pixel/coord/colour casts
 /// Blurred-shadow buffer cache. A box shadow is a pure function of
 /// (shape size, border radius, color, blur, spread, dpi) — NOT of its
 /// position — yet every repaint re-allocated a page-sized RGBA buffer,
@@ -628,7 +643,9 @@ fn render_box_shadow(
             let bytes = data.len();
             // Evict LRU until the new entry fits.
             while c.2 + bytes > SHADOW_CACHE_MAX_BYTES {
-                let Some(old_key) = c.1.pop_front() else { break };
+                let Some(old_key) = c.1.pop_front() else {
+                    break;
+                };
                 if let Some(old) = c.0.remove(&old_key) {
                     c.2 = c.2.saturating_sub(old.data.len());
                 }
@@ -636,7 +653,11 @@ fn render_box_shadow(
             if c.2 + bytes <= SHADOW_CACHE_MAX_BYTES {
                 c.0.insert(
                     cache_key,
-                    ShadowCacheEntry { data: data.clone(), w: sw, h: sh },
+                    ShadowCacheEntry {
+                        data: data.clone(),
+                        w: sw,
+                        h: sh,
+                    },
                 );
                 c.1.push_back(cache_key);
                 c.2 += bytes;
@@ -673,27 +694,78 @@ fn render_box_shadow(
 
         if hole_x < hole_r && hole_y < hole_b {
             // Top strip (full width).
-            blit_clipped(pixmap, clip_px, &shadow_data, sw, sh, 0, 0, sw, hole_y, dst_x, dst_y);
+            blit_clipped(
+                pixmap,
+                clip_px,
+                &shadow_data,
+                sw,
+                sh,
+                0,
+                0,
+                sw,
+                hole_y,
+                dst_x,
+                dst_y,
+            );
             // Bottom strip (full width).
             blit_clipped(
-                pixmap, clip_px, &shadow_data, sw, sh, 0, hole_b, sw, sh - hole_b,
-                dst_x, dst_y + hole_b as i32,
+                pixmap,
+                clip_px,
+                &shadow_data,
+                sw,
+                sh,
+                0,
+                hole_b,
+                sw,
+                sh - hole_b,
+                dst_x,
+                dst_y + hole_b as i32,
             );
             // Left strip (between top and bottom).
             blit_clipped(
-                pixmap, clip_px, &shadow_data, sw, sh, 0, hole_y, hole_x, hole_b - hole_y,
-                dst_x, dst_y + hole_y as i32,
+                pixmap,
+                clip_px,
+                &shadow_data,
+                sw,
+                sh,
+                0,
+                hole_y,
+                hole_x,
+                hole_b - hole_y,
+                dst_x,
+                dst_y + hole_y as i32,
             );
             // Right strip (between top and bottom).
             blit_clipped(
-                pixmap, clip_px, &shadow_data, sw, sh, hole_r, hole_y, sw - hole_r, hole_b - hole_y,
-                dst_x + hole_r as i32, dst_y + hole_y as i32,
+                pixmap,
+                clip_px,
+                &shadow_data,
+                sw,
+                sh,
+                hole_r,
+                hole_y,
+                sw - hole_r,
+                hole_b - hole_y,
+                dst_x + hole_r as i32,
+                dst_y + hole_y as i32,
             );
             return Ok(());
         }
         // Degenerate hole (element fully outside the buffer) — fall through.
     }
-    blit_clipped(pixmap, clip_px, &shadow_data, sw, sh, 0, 0, sw, sh, dst_x, dst_y);
+    blit_clipped(
+        pixmap,
+        clip_px,
+        &shadow_data,
+        sw,
+        sh,
+        0,
+        0,
+        sw,
+        sh,
+        dst_x,
+        dst_y,
+    );
 
     Ok(())
 }
@@ -719,7 +791,11 @@ pub enum MaskEntry {
 }
 
 /// Extract and scale mask image data (R8) to target dimensions.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)] // software rasterizer: bounded pixel/coord/colour casts
 fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Option<Vec<u8>> {
     let image_data = mask_image.get_data();
     let (mask_bytes, src_w, src_h) = match image_data {
@@ -780,7 +856,11 @@ fn extract_mask_data(mask_image: &ImageRef, target_w: u32, target_h: u32) -> Opt
 
 /// Apply a mask: for each pixel in the mask region, blend between the snapshot
 /// (pre-mask state) and the current pixmap state using the mask value.
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)] // software rasterizer: bounded pixel/coord/colour casts
 fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
     let (snapshot, mask_data, origin_x, origin_y, width, height) = match entry {
         MaskEntry::ImageMask {
@@ -798,7 +878,7 @@ fn apply_mask(pixmap: &mut AzulPixmap, entry: &MaskEntry) {
             *width,
             *height,
         ),
-        MaskEntry::Opacity{ .. } => return,
+        MaskEntry::Opacity { .. } => return,
     };
 
     let pw = pixmap.width as i32;
@@ -1010,7 +1090,8 @@ pub struct CpuRenderState {
 }
 
 impl CpuRenderState {
-    #[must_use] pub fn new(scroll_offsets: ScrollOffsetMap) -> Self {
+    #[must_use]
+    pub fn new(scroll_offsets: ScrollOffsetMap) -> Self {
         Self {
             scroll_offsets,
             transforms: HashMap::new(),
@@ -1022,14 +1103,16 @@ impl CpuRenderState {
     }
 
     /// Clear damage rects to `color` (see the field).
-    #[must_use] pub const fn with_clear_color(mut self, color: [u8; 4]) -> Self {
+    #[must_use]
+    pub const fn with_clear_color(mut self, color: [u8; 4]) -> Self {
         self.clear_color = color;
         self
     }
 
     /// Provide the nested `VirtualView` child DOM display lists so the CPU
     /// renderer can composite them (see the field doc).
-    #[must_use] pub fn with_virtual_view_display_lists(
+    #[must_use]
+    pub fn with_virtual_view_display_lists(
         mut self,
         lists: std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
     ) -> Self {
@@ -1039,7 +1122,8 @@ impl CpuRenderState {
 
     /// Attach a `SystemStyle` so the renderer can resolve `system:*` color
     /// keywords (e.g. in gradient stops) against the live OS palette.
-    #[must_use] pub fn with_system_style(
+    #[must_use]
+    pub fn with_system_style(
         mut self,
         system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
     ) -> Self {
@@ -1048,7 +1132,8 @@ impl CpuRenderState {
     }
 
     /// Build from a `GpuValueCache` snapshot.
-    #[must_use] pub fn from_gpu_cache(
+    #[must_use]
+    pub fn from_gpu_cache(
         gpu_cache: Option<&azul_core::gpu::GpuValueCache>,
         dom_id: azul_core::dom::DomId,
         scroll_offsets: &ScrollOffsetMap,
@@ -1072,7 +1157,8 @@ impl CpuRenderState {
 /// scrollbar thumb position / fade opacity / drag & CSS transforms change
 /// WITHOUT any display-list item changing (items only carry the keys), so a
 /// pure item diff reports "visually equal" while the frame must repaint.
-#[must_use] pub fn extract_gpu_values(
+#[must_use]
+pub fn extract_gpu_values(
     gpu_cache: Option<&azul_core::gpu::GpuValueCache>,
     dom_id: azul_core::dom::DomId,
 ) -> (
@@ -1191,7 +1277,11 @@ fn render_display_list_with_state(
         let _p_item = crate::probe::Probe::span(probe_label_for_item(item));
         render_single_item(
             item,
-            display_list.uniform_text_bgs.get(item_idx).copied().flatten(),
+            display_list
+                .uniform_text_bgs
+                .get(item_idx)
+                .copied()
+                .flatten(),
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -1454,7 +1544,11 @@ pub fn render_display_list_damaged(
              the {pw_i}x{ph_i} window, {} display-list item(s)",
             rects.len(),
             damage_rects.len(),
-            if window > 0 { 100.0 * total as f64 / window as f64 } else { 0.0 },
+            if window > 0 {
+                100.0 * total as f64 / window as f64
+            } else {
+                0.0
+            },
             display_list.items.len(),
         );
     }
@@ -1519,7 +1613,11 @@ pub fn render_display_list_damaged(
             let _p = crate::probe::Probe::span(probe_label_for_item(item));
             render_single_item(
                 item,
-                display_list.uniform_text_bgs.get(item_idx).copied().flatten(),
+                display_list
+                    .uniform_text_bgs
+                    .get(item_idx)
+                    .copied()
+                    .flatten(),
                 pixmap,
                 dpi_factor,
                 renderer_resources,
@@ -1549,10 +1647,15 @@ pub fn render_display_list_damaged(
     Ok(())
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Panics
 ///
@@ -2117,7 +2220,10 @@ pub fn render_single_item(
             // content at the VirtualView origin. Then recursively rasterise it.
             // (Was: a debug-blue overlay that never drew the child — the reason the
             // CPU backend showed a blank map.)
-            let child_dl = render_state.virtual_view_display_lists.get(child_dom_id).cloned();
+            let child_dl = render_state
+                .virtual_view_display_lists
+                .get(child_dom_id)
+                .cloned();
             #[cfg(feature = "std")]
             if std::env::var("AZ_MAP_DEBUG").is_ok() {
                 eprintln!(
@@ -2170,11 +2276,12 @@ pub fn render_single_item(
                     )?;
                 }
                 scroll_offset_stack.pop();
-real_clip_stack.pop();
-                                clip_stack.pop();
+                real_clip_stack.pop();
+                clip_stack.pop();
             }
         }
-        DisplayListItem::VirtualViewPlaceholder { .. } => {
+        DisplayListItem::VirtualViewPlaceholder { .. } =>
+        {
             #[cfg(feature = "std")]
             if std::env::var("AZ_MAP_DEBUG").is_ok() {
                 eprintln!("[cpu-vview] VirtualViewPlaceholder hit (NOT swapped to a VirtualView item — nothing composites)");
@@ -2249,7 +2356,11 @@ real_clip_stack.pop();
         }
 
         // --- Opacity layers ---
-        DisplayListItem::PushOpacity { bounds, opacity, opacity_key } => {
+        DisplayListItem::PushOpacity {
+            bounds,
+            opacity,
+            opacity_key,
+        } => {
             // Live value first — the damaged/incremental path must fade at the
             // same opacity the composited path shows.
             let opacity = &opacity_key
@@ -2462,10 +2573,7 @@ fn render_rect(
         // loop reaches). Clip semantics match blend_bar: intersect with the
         // clip box, then fill [x0, x1) x [y0, y1).
         let (mut fx0, mut fy0) = (rect.x as i32, rect.y as i32);
-        let (mut fx1, mut fy1) = (
-            (rect.x + rect.width) as i32,
-            (rect.y + rect.height) as i32,
-        );
+        let (mut fx1, mut fy1) = ((rect.x + rect.width) as i32, (rect.y + rect.height) as i32);
         if let Some(c) = clip {
             fx0 = fx0.max(c.x as i32);
             fy0 = fy0.max(c.y as i32);
@@ -2473,7 +2581,16 @@ fn render_rect(
             fy1 = fy1.min((c.y + c.height) as i32);
         }
         if fx1 > fx0 && fy1 > fy0 {
-            pixmap.fill_rect(fx0, fy0, fx1 - fx0, fy1 - fy0, color.r, color.g, color.b, 255);
+            pixmap.fill_rect(
+                fx0,
+                fy0,
+                fx1 - fx0,
+                fy1 - fy0,
+                color.r,
+                color.g,
+                color.b,
+                255,
+            );
         }
         return;
     }
@@ -2509,7 +2626,6 @@ fn render_rect(
         let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
         agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
     }
-
 }
 
 /// How text is antialiased. One knob, four values, read from `AZ_TEXT_AA`.
@@ -2634,7 +2750,11 @@ fn render_scanlines_aliased_solid<PF: agg_rust::pixfmt_rgba::PixelFormat>(
 /// fractional position (1/3-px LCD precision) when `AZ_TEXT_SUBPIXEL` is on, or
 /// snapped to an integer pixel when it is off — matching the grayscale path's
 /// sub-pixel-positioning policy.
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::too_many_arguments)] // mirrors render_text's font/metric plumbing
 fn render_glyphs_lcd(
     pixmap: &mut AzulPixmap,
@@ -2855,7 +2975,11 @@ pub(crate) fn empty_font_manager() -> FontManager<FontRef> {
     FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new")
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::too_many_lines)] // large but cohesive: font lookup + grayscale/LCD dispatch + glyph loop
 /// [`render_text`] + the uniform-background pre-blend fast path. When the
 /// generator PROVED the run sits on one solid opaque color
@@ -2890,9 +3014,21 @@ fn render_text_with_bg(
         if text_lcd_enabled() && !force_grayscale && !pretile_disabled {
             if let Some(params) = lcd_linear_params() {
                 if render_text_prerendered_lcd(
-                    glyphs, font_hash, font_size_px, color, bg, proven_rect.0, params, pixmap,
-                    clip_rect, clip, renderer_resources, font_manager,
-                    dpi_factor, glyph_cache, scroll_offset,
+                    glyphs,
+                    font_hash,
+                    font_size_px,
+                    color,
+                    bg,
+                    proven_rect.0,
+                    params,
+                    pixmap,
+                    clip_rect,
+                    clip,
+                    renderer_resources,
+                    font_manager,
+                    dpi_factor,
+                    glyph_cache,
+                    scroll_offset,
                 ) {
                     return;
                 }
@@ -2900,9 +3036,19 @@ fn render_text_with_bg(
         }
     }
     render_text(
-        glyphs, font_hash, font_size_px, color, pixmap, clip_rect, clip,
-        renderer_resources, font_manager, dpi_factor, glyph_cache,
-        scroll_offset, force_grayscale,
+        glyphs,
+        font_hash,
+        font_size_px,
+        color,
+        pixmap,
+        clip_rect,
+        clip,
+        renderer_resources,
+        font_manager,
+        dpi_factor,
+        glyph_cache,
+        scroll_offset,
+        force_grayscale,
     );
 }
 
@@ -2927,8 +3073,8 @@ fn render_text_prerendered_lcd(
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
 ) -> bool {
-    use agg_rust::pixfmt_lcd::LcdDistributionLut;
     use crate::glyph_cache::LcdGlyphTile;
+    use agg_rust::pixfmt_lcd::LcdDistributionLut;
     let _ = renderer_resources;
     let Some(font_ref) = font_manager.resolve_font_by_hash(font_hash.font_hash) else {
         return false;
@@ -2947,7 +3093,11 @@ fn render_text_prerendered_lcd(
     } else {
         0
     };
-    let hint_correction = if ppem > 0 { effective_px / f32::from(ppem) } else { 1.0 };
+    let hint_correction = if ppem > 0 {
+        effective_px / f32::from(ppem)
+    } else {
+        1.0
+    };
     let lut = LcdDistributionLut::new(f64::from(0x56u32), f64::from(0x4Du32), f64::from(0x08u32));
 
     // Combined clip: the item clip_rect ∩ the stack clip, device pixels.
@@ -2994,7 +3144,13 @@ fn render_text_prerendered_lcd(
             continue;
         };
         let is_hinted = glyph_cache
-            .get_or_build(font_hash.font_hash, glyph_index, &glyph_data, parsed_font, ppem)
+            .get_or_build(
+                font_hash.font_hash,
+                glyph_index,
+                &glyph_data,
+                parsed_font,
+                ppem,
+            )
             .is_some_and(|c| c.is_hinted);
         let Some((tile, int_x, int_y)) = glyph_cache.get_or_build_lcd_tile(
             font_hash.font_hash,
@@ -3031,11 +3187,7 @@ fn render_text_prerendered_lcd(
             let py0 = (pr.origin.y * dpi_factor).ceil() as i32 + 1;
             let px1 = ((pr.origin.x + pr.size.width) * dpi_factor).floor() as i32 - 1;
             let py1 = ((pr.origin.y + pr.size.height) * dpi_factor).floor() as i32 - 1;
-            if x0 < px0
-                || y0 < py0
-                || x0 + tile.w as i32 > px1
-                || y0 + tile.h as i32 > py1
-            {
+            if x0 < px0 || y0 < py0 || x0 + tile.w as i32 > px1 || y0 + tile.h as i32 > py1 {
                 drop(crate::probe::Probe::span("glyph_lcd_pretile_boundary"));
                 return false; // whole run sweeps (rare: edge-hugging text)
             }
@@ -3056,7 +3208,13 @@ fn render_text_prerendered_lcd(
                 next_component - 1
             }
         };
-        placed.push(Placed { tile, x0, y0, glyph: *glyph, component });
+        placed.push(Placed {
+            tile,
+            x0,
+            y0,
+            glyph: *glyph,
+            component,
+        });
     }
 
     // Component sizes → which glyphs sweep.
@@ -3095,7 +3253,14 @@ fn render_text_prerendered_lcd(
     // Pass 2b: opaque tile copies, clip-aware.
     let dst_w = pixmap.width as i32;
     let dst_h = pixmap.height as i32;
-    for Placed { tile, x0, y0, component, .. } in placed {
+    for Placed {
+        tile,
+        x0,
+        y0,
+        component,
+        ..
+    } in placed
+    {
         if comp_sizes[component] >= 2 {
             continue; // painted by the sweep above
         }
@@ -3117,8 +3282,7 @@ fn render_text_prerendered_lcd(
             let dst_off = ((ty as u32 * pixmap.width + tx0 as u32) * 4) as usize;
             let n = ((tx1 - tx0) as u32 * 4) as usize;
             if src_off + n <= tile.rgba.len() && dst_off + n <= pixmap.data.len() {
-                pixmap.data[dst_off..dst_off + n]
-                    .copy_from_slice(&tile.rgba[src_off..src_off + n]);
+                pixmap.data[dst_off..dst_off + n].copy_from_slice(&tile.rgba[src_off..src_off + n]);
             }
         }
     }
@@ -3199,15 +3363,29 @@ fn render_text(
     // A hinted outline is produced at the integer `ppem`. `hint_correction`
     // rescales it back to the true (possibly fractional) effective size so hinted
     // glyphs match unhinted fallbacks and animate smoothly instead of snapping.
-    let hint_correction = if ppem > 0 { effective_px / f32::from(ppem) } else { 1.0 };
+    let hint_correction = if ppem > 0 {
+        effective_px / f32::from(ppem)
+    } else {
+        1.0
+    };
 
     // RGB LCD subpixel-AA path (opt-in, `AZ_TEXT_LCD=1`; off by default). Renders
     // at 3× horizontal resolution with a 5-tap FIR + per-channel blend. The
     // grayscale path below is left byte-for-byte identical when the flag is off.
     if text_lcd_enabled() && !force_grayscale {
         render_glyphs_lcd(
-            pixmap, clip, glyphs, parsed_font, font_hash, ppem, scale,
-            hint_correction, color, dpi_factor, scroll_offset, glyph_cache,
+            pixmap,
+            clip,
+            glyphs,
+            parsed_font,
+            font_hash,
+            ppem,
+            scale,
+            hint_correction,
+            color,
+            dpi_factor,
+            scroll_offset,
+            glyph_cache,
         );
         return;
     }
@@ -3296,7 +3474,11 @@ fn render_text(
 /// can be reused directly. Text-shadows are uncommon, so the extra full-frame
 /// allocation/blit is acceptable for correctness.
 // software rasterizer: bounded blur-radius / stride / pixel casts
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
 fn render_text_shadow(
     shadow: &StyleBoxShadow,
     glyphs: &[GlyphInstance],
@@ -3521,7 +3703,6 @@ fn render_border(
             agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::EvenOdd, clip);
         }
     }
-
 }
 
 /// Render border with per-side colors/widths/styles using CSS trapezoid model.
@@ -3639,7 +3820,12 @@ fn render_border_sides(
         // Top: full width, height = wt
         if widths[0] > 0.0 && colors[0].a > 0 {
             let c = colors[0];
-            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
+            let ac = Rgba8::new(
+                u32::from(c.r),
+                u32::from(c.g),
+                u32::from(c.b),
+                u32::from(c.a),
+            );
             rb.blend_bar(
                 ox as i32,
                 oy as i32,
@@ -3652,7 +3838,12 @@ fn render_border_sides(
         // Bottom
         if widths[2] > 0.0 && colors[2].a > 0 {
             let c = colors[2];
-            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
+            let ac = Rgba8::new(
+                u32::from(c.r),
+                u32::from(c.g),
+                u32::from(c.b),
+                u32::from(c.a),
+            );
             rb.blend_bar(
                 ox as i32,
                 (iy + ih) as i32,
@@ -3665,7 +3856,12 @@ fn render_border_sides(
         // Left: between top and bottom
         if widths[3] > 0.0 && colors[3].a > 0 {
             let c = colors[3];
-            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
+            let ac = Rgba8::new(
+                u32::from(c.r),
+                u32::from(c.g),
+                u32::from(c.b),
+                u32::from(c.a),
+            );
             rb.blend_bar(
                 ox as i32,
                 iy as i32,
@@ -3678,7 +3874,12 @@ fn render_border_sides(
         // Right
         if widths[1] > 0.0 && colors[1].a > 0 {
             let c = colors[1];
-            let ac = Rgba8::new(u32::from(c.r), u32::from(c.g), u32::from(c.b), u32::from(c.a));
+            let ac = Rgba8::new(
+                u32::from(c.r),
+                u32::from(c.g),
+                u32::from(c.b),
+                u32::from(c.a),
+            );
             rb.blend_bar(
                 (ix + iw) as i32,
                 iy as i32,
@@ -3711,10 +3912,14 @@ fn render_border_sides(
             agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
         }
     }
-
 }
 
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // software rasterizer: bounded pixel/coord/colour casts
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)] // software rasterizer: bounded pixel/coord/colour casts
 #[allow(clippy::many_single_char_names, clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 fn render_image(
@@ -3817,12 +4022,15 @@ fn render_image(
     let ph = pixmap.height;
 
     // Compute pixel-level clip bounds for the blit loop
-    let (clip_x1, clip_y1, clip_x2, clip_y2) = clip.as_ref().map_or((0, 0, pw as i32, ph as i32), |c| (
-            c.x as i32,
-            c.y as i32,
-            (c.x + c.width) as i32,
-            (c.y + c.height) as i32,
-        ));
+    let (clip_x1, clip_y1, clip_x2, clip_y2) =
+        clip.as_ref().map_or((0, 0, pw as i32, ph as i32), |c| {
+            (
+                c.x as i32,
+                c.y as i32,
+                (c.x + c.width) as i32,
+                (c.y + c.height) as i32,
+            )
+        });
 
     let Some(win) = visible_dst_window(
         dst_x,
@@ -3836,7 +4044,16 @@ fn render_image(
         return;
     };
 
-    blit_sampled_image(pixmap, &src, dst_x, dst_y, dst_w, dst_h, win, &mut RowConversions::new());
+    blit_sampled_image(
+        pixmap,
+        &src,
+        dst_x,
+        dst_y,
+        dst_w,
+        dst_h,
+        win,
+        &mut RowConversions::new(),
+    );
 }
 
 /// The sub-window of a `dst_w × dst_h` image blit that is actually painted:
@@ -3915,7 +4132,10 @@ struct RgbaRow {
 
 impl RgbaRow {
     fn new(width: usize) -> Self {
-        Self { y: None, bytes: vec![0u8; width * 4] }
+        Self {
+            y: None,
+            bytes: vec![0u8; width * 4],
+        }
     }
 }
 
@@ -3988,13 +4208,13 @@ fn composite_rgba_row(pixmap: &mut AzulPixmap, di_base: usize, stage: &[u8]) {
         } else if sa > 0 {
             // Alpha blend: dst = src * sa + dst * (255 - sa)
             let da = 255 - sa;
-            pixmap.data[di] = ((u32::from(q[0]) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
+            pixmap.data[di] =
+                ((u32::from(q[0]) * sa + u32::from(pixmap.data[di]) * da) / 255) as u8;
             pixmap.data[di + 1] =
                 ((u32::from(q[1]) * sa + u32::from(pixmap.data[di + 1]) * da) / 255) as u8;
             pixmap.data[di + 2] =
                 ((u32::from(q[2]) * sa + u32::from(pixmap.data[di + 2]) * da) / 255) as u8;
-            pixmap.data[di + 3] =
-                ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
+            pixmap.data[di + 3] = ((sa + u32::from(pixmap.data[di + 3]) * da / 255).min(255)) as u8;
         }
     }
 }
@@ -4033,7 +4253,11 @@ fn composite_rgba_row(pixmap: &mut AzulPixmap, di_base: usize, stage: &[u8]) {
 ///   `p00·(1−tx) + p10·tx` is kept in f32 per source row, so the per-destination
 ///   -pixel work is one lerp of two f32 rows. Keeping the partial in f32 is what
 ///   makes the result bit-identical rather than merely close.
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
 #[allow(clippy::too_many_arguments)] // a blit is a rect, a source and a window
 fn blit_sampled_image(
     pixmap: &mut AzulPixmap,
@@ -4161,8 +4385,9 @@ fn blit_sampled_image(
             let idx = match rows.iter().position(|r| r.y == Some(y)) {
                 Some(i) => i,
                 None => {
-                    let victim =
-                        (0..rows.len()).find(|i| claimed & (1u32 << i) == 0).unwrap_or(0);
+                    let victim = (0..rows.len())
+                        .find(|i| claimed & (1u32 << i) == 0)
+                        .unwrap_or(0);
                     source_row_to_rgba(src, y, &mut rows[victim].bytes);
                     rows[victim].y = Some(y);
                     conversions.0 += 1;
@@ -4453,18 +4678,18 @@ pub fn render_component_preview(
     let mut layout_cache = LayoutCache {
         tree: None,
         resize_only_hint: false,
-            last_reconcile_was_skipped: false,
-            last_reconcile_structure_preserved: false,
-            last_build_was_patched: false,
-            last_patch_damage: None,
-            build_seq: 0,
-            last_full_build_seq: 0,
-            patch_damage_log: Vec::new(),
-            last_dynamic_context: None,
-            previous_sizes: Vec::new(),
-            dom_diff_clean: None,
-            last_fingerprint_skips: 0,
-            last_patch_move: None,
+        last_reconcile_was_skipped: false,
+        last_reconcile_structure_preserved: false,
+        last_build_was_patched: false,
+        last_patch_damage: None,
+        build_seq: 0,
+        last_full_build_seq: 0,
+        patch_damage_log: Vec::new(),
+        last_dynamic_context: None,
+        previous_sizes: Vec::new(),
+        dom_diff_clean: None,
+        last_fingerprint_skips: 0,
+        last_patch_move: None,
         calculated_positions: Vec::new(),
         viewport: None,
         scroll_ids: HashMap::new(),
@@ -4476,9 +4701,9 @@ pub fn render_component_preview(
         cached_display_list: None,
         prev_dom_ptr: 0,
         prev_viewport: LogicalRect::zero(),
-            last_reconcile_reused: 0,
-            last_reconcile_fresh: 0,
-            last_intrinsic_dirty: 0,
+        last_reconcile_reused: 0,
+        last_reconcile_fresh: 0,
+        last_intrinsic_dirty: 0,
     };
     let mut text_cache = TextLayoutCache::new();
     let empty_scroll_offsets = BTreeMap::new();
@@ -4612,8 +4837,8 @@ pub fn render_dom_to_image(
     let styled_dom = StyledDom::create(&mut dom, css);
 
     let fc_cache = crate::font::loading::build_font_cache();
-    let font_manager = FontManager::new(fc_cache)
-        .map_err(|e| format!("Failed to create font manager: {e:?}"))?;
+    let font_manager =
+        FontManager::new(fc_cache).map_err(|e| format!("Failed to create font manager: {e:?}"))?;
 
     let opts = ComponentPreviewOptions {
         width: Some(width),
@@ -4651,7 +4876,11 @@ pub fn render_dom_to_image(
 #[cfg(all(feature = "std", feature = "text_layout", feature = "font_loading"))]
 #[must_use]
 // bounded pixel-dimension casts; explicit a*b+c kept (see render_box_shadow)
-#[allow(clippy::suboptimal_flops, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#[allow(
+    clippy::suboptimal_flops,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
 pub fn render_text_run_to_pixmap(
     fc_cache: &rust_fontconfig::FcFontCache,
     text: &str,
@@ -4719,8 +4948,14 @@ pub fn render_text_run_to_pixmap(
         let advance = f32::from(parsed.get_horizontal_advance(gid)) * scale;
         glyphs.push(GlyphInstance {
             index: u32::from(gid),
-            point: LogicalPosition { x: pen_x, y: baseline_y },
-            size: LogicalSize { width: advance, height: font_size_px },
+            point: LogicalPosition {
+                x: pen_x,
+                y: baseline_y,
+            },
+            size: LogicalSize {
+                width: advance,
+                height: font_size_px,
+            },
         });
         pen_x += advance;
     }
@@ -4737,7 +4972,10 @@ pub fn render_text_run_to_pixmap(
     // 5. Rasterize the run via the shared display-list text path.
     let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
         origin: LogicalPosition { x: 0.0, y: 0.0 },
-        size: LogicalSize { width: logical_w, height: logical_h },
+        size: LogicalSize {
+            width: logical_w,
+            height: logical_h,
+        },
     }
     .into();
 
@@ -4762,7 +5000,6 @@ pub fn render_text_run_to_pixmap(
 // ============================================================================
 // Direct SVG-to-image renderer (bypasses CSS layout)
 // ============================================================================
-
 
 #[cfg(all(test, feature = "std"))]
 mod text_shadow_tests {
@@ -4808,10 +5045,14 @@ mod text_shadow_tests {
         (rr, fm, FontHash { font_hash: hash })
     }
 
-
-
     /// Shape a string into glyph instances with a baseline at (x, y).
-    fn shape(parsed: &ParsedFont, text: &str, font_size: f32, x: f32, y: f32) -> Vec<GlyphInstance> {
+    fn shape(
+        parsed: &ParsedFont,
+        text: &str,
+        font_size: f32,
+        x: f32,
+        y: f32,
+    ) -> Vec<GlyphInstance> {
         let upm = f32::from(parsed.font_metrics.units_per_em);
         let scale = font_size / upm;
         let mut pen_x = x;
@@ -4859,7 +5100,10 @@ mod text_shadow_tests {
         #[allow(clippy::cast_precision_loss)]
         let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
-            size: LogicalSize { width: w as f32, height: h as f32 },
+            size: LogicalSize {
+                width: w as f32,
+                height: h as f32,
+            },
         }
         .into();
 
@@ -4867,7 +5111,12 @@ mod text_shadow_tests {
             glyphs,
             font_hash,
             font_size_px: font_size,
-            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
             clip_rect,
             source_node_index: None,
         };
@@ -4888,11 +5137,24 @@ mod text_shadow_tests {
 
         // Render WITH a red shadow offset +24px right, no blur.
         let shadow = StyleBoxShadow {
-            offset_x: PixelValueNoPercent { inner: PixelValue::px(24.0) },
-            offset_y: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-            blur_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-            spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-            color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+            offset_x: PixelValueNoPercent {
+                inner: PixelValue::px(24.0),
+            },
+            offset_y: PixelValueNoPercent {
+                inner: PixelValue::px(0.0),
+            },
+            blur_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0),
+            },
+            spread_radius: PixelValueNoPercent {
+                inner: PixelValue::px(0.0),
+            },
+            color: ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
             clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
         };
         let mut with_shadow = AzulPixmap::new(w, h).unwrap();
@@ -4951,24 +5213,45 @@ mod text_shadow_tests {
         #[allow(clippy::cast_precision_loss)]
         let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
-            size: LogicalSize { width: w as f32, height: h as f32 },
+            size: LogicalSize {
+                width: w as f32,
+                height: h as f32,
+            },
         }
         .into();
 
         let make = |blur: f32| -> usize {
             let shadow = StyleBoxShadow {
-                offset_x: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-                offset_y: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-                blur_radius: PixelValueNoPercent { inner: PixelValue::px(blur) },
-                spread_radius: PixelValueNoPercent { inner: PixelValue::px(0.0) },
-                color: ColorU { r: 255, g: 0, b: 0, a: 255 },
+                offset_x: PixelValueNoPercent {
+                    inner: PixelValue::px(0.0),
+                },
+                offset_y: PixelValueNoPercent {
+                    inner: PixelValue::px(0.0),
+                },
+                blur_radius: PixelValueNoPercent {
+                    inner: PixelValue::px(blur),
+                },
+                spread_radius: PixelValueNoPercent {
+                    inner: PixelValue::px(0.0),
+                },
+                color: ColorU {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                },
                 clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
             };
             let text_item = DisplayListItem::Text {
                 glyphs: glyphs.clone(),
                 font_hash,
                 font_size_px: font_size,
-                color: ColorU { r: 0, g: 0, b: 0, a: 0 }, // transparent text: isolate shadow
+                color: ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                }, // transparent text: isolate shadow
                 clip_rect,
                 source_node_index: None,
             };
@@ -5017,9 +5300,9 @@ mod autotest_generated {
         props::{
             basic::{
                 angle::AngleValue,
+                color::{OptionColorU, SystemColorRef},
                 length::PercentageValue,
                 pixel::{PixelValue, PixelValueNoPercent},
-                color::{OptionColorU, SystemColorRef},
             },
             style::{
                 background::{
@@ -5042,11 +5325,36 @@ mod autotest_generated {
     // fixtures
     // ------------------------------------------------------------------
 
-    const RED: ColorU = ColorU { r: 255, g: 0, b: 0, a: 255 };
-    const BLACK: ColorU = ColorU { r: 0, g: 0, b: 0, a: 255 };
-    const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-    const BLUE: ColorU = ColorU { r: 0, g: 0, b: 255, a: 255 };
-    const CLEAR: ColorU = ColorU { r: 255, g: 0, b: 0, a: 0 };
+    const RED: ColorU = ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    const BLACK: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+    const WHITE: ColorU = ColorU {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    const BLUE: ColorU = ColorU {
+        r: 0,
+        g: 0,
+        b: 255,
+        a: 255,
+    };
+    const CLEAR: ColorU = ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
 
     /// f32 values that must never make the rasterizer panic. `f32::MAX` is
     /// deliberately NOT in here: it is finite and positive, so it produces a
@@ -5074,7 +5382,12 @@ mod autotest_generated {
 
     fn px_at(p: &AzulPixmap, x: u32, y: u32) -> [u8; 4] {
         let i = ((y * p.width + x) * 4) as usize;
-        [p.data()[i], p.data()[i + 1], p.data()[i + 2], p.data()[i + 3]]
+        [
+            p.data()[i],
+            p.data()[i + 1],
+            p.data()[i + 2],
+            p.data()[i + 3],
+        ]
     }
 
     fn is_reddish(px: [u8; 4]) -> bool {
@@ -5169,14 +5482,14 @@ mod autotest_generated {
         scrolls: Vec<(f32, f32)>,
         shadows: Vec<StyleBoxShadow>,
         real_clips: Vec<Option<AzRect>>,
-}
+    }
 
     impl Stacks {
         fn new() -> Self {
             Self {
                 transforms: vec![TransAffine::new()],
                 clips: vec![None],
-            real_clips: vec![None],
+                real_clips: vec![None],
                 masks: Vec::new(),
                 scrolls: vec![(0.0, 0.0)],
                 shadows: Vec::new(),
@@ -5233,7 +5546,12 @@ mod autotest_generated {
 
     #[test]
     fn resolve_color_concrete_is_returned_verbatim() {
-        let c = ColorU { r: 1, g: 2, b: 3, a: 4 };
+        let c = ColorU {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4,
+        };
         let palette = SystemColors {
             accent: OptionColorU::Some(BLUE),
             ..SystemColors::default()
@@ -5263,7 +5581,10 @@ mod autotest_generated {
             ..SystemColors::default()
         };
         assert_eq!(
-            resolve_color(&ColorOrSystem::System(SystemColorRef::Accent), Some(&palette)),
+            resolve_color(
+                &ColorOrSystem::System(SystemColorRef::Accent),
+                Some(&palette)
+            ),
             BLUE
         );
         // `text` is unset on this palette -> transparent fallback, not garbage.
@@ -5361,7 +5682,11 @@ mod autotest_generated {
         .into();
 
         let with_palette = build_gradient_lut_linear(&stops, Some(&palette));
-        assert_eq!(with_palette.get(0).b, 255, "system:accent must resolve to blue");
+        assert_eq!(
+            with_palette.get(0).b,
+            255,
+            "system:accent must resolve to blue"
+        );
         assert_eq!(with_palette.get(0).a, 255);
 
         // Without a palette the system stop is transparent (never mid-gray).
@@ -5388,10 +5713,8 @@ mod autotest_generated {
             [f32::NAN, 90.0],
             [f32::INFINITY, 270.0],
         ] {
-            let lut = build_gradient_lut_radial(
-                &rad_stops(&[(angles[0], RED), (angles[1], BLUE)]),
-                None,
-            );
+            let lut =
+                build_gradient_lut_radial(&rad_stops(&[(angles[0], RED), (angles[1], BLUE)]), None);
             assert_eq!(lut.size(), 256, "angles {angles:?} must still build a LUT");
         }
     }
@@ -5434,7 +5757,10 @@ mod autotest_generated {
             horizontal: BackgroundPositionHorizontal::Exact(PixelValue::px(50.0)),
             vertical: BackgroundPositionVertical::Exact(PixelValue::px(25.0)),
         };
-        assert_eq!(resolve_background_position(&pos, 200.0, 100.0), (0.25, 0.25));
+        assert_eq!(
+            resolve_background_position(&pos, 200.0, 100.0),
+            (0.25, 0.25)
+        );
     }
 
     #[test]
@@ -5444,7 +5770,10 @@ mod autotest_generated {
             vertical: BackgroundPositionVertical::Exact(PixelValue::percent(10.0)),
         };
         let (x, y) = resolve_background_position(&pos, 200.0, 100.0);
-        assert!((x - 0.5).abs() < 1e-4, "50% of the width is the center, got {x}");
+        assert!(
+            (x - 0.5).abs() < 1e-4,
+            "50% of the width is the center, got {x}"
+        );
         assert!((y - 0.1).abs() < 1e-4, "10% of the height, got {y}");
     }
 
@@ -5495,7 +5824,11 @@ mod autotest_generated {
         );
         assert!(is_reddish(px_at(&p, 3, 3)), "inside the rect must be red");
         assert_eq!(px_at(&p, 0, 0), [255, 255, 255, 255], "outside stays white");
-        let red = p.data().chunks_exact(4).filter(|c| c[0] > 200 && c[1] < 60).count();
+        let red = p
+            .data()
+            .chunks_exact(4)
+            .filter(|c| c[0] > 200 && c[1] < 60)
+            .count();
         assert_eq!(red, 16, "a 4x4 rect covers exactly 16 pixels");
     }
 
@@ -5641,7 +5974,11 @@ mod autotest_generated {
             Some(clip),
             1.0,
         );
-        let red = p.data().chunks_exact(4).filter(|c| c[0] > 200 && c[1] < 60).count();
+        let red = p
+            .data()
+            .chunks_exact(4)
+            .filter(|c| c[0] > 200 && c[1] < 60)
+            .count();
         assert_eq!(red, 4, "only the 2x2 clip region may be painted");
     }
 
@@ -5654,7 +5991,14 @@ mod autotest_generated {
             bottom_left: 6.0,
             bottom_right: 6.0,
         };
-        render_rect(&mut p, &lrect(0.0, 0.0, 20.0, 20.0), RED, &radius, None, 1.0);
+        render_rect(
+            &mut p,
+            &lrect(0.0, 0.0, 20.0, 20.0),
+            RED,
+            &radius,
+            None,
+            1.0,
+        );
         assert!(is_reddish(px_at(&p, 10, 10)), "the middle is filled");
         assert_eq!(
             px_at(&p, 0, 0),
@@ -5672,7 +6016,14 @@ mod autotest_generated {
             bottom_left: 1e6,
             bottom_right: 1e6,
         };
-        render_rect(&mut p, &lrect(0.0, 0.0, 10.0, 10.0), RED, &radius, None, 1.0);
+        render_rect(
+            &mut p,
+            &lrect(0.0, 0.0, 10.0, 10.0),
+            RED,
+            &radius,
+            None,
+            1.0,
+        );
         // Radii are normalized to fit; the shape stays inside the buffer.
         assert!(is_reddish(px_at(&p, 5, 5)));
     }
@@ -5999,7 +6350,10 @@ mod autotest_generated {
         )
         .unwrap();
         let dark2 = p2.data().chunks_exact(4).filter(|c| c[0] < 50).count();
-        assert!(dark2 > 100, "an offset shadow must paint outside the box, got {dark2}");
+        assert!(
+            dark2 > 100,
+            "an offset shadow must paint outside the box, got {dark2}"
+        );
     }
 
     #[test]
@@ -6123,7 +6477,11 @@ mod autotest_generated {
     fn extract_mask_data_downscales_without_reading_out_of_bounds() {
         let img = r8_image(4, 4, (0..16).map(|i| i as u8 * 16).collect());
         let mask = extract_mask_data(&img, 1, 1).expect("mask must extract");
-        assert_eq!(mask, vec![0], "1x1 nearest-neighbour samples the first texel");
+        assert_eq!(
+            mask,
+            vec![0],
+            "1x1 nearest-neighbour samples the first texel"
+        );
 
         // A target bigger than the source in one axis only.
         let mask = extract_mask_data(&img, 8, 2).expect("mask must extract");
@@ -6217,7 +6575,11 @@ mod autotest_generated {
                 opacity: 0.5,
             },
         );
-        assert_eq!(before, p.data(), "apply_mask only handles ImageMask entries");
+        assert_eq!(
+            before,
+            p.data(),
+            "apply_mask only handles ImageMask entries"
+        );
     }
 
     #[test]
@@ -6234,7 +6596,11 @@ mod autotest_generated {
                 &image_mask_entry(vec![255; 64], vec![0; 16], origin, (4, 4)),
             );
         }
-        assert_eq!(before, p.data(), "off-buffer masks must be skipped entirely");
+        assert_eq!(
+            before,
+            p.data(),
+            "off-buffer masks must be skipped entirely"
+        );
     }
 
     #[test]
@@ -6303,7 +6669,11 @@ mod autotest_generated {
         retained.fill(1, 2, 3, 4);
         let got = acquire_pixmap(Some(retained), 5, 5).expect("must allocate");
         assert_eq!((got.width, got.height), (5, 5));
-        assert_eq!(&got.data()[0..4], &[255, 255, 255, 255], "fresh = opaque white");
+        assert_eq!(
+            &got.data()[0..4],
+            &[255, 255, 255, 255],
+            "fresh = opaque white"
+        );
     }
 
     // ==================================================================
@@ -6323,7 +6693,14 @@ mod autotest_generated {
         let dl = DisplayList::default();
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
-        let p = render(&dl, &res, &empty_font_manager(), opts(4.0, 4.0, 1.0), &mut gc).expect("must render");
+        let p = render(
+            &dl,
+            &res,
+            &empty_font_manager(),
+            opts(4.0, 4.0, 1.0),
+            &mut gc,
+        )
+        .expect("must render");
         assert_eq!((p.width, p.height), (4, 4));
         assert!(p
             .data()
@@ -6336,7 +6713,14 @@ mod autotest_generated {
         let dl = DisplayList::default();
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
-        let p = render(&dl, &res, &empty_font_manager(), opts(4.0, 3.0, 2.0), &mut gc).expect("must render");
+        let p = render(
+            &dl,
+            &res,
+            &empty_font_manager(),
+            opts(4.0, 3.0, 2.0),
+            &mut gc,
+        )
+        .expect("must render");
         assert_eq!((p.width, p.height), (8, 6));
     }
 
@@ -6376,7 +6760,14 @@ mod autotest_generated {
         };
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
-        let p = render(&dl, &res, &empty_font_manager(), opts(8.0, 8.0, 1.0), &mut gc).expect("must render");
+        let p = render(
+            &dl,
+            &res,
+            &empty_font_manager(),
+            opts(8.0, 8.0, 1.0),
+            &mut gc,
+        )
+        .expect("must render");
         assert!(is_reddish(px_at(&p, 1, 1)));
         assert_eq!(px_at(&p, 7, 7), [255, 255, 255, 255]);
     }
@@ -6403,7 +6794,10 @@ mod autotest_generated {
         offsets.insert(1, (3.0, 4.0));
 
         let mut lists = std::collections::BTreeMap::new();
-        lists.insert(DomId { inner: 9 }, std::sync::Arc::new(DisplayList::default()));
+        lists.insert(
+            DomId { inner: 9 },
+            std::sync::Arc::new(DisplayList::default()),
+        );
 
         let state = CpuRenderState::new(offsets)
             .with_virtual_view_display_lists(lists)
@@ -6413,7 +6807,9 @@ mod autotest_generated {
 
         assert_eq!(state.scroll_offsets.get(&1), Some(&(3.0, 4.0)));
         assert_eq!(state.virtual_view_display_lists.len(), 1);
-        assert!(state.virtual_view_display_lists.contains_key(&DomId { inner: 9 }));
+        assert!(state
+            .virtual_view_display_lists
+            .contains_key(&DomId { inner: 9 }));
         assert!(state.system_style.is_some());
 
         // with_system_style(None) must clear it again.
@@ -6451,7 +6847,10 @@ mod autotest_generated {
 
         let (transforms, opacities) = extract_gpu_values(Some(&cache), DomId::ROOT_ID);
         assert_eq!(transforms.len(), 1);
-        assert_eq!(transforms.get(&11).map(|t| t.m), Some(ComputedTransform3D::IDENTITY.m));
+        assert_eq!(
+            transforms.get(&11).map(|t| t.m),
+            Some(ComputedTransform3D::IDENTITY.m)
+        );
         assert_eq!(opacities.get(&22), Some(&0.25));
     }
 
@@ -6459,8 +6858,12 @@ mod autotest_generated {
     fn extract_gpu_values_drops_keys_without_a_value() {
         // A key with no matching value must NOT be invented as a default.
         let mut cache = GpuValueCache::default();
-        cache.transform_keys.insert(NodeId::new(0), TransformKey { id: 5 });
-        cache.opacity_keys.insert(NodeId::new(0), OpacityKey { id: 6 });
+        cache
+            .transform_keys
+            .insert(NodeId::new(0), TransformKey { id: 5 });
+        cache
+            .opacity_keys
+            .insert(NodeId::new(0), OpacityKey { id: 6 });
         let (transforms, opacities) = extract_gpu_values(Some(&cache), DomId::ROOT_ID);
         assert!(transforms.is_empty());
         assert!(opacities.is_empty());
@@ -6490,7 +6893,9 @@ mod autotest_generated {
     #[test]
     fn cpu_render_state_from_gpu_cache_matches_extract_gpu_values() {
         let mut cache = GpuValueCache::default();
-        cache.css_transform_keys.insert(NodeId::new(2), TransformKey { id: 8 });
+        cache
+            .css_transform_keys
+            .insert(NodeId::new(2), TransformKey { id: 8 });
         cache
             .css_current_transform_values
             .insert(NodeId::new(2), ComputedTransform3D::IDENTITY);
@@ -6557,11 +6962,21 @@ mod autotest_generated {
     #[test]
     fn damaged_repaint_does_not_accumulate_box_shadow_ink() {
         let rr = RendererResources::default();
-        let fm: FontManager<FontRef> = FontManager::new(rust_fontconfig::FcFontCache::default())
-            .expect("FontManager::new");
+        let fm: FontManager<FontRef> =
+            FontManager::new(rust_fontconfig::FcFontCache::default()).expect("FontManager::new");
         let shadow_item = DisplayListItem::BoxShadow {
             bounds: wrect(30.0, 30.0, 40.0, 40.0),
-            shadow: shadow(0.0, 8.0, 0.0, ColorU { r: 0, g: 0, b: 0, a: 120 }),
+            shadow: shadow(
+                0.0,
+                8.0,
+                0.0,
+                ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 120,
+                },
+            ),
             border_radius: BorderRadius::default(),
         };
         let rect_item = DisplayListItem::Rect {
@@ -6671,7 +7086,10 @@ mod autotest_generated {
         };
         let (min_x, min_y, max_x, max_y) = compute_content_bounds(&dl).expect("has items");
         for v in [min_x, min_y, max_x, max_y] {
-            assert!(!v.is_nan(), "NaN item bounds must not poison the content box");
+            assert!(
+                !v.is_nan(),
+                "NaN item bounds must not poison the content box"
+            );
         }
         assert_eq!((max_x, max_y), (10.0, 10.0));
     }
@@ -6778,7 +7196,10 @@ mod autotest_generated {
         let first = text_aa();
         assert_eq!(first, text_aa(), "the OnceLock must not flip");
         if std::env::var("AZ_TEXT_AA").is_err() {
-            assert_eq!(first, TEXT_AA_DEFAULT, "unset env -> the documented default");
+            assert_eq!(
+                first, TEXT_AA_DEFAULT,
+                "unset env -> the documented default"
+            );
         }
         // The derived predicates must agree with the mode, or a caller can end
         // up on the LCD path while the blend thinks it is aliased.
@@ -6892,7 +7313,11 @@ mod autotest_generated {
 
         let top = st.clips.last().copied().flatten().expect("clip present");
         assert_eq!((top.x, top.y), (5.0, 5.0));
-        assert_eq!((top.width, top.height), (5.0, 5.0), "the child cannot escape the parent");
+        assert_eq!(
+            (top.width, top.height),
+            (5.0, 5.0),
+            "the child cannot escape the parent"
+        );
 
         run_item(&DisplayListItem::PopClip, &mut p, &mut st, &state).unwrap();
         run_item(&DisplayListItem::PopClip, &mut p, &mut st, &state).unwrap();
@@ -6928,7 +7353,11 @@ mod autotest_generated {
             &state,
         )
         .unwrap();
-        assert_eq!(before, p.data(), "a NaN clip must not silently become 'no clip'");
+        assert_eq!(
+            before,
+            p.data(),
+            "a NaN clip must not silently become 'no clip'"
+        );
     }
 
     #[test]
@@ -6990,7 +7419,10 @@ mod autotest_generated {
         let mut p = pixmap(10, 10);
         run_list_with_state(&dl, &mut p, &CpuRenderState::new(ScrollOffsetMap::new()))
             .expect("must render");
-        assert!(is_reddish(px_at(&p, 0, 0)), "an unknown scroll id must not shift");
+        assert!(
+            is_reddish(px_at(&p, 0, 0)),
+            "an unknown scroll id must not shift"
+        );
     }
 
     // ==================================================================
@@ -7005,7 +7437,7 @@ mod autotest_generated {
                 DisplayListItem::PushOpacity {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
                     opacity: op,
-                        opacity_key: None,
+                    opacity_key: None,
                 },
                 DisplayListItem::Rect {
                     bounds: wrect(0.0, 0.0, 4.0, 4.0),
@@ -7024,7 +7456,11 @@ mod autotest_generated {
     #[test]
     fn opacity_layer_blends_against_the_pre_push_snapshot() {
         assert_eq!(opacity_layer_result(1.0), 0, "opacity 1 keeps the drawing");
-        assert_eq!(opacity_layer_result(0.0), 255, "opacity 0 restores the snapshot");
+        assert_eq!(
+            opacity_layer_result(0.0),
+            255,
+            "opacity 0 restores the snapshot"
+        );
         let half = opacity_layer_result(0.5);
         assert!(
             (120..=136).contains(&half),
@@ -7037,7 +7473,11 @@ mod autotest_generated {
         // Out-of-range opacities clamp; NaN degrades to "fully transparent"
         // (0 after the cast) rather than panicking or writing garbage.
         assert_eq!(opacity_layer_result(5.0), 0, "opacity > 1 clamps to opaque");
-        assert_eq!(opacity_layer_result(-5.0), 255, "opacity < 0 clamps to transparent");
+        assert_eq!(
+            opacity_layer_result(-5.0),
+            255,
+            "opacity < 0 clamps to transparent"
+        );
         assert_eq!(opacity_layer_result(f32::INFINITY), 0);
         assert_eq!(opacity_layer_result(f32::NEG_INFINITY), 255);
         assert_eq!(opacity_layer_result(f32::NAN), 255);
@@ -7054,7 +7494,7 @@ mod autotest_generated {
             &DisplayListItem::PushOpacity {
                 bounds: wrect(0.0, 0.0, f32::NAN, 0.0),
                 opacity: 0.5,
-                    opacity_key: None,
+                opacity_key: None,
             },
             &mut p,
             &mut st,
@@ -7152,7 +7592,9 @@ mod autotest_generated {
                         height: 16.0,
                     },
                 }],
-                font_hash: FontHash { font_hash: 0xdead_beef },
+                font_hash: FontHash {
+                    font_hash: 0xdead_beef,
+                },
                 font_size_px: 16.0,
                 color: BLACK,
                 clip_rect: wrect(0.0, 0.0, 16.0, 16.0),
@@ -7338,8 +7780,12 @@ mod autotest_generated {
         for fmt in [F::RGBA8, F::BGRA8, F::RGB8, F::BGR8, F::R8] {
             let (sw, sh) = (13u32, 7u32);
             let bytes = noisy_src(fmt, sw, sh);
-            let src =
-                crate::image_scale::SrcImage { bytes: &bytes, format: fmt, width: sw, height: sh };
+            let src = crate::image_scale::SrcImage {
+                bytes: &bytes,
+                format: fmt,
+                width: sw,
+                height: sh,
+            };
             assert!(src.is_sampleable(), "{fmt:?} must be sampleable");
             for (dw, dh) in [
                 (13u32, 7u32), // 1:1
@@ -7382,7 +7828,11 @@ mod autotest_generated {
         // must be the clip, not the node.
         let win = visible_dst_window(100, 50, 2000, 1000, 4000, 2000, (140, 90, 180, 130))
             .expect("the clip overlaps the image");
-        assert_eq!(win, (40, 40, 80, 80), "the loop must cover only the clipped 40x40");
+        assert_eq!(
+            win,
+            (40, 40, 80, 80),
+            "the loop must cover only the clipped 40x40"
+        );
 
         // Nothing visible -> no loop at all, not a full-node walk that writes
         // nothing.
@@ -7393,9 +7843,16 @@ mod autotest_generated {
 
         // The pixmap edge clamps exactly like the clip does: an image hanging
         // off the top-left starts at the first on-screen pixel.
-        let win =
-            visible_dst_window(-20, -30, 100, 100, 50, 40, (i32::MIN, i32::MIN, i32::MAX, i32::MAX))
-                .expect("partly on screen");
+        let win = visible_dst_window(
+            -20,
+            -30,
+            100,
+            100,
+            50,
+            40,
+            (i32::MIN, i32::MIN, i32::MAX, i32::MAX),
+        )
+        .expect("partly on screen");
         assert_eq!(win, (20, 30, 70, 70));
     }
 
@@ -7415,8 +7872,12 @@ mod autotest_generated {
         // 4x UPSCALE: 40 source rows feeding 160 destination rows.
         let (sw, sh) = (50u32, 40u32);
         let bytes = noisy_src(F::RGBA8, sw, sh);
-        let src =
-            crate::image_scale::SrcImage { bytes: &bytes, format: F::RGBA8, width: sw, height: sh };
+        let src = crate::image_scale::SrcImage {
+            bytes: &bytes,
+            format: F::RGBA8,
+            width: sw,
+            height: sh,
+        };
         let (dw, dh) = (200u32, 160u32);
         let mut p = pixmap(dw, dh);
         let mut conv = RowConversions::new();
@@ -7438,8 +7899,12 @@ mod autotest_generated {
         // once, never once per tap.
         let (sw, sh) = (200u32, 160u32);
         let bytes = noisy_src(F::RGBA8, sw, sh);
-        let src =
-            crate::image_scale::SrcImage { bytes: &bytes, format: F::RGBA8, width: sw, height: sh };
+        let src = crate::image_scale::SrcImage {
+            bytes: &bytes,
+            format: F::RGBA8,
+            width: sw,
+            height: sh,
+        };
         let (dw, dh) = (50u32, 40u32);
         let mut p = pixmap(dw, dh);
         let mut conv = RowConversions::new();
@@ -7539,7 +8004,11 @@ mod autotest_generated {
         );
         assert!(is_reddish(px_at(&p, 0, 0)), "the frame is painted");
         assert!(is_reddish(px_at(&p, 19, 19)));
-        assert_eq!(px_at(&p, 10, 10), [255, 255, 255, 255], "the middle stays clear");
+        assert_eq!(
+            px_at(&p, 10, 10),
+            [255, 255, 255, 255],
+            "the middle stays clear"
+        );
     }
 
     #[test]
@@ -7691,7 +8160,11 @@ mod autotest_generated {
             1.0,
         );
         assert!(is_reddish(px_at(&p, 10, 0)), "the top side is red");
-        assert_eq!(px_at(&p, 10, 10), [255, 255, 255, 255], "the middle stays clear");
+        assert_eq!(
+            px_at(&p, 10, 10),
+            [255, 255, 255, 255],
+            "the middle stays clear"
+        );
     }
 
     #[test]
@@ -7745,7 +8218,11 @@ mod autotest_generated {
                 None,
                 1.0,
             );
-            assert_eq!(p.data().len(), 400, "width {bad} must not resize the buffer");
+            assert_eq!(
+                p.data().len(),
+                400,
+                "width {bad} must not resize the buffer"
+            );
         }
     }
 
@@ -7753,15 +8230,20 @@ mod autotest_generated {
     // render_display_list_damaged
     // ==================================================================
 
-    fn damaged(
-        dl: &DisplayList,
-        p: &mut AzulPixmap,
-        rects: &[LogicalRect],
-    ) -> Result<(), String> {
+    fn damaged(dl: &DisplayList, p: &mut AzulPixmap, rects: &[LogicalRect]) -> Result<(), String> {
         let res = RendererResources::default();
         let mut gc = GlyphCache::new();
         let state = CpuRenderState::new(ScrollOffsetMap::new());
-        render_display_list_damaged(dl, p, 1.0, &res, &empty_font_manager(), &mut gc, &state, rects)
+        render_display_list_damaged(
+            dl,
+            p,
+            1.0,
+            &res,
+            &empty_font_manager(),
+            &mut gc,
+            &state,
+            rects,
+        )
     }
 
     fn full_red_dl() -> DisplayList {
@@ -7789,7 +8271,10 @@ mod autotest_generated {
         let mut p = pixmap(8, 8);
         p.fill(0, 0, 255, 255); // stale blue frame
         damaged(&full_red_dl(), &mut p, &[lrect(0.0, 0.0, 4.0, 4.0)]).expect("must succeed");
-        assert!(is_reddish(px_at(&p, 1, 1)), "the damaged region is repainted");
+        assert!(
+            is_reddish(px_at(&p, 1, 1)),
+            "the damaged region is repainted"
+        );
         assert_eq!(
             px_at(&p, 6, 6),
             [0, 0, 255, 255],
@@ -7808,7 +8293,11 @@ mod autotest_generated {
             &[lrect(f32::NAN, f32::NAN, f32::NAN, f32::NAN)],
         )
         .expect("must succeed");
-        assert_eq!(before, p.data(), "a NaN damage rect must collapse to nothing");
+        assert_eq!(
+            before,
+            p.data(),
+            "a NaN damage rect must collapse to nothing"
+        );
     }
 
     #[test]
@@ -7826,7 +8315,12 @@ mod autotest_generated {
     fn damaged_render_merges_overlapping_rects_without_double_blending() {
         // Two overlapping damage rects must be merged so the overlap is not
         // alpha-blended twice (a half-transparent fill would double-darken).
-        let half_red = ColorU { r: 255, g: 0, b: 0, a: 128 };
+        let half_red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 128,
+        };
         let dl = DisplayList {
             items: vec![DisplayListItem::Rect {
                 bounds: wrect(0.0, 0.0, 8.0, 8.0),
@@ -7873,7 +8367,8 @@ mod autotest_generated {
         use rust_fontconfig::FcFontCache;
 
         let mut dom = azul_core::dom::Dom::create_body();
-        let styled = azul_core::styled_dom::StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let styled =
+            azul_core::styled_dom::StyledDom::create(&mut dom, azul_css::css::Css::empty());
         let fm = FontManager::<FontRef>::new(FcFontCache::default()).expect("font manager");
 
         // Sizes are kept small on purpose: `render_component_preview` clamps to
@@ -7946,10 +8441,14 @@ mod autotest_generated {
 
         // Degenerate numerics must not panic either.
         for size in [0.0, -16.0, f32::NAN, f32::INFINITY] {
-            assert!(render_text_run_to_pixmap(&empty, "hi", size, BLACK, WHITE, 0.0, 1.0).is_none());
+            assert!(
+                render_text_run_to_pixmap(&empty, "hi", size, BLACK, WHITE, 0.0, 1.0).is_none()
+            );
         }
         for dpi in [0.0, -1.0, f32::NAN] {
-            assert!(render_text_run_to_pixmap(&empty, "hi", 16.0, BLACK, WHITE, 2.0, dpi).is_none());
+            assert!(
+                render_text_run_to_pixmap(&empty, "hi", 16.0, BLACK, WHITE, 2.0, dpi).is_none()
+            );
         }
     }
 
@@ -7996,7 +8495,10 @@ mod autotest_generated {
             .expect("empty text must still give a pixmap");
         assert!(empty.width >= 1 && empty.height >= 1);
         assert!(
-            empty.data().chunks_exact(4).all(|c| c[0] == 255 && c[1] == 255),
+            empty
+                .data()
+                .chunks_exact(4)
+                .all(|c| c[0] == 255 && c[1] == 255),
             "empty text must paint no glyphs"
         );
 
@@ -8049,7 +8551,9 @@ mod shadow_blur_cache_tests {
     use azul_css::props::style::box_shadow::{BoxShadowClipMode, StyleBoxShadow};
 
     fn pv(v: f32) -> PixelValueNoPercent {
-        PixelValueNoPercent { inner: PixelValue::px(v) }
+        PixelValueNoPercent {
+            inner: PixelValue::px(v),
+        }
     }
 
     fn shadow() -> StyleBoxShadow {
@@ -8058,7 +8562,12 @@ mod shadow_blur_cache_tests {
             offset_y: pv(4.0),
             blur_radius: pv(8.0),
             spread_radius: pv(0.0),
-            color: ColorU { r: 0, g: 0, b: 0, a: 128 },
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 128,
+            },
             clip_mode: BoxShadowClipMode::Outset,
         }
     }
@@ -8066,7 +8575,10 @@ mod shadow_blur_cache_tests {
     fn bounds(x: f32, y: f32) -> LogicalRect {
         LogicalRect {
             origin: LogicalPosition { x, y },
-            size: LogicalSize { width: 40.0, height: 30.0 },
+            size: LogicalSize {
+                width: 40.0,
+                height: 30.0,
+            },
         }
     }
 
@@ -8093,8 +8605,15 @@ mod shadow_blur_cache_tests {
 
         let mut a = AzulPixmap::new(120, 100).unwrap();
         a.fill(255, 255, 255, 255);
-        render_box_shadow(&mut a, &bounds(20.0, 20.0), &shadow(), &BorderRadius::default(), None, 1.0)
-            .unwrap();
+        render_box_shadow(
+            &mut a,
+            &bounds(20.0, 20.0),
+            &shadow(),
+            &BorderRadius::default(),
+            None,
+            1.0,
+        )
+        .unwrap();
         let (len_after_first, bytes_after_first) = cache_state();
         assert_eq!(len_after_first, 1, "first render must populate one entry");
         assert!(bytes_after_first > 0);
@@ -8102,8 +8621,15 @@ mod shadow_blur_cache_tests {
         // Same spec, DIFFERENT position — must hit the same entry.
         let mut b = AzulPixmap::new(120, 100).unwrap();
         b.fill(255, 255, 255, 255);
-        render_box_shadow(&mut b, &bounds(50.0, 30.0), &shadow(), &BorderRadius::default(), None, 1.0)
-            .unwrap();
+        render_box_shadow(
+            &mut b,
+            &bounds(50.0, 30.0),
+            &shadow(),
+            &BorderRadius::default(),
+            None,
+            1.0,
+        )
+        .unwrap();
         assert_eq!(cache_state().0, 1, "same-spec shadow must reuse the entry");
 
         // Replay correctness: a fresh (cold-cache) render at the SAME
@@ -8116,9 +8642,19 @@ mod shadow_blur_cache_tests {
         });
         let mut a2 = AzulPixmap::new(120, 100).unwrap();
         a2.fill(255, 255, 255, 255);
-        render_box_shadow(&mut a2, &bounds(20.0, 20.0), &shadow(), &BorderRadius::default(), None, 1.0)
-            .unwrap();
-        assert_eq!(a.data, a2.data, "cached replay must be bit-identical to a fresh render");
+        render_box_shadow(
+            &mut a2,
+            &bounds(20.0, 20.0),
+            &shadow(),
+            &BorderRadius::default(),
+            None,
+            1.0,
+        )
+        .unwrap();
+        assert_eq!(
+            a.data, a2.data,
+            "cached replay must be bit-identical to a fresh render"
+        );
     }
 
     /// A different spec (blur radius) must NOT share the entry — and the
@@ -8132,12 +8668,26 @@ mod shadow_blur_cache_tests {
             c.2 = 0;
         });
         let mut p = AzulPixmap::new(120, 100).unwrap();
-        render_box_shadow(&mut p, &bounds(20.0, 20.0), &shadow(), &BorderRadius::default(), None, 1.0)
-            .unwrap();
+        render_box_shadow(
+            &mut p,
+            &bounds(20.0, 20.0),
+            &shadow(),
+            &BorderRadius::default(),
+            None,
+            1.0,
+        )
+        .unwrap();
         let mut s2 = shadow();
         s2.blur_radius = pv(2.0);
-        render_box_shadow(&mut p, &bounds(20.0, 20.0), &s2, &BorderRadius::default(), None, 1.0)
-            .unwrap();
+        render_box_shadow(
+            &mut p,
+            &bounds(20.0, 20.0),
+            &s2,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        )
+        .unwrap();
         let (len, bytes) = cache_state();
         assert_eq!(len, 2, "distinct blur radii are distinct entries");
         assert!(bytes <= SHADOW_CACHE_MAX_BYTES);
@@ -8151,7 +8701,9 @@ mod shadow_ring_blit_tests {
     use azul_css::props::style::box_shadow::{BoxShadowClipMode, StyleBoxShadow};
 
     fn pv(v: f32) -> PixelValueNoPercent {
-        PixelValueNoPercent { inner: PixelValue::px(v) }
+        PixelValueNoPercent {
+            inner: PixelValue::px(v),
+        }
     }
 
     /// CSS outset shadows must not paint inside the border box. With a big
@@ -8165,16 +8717,32 @@ mod shadow_ring_blit_tests {
             offset_y: pv(20.0),
             blur_radius: pv(2.0),
             spread_radius: pv(0.0),
-            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
             clip_mode: BoxShadowClipMode::Outset,
         };
         let bounds = LogicalRect {
             origin: LogicalPosition { x: 30.0, y: 30.0 },
-            size: LogicalSize { width: 40.0, height: 40.0 },
+            size: LogicalSize {
+                width: 40.0,
+                height: 40.0,
+            },
         };
         let mut p = AzulPixmap::new(140, 140).unwrap();
         p.fill(255, 255, 255, 255);
-        render_box_shadow(&mut p, &bounds, &shadow, &BorderRadius::default(), None, 1.0).unwrap();
+        render_box_shadow(
+            &mut p,
+            &bounds,
+            &shadow,
+            &BorderRadius::default(),
+            None,
+            1.0,
+        )
+        .unwrap();
 
         let px = |x: u32, y: u32| {
             let i = ((y * 140 + x) * 4) as usize;
@@ -8182,7 +8750,11 @@ mod shadow_ring_blit_tests {
         };
         // Center of the border box: the offset shadow overlaps this area,
         // but outset shadows must not paint under the element.
-        assert_eq!(px(50, 50), (255, 255, 255), "border-box interior must stay untouched");
+        assert_eq!(
+            px(50, 50),
+            (255, 255, 255),
+            "border-box interior must stay untouched"
+        );
         // Just outside the border box on the offset side: shadow must be there.
         let (r, g, b) = px(70 + 8, 70 + 8);
         assert!(
@@ -8199,9 +8771,23 @@ pub(super) mod lcd_pretile_tests {
 
     use crate::font::parsed::ParsedFont;
 
-    pub(super) fn load_test_font_pub() -> Option<ParsedFont> { load_test_font() }
-    pub(super) fn rr_with_pub(f: &ParsedFont) -> (RendererResources, FontManager<FontRef>, FontHash) { rr_with(f) }
-    pub(super) fn shape_pub(p: &ParsedFont, t: &str, sz: f32, x: f32, y: f32) -> Vec<GlyphInstance> { shape(p, t, sz, x, y) }
+    pub(super) fn load_test_font_pub() -> Option<ParsedFont> {
+        load_test_font()
+    }
+    pub(super) fn rr_with_pub(
+        f: &ParsedFont,
+    ) -> (RendererResources, FontManager<FontRef>, FontHash) {
+        rr_with(f)
+    }
+    pub(super) fn shape_pub(
+        p: &ParsedFont,
+        t: &str,
+        sz: f32,
+        x: f32,
+        y: f32,
+    ) -> Vec<GlyphInstance> {
+        shape(p, t, sz, x, y)
+    }
 
     fn load_test_font() -> Option<ParsedFont> {
         let candidates = [
@@ -8235,7 +8821,13 @@ pub(super) mod lcd_pretile_tests {
         (rr, fm, FontHash { font_hash: hash })
     }
 
-    fn shape(parsed: &ParsedFont, text: &str, font_size: f32, x: f32, y: f32) -> Vec<GlyphInstance> {
+    fn shape(
+        parsed: &ParsedFont,
+        text: &str,
+        font_size: f32,
+        x: f32,
+        y: f32,
+    ) -> Vec<GlyphInstance> {
         let upm = f32::from(parsed.font_metrics.units_per_em);
         let scale = font_size / upm;
         let mut pen_x = x;
@@ -8246,7 +8838,10 @@ pub(super) mod lcd_pretile_tests {
             out.push(GlyphInstance {
                 index: u32::from(gid),
                 point: LogicalPosition { x: pen_x, y },
-                size: LogicalSize { width: advance, height: font_size },
+                size: LogicalSize {
+                    width: advance,
+                    height: font_size,
+                },
             });
             pen_x += advance;
         }
@@ -8273,30 +8868,81 @@ pub(super) mod lcd_pretile_tests {
         }
         let clip_rect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
-            size: LogicalSize { width: 320.0, height: 60.0 },
+            size: LogicalSize {
+                width: 320.0,
+                height: 60.0,
+            },
         };
-        let bg = ColorU { r: 255, g: 255, b: 255, a: 255 };
-        let color = ColorU { r: 20, g: 20, b: 20, a: 255 };
+        let bg = ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        let color = ColorU {
+            r: 20,
+            g: 20,
+            b: 20,
+            a: 255,
+        };
 
         let mut slow = AzulPixmap::new(320, 60).unwrap();
         slow.fill(bg.r, bg.g, bg.b, 255);
         let mut gc1 = GlyphCache::new();
         render_text_with_bg(
-            &glyphs, font_hash, font_size, color, &mut slow, &clip_rect, None,
-            &rr, &fm, 1.0, &mut gc1, (0.0, 0.0), false, None,
+            &glyphs,
+            font_hash,
+            font_size,
+            color,
+            &mut slow,
+            &clip_rect,
+            None,
+            &rr,
+            &fm,
+            1.0,
+            &mut gc1,
+            (0.0, 0.0),
+            false,
+            None,
         );
         let mut fast = AzulPixmap::new(320, 60).unwrap();
         fast.fill(bg.r, bg.g, bg.b, 255);
         let mut gc2 = GlyphCache::new();
         render_text_with_bg(
-            &glyphs, font_hash, font_size, color, &mut fast, &clip_rect, None,
-            &rr, &fm, 1.0, &mut gc2, (0.0, 0.0), false,
-            Some((bg, LogicalRect {
-                origin: LogicalPosition { x: -10_000.0, y: -10_000.0 },
-                size: LogicalSize { width: 20_000.0, height: 20_000.0 },
-            }.into())),
+            &glyphs,
+            font_hash,
+            font_size,
+            color,
+            &mut fast,
+            &clip_rect,
+            None,
+            &rr,
+            &fm,
+            1.0,
+            &mut gc2,
+            (0.0, 0.0),
+            false,
+            Some((
+                bg,
+                LogicalRect {
+                    origin: LogicalPosition {
+                        x: -10_000.0,
+                        y: -10_000.0,
+                    },
+                    size: LogicalSize {
+                        width: 20_000.0,
+                        height: 20_000.0,
+                    },
+                }
+                .into(),
+            )),
         );
-        let diff = slow.data.iter().zip(fast.data.iter()).filter(|(a, b)| a != b).count();
+        let diff = slow
+            .data
+            .iter()
+            .zip(fast.data.iter())
+            .filter(|(a, b)| a != b)
+            .count();
         assert_eq!(
             diff, 0,
             "split-run path diverges from the sweep on {diff} bytes —              overlapping components must merge coverage, not composite tiles"
@@ -8319,29 +8965,75 @@ pub(super) mod lcd_pretile_tests {
         let glyphs = shape(&font, "Hamburgefonstiv 123", font_size, 8.0, 40.0);
         let clip_rect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
-            size: LogicalSize { width: 320.0, height: 60.0 },
+            size: LogicalSize {
+                width: 320.0,
+                height: 60.0,
+            },
         };
-        let bg = ColorU { r: 255, g: 255, b: 255, a: 255 };
-        let color = ColorU { r: 20, g: 20, b: 20, a: 255 };
+        let bg = ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        let color = ColorU {
+            r: 20,
+            g: 20,
+            b: 20,
+            a: 255,
+        };
 
         let mut slow = AzulPixmap::new(320, 60).unwrap();
         slow.fill(bg.r, bg.g, bg.b, 255);
         let mut gc1 = GlyphCache::new();
         render_text_with_bg(
-            &glyphs, font_hash, font_size, color, &mut slow, &clip_rect, None,
-            &rr, &fm, 1.0, &mut gc1, (0.0, 0.0), false, None,
+            &glyphs,
+            font_hash,
+            font_size,
+            color,
+            &mut slow,
+            &clip_rect,
+            None,
+            &rr,
+            &fm,
+            1.0,
+            &mut gc1,
+            (0.0, 0.0),
+            false,
+            None,
         );
 
         let mut fast = AzulPixmap::new(320, 60).unwrap();
         fast.fill(bg.r, bg.g, bg.b, 255);
         let mut gc2 = GlyphCache::new();
         render_text_with_bg(
-            &glyphs, font_hash, font_size, color, &mut fast, &clip_rect, None,
-            &rr, &fm, 1.0, &mut gc2, (0.0, 0.0), false,
-            Some((bg, LogicalRect {
-                origin: LogicalPosition { x: -10_000.0, y: -10_000.0 },
-                size: LogicalSize { width: 20_000.0, height: 20_000.0 },
-            }.into())),
+            &glyphs,
+            font_hash,
+            font_size,
+            color,
+            &mut fast,
+            &clip_rect,
+            None,
+            &rr,
+            &fm,
+            1.0,
+            &mut gc2,
+            (0.0, 0.0),
+            false,
+            Some((
+                bg,
+                LogicalRect {
+                    origin: LogicalPosition {
+                        x: -10_000.0,
+                        y: -10_000.0,
+                    },
+                    size: LogicalSize {
+                        width: 20_000.0,
+                        height: 20_000.0,
+                    },
+                }
+                .into(),
+            )),
         );
 
         if !text_lcd_enabled() || lcd_linear_params().is_none() {
@@ -8380,22 +9072,33 @@ mod layer_path_text_tests {
             return;
         };
         let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
-        let glyphs =
-            lcd_pretile_tests::shape_pub(&font, "grow reflow", 20.0, 8.0, 26.0);
+        let glyphs = lcd_pretile_tests::shape_pub(&font, "grow reflow", 20.0, 8.0, 26.0);
         let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
-            size: LogicalSize { width: 200.0, height: 40.0 },
+            size: LogicalSize {
+                width: 200.0,
+                height: 40.0,
+            },
         }
         .into();
         let item = DisplayListItem::Text {
             glyphs,
             font_hash,
             font_size_px: 20.0,
-            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
             clip_rect,
             source_node_index: None,
         };
-        let dl = DisplayList { items: vec![item], node_mapping: vec![None], ..Default::default() };
+        let dl = DisplayList {
+            items: vec![item],
+            node_mapping: vec![None],
+            ..Default::default()
+        };
 
         let mut plain = AzulPixmap::new(200, 40).unwrap();
         plain.fill(255, 255, 255, 255);
@@ -8408,10 +9111,19 @@ mod layer_path_text_tests {
         let mut gc3 = GlyphCache::new();
         let mut comp = CompositorState::new(200, 40);
         comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
-        comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc3, &state).unwrap();
+        comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc3, &state)
+            .unwrap();
         comp.composite_frame(&mut layered, 1.0);
-        let ldiff = plain.data().iter().zip(layered.data().iter()).filter(|(a, b)| a != b).count();
-        assert_eq!(ldiff, 0, "render_layers+composite diverges on {ldiff} bytes");
+        let ldiff = plain
+            .data()
+            .iter()
+            .zip(layered.data().iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            ldiff, 0,
+            "render_layers+composite diverges on {ldiff} bytes"
+        );
     }
 
     /// THE INK-GAMUT LAW: a solid-colour text run blended onto a solid
@@ -8457,16 +9169,36 @@ mod layer_path_text_tests {
         let glyphs = lcd_pretile_tests::shape_pub(&font, "Every built-in widget", 13.0, 8.0, 26.0);
         let page: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
-            size: LogicalSize { width: 200.0, height: 40.0 },
+            size: LogicalSize {
+                width: 200.0,
+                height: 40.0,
+            },
         }
         .into();
-        let fg = ColorU { r: 0x66, g: 0x70, b: 0x85, a: 255 };
-        let bg = ColorU { r: 0xf2, g: 0xf4, b: 0xf7, a: 255 };
+        let fg = ColorU {
+            r: 0x66,
+            g: 0x70,
+            b: 0x85,
+            a: 255,
+        };
+        let bg = ColorU {
+            r: 0xf2,
+            g: 0xf4,
+            b: 0xf7,
+            a: 255,
+        };
         let items = vec![
-            DisplayListItem::Rect { bounds: page, color: bg, border_radius: BorderRadius::default() },
+            DisplayListItem::Rect {
+                bounds: page,
+                color: bg,
+                border_radius: BorderRadius::default(),
+            },
             DisplayListItem::PushScrollFrame {
                 clip_bounds: page,
-                content_size: LogicalSize { width: 200.0, height: 400.0 },
+                content_size: LogicalSize {
+                    width: 200.0,
+                    height: 400.0,
+                },
                 scroll_id: 7,
             },
             DisplayListItem::Text {
@@ -8480,7 +9212,11 @@ mod layer_path_text_tests {
             DisplayListItem::PopScrollFrame,
         ];
         let n = items.len();
-        let dl = DisplayList { items, node_mapping: vec![None; n], ..Default::default() };
+        let dl = DisplayList {
+            items,
+            node_mapping: vec![None; n],
+            ..Default::default()
+        };
 
         let mut plain = AzulPixmap::new(200, 40).unwrap();
         plain.fill(255, 255, 255, 255);
@@ -8494,12 +9230,22 @@ mod layer_path_text_tests {
         let mut gc2 = GlyphCache::new();
         let mut comp = CompositorState::new(200, 40);
         comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
-        assert_eq!(comp.layers.len(), 2, "the scroll frame must have been promoted to a layer");
-        comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc2, &state).unwrap();
+        assert_eq!(
+            comp.layers.len(),
+            2,
+            "the scroll frame must have been promoted to a layer"
+        );
+        comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc2, &state)
+            .unwrap();
         comp.composite_frame(&mut layered, 1.0);
 
         assert_ink_gamut(&layered, fg, bg, "layered render");
-        let ldiff = plain.data().iter().zip(layered.data().iter()).filter(|(a, b)| a != b).count();
+        let ldiff = plain
+            .data()
+            .iter()
+            .zip(layered.data().iter())
+            .filter(|(a, b)| a != b)
+            .count();
         assert_eq!(
             ldiff, 0,
             "text inside a scroll-frame layer diverges from the flat render on {ldiff} bytes: \
@@ -8525,18 +9271,25 @@ mod damaged_vs_plain_text_tests {
             return;
         };
         let (rr, fm, font_hash) = lcd_pretile_tests::rr_with_pub(&font);
-        let glyphs =
-            lcd_pretile_tests::shape_pub(&font, "grow reflow", 20.0, 8.0, 26.0);
+        let glyphs = lcd_pretile_tests::shape_pub(&font, "grow reflow", 20.0, 8.0, 26.0);
         let clip_rect: crate::solver3::display_list::WindowLogicalRect = LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
-            size: LogicalSize { width: 200.0, height: 40.0 },
+            size: LogicalSize {
+                width: 200.0,
+                height: 40.0,
+            },
         }
         .into();
         let item = DisplayListItem::Text {
             glyphs,
             font_hash,
             font_size_px: 20.0,
-            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
             clip_rect,
             source_node_index: None,
         };
@@ -8557,12 +9310,13 @@ mod damaged_vs_plain_text_tests {
         let state = CpuRenderState::new(ScrollOffsetMap::new());
         let full = vec![LogicalRect {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
-            size: LogicalSize { width: 200.0, height: 40.0 },
+            size: LogicalSize {
+                width: 200.0,
+                height: 40.0,
+            },
         }];
         render_display_list_damaged(&dl, &mut damaged, 1.0, &rr, &fm, &mut gc2, &state, &full)
             .unwrap();
-
-
 
         let diff: Vec<usize> = plain
             .data()

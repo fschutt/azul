@@ -61,13 +61,15 @@ impl PendingTextEdit {
     ///
     /// NOTE: Actual cursor-based insertion is handled by `apply_text_changeset()`
     /// in window.rs via `text3::edit::insert_text()`.
-    #[must_use] pub fn resulting_text(&self) -> AzString {
+    #[must_use]
+    pub fn resulting_text(&self) -> AzString {
         let mut result = self.old_text.as_str().to_string();
         result.push_str(self.inserted_text.as_str());
         result.into()
     }
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// C-compatible Option type for `PendingTextEdit`
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
@@ -77,7 +79,8 @@ pub enum OptionPendingTextEdit {
 }
 
 impl OptionPendingTextEdit {
-    #[must_use] pub fn into_option(self) -> Option<PendingTextEdit> {
+    #[must_use]
+    pub fn into_option(self) -> Option<PendingTextEdit> {
         match self {
             Self::None => None,
             Self::Some(t) => Some(t),
@@ -141,7 +144,8 @@ pub struct PendingTextEditQueue {
 
 impl PendingTextEditQueue {
     /// An empty queue.
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             head: None,
             tail: Vec::new(),
@@ -158,7 +162,8 @@ impl PendingTextEditQueue {
     }
 
     /// The oldest queued edit — the one the next apply pass consumes.
-    #[must_use] pub const fn front(&self) -> Option<&QueuedTextEdit> {
+    #[must_use]
+    pub const fn front(&self) -> Option<&QueuedTextEdit> {
         match &self.head {
             Some(q) => Some(q),
             None => None,
@@ -171,7 +176,8 @@ impl PendingTextEditQueue {
     }
 
     /// The most recently recorded edit.
-    #[must_use] pub fn back(&self) -> Option<&QueuedTextEdit> {
+    #[must_use]
+    pub fn back(&self) -> Option<&QueuedTextEdit> {
         self.tail.last().or(self.head.as_ref())
     }
 
@@ -196,12 +202,14 @@ impl PendingTextEditQueue {
     }
 
     /// Number of queued edits.
-    #[must_use] pub fn len(&self) -> usize {
+    #[must_use]
+    pub fn len(&self) -> usize {
         usize::from(self.head.is_some()) + self.tail.len()
     }
 
     /// Whether nothing is queued.
-    #[must_use] pub const fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.head.is_none()
     }
 
@@ -253,7 +261,8 @@ pub struct TextInputManager {
 
 impl TextInputManager {
     /// Create a new `TextInputManager`
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             pending_changesets: PendingTextEditQueue::new(),
         }
@@ -300,7 +309,8 @@ impl TextInputManager {
     /// Callers that want the most recent edit instead want
     /// [`Self::get_newest_changeset`]; callers that want all of them iterate
     /// `pending_changesets`.
-    #[must_use] pub const fn get_pending_changeset(&self) -> Option<&PendingTextEdit> {
+    #[must_use]
+    pub const fn get_pending_changeset(&self) -> Option<&PendingTextEdit> {
         match self.pending_changesets.front() {
             Some(q) => Some(&q.edit),
             None => None,
@@ -308,7 +318,8 @@ impl TextInputManager {
     }
 
     /// The source of the changeset [`Self::get_pending_changeset`] returns.
-    #[must_use] pub const fn get_pending_source(&self) -> Option<TextInputSource> {
+    #[must_use]
+    pub const fn get_pending_source(&self) -> Option<TextInputSource> {
         match self.pending_changesets.front() {
             Some(q) => Some(q.source),
             None => None,
@@ -317,12 +328,14 @@ impl TextInputManager {
 
     /// The MOST RECENTLY recorded changeset — for callers that report "what was
     /// just typed" rather than "what is applied next".
-    #[must_use] pub fn get_newest_changeset(&self) -> Option<&PendingTextEdit> {
+    #[must_use]
+    pub fn get_newest_changeset(&self) -> Option<&PendingTextEdit> {
         self.pending_changesets.back().map(|q| &q.edit)
     }
 
     /// The source of the changeset [`Self::get_newest_changeset`] returns.
-    #[must_use] pub fn get_newest_source(&self) -> Option<TextInputSource> {
+    #[must_use]
+    pub fn get_newest_source(&self) -> Option<TextInputSource> {
         self.pending_changesets.back().map(|q| q.source)
     }
 
@@ -497,7 +510,10 @@ mod autotest_generated {
 
     #[test]
     fn resulting_text_basic_append() {
-        assert_eq!(edit("Hello", " World").resulting_text().as_str(), "Hello World");
+        assert_eq!(
+            edit("Hello", " World").resulting_text().as_str(),
+            "Hello World"
+        );
     }
 
     #[test]
@@ -580,16 +596,12 @@ mod autotest_generated {
     fn option_pending_text_edit_none_round_trip() {
         assert!(OptionPendingTextEdit::None.into_option().is_none());
         // Both `From<Option<T>>` and `From<Option<&T>>` exist — pin the owned one.
-        assert!(
-            OptionPendingTextEdit::from(None::<PendingTextEdit>)
-                .into_option()
-                .is_none()
-        );
-        assert!(
-            OptionPendingTextEdit::from(None::<&PendingTextEdit>)
-                .into_option()
-                .is_none()
-        );
+        assert!(OptionPendingTextEdit::from(None::<PendingTextEdit>)
+            .into_option()
+            .is_none());
+        assert!(OptionPendingTextEdit::from(None::<&PendingTextEdit>)
+            .into_option()
+            .is_none());
     }
 
     #[test]
@@ -659,7 +671,9 @@ mod autotest_generated {
         );
         assert_eq!(returned, node);
 
-        let pending = m.get_pending_changeset().expect("changeset must be recorded");
+        let pending = m
+            .get_pending_changeset()
+            .expect("changeset must be recorded");
         assert_eq!(pending.node, node);
         assert_eq!(pending.inserted_text.as_str(), "abc");
         assert_eq!(pending.old_text.as_str(), "xyz");
@@ -670,12 +684,8 @@ mod autotest_generated {
     fn record_input_survives_empty_unicode_and_huge_payloads() {
         let mut m = TextInputManager::new();
         for s in adversarial_strings() {
-            let returned = m.record_input(
-                dom_node(0, 0),
-                s.clone(),
-                s.clone(),
-                TextInputSource::Ime,
-            );
+            let returned =
+                m.record_input(dom_node(0, 0), s.clone(), s.clone(), TextInputSource::Ime);
             assert_eq!(returned, dom_node(0, 0));
             let pending = m.get_newest_changeset().expect("recorded");
             assert_eq!(pending.inserted_text.as_str(), s.as_str());
@@ -691,7 +701,11 @@ mod autotest_generated {
             TextInputSource::Programmatic,
         );
         assert_eq!(
-            m.get_newest_changeset().expect("recorded").inserted_text.as_str().len(),
+            m.get_newest_changeset()
+                .expect("recorded")
+                .inserted_text
+                .as_str()
+                .len(),
             1_000_000
         );
     }
@@ -705,7 +719,10 @@ mod autotest_generated {
             dom: DomId { inner: usize::MAX },
             node: NodeHierarchyItemId::NONE,
         };
-        assert_eq!(m.record_input(none_node, "a".into(), "b".into(), TextInputSource::Keyboard), none_node);
+        assert_eq!(
+            m.record_input(none_node, "a".into(), "b".into(), TextInputSource::Keyboard),
+            none_node
+        );
         assert_eq!(m.get_pending_changeset().expect("recorded").node, none_node);
 
         // The largest representable (1-based encoded) node index.
@@ -713,7 +730,10 @@ mod autotest_generated {
             dom: DomId::ROOT_ID,
             node: NodeHierarchyItemId::from_raw(usize::MAX),
         };
-        assert_eq!(m.record_input(max_node, "a".into(), "b".into(), TextInputSource::Keyboard), max_node);
+        assert_eq!(
+            m.record_input(max_node, "a".into(), "b".into(), TextInputSource::Keyboard),
+            max_node
+        );
         assert_eq!(m.get_newest_changeset().expect("recorded").node, max_node);
 
         assert_eq!(DomNodeId::ROOT.node.into_crate_internal(), None);
@@ -726,9 +746,24 @@ mod autotest_generated {
     #[test]
     fn record_input_queues_and_keeps_every_edit_in_order() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 1), "first".into(), "old1".into(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 1), "second".into(), "old2".into(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 1), "third".into(), "old3".into(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(0, 1),
+            "first".into(),
+            "old1".into(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 1),
+            "second".into(),
+            "old2".into(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 1),
+            "third".into(),
+            "old3".into(),
+            TextInputSource::Keyboard,
+        );
 
         assert_eq!(m.pending_changesets.len(), 3);
         let inserted: Vec<&str> = m
@@ -739,15 +774,32 @@ mod autotest_generated {
         assert_eq!(inserted, ["first", "second", "third"]);
 
         // The front is the OLDEST — applying front-first replays the typing order.
-        assert_eq!(m.get_pending_changeset().expect("front").inserted_text.as_str(), "first");
-        assert_eq!(m.get_newest_changeset().expect("back").inserted_text.as_str(), "third");
+        assert_eq!(
+            m.get_pending_changeset()
+                .expect("front")
+                .inserted_text
+                .as_str(),
+            "first"
+        );
+        assert_eq!(
+            m.get_newest_changeset()
+                .expect("back")
+                .inserted_text
+                .as_str(),
+            "third"
+        );
     }
 
     #[test]
     fn take_next_changeset_drains_oldest_first_without_dropping_the_rest() {
         let mut m = TextInputManager::new();
         for s in ["a", "b", "c"] {
-            m.record_input(dom_node(0, 1), s.into(), String::new(), TextInputSource::Keyboard);
+            m.record_input(
+                dom_node(0, 1),
+                s.into(),
+                String::new(),
+                TextInputSource::Keyboard,
+            );
         }
 
         let mut drained = Vec::new();
@@ -762,9 +814,24 @@ mod autotest_generated {
     #[test]
     fn get_pending_events_emits_one_event_per_queued_edit_in_order() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 1), "a".into(), "old-a".into(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 1), "b".into(), "old-b".into(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 1), "c".into(), "old-c".into(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(0, 1),
+            "a".into(),
+            "old-a".into(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 1),
+            "b".into(),
+            "old-b".into(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 1),
+            "c".into(),
+            "old-c".into(),
+            TextInputSource::Keyboard,
+        );
 
         let events = m.get_pending_events(ts());
         assert_eq!(events.len(), 3, "one Input event per queued edit");
@@ -783,11 +850,30 @@ mod autotest_generated {
     #[test]
     fn a_batch_can_hold_edits_for_several_different_nodes() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 1), "x".into(), String::new(), TextInputSource::Keyboard);
-        m.record_input(dom_node(1, 2), "y".into(), String::new(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 3), "z".into(), String::new(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(0, 1),
+            "x".into(),
+            String::new(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(1, 2),
+            "y".into(),
+            String::new(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 3),
+            "z".into(),
+            String::new(),
+            TextInputSource::Keyboard,
+        );
 
-        let targets: Vec<DomNodeId> = m.get_pending_events(ts()).iter().map(|e| e.target).collect();
+        let targets: Vec<DomNodeId> = m
+            .get_pending_events(ts())
+            .iter()
+            .map(|e| e.target)
+            .collect();
         assert_eq!(targets, [dom_node(0, 1), dom_node(1, 2), dom_node(0, 3)]);
     }
 
@@ -797,12 +883,26 @@ mod autotest_generated {
         // accessibility edit can be queued together, and a manager-wide
         // "current source" would relabel the older one.
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 1), "k".into(), String::new(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 2), "p".into(), String::new(), TextInputSource::Programmatic);
-        m.record_input(dom_node(0, 3), "a".into(), String::new(), TextInputSource::Accessibility);
+        m.record_input(
+            dom_node(0, 1),
+            "k".into(),
+            String::new(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 2),
+            "p".into(),
+            String::new(),
+            TextInputSource::Programmatic,
+        );
+        m.record_input(
+            dom_node(0, 3),
+            "a".into(),
+            String::new(),
+            TextInputSource::Accessibility,
+        );
 
-        let sources: Vec<TextInputSource> =
-            m.pending_changesets.iter().map(|q| q.source).collect();
+        let sources: Vec<TextInputSource> = m.pending_changesets.iter().map(|q| q.source).collect();
         assert_eq!(
             sources,
             [
@@ -812,8 +912,11 @@ mod autotest_generated {
             ]
         );
 
-        let event_sources: Vec<CoreEventSource> =
-            m.get_pending_events(ts()).iter().map(|e| e.source).collect();
+        let event_sources: Vec<CoreEventSource> = m
+            .get_pending_events(ts())
+            .iter()
+            .map(|e| e.source)
+            .collect();
         assert_eq!(
             event_sources,
             [
@@ -831,8 +934,18 @@ mod autotest_generated {
     #[test]
     fn set_changeset_rewrites_only_the_in_flight_edit() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 1), "a".into(), "old-a".into(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 2), "b".into(), "old-b".into(), TextInputSource::Ime);
+        m.record_input(
+            dom_node(0, 1),
+            "a".into(),
+            "old-a".into(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 2),
+            "b".into(),
+            "old-b".into(),
+            TextInputSource::Ime,
+        );
 
         m.set_changeset(PendingTextEdit {
             node: dom_node(0, 1),
@@ -841,13 +954,25 @@ mod autotest_generated {
         });
 
         assert_eq!(m.pending_changesets.len(), 2, "the queued sibling survives");
-        assert_eq!(m.get_pending_changeset().expect("front").inserted_text.as_str(), "A");
+        assert_eq!(
+            m.get_pending_changeset()
+                .expect("front")
+                .inserted_text
+                .as_str(),
+            "A"
+        );
         assert_eq!(
             m.get_pending_source(),
             Some(TextInputSource::Keyboard),
             "overriding the text must not relabel where it came from"
         );
-        assert_eq!(m.get_newest_changeset().expect("back").inserted_text.as_str(), "b");
+        assert_eq!(
+            m.get_newest_changeset()
+                .expect("back")
+                .inserted_text
+                .as_str(),
+            "b"
+        );
     }
 
     #[test]
@@ -860,7 +985,10 @@ mod autotest_generated {
         });
         assert_eq!(m.pending_changesets.len(), 1);
         assert_eq!(m.get_pending_source(), Some(TextInputSource::Programmatic));
-        assert_eq!(m.get_pending_events(ts())[0].source, CoreEventSource::Programmatic);
+        assert_eq!(
+            m.get_pending_events(ts())[0].source,
+            CoreEventSource::Programmatic
+        );
     }
 
     #[test]
@@ -876,9 +1004,24 @@ mod autotest_generated {
     #[test]
     fn clear_changeset_empties_the_whole_queue() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 5), "x".into(), "y".into(), TextInputSource::Programmatic);
-        m.record_input(dom_node(0, 6), "x2".into(), "y2".into(), TextInputSource::Keyboard);
-        m.record_input(dom_node(1, 7), "x3".into(), "y3".into(), TextInputSource::Ime);
+        m.record_input(
+            dom_node(0, 5),
+            "x".into(),
+            "y".into(),
+            TextInputSource::Programmatic,
+        );
+        m.record_input(
+            dom_node(0, 6),
+            "x2".into(),
+            "y2".into(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(1, 7),
+            "x3".into(),
+            "y3".into(),
+            TextInputSource::Ime,
+        );
         assert_eq!(m.pending_changesets.len(), 3);
 
         // A preventDefault veto kills the whole batch: an entry left behind
@@ -897,9 +1040,17 @@ mod autotest_generated {
         assert!(m.get_pending_changeset().is_none());
 
         // ...and the queue is still usable afterwards.
-        m.record_input(dom_node(0, 8), "after".into(), String::new(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(0, 8),
+            "after".into(),
+            String::new(),
+            TextInputSource::Keyboard,
+        );
         assert_eq!(m.pending_changesets.len(), 1);
-        assert_eq!(m.get_pending_changeset().expect("front").node, dom_node(0, 8));
+        assert_eq!(
+            m.get_pending_changeset().expect("front").node,
+            dom_node(0, 8)
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -974,8 +1125,18 @@ mod autotest_generated {
     #[test]
     fn get_pending_events_does_not_consume_the_changeset() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 4), "a".into(), "b".into(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 4), "c".into(), "d".into(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(0, 4),
+            "a".into(),
+            "b".into(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 4),
+            "c".into(),
+            "d".into(),
+            TextInputSource::Keyboard,
+        );
         assert_eq!(m.get_pending_events(ts()).len(), 2);
         // Reading events is a pure query — only clear_changeset()/
         // take_next_changeset() drain it.
@@ -990,7 +1151,12 @@ mod autotest_generated {
     #[test]
     fn remap_rewrites_a_surviving_node() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 3), "a".into(), "b".into(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(0, 3),
+            "a".into(),
+            "b".into(),
+            TextInputSource::Keyboard,
+        );
 
         let map = NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(1))]);
         m.remap_node_ids(DomId::ROOT_ID, &map);
@@ -1012,16 +1178,34 @@ mod autotest_generated {
         m.remap_node_ids(DomId::ROOT_ID, &map);
 
         assert!(m.get_pending_changeset().is_none());
-        assert!(m.get_pending_source().is_none(), "source must be dropped with the changeset");
+        assert!(
+            m.get_pending_source().is_none(),
+            "source must be dropped with the changeset"
+        );
         assert!(m.get_pending_events(ts()).is_empty());
     }
 
     #[test]
     fn remap_drops_only_the_unmounted_entries_of_a_queue() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 1), "keep1".into(), String::new(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 2), "gone".into(), String::new(), TextInputSource::Ime);
-        m.record_input(dom_node(0, 3), "keep2".into(), String::new(), TextInputSource::Accessibility);
+        m.record_input(
+            dom_node(0, 1),
+            "keep1".into(),
+            String::new(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 2),
+            "gone".into(),
+            String::new(),
+            TextInputSource::Ime,
+        );
+        m.record_input(
+            dom_node(0, 3),
+            "keep2".into(),
+            String::new(),
+            TextInputSource::Accessibility,
+        );
 
         // Node 2 is unmounted; 1 and 3 shift down by one.
         let map = NodeIdMap::from_pairs([
@@ -1045,21 +1229,45 @@ mod autotest_generated {
             "order, rewritten ids and per-entry sources all survive the drop"
         );
         // The head/tail split must be intact: the front is still the oldest.
-        assert_eq!(m.get_pending_changeset().expect("front").inserted_text.as_str(), "keep1");
-        assert_eq!(m.get_newest_changeset().expect("back").inserted_text.as_str(), "keep2");
+        assert_eq!(
+            m.get_pending_changeset()
+                .expect("front")
+                .inserted_text
+                .as_str(),
+            "keep1"
+        );
+        assert_eq!(
+            m.get_newest_changeset()
+                .expect("back")
+                .inserted_text
+                .as_str(),
+            "keep2"
+        );
     }
 
     #[test]
     fn remap_dropping_the_head_promotes_the_next_entry() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 1), "gone".into(), String::new(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 2), "survivor".into(), String::new(), TextInputSource::Ime);
+        m.record_input(
+            dom_node(0, 1),
+            "gone".into(),
+            String::new(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 2),
+            "survivor".into(),
+            String::new(),
+            TextInputSource::Ime,
+        );
 
         let map = NodeIdMap::from_pairs([(NodeId::new(2), NodeId::new(0))]);
         m.remap_node_ids(DomId::ROOT_ID, &map);
 
         assert_eq!(m.pending_changesets.len(), 1);
-        let front = m.get_pending_changeset().expect("the survivor becomes the head");
+        let front = m
+            .get_pending_changeset()
+            .expect("the survivor becomes the head");
         assert_eq!(front.inserted_text.as_str(), "survivor");
         assert_eq!(front.node, dom_node(0, 0));
         assert_eq!(m.get_pending_source(), Some(TextInputSource::Ime));
@@ -1069,8 +1277,18 @@ mod autotest_generated {
     #[test]
     fn remap_with_an_empty_map_drops_everything() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 0), "a".into(), "b".into(), TextInputSource::Keyboard);
-        m.record_input(dom_node(0, 1), "c".into(), "d".into(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(0, 0),
+            "a".into(),
+            "b".into(),
+            TextInputSource::Keyboard,
+        );
+        m.record_input(
+            dom_node(0, 1),
+            "c".into(),
+            "d".into(),
+            TextInputSource::Keyboard,
+        );
 
         let map = NodeIdMap::from_pairs(Vec::<(NodeId, NodeId)>::new());
         assert!(map.is_empty());
@@ -1084,14 +1302,25 @@ mod autotest_generated {
     #[test]
     fn remap_leaves_other_doms_untouched() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(1, 3), "a".into(), "b".into(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(1, 3),
+            "a".into(),
+            "b".into(),
+            TextInputSource::Keyboard,
+        );
 
         // Reconciliation of DOM 0 says nothing about DOM 1's node ids.
         let map = NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(9))]);
         m.remap_node_ids(DomId::ROOT_ID, &map);
 
-        let pending = m.get_pending_changeset().expect("other-DOM state must survive");
-        assert_eq!(pending.node, dom_node(1, 3), "node id must NOT be rewritten");
+        let pending = m
+            .get_pending_changeset()
+            .expect("other-DOM state must survive");
+        assert_eq!(
+            pending.node,
+            dom_node(1, 3),
+            "node id must NOT be rewritten"
+        );
     }
 
     #[test]
@@ -1100,7 +1329,12 @@ mod autotest_generated {
         // `None` — it is unresolvable, so the edit must be dropped rather than
         // silently retargeted.
         let mut m = TextInputManager::new();
-        m.record_input(DomNodeId::ROOT, "a".into(), "b".into(), TextInputSource::Keyboard);
+        m.record_input(
+            DomNodeId::ROOT,
+            "a".into(),
+            "b".into(),
+            TextInputSource::Keyboard,
+        );
 
         let map = NodeIdMap::from_pairs([(NodeId::new(0), NodeId::new(0))]);
         m.remap_node_ids(DomId::ROOT_ID, &map);
@@ -1123,7 +1357,10 @@ mod autotest_generated {
         let map = NodeIdMap::from_pairs([(NodeId::new(usize::MAX - 1), NodeId::new(2))]);
         m.remap_node_ids(DomId::ROOT_ID, &map);
 
-        assert_eq!(m.get_pending_changeset().expect("mapped").node, dom_node(0, 2));
+        assert_eq!(
+            m.get_pending_changeset().expect("mapped").node,
+            dom_node(0, 2)
+        );
     }
 
     #[test]
@@ -1138,12 +1375,20 @@ mod autotest_generated {
     #[test]
     fn remap_is_idempotent_when_ids_are_stable() {
         let mut m = TextInputManager::new();
-        m.record_input(dom_node(0, 5), "a".into(), "b".into(), TextInputSource::Keyboard);
+        m.record_input(
+            dom_node(0, 5),
+            "a".into(),
+            "b".into(),
+            TextInputSource::Keyboard,
+        );
 
         let map = NodeIdMap::from_pairs([(NodeId::new(5), NodeId::new(5))]);
         m.remap_node_ids(DomId::ROOT_ID, &map);
         m.remap_node_ids(DomId::ROOT_ID, &map);
 
-        assert_eq!(m.get_pending_changeset().expect("stable").node, dom_node(0, 5));
+        assert_eq!(
+            m.get_pending_changeset().expect("stable").node,
+            dom_node(0, 5)
+        );
     }
 }

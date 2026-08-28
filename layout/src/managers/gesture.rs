@@ -27,7 +27,6 @@ use azul_core::{
 };
 use azul_css::{impl_option, impl_option_inner};
 
-
 #[cfg(feature = "std")]
 static NEXT_EVENT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -186,17 +185,20 @@ impl InputSession {
     }
 
     /// Get the first sample in this session
-    #[must_use] pub fn first_sample(&self) -> Option<&InputSample> {
+    #[must_use]
+    pub fn first_sample(&self) -> Option<&InputSample> {
         self.samples.first()
     }
 
     /// Get the last sample in this session
-    #[must_use] pub fn last_sample(&self) -> Option<&InputSample> {
+    #[must_use]
+    pub fn last_sample(&self) -> Option<&InputSample> {
         self.samples.last()
     }
 
     /// Get the duration of this session (first to last sample)
-    #[must_use] pub fn duration_ms(&self) -> Option<u64> {
+    #[must_use]
+    pub fn duration_ms(&self) -> Option<u64> {
         let first = self.first_sample()?;
         let last = self.last_sample()?;
         let duration = last.timestamp.duration_since(&first.timestamp);
@@ -204,7 +206,8 @@ impl InputSession {
     }
 
     /// Get the total distance traveled in this session
-    #[must_use] pub fn total_distance(&self) -> f32 {
+    #[must_use]
+    pub fn total_distance(&self) -> f32 {
         if self.samples.len() < 2 {
             return 0.0;
         }
@@ -221,7 +224,8 @@ impl InputSession {
     }
 
     /// Get the straight-line distance from first to last sample
-    #[must_use] pub fn direct_distance(&self) -> Option<f32> {
+    #[must_use]
+    pub fn direct_distance(&self) -> Option<f32> {
         let first = self.first_sample()?;
         let last = self.last_sample()?;
         let dx = last.position.x - first.position.x;
@@ -321,7 +325,6 @@ pub struct DetectedRotation {
     /// Duration of rotation (milliseconds)
     pub duration_ms: u64,
 }
-
 
 /// State of pen/stylus input
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -423,7 +426,8 @@ impl Default for WacomPadState {
 
 impl WacomPadState {
     /// Whether `ExpressKey` `index` (0-based, < 32) is currently held.
-    #[must_use] pub const fn express_key(&self, index: u32) -> bool {
+    #[must_use]
+    pub const fn express_key(&self, index: u32) -> bool {
         index < 32 && (self.express_keys & (1u32 << index)) != 0
     }
 }
@@ -523,7 +527,6 @@ pub enum NativeGestureEvent {
     Rotation(DetectedRotation),
 }
 
-
 impl Default for GestureAndDragManager {
     fn default() -> Self {
         Self::new()
@@ -533,19 +536,24 @@ impl Default for GestureAndDragManager {
 impl GestureAndDragManager {
     /// (`input_sessions`, `long_press_callbacks_invoked`). Used by
     /// `AZ_E2E_TEST` to watch for unbounded growth.
-    #[must_use] pub const fn debug_counts(&self) -> (usize, usize) {
-        (self.input_sessions.len(), self.long_press_callbacks_invoked.len())
+    #[must_use]
+    pub const fn debug_counts(&self) -> (usize, usize) {
+        (
+            self.input_sessions.len(),
+            self.long_press_callbacks_invoked.len(),
+        )
     }
 
     /// Create a new gesture and drag manager
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             config: GestureDetectionConfig::default(),
             input_sessions: Vec::new(),
             next_session_id: 1,
             active_drag: None,
             drag_source_node: azul_core::dom::OptionDomNodeId::None,
-           
+
             pen_state: None,
             previous_pen_state: None,
             pen_event_pending: false,
@@ -573,7 +581,8 @@ impl GestureAndDragManager {
     }
 
     /// Create with custom configuration
-    #[must_use] pub fn with_config(config: GestureDetectionConfig) -> Self {
+    #[must_use]
+    pub fn with_config(config: GestureDetectionConfig) -> Self {
         Self {
             config,
             ..Self::new()
@@ -829,8 +838,7 @@ impl GestureAndDragManager {
             return false;
         }
         if session.samples.len() >= MAX_SAMPLES_PER_SESSION {
-            let remove_count =
-                session.samples.len() - MAX_SAMPLES_PER_SESSION + DRAIN_BATCH_SIZE;
+            let remove_count = session.samples.len() - MAX_SAMPLES_PER_SESSION + DRAIN_BATCH_SIZE;
             session.samples.drain(0..remove_count);
         }
         session.samples.push(InputSample {
@@ -952,12 +960,14 @@ impl GestureAndDragManager {
     }
 
     /// Get current pen state (read-only)
-    #[must_use] pub const fn get_pen_state(&self) -> Option<&PenState> {
+    #[must_use]
+    pub const fn get_pen_state(&self) -> Option<&PenState> {
         self.pen_state.as_ref()
     }
 
     /// Get the previous pen state (for event diffing).
-    #[must_use] pub const fn get_previous_pen_state(&self) -> Option<&PenState> {
+    #[must_use]
+    pub const fn get_previous_pen_state(&self) -> Option<&PenState> {
         self.previous_pen_state.as_ref()
     }
 
@@ -972,7 +982,8 @@ impl GestureAndDragManager {
     }
 
     /// The latest tablet-pad state, or `None` if no pad backend delivered one.
-    #[must_use] pub const fn get_pad_state(&self) -> Option<&WacomPadState> {
+    #[must_use]
+    pub const fn get_pad_state(&self) -> Option<&WacomPadState> {
         self.pad_state.as_ref()
     }
 
@@ -986,7 +997,8 @@ impl GestureAndDragManager {
     /// Detect if current input represents a drag gesture
     ///
     /// Returns Some(DetectedDrag) if a drag is detected based on distance threshold.
-    #[must_use] pub fn detect_drag(&self) -> Option<DetectedDrag> {
+    #[must_use]
+    pub fn detect_drag(&self) -> Option<DetectedDrag> {
         let session = self.get_current_session()?;
 
         // A released button ended the session; the samples stay for velocity
@@ -1026,7 +1038,8 @@ impl GestureAndDragManager {
     ///
     /// Returns Some(DetectedLongPress) if button has been held long enough
     /// without moving much.
-    #[must_use] pub fn detect_long_press(&self) -> Option<DetectedLongPress> {
+    #[must_use]
+    pub fn detect_long_press(&self) -> Option<DetectedLongPress> {
         if let Some(NativeGestureEvent::LongPress(lp)) = self.native_gesture {
             return Some(lp);
         }
@@ -1105,7 +1118,8 @@ impl GestureAndDragManager {
     /// that turns this into an event owes it an edge of its own (see
     /// `determine_all_events`, which only raises `DoubleClick` on the release
     /// that completes the gesture).
-    #[must_use] pub fn detect_double_click(&self) -> bool {
+    #[must_use]
+    pub fn detect_double_click(&self) -> bool {
         if self.has_injected_double_click() {
             return true;
         }
@@ -1146,7 +1160,8 @@ impl GestureAndDragManager {
     /// from the session history, so the result is fully deterministic
     /// for any given sequence of `InputSession`s (easy to unit-test
     /// with synthetic `CoreInstant`/`CoreDuration` values).
-    #[must_use] pub fn detect_click_count(&self) -> u32 {
+    #[must_use]
+    pub fn detect_click_count(&self) -> u32 {
         let sessions = &self.input_sessions;
         let n = sessions.len();
         if n == 0 {
@@ -1196,7 +1211,9 @@ impl GestureAndDragManager {
                 break;
             };
 
-            let duration = later_start.timestamp.duration_since(&earlier_start.timestamp);
+            let duration = later_start
+                .timestamp
+                .duration_since(&earlier_start.timestamp);
             let time_delta_ms = duration_to_millis(duration);
             if time_delta_ms > self.config.double_click_time_threshold_ms {
                 break;
@@ -1213,11 +1230,16 @@ impl GestureAndDragManager {
         }
 
         // Cap at 3 (triple-click selects paragraph, beyond that cycles back)
-        if count > 3 { 1 } else { count }
+        if count > 3 {
+            1
+        } else {
+            count
+        }
     }
 
     /// Get the primary direction of current drag.
-    #[must_use] pub fn get_drag_direction(&self) -> Option<GestureDirection> {
+    #[must_use]
+    pub fn get_drag_direction(&self) -> Option<GestureDirection> {
         let session = self.get_current_session()?;
         let first = session.first_sample()?;
         let last = session.last_sample()?;
@@ -1236,7 +1258,8 @@ impl GestureAndDragManager {
 
     /// Get average velocity of current gesture (pixels per second)
     #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
-    #[must_use] pub fn get_gesture_velocity(&self) -> Option<f32> {
+    #[must_use]
+    pub fn get_gesture_velocity(&self) -> Option<f32> {
         let session = self.get_current_session()?;
 
         if session.samples.len() < 2 {
@@ -1255,7 +1278,8 @@ impl GestureAndDragManager {
     }
 
     /// Check if current gesture is a swipe (fast directional movement).
-    #[must_use] pub fn is_swipe(&self) -> bool {
+    #[must_use]
+    pub fn is_swipe(&self) -> bool {
         self.get_gesture_velocity()
             .is_some_and(|v| v >= self.config.swipe_velocity_threshold)
     }
@@ -1263,7 +1287,8 @@ impl GestureAndDragManager {
     /// Detect swipe with specific direction
     ///
     /// Returns Some(dir) if gesture is a fast swipe in a clear direction
-    #[must_use] pub fn detect_swipe_direction(&self) -> Option<GestureDirection> {
+    #[must_use]
+    pub fn detect_swipe_direction(&self) -> Option<GestureDirection> {
         if let Some(NativeGestureEvent::Swipe(d)) = self.native_gesture {
             return Some(d);
         }
@@ -1281,7 +1306,8 @@ impl GestureAndDragManager {
     /// Returns Some if two touch points are active and distance is changing
     /// significantly. Scale < 1.0 = pinch in, scale > 1.0 = pinch out.
     #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-    #[must_use] pub fn detect_pinch(&self) -> Option<DetectedPinch> {
+    #[must_use]
+    pub fn detect_pinch(&self) -> Option<DetectedPinch> {
         if let Some(NativeGestureEvent::Pinch(p)) = self.native_gesture {
             return Some(p);
         }
@@ -1357,7 +1383,8 @@ impl GestureAndDragManager {
     /// Returns Some if two touch points are rotating around center.
     /// Positive angle = clockwise, negative = counterclockwise.
     #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-    #[must_use] pub fn detect_rotation(&self) -> Option<DetectedRotation> {
+    #[must_use]
+    pub fn detect_rotation(&self) -> Option<DetectedRotation> {
         const PI: f32 = core::f32::consts::PI;
         if let Some(NativeGestureEvent::Rotation(r)) = self.native_gesture {
             return Some(r);
@@ -1404,11 +1431,13 @@ impl GestureAndDragManager {
         let mut angle_diff = current_angle - initial_angle;
 
         // Normalize angle to -π to π range
-        #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
+        #[allow(clippy::while_float)]
+        // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
         while angle_diff > PI {
             angle_diff -= 2.0 * PI;
         }
-        #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
+        #[allow(clippy::while_float)]
+        // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
         while angle_diff < -PI {
             angle_diff += 2.0 * PI;
         }
@@ -1430,12 +1459,14 @@ impl GestureAndDragManager {
     }
 
     /// Get the current active input session (if any)
-    #[must_use] pub fn get_current_session(&self) -> Option<&InputSession> {
+    #[must_use]
+    pub fn get_current_session(&self) -> Option<&InputSession> {
         self.input_sessions.last()
     }
 
     /// Get current mouse position from latest sample
-    #[must_use] pub fn get_current_mouse_position(&self) -> Option<LogicalPosition> {
+    #[must_use]
+    pub fn get_current_mouse_position(&self) -> Option<LogicalPosition> {
         self.get_current_session()
             .and_then(|s| s.last_sample())
             .map(|sample| sample.position)
@@ -1445,7 +1476,8 @@ impl GestureAndDragManager {
     /// from the current input session.
     ///
     /// Returns `None` if there is no active session or not enough samples.
-    #[must_use] pub fn get_drag_delta(&self) -> Option<(f32, f32)> {
+    #[must_use]
+    pub fn get_drag_delta(&self) -> Option<(f32, f32)> {
         let session = self.get_current_session()?;
         let first = session.first_sample()?;
         let last = session.last_sample()?;
@@ -1466,7 +1498,8 @@ impl GestureAndDragManager {
     /// Use `get_drag_delta()` for in-window operations (node drag-and-drop, etc.).
     ///
     /// Returns `None` if there is no active session or not enough samples.
-    #[must_use] pub fn get_drag_delta_screen(&self) -> Option<(f32, f32)> {
+    #[must_use]
+    pub fn get_drag_delta_screen(&self) -> Option<(f32, f32)> {
         let session = self.get_current_session()?;
         let first = session.first_sample()?;
         let last = session.last_sample()?;
@@ -1494,7 +1527,8 @@ impl GestureAndDragManager {
     /// clamping, compositor resize) that would make `initial_pos` stale.
     ///
     /// Returns `None` if there is no active session or fewer than 2 samples.
-    #[must_use] pub fn get_drag_delta_screen_incremental(&self) -> Option<(f32, f32)> {
+    #[must_use]
+    pub fn get_drag_delta_screen_incremental(&self) -> Option<(f32, f32)> {
         let session = self.get_current_session()?;
         let len = session.samples.len();
         if len < 2 {
@@ -1511,7 +1545,8 @@ impl GestureAndDragManager {
     /// Get the window position that was stored when the current input session
     /// started (i.e. on mouse-down).  Titlebar drag callbacks use this
     /// together with `get_drag_delta_screen()` to compute the new window position.
-    #[must_use] pub fn get_window_position_at_session_start(&self) -> Option<WindowPosition> {
+    #[must_use]
+    pub fn get_window_position_at_session_start(&self) -> Option<WindowPosition> {
         let session = self.get_current_session()?;
         Some(session.window_position_at_start)
     }
@@ -1521,7 +1556,8 @@ impl GestureAndDragManager {
     // ========================================================================
 
     /// Get the active drag context (if any)
-    #[must_use] pub const fn get_drag_context(&self) -> Option<&DragContext> {
+    #[must_use]
+    pub const fn get_drag_context(&self) -> Option<&DragContext> {
         self.active_drag.as_ref()
     }
 
@@ -1633,49 +1669,69 @@ impl GestureAndDragManager {
     // ========================================================================
 
     /// Check if any drag operation is in progress
-    #[must_use] pub const fn is_dragging(&self) -> bool {
+    #[must_use]
+    pub const fn is_dragging(&self) -> bool {
         self.active_drag.is_some()
     }
 
     /// Check if a text selection drag is active
-    #[must_use] pub fn is_text_selection_dragging(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(DragContext::is_text_selection)
+    #[must_use]
+    pub fn is_text_selection_dragging(&self) -> bool {
+        self.active_drag
+            .as_ref()
+            .is_some_and(DragContext::is_text_selection)
     }
 
     /// Check if a scrollbar thumb drag is active
-    #[must_use] pub fn is_scrollbar_dragging(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(DragContext::is_scrollbar_thumb)
+    #[must_use]
+    pub fn is_scrollbar_dragging(&self) -> bool {
+        self.active_drag
+            .as_ref()
+            .is_some_and(DragContext::is_scrollbar_thumb)
     }
 
     /// Check if a node drag is active
-    #[must_use] pub fn is_node_drag_active(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(DragContext::is_node_drag)
+    #[must_use]
+    pub fn is_node_drag_active(&self) -> bool {
+        self.active_drag
+            .as_ref()
+            .is_some_and(DragContext::is_node_drag)
     }
 
     /// Check if a specific node is being dragged
-    #[must_use] pub fn is_node_dragging(&self, dom_id: DomId, node_id: NodeId) -> bool {
+    #[must_use]
+    pub fn is_node_dragging(&self, dom_id: DomId, node_id: NodeId) -> bool {
         self.active_drag.as_ref().is_some_and(|d| {
-            d.as_node_drag().is_some_and(|node_drag| node_drag.dom_id == dom_id && node_drag.node_id == node_id)
+            d.as_node_drag()
+                .is_some_and(|node_drag| node_drag.dom_id == dom_id && node_drag.node_id == node_id)
         })
     }
 
     /// Check if window drag is active
-    #[must_use] pub fn is_window_dragging(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(DragContext::is_window_move)
+    #[must_use]
+    pub fn is_window_dragging(&self) -> bool {
+        self.active_drag
+            .as_ref()
+            .is_some_and(DragContext::is_window_move)
     }
 
     /// Check if file drop is active
-    #[must_use] pub fn is_file_dropping(&self) -> bool {
-        self.active_drag.as_ref().is_some_and(DragContext::is_file_drop)
+    #[must_use]
+    pub fn is_file_dropping(&self) -> bool {
+        self.active_drag
+            .as_ref()
+            .is_some_and(DragContext::is_file_drop)
     }
 
     /// Get number of active input sessions
-    #[must_use] pub const fn session_count(&self) -> usize {
+    #[must_use]
+    pub const fn session_count(&self) -> usize {
         self.input_sessions.len()
     }
 
     /// Get current session ID (if any)
-    #[must_use] pub fn current_session_id(&self) -> Option<u64> {
+    #[must_use]
+    pub fn current_session_id(&self) -> Option<u64> {
         self.get_current_session().map(|s| s.session_id)
     }
 
@@ -1688,7 +1744,8 @@ impl GestureAndDragManager {
     /// Returns (`delta_x`, `delta_y`) to apply to window position.
     /// Returns None if no window drag is active or drag hasn't moved.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    #[must_use] pub fn get_window_drag_delta(&self) -> Option<(i32, i32)> {
+    #[must_use]
+    pub fn get_window_drag_delta(&self) -> Option<(i32, i32)> {
         let drag = self.active_drag.as_ref()?.as_window_move()?;
 
         let delta_x = drag.current_position.x - drag.start_position.x;
@@ -1704,7 +1761,8 @@ impl GestureAndDragManager {
     ///
     /// Returns the absolute window position to set.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    #[must_use] pub fn get_window_position_from_drag(&self) -> Option<WindowPosition> {
+    #[must_use]
+    pub fn get_window_position_from_drag(&self) -> Option<WindowPosition> {
         let drag = self.active_drag.as_ref()?.as_window_move()?;
 
         let delta_x = drag.current_position.x - drag.start_position.x;
@@ -1722,10 +1780,12 @@ impl GestureAndDragManager {
     }
 
     /// Calculate the new scroll offset for scrollbar thumb drag
-    #[must_use] pub fn get_scrollbar_scroll_offset(&self) -> Option<f32> {
-        self.active_drag.as_ref()?.calculate_scrollbar_scroll_offset()
+    #[must_use]
+    pub fn get_scrollbar_scroll_offset(&self) -> Option<f32> {
+        self.active_drag
+            .as_ref()?
+            .calculate_scrollbar_scroll_offset()
     }
-
 }
 
 impl crate::managers::NodeIdRemap for GestureAndDragManager {
@@ -1753,7 +1813,9 @@ impl crate::managers::NodeIdRemap for GestureAndDragManager {
                     .map_or(azul_core::dom::OptionDomNodeId::None, |n| {
                         azul_core::dom::OptionDomNodeId::Some(azul_core::dom::DomNodeId {
                             dom: src.dom,
-                            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+                            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
+                                Some(n),
+                            ),
                         })
                     });
             }
@@ -1796,8 +1858,20 @@ mod touch_session_tests {
     #[test]
     fn two_fingers_open_two_concurrent_sessions() {
         let mut m = GestureAndDragManager::new();
-        m.touch_down(1, pos(100.0, 100.0), ts(0), WindowPosition::Uninitialized, pos(100.0, 100.0));
-        m.touch_down(2, pos(200.0, 100.0), ts(1), WindowPosition::Uninitialized, pos(200.0, 100.0));
+        m.touch_down(
+            1,
+            pos(100.0, 100.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(100.0, 100.0),
+        );
+        m.touch_down(
+            2,
+            pos(200.0, 100.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(200.0, 100.0),
+        );
         assert_eq!(m.input_sessions.len(), 2);
         assert!(!m.input_sessions[0].ended);
         assert!(!m.input_sessions[1].ended);
@@ -1806,25 +1880,59 @@ mod touch_session_tests {
     #[test]
     fn moves_land_in_the_correct_session_not_the_last_one() {
         let mut m = GestureAndDragManager::new();
-        m.touch_down(1, pos(100.0, 100.0), ts(0), WindowPosition::Uninitialized, pos(100.0, 100.0));
-        m.touch_down(2, pos(200.0, 100.0), ts(1), WindowPosition::Uninitialized, pos(200.0, 100.0));
+        m.touch_down(
+            1,
+            pos(100.0, 100.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(100.0, 100.0),
+        );
+        m.touch_down(
+            2,
+            pos(200.0, 100.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(200.0, 100.0),
+        );
         // Move finger 1 — the FIRST session must receive the sample even
         // though session 2 is the most recent (record_input_sample would
         // have corrupted session 2 here).
         assert!(m.touch_move(1, pos(90.0, 100.0), ts(2), pos(90.0, 100.0)));
-        assert_eq!(m.input_sessions[0].samples.len(), 2, "finger 1 session grew");
-        assert_eq!(m.input_sessions[1].samples.len(), 1, "finger 2 session untouched");
+        assert_eq!(
+            m.input_sessions[0].samples.len(),
+            2,
+            "finger 1 session grew"
+        );
+        assert_eq!(
+            m.input_sessions[1].samples.len(),
+            1,
+            "finger 2 session untouched"
+        );
     }
 
     #[test]
     fn spread_gesture_is_detected_as_pinch_out() {
         let mut m = GestureAndDragManager::new();
-        m.touch_down(1, pos(100.0, 100.0), ts(0), WindowPosition::Uninitialized, pos(100.0, 100.0));
-        m.touch_down(2, pos(200.0, 100.0), ts(1), WindowPosition::Uninitialized, pos(200.0, 100.0));
+        m.touch_down(
+            1,
+            pos(100.0, 100.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(100.0, 100.0),
+        );
+        m.touch_down(
+            2,
+            pos(200.0, 100.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(200.0, 100.0),
+        );
         // Spread: initial distance 100 → current distance 200.
         m.touch_move(1, pos(50.0, 100.0), ts(2), pos(50.0, 100.0));
         m.touch_move(2, pos(250.0, 100.0), ts(3), pos(250.0, 100.0));
-        let pinch = m.detect_pinch().expect("two concurrent touch sessions must yield a pinch");
+        let pinch = m
+            .detect_pinch()
+            .expect("two concurrent touch sessions must yield a pinch");
         assert!(
             pinch.scale > 1.5,
             "spread must read as pinch-out (scale {}), initial {} current {}",
@@ -1837,8 +1945,20 @@ mod touch_session_tests {
     #[test]
     fn touch_up_ends_only_its_own_session() {
         let mut m = GestureAndDragManager::new();
-        m.touch_down(1, pos(100.0, 100.0), ts(0), WindowPosition::Uninitialized, pos(100.0, 100.0));
-        m.touch_down(2, pos(200.0, 100.0), ts(1), WindowPosition::Uninitialized, pos(200.0, 100.0));
+        m.touch_down(
+            1,
+            pos(100.0, 100.0),
+            ts(0),
+            WindowPosition::Uninitialized,
+            pos(100.0, 100.0),
+        );
+        m.touch_down(
+            2,
+            pos(200.0, 100.0),
+            ts(1),
+            WindowPosition::Uninitialized,
+            pos(200.0, 100.0),
+        );
         m.touch_up(1, pos(100.0, 100.0), ts(2), pos(100.0, 100.0));
         assert!(m.input_sessions[0].ended);
         assert!(!m.input_sessions[1].ended);
@@ -1851,7 +1971,9 @@ mod touch_session_tests {
 #[allow(clippy::float_cmp, clippy::unreadable_literal)]
 mod autotest_generated {
     use azul_core::{
-        drag::ScrollbarAxis, geom::PhysicalPositionI32, styled_dom::NodeHierarchyItemId,
+        drag::ScrollbarAxis,
+        geom::PhysicalPositionI32,
+        styled_dom::NodeHierarchyItemId,
         task::{SystemTick, SystemTickDiff, SystemTimeDiff},
     };
 
@@ -2011,7 +2133,10 @@ mod autotest_generated {
     fn express_key_default_pad_has_no_keys_held() {
         let pad = WacomPadState::default();
         for i in 0..40u32 {
-            assert!(!pad.express_key(i), "bit {i} must be unset on a default pad");
+            assert!(
+                !pad.express_key(i),
+                "bit {i} must be unset on a default pad"
+            );
         }
     }
 
@@ -2334,7 +2459,9 @@ mod autotest_generated {
         // NaN/inf coordinates must not make any detector panic. `hypot(NaN, inf)`
         // is `+inf` per IEEE-754, so this DOES read as a drag — but only with a
         // non-finite distance, never a plausible-looking finite one.
-        assert!(m.detect_drag().is_none_or(|d| !d.direct_distance.is_finite()));
+        assert!(m
+            .detect_drag()
+            .is_none_or(|d| !d.direct_distance.is_finite()));
         assert!(m.get_drag_direction().is_some());
     }
 
@@ -2595,7 +2722,9 @@ mod autotest_generated {
     fn detect_drag_fires_exactly_at_the_distance_threshold() {
         // hypot(3, 4) == 5.0 == drag_distance_threshold => `>=` must fire.
         let m = dragging_manager(pos(0.0, 0.0), pos(3.0, 4.0), 20);
-        let drag = m.detect_drag().expect("distance == threshold must be a drag");
+        let drag = m
+            .detect_drag()
+            .expect("distance == threshold must be a drag");
         assert_eq!(drag.direct_distance, 5.0);
         assert_eq!(drag.total_distance, 5.0);
         assert_eq!(drag.sample_count, 2);
@@ -2816,10 +2945,7 @@ mod autotest_generated {
         let fast = dragging_manager(pos(0.0, 0.0), pos(60.0, 0.0), 100);
         assert!(fast.get_gesture_velocity().unwrap() > 500.0);
         assert!(fast.is_swipe());
-        assert_eq!(
-            fast.detect_swipe_direction(),
-            Some(GestureDirection::Right)
-        );
+        assert_eq!(fast.detect_swipe_direction(), Some(GestureDirection::Right));
 
         // 40px in 100ms == 400 px/s < 500 px/s.
         let slow = dragging_manager(pos(0.0, 0.0), pos(0.0, -40.0), 100);
@@ -2859,7 +2985,10 @@ mod autotest_generated {
         );
         m.record_input_sample(pos(400.0, 0.0), ts(20), 0x01, pos(400.0, 0.0));
         assert_eq!(m.session_count(), 2);
-        assert!(m.detect_pinch().is_none(), "an ended session is not a finger");
+        assert!(
+            m.detect_pinch().is_none(),
+            "an ended session is not a finger"
+        );
         assert!(m.detect_rotation().is_none());
     }
 
@@ -2954,7 +3083,9 @@ mod autotest_generated {
         // The spread overflows f32: MAX - (-MAX) == +inf.
         m.touch_move(1, pos(-f32::MAX, 0.0), ts(2), pos(-f32::MAX, 0.0));
         m.touch_move(2, pos(f32::MAX, 0.0), ts(3), pos(f32::MAX, 0.0));
-        let p = m.detect_pinch().expect("an overflowing spread is still a pinch");
+        let p = m
+            .detect_pinch()
+            .expect("an overflowing spread is still a pinch");
         assert!(
             !p.scale.is_finite(),
             "expected a saturated (non-finite) scale, got {}",
@@ -3167,7 +3298,10 @@ mod autotest_generated {
 
         m.clear_pen_state();
         assert!(m.get_pen_state().is_none());
-        assert_eq!(m.get_previous_pen_state().map(|p| p.tool_id), Some(u32::MAX));
+        assert_eq!(
+            m.get_previous_pen_state().map(|p| p.tool_id),
+            Some(u32::MAX)
+        );
         assert!(m.pen_event_pending);
 
         // Clearing twice must not panic and must not resurrect a state.
@@ -3363,8 +3497,9 @@ mod autotest_generated {
 
     #[test]
     fn window_drag_delta_is_measured_from_the_drag_start() {
-        let mut m =
-            window_dragging_manager(WindowPosition::Initialized(PhysicalPositionI32::new(10, 20)));
+        let mut m = window_dragging_manager(WindowPosition::Initialized(PhysicalPositionI32::new(
+            10, 20,
+        )));
         m.update_active_drag_positions(pos(30.5, -20.9));
         // start_position is the drag's start (0,0) => delta truncates toward zero.
         assert_eq!(m.get_window_drag_delta(), Some((30, -20)));
@@ -3409,13 +3544,16 @@ mod autotest_generated {
     #[test]
     fn window_position_from_drag_at_the_i32_extremes_does_not_overflow() {
         // i32::MAX window origin dragged fully negative: MAX + MIN == -1.
-        let mut m = window_dragging_manager(WindowPosition::Initialized(
-            PhysicalPositionI32::new(i32::MAX, i32::MAX),
-        ));
+        let mut m = window_dragging_manager(WindowPosition::Initialized(PhysicalPositionI32::new(
+            i32::MAX,
+            i32::MAX,
+        )));
         m.update_active_drag_positions(pos(-f32::MAX, -f32::MAX));
         assert_eq!(
             m.get_window_position_from_drag(),
-            Some(WindowPosition::Initialized(PhysicalPositionI32::new(-1, -1)))
+            Some(WindowPosition::Initialized(PhysicalPositionI32::new(
+                -1, -1
+            )))
         );
     }
 

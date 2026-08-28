@@ -21,7 +21,8 @@ pub mod loading {
     use rust_fontconfig::FcFontCache;
 
     #[cfg(not(miri))]
-    #[must_use] pub fn build_font_cache() -> FcFontCache {
+    #[must_use]
+    pub fn build_font_cache() -> FcFontCache {
         FcFontCache::build()
     }
 
@@ -39,7 +40,7 @@ pub mod loading {
 
     impl Clone for FontReloadError {
         fn clone(&self) -> Self {
-            use self::FontReloadError::{Io, FontNotFound, FontLoadingNotActive};
+            use self::FontReloadError::{FontLoadingNotActive, FontNotFound, Io};
             match self {
                 Io(err, path) => Io(IoError::new(err.kind(), "Io Error"), path.clone()),
                 FontNotFound(id) => FontNotFound(id.clone()),
@@ -84,7 +85,8 @@ pub mod mock {
 
     impl MockFont {
         /// Creates a new `MockFont` with the given font metrics.
-        #[must_use] pub const fn new(font_metrics: LayoutFontMetrics) -> Self {
+        #[must_use]
+        pub const fn new(font_metrics: LayoutFontMetrics) -> Self {
             Self {
                 font_metrics,
                 space_width: Some(10),
@@ -95,25 +97,29 @@ pub mod mock {
         }
 
         /// Sets the space character width.
-        #[must_use] pub const fn with_space_width(mut self, width: usize) -> Self {
+        #[must_use]
+        pub const fn with_space_width(mut self, width: usize) -> Self {
             self.space_width = Some(width);
             self
         }
 
         /// Adds a horizontal advance value for a glyph.
-        #[must_use] pub fn with_glyph_advance(mut self, glyph_index: u16, advance: u16) -> Self {
+        #[must_use]
+        pub fn with_glyph_advance(mut self, glyph_index: u16, advance: u16) -> Self {
             self.glyph_advances.insert(glyph_index, advance);
             self
         }
 
         /// Adds a bounding box size for a glyph.
-        #[must_use] pub fn with_glyph_size(mut self, glyph_index: u16, size: (i32, i32)) -> Self {
+        #[must_use]
+        pub fn with_glyph_size(mut self, glyph_index: u16, size: (i32, i32)) -> Self {
             self.glyph_sizes.insert(glyph_index, size);
             self
         }
 
         /// Adds a Unicode codepoint to glyph ID mapping.
-        #[must_use] pub fn with_glyph_index(mut self, unicode: u32, index: u16) -> Self {
+        #[must_use]
+        pub fn with_glyph_index(mut self, unicode: u32, index: u16) -> Self {
             self.glyph_indices.insert(unicode, index);
             self
         }
@@ -134,8 +140,8 @@ pub mod parsed {
         tables::{
             cmap::owned::CmapSubtable as OwnedCmapSubtable,
             glyf::{
-                Glyph, GlyfVisitorContext, LocaGlyf, Point,
-                VariableGlyfContext, VariableGlyfContextStore,
+                GlyfVisitorContext, Glyph, LocaGlyf, Point, VariableGlyfContext,
+                VariableGlyfContextStore,
             },
             kern::owned::KernTable,
             FontTableProvider, HheaTable, MaxpTable,
@@ -307,44 +313,44 @@ pub mod parsed {
                     operations: std::mem::take(&mut self.current_contour).into(),
                 });
             }
-            self.current_contour.push(GlyphOutlineOperation::MoveTo(OutlineMoveTo {
-                x: to.x() as i16,
-                y: to.y() as i16,
-            }));
+            self.current_contour
+                .push(GlyphOutlineOperation::MoveTo(OutlineMoveTo {
+                    x: to.x() as i16,
+                    y: to.y() as i16,
+                }));
         }
 
         #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         fn line_to(&mut self, to: Vector2F) {
-            self.current_contour.push(GlyphOutlineOperation::LineTo(OutlineLineTo {
-                x: to.x() as i16,
-                y: to.y() as i16,
-            }));
+            self.current_contour
+                .push(GlyphOutlineOperation::LineTo(OutlineLineTo {
+                    x: to.x() as i16,
+                    y: to.y() as i16,
+                }));
         }
 
         #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         fn quadratic_curve_to(&mut self, ctrl: Vector2F, to: Vector2F) {
-            self.current_contour.push(GlyphOutlineOperation::QuadraticCurveTo(
-                OutlineQuadTo {
+            self.current_contour
+                .push(GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
                     ctrl_1_x: ctrl.x() as i16,
                     ctrl_1_y: ctrl.y() as i16,
                     end_x: to.x() as i16,
                     end_y: to.y() as i16,
-                },
-            ));
+                }));
         }
 
         #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
         fn cubic_curve_to(&mut self, ctrl: LineSegment2F, to: Vector2F) {
-            self.current_contour.push(GlyphOutlineOperation::CubicCurveTo(
-                OutlineCubicTo {
+            self.current_contour
+                .push(GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo {
                     ctrl_1_x: ctrl.from_x() as i16,
                     ctrl_1_y: ctrl.from_y() as i16,
                     ctrl_2_x: ctrl.to_x() as i16,
                     ctrl_2_y: ctrl.to_y() as i16,
                     end_x: to.x() as i16,
                     end_y: to.y() as i16,
-                },
-            ));
+                }));
         }
 
         fn close(&mut self) {
@@ -602,7 +608,8 @@ pub mod parsed {
     impl PdfFontMetrics {
         /// Returns zeroed metrics with `units_per_em` set to 1000 (standard PostScript default)
         /// to avoid division-by-zero in scaling calculations.
-        #[must_use] pub const fn zero() -> Self {
+        #[must_use]
+        pub const fn zero() -> Self {
             Self {
                 units_per_em: 1000,
                 font_flags: 0,
@@ -641,7 +648,8 @@ pub mod parsed {
         /// Return the changed text so that when rendering with the subset font (instead of the
         /// original) the renderer will end up at the same glyph IDs as if we used the original text
         /// on the original font
-        #[must_use] pub fn subset_text(&self, text: &str) -> String {
+        #[must_use]
+        pub fn subset_text(&self, text: &str) -> String {
             text.chars()
                 .filter_map(|c| {
                     self.glyph_mapping.values().find_map(|(ngid, ch)| {
@@ -681,12 +689,12 @@ pub mod parsed {
     }
 
     impl<'de> serde::Deserialize<'de> for ParsedFont {
-        fn deserialize<D: serde::Deserializer<'de>>(
-            deserializer: D,
-        ) -> Result<Self, D::Error> {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
             use base64::Engine;
             let s = String::deserialize(deserializer)?;
-            let b64 = s.strip_prefix(FONT_B64_START).and_then(|b| base64::prelude::BASE64_STANDARD.decode(b).ok());
+            let b64 = s
+                .strip_prefix(FONT_B64_START)
+                .and_then(|b| base64::prelude::BASE64_STANDARD.decode(b).ok());
 
             let mut warnings = Vec::new();
             Self::from_bytes(&b64.unwrap_or_default(), 0, &mut warnings).ok_or_else(|| {
@@ -702,10 +710,7 @@ pub mod parsed {
                 .field("font_metrics", &self.font_metrics)
                 .field("num_glyphs", &self.num_glyphs)
                 .field("hhea_table", &self.hhea_table)
-                .field(
-                    "hmtx_range",
-                    &format_args!("<{} bytes>", self.hmtx_range.1),
-                )
+                .field("hmtx_range", &format_args!("<{} bytes>", self.hmtx_range.1))
                 .field("maxp_table", &self.maxp_table)
                 .field(
                     "glyph_cache",
@@ -742,7 +747,8 @@ pub mod parsed {
 
     impl FontParseWarning {
         /// Creates an info-level message.
-        #[must_use] pub const fn info(message: String) -> Self {
+        #[must_use]
+        pub const fn info(message: String) -> Self {
             Self {
                 severity: FontParseWarningSeverity::Info,
                 message,
@@ -750,7 +756,8 @@ pub mod parsed {
         }
 
         /// Creates a warning-level message.
-        #[must_use] pub const fn warning(message: String) -> Self {
+        #[must_use]
+        pub const fn warning(message: String) -> Self {
             Self {
                 severity: FontParseWarningSeverity::Warning,
                 message,
@@ -758,7 +765,8 @@ pub mod parsed {
         }
 
         /// Creates an error-level message.
-        #[must_use] pub const fn error(message: String) -> Self {
+        #[must_use]
+        pub const fn error(message: String) -> Self {
             Self {
                 severity: FontParseWarningSeverity::Error,
                 message,
@@ -905,9 +913,9 @@ pub mod parsed {
             // borrowed slice that may not outlive us, so we own it here. Mirrors
             // `from_bytes_shared`, which retains the caller's `Arc<FontBytes>`.
             if font.original_bytes.is_none() {
-                font.original_bytes = Some(Arc::new(
-                    rust_fontconfig::FontBytes::Owned(Arc::from(font_bytes.to_vec())),
-                ));
+                font.original_bytes = Some(Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(
+                    font_bytes.to_vec(),
+                ))));
             }
             Some(font)
         }
@@ -1048,10 +1056,16 @@ pub mod parsed {
                     // HeadTable::read mis-lifts) or WRONG bytes (directory offset mis-lift)?
                     let bb = head_cow.as_ref();
                     let magic = if bb.len() >= 16 {
-                        (u32::from(bb[12]) << 24) | (u32::from(bb[13]) << 16)
-                            | (u32::from(bb[14]) << 8) | u32::from(bb[15])
-                    } else { 0 };
-                    if let Ok(h) = ReadScope::new(&head_cow).read::<HeadTable>() { h } else {
+                        (u32::from(bb[12]) << 24)
+                            | (u32::from(bb[13]) << 16)
+                            | (u32::from(bb[14]) << 8)
+                            | u32::from(bb[15])
+                    } else {
+                        0
+                    };
+                    if let Ok(h) = ReadScope::new(&head_cow).read::<HeadTable>() {
+                        h
+                    } else {
                         // DIAG: surface the sliced offset (how wrong) as hex — "HO" + 8 hex
                         // of (head_cow.ptr - font_bytes.ptr). garbage→offset-read mis-lift;
                         // 00000000→base; plausible-but-wrong→record mapping. "RF"=bytes-OK.
@@ -1063,7 +1077,11 @@ pub mod parsed {
                             let mut msg = String::new();
                             // B=Borrowed(slice of font_bytes, ptr-arith/base mis-lift) vs
                             // O=Owned(decompressed/copied Vec — wrong path for plain TTF).
-                            msg.push(if matches!(head_cow, std::borrow::Cow::Borrowed(_)) { 'B' } else { 'O' });
+                            msg.push(if matches!(head_cow, std::borrow::Cow::Borrowed(_)) {
+                                'B'
+                            } else {
+                                'O'
+                            });
                             msg.push_str("HO");
                             let mut sh: i32 = 28;
                             while sh >= 0 {
@@ -1232,21 +1250,20 @@ pub mod parsed {
             // avoids the borrow-after-move that a later
             // `provider.has_table(tag::GVAR)` would incur.
             let has_gvar = provider.has_table(tag::GVAR);
-            let loca_glyf_opt: Option<Arc<std::sync::Mutex<LocaGlyf>>> = if has_glyf
-                && !defer_loca_glyf
-            {
-                match LocaGlyf::load(&provider) {
-                    Ok(lg) => Some(Arc::new(std::sync::Mutex::new(lg))),
-                    Err(e) => {
-                        warnings.push(FontParseWarning::warning(format!(
-                            "Failed to load LocaGlyf: {e} — falling back to hmtx-only"
-                        )));
-                        None
+            let loca_glyf_opt: Option<Arc<std::sync::Mutex<LocaGlyf>>> =
+                if has_glyf && !defer_loca_glyf {
+                    match LocaGlyf::load(&provider) {
+                        Ok(lg) => Some(Arc::new(std::sync::Mutex::new(lg))),
+                        Err(e) => {
+                            warnings.push(FontParseWarning::warning(format!(
+                                "Failed to load LocaGlyf: {e} — falling back to hmtx-only"
+                            )));
+                            None
+                        }
                     }
-                }
-            } else {
-                None
-            };
+                } else {
+                    None
+                };
 
             // Lazy `glyph_cache` starts empty; the space-glyph stub
             // below pre-inserts gid 0 / space so the shaper's
@@ -1265,11 +1282,15 @@ pub mod parsed {
             // hinted advances are lower-quality output than the plain scaled advance. Native keeps
             // real hinting unchanged.
             #[cfg(feature = "web_lift")]
-            let hint_instance: Option<std::sync::Mutex<allsorts::hinting::HintInstance>> = None;
+            let hint_instance: Option<
+                std::sync::Mutex<allsorts::hinting::HintInstance>,
+            > = None;
             #[cfg(not(feature = "web_lift"))]
-            let hint_instance = allsorts::hinting::HintInstance::new(
-                &font_data_impl.font_table_provider
-            ).ok().flatten().map(std::sync::Mutex::new);
+            let hint_instance =
+                allsorts::hinting::HintInstance::new(&font_data_impl.font_table_provider)
+                    .ok()
+                    .flatten()
+                    .map(std::sync::Mutex::new);
 
             // Stash raw GSUB/GPOS bytes for lazy parse. Typical fonts
             // have ~tens of KiB of GSUB + a few-to-tens of KiB of GPOS —
@@ -1293,10 +1314,7 @@ pub mod parsed {
             let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
             let num_glyphs = font_data_impl.num_glyphs();
 
-            let opt_kern_table = font_data_impl
-                .kern_table()
-                .ok()
-                .and_then(|s| s);
+            let opt_kern_table = font_data_impl.kern_table().ok().and_then(|s| s);
 
             let cmap_data = font_data_impl.cmap_subtable_data();
             let cmap_subtable = ReadScope::new(cmap_data);
@@ -1483,13 +1501,15 @@ pub mod parsed {
         /// or parse failures).
         fn resolve_loca_glyf(&self) -> Option<Arc<std::sync::Mutex<LocaGlyf>>> {
             use allsorts::{
-                binary::read::ReadScope,
-                font_data::FontData,
-                tables::FontTableProvider,
+                binary::read::ReadScope, font_data::FontData, tables::FontTableProvider,
             };
             match &self.loca_glyf {
                 LocaGlyfState::Loaded(inner) => inner.clone(),
-                LocaGlyfState::Deferred { bytes, font_index, loaded } => {
+                LocaGlyfState::Deferred {
+                    bytes,
+                    font_index,
+                    loaded,
+                } => {
                     // Fast path: cached LocaGlyf is present.
                     if let Ok(guard) = loaded.lock() {
                         if let Some(arc) = guard.as_ref() {
@@ -1677,9 +1697,7 @@ pub mod parsed {
             {
                 // StLock::write() is infallible (Result<_, Infallible>).
                 let Ok(mut cache) = self.glyph_cache.write();
-                cache
-                    .entry(gid)
-                    .or_insert_with(|| Arc::clone(&arc));
+                cache.entry(gid).or_insert_with(|| Arc::clone(&arc));
                 // If another thread beat us to the insert, return theirs
                 // so all callers observe the same Arc.
                 if let Some(winner) = cache.get(&gid) {
@@ -1748,16 +1766,22 @@ pub mod parsed {
         /// every gid ended up in `glyph_records_decoded`.
         fn hmtx_bytes(&self) -> &[u8] {
             let (off, len) = self.hmtx_range;
-            if len == 0 { return &[]; }
-            self.original_bytes.as_ref()
-                .map_or(&[], |b| &b.as_ref()[off..off+len])
+            if len == 0 {
+                return &[];
+            }
+            self.original_bytes
+                .as_ref()
+                .map_or(&[], |b| &b.as_ref()[off..off + len])
         }
 
         fn vmtx_bytes(&self) -> &[u8] {
             let (off, len) = self.vmtx_range;
-            if len == 0 { return &[]; }
-            self.original_bytes.as_ref()
-                .map_or(&[], |b| &b.as_ref()[off..off+len])
+            if len == 0 {
+                return &[];
+            }
+            self.original_bytes
+                .as_ref()
+                .map_or(&[], |b| &b.as_ref()[off..off + len])
         }
 
         #[allow(clippy::cast_possible_wrap)] // bounded graphics/coord/font/fixed-point/debug-marker cast
@@ -1825,74 +1849,70 @@ pub mod parsed {
             // measure pass. Skip BOTH decode passes on the web build; the record keeps its hmtx
             // advance/metrics (set above) which is all text measurement needs.
             if !cfg!(feature = "web_lift") {
-            let mut outline_done = false;
-            if self.is_variable_font {
-                if let LocaGlyfState::Deferred { bytes, .. } = &self.loca_glyf {
-                    let scope = ReadScope::new(bytes);
-                    if let Ok(font_data) =
-                        scope.read::<FontData<'_>>()
-                    {
-                        if let Ok(provider) = font_data.table_provider(self.original_index) {
-                            if let Ok(store) = VariableGlyfContextStore::read(&provider) {
-                                if let Ok(var_ctx) = VariableGlyfContext::new(&store) {
-                                    let mut visitor = GlyfVisitorContext::new(
-                                        &mut loca_glyf,
-                                        Some(var_ctx),
-                                    );
-                                    let mut collector = GlyphOutlineCollector::new();
-                                    if visitor.visit(gid, None, &mut collector).is_ok() {
-                                        record.outline = collector.into_outlines();
-                                        let (min_x, min_y, max_x, max_y) =
-                                            compute_outline_bbox(&record.outline);
-                                        record.bounding_box = OwnedGlyphBoundingBox {
-                                            min_x,
-                                            min_y,
-                                            max_x,
-                                            max_y,
-                                        };
-                                        outline_done = true;
+                let mut outline_done = false;
+                if self.is_variable_font {
+                    if let LocaGlyfState::Deferred { bytes, .. } = &self.loca_glyf {
+                        let scope = ReadScope::new(bytes);
+                        if let Ok(font_data) = scope.read::<FontData<'_>>() {
+                            if let Ok(provider) = font_data.table_provider(self.original_index) {
+                                if let Ok(store) = VariableGlyfContextStore::read(&provider) {
+                                    if let Ok(var_ctx) = VariableGlyfContext::new(&store) {
+                                        let mut visitor =
+                                            GlyfVisitorContext::new(&mut loca_glyf, Some(var_ctx));
+                                        let mut collector = GlyphOutlineCollector::new();
+                                        if visitor.visit(gid, None, &mut collector).is_ok() {
+                                            record.outline = collector.into_outlines();
+                                            let (min_x, min_y, max_x, max_y) =
+                                                compute_outline_bbox(&record.outline);
+                                            record.bounding_box = OwnedGlyphBoundingBox {
+                                                min_x,
+                                                min_y,
+                                                max_x,
+                                                max_y,
+                                            };
+                                            outline_done = true;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
-            if !outline_done {
-                let mut visitor =
-                    GlyfVisitorContext::new(&mut loca_glyf, None);
-                let mut collector = GlyphOutlineCollector::new();
-                if visitor.visit(gid, None, &mut collector).is_ok() {
-                    record.outline = collector.into_outlines();
-                    let (min_x, min_y, max_x, max_y) =
-                        compute_outline_bbox(&record.outline);
-                    record.bounding_box = OwnedGlyphBoundingBox {
-                        min_x,
-                        min_y,
-                        max_x,
-                        max_y,
-                    };
+                if !outline_done {
+                    let mut visitor = GlyfVisitorContext::new(&mut loca_glyf, None);
+                    let mut collector = GlyphOutlineCollector::new();
+                    if visitor.visit(gid, None, &mut collector).is_ok() {
+                        record.outline = collector.into_outlines();
+                        let (min_x, min_y, max_x, max_y) = compute_outline_bbox(&record.outline);
+                        record.bounding_box = OwnedGlyphBoundingBox {
+                            min_x,
+                            min_y,
+                            max_x,
+                            max_y,
+                        };
+                    }
                 }
-            }
 
-            // Second pass: pull raw SimpleGlyph data for TrueType
-            // bytecode hinting. LocaGlyf caches the `Arc<Glyph>`
-            // internally so this lookup is cheap after the first call.
-            if let Ok(glyph_arc) = loca_glyf.glyph(gid) {
-                // `is_on_curve` moved onto the `SimpleGlyphFlagExt` trait in
-                // allsorts 0.17 (SimpleGlyphFlags is now a BitFlags alias).
-                use allsorts::tables::glyf::SimpleGlyphFlagExt;
-                if let allsorts::tables::glyf::Glyph::Simple(sg) = glyph_arc.as_ref() {
-                    record.raw_points = Some(
-                        sg.coordinates.iter().map(|(_, pt)| (pt.0, pt.1)).collect(),
-                    );
-                    record.raw_on_curve = Some(
-                        sg.coordinates.iter().map(|(f, _)| f.is_on_curve()).collect(),
-                    );
-                    record.raw_contour_ends = Some(sg.end_pts_of_contours.clone());
-                    record.instructions = Some(sg.instructions.to_vec());
+                // Second pass: pull raw SimpleGlyph data for TrueType
+                // bytecode hinting. LocaGlyf caches the `Arc<Glyph>`
+                // internally so this lookup is cheap after the first call.
+                if let Ok(glyph_arc) = loca_glyf.glyph(gid) {
+                    // `is_on_curve` moved onto the `SimpleGlyphFlagExt` trait in
+                    // allsorts 0.17 (SimpleGlyphFlags is now a BitFlags alias).
+                    use allsorts::tables::glyf::SimpleGlyphFlagExt;
+                    if let allsorts::tables::glyf::Glyph::Simple(sg) = glyph_arc.as_ref() {
+                        record.raw_points =
+                            Some(sg.coordinates.iter().map(|(_, pt)| (pt.0, pt.1)).collect());
+                        record.raw_on_curve = Some(
+                            sg.coordinates
+                                .iter()
+                                .map(|(f, _)| f.is_on_curve())
+                                .collect(),
+                        );
+                        record.raw_contour_ends = Some(sg.end_pts_of_contours.clone());
+                        record.instructions = Some(sg.instructions.to_vec());
+                    }
                 }
-            }
             } // [az-web-lift] end skip glyph outline/hinting decode on web
 
             record
@@ -1986,15 +2006,14 @@ pub mod parsed {
             };
 
             // Add OS/2 metrics if available
-            os2_table
-                .map_or(base, |os2| PdfFontMetrics {
-                    x_avg_char_width: os2.x_avg_char_width,
-                    us_weight_class: os2.us_weight_class,
-                    us_width_class: os2.us_width_class,
-                    y_strikeout_size: os2.y_strikeout_size,
-                    y_strikeout_position: os2.y_strikeout_position,
-                    ..base
-                })
+            os2_table.map_or(base, |os2| PdfFontMetrics {
+                x_avg_char_width: os2.x_avg_char_width,
+                us_weight_class: os2.us_weight_class,
+                us_width_class: os2.us_width_class,
+                y_strikeout_size: os2.y_strikeout_size,
+                y_strikeout_position: os2.y_strikeout_position,
+                ..base
+            })
         }
 
         /// Returns the width of the space character in font units.
@@ -2083,57 +2102,57 @@ pub mod parsed {
             }
             #[cfg(not(feature = "web_lift"))]
             {
-            use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
-            let glyph = self.get_or_decode_glyph(glyph_index)?;
+                use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
+                let glyph = self.get_or_decode_glyph(glyph_index)?;
 
-            let upem = self.font_metrics.units_per_em;
-            if upem == 0 || ppem == 0 {
-                return None;
-            }
+                let upem = self.font_metrics.units_per_em;
+                if upem == 0 || ppem == 0 {
+                    return None;
+                }
 
-            // Check if we even have a hint instance
-            let hint_mutex = self.hint_instance.as_ref()?;
+                // Check if we even have a hint instance
+                let hint_mutex = self.hint_instance.as_ref()?;
 
-            let scale = compute_scale(ppem, upem);
-            // Round the LIVE hmtx advance, not the decoded glyph's cached
-            // `horz_advance`. The space glyph is eagerly pre-cached during
-            // `from_bytes_internal` before `original_bytes` is attached, so its
-            // cached advance can be a stale 0; and this function only ever rounds
-            // the scaled hmtx advance to the pixel grid anyway (see below), never
-            // the hinted phantom point. For every correctly-decoded glyph the two
-            // are identical, so this is a no-op except for the stale-space case.
-            let hmtx_advance = self.get_horizontal_advance(glyph_index);
-            let adv_f26dot6 = F26Dot6::from_funits(i32::from(hmtx_advance), scale);
+                let scale = compute_scale(ppem, upem);
+                // Round the LIVE hmtx advance, not the decoded glyph's cached
+                // `horz_advance`. The space glyph is eagerly pre-cached during
+                // `from_bytes_internal` before `original_bytes` is attached, so its
+                // cached advance can be a stale 0; and this function only ever rounds
+                // the scaled hmtx advance to the pixel grid anyway (see below), never
+                // the hinted phantom point. For every correctly-decoded glyph the two
+                // are identical, so this is a no-op except for the stale-space case.
+                let hmtx_advance = self.get_horizontal_advance(glyph_index);
+                let adv_f26dot6 = F26Dot6::from_funits(i32::from(hmtx_advance), scale);
 
-            // For glyphs with outline data, run bytecode hinting
-            if let (Some(raw_points), Some(raw_on_curve), Some(raw_contour_ends)) = (
-                glyph.raw_points.as_ref(),
-                glyph.raw_on_curve.as_ref(),
-                glyph.raw_contour_ends.as_ref(),
-            ) {
-                let instructions = glyph.instructions.as_deref().unwrap_or(&[]);
-                let mut hint = hint_mutex.lock().ok()?;
-                hint.set_ppem(ppem, f64::from(ppem)).ok()?;
-                drop(hint);
+                // For glyphs with outline data, run bytecode hinting
+                if let (Some(raw_points), Some(raw_on_curve), Some(raw_contour_ends)) = (
+                    glyph.raw_points.as_ref(),
+                    glyph.raw_on_curve.as_ref(),
+                    glyph.raw_contour_ends.as_ref(),
+                ) {
+                    let instructions = glyph.instructions.as_deref().unwrap_or(&[]);
+                    let mut hint = hint_mutex.lock().ok()?;
+                    hint.set_ppem(ppem, f64::from(ppem)).ok()?;
+                    drop(hint);
 
-                let points_f26dot6: Vec<(i32, i32)> = raw_points
-                    .iter()
-                    .map(|&(x, y)| {
-                        let sx = F26Dot6::from_funits(i32::from(x), scale);
-                        let sy = F26Dot6::from_funits(i32::from(y), scale);
-                        (sx.to_bits(), sy.to_bits())
-                    })
-                    .collect();
-            }
+                    let points_f26dot6: Vec<(i32, i32)> = raw_points
+                        .iter()
+                        .map(|&(x, y)| {
+                            let sx = F26Dot6::from_funits(i32::from(x), scale);
+                            let sy = F26Dot6::from_funits(i32::from(y), scale);
+                            (sx.to_bits(), sy.to_bits())
+                        })
+                        .collect();
+                }
 
-            // Use the scaled advance rounded to pixel grid, NOT the hinted
-            // phantom point.  Some glyph programs apply ClearType-specific SHPIX
-            // adjustments to the advance phantom point that are wrong for
-            // non-ClearType rendering.  The rounded scaled advance matches
-            // FreeType's DEFAULT mode advance output (and, for glyphs without an
-            // outline such as space, FreeType's phantom-point pre-rounding).
-            let rounded = (adv_f26dot6.to_bits() + 32) & !63;
-            Some(rounded as f32 / 64.0)
+                // Use the scaled advance rounded to pixel grid, NOT the hinted
+                // phantom point.  Some glyph programs apply ClearType-specific SHPIX
+                // adjustments to the advance phantom point that are wrong for
+                // non-ClearType rendering.  The rounded scaled advance matches
+                // FreeType's DEFAULT mode advance output (and, for glyphs without an
+                // outline such as space, FreeType's phantom-point pre-rounding).
+                let rounded = (adv_f26dot6.to_bits() + 32) & !63;
+                Some(rounded as f32 / 64.0)
             } // [az-web-lift] end #[cfg(not(web_lift))] hinting body
         }
 
@@ -2160,21 +2179,29 @@ pub mod parsed {
             if self.vmtx_range.1 == 0 {
                 return None;
             }
-            let vert_advance = f32::from(allsorts::glyph_info::advance(
-                &self.maxp_table, vhea, self.vmtx_bytes(), glyph_id,
-            ).ok()?);
+            let vert_advance = f32::from(
+                allsorts::glyph_info::advance(&self.maxp_table, vhea, self.vmtx_bytes(), glyph_id)
+                    .ok()?,
+            );
 
             let units_per_em = f32::from(self.font_metrics.units_per_em);
-            let scale = if units_per_em > 0.0 { 1.0 / units_per_em } else { 0.001 };
+            let scale = if units_per_em > 0.0 {
+                1.0 / units_per_em
+            } else {
+                0.001
+            };
 
             // Vertical bearing: approximate from glyph bbox if available
-            let (bearing_x, bearing_y) = self.get_or_decode_glyph(glyph_id)
-                .map_or((0.0, 0.0), |g| {
+            let (bearing_x, bearing_y) =
+                self.get_or_decode_glyph(glyph_id).map_or((0.0, 0.0), |g| {
                     let bbox = &g.bounding_box;
                     // tsb (top side bearing): origin_y - max_y
                     // lsb for vertical: center the glyph horizontally
                     let width = f32::from(bbox.max_x - bbox.min_x);
-                    (-(width / 2.0) * scale, (vert_advance * scale) - (f32::from(bbox.max_y) * scale))
+                    (
+                        -(width / 2.0) * scale,
+                        (vert_advance * scale) - (f32::from(bbox.max_y) * scale),
+                    )
                 });
 
             Some(crate::text3::cache::VerticalMetrics {
@@ -2520,7 +2547,8 @@ pub mod parsed {
     /// Returns `None` if the glyph has no outline operations (e.g. space).
     /// The caller is responsible for applying scale and translation transforms.
     #[cfg(feature = "cpurender")]
-    #[must_use] pub fn build_glyph_path(glyph: &OwnedGlyph) -> Option<agg_rust::path_storage::PathStorage> {
+    #[must_use]
+    pub fn build_glyph_path(glyph: &OwnedGlyph) -> Option<agg_rust::path_storage::PathStorage> {
         use agg_rust::{basics::PATH_FLAGS_NONE, path_storage::PathStorage};
 
         let mut path = PathStorage::new();
@@ -2536,20 +2564,33 @@ pub mod parsed {
                         path.line_to(f64::from(*x), -f64::from(*y));
                     }
                     GlyphOutlineOperation::QuadraticCurveTo(OutlineQuadTo {
-                        ctrl_1_x, ctrl_1_y, end_x, end_y,
+                        ctrl_1_x,
+                        ctrl_1_y,
+                        end_x,
+                        end_y,
                     }) => {
                         path.curve3(
-                            f64::from(*ctrl_1_x), -f64::from(*ctrl_1_y),
-                            f64::from(*end_x), -f64::from(*end_y),
+                            f64::from(*ctrl_1_x),
+                            -f64::from(*ctrl_1_y),
+                            f64::from(*end_x),
+                            -f64::from(*end_y),
                         );
                     }
                     GlyphOutlineOperation::CubicCurveTo(OutlineCubicTo {
-                        ctrl_1_x, ctrl_1_y, ctrl_2_x, ctrl_2_y, end_x, end_y,
+                        ctrl_1_x,
+                        ctrl_1_y,
+                        ctrl_2_x,
+                        ctrl_2_y,
+                        end_x,
+                        end_y,
                     }) => {
                         path.curve4(
-                            f64::from(*ctrl_1_x), -f64::from(*ctrl_1_y),
-                            f64::from(*ctrl_2_x), -f64::from(*ctrl_2_y),
-                            f64::from(*end_x), -f64::from(*end_y),
+                            f64::from(*ctrl_1_x),
+                            -f64::from(*ctrl_1_y),
+                            f64::from(*ctrl_2_x),
+                            -f64::from(*ctrl_2_y),
+                            f64::from(*end_x),
+                            -f64::from(*end_y),
                         );
                     }
                     GlyphOutlineOperation::ClosePath => {
@@ -2589,7 +2630,9 @@ pub mod parsed {
         }
 
         fn mock_shared() -> ParsedFont {
-            let bytes = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(MOCK_MONO.to_vec())));
+            let bytes = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(
+                MOCK_MONO.to_vec(),
+            )));
             let mut warnings = Vec::new();
             ParsedFont::from_bytes_shared(bytes, 0, &mut warnings)
                 .expect("from_bytes_shared must parse the positive control")
@@ -2672,7 +2715,10 @@ pub mod parsed {
             assert_eq!(manual_be16(&[0xFF, 0xFF], 0), 0xFFFF);
             assert_eq!(manual_be16(&[0x12, 0x34], 0), 0x1234);
             // the widest 16-bit value still fits the u32 return: no truncation
-            assert_eq!(manual_be16(&[0xAA, 0xBB, 0xFF, 0xFF], 2), u32::from(u16::MAX));
+            assert_eq!(
+                manual_be16(&[0xAA, 0xBB, 0xFF, 0xFF], 2),
+                u32::from(u16::MAX)
+            );
             // offsets address the right bytes, not the first ones
             assert_eq!(manual_be16(&[0xAA, 0xBB, 0x00, 0x01], 2), 1);
         }
@@ -2766,14 +2812,18 @@ pub mod parsed {
 
         #[test]
         fn manual_table_provider_reads_a_real_font() {
-            let p = ManualTableProvider::new(MOCK_MONO, 0).expect("a real TTF must produce a provider");
+            let p =
+                ManualTableProvider::new(MOCK_MONO, 0).expect("a real TTF must produce a provider");
             assert_eq!(p.sfnt_version(), 0x0001_0000);
             assert_eq!(p.num, 13);
             assert!(p.has_table(tag::HEAD));
             assert!(p.has_table(tag::GLYF) && p.has_table(tag::LOCA));
             assert!(!p.has_table(tag::CFF)); // Azul Mock Mono is TrueType, not OpenType-PostScript
 
-            let head = p.table_data(tag::HEAD).unwrap().expect("head must be present");
+            let head = p
+                .table_data(tag::HEAD)
+                .unwrap()
+                .expect("head must be present");
             // head.magicNumber sits at offset 12 and is fixed by the spec
             assert_eq!(manual_be32(head.as_ref(), 12), 0x5F0F_3CF5);
 
@@ -2913,12 +2963,18 @@ pub mod parsed {
         #[test]
         fn compute_outline_bbox_spans_every_contour() {
             let a = GlyphOutline {
-                operations: vec![GlyphOutlineOperation::MoveTo(OutlineMoveTo { x: -10, y: -10 })]
-                    .into(),
+                operations: vec![GlyphOutlineOperation::MoveTo(OutlineMoveTo {
+                    x: -10,
+                    y: -10,
+                })]
+                .into(),
             };
             let b = GlyphOutline {
-                operations: vec![GlyphOutlineOperation::LineTo(OutlineLineTo { x: 20, y: 30 })]
-                    .into(),
+                operations: vec![GlyphOutlineOperation::LineTo(OutlineLineTo {
+                    x: 20,
+                    y: 30,
+                })]
+                .into(),
             };
             assert_eq!(compute_outline_bbox(&[a, b]), (-10, -10, 20, 30));
         }
@@ -3134,7 +3190,11 @@ pub mod parsed {
             assert!(font.cmap_subtable.is_some());
             assert!(font.gsub_bytes.is_some() && font.gpos_bytes.is_some());
             assert!(font.hmtx_range.1 > 0, "hmtx must be located in the source");
-            assert_eq!(font.vmtx_range, (0, 0), "Azul Mock Mono has no vertical metrics");
+            assert_eq!(
+                font.vmtx_range,
+                (0, 0),
+                "Azul Mock Mono has no vertical metrics"
+            );
             assert!(!font.is_variable_font);
         }
 
@@ -3148,7 +3208,10 @@ pub mod parsed {
             if let Some(font) = ParsedFont::from_bytes(MOCK_MONO, usize::MAX, &mut warnings) {
                 assert_eq!(font.num_glyphs(), baseline.num_glyphs());
                 assert_eq!(font.original_index, usize::MAX);
-                assert_ne!(font.hash, baseline.hash, "font_index feeds the identity hash");
+                assert_ne!(
+                    font.hash, baseline.hash,
+                    "font_index feeds the identity hash"
+                );
             }
         }
 
@@ -3195,7 +3258,9 @@ pub mod parsed {
         #[test]
         fn get_horizontal_advance_saturates_out_of_range_gids() {
             let font = parse_mock();
-            let gid_a = font.lookup_glyph_index('A' as u32).expect("'A' is in Azul Mock Mono");
+            let gid_a = font
+                .lookup_glyph_index('A' as u32)
+                .expect("'A' is in Azul Mock Mono");
             assert!(font.get_horizontal_advance(gid_a) > 0);
 
             // out-of-range gid: allsorts short-circuits to 0 rather than erroring
@@ -3278,7 +3343,9 @@ pub mod parsed {
             assert!(font.get_or_decode_glyph(u16::MAX).is_none());
 
             let a = font.get_or_decode_glyph(0).expect(".notdef must decode");
-            let b = font.get_or_decode_glyph(0).expect("the cache must hand it back");
+            let b = font
+                .get_or_decode_glyph(0)
+                .expect("the cache must hand it back");
             assert!(Arc::ptr_eq(&a, &b), "a second call must hit the cache");
 
             let snap = font.glyph_cache_snapshot();
@@ -3294,7 +3361,10 @@ pub mod parsed {
             let t = font.last_used_nanos();
             assert!(t > 0, "decoding must stamp last_used");
             let _ = font.get_or_decode_glyph(1);
-            assert!(font.last_used_nanos() >= t, "the stamp must not go backwards");
+            assert!(
+                font.last_used_nanos() >= t,
+                "the stamp must not go backwards"
+            );
         }
 
         #[test]
@@ -3308,7 +3378,10 @@ pub mod parsed {
             let snap = font.glyph_cache_snapshot();
             assert_eq!(snap.len(), usize::from(font.num_glyphs()));
             assert!(snap.contains_key(&0));
-            assert!(!snap.contains_key(&font.num_glyphs()), "never decodes past the end");
+            assert!(
+                !snap.contains_key(&font.num_glyphs()),
+                "never decodes past the end"
+            );
 
             let mut seen = 0usize;
             let mut max_gid = 0u16;
@@ -3384,11 +3457,16 @@ pub mod parsed {
             assert!(!font.evict_loca_glyf());
 
             let g1 = font.get_or_decode_glyph(1).expect("gid 1 must decode");
-            assert!(font.evict_loca_glyf(), "a loaded Deferred slot is evictable");
+            assert!(
+                font.evict_loca_glyf(),
+                "a loaded Deferred slot is evictable"
+            );
             assert!(!font.evict_loca_glyf(), "evicting twice is a no-op");
 
             // after eviction the face still decodes: it re-parses from the retained bytes
-            let g2 = font.get_or_decode_glyph(2).expect("gid 2 decodes after eviction");
+            let g2 = font
+                .get_or_decode_glyph(2)
+                .expect("gid 2 decodes after eviction");
             assert_eq!(g2.horz_advance, font.get_horizontal_advance(2));
             // and already-decoded glyphs still come from the glyph cache
             assert!(Arc::ptr_eq(&g1, &font.get_or_decode_glyph(1).unwrap()));
@@ -3434,10 +3512,15 @@ pub mod parsed {
                 .expect("from_bytes retains the source bytes");
             assert_eq!(auto.as_slice(), MOCK_MONO);
 
-            let arc = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(MOCK_MONO.to_vec())));
+            let arc = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(
+                MOCK_MONO.to_vec(),
+            )));
             let font = font.with_source_bytes(Arc::clone(&arc));
             let got = font.source_bytes_for_subset().unwrap();
-            assert!(Arc::ptr_eq(&got, &arc), "attached bytes are shared, not copied");
+            assert!(
+                Arc::ptr_eq(&got, &arc),
+                "attached bytes are shared, not copied"
+            );
         }
 
         #[test]
@@ -3459,8 +3542,14 @@ pub mod parsed {
         #[test]
         fn gsub_and_gpos_are_memoised() {
             let font = parse_mock();
-            assert!(font.gsub_bytes.is_some(), "Azul Mock Mono ships a GSUB table");
-            assert!(font.gpos_bytes.is_some(), "Azul Mock Mono ships a GPOS table");
+            assert!(
+                font.gsub_bytes.is_some(),
+                "Azul Mock Mono ships a GSUB table"
+            );
+            assert!(
+                font.gpos_bytes.is_some(),
+                "Azul Mock Mono ships a GPOS table"
+            );
 
             match (font.gsub(), font.gsub()) {
                 (Some(a), Some(b)) => assert!(Arc::ptr_eq(a, b), "gsub() must be memoised"),
@@ -3524,7 +3613,10 @@ pub mod parsed {
             let gid_a = font.lookup_glyph_index('A' as u32).unwrap();
             let gid_b = font.lookup_glyph_index('B' as u32).unwrap();
             let (bytes, mapping) = font
-                .subset(&[(0, '\0'), (gid_a, 'A'), (gid_b, 'B')], CmapTarget::Unrestricted)
+                .subset(
+                    &[(0, '\0'), (gid_a, 'A'), (gid_b, 'B')],
+                    CmapTarget::Unrestricted,
+                )
                 .expect("subsetting a TrueType font must succeed");
 
             // the mapping is positional: original gid -> (index in the request, char)
@@ -3717,7 +3809,9 @@ pub mod parsed {
             assert!(font.get_glyph_cluster_text(u16::MAX).is_none());
             assert!(font.get_glyph_primary_char(7).is_none());
             assert!(Arc::ptr_eq(
-                font.glyph_cache_snapshot().get(&0).expect("outline cache is untouched"),
+                font.glyph_cache_snapshot()
+                    .get(&0)
+                    .expect("outline cache is untouched"),
                 &decoded
             ));
             font.clear_glyph_cache(); // idempotent

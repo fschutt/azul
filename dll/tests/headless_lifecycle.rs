@@ -16,8 +16,8 @@
 //! lets us count callback invocations.
 
 use std::cell::RefCell;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo, Update};
 use azul_core::dom::{Dom, NodeData};
@@ -81,11 +81,21 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     };
     let frame = counters.frame.fetch_add(1, Ordering::SeqCst);
 
-    let mount_cb = Callback { cb: on_mount, ctx: azul_core::refany::OptionRefAny::None }.to_core();
-    let unmount_cb =
-        Callback { cb: on_unmount, ctx: azul_core::refany::OptionRefAny::None }.to_core();
-    let update_cb =
-        Callback { cb: on_update, ctx: azul_core::refany::OptionRefAny::None }.to_core();
+    let mount_cb = Callback {
+        cb: on_mount,
+        ctx: azul_core::refany::OptionRefAny::None,
+    }
+    .to_core();
+    let unmount_cb = Callback {
+        cb: on_unmount,
+        ctx: azul_core::refany::OptionRefAny::None,
+    }
+    .to_core();
+    let update_cb = Callback {
+        cb: on_update,
+        ctx: azul_core::refany::OptionRefAny::None,
+    }
+    .to_core();
 
     // Frame 0: empty body (no children).
     // Frame 1: body with two children — child A wired to AfterMount, child B
@@ -121,7 +131,8 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             // Keep B (so it'll see BeforeUnmount) — no, we *remove* both A and B
             // to force two unmounts; then add C with AfterMount + Updated so the
             // next frame can fire Updated on the same keyed node.
-            let mut c = NodeData::create_text_do_not_use_without_block_level_wrapper("v1").with_key(0xC0FFEEu64);
+            let mut c = NodeData::create_text_do_not_use_without_block_level_wrapper("v1")
+                .with_key(0xC0FFEEu64);
             c.add_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 RefAny::new(counters.clone()),
@@ -136,7 +147,8 @@ extern "C" fn layout_cb(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         }
         _ => {
             // Same keyed C, but with new content — this is the Updated path.
-            let mut c = NodeData::create_text_do_not_use_without_block_level_wrapper("v2").with_key(0xC0FFEEu64);
+            let mut c = NodeData::create_text_do_not_use_without_block_level_wrapper("v2")
+                .with_key(0xC0FFEEu64);
             c.add_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
                 RefAny::new(counters.clone()),
@@ -186,10 +198,7 @@ fn make_window(counters: Counters) -> HeadlessWindow {
 /// widget(s) — the real-app shape (no synthetic empty→full warm-up frame). The
 /// number of AfterMount children equals `counters.frame`'s initial design: we
 /// emit `widget_count` children, every one wired to AfterMount.
-extern "C" fn layout_cb_widgets_on_first_frame(
-    mut data: RefAny,
-    _info: LayoutCallbackInfo,
-) -> Dom {
+extern "C" fn layout_cb_widgets_on_first_frame(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     let counters = match data.downcast_ref::<Counters>() {
         Some(c) => c.clone(),
         None => return Dom::create_body(),
@@ -198,13 +207,17 @@ extern "C" fn layout_cb_widgets_on_first_frame(
     // first regenerate_layout); it is NOT incremented so every frame returns
     // the same DOM (so a second regenerate must NOT re-fire AfterMount).
     let widget_count = counters.frame.load(Ordering::SeqCst).max(1);
-    let mount_cb =
-        Callback { cb: on_mount, ctx: azul_core::refany::OptionRefAny::None }.to_core();
+    let mount_cb = Callback {
+        cb: on_mount,
+        ctx: azul_core::refany::OptionRefAny::None,
+    }
+    .to_core();
     let mut body = Dom::create_body();
     for i in 0..widget_count {
         // Distinct keys so the nodes are stable across relayout (Tier-1 match →
         // no spurious unmount/remount on a second regenerate).
-        let mut w = NodeData::create_text_do_not_use_without_block_level_wrapper("widget").with_key(0xA000u64 + i as u64);
+        let mut w = NodeData::create_text_do_not_use_without_block_level_wrapper("widget")
+            .with_key(0xA000u64 + i as u64);
         w.add_callback(
             EventFilter::Component(ComponentEventFilter::AfterMount),
             RefAny::new(counters.clone()),
@@ -348,7 +361,9 @@ fn initial_mount_does_not_refire_on_identical_relayout() {
     let counters = Counters::new();
     let mut window = make_window_with(counters.clone(), layout_cb_widgets_on_first_frame);
 
-    window.regenerate_layout().expect("frame 0 regenerate_layout");
+    window
+        .regenerate_layout()
+        .expect("frame 0 regenerate_layout");
     assert_eq!(
         counters.mounts.load(Ordering::SeqCst),
         1,
@@ -357,7 +372,9 @@ fn initial_mount_does_not_refire_on_identical_relayout() {
 
     // Identical DOM again — the keyed widget matches its previous self, so this
     // is an Update-or-nothing, NOT a remount.
-    window.regenerate_layout().expect("frame 1 regenerate_layout");
+    window
+        .regenerate_layout()
+        .expect("frame 1 regenerate_layout");
     assert_eq!(
         counters.mounts.load(Ordering::SeqCst),
         1,
@@ -377,9 +394,13 @@ extern "C" fn layout_cb_counting(mut data: RefAny, _info: LayoutCallbackInfo) ->
     };
     counters.frame.fetch_add(1, Ordering::SeqCst);
 
-    let cb = Callback { cb: on_mount_asking_for_refresh, ctx: azul_core::refany::OptionRefAny::None }
-        .to_core();
-    let mut w = NodeData::create_text_do_not_use_without_block_level_wrapper("widget").with_key(0xBEEF_0001u64);
+    let cb = Callback {
+        cb: on_mount_asking_for_refresh,
+        ctx: azul_core::refany::OptionRefAny::None,
+    }
+    .to_core();
+    let mut w = NodeData::create_text_do_not_use_without_block_level_wrapper("widget")
+        .with_key(0xBEEF_0001u64);
     w.add_callback(
         EventFilter::Component(ComponentEventFilter::AfterMount),
         RefAny::new(counters.clone()),
@@ -468,7 +489,8 @@ fn a_theme_switch_changes_the_theme_and_requests_a_frame() {
         "set_system_theme reported no change while switching from {before:?} to {switch_to:?}",
     );
     assert_eq!(
-        window.common.current_window_state().theme, switch_to,
+        window.common.current_window_state().theme,
+        switch_to,
         "the window kept its old theme after a switch, so prefers-color-scheme styling would \
          still evaluate against {before:?}",
     );

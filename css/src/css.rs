@@ -52,7 +52,6 @@ pub struct KeyframeStop {
     pub props: crate::props::property::CssPropertyVec,
 }
 
-
 /// A named `@keyframes` block: `@keyframes flyOutRight { from {..} to {..} }`.
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 #[repr(C)]
@@ -61,7 +60,6 @@ pub struct Keyframes {
     /// Sorted by `permille` ascending at parse time.
     pub stops: KeyframeStopVec,
 }
-
 
 crate::impl_vec!(
     KeyframeStop,
@@ -110,14 +108,28 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd]
 );
 
-impl_vec!(Css, CssVec, CssVecDestructor, CssVecDestructorType, CssVecSlice, OptionCss);
+impl_vec!(
+    Css,
+    CssVec,
+    CssVecDestructor,
+    CssVecDestructorType,
+    CssVecSlice,
+    OptionCss
+);
 impl_vec_mut!(Css, CssVec);
 impl_vec_debug!(Css, CssVec);
 impl_vec_partialord!(Css, CssVec);
 impl_vec_clone!(Css, CssVec, CssVecDestructor);
 impl_vec_partialeq!(Css, CssVec);
 
-impl_vec!(CssRuleBlock, CssRuleBlockVec, CssRuleBlockVecDestructor, CssRuleBlockVecDestructorType, CssRuleBlockVecSlice, OptionCssRuleBlock);
+impl_vec!(
+    CssRuleBlock,
+    CssRuleBlockVec,
+    CssRuleBlockVecDestructor,
+    CssRuleBlockVecDestructorType,
+    CssRuleBlockVecSlice,
+    OptionCssRuleBlock
+);
 impl_vec_mut!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_debug!(CssRuleBlock, CssRuleBlockVec);
 impl_vec_partialord!(CssRuleBlock, CssRuleBlockVec);
@@ -147,11 +159,13 @@ impl Css {
         (w, h)
     }
 
-    #[must_use] pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
         self.rules.as_ref().is_empty()
     }
 
-    #[must_use] pub fn new(rules: Vec<CssRuleBlock>) -> Self {
+    #[must_use]
+    pub fn new(rules: Vec<CssRuleBlock>) -> Self {
         Self {
             rules: rules.into(),
             keyframes: KeyframesVec::from_const_slice(&[]),
@@ -162,7 +176,8 @@ impl Css {
     // takes the owned C-ABI `AzString` by value by FFI ownership-transfer convention,
     // even though only a string slice is read here.
     #[allow(clippy::needless_pass_by_value)]
-    #[must_use] pub fn from_string(s: AzString) -> Self {
+    #[must_use]
+    pub fn from_string(s: AzString) -> Self {
         crate::parser2::new_from_str(s.as_str()).0
     }
 
@@ -174,7 +189,8 @@ impl Css {
     /// `:hover { color: red; }` or `@os(linux) { font-size: 14px; }` work
     /// directly via CSS nesting.
     #[cfg(feature = "parser")]
-    #[must_use] pub fn parse_inline(style: &str) -> Self {
+    #[must_use]
+    pub fn parse_inline(style: &str) -> Self {
         use alloc::string::ToString;
         let mut wrapped = String::with_capacity(style.len() + 6);
         wrapped.push_str("* {\n");
@@ -202,7 +218,8 @@ impl Css {
     // takes the owned C-ABI `AzString` by value by FFI ownership-transfer convention,
     // even though only a string slice is read here.
     #[allow(clippy::needless_pass_by_value)]
-    #[must_use] pub fn from_string_with_warnings(
+    #[must_use]
+    pub fn from_string_with_warnings(
         s: AzString,
     ) -> (Self, Vec<crate::parser2::CssParseWarnMsgOwned>) {
         let (css, warnings) = crate::parser2::new_from_str(s.as_str());
@@ -250,7 +267,9 @@ impl Ord for CssRuleBlock {
         // Match the existing PartialOrd: path first, then declarations.
         // Priority is intentionally not in the sort key — it's a layer label,
         // not a comparison primitive for callers.
-        self.path.cmp(&other.path).then_with(|| self.declarations.cmp(&other.declarations))
+        self.path
+            .cmp(&other.path)
+            .then_with(|| self.declarations.cmp(&other.declarations))
     }
 }
 
@@ -275,13 +294,18 @@ impl From<crate::dynamic_selector::CssPropertyWithConditionsVec> for Css {
         let mut rules: Vec<CssRuleBlock> = Vec::with_capacity(owned.len());
         for p in owned {
             rules.push(CssRuleBlock {
-                path: CssPath { selectors: Vec::new().into() },
+                path: CssPath {
+                    selectors: Vec::new().into(),
+                },
                 declarations: alloc::vec![CssDeclaration::Static(p.property)].into(),
                 conditions: p.apply_if,
                 priority: rule_priority::INLINE,
             });
         }
-        Self { rules: rules.into(), keyframes: KeyframesVec::from_const_slice(&[]) }
+        Self {
+            rules: rules.into(),
+            keyframes: KeyframesVec::from_const_slice(&[]),
+        }
     }
 }
 
@@ -303,17 +327,20 @@ impl_option!(
 );
 
 impl CssDeclaration {
-    #[must_use] pub const fn new_static(prop: CssProperty) -> Self {
+    #[must_use]
+    pub const fn new_static(prop: CssProperty) -> Self {
         Self::Static(prop)
     }
 
-    #[must_use] pub const fn new_dynamic(prop: DynamicCssProperty) -> Self {
+    #[must_use]
+    pub const fn new_dynamic(prop: DynamicCssProperty) -> Self {
         Self::Dynamic(prop)
     }
 
     /// Returns the type of the property (i.e. the CSS key as a typed enum)
-    #[must_use] pub const fn get_type(&self) -> CssPropertyType {
-        use self::CssDeclaration::{Static, Dynamic};
+    #[must_use]
+    pub const fn get_type(&self) -> CssPropertyType {
+        use self::CssDeclaration::{Dynamic, Static};
         match self {
             Static(s) => s.get_type(),
             Dynamic(d) => d.default_value.get_type(),
@@ -322,8 +349,9 @@ impl CssDeclaration {
 
     /// Determines if the property will be inherited (applied to the children)
     /// during the recursive application of the style on the DOM tree
-    #[must_use] pub const fn is_inheritable(&self) -> bool {
-        use self::CssDeclaration::{Static, Dynamic};
+    #[must_use]
+    pub const fn is_inheritable(&self) -> bool {
+        use self::CssDeclaration::{Dynamic, Static};
         match self {
             Static(s) => s.get_type().is_inheritable(),
             Dynamic(d) => d.is_inheritable(),
@@ -332,16 +360,18 @@ impl CssDeclaration {
 
     /// Returns whether this rule affects only styling properties or layout
     /// properties (that could trigger a re-layout)
-    #[must_use] pub const fn can_trigger_relayout(&self) -> bool {
-        use self::CssDeclaration::{Static, Dynamic};
+    #[must_use]
+    pub const fn can_trigger_relayout(&self) -> bool {
+        use self::CssDeclaration::{Dynamic, Static};
         match self {
             Static(s) => s.get_type().can_trigger_relayout(),
             Dynamic(d) => d.can_trigger_relayout(),
         }
     }
 
-    #[must_use] pub fn to_str(&self) -> String {
-        use self::CssDeclaration::{Static, Dynamic};
+    #[must_use]
+    pub fn to_str(&self) -> String {
+        use self::CssDeclaration::{Dynamic, Static};
         match self {
             Static(s) => format!("{s:?}"),
             Dynamic(d) => format!("var(--{}, {:?})", d.dynamic_id, d.default_value),
@@ -408,14 +438,21 @@ impl<T> BoxOrStatic<T> {
     /// The inner pointer must be non-null. This is guaranteed by [`heap`](Self::heap)
     /// and the `Static` constructor (which should always point to valid data).
     #[inline]
-    #[must_use] pub fn as_ref(&self) -> &T {
+    #[must_use]
+    pub fn as_ref(&self) -> &T {
         match self {
             Self::Boxed(ptr) => unsafe {
-                debug_assert!(!ptr.is_null(), "BoxOrStatic::Boxed contained a null pointer");
+                debug_assert!(
+                    !ptr.is_null(),
+                    "BoxOrStatic::Boxed contained a null pointer"
+                );
                 &**ptr
             },
             Self::Static(ptr) => unsafe {
-                debug_assert!(!ptr.is_null(), "BoxOrStatic::Static contained a null pointer");
+                debug_assert!(
+                    !ptr.is_null(),
+                    "BoxOrStatic::Static contained a null pointer"
+                );
                 &**ptr
             },
         }
@@ -437,7 +474,11 @@ impl<T> BoxOrStatic<T> {
 
     /// Consume self and return the inner value.
     #[inline]
-    #[must_use] pub fn into_inner(self) -> T where T: Clone {
+    #[must_use]
+    pub fn into_inner(self) -> T
+    where
+        T: Clone,
+    {
         // Clone the inner value, then let `self` drop normally so `Drop` frees the
         // heap box (for the Boxed variant). The old `mem::forget(self)` LEAKED that
         // box on every call — the clone is an independent value, so there is no
@@ -450,7 +491,9 @@ impl<T> Drop for BoxOrStatic<T> {
     fn drop(&mut self) {
         if let Self::Boxed(ptr) = self {
             if !ptr.is_null() {
-                unsafe { drop(Box::from_raw(*ptr)); }
+                unsafe {
+                    drop(Box::from_raw(*ptr));
+                }
                 *ptr = core::ptr::null_mut();
             }
         }
@@ -573,7 +616,7 @@ impl<T: PrintAsCssValue> CssPropertyValue<T> {
 
 impl<T: fmt::Display> fmt::Display for CssPropertyValue<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::CssPropertyValue::{Auto, None, Initial, Inherit, Revert, Unset, Exact};
+        use self::CssPropertyValue::{Auto, Exact, Inherit, Initial, None, Revert, Unset};
         match self {
             Auto => write!(f, "auto"),
             None => write!(f, "none"),
@@ -661,10 +704,7 @@ impl<T: Default> CssPropertyValue<T> {
         match self {
             Self::Auto | Self::Initial => Some(T::default()),
             Self::Exact(c) => Some(c),
-            Self::None
-            | Self::Inherit
-            | Self::Revert
-            | Self::Unset => None,
+            Self::None | Self::Inherit | Self::Revert | Self::Unset => None,
         }
     }
 }
@@ -677,14 +717,16 @@ impl<T: Default> Default for CssPropertyValue<T> {
 }
 
 impl DynamicCssProperty {
-    #[must_use] pub const fn is_inheritable(&self) -> bool {
+    #[must_use]
+    pub const fn is_inheritable(&self) -> bool {
         // Dynamic style properties should not be inheritable,
         // since that could lead to bugs - you set a property in Rust, suddenly
         // the wrong UI component starts to react because it was inherited.
         false
     }
 
-    #[must_use] pub const fn can_trigger_relayout(&self) -> bool {
+    #[must_use]
+    pub const fn can_trigger_relayout(&self) -> bool {
         self.default_value.get_type().can_trigger_relayout()
     }
 }
@@ -767,7 +809,14 @@ impl PartialOrd for CssRuleBlock {
     }
 }
 
-impl_vec!(CssDeclaration, CssDeclarationVec, CssDeclarationVecDestructor, CssDeclarationVecDestructorType, CssDeclarationVecSlice, OptionCssDeclaration);
+impl_vec!(
+    CssDeclaration,
+    CssDeclarationVec,
+    CssDeclarationVecDestructor,
+    CssDeclarationVecDestructorType,
+    CssDeclarationVecSlice,
+    OptionCssDeclaration
+);
 impl_vec_mut!(CssDeclaration, CssDeclarationVec);
 impl_vec_debug!(CssDeclaration, CssDeclarationVec);
 impl_vec_partialord!(CssDeclaration, CssDeclarationVec);
@@ -782,7 +831,8 @@ impl_vec_eq!(CssDeclaration, CssDeclarationVec);
 impl_vec_hash!(CssDeclaration, CssDeclarationVec);
 
 impl CssRuleBlock {
-    #[must_use] pub fn new(path: CssPath, declarations: Vec<CssDeclaration>) -> Self {
+    #[must_use]
+    pub fn new(path: CssPath, declarations: Vec<CssDeclaration>) -> Self {
         Self {
             path,
             declarations: declarations.into(),
@@ -791,7 +841,8 @@ impl CssRuleBlock {
         }
     }
 
-    #[must_use] pub fn with_conditions(
+    #[must_use]
+    pub fn with_conditions(
         path: CssPath,
         declarations: Vec<CssDeclaration>,
         conditions: Vec<crate::dynamic_selector::DynamicSelector>,
@@ -1129,15 +1180,19 @@ pub enum NodeTypeTagParseErrorOwned {
 }
 
 impl NodeTypeTagParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> NodeTypeTagParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> NodeTypeTagParseErrorOwned {
         match self {
-            NodeTypeTagParseError::Invalid(s) => NodeTypeTagParseErrorOwned::Invalid((*s).to_string().into()),
+            NodeTypeTagParseError::Invalid(s) => {
+                NodeTypeTagParseErrorOwned::Invalid((*s).to_string().into())
+            }
         }
     }
 }
 
 impl NodeTypeTagParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> NodeTypeTagParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> NodeTypeTagParseError<'_> {
         match self {
             Self::Invalid(s) => NodeTypeTagParseError::Invalid(s),
         }
@@ -1146,7 +1201,8 @@ impl NodeTypeTagParseErrorOwned {
 
 /// Parses the node type from a CSS string such as `"div"` => `NodeTypeTag::Div`
 impl NodeTypeTag {
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
+    #[allow(clippy::too_many_lines)]
+    // large but cohesive: single-purpose CSS parser/formatter/dispatch table (one branch per property/variant)
     /// # Errors
     ///
     /// Returns an error if `css_key` is not a recognized HTML node-type tag.
@@ -1631,7 +1687,14 @@ pub struct CssPath {
     pub selectors: CssPathSelectorVec,
 }
 
-impl_vec!(CssPathSelector, CssPathSelectorVec, CssPathSelectorVecDestructor, CssPathSelectorVecDestructorType, CssPathSelectorVecSlice, OptionCssPathSelector);
+impl_vec!(
+    CssPathSelector,
+    CssPathSelectorVec,
+    CssPathSelectorVecDestructor,
+    CssPathSelectorVecDestructorType,
+    CssPathSelectorVecSlice,
+    OptionCssPathSelector
+);
 impl_vec_debug!(CssPathSelector, CssPathSelectorVec);
 impl_vec_partialord!(CssPathSelector, CssPathSelectorVec);
 impl_vec_ord!(CssPathSelector, CssPathSelectorVec);
@@ -1645,7 +1708,8 @@ impl_vec_eq!(CssPathSelector, CssPathSelectorVec);
 impl_vec_hash!(CssPathSelector, CssPathSelectorVec);
 
 impl CssPath {
-    #[must_use] pub fn new(selectors: Vec<CssPathSelector>) -> Self {
+    #[must_use]
+    pub fn new(selectors: Vec<CssPathSelector>) -> Self {
         Self {
             selectors: selectors.into(),
         }
@@ -1681,14 +1745,12 @@ impl CssPath {
     /// scoped the classic `* { margin: 0 }` reset of a mounted document to
     /// the mount root alone: the UA body margin survived on every child and
     /// each reftest page rendered shifted by 8px against the browser.
-    pub fn push_front_scope_for(
-        &mut self,
-        start: usize,
-        end: usize,
-        node_only_bare_global: bool,
-    ) {
+    pub fn push_front_scope_for(&mut self, start: usize, end: usize, node_only_bare_global: bool) {
         let is_bare_global = self.selectors.as_ref().len() == 1
-            && matches!(self.selectors.as_ref().first(), Some(CssPathSelector::Global));
+            && matches!(
+                self.selectors.as_ref().first(),
+                Some(CssPathSelector::Global)
+            );
         let range = if is_bare_global && node_only_bare_global {
             CssScopeRange { start, end: start }
         } else {
@@ -1735,7 +1797,8 @@ pub struct CssScopeRange {
 impl CssScopeRange {
     /// True if `node` (a flat `NodeId` index) is inside this subtree range.
     #[inline]
-    #[must_use] pub const fn contains(&self, node: usize) -> bool {
+    #[must_use]
+    pub const fn contains(&self, node: usize) -> bool {
         self.start <= node && node <= self.end
     }
 }
@@ -1817,7 +1880,6 @@ pub enum AttributeMatchOp {
     Substring,
 }
 
-
 impl_option!(
     CssPathSelector,
     OptionCssPathSelector,
@@ -1825,10 +1887,12 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-
 impl fmt::Display for CssPathSelector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::CssPathSelector::{Global, Root, Type, Class, Id, PseudoSelector, Attribute, DirectChildren, Children, AdjacentSibling, GeneralSibling};
+        use self::CssPathSelector::{
+            AdjacentSibling, Attribute, Children, Class, DirectChildren, GeneralSibling, Global,
+            Id, PseudoSelector, Root, Type,
+        };
         match &self {
             Global => write!(f, "*"),
             Root(r) => write!(f, ":root({}..={})", r.start, r.end),
@@ -1858,7 +1922,8 @@ impl fmt::Display for CssAttributeSelector {
 impl AttributeMatchOp {
     /// Returns the prefix character for the `=` operator (e.g. `~` for `~=`).
     /// `Eq` returns `""`, `Exists` is unused (no `=` printed at all).
-    #[must_use] pub const fn symbol_prefix(&self) -> &'static str {
+    #[must_use]
+    pub const fn symbol_prefix(&self) -> &'static str {
         match self {
             Self::Exists | Self::Eq => "",
             Self::Includes => "~",
@@ -1918,7 +1983,7 @@ pub struct CssNthChildPattern {
 
 impl fmt::Display for CssNthChildSelector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::CssNthChildSelector::{Number, Even, Odd, Pattern};
+        use self::CssNthChildSelector::{Even, Number, Odd, Pattern};
         match &self {
             Number(u) => write!(f, "{u}"),
             Even => write!(f, "even"),
@@ -1930,7 +1995,9 @@ impl fmt::Display for CssNthChildSelector {
 
 impl fmt::Display for CssPathPseudoSelector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::CssPathPseudoSelector::{First, Last, NthChild, Hover, Active, Focus, Lang, Backdrop, Dragging, DragOver, Root};
+        use self::CssPathPseudoSelector::{
+            Active, Backdrop, DragOver, Dragging, First, Focus, Hover, Lang, Last, NthChild, Root,
+        };
         match &self {
             First => write!(f, "first"),
             Last => write!(f, "last"),
@@ -1949,7 +2016,8 @@ impl fmt::Display for CssPathPseudoSelector {
 
 impl Css {
     /// Creates a new, empty CSS.
-    #[must_use] pub fn empty() -> Self {
+    #[must_use]
+    pub fn empty() -> Self {
         Self::default()
     }
 
@@ -1959,7 +2027,8 @@ impl Css {
     /// without needing a separate `Stylesheet` boundary.
     pub fn sort_by_specificity(&mut self) {
         self.rules.as_mut().sort_by(|a, b| {
-            a.priority.cmp(&b.priority)
+            a.priority
+                .cmp(&b.priority)
                 .then_with(|| get_specificity(&a.path).cmp(&get_specificity(&b.path)))
         });
     }
@@ -1977,12 +2046,7 @@ impl Css {
     /// flat-iteration shape after the inline-vs-component unification.
     pub fn iter_inline_properties(
         &self,
-    ) -> impl Iterator<
-        Item = (
-            &CssProperty,
-            &DynamicSelectorVec,
-        ),
-    > + '_ {
+    ) -> impl Iterator<Item = (&CssProperty, &DynamicSelectorVec)> + '_ {
         self.rules.as_ref().iter().flat_map(|r| {
             r.declarations.as_ref().iter().filter_map(move |d| match d {
                 CssDeclaration::Static(p) => Some((p, &r.conditions)),
@@ -2070,7 +2134,9 @@ mod priority_sort_tests {
 
     fn rule_with(priority: u8, selectors: Vec<CssPathSelector>) -> CssRuleBlock {
         CssRuleBlock {
-            path: CssPath { selectors: selectors.into() },
+            path: CssPath {
+                selectors: selectors.into(),
+            },
             declarations: Vec::new().into(),
             conditions: DynamicSelectorVec::from_const_slice(&[]),
             priority,
@@ -2085,14 +2151,18 @@ mod priority_sort_tests {
             // Author rule, no specificity.
             rule_with(rule_priority::AUTHOR, vec![CssPathSelector::Global]),
             // UA rule with high specificity — must still come BEFORE any author rule.
-            rule_with(rule_priority::UA, vec![
-                CssPathSelector::Id("ua-id".to_string().into()),
-                CssPathSelector::Class("ua-class".to_string().into()),
-            ]),
+            rule_with(
+                rule_priority::UA,
+                vec![
+                    CssPathSelector::Id("ua-id".to_string().into()),
+                    CssPathSelector::Class("ua-class".to_string().into()),
+                ],
+            ),
             // Author rule with high specificity.
-            rule_with(rule_priority::AUTHOR, vec![
-                CssPathSelector::Id("a-id".to_string().into()),
-            ]),
+            rule_with(
+                rule_priority::AUTHOR,
+                vec![CssPathSelector::Id("a-id".to_string().into())],
+            ),
             // System rule with no specificity — must sit between UA and author.
             rule_with(rule_priority::SYSTEM, vec![CssPathSelector::Global]),
         ]);
@@ -2100,11 +2170,19 @@ mod priority_sort_tests {
         let priorities: Vec<u8> = css.rules.as_ref().iter().map(|r| r.priority).collect();
         assert_eq!(
             priorities,
-            vec![rule_priority::UA, rule_priority::SYSTEM, rule_priority::AUTHOR, rule_priority::AUTHOR],
+            vec![
+                rule_priority::UA,
+                rule_priority::SYSTEM,
+                rule_priority::AUTHOR,
+                rule_priority::AUTHOR
+            ],
             "rules must sort by layer first; specificity only breaks ties within a layer"
         );
         // Within author, the high-specificity #a-id comes after the * rule.
-        let last_two_specificity: Vec<_> = css.rules.as_ref().iter()
+        let last_two_specificity: Vec<_> = css
+            .rules
+            .as_ref()
+            .iter()
             .filter(|r| r.priority == rule_priority::AUTHOR)
             .map(|r| get_specificity(&r.path))
             .collect();
@@ -2114,7 +2192,8 @@ mod priority_sort_tests {
 
 /// Returns specificity of the given css path. Further information can be found on
 /// [the w3 website](http://www.w3.org/TR/selectors/#specificity).
-#[must_use] pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
+#[must_use]
+pub fn get_specificity(path: &CssPath) -> (usize, usize, usize, usize) {
     let id_count = path
         .selectors
         .iter()
@@ -2366,7 +2445,10 @@ mod autotest_generated {
             CssPath::new(vec![CssPathSelector::Global]),
             Vec::new(),
         )]);
-        assert!(!css.is_empty(), "a rule with 0 declarations is still a rule");
+        assert!(
+            !css.is_empty(),
+            "a rule with 0 declarations is still a rule"
+        );
         assert_eq!(css.iter_inline_properties().count(), 0);
     }
 
@@ -2519,7 +2601,9 @@ mod autotest_generated {
         assert!(dyn_prop("a", prop_width(1.0)).can_trigger_relayout());
         assert!(!dyn_prop("a", prop_text_color(1)).can_trigger_relayout());
         // Keyword-valued defaults keep their property type, so the answer is unchanged.
-        assert!(dyn_prop("a", CssProperty::const_auto(CssPropertyType::Width)).can_trigger_relayout());
+        assert!(
+            dyn_prop("a", CssProperty::const_auto(CssPropertyType::Width)).can_trigger_relayout()
+        );
         assert!(
             !dyn_prop("a", CssProperty::const_none(CssPropertyType::TextColor))
                 .can_trigger_relayout()
@@ -2750,7 +2834,10 @@ mod autotest_generated {
             CssPropertyValue::<TestVal>::Initial.get_property_or_default(),
             Some(TestVal::default())
         );
-        assert_eq!(CssPropertyValue::<TestVal>::None.get_property_or_default(), None);
+        assert_eq!(
+            CssPropertyValue::<TestVal>::None.get_property_or_default(),
+            None
+        );
         assert_eq!(
             CssPropertyValue::<TestVal>::Inherit.get_property_or_default(),
             None
@@ -2759,7 +2846,10 @@ mod autotest_generated {
             CssPropertyValue::<TestVal>::Revert.get_property_or_default(),
             None
         );
-        assert_eq!(CssPropertyValue::<TestVal>::Unset.get_property_or_default(), None);
+        assert_eq!(
+            CssPropertyValue::<TestVal>::Unset.get_property_or_default(),
+            None
+        );
         assert_eq!(
             CssPropertyValue::Exact(TestVal(9.0)).get_property_or_default(),
             Some(TestVal(9.0))
@@ -2828,7 +2918,11 @@ mod autotest_generated {
             let before = format!("{v}");
             let mapped: CssPropertyValue<u32> =
                 v.map_property(|_| panic!("map_fn must not run on a keyword variant"));
-            assert_eq!(format!("{mapped}"), before, "the keyword must survive the map");
+            assert_eq!(
+                format!("{mapped}"),
+                before,
+                "the keyword must survive the map"
+            );
         }
         // …and must run exactly once for Exact.
         let mapped = CssPropertyValue::Exact(TestVal(2.0)).map_property(|t| t.0 as u32);
@@ -2869,11 +2963,7 @@ mod autotest_generated {
         let conds: Vec<DynamicSelector> = (0..1_000)
             .map(|i| DynamicSelector::ContainerName(format!("c{i}").into()))
             .collect();
-        let r = CssRuleBlock::with_conditions(
-            CssPath::default(),
-            Vec::new(),
-            conds.clone(),
-        );
+        let r = CssRuleBlock::with_conditions(CssPath::default(), Vec::new(), conds.clone());
         assert_eq!(r.conditions.as_ref().len(), 1_000);
         assert_eq!(r.conditions.as_ref(), &conds[..]);
         assert_eq!(
@@ -2909,26 +2999,189 @@ mod autotest_generated {
     const ALL_TAGS: &[NodeTypeTag] = {
         use NodeTypeTag::*;
         &[
-            Html, Head, Body, Div, P, Article, Section, Nav, Aside, Header, Footer, Main, Figure,
-            FigCaption, H1, H2, H3, H4, H5, H6, Br, Hr, Pre, BlockQuote, Address, Details, Summary,
-            Dialog, Ul, Ol, Li, Dl, Dt, Dd, Menu, MenuItem, Dir, Table, Caption, THead, TBody,
-            TFoot, Tr, Th, Td, ColGroup, Col, Form, FieldSet, Legend, Label, Input, Button, Select,
-            OptGroup, SelectOption, TextArea, Output, Progress, Meter, DataList, Span, A, Em,
-            Strong, B, I, U, S, Mark, Del, Ins, Code, Samp, Kbd, Var, Cite, Dfn, Abbr, Acronym, Q,
-            Time, Sub, Sup, Small, Big, Bdo, Bdi, Wbr, Ruby, Rt, Rtc, Rp, Data, Canvas, Object,
-            Param, Embed, Audio, Video, Source, Track, Map, Area, Svg, SvgPath, SvgCircle, SvgRect,
-            SvgEllipse, SvgLine, SvgPolygon, SvgPolyline, SvgG, SvgDefs, SvgSymbol, SvgUse,
-            SvgSwitch, SvgText, SvgTspan, SvgTextPath, SvgLinearGradient, SvgRadialGradient,
-            SvgStop, SvgPattern, SvgClipPathElement, SvgMask, SvgFilter, SvgFeBlend,
-            SvgFeColorMatrix, SvgFeComponentTransfer, SvgFeComposite, SvgFeConvolveMatrix,
-            SvgFeDiffuseLighting, SvgFeDisplacementMap, SvgFeDistantLight, SvgFeDropShadow,
-            SvgFeFlood, SvgFeFuncR, SvgFeFuncG, SvgFeFuncB, SvgFeFuncA, SvgFeGaussianBlur,
-            SvgFeImage, SvgFeMerge, SvgFeMergeNode, SvgFeMorphology, SvgFeOffset, SvgFePointLight,
-            SvgFeSpecularLighting, SvgFeSpotLight, SvgFeTile, SvgFeTurbulence, SvgMarker, SvgImage,
-            SvgForeignObject, SvgTitle, SvgDesc, SvgMetadata, SvgA, SvgView, SvgStyle, SvgScript,
-            SvgAnimate, SvgAnimateMotion, SvgAnimateTransform, SvgSet, SvgMpath, Title, Meta, Link,
-            Script, Style, Base, Text, Img, VirtualView, TransientWindow, Icon, GeolocationProbe, Before, After,
-            Marker, Placeholder,
+            Html,
+            Head,
+            Body,
+            Div,
+            P,
+            Article,
+            Section,
+            Nav,
+            Aside,
+            Header,
+            Footer,
+            Main,
+            Figure,
+            FigCaption,
+            H1,
+            H2,
+            H3,
+            H4,
+            H5,
+            H6,
+            Br,
+            Hr,
+            Pre,
+            BlockQuote,
+            Address,
+            Details,
+            Summary,
+            Dialog,
+            Ul,
+            Ol,
+            Li,
+            Dl,
+            Dt,
+            Dd,
+            Menu,
+            MenuItem,
+            Dir,
+            Table,
+            Caption,
+            THead,
+            TBody,
+            TFoot,
+            Tr,
+            Th,
+            Td,
+            ColGroup,
+            Col,
+            Form,
+            FieldSet,
+            Legend,
+            Label,
+            Input,
+            Button,
+            Select,
+            OptGroup,
+            SelectOption,
+            TextArea,
+            Output,
+            Progress,
+            Meter,
+            DataList,
+            Span,
+            A,
+            Em,
+            Strong,
+            B,
+            I,
+            U,
+            S,
+            Mark,
+            Del,
+            Ins,
+            Code,
+            Samp,
+            Kbd,
+            Var,
+            Cite,
+            Dfn,
+            Abbr,
+            Acronym,
+            Q,
+            Time,
+            Sub,
+            Sup,
+            Small,
+            Big,
+            Bdo,
+            Bdi,
+            Wbr,
+            Ruby,
+            Rt,
+            Rtc,
+            Rp,
+            Data,
+            Canvas,
+            Object,
+            Param,
+            Embed,
+            Audio,
+            Video,
+            Source,
+            Track,
+            Map,
+            Area,
+            Svg,
+            SvgPath,
+            SvgCircle,
+            SvgRect,
+            SvgEllipse,
+            SvgLine,
+            SvgPolygon,
+            SvgPolyline,
+            SvgG,
+            SvgDefs,
+            SvgSymbol,
+            SvgUse,
+            SvgSwitch,
+            SvgText,
+            SvgTspan,
+            SvgTextPath,
+            SvgLinearGradient,
+            SvgRadialGradient,
+            SvgStop,
+            SvgPattern,
+            SvgClipPathElement,
+            SvgMask,
+            SvgFilter,
+            SvgFeBlend,
+            SvgFeColorMatrix,
+            SvgFeComponentTransfer,
+            SvgFeComposite,
+            SvgFeConvolveMatrix,
+            SvgFeDiffuseLighting,
+            SvgFeDisplacementMap,
+            SvgFeDistantLight,
+            SvgFeDropShadow,
+            SvgFeFlood,
+            SvgFeFuncR,
+            SvgFeFuncG,
+            SvgFeFuncB,
+            SvgFeFuncA,
+            SvgFeGaussianBlur,
+            SvgFeImage,
+            SvgFeMerge,
+            SvgFeMergeNode,
+            SvgFeMorphology,
+            SvgFeOffset,
+            SvgFePointLight,
+            SvgFeSpecularLighting,
+            SvgFeSpotLight,
+            SvgFeTile,
+            SvgFeTurbulence,
+            SvgMarker,
+            SvgImage,
+            SvgForeignObject,
+            SvgTitle,
+            SvgDesc,
+            SvgMetadata,
+            SvgA,
+            SvgView,
+            SvgStyle,
+            SvgScript,
+            SvgAnimate,
+            SvgAnimateMotion,
+            SvgAnimateTransform,
+            SvgSet,
+            SvgMpath,
+            Title,
+            Meta,
+            Link,
+            Script,
+            Style,
+            Base,
+            Text,
+            Img,
+            VirtualView,
+            TransientWindow,
+            Icon,
+            GeolocationProbe,
+            Before,
+            After,
+            Marker,
+            Placeholder,
         ]
     };
 
@@ -3008,10 +3261,16 @@ mod autotest_generated {
     fn node_type_tag_from_str_accepts_documented_aliases() {
         // Two spellings, one variant — and the canonical spelling is what comes back out.
         assert_eq!(NodeTypeTag::from_str("image"), Ok(NodeTypeTag::SvgImage));
-        assert_eq!(NodeTypeTag::from_str("svg:image"), Ok(NodeTypeTag::SvgImage));
+        assert_eq!(
+            NodeTypeTag::from_str("svg:image"),
+            Ok(NodeTypeTag::SvgImage)
+        );
         assert_eq!(NodeTypeTag::SvgImage.to_string(), "svg:image");
 
-        assert_eq!(NodeTypeTag::from_str("iframe"), Ok(NodeTypeTag::VirtualView));
+        assert_eq!(
+            NodeTypeTag::from_str("iframe"),
+            Ok(NodeTypeTag::VirtualView)
+        );
         assert_eq!(
             NodeTypeTag::from_str("virtual-view"),
             Ok(NodeTypeTag::VirtualView)
@@ -3038,26 +3297,26 @@ mod autotest_generated {
         let long = "a".repeat(1_000_000);
         let nested = "<".repeat(10_000);
         let hostile = [
-            "",                       // empty
-            " ",                      // whitespace only
-            "   \t\n\r  ",            // whitespace only, mixed
-            " div",                   // leading junk — no trimming
-            "div ",                   // trailing junk
-            "  div  ",                // both
-            "div;garbage",            // trailing garbage
-            "DIV",                    // wrong case — CSS tag matching here is case-sensitive
+            "",            // empty
+            " ",           // whitespace only
+            "   \t\n\r  ", // whitespace only, mixed
+            " div",        // leading junk — no trimming
+            "div ",        // trailing junk
+            "  div  ",     // both
+            "div;garbage", // trailing garbage
+            "DIV",         // wrong case — CSS tag matching here is case-sensitive
             "Div",
             "0",
             "-0",
-            "9223372036854775807",    // i64::MAX
+            "9223372036854775807", // i64::MAX
             "1e400",
             "NaN",
             "inf",
             "-inf",
-            "\u{1F600}",              // emoji
-            "e\u{0301}",              // combining mark
-            "\u{0}",                  // NUL
-            "\u{FEFF}div",            // BOM prefix
+            "\u{1F600}",   // emoji
+            "e\u{0301}",   // combining mark
+            "\u{0}",       // NUL
+            "\u{FEFF}div", // BOM prefix
             "div\u{0}",
             "*",
             "::",
@@ -3081,7 +3340,10 @@ mod autotest_generated {
         let e = NodeTypeTagParseError::Invalid("wat");
         assert_eq!(format!("{e}"), "Invalid node type: wat");
         // Empty / unicode payloads must still format cleanly.
-        assert_eq!(format!("{}", NodeTypeTagParseError::Invalid("")), "Invalid node type: ");
+        assert_eq!(
+            format!("{}", NodeTypeTagParseError::Invalid("")),
+            "Invalid node type: "
+        );
         assert!(format!("{}", NodeTypeTagParseError::Invalid("😀")).contains('😀'));
     }
 
@@ -3091,7 +3353,10 @@ mod autotest_generated {
         for s in ["", "   ", "div", "😀", "e\u{0301}", "\u{0}", long.as_str()] {
             let shared = NodeTypeTagParseError::Invalid(s);
             let owned = shared.to_contained();
-            assert_eq!(owned, NodeTypeTagParseErrorOwned::Invalid(s.to_string().into()));
+            assert_eq!(
+                owned,
+                NodeTypeTagParseErrorOwned::Invalid(s.to_string().into())
+            );
             assert_eq!(
                 owned.to_shared(),
                 shared,
@@ -3129,7 +3394,11 @@ mod autotest_generated {
             CssPathSelector::PseudoSelector(CssPathPseudoSelector::Hover),
         ]);
         assert_eq!(format!("{p}"), "div#id.cls:hover");
-        assert_eq!(format!("{p:?}"), format!("{p}"), "Debug delegates to Display");
+        assert_eq!(
+            format!("{p:?}"),
+            format!("{p}"),
+            "Debug delegates to Display"
+        );
         // An empty path renders as the empty string — deterministic, no panic.
         assert_eq!(format!("{}", CssPath::default()), "");
     }
@@ -3179,8 +3448,8 @@ mod autotest_generated {
             (0_usize, 0_usize),
             (0, usize::MAX),
             (usize::MAX, usize::MAX),
-            (usize::MAX, 0),  // inverted: end < start
-            (9, 5),           // inverted
+            (usize::MAX, 0), // inverted: end < start
+            (9, 5),          // inverted
         ] {
             let mut p = CssPath::new(vec![CssPathSelector::Class("c".to_string().into())]);
             p.push_front_scope(start, end);
@@ -3230,7 +3499,11 @@ mod autotest_generated {
             p.selectors.as_ref()[0],
             CssPathSelector::Root(CssScopeRange { start: 3, end: 4 })
         );
-        assert_eq!(&p.selectors.as_ref()[1..], &sels[..], "the tail must be untouched");
+        assert_eq!(
+            &p.selectors.as_ref()[1..],
+            &sels[..],
+            "the tail must be untouched"
+        );
     }
 
     #[test]
@@ -3278,15 +3551,15 @@ mod autotest_generated {
                 CssPathSelector::Root(CssScopeRange { start: 2, end: 6 }),
                 ":root(2..=6)".to_string(),
             ),
-            (
-                CssPathSelector::Type(NodeTypeTag::Div),
-                "div".to_string(),
-            ),
+            (CssPathSelector::Type(NodeTypeTag::Div), "div".to_string()),
             (
                 CssPathSelector::Class("c".to_string().into()),
                 ".c".to_string(),
             ),
-            (CssPathSelector::Id("i".to_string().into()), "#i".to_string()),
+            (
+                CssPathSelector::Id("i".to_string().into()),
+                "#i".to_string(),
+            ),
             (
                 CssPathSelector::PseudoSelector(CssPathPseudoSelector::Focus),
                 ":focus".to_string(),
@@ -3322,7 +3595,10 @@ mod autotest_generated {
             format!("{}", CssPathSelector::Class(String::new().into())),
             "."
         );
-        assert_eq!(format!("{}", CssPathSelector::Id(String::new().into())), "#");
+        assert_eq!(
+            format!("{}", CssPathSelector::Id(String::new().into())),
+            "#"
+        );
         assert_eq!(
             format!("{}", CssPathSelector::Class("😀".to_string().into())),
             ".😀"
@@ -3394,7 +3670,7 @@ mod autotest_generated {
             ("", ""),
             ("😀", "😀"),
             ("a\u{0301}", "e\u{0301}"),
-            ("a", "has \" quote"),   // NOTE: not escaped — see report
+            ("a", "has \" quote"), // NOTE: not escaped — see report
             ("a", "]"),
             ("a", "\u{0}"),
             ("a", "\n"),
@@ -3443,10 +3719,7 @@ mod autotest_generated {
             pattern_repeat: u32::MAX,
             offset: u32::MAX,
         });
-        assert_eq!(
-            format!("{maxed}"),
-            format!("{}n + {}", u32::MAX, u32::MAX)
-        );
+        assert_eq!(format!("{maxed}"), format!("{}n + {}", u32::MAX, u32::MAX));
     }
 
     #[test]
@@ -3525,7 +3798,9 @@ mod autotest_generated {
 
     #[test]
     fn get_specificity_orders_ids_above_classes_above_types() {
-        let id = get_specificity(&CssPath::new(vec![CssPathSelector::Id("x".to_string().into())]));
+        let id = get_specificity(&CssPath::new(vec![CssPathSelector::Id(
+            "x".to_string().into(),
+        )]));
         let class = get_specificity(&CssPath::new(vec![CssPathSelector::Class(
             "x".to_string().into(),
         )]));
@@ -3638,12 +3913,16 @@ mod autotest_generated {
     #[test]
     fn from_string_handles_leading_and_trailing_junk_deterministically() {
         // Surrounding whitespace must be irrelevant.
-        assert_eq!(parse("  div { width: 1px; }  "), parse("div { width: 1px; }"));
+        assert_eq!(
+            parse("  div { width: 1px; }  "),
+            parse("div { width: 1px; }")
+        );
         // Trailing garbage must not eat the valid rule that precedes it.
         let with_junk = parse("div { width: 1px; } @@@ garbage");
         assert!(
-            with_junk.rules().any(|r| r.path.selectors.as_ref()
-                == &[CssPathSelector::Type(NodeTypeTag::Div)][..]),
+            with_junk.rules().any(
+                |r| r.path.selectors.as_ref() == &[CssPathSelector::Type(NodeTypeTag::Div)][..]
+            ),
             "the leading valid rule must survive trailing junk"
         );
     }
@@ -3655,16 +3934,16 @@ mod autotest_generated {
             "div { width: 0px; }",
             "div { width: -0px; }",
             "div { width: -1px; }",
-            "div { width: 9223372036854775807px; }",   // i64::MAX
+            "div { width: 9223372036854775807px; }", // i64::MAX
             "div { width: 340282350000000000000000000000000000000px; }", // ~f32::MAX
-            "div { width: 1e400px; }",                 // f64 overflow → inf
-            "div { width: 1e-400px; }",                // f64 underflow → 0
+            "div { width: 1e400px; }",               // f64 overflow → inf
+            "div { width: 1e-400px; }",              // f64 underflow → 0
             "div { width: NaN; }",
             "div { width: inf; }",
             "div { width: -inf; }",
             "div { width: 99999999999999999999999999px; }",
             "div { opacity: 1e309; }",
-            "div { z-index: -9223372036854775808; }",  // i64::MIN
+            "div { z-index: -9223372036854775808; }", // i64::MIN
             "div { width: .....; }",
             "div { width: --5px; }",
         ];
@@ -3687,7 +3966,7 @@ mod autotest_generated {
             "div { font-family: \"日本語\"; }",
             "div\u{0301} { width: 1px; }",
             "div { width: 1px; } /* 🎉 */",
-            "\u{202E}div { width: 1px; }",  // right-to-left override
+            "\u{202E}div { width: 1px; }", // right-to-left override
         ];
         for input in inputs {
             let css = parse(input);
@@ -3734,7 +4013,10 @@ mod autotest_generated {
         let rule_count = handle
             .join()
             .expect("10_000 nested blocks must not panic or overflow the stack");
-        assert!(rule_count <= depth + 1, "rule count must stay bounded by the nesting depth");
+        assert!(
+            rule_count <= depth + 1,
+            "rule count must stay bounded by the nesting depth"
+        );
     }
 
     #[cfg(feature = "parser")]
@@ -3760,8 +4042,9 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn from_string_with_warnings_reports_an_unknown_property() {
-        let (css, warnings) =
-            Css::from_string_with_warnings("div { definitely-not-a-property: 1px; }".to_string().into());
+        let (css, warnings) = Css::from_string_with_warnings(
+            "div { definitely-not-a-property: 1px; }".to_string().into(),
+        );
         assert!(
             !warnings.is_empty(),
             "an unknown property must surface as a warning rather than being dropped silently"
@@ -3841,7 +4124,7 @@ mod autotest_generated {
             "\u{0}\u{1}",
             "/* unterminated",
             "@@@",
-            "width: 1px",  // no trailing semicolon
+            "width: 1px", // no trailing semicolon
         ] {
             assert_eq!(
                 Css::parse_inline(input),

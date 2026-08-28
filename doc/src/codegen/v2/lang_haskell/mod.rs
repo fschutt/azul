@@ -649,8 +649,5 @@ fn upper_first(s: &str) -> String {
 /// Sanitize a doc-comment line so a stray `-}` doesn't terminate the
 /// surrounding Haskell block comment if it ever ends up inside one.
 pub fn sanitize_doc(s: &str) -> String {
-    s.replace('\n', " ")
-        .replace("-}", "- }")
-        .trim()
-        .to_string()
+    s.replace('\n', " ").replace("-}", "- }").trim().to_string()
 }

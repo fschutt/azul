@@ -11,10 +11,7 @@
 //! law any delta implementation must keep: post-delta property state
 //! equals a from-scratch cascade under the new context.
 
-use azul_core::{
-    dom::Dom,
-    styled_dom::StyledDom,
-};
+use azul_core::{dom::Dom, styled_dom::StyledDom};
 use azul_css::dynamic_selector::DynamicSelectorContext;
 
 /// ~2k-node document: 320 paragraphs in 16 sections, with a stylesheet
@@ -23,17 +20,16 @@ use azul_css::dynamic_selector::DynamicSelectorContext;
 fn document_scale_dom() -> (Dom, &'static str) {
     let mut body = Dom::create_body();
     for s in 0..16 {
-        let mut section = Dom::create_div().with_ids_and_classes(
-            vec![azul_core::dom::IdOrClass::Class("section".into())].into(),
-        );
+        let mut section = Dom::create_div()
+            .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("section".into())].into());
         for p in 0..20 {
             let para = Dom::create_div()
-                .with_ids_and_classes(
-                    vec![azul_core::dom::IdOrClass::Class("para".into())].into(),
-                )
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(azul_css::AzString::from(
-                    format!("Section {s} paragraph {p} with some running text"),
-                )));
+                .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("para".into())].into())
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    azul_css::AzString::from(format!(
+                        "Section {s} paragraph {p} with some running text"
+                    )),
+                ));
             section = section.with_child(para);
         }
         body = body.with_child(section);

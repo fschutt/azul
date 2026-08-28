@@ -170,10 +170,7 @@ fn classify(f: &ExtractedFn) -> Category {
     }
 
     // // getter (immutable accessor on &self with a return)
-    if matches!(f.self_kind, Some(SelfKind::Ref))
-        && f.args.is_empty()
-        && f.return_type.is_some()
-    {
+    if matches!(f.self_kind, Some(SelfKind::Ref)) && f.args.is_empty() && f.return_type.is_some() {
         return Category::Getter;
     }
 
@@ -295,10 +292,7 @@ fn strategies_for(f: &ExtractedFn, category: Category) -> Vec<Strategy> {
             ));
         }
         Category::Numeric => {
-            out.push(Strategy::new(
-                "zero",
-                "behaves correctly at 0",
-            ));
+            out.push(Strategy::new("zero", "behaves correctly at 0"));
             out.push(Strategy::new(
                 "min_max",
                 "no unexpected panic at MIN / MAX of the integer types involved",
@@ -390,9 +384,7 @@ fn apply_round_trip(funcs: &mut [CategorizedFn]) {
 fn is_str_arg(ty: &str) -> bool {
     let t = ty.replace(' ', "");
     t == "&str"
-        || t.starts_with("&'")
-            && t.contains("str")
-            && !t.contains("[")
+        || t.starts_with("&'") && t.contains("str") && !t.contains("[")
         || t == "&String"
         || t == "String"
         || t.ends_with("str")
@@ -416,9 +408,21 @@ fn is_numeric_signature(f: &ExtractedFn) -> bool {
         "u128", "usize",
     ];
     const GEOM: &[&str] = &[
-        "Point", "Rect", "Size", "Vec2", "Vector", "PixelValue", "FloatValue", "PercentageValue",
-        "LayoutPoint", "LayoutRect", "LayoutSize", "LogicalPosition", "LogicalSize",
-        "PhysicalPosition", "PhysicalSize",
+        "Point",
+        "Rect",
+        "Size",
+        "Vec2",
+        "Vector",
+        "PixelValue",
+        "FloatValue",
+        "PercentageValue",
+        "LayoutPoint",
+        "LayoutRect",
+        "LayoutSize",
+        "LogicalPosition",
+        "LogicalSize",
+        "PhysicalPosition",
+        "PhysicalSize",
     ];
 
     let mut numeric_args = 0;

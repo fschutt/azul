@@ -22,24 +22,42 @@ use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithCondi
 use azul_css::{
     props::{
         basic::{color::ColorU, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutJustifyContent, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutWidth, LayoutHeight, LayoutOverflow},
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutHeight, LayoutJustifyContent, LayoutOverflow, LayoutWidth,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleTextColor},
+        style::{
+            StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderBottomLeftRadius,
+            StyleBorderBottomRightRadius, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+            StyleTextAlign, StyleTextColor,
+        },
     },
     AzString,
 };
 
 static AVATAR_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-avatar"))];
-static AVATAR_IMAGE_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-avatar-image"))];
+static AVATAR_IMAGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-avatar-image",
+))];
 static AVATAR_INITIALS_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-avatar-initials",
 ))];
 
 /// Neutral background (#6c757d, grey) shown behind the initials.
-const AVATAR_BG_COLOR: ColorU = ColorU { r: 108, g: 117, b: 125, a: 255 };
+const AVATAR_BG_COLOR: ColorU = ColorU {
+    r: 108,
+    g: 117,
+    b: 125,
+    a: 255,
+};
 /// Initials text colour (white).
-const AVATAR_TEXT_COLOR: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
+const AVATAR_TEXT_COLOR: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
 
 const AVATAR_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(AVATAR_BG_COLOR)];
@@ -179,7 +197,8 @@ fn build_image_style(size: AvatarSize) -> CssPropertyWithConditionsVec {
 impl Avatar {
     /// Creates a medium initials avatar with the given text.
     #[inline]
-    #[must_use] pub fn create(initials: AzString) -> Self {
+    #[must_use]
+    pub fn create(initials: AzString) -> Self {
         Self {
             image: None.into(),
             initials,
@@ -190,7 +209,8 @@ impl Avatar {
 
     /// Creates a medium image avatar (with empty fallback initials).
     #[inline]
-    #[must_use] pub fn create_with_image(image: ImageRef) -> Self {
+    #[must_use]
+    pub fn create_with_image(image: ImageRef) -> Self {
         Self {
             image: Some(image).into(),
             initials: AzString::from_const_str(""),
@@ -207,7 +227,8 @@ impl Avatar {
 
     /// Builder-style setter for the avatar image.
     #[inline]
-    #[must_use] pub fn with_image(mut self, image: ImageRef) -> Self {
+    #[must_use]
+    pub fn with_image(mut self, image: ImageRef) -> Self {
         self.set_image(image);
         self
     }
@@ -221,14 +242,16 @@ impl Avatar {
 
     /// Builder-style setter for the size variant.
     #[inline]
-    #[must_use] pub fn with_size(mut self, size: AvatarSize) -> Self {
+    #[must_use]
+    pub fn with_size(mut self, size: AvatarSize) -> Self {
         self.set_size(size);
         self
     }
 
     /// Replaces `self` with a default (empty medium) avatar and returns the original.
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
@@ -236,7 +259,8 @@ impl Avatar {
 
     /// Converts this avatar into a DOM subtree with the `__azul-native-avatar` class.
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         let size = self.size;
         let child = match self.image.into_option() {
             Some(image) => Dom::create_image(image)
@@ -470,8 +494,14 @@ mod autotest_generated {
         // "larger" avatar could render smaller than a "smaller" one.
         let d: Vec<isize> = ALL_SIZES.iter().map(AvatarSize::diameter).collect();
         let f: Vec<isize> = ALL_SIZES.iter().map(AvatarSize::font_size).collect();
-        assert!(d[0] < d[1] && d[1] < d[2], "diameters not increasing: {d:?}");
-        assert!(f[0] < f[1] && f[1] < f[2], "font sizes not increasing: {f:?}");
+        assert!(
+            d[0] < d[1] && d[1] < d[2],
+            "diameters not increasing: {d:?}"
+        );
+        assert!(
+            f[0] < f[1] && f[1] < f[2],
+            "font sizes not increasing: {f:?}"
+        );
     }
 
     #[test]
@@ -539,16 +569,24 @@ mod autotest_generated {
             let has = |p: &CssProperty| props.contains(p);
 
             assert!(has(&CssProperty::const_display(LayoutDisplay::Flex)));
-            assert!(has(&CssProperty::const_flex_direction(LayoutFlexDirection::Row)));
-            assert!(has(&CssProperty::const_justify_content(LayoutJustifyContent::Center)));
-            assert!(has(&CssProperty::const_align_items(LayoutAlignItems::Center)));
+            assert!(has(&CssProperty::const_flex_direction(
+                LayoutFlexDirection::Row
+            )));
+            assert!(has(&CssProperty::const_justify_content(
+                LayoutJustifyContent::Center
+            )));
+            assert!(has(&CssProperty::const_align_items(
+                LayoutAlignItems::Center
+            )));
             assert!(has(&CssProperty::align_self(LayoutAlignSelf::Start)));
             assert!(has(&CssProperty::const_text_align(StyleTextAlign::Center)));
             // Both axes must clip, or an image/long initials escape the circle.
             assert!(has(&CssProperty::const_overflow_x(LayoutOverflow::Hidden)));
             assert!(has(&CssProperty::const_overflow_y(LayoutOverflow::Hidden)));
             // flex-grow: 0 — the avatar hugs its fixed diameter in a flex parent.
-            assert!(has(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))));
+            assert!(has(&CssProperty::const_flex_grow(
+                LayoutFlexGrow::const_new(0)
+            )));
         }
     }
 
@@ -560,7 +598,15 @@ mod autotest_generated {
             CssProperty::TextColor(c) => c.get_property().map(|c| c.inner),
             _ => None,
         });
-        assert_eq!(text, Some(ColorU { r: 255, g: 255, b: 255, a: 255 }));
+        assert_eq!(
+            text,
+            Some(ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255
+            })
+        );
 
         let bg = props.iter().find_map(|p| match p {
             CssProperty::BackgroundContent(b) => b.get_property(),
@@ -570,7 +616,12 @@ mod autotest_generated {
         assert_eq!(bg.as_ref().len(), 1, "exactly one background layer");
         assert_eq!(
             bg.as_ref()[0],
-            StyleBackgroundContent::Color(ColorU { r: 108, g: 117, b: 125, a: 255 })
+            StyleBackgroundContent::Color(ColorU {
+                r: 108,
+                g: 117,
+                b: 125,
+                a: 255
+            })
         );
         // Both colours must be fully opaque, or the initials wash out.
         assert_eq!(text.expect("text colour").a, 255);
@@ -636,10 +687,26 @@ mod autotest_generated {
 
             // The image must be exactly as big and as round as its container,
             // otherwise it either leaves a gap or is clipped square at a corner.
-            assert_eq!(width_px(&image), width_px(&container), "{size:?}: image width");
-            assert_eq!(height_px(&image), height_px(&container), "{size:?}: image height");
-            assert_eq!(radii_px(&image), radii_px(&container), "{size:?}: image radii");
-            assert_eq!(radii_px(&image).len(), 4, "{size:?}: all four corners rounded");
+            assert_eq!(
+                width_px(&image),
+                width_px(&container),
+                "{size:?}: image width"
+            );
+            assert_eq!(
+                height_px(&image),
+                height_px(&container),
+                "{size:?}: image height"
+            );
+            assert_eq!(
+                radii_px(&image),
+                radii_px(&container),
+                "{size:?}: image radii"
+            );
+            assert_eq!(
+                radii_px(&image).len(),
+                4,
+                "{size:?}: all four corners rounded"
+            );
             // The image must not grow past the circle in a flex row.
             assert!(properties(&image)
                 .contains(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))));
@@ -657,7 +724,10 @@ mod autotest_generated {
                     "{size:?}: duplicate declaration of {:?}",
                     p.property
                 );
-                assert!(p.apply_if.as_ref().is_empty(), "{size:?}: conditional image property");
+                assert!(
+                    p.apply_if.as_ref().is_empty(),
+                    "{size:?}: conditional image property"
+                );
             }
             assert_eq!(
                 properties(&build_image_style(size)),
@@ -698,21 +768,32 @@ mod autotest_generated {
         let cases = [
             "",
             "AB",
-            "e\u{0301}",                  // e + combining acute
+            "e\u{0301}",                                   // e + combining acute
             "\u{1F469}\u{200D}\u{1F469}\u{200D}\u{1F467}", // ZWJ family
-            "\u{5E9}\u{5DC}",             // RTL Hebrew
-            "\0\0",                       // embedded NULs
-            "  ",                         // whitespace only
+            "\u{5E9}\u{5DC}",                              // RTL Hebrew
+            "\0\0",                                        // embedded NULs
+            "  ",                                          // whitespace only
             long.as_str(),
         ];
 
         for s in cases {
             let a = Avatar::create(AzString::from(s.to_string()));
-            assert_eq!(a.initials.as_str(), s, "initials were not preserved verbatim");
-            assert_eq!(a.initials.len(), s.len(), "byte length changed (NUL truncation?)");
+            assert_eq!(
+                a.initials.as_str(),
+                s,
+                "initials were not preserved verbatim"
+            );
+            assert_eq!(
+                a.initials.len(),
+                s.len(),
+                "byte length changed (NUL truncation?)"
+            );
             assert!(a.image.is_none(), "create() must not set an image");
             assert_eq!(a.size, AvatarSize::Medium);
-            assert_eq!(properties(&a.avatar_style), properties(&build_avatar_style(AvatarSize::Medium)));
+            assert_eq!(
+                properties(&a.avatar_style),
+                properties(&build_avatar_style(AvatarSize::Medium))
+            );
         }
     }
 
@@ -724,10 +805,16 @@ mod autotest_generated {
 
         assert!(a.image.is_some());
         match &a.image {
-            OptionImageRef::Some(i) => assert_eq!(i.get_hash(), hash, "a different image came back"),
+            OptionImageRef::Some(i) => {
+                assert_eq!(i.get_hash(), hash, "a different image came back")
+            }
             OptionImageRef::None => panic!("image was dropped by create_with_image"),
         }
-        assert_eq!(a.initials.as_str(), "", "image avatars have empty fallback initials");
+        assert_eq!(
+            a.initials.as_str(),
+            "",
+            "image avatars have empty fallback initials"
+        );
         assert_eq!(a.size, AvatarSize::Medium);
     }
 
@@ -760,7 +847,11 @@ mod autotest_generated {
         // Setting an image must not disturb the size, the style, or the fallback text.
         for a in [&mutated, &built] {
             assert_eq!(a.size, AvatarSize::Large);
-            assert_eq!(a.initials.as_str(), "AB", "set_image must keep the fallback initials");
+            assert_eq!(
+                a.initials.as_str(),
+                "AB",
+                "set_image must keep the fallback initials"
+            );
             assert_eq!(properties(&a.avatar_style), properties(&base.avatar_style));
         }
     }
@@ -770,7 +861,10 @@ mod autotest_generated {
         let first = test_image();
         let second = test_image();
         let (h1, h2) = (first.get_hash(), second.get_hash());
-        assert_ne!(h1, h2, "fixture bug: the two images must be distinguishable");
+        assert_ne!(
+            h1, h2,
+            "fixture bug: the two images must be distinguishable"
+        );
 
         let mut a = Avatar::create_with_image(first);
         a.set_image(second);
@@ -802,7 +896,11 @@ mod autotest_generated {
                 properties(&build_avatar_style(size)),
                 "round {round}: style does not match the freshly built one"
             );
-            assert_eq!(a.initials.as_str(), "AB", "round {round}: set_size ate the initials");
+            assert_eq!(
+                a.initials.as_str(),
+                "AB",
+                "round {round}: set_size ate the initials"
+            );
         }
     }
 
@@ -850,15 +948,24 @@ mod autotest_generated {
         assert_eq!(taken.initials.as_str(), "AB");
         assert_eq!(taken.size, AvatarSize::Large);
         assert!(taken.image.is_some());
-        assert_eq!(properties(&taken.avatar_style), properties(&build_avatar_style(AvatarSize::Large)));
+        assert_eq!(
+            properties(&taken.avatar_style),
+            properties(&build_avatar_style(AvatarSize::Large))
+        );
 
         // What is left behind is a *default* avatar — in particular its style
         // must be Medium's, not a stale Large one.
         assert_eq!(a, Avatar::default());
-        assert!(a.image.is_none(), "the image must not survive in the emptied avatar");
+        assert!(
+            a.image.is_none(),
+            "the image must not survive in the emptied avatar"
+        );
         assert_eq!(a.initials.as_str(), "");
         assert_eq!(a.size, AvatarSize::Medium);
-        assert_eq!(properties(&a.avatar_style), properties(&build_avatar_style(AvatarSize::Medium)));
+        assert_eq!(
+            properties(&a.avatar_style),
+            properties(&build_avatar_style(AvatarSize::Medium))
+        );
     }
 
     #[test]
@@ -882,7 +989,10 @@ mod autotest_generated {
             let expected = properties(&avatar.avatar_style);
             let dom = avatar.dom();
 
-            assert!(has_class(&dom, "__azul-native-avatar"), "{size:?}: missing root class");
+            assert!(
+                has_class(&dom, "__azul-native-avatar"),
+                "{size:?}: missing root class"
+            );
             assert_eq!(
                 inline_properties(&dom),
                 expected,
@@ -908,13 +1018,18 @@ mod autotest_generated {
             let dom = avatar.dom();
 
             let child = only_child(&dom);
-            assert!(has_class(child, "__azul-native-avatar-image"), "{size:?}: missing image class");
+            assert!(
+                has_class(child, "__azul-native-avatar-image"),
+                "{size:?}: missing image class"
+            );
             assert!(
                 !has_class(child, "__azul-native-avatar-initials"),
                 "{size:?}: initials rendered on top of the image"
             );
             match child.root.get_node_type() {
-                NodeType::Image(i) => assert_eq!(i.as_ref().get_hash(), hash, "{size:?}: wrong image"),
+                NodeType::Image(i) => {
+                    assert_eq!(i.as_ref().get_hash(), hash, "{size:?}: wrong image")
+                }
                 other => panic!("{size:?}: expected an image child, got {other:?}"),
             }
             assert_eq!(
@@ -935,7 +1050,11 @@ mod autotest_generated {
                 [only] => match only.root.get_node_type() {
                     NodeType::Text(t) => {
                         assert_eq!(t.as_ref().as_str(), s, "text node mangled the initials");
-                        assert_eq!(t.as_ref().len(), s.len(), "text node changed the byte length");
+                        assert_eq!(
+                            t.as_ref().len(),
+                            s.len(),
+                            "text node changed the byte length"
+                        );
                     }
                     other => panic!("expected a text child, got {other:?}"),
                 },
@@ -955,7 +1074,9 @@ mod autotest_generated {
         // Through the supported API (`set_size` / `with_size`) the container and
         // the image must always resolve to the same diameter.
         for size in ALL_SIZES {
-            let dom = Avatar::create_with_image(test_image()).with_size(size).dom();
+            let dom = Avatar::create_with_image(test_image())
+                .with_size(size)
+                .dom();
             #[allow(clippy::cast_precision_loss)]
             let d = size.diameter() as f32;
 
@@ -999,7 +1120,11 @@ mod autotest_generated {
             },
             _ => None,
         });
-        assert_eq!(container_width, Some(40.0), "container still uses the stored Medium style");
+        assert_eq!(
+            container_width,
+            Some(40.0),
+            "container still uses the stored Medium style"
+        );
         assert_eq!(
             inline_properties(only_child(&dom)),
             properties(&build_image_style(AvatarSize::Large)),

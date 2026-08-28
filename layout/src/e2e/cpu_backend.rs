@@ -146,7 +146,9 @@ impl CpuBackend {
             if is_grow {
                 resize_preserved_pixels = true;
                 if let Some(root_layer) = compositor.layers.get_mut(&compositor.root_layer) {
-                    let _ = root_layer.pixbuf.resize_grow_only(pixel_w, pixel_h, 255, 255, 255, 255);
+                    let _ = root_layer
+                        .pixbuf
+                        .resize_grow_only(pixel_w, pixel_h, 255, 255, 255, 255);
                     root_layer.bounds.size = LogicalSize {
                         width: pixel_w as f32,
                         height: pixel_h as f32,
@@ -310,7 +312,10 @@ impl CpuBackend {
                 } else {
                     (
                         *id,
-                        self.previous_scroll_offsets.get(id).copied().unwrap_or(*off),
+                        self.previous_scroll_offsets
+                            .get(id)
+                            .copied()
+                            .unwrap_or(*off),
                     )
                 }
             })

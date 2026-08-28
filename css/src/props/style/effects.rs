@@ -53,7 +53,6 @@ pub enum StyleVisibility {
     Collapse,
 }
 
-
 impl PrintAsCssValue for StyleVisibility {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
@@ -90,7 +89,6 @@ pub enum StyleMixBlendMode {
     Color,
     Luminosity,
 }
-
 
 impl fmt::Display for StyleMixBlendMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -166,7 +164,6 @@ pub enum StyleCursor {
     ZoomOut,
 }
 
-
 impl PrintAsCssValue for StyleCursor {
     fn print_as_css_value(&self) -> String {
         String::from(match self {
@@ -208,7 +205,8 @@ impl PrintAsCssValue for StyleCursor {
 
 #[cfg(feature = "parser")]
 pub mod parsers {
-    #[allow(clippy::wildcard_imports)] // parser submodule reuses the parent module's value types
+    #[allow(clippy::wildcard_imports)]
+    // parser submodule reuses the parent module's value types
     use super::*;
     use crate::corety::AzString;
     use crate::props::basic::error::{InvalidValueErr, InvalidValueErrOwned};
@@ -242,10 +240,14 @@ pub mod parsers {
     }
 
     impl OpacityParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> OpacityParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> OpacityParseErrorOwned {
             match self {
                 Self::ParsePercentage(err, s) => {
-                    OpacityParseErrorOwned::ParsePercentage(PercentageParseErrorWithInput { error: err.clone(), input: (*s).to_string().into() })
+                    OpacityParseErrorOwned::ParsePercentage(PercentageParseErrorWithInput {
+                        error: err.clone(),
+                        input: (*s).to_string().into(),
+                    })
                 }
                 Self::OutOfRange(s) => OpacityParseErrorOwned::OutOfRange((*s).to_string().into()),
             }
@@ -253,7 +255,8 @@ pub mod parsers {
     }
 
     impl OpacityParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> OpacityParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> OpacityParseError<'_> {
             match self {
                 Self::ParsePercentage(e) => {
                     OpacityParseError::ParsePercentage(e.error.clone(), e.input.as_str())
@@ -297,7 +300,8 @@ pub mod parsers {
     }
 
     impl StyleVisibilityParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> StyleVisibilityParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> StyleVisibilityParseErrorOwned {
             match self {
                 Self::InvalidValue(e) => {
                     StyleVisibilityParseErrorOwned::InvalidValue(e.to_contained())
@@ -307,7 +311,8 @@ pub mod parsers {
     }
 
     impl StyleVisibilityParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> StyleVisibilityParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> StyleVisibilityParseError<'_> {
             match self {
                 Self::InvalidValue(e) => StyleVisibilityParseError::InvalidValue(e.to_shared()),
             }
@@ -348,7 +353,8 @@ pub mod parsers {
     }
 
     impl MixBlendModeParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> MixBlendModeParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> MixBlendModeParseErrorOwned {
             match self {
                 Self::InvalidValue(e) => {
                     MixBlendModeParseErrorOwned::InvalidValue(e.to_contained())
@@ -358,7 +364,8 @@ pub mod parsers {
     }
 
     impl MixBlendModeParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> MixBlendModeParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> MixBlendModeParseError<'_> {
             match self {
                 Self::InvalidValue(e) => MixBlendModeParseError::InvalidValue(e.to_shared()),
             }
@@ -412,7 +419,8 @@ pub mod parsers {
     }
 
     impl CursorParseError<'_> {
-        #[must_use] pub fn to_contained(&self) -> CursorParseErrorOwned {
+        #[must_use]
+        pub fn to_contained(&self) -> CursorParseErrorOwned {
             match self {
                 Self::InvalidValue(e) => CursorParseErrorOwned::InvalidValue(e.to_contained()),
             }
@@ -420,7 +428,8 @@ pub mod parsers {
     }
 
     impl CursorParseErrorOwned {
-        #[must_use] pub fn to_shared(&self) -> CursorParseError<'_> {
+        #[must_use]
+        pub fn to_shared(&self) -> CursorParseError<'_> {
             match self {
                 Self::InvalidValue(e) => CursorParseError::InvalidValue(e.to_shared()),
             }
@@ -545,30 +554,65 @@ mod tests {
 
     #[test]
     fn test_parse_object_fit() {
-        assert_eq!(parse_style_object_fit("fill").unwrap(), StyleObjectFit::Fill);
-        assert_eq!(parse_style_object_fit("contain").unwrap(), StyleObjectFit::Contain);
-        assert_eq!(parse_style_object_fit("cover").unwrap(), StyleObjectFit::Cover);
-        assert_eq!(parse_style_object_fit("none").unwrap(), StyleObjectFit::None);
-        assert_eq!(parse_style_object_fit("scale-down").unwrap(), StyleObjectFit::ScaleDown);
-        assert_eq!(parse_style_object_fit("  cover  ").unwrap(), StyleObjectFit::Cover);
+        assert_eq!(
+            parse_style_object_fit("fill").unwrap(),
+            StyleObjectFit::Fill
+        );
+        assert_eq!(
+            parse_style_object_fit("contain").unwrap(),
+            StyleObjectFit::Contain
+        );
+        assert_eq!(
+            parse_style_object_fit("cover").unwrap(),
+            StyleObjectFit::Cover
+        );
+        assert_eq!(
+            parse_style_object_fit("none").unwrap(),
+            StyleObjectFit::None
+        );
+        assert_eq!(
+            parse_style_object_fit("scale-down").unwrap(),
+            StyleObjectFit::ScaleDown
+        );
+        assert_eq!(
+            parse_style_object_fit("  cover  ").unwrap(),
+            StyleObjectFit::Cover
+        );
         assert!(parse_style_object_fit("stretch").is_err());
         assert!(parse_style_object_fit("").is_err());
     }
 
     #[test]
     fn test_parse_text_orientation() {
-        assert_eq!(parse_style_text_orientation("mixed").unwrap(), StyleTextOrientation::Mixed);
-        assert_eq!(parse_style_text_orientation("upright").unwrap(), StyleTextOrientation::Upright);
-        assert_eq!(parse_style_text_orientation("sideways").unwrap(), StyleTextOrientation::Sideways);
-        assert_eq!(parse_style_text_orientation("  mixed  ").unwrap(), StyleTextOrientation::Mixed);
+        assert_eq!(
+            parse_style_text_orientation("mixed").unwrap(),
+            StyleTextOrientation::Mixed
+        );
+        assert_eq!(
+            parse_style_text_orientation("upright").unwrap(),
+            StyleTextOrientation::Upright
+        );
+        assert_eq!(
+            parse_style_text_orientation("sideways").unwrap(),
+            StyleTextOrientation::Sideways
+        );
+        assert_eq!(
+            parse_style_text_orientation("  mixed  ").unwrap(),
+            StyleTextOrientation::Mixed
+        );
         assert!(parse_style_text_orientation("vertical").is_err());
     }
 
     #[test]
     fn test_parse_object_position() {
-        use crate::props::style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical};
+        use crate::props::style::background::{
+            BackgroundPositionHorizontal, BackgroundPositionVertical,
+        };
         let centered = parse_style_object_position("center").unwrap();
-        assert_eq!(centered, parse_style_object_position("center center").unwrap());
+        assert_eq!(
+            centered,
+            parse_style_object_position("center center").unwrap()
+        );
 
         let lt = parse_style_object_position("left top").unwrap();
         assert_eq!(lt.horizontal, BackgroundPositionHorizontal::Left);
@@ -584,22 +628,37 @@ mod tests {
 
     #[test]
     fn test_parse_aspect_ratio() {
-        assert_eq!(parse_style_aspect_ratio("auto").unwrap(), StyleAspectRatio::Auto);
+        assert_eq!(
+            parse_style_aspect_ratio("auto").unwrap(),
+            StyleAspectRatio::Auto
+        );
         assert_eq!(
             parse_style_aspect_ratio("16 / 9").unwrap(),
-            StyleAspectRatio::Ratio(AspectRatioValue { width: 16000, height: 9000 })
+            StyleAspectRatio::Ratio(AspectRatioValue {
+                width: 16000,
+                height: 9000
+            })
         );
         assert_eq!(
             parse_style_aspect_ratio("16/9").unwrap(),
-            StyleAspectRatio::Ratio(AspectRatioValue { width: 16000, height: 9000 })
+            StyleAspectRatio::Ratio(AspectRatioValue {
+                width: 16000,
+                height: 9000
+            })
         );
         assert_eq!(
             parse_style_aspect_ratio("1.5").unwrap(),
-            StyleAspectRatio::Ratio(AspectRatioValue { width: 1500, height: 1000 })
+            StyleAspectRatio::Ratio(AspectRatioValue {
+                width: 1500,
+                height: 1000
+            })
         );
         assert_eq!(
             parse_style_aspect_ratio("  4 / 3  ").unwrap(),
-            StyleAspectRatio::Ratio(AspectRatioValue { width: 4000, height: 3000 })
+            StyleAspectRatio::Ratio(AspectRatioValue {
+                width: 4000,
+                height: 3000
+            })
         );
         assert!(parse_style_aspect_ratio("0 / 1").is_err());
         assert!(parse_style_aspect_ratio("1 / 0").is_err());
@@ -624,8 +683,11 @@ pub enum StyleObjectFit {
     ScaleDown,
 }
 
-
-crate::impl_option!(StyleObjectFit, OptionStyleObjectFit, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+crate::impl_option!(
+    StyleObjectFit,
+    OptionStyleObjectFit,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl PrintAsCssValue for StyleObjectFit {
     fn print_as_css_value(&self) -> String {
@@ -662,16 +724,20 @@ pub enum StyleObjectFitParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleObjectFitParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleObjectFitParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleObjectFitParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleObjectFitParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                StyleObjectFitParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleObjectFitParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleObjectFitParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleObjectFitParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleObjectFitParseError::InvalidValue(s.as_str()),
         }
@@ -682,9 +748,7 @@ impl StyleObjectFitParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `object-fit` value.
-pub fn parse_style_object_fit(
-    input: &str,
-) -> Result<StyleObjectFit, StyleObjectFitParseError<'_>> {
+pub fn parse_style_object_fit(input: &str) -> Result<StyleObjectFit, StyleObjectFitParseError<'_>> {
     let input = input.trim();
     match input {
         "fill" => Ok(StyleObjectFit::Fill),
@@ -710,8 +774,11 @@ pub enum StyleTextOrientation {
     Sideways,
 }
 
-
-crate::impl_option!(StyleTextOrientation, OptionStyleTextOrientation, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+crate::impl_option!(
+    StyleTextOrientation,
+    OptionStyleTextOrientation,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl PrintAsCssValue for StyleTextOrientation {
     fn print_as_css_value(&self) -> String {
@@ -746,16 +813,20 @@ pub enum StyleTextOrientationParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleTextOrientationParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleTextOrientationParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextOrientationParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleTextOrientationParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                StyleTextOrientationParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleTextOrientationParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleTextOrientationParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextOrientationParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleTextOrientationParseError::InvalidValue(s.as_str()),
         }
@@ -803,7 +874,11 @@ impl Default for StyleObjectPosition {
     }
 }
 
-crate::impl_option!(StyleObjectPosition, OptionStyleObjectPosition, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+crate::impl_option!(
+    StyleObjectPosition,
+    OptionStyleObjectPosition,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl PrintAsCssValue for StyleObjectPosition {
     fn print_as_css_value(&self) -> String {
@@ -838,16 +913,20 @@ pub enum StyleObjectPositionParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleObjectPositionParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleObjectPositionParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleObjectPositionParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleObjectPositionParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                StyleObjectPositionParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleObjectPositionParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleObjectPositionParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleObjectPositionParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleObjectPositionParseError::InvalidValue(s.as_str()),
         }
@@ -863,10 +942,10 @@ impl StyleObjectPositionParseErrorOwned {
 pub fn parse_style_object_position(
     input: &str,
 ) -> Result<StyleObjectPosition, StyleObjectPositionParseError<'_>> {
+    use crate::props::basic::pixel::parse_pixel_value;
     use crate::props::style::background::{
         BackgroundPositionHorizontal, BackgroundPositionVertical,
     };
-    use crate::props::basic::pixel::parse_pixel_value;
 
     let input = input.trim();
     let parts: Vec<&str> = input.split_whitespace().collect();
@@ -875,15 +954,33 @@ pub fn parse_style_object_position(
         1 => {
             let val = parts[0];
             match val {
-                "center" => (BackgroundPositionHorizontal::Center, BackgroundPositionVertical::Center),
-                "left" => (BackgroundPositionHorizontal::Left, BackgroundPositionVertical::Center),
-                "right" => (BackgroundPositionHorizontal::Right, BackgroundPositionVertical::Center),
-                "top" => (BackgroundPositionHorizontal::Center, BackgroundPositionVertical::Top),
-                "bottom" => (BackgroundPositionHorizontal::Center, BackgroundPositionVertical::Bottom),
+                "center" => (
+                    BackgroundPositionHorizontal::Center,
+                    BackgroundPositionVertical::Center,
+                ),
+                "left" => (
+                    BackgroundPositionHorizontal::Left,
+                    BackgroundPositionVertical::Center,
+                ),
+                "right" => (
+                    BackgroundPositionHorizontal::Right,
+                    BackgroundPositionVertical::Center,
+                ),
+                "top" => (
+                    BackgroundPositionHorizontal::Center,
+                    BackgroundPositionVertical::Top,
+                ),
+                "bottom" => (
+                    BackgroundPositionHorizontal::Center,
+                    BackgroundPositionVertical::Bottom,
+                ),
                 _ => {
                     let px = parse_pixel_value(val)
                         .map_err(|_| StyleObjectPositionParseError::InvalidValue(input))?;
-                    (BackgroundPositionHorizontal::Exact(px), BackgroundPositionVertical::Exact(px))
+                    (
+                        BackgroundPositionHorizontal::Exact(px),
+                        BackgroundPositionVertical::Exact(px),
+                    )
                 }
             }
         }
@@ -895,8 +992,8 @@ pub fn parse_style_object_position(
             let (a, b) = (parts[0], parts[1]);
             let both_keywords = matches!(a, "left" | "center" | "right" | "top" | "bottom")
                 && matches!(b, "left" | "center" | "right" | "top" | "bottom");
-            let reversed = both_keywords
-                && (matches!(a, "top" | "bottom") || matches!(b, "left" | "right"));
+            let reversed =
+                both_keywords && (matches!(a, "top" | "bottom") || matches!(b, "left" | "right"));
             let (h_str, v_str) = if reversed { (b, a) } else { (a, b) };
 
             let h = match h_str {
@@ -924,7 +1021,10 @@ pub fn parse_style_object_position(
         _ => return Err(StyleObjectPositionParseError::InvalidValue(input)),
     };
 
-    Ok(StyleObjectPosition { horizontal: h, vertical: v })
+    Ok(StyleObjectPosition {
+        horizontal: h,
+        vertical: v,
+    })
 }
 
 // -- StyleAspectRatio --
@@ -953,7 +1053,8 @@ impl AspectRatioValue {
         }
     }
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// CSS aspect-ratio property: preferred aspect ratio for the box.
 /// CSS Box Sizing Level 4 §6 — values: `auto | <ratio>` (initial: `auto`)
 ///
@@ -969,8 +1070,11 @@ pub enum StyleAspectRatio {
     Ratio(AspectRatioValue),
 }
 
-
-crate::impl_option!(StyleAspectRatio, OptionStyleAspectRatio, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+crate::impl_option!(
+    StyleAspectRatio,
+    OptionStyleAspectRatio,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl PrintAsCssValue for StyleAspectRatio {
     fn print_as_css_value(&self) -> String {
@@ -1008,16 +1112,20 @@ pub enum StyleAspectRatioParseErrorOwned {
 
 #[cfg(feature = "parser")]
 impl StyleAspectRatioParseError<'_> {
-    #[must_use] pub fn to_contained(&self) -> StyleAspectRatioParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleAspectRatioParseErrorOwned {
         match self {
-            Self::InvalidValue(s) => StyleAspectRatioParseErrorOwned::InvalidValue((*s).to_string().into()),
+            Self::InvalidValue(s) => {
+                StyleAspectRatioParseErrorOwned::InvalidValue((*s).to_string().into())
+            }
         }
     }
 }
 
 #[cfg(feature = "parser")]
 impl StyleAspectRatioParseErrorOwned {
-    #[must_use] pub fn to_shared(&self) -> StyleAspectRatioParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleAspectRatioParseError<'_> {
         match self {
             Self::InvalidValue(s) => StyleAspectRatioParseError::InvalidValue(s.as_str()),
         }
@@ -1073,12 +1181,18 @@ pub fn parse_style_aspect_ratio(
     if let Some(slash_pos) = input.find('/') {
         let w_str = input[..slash_pos].trim();
         let h_str = input[slash_pos + 1..].trim();
-        let w: f32 = w_str.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
-        let h: f32 = h_str.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
+        let w: f32 = w_str
+            .parse()
+            .map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
+        let h: f32 = h_str
+            .parse()
+            .map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
         return ratio_from_components(w, h, input);
     }
     // A single number is the "<w> / 1" ratio.
-    let w: f32 = input.parse().map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
+    let w: f32 = input
+        .parse()
+        .map_err(|_| StyleAspectRatioParseError::InvalidValue(input))?;
     ratio_from_components(w, 1.0, input)
 }
 
@@ -1091,14 +1205,10 @@ pub fn parse_style_aspect_ratio(
 )]
 mod autotest_generated {
     use super::*;
-    use crate::{
-        props::{
-            basic::{
-                error::ParseFloatError as CssParseFloatError, pixel::PixelValue,
-            },
-            formatter::PrintAsCssValue,
-            style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical},
-        },
+    use crate::props::{
+        basic::{error::ParseFloatError as CssParseFloatError, pixel::PixelValue},
+        formatter::PrintAsCssValue,
+        style::background::{BackgroundPositionHorizontal, BackgroundPositionVertical},
     };
 
     const ALL_VISIBILITY: [StyleVisibility; 3] = [
@@ -1179,7 +1289,7 @@ mod autotest_generated {
         "",
         " ",
         "\t\n\r",
-        "\u{a0}",           // NBSP — `str::trim` treats it as whitespace
+        "\u{a0}", // NBSP — `str::trim` treats it as whitespace
         ";",
         "{}",
         "/*",
@@ -1187,9 +1297,9 @@ mod autotest_generated {
         "-1",
         "NaN",
         "inf",
-        "\u{1F600}",        // emoji
-        "e\u{0301}",        // combining acute accent
-        "\u{0665}",         // ARABIC-INDIC DIGIT FIVE (multibyte, `is_numeric`)
+        "\u{1F600}", // emoji
+        "e\u{0301}", // combining acute accent
+        "\u{0665}",  // ARABIC-INDIC DIGIT FIVE (multibyte, `is_numeric`)
     ];
 
     // ------------------------------------------------ StyleMixBlendMode::fmt ---
@@ -1200,9 +1310,7 @@ mod autotest_generated {
             let shown = mode.to_string();
             assert!(!shown.is_empty(), "{mode:?} renders as an empty string");
             assert!(
-                shown
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c == '-'),
+                shown.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "{mode:?} renders as {shown:?}, which is not a CSS ident"
             );
             // `PrintAsCssValue` delegates to `Display`; pin them together so a
@@ -1224,7 +1332,10 @@ mod autotest_generated {
         // applied. Not a panic, but pin it: `{:>10}` does NOT pad.
         assert_eq!(format!("{:>10}", StyleMixBlendMode::Normal), "normal");
         assert_eq!(format!("{:.2}", StyleMixBlendMode::Multiply), "multiply");
-        assert_eq!(format!("{:*^30}", StyleMixBlendMode::ColorDodge), "color-dodge");
+        assert_eq!(
+            format!("{:*^30}", StyleMixBlendMode::ColorDodge),
+            "color-dodge"
+        );
     }
 
     // ----------------------------------------------------- parse_style_opacity ---
@@ -1242,8 +1353,20 @@ mod autotest_generated {
     #[test]
     fn opacity_rejects_garbage() {
         for input in [
-            "auto", "abc", "%", ";;;", "50%%", "#0.5", "0.5;garbage", "1 2", "rgb(0,0,0)",
-            "0,5", "--", "..", "-", ".",
+            "auto",
+            "abc",
+            "%",
+            ";;;",
+            "50%%",
+            "#0.5",
+            "0.5;garbage",
+            "1 2",
+            "rgb(0,0,0)",
+            "0,5",
+            "--",
+            "..",
+            "-",
+            ".",
         ] {
             assert!(
                 parse_style_opacity(input).is_err(),
@@ -1324,12 +1447,12 @@ mod autotest_generated {
         // See `known_bug_opacity_multibyte_numeric_char_panics` for the case
         // that does not hold.
         for input in [
-            "\u{1F600}",         // emoji only
-            "\u{1F600}0.5",      // emoji then ASCII digits
-            "0.5\u{0301}",       // digits then a combining acute accent
-            "\u{2603}%",         // snowman + percent sign
-            "\u{4F60}\u{597D}",  // CJK
-            "\u{202E}0.5",       // RTL override
+            "\u{1F600}",        // emoji only
+            "\u{1F600}0.5",     // emoji then ASCII digits
+            "0.5\u{0301}",      // digits then a combining acute accent
+            "\u{2603}%",        // snowman + percent sign
+            "\u{4F60}\u{597D}", // CJK
+            "\u{202E}0.5",      // RTL override
         ] {
             assert!(
                 parse_style_opacity(input).is_err(),
@@ -1399,9 +1522,18 @@ mod autotest_generated {
 
     #[test]
     fn visibility_parses_every_keyword_and_round_trips() {
-        assert_eq!(parse_style_visibility("visible").unwrap(), StyleVisibility::Visible);
-        assert_eq!(parse_style_visibility("hidden").unwrap(), StyleVisibility::Hidden);
-        assert_eq!(parse_style_visibility("collapse").unwrap(), StyleVisibility::Collapse);
+        assert_eq!(
+            parse_style_visibility("visible").unwrap(),
+            StyleVisibility::Visible
+        );
+        assert_eq!(
+            parse_style_visibility("hidden").unwrap(),
+            StyleVisibility::Hidden
+        );
+        assert_eq!(
+            parse_style_visibility("collapse").unwrap(),
+            StyleVisibility::Collapse
+        );
         assert_eq!(StyleVisibility::default(), StyleVisibility::Visible);
 
         for v in ALL_VISIBILITY {
@@ -1409,7 +1541,10 @@ mod autotest_generated {
             assert!(!printed.is_empty());
             assert_eq!(parse_style_visibility(&printed).unwrap(), v);
             // Surrounding whitespace is trimmed, not rejected.
-            assert_eq!(parse_style_visibility(&format!("  {printed}\t")).unwrap(), v);
+            assert_eq!(
+                parse_style_visibility(&format!("  {printed}\t")).unwrap(),
+                v
+            );
         }
     }
 
@@ -1421,7 +1556,14 @@ mod autotest_generated {
                 "{input:?} must not parse as a visibility"
             );
         }
-        for input in ["none", "show", "visible hidden", "visible;", "vis", "visibleX"] {
+        for input in [
+            "none",
+            "show",
+            "visible hidden",
+            "visible;",
+            "vis",
+            "visibleX",
+        ] {
             assert!(
                 parse_style_visibility(input).is_err(),
                 "{input:?} must not parse as a visibility"
@@ -1440,7 +1582,10 @@ mod autotest_generated {
                 mode,
                 "{printed:?} did not round-trip"
             );
-            assert_eq!(parse_style_mix_blend_mode(&format!(" {printed} ")).unwrap(), mode);
+            assert_eq!(
+                parse_style_mix_blend_mode(&format!(" {printed} ")).unwrap(),
+                mode
+            );
         }
         assert_eq!(StyleMixBlendMode::default(), StyleMixBlendMode::Normal);
     }
@@ -1455,8 +1600,14 @@ mod autotest_generated {
         }
         // Near-misses: separator swaps, plain-CSS-adjacent words, partial idents.
         for input in [
-            "mix", "color dodge", "color_dodge", "colordodge", "normal normal", "plus-lighter",
-            "multiply;", "screen!",
+            "mix",
+            "color dodge",
+            "color_dodge",
+            "colordodge",
+            "normal normal",
+            "plus-lighter",
+            "multiply;",
+            "screen!",
         ] {
             assert!(
                 parse_style_mix_blend_mode(input).is_err(),
@@ -1476,7 +1627,10 @@ mod autotest_generated {
                 cursor,
                 "{printed:?} did not round-trip"
             );
-            assert_eq!(parse_style_cursor(&format!("\n{printed}  ")).unwrap(), cursor);
+            assert_eq!(
+                parse_style_cursor(&format!("\n{printed}  ")).unwrap(),
+                cursor
+            );
         }
         assert_eq!(StyleCursor::default(), StyleCursor::Default);
     }
@@ -1485,11 +1639,18 @@ mod autotest_generated {
     fn cursor_keyword_printing_is_injective() {
         // Two variants mapping to the same CSS ident would silently collapse on
         // re-parse; the round-trip test above cannot catch that on its own.
-        let mut printed: Vec<String> = ALL_CURSORS.iter().map(PrintAsCssValue::print_as_css_value).collect();
+        let mut printed: Vec<String> = ALL_CURSORS
+            .iter()
+            .map(PrintAsCssValue::print_as_css_value)
+            .collect();
         printed.sort();
         let count = printed.len();
         printed.dedup();
-        assert_eq!(printed.len(), count, "two StyleCursor variants print the same ident");
+        assert_eq!(
+            printed.len(),
+            count,
+            "two StyleCursor variants print the same ident"
+        );
     }
 
     #[test]
@@ -1501,12 +1662,12 @@ mod autotest_generated {
             );
         }
         for input in [
-            "hand",           // legacy IE alias, deliberately unsupported
-            "col resize",     // space instead of hyphen
+            "hand",       // legacy IE alias, deliberately unsupported
+            "col resize", // space instead of hyphen
             "e_resize",
             "pointer pointer",
             "url(cursor.png)",
-            "auto",           // valid CSS, but not in the enum
+            "auto", // valid CSS, but not in the enum
         ] {
             assert!(
                 parse_style_cursor(input).is_err(),
@@ -1522,7 +1683,10 @@ mod autotest_generated {
         for fit in ALL_OBJECT_FIT {
             let printed = fit.print_as_css_value();
             assert_eq!(parse_style_object_fit(&printed).unwrap(), fit);
-            assert_eq!(parse_style_object_fit(&format!("  {printed} ")).unwrap(), fit);
+            assert_eq!(
+                parse_style_object_fit(&format!("  {printed} ")).unwrap(),
+                fit
+            );
         }
         assert_eq!(StyleObjectFit::default(), StyleObjectFit::Fill);
     }
@@ -1535,7 +1699,13 @@ mod autotest_generated {
                 "{input:?} must not parse as an object-fit"
             );
         }
-        for input in ["stretch", "scale_down", "scale down", "cover cover", "fill;"] {
+        for input in [
+            "stretch",
+            "scale_down",
+            "scale down",
+            "cover cover",
+            "fill;",
+        ] {
             assert!(
                 parse_style_object_fit(input).is_err(),
                 "{input:?} must not parse as an object-fit"
@@ -1602,7 +1772,10 @@ mod autotest_generated {
         // A valid keyword buried in 500k of padding is still just whitespace-
         // trimmed, so it parses; the padding must not be quadratic.
         let padded = format!("{}visible{}", " ".repeat(250_000), " ".repeat(250_000));
-        assert_eq!(parse_style_visibility(&padded).unwrap(), StyleVisibility::Visible);
+        assert_eq!(
+            parse_style_visibility(&padded).unwrap(),
+            StyleVisibility::Visible
+        );
     }
 
     #[test]
@@ -1638,8 +1811,14 @@ mod autotest_generated {
     #[test]
     fn object_position_parses_lengths_and_percentages() {
         let px = parse_style_object_position("10px 20px").unwrap();
-        assert_eq!(px.horizontal, BackgroundPositionHorizontal::Exact(PixelValue::px(10.0)));
-        assert_eq!(px.vertical, BackgroundPositionVertical::Exact(PixelValue::px(20.0)));
+        assert_eq!(
+            px.horizontal,
+            BackgroundPositionHorizontal::Exact(PixelValue::px(10.0))
+        );
+        assert_eq!(
+            px.vertical,
+            BackgroundPositionVertical::Exact(PixelValue::px(20.0))
+        );
 
         let pct = parse_style_object_position("50% 50%").unwrap();
         assert_eq!(
@@ -1702,9 +1881,9 @@ mod autotest_generated {
             "10px 20px 30px",
             "center center center center",
             "invalid",
-            "left left",     // second component must be a vertical keyword or a length
-            "top top",       // first component must be a horizontal keyword or a length
-            "left,top",      // comma is not a component separator
+            "left left", // second component must be a vertical keyword or a length
+            "top top",   // first component must be a horizontal keyword or a length
+            "left,top",  // comma is not a component separator
             ";",
             "\u{1F600}",
             "\u{1F600} \u{1F600}",
@@ -1722,7 +1901,12 @@ mod autotest_generated {
         // them in the fixed-point cast — characterized in pixel.rs. All that is
         // asserted here is that object-position does not panic on them.
         for input in [
-            "NaN NaN", "inf inf", "-inf", "1e39px", "-1e39px", "340282350000000000000000000000000000000px",
+            "NaN NaN",
+            "inf inf",
+            "-inf",
+            "1e39px",
+            "-1e39px",
+            "340282350000000000000000000000000000000px",
         ] {
             let _ = parse_style_object_position(input);
         }
@@ -1735,15 +1919,24 @@ mod autotest_generated {
         use BackgroundPositionHorizontal as H;
         use BackgroundPositionVertical as V;
 
-        let horizontals = [H::Left, H::Center, H::Right, H::Exact(PixelValue::percent(25.0))];
+        let horizontals = [
+            H::Left,
+            H::Center,
+            H::Right,
+            H::Exact(PixelValue::percent(25.0)),
+        ];
         let verticals = [V::Top, V::Center, V::Bottom, V::Exact(PixelValue::px(30.0))];
 
         for horizontal in horizontals {
             for vertical in verticals {
-                let position = StyleObjectPosition { horizontal, vertical };
+                let position = StyleObjectPosition {
+                    horizontal,
+                    vertical,
+                };
                 let printed = position.print_as_css_value();
-                let reparsed = parse_style_object_position(&printed)
-                    .unwrap_or_else(|e| panic!("{position:?} printed as {printed:?}, which failed to re-parse: {e}"));
+                let reparsed = parse_style_object_position(&printed).unwrap_or_else(|e| {
+                    panic!("{position:?} printed as {printed:?}, which failed to re-parse: {e}")
+                });
                 assert_eq!(reparsed, position, "{printed:?} did not round-trip");
             }
         }
@@ -1752,7 +1945,12 @@ mod autotest_generated {
         let default = StyleObjectPosition::default();
         assert_eq!(default.print_as_css_value(), "50% 50%");
         assert_eq!(parse_style_object_position("50% 50%").unwrap(), default);
-        assert_eq!(parse_style_object_position("center").unwrap().print_as_css_value(), "center center");
+        assert_eq!(
+            parse_style_object_position("center")
+                .unwrap()
+                .print_as_css_value(),
+            "center center"
+        );
     }
 
     // ------------------------------------------------------ aspect_f32_to_u32 ---
@@ -1795,20 +1993,29 @@ mod autotest_generated {
         const SATURATED: u32 = aspect_f32_to_u32(f32::INFINITY);
         const NEGATIVE: u32 = aspect_f32_to_u32(-5.0);
         const NOT_A_NUMBER: u32 = aspect_f32_to_u32(f32::NAN);
-        assert_eq!((TRUNCATED, SATURATED, NEGATIVE, NOT_A_NUMBER), (1, u32::MAX, 0, 0));
+        assert_eq!(
+            (TRUNCATED, SATURATED, NEGATIVE, NOT_A_NUMBER),
+            (1, u32::MAX, 0, 0)
+        );
     }
 
     // ------------------------------------------------ parse_style_aspect_ratio ---
 
     #[test]
     fn aspect_ratio_parses_valid_forms() {
-        assert_eq!(parse_style_aspect_ratio("auto").unwrap(), StyleAspectRatio::Auto);
+        assert_eq!(
+            parse_style_aspect_ratio("auto").unwrap(),
+            StyleAspectRatio::Auto
+        );
         assert_eq!(StyleAspectRatio::default(), StyleAspectRatio::Auto);
 
         for input in ["16 / 9", "16/9", "16 /9", "16/ 9", "  16  /  9  "] {
             assert_eq!(
                 parse_style_aspect_ratio(input).unwrap(),
-                StyleAspectRatio::Ratio(AspectRatioValue { width: 16000, height: 9000 }),
+                StyleAspectRatio::Ratio(AspectRatioValue {
+                    width: 16000,
+                    height: 9000
+                }),
                 "{input:?} should parse as 16/9"
             );
         }
@@ -1816,17 +2023,26 @@ mod autotest_generated {
         // A bare number is `<number> / 1`, stored as fixed-point * 1000.
         assert_eq!(
             parse_style_aspect_ratio("1").unwrap(),
-            StyleAspectRatio::Ratio(AspectRatioValue { width: 1000, height: 1000 })
+            StyleAspectRatio::Ratio(AspectRatioValue {
+                width: 1000,
+                height: 1000
+            })
         );
         assert_eq!(
             parse_style_aspect_ratio("1.5").unwrap(),
-            StyleAspectRatio::Ratio(AspectRatioValue { width: 1500, height: 1000 })
+            StyleAspectRatio::Ratio(AspectRatioValue {
+                width: 1500,
+                height: 1000
+            })
         );
 
         // Boundary of the documented range: 100_000 is accepted, just above is not.
         assert_eq!(
             parse_style_aspect_ratio("100000").unwrap(),
-            StyleAspectRatio::Ratio(AspectRatioValue { width: 100_000_000, height: 1000 })
+            StyleAspectRatio::Ratio(AspectRatioValue {
+                width: 100_000_000,
+                height: 1000
+            })
         );
         assert!(parse_style_aspect_ratio("100001").is_err());
         assert!(parse_style_aspect_ratio("100000.1 / 1").is_err());
@@ -1836,8 +2052,22 @@ mod autotest_generated {
     #[test]
     fn aspect_ratio_rejects_non_positive_and_malformed_input() {
         for input in [
-            "", "   ", "\t\n", "abc", "auto / auto", "16 / 9 / 4", "1/2/3", "/", "//", "/9",
-            "16/", "16 9", ";", "16,9", "\u{1F600}", "\u{1F600}/\u{1F600}",
+            "",
+            "   ",
+            "\t\n",
+            "abc",
+            "auto / auto",
+            "16 / 9 / 4",
+            "1/2/3",
+            "/",
+            "//",
+            "/9",
+            "16/",
+            "16 9",
+            ";",
+            "16,9",
+            "\u{1F600}",
+            "\u{1F600}/\u{1F600}",
         ] {
             assert!(
                 parse_style_aspect_ratio(input).is_err(),
@@ -1846,7 +2076,9 @@ mod autotest_generated {
         }
 
         // Zero and negative components are explicitly rejected.
-        for input in ["0", "0 / 1", "1 / 0", "0/0", "-0", "-0 / 1", "1 / -0", "-1 / 1", "-1", "-1.5"] {
+        for input in [
+            "0", "0 / 1", "1 / 0", "0/0", "-0", "-0 / 1", "1 / -0", "-1 / 1", "-1", "-1.5",
+        ] {
             assert!(
                 parse_style_aspect_ratio(input).is_err(),
                 "{input:?} must not parse as an aspect-ratio"
@@ -1854,7 +2086,9 @@ mod autotest_generated {
         }
 
         // Infinities exceed the 100_000 bound (or are non-positive).
-        for input in ["inf", "inf / 1", "1 / inf", "-inf", "-inf / 1", "1e39", "1e39 / 1"] {
+        for input in [
+            "inf", "inf / 1", "1 / inf", "-inf", "-inf / 1", "1e39", "1e39 / 1",
+        ] {
             assert!(
                 parse_style_aspect_ratio(input).is_err(),
                 "{input:?} should be rejected: out of the [0, 100_000] range"
@@ -1877,7 +2111,10 @@ mod autotest_generated {
     fn aspect_ratio_auto_round_trips() {
         let printed = StyleAspectRatio::Auto.print_as_css_value();
         assert_eq!(printed, "auto");
-        assert_eq!(parse_style_aspect_ratio(&printed).unwrap(), StyleAspectRatio::Auto);
+        assert_eq!(
+            parse_style_aspect_ratio(&printed).unwrap(),
+            StyleAspectRatio::Auto
+        );
     }
 
     // ------------------------------------------- error types: to_contained/to_shared ---
@@ -1922,7 +2159,10 @@ mod autotest_generated {
             let input = String::from("1.5");
             parse_style_opacity(&input).unwrap_err().to_contained()
         };
-        assert_eq!(owned, OpacityParseErrorOwned::OutOfRange(String::from("1.5").into()));
+        assert_eq!(
+            owned,
+            OpacityParseErrorOwned::OutOfRange(String::from("1.5").into())
+        );
         assert!(owned.to_shared().to_string().contains("1.5"));
     }
 
@@ -1966,14 +2206,38 @@ mod autotest_generated {
     fn parse_errors_quote_the_offending_input() {
         // The rejected value has to survive into the message, or authors cannot
         // find the bad declaration.
-        assert!(parse_style_visibility("show").unwrap_err().to_string().contains("show"));
-        assert!(parse_style_mix_blend_mode("mix").unwrap_err().to_string().contains("mix"));
-        assert!(parse_style_cursor("hand").unwrap_err().to_string().contains("hand"));
-        assert!(parse_style_object_fit("stretch").unwrap_err().to_string().contains("stretch"));
-        assert!(parse_style_text_orientation("vertical").unwrap_err().to_string().contains("vertical"));
-        assert!(parse_style_object_position("nope").unwrap_err().to_string().contains("nope"));
-        assert!(parse_style_aspect_ratio("nope").unwrap_err().to_string().contains("nope"));
-        assert!(parse_style_opacity("1.5").unwrap_err().to_string().contains("1.5"));
+        assert!(parse_style_visibility("show")
+            .unwrap_err()
+            .to_string()
+            .contains("show"));
+        assert!(parse_style_mix_blend_mode("mix")
+            .unwrap_err()
+            .to_string()
+            .contains("mix"));
+        assert!(parse_style_cursor("hand")
+            .unwrap_err()
+            .to_string()
+            .contains("hand"));
+        assert!(parse_style_object_fit("stretch")
+            .unwrap_err()
+            .to_string()
+            .contains("stretch"));
+        assert!(parse_style_text_orientation("vertical")
+            .unwrap_err()
+            .to_string()
+            .contains("vertical"));
+        assert!(parse_style_object_position("nope")
+            .unwrap_err()
+            .to_string()
+            .contains("nope"));
+        assert!(parse_style_aspect_ratio("nope")
+            .unwrap_err()
+            .to_string()
+            .contains("nope"));
+        assert!(parse_style_opacity("1.5")
+            .unwrap_err()
+            .to_string()
+            .contains("1.5"));
     }
 
     #[test]
@@ -1981,12 +2245,18 @@ mod autotest_generated {
         // Every keyword parser trims *before* constructing the error, so the
         // message never contains the caller's padding.
         let shown = parse_style_cursor("  hand  ").unwrap_err().to_string();
-        assert!(shown.contains("\"hand\""), "expected the trimmed value, got {shown:?}");
+        assert!(
+            shown.contains("\"hand\""),
+            "expected the trimmed value, got {shown:?}"
+        );
 
         // ...except `parse_style_opacity`, which passes the *untrimmed* input to
         // the error. Pinned so the inconsistency is visible.
         let shown = parse_style_opacity("  1.5  ").unwrap_err().to_string();
-        assert!(shown.contains("\"  1.5  \""), "expected the raw value, got {shown:?}");
+        assert!(
+            shown.contains("\"  1.5  \""),
+            "expected the raw value, got {shown:?}"
+        );
     }
 
     #[test]
@@ -2067,7 +2337,10 @@ mod autotest_generated {
         // 100_000 bound and fail to parse at all.
         let ratio = parse_style_aspect_ratio("16 / 9").unwrap();
         let printed = ratio.print_as_css_value();
-        assert_eq!(printed, "16 / 9", "printed the fixed-point form: {printed:?}");
+        assert_eq!(
+            printed, "16 / 9",
+            "printed the fixed-point form: {printed:?}"
+        );
         assert_eq!(parse_style_aspect_ratio(&printed).unwrap(), ratio);
     }
 

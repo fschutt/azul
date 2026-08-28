@@ -7,9 +7,7 @@
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "a11y")]
-use accesskit::{
-    ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, TreeUpdate,
-};
+use accesskit::{ActionHandler, ActionRequest, ActivationHandler, DeactivationHandler, TreeUpdate};
 #[cfg(feature = "a11y")]
 use accesskit_unix::Adapter;
 

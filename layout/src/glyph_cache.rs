@@ -193,13 +193,15 @@ impl GlyphCache {
     /// Entry count of the glyph-path cache (for leak probes).
     /// Counts BOTH generations — a probe watching for unbounded growth
     /// must see everything the cache is holding.
-    #[must_use] pub fn paths_len(&self) -> usize {
+    #[must_use]
+    pub fn paths_len(&self) -> usize {
         self.paths.len() + self.paths_prev.len()
     }
 
     /// Entry count of the pre-rasterized cell cache (for leak probes).
     /// Counts BOTH generations, see [`Self::paths_len`].
-    #[must_use] pub fn cells_len(&self) -> usize {
+    #[must_use]
+    pub fn cells_len(&self) -> usize {
         self.cells.len() + self.cells_prev.len()
     }
 
@@ -209,7 +211,8 @@ impl GlyphCache {
     /// it, "did GC happen" is indistinguishable from "there was nothing to
     /// collect", and a test asserting the latter passes whether or not the
     /// GC hook is wired up at all.
-    #[must_use] pub fn prev_generation_len(&self) -> usize {
+    #[must_use]
+    pub fn prev_generation_len(&self) -> usize {
         self.paths_prev.len() + self.cells_prev.len()
     }
 
@@ -223,7 +226,11 @@ impl GlyphCache {
         parsed_font: &ParsedFont,
         ppem: u16,
     ) -> Option<CachedGlyph<'_>> {
-        let key = GlyphPathKey { font_hash, glyph_id, ppem };
+        let key = GlyphPathKey {
+            font_hash,
+            glyph_id,
+            ppem,
+        };
         // Promote from the previous generation before considering a
         // rotation, so a live glyph is never rebuilt just because it aged
         // into the older map.
@@ -234,23 +241,20 @@ impl GlyphCache {
                 self.paths_prev = core::mem::take(&mut self.paths);
             }
         }
-        let entry = self
-            .paths
-            .entry(key)
-            .or_insert_with(|| {
-                // Only fires on a MISS, so this span is the true cost of
-                // running the hinting interpreter for a glyph — as opposed
-                // to `glyph_lcd_outline`, which is paid on every frame.
-                let _p = crate::probe::Probe::span("glyph_path_build");
-                // Try hinted path first if ppem > 0
-                if ppem > 0 {
-                    if let Some(path) = build_hinted_path(glyph_id, glyph_data, parsed_font, ppem) {
-                        return Some((path, true));
-                    }
+        let entry = self.paths.entry(key).or_insert_with(|| {
+            // Only fires on a MISS, so this span is the true cost of
+            // running the hinting interpreter for a glyph — as opposed
+            // to `glyph_lcd_outline`, which is paid on every frame.
+            let _p = crate::probe::Probe::span("glyph_path_build");
+            // Try hinted path first if ppem > 0
+            if ppem > 0 {
+                if let Some(path) = build_hinted_path(glyph_id, glyph_data, parsed_font, ppem) {
+                    return Some((path, true));
                 }
-                // Fall back to unhinted path
-                build_glyph_path(glyph_data).map(|p| (p, false))
-            });
+            }
+            // Fall back to unhinted path
+            build_glyph_path(glyph_data).map(|p| (p, false))
+        });
         entry.as_ref().map(|(path, is_hinted)| CachedGlyph {
             path,
             is_hinted: *is_hinted,
@@ -325,35 +329,67 @@ impl GlyphCache {
         // `AZ_TEXT_SUBPIXEL=0` the grid_snapped case reverts to integer X
         // (sub-pixel 0, rounded origin), the previous behaviour.
         let subpx_x_snap = grid_snapped && !text_subpixel_enabled();
-        let subpx_x = if subpx_x_snap { 0 } else { quantize_subpx(glyph_x) };
-        let subpx_y = if grid_snapped { 0 } else { quantize_subpx(glyph_y) };
-        debug_assert!((0.0..65536.0).contains(&scale), "scale out of range for fixed-point: {scale}");
+        let subpx_x = if subpx_x_snap {
+            0
+        } else {
+            quantize_subpx(glyph_x)
+        };
+        let subpx_y = if grid_snapped {
+            0
+        } else {
+            quantize_subpx(glyph_y)
+        };
+        debug_assert!(
+            (0.0..65536.0).contains(&scale),
+            "scale out of range for fixed-point: {scale}"
+        );
         let scale_fixed = if is_hinted {
-            if rescale_hinted { (hint_correction * 65536.0) as u32 } else { 0 }
+            if rescale_hinted {
+                (hint_correction * 65536.0) as u32
+            } else {
+                0
+            }
         } else {
             (scale * 65536.0) as u32
         };
 
         let cell_key = GlyphCellKey {
-            font_hash, glyph_id, ppem, scale_fixed, subpx_x, subpx_y,
+            font_hash,
+            glyph_id,
+            ppem,
+            scale_fixed,
+            subpx_x,
+            subpx_y,
             x_subsamples: 1,
         };
 
         // Integer pixel offset — the cells are at sub-pixel origin, offset by int
         // part. `int_x + subpx_x*0.25` must reconstruct `glyph_x`, so the floor
         // pairs with the quantized fraction; only the integer-X-snap case rounds.
-        let int_x = if subpx_x_snap { glyph_x.round() as i32 } else { glyph_x.floor() as i32 };
-        let int_y = if grid_snapped { glyph_y.round() as i32 } else { glyph_y.floor() as i32 };
+        let int_x = if subpx_x_snap {
+            glyph_x.round() as i32
+        } else {
+            glyph_x.floor() as i32
+        };
+        let int_y = if grid_snapped {
+            glyph_y.round() as i32
+        } else {
+            glyph_y.floor() as i32
+        };
 
         self.promote_or_rotate_cells(&cell_key);
         if !self.cells.contains_key(&cell_key) {
             // Build cells from cached path
-            let path_key = GlyphPathKey { font_hash, glyph_id, ppem };
+            let path_key = GlyphPathKey {
+                font_hash,
+                glyph_id,
+                ppem,
+            };
             let path_entry = self.paths.get(&path_key);
             let cached_cells = path_entry.and_then(|entry| {
-                use agg_rust::trans_affine::TransAffine;
                 use agg_rust::basics::FillingRule;
                 use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
+                use agg_rust::trans_affine::TransAffine;
                 let (path, _) = entry.as_ref()?;
                 let frac_x = f64::from(subpx_x) * 0.25;
                 let frac_y = f64::from(subpx_y) * 0.25;
@@ -390,7 +426,11 @@ impl GlyphCache {
                 );
                 ras.add_path(&mut src, 0);
                 let cells = ras.outline_cells_sorted();
-                if cells.is_empty() { None } else { Some(CachedCells { cells }) }
+                if cells.is_empty() {
+                    None
+                } else {
+                    Some(CachedCells { cells })
+                }
             });
             self.cells.insert(cell_key, cached_cells);
         }
@@ -444,9 +484,16 @@ impl GlyphCache {
         };
         let int_y = glyph_y.round() as i32;
 
-        debug_assert!((0.0..65536.0).contains(&scale), "scale out of range for fixed-point: {scale}");
+        debug_assert!(
+            (0.0..65536.0).contains(&scale),
+            "scale out of range for fixed-point: {scale}"
+        );
         let scale_fixed = if is_hinted {
-            if rescale_hinted { (hint_correction * 65536.0) as u32 } else { 0 }
+            if rescale_hinted {
+                (hint_correction * 65536.0) as u32
+            } else {
+                0
+            }
         } else {
             (scale * 65536.0) as u32
         };
@@ -463,7 +510,11 @@ impl GlyphCache {
 
         self.promote_or_rotate_cells(&cell_key);
         if !self.cells.contains_key(&cell_key) {
-            let path_key = GlyphPathKey { font_hash, glyph_id, ppem };
+            let path_key = GlyphPathKey {
+                font_hash,
+                glyph_id,
+                ppem,
+            };
             let cached_cells = self.paths.get(&path_key).and_then(|entry| {
                 use agg_rust::basics::FillingRule;
                 use agg_rust::rasterizer_scanline_aa::RasterizerScanlineAa;
@@ -475,7 +526,11 @@ impl GlyphCache {
                 // a fractional effective size rescales by hint_correction,
                 // an unhinted outline is in font units.
                 let path_scale = if is_hinted {
-                    if rescale_hinted { f64::from(hint_correction) } else { 1.0 }
+                    if rescale_hinted {
+                        f64::from(hint_correction)
+                    } else {
+                        1.0
+                    }
                 } else {
                     f64::from(scale)
                 };
@@ -483,8 +538,7 @@ impl GlyphCache {
                 // Triple the x axis, then shift by the sub-pixel bucket.
                 // The bucket is a fraction of a PIXEL, and the axis is in
                 // stripes, so it converts as `3 * k / BUCKETS`.
-                let frac_stripes =
-                    3.0 * f64::from(subpx_x) / f64::from(LCD_SUBPX_BUCKETS);
+                let frac_stripes = 3.0 * f64::from(subpx_x) / f64::from(LCD_SUBPX_BUCKETS);
                 let mut t = TransAffine::new_scaling(3.0 * path_scale, path_scale);
                 t.multiply(&TransAffine::new_translation(frac_stripes, 0.0));
 
@@ -501,7 +555,11 @@ impl GlyphCache {
                 );
                 ras.add_path(&mut src, 0);
                 let cells = ras.outline_cells_sorted();
-                if cells.is_empty() { None } else { Some(CachedCells { cells }) }
+                if cells.is_empty() {
+                    None
+                } else {
+                    Some(CachedCells { cells })
+                }
             });
             self.cells.insert(cell_key, cached_cells);
         }
@@ -691,7 +749,8 @@ pub(crate) fn text_subpixel_enabled() -> bool {
 /// - Two consecutive off-curve points have an implicit on-curve midpoint
 /// - Y is negated for screen coordinates (font Y-up → screen Y-down)
 /// - The origin point is NOT revisited in the loop; `close()` handles the final segment
-#[must_use] pub fn build_path_from_contours(
+#[must_use]
+pub fn build_path_from_contours(
     points: &[(i32, i32)],
     on_curve: &[bool],
     contour_ends: &[u16],
@@ -719,11 +778,13 @@ pub(crate) fn text_subpixel_enabled() -> bool {
 
         // Helper: get point as (f64, f64) with Y negated
         let px = |i: usize| -> (f64, f64) {
-            (f64::from(f26_to_px(pts[i].0)), f64::from(-f26_to_px(pts[i].1)))
+            (
+                f64::from(f26_to_px(pts[i].0)),
+                f64::from(-f26_to_px(pts[i].1)),
+            )
         };
-        let mid = |a: (f64, f64), b: (f64, f64)| -> (f64, f64) {
-            ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5)
-        };
+        let mid =
+            |a: (f64, f64), b: (f64, f64)| -> (f64, f64) { ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5) };
 
         // Determine origin and processing range (matching allsorts' calculate_origin)
         let (origin, start, until) = if flags[0] {
@@ -989,17 +1050,7 @@ mod autotest_generated {
 
     #[test]
     fn f26_to_px_is_monotonic() {
-        let ladder = [
-            i32::MIN,
-            -1_000_000,
-            -64,
-            -1,
-            0,
-            1,
-            64,
-            1_000_000,
-            i32::MAX,
-        ];
+        let ladder = [i32::MIN, -1_000_000, -64, -1, 0, 1, 64, 1_000_000, i32::MAX];
         for w in ladder.windows(2) {
             assert!(
                 f26_to_px(w[0]) <= f26_to_px(w[1]),
@@ -1062,12 +1113,9 @@ mod autotest_generated {
 
     #[test]
     fn build_path_from_contours_offcurve_point_becomes_curve3() {
-        let path = build_path_from_contours(
-            &[(0, 0), (64, 64), (128, 0)],
-            &[true, false, true],
-            &[2],
-        )
-        .expect("on/off/on contour");
+        let path =
+            build_path_from_contours(&[(0, 0), (64, 64), (128, 0)], &[true, false, true], &[2])
+                .expect("on/off/on contour");
         let v = path.vertices();
         assert_eq!(v.len(), 4, "move_to + curve3(ctrl,to) + close");
         assert_eq!(v[0].cmd, PATH_CMD_MOVE_TO);
@@ -1100,12 +1148,9 @@ mod autotest_generated {
     fn build_path_from_contours_all_offcurve_closes_back_to_the_synthetic_origin() {
         // No on-curve point anywhere: origin is the midpoint of first & last,
         // and the final curve must return to it.
-        let path = build_path_from_contours(
-            &[(0, 0), (64, 64), (128, 0)],
-            &[false, false, false],
-            &[2],
-        )
-        .expect("all-off-curve contour");
+        let path =
+            build_path_from_contours(&[(0, 0), (64, 64), (128, 0)], &[false, false, false], &[2])
+                .expect("all-off-curve contour");
         let v = path.vertices();
         assert_eq!(v.len(), 8, "move_to + 3 curve3 + close");
         assert_eq!(v[0].cmd, PATH_CMD_MOVE_TO);
@@ -1404,7 +1449,11 @@ mod autotest_generated {
                 .map(|c| c.is_hinted);
             assert_eq!(got, None, "outline-less glyph at ppem {ppem}");
         }
-        assert_eq!(cache.paths_len(), 4, "each (hash, gid, ppem) is its own key");
+        assert_eq!(
+            cache.paths_len(),
+            4,
+            "each (hash, gid, ppem) is its own key"
+        );
     }
 
     #[test]
@@ -1503,7 +1552,11 @@ mod autotest_generated {
             return;
         };
         font.hhea_table.num_h_metrics = 0;
-        assert_eq!(glyph_lsb(&font, 0), None, "num_h_metrics == 0 must bail out");
+        assert_eq!(
+            glyph_lsb(&font, 0),
+            None,
+            "num_h_metrics == 0 must bail out"
+        );
     }
 
     #[test]
@@ -1700,7 +1753,11 @@ impl GlyphCache {
         };
         let int_y = glyph_y.round() as i32;
         let scale_fixed = if is_hinted {
-            if rescale_hinted { (hint_correction * 65536.0) as u32 } else { 0 }
+            if rescale_hinted {
+                (hint_correction * 65536.0) as u32
+            } else {
+                0
+            }
         } else {
             (scale * 65536.0) as u32
         };
@@ -1725,7 +1782,13 @@ impl GlyphCache {
         // self mutably for the insert below.
         let cells: Vec<CellAa> = self
             .get_or_build_cells_lcd(
-                font_hash, glyph_id, ppem, glyph_x, glyph_y, scale, is_hinted,
+                font_hash,
+                glyph_id,
+                ppem,
+                glyph_x,
+                glyph_y,
+                scale,
+                is_hinted,
                 hint_correction,
             )
             .map(|(c, _, _)| c.to_vec())?;
@@ -1778,8 +1841,7 @@ impl GlyphCache {
             ras.filling_rule(FillingRule::NonZero);
             ras.add_cells_offset(&cells, -min_px * 3, -min_y);
             let stride = (w * 4) as i32;
-            let mut ra =
-                unsafe { RowAccessor::new_with_buf(rgba.as_mut_ptr(), w, h, stride) };
+            let mut ra = unsafe { RowAccessor::new_with_buf(rgba.as_mut_ptr(), w, h, stride) };
             let pf = PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
             let mut rb = RendererBase::new(pf);
             let mut sl = ScanlineU8::new();
@@ -1792,7 +1854,13 @@ impl GlyphCache {
             render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, &agg_color);
         }
 
-        let tile = LcdGlyphTile { w, h, dx: min_px, dy: min_y, rgba };
+        let tile = LcdGlyphTile {
+            w,
+            h,
+            dx: min_px,
+            dy: min_y,
+            rgba,
+        };
         self.lcd_tiles.insert(key, Some(tile.clone()));
         Some((tile, int_x, int_y))
     }

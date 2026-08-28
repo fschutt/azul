@@ -250,7 +250,11 @@ mod tests {
         .expect("redaction must succeed");
 
         assert_eq!(pixel(&out, 10, 5), (0, 0, 0, 255), "top-left of the rect");
-        assert_eq!(pixel(&out, 19, 9), (0, 0, 0, 255), "bottom-right of the rect");
+        assert_eq!(
+            pixel(&out, 19, 9),
+            (0, 0, 0, 255),
+            "bottom-right of the rect"
+        );
         assert_eq!(
             pixel(&out, 9, 5),
             (255, 255, 255, 255),
@@ -281,7 +285,11 @@ mod tests {
             2.0,
         )
         .expect("redaction must succeed");
-        assert_eq!(pixel(&out, 19, 19), (0, 0, 0, 255), "scaled rect must reach 19,19");
+        assert_eq!(
+            pixel(&out, 19, 19),
+            (0, 0, 0, 255),
+            "scaled rect must reach 19,19"
+        );
         assert_eq!(
             pixel(&out, 20, 20),
             (255, 255, 255, 255),
@@ -298,21 +306,44 @@ mod tests {
             &png,
             &[
                 // Starts off-canvas and reaches IN: rows 0..4 must go black.
-                RedactRect { x: -50.0, y: -2.0, width: 500.0, height: 6.0 },
-                RedactRect { x: 8.0, y: 8.0, width: -6.0, height: -6.0 },
-                RedactRect { x: 1.0, y: 1.0, width: 0.0, height: 0.0 },
+                RedactRect {
+                    x: -50.0,
+                    y: -2.0,
+                    width: 500.0,
+                    height: 6.0,
+                },
+                RedactRect {
+                    x: 8.0,
+                    y: 8.0,
+                    width: -6.0,
+                    height: -6.0,
+                },
+                RedactRect {
+                    x: 1.0,
+                    y: 1.0,
+                    width: 0.0,
+                    height: 0.0,
+                },
             ],
             1.0,
         )
         .expect("degenerate rectangles must not fail the redaction");
-        assert_eq!(pixel(&out, 0, 0), (0, 0, 0, 255), "clamped rect covers the top row");
+        assert_eq!(
+            pixel(&out, 0, 0),
+            (0, 0, 0, 255),
+            "clamped rect covers the top row"
+        );
         assert_eq!(pixel(&out, 9, 3), (0, 0, 0, 255), "…across the full width");
         assert_eq!(
             pixel(&out, 9, 5),
             (255, 255, 255, 255),
             "…and stops where the rect ends"
         );
-        assert_eq!(pixel(&out, 3, 3), (0, 0, 0, 255), "backwards drag still covers its area");
+        assert_eq!(
+            pixel(&out, 3, 3),
+            (0, 0, 0, 255),
+            "backwards drag still covers its area"
+        );
     }
 
     #[test]

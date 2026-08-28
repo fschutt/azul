@@ -33,7 +33,10 @@
 //! actionable on Linux and invisible on Android for no reason a user could
 //! understand.
 
-use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use std::collections::BTreeMap;
 
 use azul_core::{
@@ -388,7 +391,10 @@ fn element_bounds(
         return zero;
     };
     let (Some(pos), Some(size)) = (
-        layout_result.calculated_positions.get(layout_idx.index()).copied(),
+        layout_result
+            .calculated_positions
+            .get(layout_idx.index())
+            .copied(),
         hot.used_size,
     ) else {
         return zero;
@@ -434,7 +440,10 @@ fn element_bounds(
     let x0 = clamp(on_screen.origin.x, window_size.width);
     let y0 = clamp(on_screen.origin.y, window_size.height);
     let x1 = clamp(on_screen.origin.x + on_screen.size.width, window_size.width);
-    let y1 = clamp(on_screen.origin.y + on_screen.size.height, window_size.height);
+    let y1 = clamp(
+        on_screen.origin.y + on_screen.size.height,
+        window_size.height,
+    );
 
     if x1 <= x0 || y1 <= y0 {
         return zero;

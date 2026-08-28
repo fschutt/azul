@@ -177,7 +177,8 @@ pub struct ScrollInputQueue {
 
 #[cfg(feature = "std")]
 impl ScrollInputQueue {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(Vec::new())),
         }
@@ -191,17 +192,18 @@ impl ScrollInputQueue {
     }
 
     /// Take all pending inputs (called from timer callback)
-    #[must_use] pub fn take_all(&self) -> Vec<ScrollInput> {
-        self.inner.lock().map_or_else(
-            |_| Vec::new(),
-            |mut queue| core::mem::take(&mut *queue),
-        )
+    #[must_use]
+    pub fn take_all(&self) -> Vec<ScrollInput> {
+        self.inner
+            .lock()
+            .map_or_else(|_| Vec::new(), |mut queue| core::mem::take(&mut *queue))
     }
 
     /// Take at most `max_events` recent inputs, sorted by timestamp (newest last).
     /// Any older events beyond `max_events` are discarded.
     /// This prevents the physics timer from processing an unbounded backlog.
-    #[must_use] pub fn take_recent(&self, max_events: usize) -> Vec<ScrollInput> {
+    #[must_use]
+    pub fn take_recent(&self, max_events: usize) -> Vec<ScrollInput> {
         self.inner.lock().map_or_else(
             |_| Vec::new(),
             |mut queue| {
@@ -217,11 +219,9 @@ impl ScrollInputQueue {
     }
 
     /// Check if there are pending inputs without consuming them
-    #[must_use] pub fn has_pending(&self) -> bool {
-        self.inner
-            .lock()
-            .map(|q| !q.is_empty())
-            .unwrap_or(false)
+    #[must_use]
+    pub fn has_pending(&self) -> bool {
+        self.inner.lock().map(|q| !q.is_empty()).unwrap_or(false)
     }
 }
 
@@ -271,7 +271,8 @@ impl ScrollbarState {
     /// Determine which component was hit at the given local position (relative to `track_rect`
     /// origin). Uses the shared geometry values (`button_size`, `usable_track_length`, `thumb_length`,
     /// `thumb_offset`) for consistent hit-testing.
-    #[must_use] pub fn hit_test_component(&self, local_pos: LogicalPosition) -> ScrollbarComponent {
+    #[must_use]
+    pub fn hit_test_component(&self, local_pos: LogicalPosition) -> ScrollbarComponent {
         match self.orientation {
             ScrollbarOrientation::Vertical => {
                 // Top button
@@ -475,7 +476,8 @@ pub struct ScrollTickResult {
 
 impl ScrollManager {
     /// Creates a new empty `ScrollManager`
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         let mut m = Self::default();
         // Power-user / test override. Platform shells should call
         // `set_natural_scroll` from the OS preference; this env var wins so the
@@ -496,7 +498,8 @@ impl ScrollManager {
     }
 
     /// Current scroll-direction preference (`true` = natural/inverted).
-    #[must_use] pub const fn is_natural_scroll(&self) -> bool {
+    #[must_use]
+    pub const fn is_natural_scroll(&self) -> bool {
         self.natural_scroll
     }
 
@@ -514,7 +517,8 @@ impl ScrollManager {
 
     /// Sizes of the internal maps — used by `AZ_E2E_TEST` to watch for
     /// unbounded growth across resize/tick iterations.
-    #[must_use] pub fn debug_counts(&self) -> (usize, usize) {
+    #[must_use]
+    pub fn debug_counts(&self) -> (usize, usize) {
         (self.states.len(), self.scrollbar_states.len())
     }
 
@@ -570,7 +574,8 @@ impl ScrollManager {
     /// in this map, the compositor resolved its layer offset as `(0.0, 0.0)`
     /// and the content stayed frozen — while the scrollbar thumb, driven by
     /// the `(DomId, NodeId)`-keyed GPU value cache, kept tracking the wheel.
-    #[must_use] pub fn build_scroll_offset_map(
+    #[must_use]
+    pub fn build_scroll_offset_map(
         &self,
         dom_id: DomId,
         scroll_id_to_node_id: &std::collections::HashMap<u64, NodeId>,
@@ -629,7 +634,10 @@ impl ScrollManager {
         // Record the raw wheel delta for this pass unconditionally — even when the
         // cursor isn't over a scroll container — so a `Scroll` event can be aimed
         // at the hovered node (wheel-as-zoom widgets like the map rely on this).
-        self.pending_wheel_event = Some(LogicalPosition { x: delta_x, y: delta_y });
+        self.pending_wheel_event = Some(LogicalPosition {
+            x: delta_x,
+            y: delta_y,
+        });
 
         let hit_test = hover_manager.get_current(input_point_id)?;
 
@@ -646,25 +654,30 @@ impl ScrollManager {
         let sign = self.scroll_sign();
         let (eff_x, eff_y) = (delta_x * sign, delta_y * sign);
         let target = self.select_scroll_target(
-            hit_test.hovered_nodes.iter().flat_map(|(dom_id, hit_node)| {
-                hit_node
-                    .scroll_hit_test_nodes
-                    .keys()
-                    .rev()
-                    .map(move |node_id| (*dom_id, *node_id))
-            }),
+            hit_test
+                .hovered_nodes
+                .iter()
+                .flat_map(|(dom_id, hit_node)| {
+                    hit_node
+                        .scroll_hit_test_nodes
+                        .keys()
+                        .rev()
+                        .map(move |node_id| (*dom_id, *node_id))
+                }),
             eff_x,
             eff_y,
         );
         let (dom_id, node_id) = target?;
-        let (delta_x, delta_y) = self.map_wheel_onto_the_only_scrollable_axis(
-            dom_id, node_id, delta_x, delta_y,
-        );
+        let (delta_x, delta_y) =
+            self.map_wheel_onto_the_only_scrollable_axis(dom_id, node_id, delta_x, delta_y);
         let input = ScrollInput {
             dom_id,
             node_id,
             // Raw delta — record_scroll_input applies scroll_sign() itself.
-            delta: LogicalPosition { x: delta_x, y: delta_y },
+            delta: LogicalPosition {
+                x: delta_x,
+                y: delta_y,
+            },
             timestamp: now,
             source,
             device,
@@ -754,7 +767,8 @@ impl ScrollManager {
     /// plus max travel per axis, or `None` when the node isn't scrollable.
     /// Screen readers use this (with the ScrollUp/Down/... actions) to
     /// drive the same inbound handler mouse users exercise.
-    #[must_use] pub fn a11y_scroll_info(
+    #[must_use]
+    pub fn a11y_scroll_info(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -777,13 +791,7 @@ impl ScrollManager {
     /// `true` when the node still has travel in the direction of the
     /// normalized delta on at least one moved axis — the boundary-handoff
     /// test for [`select_scroll_target`](Self::select_scroll_target).
-    fn can_consume_delta(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-        eff_x: f32,
-        eff_y: f32,
-    ) -> bool {
+    fn can_consume_delta(&self, dom_id: DomId, node_id: NodeId, eff_x: f32, eff_y: f32) -> bool {
         const EPS: f32 = 0.5;
         let Some(state) = self.states.get(&(dom_id, node_id)) else {
             return false;
@@ -820,12 +828,14 @@ impl ScrollManager {
     /// The timer callback stores this in its `RefAny` data and calls `take_all()`
     /// each tick to consume pending inputs.
     #[cfg(feature = "std")]
-    #[must_use] pub fn get_input_queue(&self) -> ScrollInputQueue {
+    #[must_use]
+    pub fn get_input_queue(&self) -> ScrollInputQueue {
         self.scroll_input_queue.clone()
     }
 
     /// Advances scroll animations by one tick, returns repaint info
-    #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
+    #[allow(clippy::suboptimal_flops)]
+    // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     // Instant is a ref-counted FFI clock handle; called by every dll backend's event loop by value.
     #[allow(clippy::needless_pass_by_value)]
     pub fn tick(&mut self, now: Instant) -> ScrollTickResult {
@@ -855,7 +865,8 @@ impl ScrollManager {
     ///
     /// Used by GPU render paths to skip rendering when the UI is completely
     /// static (no scroll animations, no layout changes).
-    #[must_use] pub fn has_active_animations(&self) -> bool {
+    #[must_use]
+    pub fn has_active_animations(&self) -> bool {
         self.states.values().any(|s| s.animation.is_some())
     }
 
@@ -875,7 +886,8 @@ impl ScrollManager {
     /// This used to be hardcoded to ancestors-only via a `nid != node_id`
     /// guard inside the loop, which was a live bug for the first question —
     /// see the note on `auto_scroll_timer_callback`.
-    #[must_use] pub fn find_scroll_parent(
+    #[must_use]
+    pub fn find_scroll_parent(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -893,9 +905,11 @@ impl ScrollManager {
     /// identified as scrollable even when only a small subset is rendered.
     fn is_node_scrollable(&self, dom_id: DomId, node_id: NodeId) -> bool {
         let result = self.states.get(&(dom_id, node_id)).is_some_and(|state| {
-            let effective_width = state.virtual_scroll_size
+            let effective_width = state
+                .virtual_scroll_size
                 .map_or(state.content_rect.size.width, |s| s.width);
-            let effective_height = state.virtual_scroll_size
+            let effective_height = state
+                .virtual_scroll_size
                 .map_or(state.content_rect.size.height, |s| s.height);
             let has_horizontal = effective_width > state.container_rect.size.width;
             let has_vertical = effective_height > state.container_rect.size.height;
@@ -1056,21 +1070,24 @@ impl ScrollManager {
     }
 
     /// Returns the current scroll offset for a node
-    #[must_use] pub fn get_current_offset(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
+    #[must_use]
+    pub fn get_current_offset(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalPosition> {
         self.states
             .get(&(dom_id, node_id))
             .map(|s| s.current_offset)
     }
 
     /// Returns the timestamp of last scroll activity for a node
-    #[must_use] pub fn get_last_activity_time(&self, dom_id: DomId, node_id: NodeId) -> Option<Instant> {
+    #[must_use]
+    pub fn get_last_activity_time(&self, dom_id: DomId, node_id: NodeId) -> Option<Instant> {
         self.states
             .get(&(dom_id, node_id))
             .map(|s| s.last_activity.clone())
     }
 
     /// Returns the internal scroll state for a node
-    #[must_use] pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
+    #[must_use]
+    pub fn get_scroll_state(&self, dom_id: DomId, node_id: NodeId) -> Option<&AnimatedScrollState> {
         self.states.get(&(dom_id, node_id))
     }
 
@@ -1081,15 +1098,14 @@ impl ScrollManager {
     ///
     /// When `virtual_scroll_size` is set (for `VirtualView` nodes), the max scroll
     /// bounds are computed from the virtual size instead of `content_rect`.
-    #[must_use] pub fn get_scroll_node_info(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Option<ScrollNodeInfo> {
+    #[must_use]
+    pub fn get_scroll_node_info(&self, dom_id: DomId, node_id: NodeId) -> Option<ScrollNodeInfo> {
         let state = self.states.get(&(dom_id, node_id))?;
-        let effective_content_width = state.virtual_scroll_size
+        let effective_content_width = state
+            .virtual_scroll_size
             .map_or(state.content_rect.size.width, |s| s.width);
-        let effective_content_height = state.virtual_scroll_size
+        let effective_content_height = state
+            .virtual_scroll_size
             .map_or(state.content_rect.size.height, |s| s.height);
         let max_x = (effective_content_width - state.container_rect.size.width).max(0.0);
         let max_y = (effective_content_height - state.container_rect.size.height).max(0.0);
@@ -1133,7 +1149,8 @@ impl ScrollManager {
     ///
     /// The round trip is the identity: `LayoutWindow::set_scroll_position`
     /// feeds `children_rect.origin` straight back into `set_scroll_position`.
-    #[must_use] pub fn get_scroll_states_for_dom(&self, dom_id: DomId) -> BTreeMap<NodeId, ScrollPosition> {
+    #[must_use]
+    pub fn get_scroll_states_for_dom(&self, dom_id: DomId) -> BTreeMap<NodeId, ScrollPosition> {
         // M12.7: iterating an EMPTY hashbrown map (RawIterRange) mis-lifts to
         // wasm and loops forever (same class as the font-id / GPU-cache loops).
         // For the headless web path `states` is empty; guard it (len-based, no
@@ -1147,8 +1164,8 @@ impl ScrollManager {
             .map(|((_, node_id), state)| {
                 // Use virtual_scroll_size (from VirtualView callback) when available,
                 // otherwise fall back to content_rect.size from layout.
-                let effective_content_size = state.virtual_scroll_size
-                    .unwrap_or(state.content_rect.size);
+                let effective_content_size =
+                    state.virtual_scroll_size.unwrap_or(state.content_rect.size);
                 (
                     *node_id,
                     ScrollPosition {
@@ -1256,8 +1273,10 @@ impl ScrollManager {
                     content_rect,
                     virtual_scroll_size: None,
                     virtual_scroll_offset: None,
-                    overscroll_behavior_x: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
-                    overscroll_behavior_y: azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+                    overscroll_behavior_x:
+                        azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
+                    overscroll_behavior_y:
+                        azul_css::props::style::scrollbar::OverscrollBehavior::Auto,
                     overflow_scrolling: azul_css::props::style::scrollbar::OverflowScrolling::Auto,
                     scrollbar_thickness,
                     visual_width_px,
@@ -1278,28 +1297,31 @@ impl ScrollManager {
 
         // Uses virtual_scroll_size (when set) for the overflow check and thumb ratio,
         // so VirtualView nodes with large virtual content show correct scrollbar geometry.
-        for orientation in [ScrollbarOrientation::Vertical, ScrollbarOrientation::Horizontal] {
+        for orientation in [
+            ScrollbarOrientation::Vertical,
+            ScrollbarOrientation::Horizontal,
+        ] {
             let states: Vec<_> = self
                 .states
                 .iter()
                 .filter(|(_, s)| {
                     let (effective, container) = match orientation {
                         ScrollbarOrientation::Vertical => (
-                            s.virtual_scroll_size.map_or(s.content_rect.size.height, |vs| vs.height),
+                            s.virtual_scroll_size
+                                .map_or(s.content_rect.size.height, |vs| vs.height),
                             s.container_rect.size.height,
                         ),
                         ScrollbarOrientation::Horizontal => (
-                            s.virtual_scroll_size.map_or(s.content_rect.size.width, |vs| vs.width),
+                            s.virtual_scroll_size
+                                .map_or(s.content_rect.size.width, |vs| vs.width),
                             s.container_rect.size.width,
                         ),
                     };
                     effective > container
                 })
                 .map(|((dom_id, node_id), scroll_state)| {
-                    let state = Self::calculate_scrollbar_state_from_geometry(
-                        scroll_state,
-                        orientation,
-                    );
+                    let state =
+                        Self::calculate_scrollbar_state_from_geometry(scroll_state, orientation);
                     ((*dom_id, *node_id, orientation), state)
                 })
                 .collect();
@@ -1321,7 +1343,8 @@ impl ScrollManager {
             crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX
         };
 
-        let content_size = scroll_state.virtual_scroll_size
+        let content_size = scroll_state
+            .virtual_scroll_size
             .map_or(scroll_state.content_rect.size, |vs| vs);
 
         let scroll_offset = match orientation {
@@ -1373,7 +1396,8 @@ impl ScrollManager {
     }
 
     /// Get scrollbar state for hit-testing
-    #[must_use] pub fn get_scrollbar_state(
+    #[must_use]
+    pub fn get_scrollbar_state(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -1404,7 +1428,8 @@ impl ScrollManager {
             ScrollbarOrientation::Vertical,
             ScrollbarOrientation::Horizontal,
         ] {
-            let Some(scrollbar_state) = self.scrollbar_states.get(&(dom_id, node_id, orientation)) else {
+            let Some(scrollbar_state) = self.scrollbar_states.get(&(dom_id, node_id, orientation))
+            else {
                 continue;
             };
 
@@ -1446,7 +1471,8 @@ impl ScrollManager {
     ///
     /// For better performance, use `hit_test_scrollbar()` when you already have
     /// a hit-tested node from `WebRender`.
-    #[must_use] pub fn hit_test_scrollbars(&self, global_pos: LogicalPosition) -> Option<ScrollbarHit> {
+    #[must_use]
+    pub fn hit_test_scrollbars(&self, global_pos: LogicalPosition) -> Option<ScrollbarHit> {
         // Iterate in reverse order to hit top-most scrollbars first
         for ((dom_id, node_id, orientation), scrollbar_state) in self.scrollbar_states.iter().rev()
         {
@@ -1511,9 +1537,11 @@ impl AnimatedScrollState {
     /// When `virtual_scroll_size` is set (for `VirtualView` nodes), the max bounds
     /// are computed from the virtual size instead of `content_rect`.
     pub(crate) fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
-        let effective_width = self.virtual_scroll_size
+        let effective_width = self
+            .virtual_scroll_size
             .map_or(self.content_rect.size.width, |s| s.width);
-        let effective_height = self.virtual_scroll_size
+        let effective_height = self
+            .virtual_scroll_size
             .map_or(self.content_rect.size.height, |s| s.height);
         let max_x = (effective_width - self.container_rect.size.width).max(0.0);
         let max_y = (effective_height - self.container_rect.size.height).max(0.0);
@@ -1645,7 +1673,10 @@ mod natural_scroll_tests {
         let q = m.get_input_queue().take_all();
         assert_eq!(q.len(), 1);
         assert_eq!(q[0].delta.x, -3.0, "x must be inverted by the default sign");
-        assert_eq!(q[0].delta.y, -10.0, "y must be inverted by the default sign");
+        assert_eq!(
+            q[0].delta.y, -10.0,
+            "y must be inverted by the default sign"
+        );
     }
 
     #[test]
@@ -1693,9 +1724,15 @@ mod natural_scroll_tests {
             outer,
             LogicalRect {
                 origin: LogicalPosition::zero(),
-                size: LogicalSize { width: 200.0, height: 200.0 },
+                size: LogicalSize {
+                    width: 200.0,
+                    height: 200.0,
+                },
             },
-            LogicalSize { width: 200.0, height: 1000.0 },
+            LogicalSize {
+                width: 200.0,
+                height: 1000.0,
+            },
             now.clone(),
             8.0,
             8.0,
@@ -1708,9 +1745,15 @@ mod natural_scroll_tests {
             inner,
             LogicalRect {
                 origin: LogicalPosition::zero(),
-                size: LogicalSize { width: 100.0, height: 100.0 },
+                size: LogicalSize {
+                    width: 100.0,
+                    height: 100.0,
+                },
             },
-            LogicalSize { width: 100.0, height: 300.0 },
+            LogicalSize {
+                width: 100.0,
+                height: 300.0,
+            },
             now,
             8.0,
             8.0,
@@ -1724,11 +1767,7 @@ mod natural_scroll_tests {
     fn nested_scroll_prefers_innermost_with_room() {
         let (m, dom, outer, inner) = nested_setup();
         // Innermost-first candidate order, scrolling "down" (eff +y).
-        let picked = m.select_scroll_target(
-            [(dom, inner), (dom, outer)].into_iter(),
-            0.0,
-            1.0,
-        );
+        let picked = m.select_scroll_target([(dom, inner), (dom, outer)].into_iter(), 0.0, 1.0);
         assert_eq!(picked, Some((dom, inner)), "inner has room → inner wins");
     }
 
@@ -1739,19 +1778,15 @@ mod natural_scroll_tests {
         m.states.get_mut(&(dom, inner)).unwrap().current_offset =
             LogicalPosition { x: 0.0, y: 200.0 };
 
-        let down = m.select_scroll_target(
-            [(dom, inner), (dom, outer)].into_iter(),
-            0.0,
-            1.0,
-        );
+        let down = m.select_scroll_target([(dom, inner), (dom, outer)].into_iter(), 0.0, 1.0);
         assert_eq!(down, Some((dom, outer)), "inner pinned at bottom → handoff");
 
-        let up = m.select_scroll_target(
-            [(dom, inner), (dom, outer)].into_iter(),
-            0.0,
-            -1.0,
+        let up = m.select_scroll_target([(dom, inner), (dom, outer)].into_iter(), 0.0, -1.0);
+        assert_eq!(
+            up,
+            Some((dom, inner)),
+            "inner has room upward → inner again"
         );
-        assert_eq!(up, Some((dom, inner)), "inner has room upward → inner again");
     }
 
     #[test]
@@ -1762,11 +1797,7 @@ mod natural_scroll_tests {
         m.states.get_mut(&(dom, outer)).unwrap().current_offset =
             LogicalPosition { x: 0.0, y: 800.0 };
 
-        let picked = m.select_scroll_target(
-            [(dom, inner), (dom, outer)].into_iter(),
-            0.0,
-            1.0,
-        );
+        let picked = m.select_scroll_target([(dom, inner), (dom, outer)].into_iter(), 0.0, 1.0);
         assert_eq!(
             picked,
             Some((dom, inner)),
@@ -1972,13 +2003,19 @@ mod autotest_generated {
 
     #[test]
     fn apply_easing_infinities_saturate_to_infinity_not_panic() {
-        assert_eq!(apply_easing(f32::INFINITY, EasingFunction::Linear), f32::INFINITY);
+        assert_eq!(
+            apply_easing(f32::INFINITY, EasingFunction::Linear),
+            f32::INFINITY
+        );
         assert_eq!(
             apply_easing(f32::NEG_INFINITY, EasingFunction::Linear),
             f32::NEG_INFINITY
         );
         // EaseOut: 1 - (1 - inf)^3 = 1 + inf
-        assert_eq!(apply_easing(f32::INFINITY, EasingFunction::EaseOut), f32::INFINITY);
+        assert_eq!(
+            apply_easing(f32::INFINITY, EasingFunction::EaseOut),
+            f32::INFINITY
+        );
         assert_eq!(
             apply_easing(f32::NEG_INFINITY, EasingFunction::EaseOut),
             f32::NEG_INFINITY
@@ -2150,7 +2187,10 @@ mod autotest_generated {
         assert_eq!(taken[0].delta.x, 1.0);
         assert_eq!(taken[1].delta.x, 2.0);
         assert!(!q.has_pending(), "take_all must drain the queue");
-        assert!(q.take_all().is_empty(), "second take_all is empty, not stale");
+        assert!(
+            q.take_all().is_empty(),
+            "second take_all is empty, not stale"
+        );
     }
 
     #[test]
@@ -2163,7 +2203,10 @@ mod autotest_generated {
         q.push(input(2.0, 2.0, 2));
         let taken = q.take_recent(0);
         assert!(taken.is_empty(), "take_recent(0) must return nothing");
-        assert!(!q.has_pending(), "take_recent(0) must still drain the queue");
+        assert!(
+            !q.has_pending(),
+            "take_recent(0) must still drain the queue"
+        );
     }
 
     #[test]
@@ -2246,17 +2289,35 @@ mod autotest_generated {
             10.0, // thumb_offset (from end of top button)
             30.0, // thumb_length
         );
-        assert_eq!(sb.hit_test_component(pos(8.0, 0.0)), ScrollbarComponent::TopButton);
-        assert_eq!(sb.hit_test_component(pos(8.0, 15.9)), ScrollbarComponent::TopButton);
+        assert_eq!(
+            sb.hit_test_component(pos(8.0, 0.0)),
+            ScrollbarComponent::TopButton
+        );
+        assert_eq!(
+            sb.hit_test_component(pos(8.0, 15.9)),
+            ScrollbarComponent::TopButton
+        );
         assert_eq!(
             sb.hit_test_component(pos(8.0, 99.0)),
             ScrollbarComponent::BottomButton
         );
         // Thumb spans [16 + 10, 16 + 10 + 30] = [26, 56].
-        assert_eq!(sb.hit_test_component(pos(8.0, 26.0)), ScrollbarComponent::Thumb);
-        assert_eq!(sb.hit_test_component(pos(8.0, 56.0)), ScrollbarComponent::Thumb);
-        assert_eq!(sb.hit_test_component(pos(8.0, 20.0)), ScrollbarComponent::Track);
-        assert_eq!(sb.hit_test_component(pos(8.0, 60.0)), ScrollbarComponent::Track);
+        assert_eq!(
+            sb.hit_test_component(pos(8.0, 26.0)),
+            ScrollbarComponent::Thumb
+        );
+        assert_eq!(
+            sb.hit_test_component(pos(8.0, 56.0)),
+            ScrollbarComponent::Thumb
+        );
+        assert_eq!(
+            sb.hit_test_component(pos(8.0, 20.0)),
+            ScrollbarComponent::Track
+        );
+        assert_eq!(
+            sb.hit_test_component(pos(8.0, 60.0)),
+            ScrollbarComponent::Track
+        );
     }
 
     #[test]
@@ -2269,9 +2330,15 @@ mod autotest_generated {
             30.0,
         );
         // y == button_size is NOT the top button (strict <) — it is the thumb start.
-        assert_eq!(sb.hit_test_component(pos(0.0, 16.0)), ScrollbarComponent::Thumb);
+        assert_eq!(
+            sb.hit_test_component(pos(0.0, 16.0)),
+            ScrollbarComponent::Thumb
+        );
         // y == track_height - button_size is NOT the bottom button (strict >).
-        assert_eq!(sb.hit_test_component(pos(0.0, 84.0)), ScrollbarComponent::Track);
+        assert_eq!(
+            sb.hit_test_component(pos(0.0, 84.0)),
+            ScrollbarComponent::Track
+        );
         assert_eq!(
             sb.hit_test_component(pos(0.0, 84.001)),
             ScrollbarComponent::BottomButton
@@ -2289,11 +2356,23 @@ mod autotest_generated {
             0.0,
             50.0,
         );
-        assert_eq!(sb.hit_test_component(pos(0.0, 0.0)), ScrollbarComponent::Thumb);
-        assert_eq!(sb.hit_test_component(pos(0.0, 50.0)), ScrollbarComponent::Thumb);
-        assert_eq!(sb.hit_test_component(pos(0.0, 60.0)), ScrollbarComponent::Track);
+        assert_eq!(
+            sb.hit_test_component(pos(0.0, 0.0)),
+            ScrollbarComponent::Thumb
+        );
+        assert_eq!(
+            sb.hit_test_component(pos(0.0, 50.0)),
+            ScrollbarComponent::Thumb
+        );
+        assert_eq!(
+            sb.hit_test_component(pos(0.0, 60.0)),
+            ScrollbarComponent::Track
+        );
         // y == track_height is still not "> track_height - 0" ... it IS equal, so Track.
-        assert_eq!(sb.hit_test_component(pos(0.0, 100.0)), ScrollbarComponent::Track);
+        assert_eq!(
+            sb.hit_test_component(pos(0.0, 100.0)),
+            ScrollbarComponent::Track
+        );
     }
 
     #[test]
@@ -2363,7 +2442,10 @@ mod autotest_generated {
             30.0,
         );
         for x in [-1e9, -1.0, 0.0, 8.0, 1e9, f32::NAN] {
-            assert_eq!(v.hit_test_component(pos(x, 30.0)), ScrollbarComponent::Thumb);
+            assert_eq!(
+                v.hit_test_component(pos(x, 30.0)),
+                ScrollbarComponent::Thumb
+            );
         }
         let h = scrollbar(
             ScrollbarOrientation::Horizontal,
@@ -2373,7 +2455,10 @@ mod autotest_generated {
             30.0,
         );
         for y in [-1e9, -1.0, 0.0, 8.0, 1e9, f32::NAN] {
-            assert_eq!(h.hit_test_component(pos(30.0, y)), ScrollbarComponent::Thumb);
+            assert_eq!(
+                h.hit_test_component(pos(30.0, y)),
+                ScrollbarComponent::Thumb
+            );
         }
     }
 
@@ -2388,8 +2473,14 @@ mod autotest_generated {
             0.0,
             0.0,
         );
-        assert_eq!(sb.hit_test_component(pos(0.0, 0.0)), ScrollbarComponent::TopButton);
-        assert_eq!(sb.hit_test_component(pos(0.0, 3.0)), ScrollbarComponent::TopButton);
+        assert_eq!(
+            sb.hit_test_component(pos(0.0, 0.0)),
+            ScrollbarComponent::TopButton
+        );
+        assert_eq!(
+            sb.hit_test_component(pos(0.0, 3.0)),
+            ScrollbarComponent::TopButton
+        );
     }
 
     // ========================================================= ScrollManager::new
@@ -2446,7 +2537,10 @@ mod autotest_generated {
         // Sub-epsilon move (< SCROLL_CHANGE_EPSILON = 0.01) must NOT dirty the
         // display list — otherwise every trackpad jitter forces a rebuild.
         m.set_scroll_position(DOM, node(0), pos(0.0, 0.005), at(1));
-        assert!(!m.has_pending_scroll_changes(), "0.005px must not be 'moved'");
+        assert!(
+            !m.has_pending_scroll_changes(),
+            "0.005px must not be 'moved'"
+        );
 
         m.set_scroll_position(DOM, node(0), pos(0.0, 50.0), at(2));
         assert!(m.has_pending_scroll_changes());
@@ -2483,17 +2577,30 @@ mod autotest_generated {
 
         m.set_scroll_position(DOM, node(0), pos(f32::NAN, f32::NAN), at(4));
         let off = m.get_current_offset(DOM, node(0)).unwrap();
-        assert!(!off.x.is_nan() && !off.y.is_nan(), "clamped path must kill NaN");
+        assert!(
+            !off.x.is_nan() && !off.y.is_nan(),
+            "clamped path must kill NaN"
+        );
         assert_eq!(off, LogicalPosition::zero());
     }
 
     #[test]
     fn set_scroll_position_cancels_a_running_animation() {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
-        m.scroll_to(DOM, node(0), pos(0.0, 300.0), tick_dur(100), EasingFunction::Linear, at(0));
+        m.scroll_to(
+            DOM,
+            node(0),
+            pos(0.0, 300.0),
+            tick_dur(100),
+            EasingFunction::Linear,
+            at(0),
+        );
         assert!(m.has_active_animations());
         m.set_scroll_position(DOM, node(0), pos(0.0, 10.0), at(1));
-        assert!(!m.has_active_animations(), "an explicit set must win over easing");
+        assert!(
+            !m.has_active_animations(),
+            "an explicit set must win over easing"
+        );
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 10.0)));
     }
 
@@ -2503,7 +2610,10 @@ mod autotest_generated {
         // and the map grows by exactly one (no unbounded growth per call).
         let mut m = ScrollManager::new();
         m.set_scroll_position(DOM, node(42), pos(500.0, 500.0), at(1));
-        assert_eq!(m.get_current_offset(DOM, node(42)), Some(LogicalPosition::zero()));
+        assert_eq!(
+            m.get_current_offset(DOM, node(42)),
+            Some(LogicalPosition::zero())
+        );
         assert_eq!(m.debug_counts(), (1, 0));
         m.set_scroll_position(DOM, node(42), pos(600.0, 600.0), at(2));
         assert_eq!(m.debug_counts(), (1, 0), "repeat set must not grow the map");
@@ -2529,7 +2639,10 @@ mod autotest_generated {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         m.set_scroll_position_unclamped(DOM, node(0), pos(f32::NAN, f32::NAN), at(1));
         let off = m.get_current_offset(DOM, node(0)).unwrap();
-        assert!(off.x.is_nan() && off.y.is_nan(), "unclamped stores NaN as-is");
+        assert!(
+            off.x.is_nan() && off.y.is_nan(),
+            "unclamped stores NaN as-is"
+        );
         assert!(
             !m.has_pending_scroll_changes(),
             "a NaN write does not trip the dirty flag (NaN comparisons are false)"
@@ -2547,7 +2660,10 @@ mod autotest_generated {
             true,
         );
         let off = m.get_current_offset(DOM, node(0)).unwrap();
-        assert!(!off.x.is_nan() && !off.y.is_nan(), "re-clamp must sanitize NaN");
+        assert!(
+            !off.x.is_nan() && !off.y.is_nan(),
+            "re-clamp must sanitize NaN"
+        );
     }
 
     // ================================================== scroll_to / scroll_by
@@ -2556,8 +2672,18 @@ mod autotest_generated {
     #[test]
     fn scroll_to_zero_duration_is_immediate_for_both_clock_kinds() {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
-        m.scroll_to(DOM, node(0), pos(0.0, 100.0), tick_dur(0), EasingFunction::Linear, at(1));
-        assert!(!m.has_active_animations(), "zero Tick duration must not animate");
+        m.scroll_to(
+            DOM,
+            node(0),
+            pos(0.0, 100.0),
+            tick_dur(0),
+            EasingFunction::Linear,
+            at(1),
+        );
+        assert!(
+            !m.has_active_animations(),
+            "zero Tick duration must not animate"
+        );
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 100.0)));
 
         m.scroll_to(
@@ -2568,14 +2694,24 @@ mod autotest_generated {
             EasingFunction::EaseOut,
             at(2),
         );
-        assert!(!m.has_active_animations(), "zero System duration must not animate");
+        assert!(
+            !m.has_active_animations(),
+            "zero System duration must not animate"
+        );
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 200.0)));
     }
 
     #[test]
     fn scroll_to_clamps_the_animation_target_not_just_the_final_offset() {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
-        m.scroll_to(DOM, node(0), pos(0.0, 1e9), tick_dur(100), EasingFunction::Linear, at(0));
+        m.scroll_to(
+            DOM,
+            node(0),
+            pos(0.0, 1e9),
+            tick_dur(100),
+            EasingFunction::Linear,
+            at(0),
+        );
         let anim_target = m
             .get_scroll_state(DOM, node(0))
             .and_then(|s| s.animation.as_ref())
@@ -2604,16 +2740,33 @@ mod autotest_generated {
         );
         m.tick(at(10));
         let off = m.get_current_offset(DOM, node(0)).unwrap();
-        assert!(!off.x.is_nan() && !off.y.is_nan(), "NaN target must be clamped away");
+        assert!(
+            !off.x.is_nan() && !off.y.is_nan(),
+            "NaN target must be clamped away"
+        );
         assert_eq!(off, LogicalPosition::zero());
     }
 
     #[test]
     fn scroll_by_accumulates_from_the_current_offset_and_saturates() {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
-        m.scroll_by(DOM, node(0), pos(0.0, 100.0), tick_dur(0), EasingFunction::Linear, at(1));
+        m.scroll_by(
+            DOM,
+            node(0),
+            pos(0.0, 100.0),
+            tick_dur(0),
+            EasingFunction::Linear,
+            at(1),
+        );
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 100.0)));
-        m.scroll_by(DOM, node(0), pos(0.0, 100.0), tick_dur(0), EasingFunction::Linear, at(2));
+        m.scroll_by(
+            DOM,
+            node(0),
+            pos(0.0, 100.0),
+            tick_dur(0),
+            EasingFunction::Linear,
+            at(2),
+        );
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 200.0)));
         // A delta big enough to overflow f32 arithmetic: saturates at max travel.
         m.scroll_by(
@@ -2634,7 +2787,10 @@ mod autotest_generated {
             EasingFunction::Linear,
             at(4),
         );
-        assert_eq!(m.get_current_offset(DOM, node(0)), Some(LogicalPosition::zero()));
+        assert_eq!(
+            m.get_current_offset(DOM, node(0)),
+            Some(LogicalPosition::zero())
+        );
     }
 
     #[test]
@@ -2649,7 +2805,10 @@ mod autotest_generated {
             at(1),
         );
         // No bounds registered => max travel 0 => still at the origin, no panic.
-        assert_eq!(m.get_current_offset(DOM, node(7)), Some(LogicalPosition::zero()));
+        assert_eq!(
+            m.get_current_offset(DOM, node(7)),
+            Some(LogicalPosition::zero())
+        );
     }
 
     #[test]
@@ -2683,7 +2842,14 @@ mod autotest_generated {
     #[test]
     fn tick_interpolates_linearly_and_completes_exactly_once() {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
-        m.scroll_to(DOM, node(0), pos(0.0, 400.0), tick_dur(100), EasingFunction::Linear, at(0));
+        m.scroll_to(
+            DOM,
+            node(0),
+            pos(0.0, 400.0),
+            tick_dur(100),
+            EasingFunction::Linear,
+            at(0),
+        );
 
         let r = m.tick(at(50));
         assert!(r.needs_repaint);
@@ -2707,7 +2873,14 @@ mod autotest_generated {
         // t = 0 => offset stays at start. No negative-progress overshoot.
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         m.set_scroll_position(DOM, node(0), pos(0.0, 50.0), at(0));
-        m.scroll_to(DOM, node(0), pos(0.0, 400.0), tick_dur(100), EasingFunction::Linear, at(100));
+        m.scroll_to(
+            DOM,
+            node(0),
+            pos(0.0, 400.0),
+            tick_dur(100),
+            EasingFunction::Linear,
+            at(100),
+        );
         m.tick(at(0)); // clock went backwards
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 50.0)));
         assert!(m.has_active_animations(), "no progress => still animating");
@@ -2749,7 +2922,14 @@ mod autotest_generated {
         // a canonical nanosecond scale.
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         m.set_scroll_position(DOM, node(0), pos(0.0, 25.0), at(0));
-        m.scroll_to(DOM, node(0), pos(0.0, 400.0), tick_dur(10), EasingFunction::Linear, at(0));
+        m.scroll_to(
+            DOM,
+            node(0),
+            pos(0.0, 400.0),
+            tick_dur(10),
+            EasingFunction::Linear,
+            at(0),
+        );
         let r = m.tick(Instant::now()); // System clock vs Tick animation
         assert!(r.needs_repaint);
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 25.0)));
@@ -2773,8 +2953,22 @@ mod autotest_generated {
             false,
             true,
         );
-        m.scroll_to(DOM, node(0), pos(0.0, 400.0), tick_dur(10), EasingFunction::Linear, at(0));
-        m.scroll_to(DOM, node(1), pos(0.0, 200.0), tick_dur(10), EasingFunction::Linear, at(0));
+        m.scroll_to(
+            DOM,
+            node(0),
+            pos(0.0, 400.0),
+            tick_dur(10),
+            EasingFunction::Linear,
+            at(0),
+        );
+        m.scroll_to(
+            DOM,
+            node(1),
+            pos(0.0, 200.0),
+            tick_dur(10),
+            EasingFunction::Linear,
+            at(0),
+        );
         let r = m.tick(at(10));
         assert_eq!(r.updated_nodes.len(), 2);
         assert_eq!(m.get_current_offset(DOM, node(0)), Some(pos(0.0, 400.0)));
@@ -2799,7 +2993,11 @@ mod autotest_generated {
             false,
             true,
         );
-        assert_eq!(m.debug_counts(), (1, 0), "re-register must not grow the map");
+        assert_eq!(
+            m.debug_counts(),
+            (1, 0),
+            "re-register must not grow the map"
+        );
         assert_eq!(
             m.get_current_offset(DOM, node(0)),
             Some(pos(0.0, 300.0)),
@@ -2841,9 +3039,15 @@ mod autotest_generated {
             true,
         );
         let off = m.get_current_offset(DOM, node(0)).unwrap();
-        assert!(!off.x.is_nan() && !off.y.is_nan(), "NaN geometry must clamp to 0");
+        assert!(
+            !off.x.is_nan() && !off.y.is_nan(),
+            "NaN geometry must clamp to 0"
+        );
         assert_eq!(off, LogicalPosition::zero());
-        assert!(!m.is_node_scrollable(DOM, node(0)), "NaN overflow check is false");
+        assert!(
+            !m.is_node_scrollable(DOM, node(0)),
+            "NaN overflow check is false"
+        );
 
         m.register_or_update_scroll_node(
             DOM,
@@ -2951,7 +3155,10 @@ mod autotest_generated {
         m.set_scroll_position(DOM, node(0), pos(0.0, 200.0), at(1));
         // |eff| <= EPS (0.5) is "not moved" on that axis.
         assert!(!m.can_consume_delta(DOM, node(0), 0.0, 0.0));
-        assert!(!m.can_consume_delta(DOM, node(0), 0.5, 0.5), "exactly EPS is a no-move");
+        assert!(
+            !m.can_consume_delta(DOM, node(0), 0.5, 0.5),
+            "exactly EPS is a no-move"
+        );
         assert!(!m.can_consume_delta(DOM, node(0), -0.5, -0.5));
         assert!(m.can_consume_delta(DOM, node(0), 0.0, 0.51));
         assert!(m.can_consume_delta(DOM, node(0), 0.0, -0.51));
@@ -2983,7 +3190,10 @@ mod autotest_generated {
         assert!(m.can_consume_delta(DOM, node(0), 0.0, f32::INFINITY));
         assert!(m.can_consume_delta(DOM, node(0), 0.0, f32::NEG_INFINITY));
         assert!(m.can_consume_delta(DOM, node(0), 0.0, f32::MAX));
-        assert!(!m.can_consume_delta(DOM, node(999), 0.0, f32::MAX), "unknown node");
+        assert!(
+            !m.can_consume_delta(DOM, node(999), 0.0, f32::MAX),
+            "unknown node"
+        );
     }
 
     // ======================================== map_wheel_onto_the_only_scrollable_axis
@@ -3125,7 +3335,10 @@ mod autotest_generated {
     fn get_scroll_node_info_max_scroll_is_never_negative() {
         let m = mgr(size(500.0, 500.0), size(10.0, 10.0));
         let info = m.get_scroll_node_info(DOM, node(0)).unwrap();
-        assert_eq!(info.max_scroll_x, 0.0, "underflow must clamp to 0, not go negative");
+        assert_eq!(
+            info.max_scroll_x, 0.0,
+            "underflow must clamp to 0, not go negative"
+        );
         assert_eq!(info.max_scroll_y, 0.0);
         assert_eq!(info.current_offset, LogicalPosition::zero());
         assert!(m.get_scroll_node_info(DOM, node(1)).is_none());
@@ -3134,7 +3347,10 @@ mod autotest_generated {
     #[test]
     fn get_scroll_node_info_prefers_the_virtual_size_for_max_travel() {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 200.0));
-        assert_eq!(m.get_scroll_node_info(DOM, node(0)).unwrap().max_scroll_y, 100.0);
+        assert_eq!(
+            m.get_scroll_node_info(DOM, node(0)).unwrap().max_scroll_y,
+            100.0
+        );
         m.update_virtual_scroll_bounds(DOM, node(0), size(600.0, 5000.0), Some(pos(1.0, 2.0)));
         let info = m.get_scroll_node_info(DOM, node(0)).unwrap();
         assert_eq!(info.max_scroll_x, 500.0);
@@ -3178,12 +3394,19 @@ mod autotest_generated {
         m.update_virtual_scroll_bounds(DOM, node(0), size(f32::NAN, f32::NAN), None);
         let off = m.get_current_offset(DOM, node(0)).unwrap();
         assert!(!off.x.is_nan() && !off.y.is_nan());
-        assert_eq!(off, LogicalPosition::zero(), "NaN virtual size => zero travel");
+        assert_eq!(
+            off,
+            LogicalPosition::zero(),
+            "NaN virtual size => zero travel"
+        );
         assert!(!m.is_node_scrollable(DOM, node(0)));
 
         m.update_virtual_scroll_bounds(DOM, node(0), size(0.0, f32::INFINITY), None);
         let off = m.get_current_offset(DOM, node(0)).unwrap();
-        assert!(!off.y.is_nan(), "infinite virtual height must not produce NaN");
+        assert!(
+            !off.y.is_nan(),
+            "infinite virtual height must not produce NaN"
+        );
     }
 
     // ====================================================== update_node_bounds
@@ -3201,7 +3424,10 @@ mod autotest_generated {
             at(0),
         );
         assert_eq!(m.debug_counts(), (1, 0));
-        assert_eq!(m.get_current_offset(DOM, node(0)), Some(LogicalPosition::zero()));
+        assert_eq!(
+            m.get_current_offset(DOM, node(0)),
+            Some(LogicalPosition::zero())
+        );
 
         m.set_scroll_position(DOM, node(0), pos(0.0, 400.0), at(1));
         m.clear_scroll_dirty();
@@ -3248,7 +3474,10 @@ mod autotest_generated {
             at(2),
         );
         let off = m.get_current_offset(DOM, node(0)).unwrap();
-        assert!(!off.x.is_nan() && !off.y.is_nan(), "NaN bounds must clamp to 0");
+        assert!(
+            !off.x.is_nan() && !off.y.is_nan(),
+            "NaN bounds must clamp to 0"
+        );
         assert_eq!(off, LogicalPosition::zero());
 
         // Infinite content: the offset stays finite (clamped to the old value).
@@ -3299,7 +3528,10 @@ mod autotest_generated {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 120.0));
         m.update_virtual_scroll_bounds(DOM, node(0), size(100.0, 8000.0), None);
         let states = m.get_scroll_states_for_dom(DOM);
-        assert_eq!(states.get(&node(0)).unwrap().children_rect.size, size(100.0, 8000.0));
+        assert_eq!(
+            states.get(&node(0)).unwrap().children_rect.size,
+            size(100.0, 8000.0)
+        );
     }
 
     /// CONVENTION PIN, end to end: `children_rect.origin` is the raw scroll
@@ -3374,9 +3606,15 @@ mod autotest_generated {
 
         // --- unscrolled: the thumb sits at the very top / far left ----------
         let v = geom(&m, pos(0.0, 0.0), ScrollbarOrientation::Vertical);
-        assert_eq!(v.thumb_offset, 0.0, "was 38.4 with the mixed-origin subtraction");
+        assert_eq!(
+            v.thumb_offset, 0.0,
+            "was 38.4 with the mixed-origin subtraction"
+        );
         let h = geom(&m, pos(0.0, 0.0), ScrollbarOrientation::Horizontal);
-        assert_eq!(h.thumb_offset, 0.0, "was ~78.9 with the mixed-origin subtraction");
+        assert_eq!(
+            h.thumb_offset, 0.0,
+            "was ~78.9 with the mixed-origin subtraction"
+        );
 
         // --- half way: half of the thumb's travel ---------------------------
         m.set_scroll_position(DOM, node(0), pos(300.0, 400.0), at(1));
@@ -3435,7 +3673,11 @@ mod autotest_generated {
         ids.insert(100, node(0)); // scroll id 100 -> DOM node 0
         ids.insert(700, node(7)); // an id for a node that has no scroll state
         let map = m.build_scroll_offset_map(DOM, &ids);
-        assert_eq!(map.len(), 1, "node 4 has no scroll_id; DOM1 is a different dom");
+        assert_eq!(
+            map.len(),
+            1,
+            "node 4 has no scroll_id; DOM1 is a different dom"
+        );
         assert_eq!(map.get(&100), Some(&(0.0, 25.0)));
         assert!(!map.contains_key(&700));
     }
@@ -3495,7 +3737,11 @@ mod autotest_generated {
             Some(&(0.0, 300.0)),
             "the scrolled container must reach the renderer, or its content freezes"
         );
-        assert_eq!(map.get(&100), Some(&(0.0, 0.0)), "the unscrolled root still reports (0,0)");
+        assert_eq!(
+            map.get(&100),
+            Some(&(0.0, 0.0)),
+            "the unscrolled root still reports (0,0)"
+        );
     }
 
     // ====================================================== find_scroll_parent
@@ -3505,9 +3751,24 @@ mod autotest_generated {
     fn find_scroll_parent_walks_up_to_the_nearest_registered_ancestor() {
         // hierarchy: 0 (root) <- 1 <- 2  (parent field is 1-based encoded)
         let hierarchy = [
-            NodeHierarchyItem { parent: 0, previous_sibling: 0, next_sibling: 0, last_child: 2 },
-            NodeHierarchyItem { parent: 1, previous_sibling: 0, next_sibling: 0, last_child: 3 },
-            NodeHierarchyItem { parent: 2, previous_sibling: 0, next_sibling: 0, last_child: 0 },
+            NodeHierarchyItem {
+                parent: 0,
+                previous_sibling: 0,
+                next_sibling: 0,
+                last_child: 2,
+            },
+            NodeHierarchyItem {
+                parent: 1,
+                previous_sibling: 0,
+                next_sibling: 0,
+                last_child: 3,
+            },
+            NodeHierarchyItem {
+                parent: 2,
+                previous_sibling: 0,
+                next_sibling: 0,
+                last_child: 0,
+            },
         ];
         let m = mgr(size(100.0, 100.0), size(100.0, 500.0)); // node 0 registered
         for incl in [Inclusivity::AncestorsOnly, Inclusivity::SelfAndAncestors] {
@@ -3528,8 +3789,18 @@ mod autotest_generated {
         // is why drag-autoscroll inside an overflowing TextInput scrolled the
         // PAGE instead of the field (the caret's node IS the scroll box).
         let hierarchy = [
-            NodeHierarchyItem { parent: 0, previous_sibling: 0, next_sibling: 0, last_child: 2 },
-            NodeHierarchyItem { parent: 1, previous_sibling: 0, next_sibling: 0, last_child: 0 },
+            NodeHierarchyItem {
+                parent: 0,
+                previous_sibling: 0,
+                next_sibling: 0,
+                last_child: 2,
+            },
+            NodeHierarchyItem {
+                parent: 1,
+                previous_sibling: 0,
+                next_sibling: 0,
+                last_child: 0,
+            },
         ];
         let m = mgr(size(100.0, 100.0), size(100.0, 500.0)); // node 0 registered
         assert_eq!(
@@ -3553,7 +3824,10 @@ mod autotest_generated {
             assert_eq!(m.find_scroll_parent(DOM, node(9999), &[], incl), None);
             // Node id past the end of the hierarchy: still no panic.
             let hierarchy = [NodeHierarchyItem::zeroed()];
-            assert_eq!(m.find_scroll_parent(DOM, node(9999), &hierarchy, incl), None);
+            assert_eq!(
+                m.find_scroll_parent(DOM, node(9999), &hierarchy, incl),
+                None
+            );
         }
     }
 
@@ -3561,8 +3835,18 @@ mod autotest_generated {
     fn find_scroll_parent_terminates_on_a_cyclic_hierarchy() {
         // 0 -> 1 -> 0 (parent is 1-based encoded, so `parent: 2` means node 1).
         let hierarchy = [
-            NodeHierarchyItem { parent: 2, previous_sibling: 0, next_sibling: 0, last_child: 0 },
-            NodeHierarchyItem { parent: 1, previous_sibling: 0, next_sibling: 0, last_child: 0 },
+            NodeHierarchyItem {
+                parent: 2,
+                previous_sibling: 0,
+                next_sibling: 0,
+                last_child: 0,
+            },
+            NodeHierarchyItem {
+                parent: 1,
+                previous_sibling: 0,
+                next_sibling: 0,
+                last_child: 0,
+            },
         ];
         let m = ScrollManager::new();
         assert_eq!(
@@ -3590,7 +3874,11 @@ mod autotest_generated {
         for _ in 0..10 {
             m.calculate_scrollbar_states();
         }
-        assert_eq!(m.debug_counts(), (1, 1), "per-frame recompute must not accumulate");
+        assert_eq!(
+            m.debug_counts(),
+            (1, 1),
+            "per-frame recompute must not accumulate"
+        );
         assert_eq!(m.iter_scrollbar_states().count(), 1);
     }
 
@@ -3665,8 +3953,14 @@ mod autotest_generated {
             .get_scrollbar_state(DOM, node(0), ScrollbarOrientation::Vertical)
             .unwrap();
         assert_eq!(sb.base_size, crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX);
-        assert_eq!(sb.button_size, 0.0, "overlay scrollbars have no arrow buttons");
-        assert!(sb.scale.x.is_finite() && sb.scale.y.is_finite(), "no div-by-zero");
+        assert_eq!(
+            sb.button_size, 0.0,
+            "overlay scrollbars have no arrow buttons"
+        );
+        assert!(
+            sb.scale.x.is_finite() && sb.scale.y.is_finite(),
+            "no div-by-zero"
+        );
     }
 
     #[test]
@@ -3709,12 +4003,18 @@ mod autotest_generated {
         let mut m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         m.calculate_scrollbar_states();
         // Track is the right-hand 16px strip: origin.x = 100 - 16 = 84.
-        let hit = m.hit_test_scrollbars(pos(90.0, 50.0)).expect("inside the track");
+        let hit = m
+            .hit_test_scrollbars(pos(90.0, 50.0))
+            .expect("inside the track");
         assert_eq!(hit.dom_id, DOM);
         assert_eq!(hit.node_id, node(0));
         assert_eq!(hit.orientation, ScrollbarOrientation::Vertical);
         assert_eq!(hit.global_position, pos(90.0, 50.0));
-        assert_eq!(hit.local_position, pos(6.0, 50.0), "local = global - track origin");
+        assert_eq!(
+            hit.local_position,
+            pos(6.0, 50.0),
+            "local = global - track origin"
+        );
 
         // Just outside the track (content area) => no hit.
         assert!(m.hit_test_scrollbars(pos(10.0, 50.0)).is_none());
@@ -3722,7 +4022,9 @@ mod autotest_generated {
         let hit2 = m.hit_test_scrollbar(DOM, node(0), pos(90.0, 50.0)).unwrap();
         assert_eq!(hit2.local_position, hit.local_position);
         assert_eq!(hit2.component, hit.component);
-        assert!(m.hit_test_scrollbar(DOM, node(1), pos(90.0, 50.0)).is_none());
+        assert!(m
+            .hit_test_scrollbar(DOM, node(1), pos(90.0, 50.0))
+            .is_none());
     }
 
     #[test]
@@ -3752,7 +4054,9 @@ mod autotest_generated {
         // first must be a clean miss, not a stale hit.
         let m = mgr(size(100.0, 100.0), size(100.0, 500.0));
         assert!(m.hit_test_scrollbars(pos(90.0, 50.0)).is_none());
-        assert!(m.hit_test_scrollbar(DOM, node(0), pos(90.0, 50.0)).is_none());
+        assert!(m
+            .hit_test_scrollbar(DOM, node(0), pos(90.0, 50.0))
+            .is_none());
     }
 
     #[test]
@@ -3764,7 +4068,9 @@ mod autotest_generated {
             .unwrap()
             .visible = false;
         assert!(m.hit_test_scrollbars(pos(90.0, 50.0)).is_none());
-        assert!(m.hit_test_scrollbar(DOM, node(0), pos(90.0, 50.0)).is_none());
+        assert!(m
+            .hit_test_scrollbar(DOM, node(0), pos(90.0, 50.0))
+            .is_none());
     }
 
     // ========================================================= input recording
@@ -3773,10 +4079,19 @@ mod autotest_generated {
     #[test]
     fn record_scroll_input_reports_start_timer_only_on_the_first_pending_event() {
         let mut m = ScrollManager::new();
-        assert!(m.record_scroll_input(input(0.0, 1.0, 1)), "queue was empty => start");
-        assert!(!m.record_scroll_input(input(0.0, 1.0, 2)), "timer already running");
+        assert!(
+            m.record_scroll_input(input(0.0, 1.0, 1)),
+            "queue was empty => start"
+        );
+        assert!(
+            !m.record_scroll_input(input(0.0, 1.0, 2)),
+            "timer already running"
+        );
         let _ = m.get_input_queue().take_all();
-        assert!(m.record_scroll_input(input(0.0, 1.0, 3)), "drained => start again");
+        assert!(
+            m.record_scroll_input(input(0.0, 1.0, 3)),
+            "drained => start again"
+        );
     }
 
     #[test]
@@ -3806,8 +4121,15 @@ mod autotest_generated {
             at(1),
         );
         assert!(out.is_none(), "no hover => no scroll target");
-        assert_eq!(m.pending_wheel_event, Some(pos(3.0, -7.0)), "raw delta is recorded");
-        assert!(!m.get_input_queue().has_pending(), "nothing queued for physics");
+        assert_eq!(
+            m.pending_wheel_event,
+            Some(pos(3.0, -7.0)),
+            "raw delta is recorded"
+        );
+        assert!(
+            !m.get_input_queue().has_pending(),
+            "nothing queued for physics"
+        );
     }
 
     #[test]
@@ -3825,7 +4147,10 @@ mod autotest_generated {
             )
             .expect("node 0 is scrollable and under the cursor");
         assert_eq!((dom_id, node_id), (DOM, node(0)));
-        assert!(start_timer, "first queued input must start the physics timer");
+        assert!(
+            start_timer,
+            "first queued input must start the physics timer"
+        );
         assert_eq!(m.pending_wheel_event, Some(pos(0.0, -10.0)));
 
         // A second event while the queue is still pending must NOT re-start it.
@@ -3873,7 +4198,10 @@ mod autotest_generated {
             &InputPointId::Mouse,
             at(1),
         );
-        assert!(out.is_none(), "a non-overflowing node must not swallow the wheel");
+        assert!(
+            out.is_none(),
+            "a non-overflowing node must not swallow the wheel"
+        );
         assert_eq!(m.pending_wheel_event, Some(pos(0.0, -10.0)));
         assert!(!m.get_input_queue().has_pending());
     }
@@ -3965,7 +4293,10 @@ mod autotest_generated {
         let q = m.get_input_queue();
         assert!(!q.has_pending());
         m.record_scroll_input(input(0.0, 1.0, 1));
-        assert!(q.has_pending(), "the handle must observe pushes made by the manager");
+        assert!(
+            q.has_pending(),
+            "the handle must observe pushes made by the manager"
+        );
         assert_eq!(q.take_all().len(), 1);
         assert!(
             !m.get_input_queue().has_pending(),
@@ -3973,7 +4304,6 @@ mod autotest_generated {
         );
     }
 }
-
 
 #[cfg(all(test, feature = "std"))]
 impl ScrollManager {

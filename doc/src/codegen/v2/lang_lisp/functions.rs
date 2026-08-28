@@ -126,7 +126,12 @@ fn emit_defcfun(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
             }
         };
         let suffix = if i == last_idx { ")" } else { "" };
-        builder.line(&format!("({} {}){}", ident_to_kebab(&a.name), cffi_ty, suffix));
+        builder.line(&format!(
+            "({} {}){}",
+            ident_to_kebab(&a.name),
+            cffi_ty,
+            suffix
+        ));
     }
     builder.dedent();
     builder.blank();

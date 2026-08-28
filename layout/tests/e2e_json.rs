@@ -102,7 +102,10 @@ fn run_all_e2e_scenarios() {
         .filter(|w| w[0] == w[1])
         .map(|w| w[0])
         .collect();
-    assert!(dupes.is_empty(), "duplicate e2e scenario name(s): {dupes:?}");
+    assert!(
+        dupes.is_empty(),
+        "duplicate e2e scenario name(s): {dupes:?}"
+    );
 
     // Sort up front so BOTH the report order and the pairing in `render_report`
     // are independent of directory-iteration order.

@@ -72,9 +72,13 @@ use super::{ffi_type_name, sanitize_identifier};
 pub fn generate_wrappers(ir: &CodegenIR) -> String {
     let mut out = String::new();
 
-    out.push_str("// ============================================================================\n");
+    out.push_str(
+        "// ============================================================================\n",
+    );
     out.push_str("// Idiomatic wrappers (heap-owning types with `deinit()`).\n");
-    out.push_str("// ============================================================================\n");
+    out.push_str(
+        "// ============================================================================\n",
+    );
     out.push('\n');
 
     for s in &ir.structs {
@@ -85,9 +89,13 @@ pub fn generate_wrappers(ir: &CodegenIR) -> String {
     }
 
     // Tagged-union helper namespaces (variant constructors + Tag table).
-    out.push_str("\n// ============================================================================\n");
+    out.push_str(
+        "\n// ============================================================================\n",
+    );
     out.push_str("// Tagged-union helpers (variant constructors + Tag discriminators).\n");
-    out.push_str("// ============================================================================\n");
+    out.push_str(
+        "// ============================================================================\n",
+    );
     out.push('\n');
 
     for e in &ir.enums {
@@ -304,8 +312,18 @@ fn emit_static_factory(
 
     // Static factories shouldn't carry a self arg in practice, but filter
     // defensively in case the IR ever surfaces one.
-    let params = format_params(&f.args, self_arg_name, /* skip_self */ false, reserved_names);
-    let call_args = format_call_args(&f.args, self_arg_name, /* skip_self */ false, reserved_names);
+    let params = format_params(
+        &f.args,
+        self_arg_name,
+        /* skip_self */ false,
+        reserved_names,
+    );
+    let call_args = format_call_args(
+        &f.args,
+        self_arg_name,
+        /* skip_self */ false,
+        reserved_names,
+    );
 
     let returns_self = f
         .return_type
@@ -364,8 +382,18 @@ fn emit_instance_method(
         }
     }
 
-    let params = format_params(&f.args, self_arg_name, /* skip_self */ true, reserved_names);
-    let user_call_args = format_call_args(&f.args, self_arg_name, /* skip_self */ true, reserved_names);
+    let params = format_params(
+        &f.args,
+        self_arg_name,
+        /* skip_self */ true,
+        reserved_names,
+    );
+    let user_call_args = format_call_args(
+        &f.args,
+        self_arg_name,
+        /* skip_self */ true,
+        reserved_names,
+    );
 
     let returns_self = f
         .return_type
@@ -460,7 +488,9 @@ fn emit_union_helper(out: &mut String, ir: &CodegenIR, e: &EnumDef) {
     }
 
     out.push_str(&format!("pub const {} = struct {{\n", zig_name));
-    out.push_str(&format!("    /// The raw FFI tagged-union type, as exposed by `@cImport`.\n"));
+    out.push_str(&format!(
+        "    /// The raw FFI tagged-union type, as exposed by `@cImport`.\n"
+    ));
     out.push_str(&format!("    pub const Raw = C.{};\n", ffi_name));
     out.push('\n');
 

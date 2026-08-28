@@ -30,14 +30,30 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
-    impl_option, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut, impl_vec_partialeq,
+    impl_option, impl_option_inner, impl_vec, impl_vec_clone, impl_vec_debug, impl_vec_mut,
+    impl_vec_partialeq,
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutOverflow, LayoutAlignItems, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            StyleFontSize,
+        },
+        layout::{
+            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutOverflow,
+            LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop,
+        },
         property::{CssProperty, CssPropertyType},
-        style::{StyleBackgroundContent, StyleBackgroundContentVec, StyleTextColor, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleCursor, StyleUserSelect, StyleTextAlign},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -53,8 +69,9 @@ static ACCORDION_HEADER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
 static ACCORDION_TITLE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul-native-accordion-title",
 ))];
-static ACCORDION_BODY_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-accordion-body"))];
+static ACCORDION_BODY_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-accordion-body",
+))];
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
@@ -85,9 +102,24 @@ azul_core::impl_managed_callback! {
 }
 
 // ---- colours ----
-const BORDER_COLOR: ColorU = ColorU { r: 222, g: 226, b: 230, a: 255 }; // #dee2e6
-const HEADER_BG: ColorU = ColorU { r: 248, g: 249, b: 250, a: 255 }; // #f8f9fa
-const TEXT_COLOR: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 }; // #212529
+const BORDER_COLOR: ColorU = ColorU {
+    r: 222,
+    g: 226,
+    b: 230,
+    a: 255,
+}; // #dee2e6
+const HEADER_BG: ColorU = ColorU {
+    r: 248,
+    g: 249,
+    b: 250,
+    a: 255,
+}; // #f8f9fa
+const TEXT_COLOR: ColorU = ColorU {
+    r: 33,
+    g: 37,
+    b: 41,
+    a: 255,
+}; // #212529
 
 const HEADER_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(HEADER_BG)];
 const HEADER_BG_VEC: StyleBackgroundContentVec =
@@ -116,13 +148,19 @@ impl AccordionSection {
     }
 
     /// Builder method: sets the initial open state.
-    #[must_use] pub const fn with_open(mut self, open: bool) -> Self {
+    #[must_use]
+    pub const fn with_open(mut self, open: bool) -> Self {
         self.is_open = open;
         self
     }
 }
 
-impl_option!(AccordionSection, OptionAccordionSection, copy = false, [Debug, Clone, PartialEq, Eq]);
+impl_option!(
+    AccordionSection,
+    OptionAccordionSection,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq]
+);
 impl_vec!(
     AccordionSection,
     AccordionSectionVec,
@@ -131,7 +169,11 @@ impl_vec!(
     AccordionSectionVecSlice,
     OptionAccordionSection
 );
-impl_vec_clone!(AccordionSection, AccordionSectionVec, AccordionSectionVecDestructor);
+impl_vec_clone!(
+    AccordionSection,
+    AccordionSectionVec,
+    AccordionSectionVecDestructor
+);
 impl_vec_debug!(AccordionSection, AccordionSectionVec);
 impl_vec_partialeq!(AccordionSection, AccordionSectionVec);
 impl_vec_mut!(AccordionSection, AccordionSectionVec);
@@ -254,9 +296,9 @@ static ACCORDION_HEADER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(10),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        12,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(12),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(12),
     )),
@@ -279,9 +321,9 @@ static ACCORDION_BODY_STYLE_OPEN: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(12),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        12,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(12),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(12),
     )),
@@ -304,9 +346,9 @@ static ACCORDION_BODY_STYLE_CLOSED: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(12),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        12,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(12),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(12),
     )),
@@ -314,7 +356,8 @@ static ACCORDION_BODY_STYLE_CLOSED: &[CssPropertyWithConditions] = &[
 
 impl Accordion {
     /// Creates a new accordion from the given sections, with no toggle callback.
-    #[must_use] pub fn new(sections: AccordionSectionVec) -> Self {
+    #[must_use]
+    pub fn new(sections: AccordionSectionVec) -> Self {
         Self {
             sections,
             on_toggle: None.into(),
@@ -322,7 +365,8 @@ impl Accordion {
     }
 
     /// Creates an empty accordion.
-    #[must_use] pub fn create() -> Self {
+    #[must_use]
+    pub fn create() -> Self {
         Self::new(AccordionSectionVec::from_const_slice(&[]))
     }
 
@@ -336,7 +380,8 @@ impl Accordion {
     }
 
     /// Builder method: sets the toggle callback.
-    #[must_use] pub fn with_on_toggle<C: Into<AccordionOnToggleCallback>>(
+    #[must_use]
+    pub fn with_on_toggle<C: Into<AccordionOnToggleCallback>>(
         mut self,
         data: RefAny,
         callback: C,
@@ -346,14 +391,16 @@ impl Accordion {
     }
 
     /// Replaces `self` with an empty default accordion and returns the original.
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create();
         core::mem::swap(&mut s, self);
         s
     }
 
     /// Renders the accordion into a [`Dom`] subtree.
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         let on_toggle = self.on_toggle;
         let sections = self.sections;
 
@@ -660,7 +707,11 @@ mod autotest_generated {
     /// Invokes `on_accordion_header_click` against a `LayoutWindow` holding
     /// `styled` (or nothing at all, when `styled` is `None`), with `hit` as the
     /// hit node. Returns the `Update` plus every recorded `CallbackChange`.
-    fn run_click(styled: Option<StyledDom>, hit: usize, data: RefAny) -> (Update, Vec<CallbackChange>) {
+    fn run_click(
+        styled: Option<StyledDom>,
+        hit: usize,
+        data: RefAny,
+    ) -> (Update, Vec<CallbackChange>) {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         if let Some(sd) = styled {
@@ -717,7 +768,9 @@ mod autotest_generated {
         let mut out = Vec::new();
         for change in changes {
             if let CallbackChange::ChangeNodeCssProperties {
-                node_id, properties, ..
+                node_id,
+                properties,
+                ..
             } = change
             {
                 for p in properties.as_ref() {
@@ -765,7 +818,9 @@ mod autotest_generated {
 
     #[test]
     fn section_new_stores_args_and_starts_closed() {
-        let content = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("body"));
+        let content = Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("body"),
+        );
         let sec = AccordionSection::new("Title", content.clone());
 
         assert_eq!(sec.title.as_str(), "Title");
@@ -893,7 +948,8 @@ mod autotest_generated {
             AccordionSection::new("a", Dom::create_div()),
             AccordionSection::new("b", Dom::create_div()).with_open(true),
         ]);
-        let mut acc = Accordion::new(sections).with_on_toggle(RefAny::new(5u8), toggle_cb(record_toggle));
+        let mut acc =
+            Accordion::new(sections).with_on_toggle(RefAny::new(5u8), toggle_cb(record_toggle));
 
         let original = acc.swap_with_default();
 
@@ -926,8 +982,15 @@ mod autotest_generated {
     #[test]
     fn dom_display_follows_is_open() {
         let acc = Accordion::new(AccordionSectionVec::from_vec(alloc::vec![
-            AccordionSection::new("closed", Dom::create_text_do_not_use_without_block_level_wrapper("c0")),
-            AccordionSection::new("open", Dom::create_text_do_not_use_without_block_level_wrapper("c1")).with_open(true),
+            AccordionSection::new(
+                "closed",
+                Dom::create_text_do_not_use_without_block_level_wrapper("c0")
+            ),
+            AccordionSection::new(
+                "open",
+                Dom::create_text_do_not_use_without_block_level_wrapper("c1")
+            )
+            .with_open(true),
         ]));
         let dom = acc.dom();
         assert_eq!(dom.children.as_ref().len(), 2);
@@ -951,7 +1014,10 @@ mod autotest_generated {
             assert!(matches!(h.root.get_tab_index(), Some(TabIndex::Auto)));
             let cbs = h.root.get_callbacks();
             assert_eq!(cbs.len(), 1);
-            assert_eq!(cbs.as_ref()[0].event, EventFilter::Hover(HoverEventFilter::MouseUp));
+            assert_eq!(
+                cbs.as_ref()[0].event,
+                EventFilter::Hover(HoverEventFilter::MouseUp)
+            );
             assert_eq!(
                 cbs.as_ref()[0].callback.cb,
                 on_accordion_header_click as usize
@@ -1202,9 +1268,17 @@ mod autotest_generated {
         let writes: Vec<_> = changes
             .iter()
             .filter_map(|c| match c {
-                CallbackChange::ChangeNodeCssProperties { node_id, properties, .. } => Some((
+                CallbackChange::ChangeNodeCssProperties {
+                    node_id,
+                    properties,
+                    ..
+                } => Some((
                     node_id.index(),
-                    properties.as_ref().iter().map(|p| p.get_type()).collect::<Vec<_>>(),
+                    properties
+                        .as_ref()
+                        .iter()
+                        .map(|p| p.get_type())
+                        .collect::<Vec<_>>(),
                 )),
                 _ => None,
             })

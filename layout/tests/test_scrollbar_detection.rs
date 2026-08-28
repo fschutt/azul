@@ -792,9 +792,7 @@ fn test_scrolling_c_style_layout() {
     );
 
     let (x, y, w, h, _) = vertical_scrollbars[0];
-    println!(
-        "Vertical scrollbar in flex layout: x={x}, y={y}, w={w}, h={h}"
-    );
+    println!("Vertical scrollbar in flex layout: x={x}, y={y}, w={w}, h={h}");
 
     // Scrollbar should be within the scroll-container bounds
     // Header is 50px, so scroll container starts at y=50

@@ -106,13 +106,21 @@ const VIDIOC_TYPE: u32 = b'V' as u32;
 
 // VIDIOC_* request codes, encoded from the struct sizes below.
 fn vidioc_querycap() -> c_ulong {
-    iowr(VIDIOC_TYPE, 0, core::mem::size_of::<v4l2_capability>() as u32)
+    iowr(
+        VIDIOC_TYPE,
+        0,
+        core::mem::size_of::<v4l2_capability>() as u32,
+    )
 }
 fn vidioc_s_fmt() -> c_ulong {
     iowr(VIDIOC_TYPE, 5, core::mem::size_of::<v4l2_format>() as u32)
 }
 fn vidioc_reqbufs() -> c_ulong {
-    iowr(VIDIOC_TYPE, 8, core::mem::size_of::<v4l2_requestbuffers>() as u32)
+    iowr(
+        VIDIOC_TYPE,
+        8,
+        core::mem::size_of::<v4l2_requestbuffers>() as u32,
+    )
 }
 fn vidioc_querybuf() -> c_ulong {
     iowr(VIDIOC_TYPE, 9, core::mem::size_of::<v4l2_buffer>() as u32)
@@ -124,7 +132,11 @@ fn vidioc_dqbuf() -> c_ulong {
     iowr(VIDIOC_TYPE, 17, core::mem::size_of::<v4l2_buffer>() as u32)
 }
 fn vidioc_s_parm() -> c_ulong {
-    iowr(VIDIOC_TYPE, 22, core::mem::size_of::<v4l2_streamparm>() as u32)
+    iowr(
+        VIDIOC_TYPE,
+        22,
+        core::mem::size_of::<v4l2_streamparm>() as u32,
+    )
 }
 
 /// `struct v4l2_fract`.
@@ -163,10 +175,20 @@ struct v4l2_streamparm {
 const V4L2_CAP_TIMEPERFRAME: u32 = 0x1000;
 // STREAMON / STREAMOFF take a plain `int` (the buffer type), via _IOW.
 fn vidioc_streamon() -> c_ulong {
-    ioc(IOC_WRITE, VIDIOC_TYPE, 18, core::mem::size_of::<c_int>() as u32)
+    ioc(
+        IOC_WRITE,
+        VIDIOC_TYPE,
+        18,
+        core::mem::size_of::<c_int>() as u32,
+    )
 }
 fn vidioc_streamoff() -> c_ulong {
-    ioc(IOC_WRITE, VIDIOC_TYPE, 19, core::mem::size_of::<c_int>() as u32)
+    ioc(
+        IOC_WRITE,
+        VIDIOC_TYPE,
+        19,
+        core::mem::size_of::<c_int>() as u32,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +219,7 @@ struct v4l2_pix_format {
     colorspace: u32,
     priv_: u32,
     flags: u32,
-    enc: u32,        // anonymous union { ycbcr_enc; hsv_enc; } (u32)
+    enc: u32, // anonymous union { ycbcr_enc; hsv_enc; } (u32)
     quantization: u32,
     xfer_func: u32,
 }
@@ -367,7 +389,10 @@ pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u
         }
         if fmt.pix.pixelformat != V4L2_PIX_FMT_RGB24 {
             // libv4l2 couldn't deliver RGB24 - bail (worker uses test pattern).
-            return fail(fd, "RGB24 negotiation (libv4l2 could not convert the device's native format)");
+            return fail(
+                fd,
+                "RGB24 negotiation (libv4l2 could not convert the device's native format)",
+            );
         }
         // The driver may adjust the resolution; honor what it returned.
         let width = fmt.pix.width;
@@ -409,7 +434,8 @@ pub fn open(request: &azul_layout::widgets::capture_common::CaptureRequest) -> u
         req.count = BUF_COUNT;
         req.type_ = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         req.memory = V4L2_MEMORY_MMAP;
-        if (f.ioctl)(fd, vidioc_reqbufs(), &mut req as *mut _ as *mut c_void) < 0 || req.count == 0 {
+        if (f.ioctl)(fd, vidioc_reqbufs(), &mut req as *mut _ as *mut c_void) < 0 || req.count == 0
+        {
             return fail(fd, "VIDIOC_REQBUFS");
         }
 

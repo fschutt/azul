@@ -71,9 +71,7 @@ pub fn parse_shape(input: &str) -> Result<CssShape, ShapeParseError> {
 }
 
 /// Extracts function name and arguments from "func(args)"
-fn parse_function(
-    input: &str,
-) -> Result<(String, String), ShapeParseError> {
+fn parse_function(input: &str) -> Result<(String, String), ShapeParseError> {
     let open_paren = input
         .find('(')
         .ok_or_else(|| ShapeParseError::InvalidSyntax("Missing opening parenthesis".into()))?;
@@ -695,11 +693,11 @@ mod autotest_generated {
             "\u{1F600}",
             "circle(\u{1F600})",
             "\u{1F600}(50px)",
-            "cercle\u{301}(50px)",       // combining acute on the name
-            "circle(50px\u{200b})",      // zero-width space glued to the unit
+            "cercle\u{301}(50px)",        // combining acute on the name
+            "circle(50px\u{200b})",       // zero-width space glued to the unit
             "circle(\u{FF15}\u{FF10}px)", // fullwidth digits
             "円(50px)",
-            "\u{202e}circle(50px)",  // RTL override
+            "\u{202e}circle(50px)", // RTL override
             "polygon(\u{1F4A9} \u{1F4A9}, 0 0, 1 1)",
             "path(\u{1F600})",
             "inset(\u{1F600} round \u{1F600})",
@@ -761,14 +759,23 @@ mod autotest_generated {
     fn shape_parsing_is_deterministic() {
         let input = "polygon(0px 0px, 100px 0px, 50px 100px)";
         assert_eq!(parse_shape(input).unwrap(), parse_shape(input).unwrap());
-        assert_eq!(parse_shape("!!!").unwrap_err(), parse_shape("!!!").unwrap_err());
+        assert_eq!(
+            parse_shape("!!!").unwrap_err(),
+            parse_shape("!!!").unwrap_err()
+        );
     }
 
     #[test]
     fn shape_minimal_valid_input_per_function() {
         assert_eq!(circle_of(&parse_shape("circle(1)").unwrap()).radius, 1.0);
-        assert_eq!(ellipse_of(&parse_shape("ellipse(1 2)").unwrap()).radius_y, 2.0);
-        assert_eq!(polygon_points(&parse_shape("polygon(0 0,1 0,0 1)").unwrap()).len(), 3);
+        assert_eq!(
+            ellipse_of(&parse_shape("ellipse(1 2)").unwrap()).radius_y,
+            2.0
+        );
+        assert_eq!(
+            polygon_points(&parse_shape("polygon(0 0,1 0,0 1)").unwrap()).len(),
+            3
+        );
         assert_eq!(inset_of(&parse_shape("inset(0)").unwrap()).inset_top, 0.0);
         assert_eq!(path_data(&parse_shape("path(\"\")").unwrap()), "");
     }
@@ -798,7 +805,10 @@ mod autotest_generated {
     fn function_uses_first_open_and_last_close_paren() {
         let (name, args) = parse_function("a(b(c))").unwrap();
         assert_eq!(name, "a");
-        assert_eq!(args, "b(c)", "rfind(')') must take the outermost close paren");
+        assert_eq!(
+            args, "b(c)",
+            "rfind(')') must take the outermost close paren"
+        );
     }
 
     #[test]
@@ -897,7 +907,10 @@ mod autotest_generated {
         // Overflow saturates to inf, underflow flushes to zero — no panic, no wrap.
         assert!(radius_of("circle(1e39px)").is_infinite());
         assert_eq!(radius_of("circle(1e-46px)"), 0.0);
-        assert_eq!(radius_of("circle(9223372036854775807px)"), 9223372036854775807.0_f32);
+        assert_eq!(
+            radius_of("circle(9223372036854775807px)"),
+            9223372036854775807.0_f32
+        );
     }
 
     #[test]
@@ -981,7 +994,10 @@ mod autotest_generated {
             parse_polygon("0 0, 1 1"),
             Err(ShapeParseError::InvalidSyntax(ref m)) if m.contains("at least 3 points")
         ));
-        assert_eq!(polygon_points(&parse_polygon("0 0, 1 1, 2 2").unwrap()).len(), 3);
+        assert_eq!(
+            polygon_points(&parse_polygon("0 0, 1 1, 2 2").unwrap()).len(),
+            3
+        );
     }
 
     #[test]
@@ -1076,25 +1092,45 @@ mod autotest_generated {
     fn inset_shorthand_expansion_follows_the_margin_rules() {
         let one = inset_of(&parse_inset("10px").unwrap());
         assert_eq!(
-            (one.inset_top, one.inset_right, one.inset_bottom, one.inset_left),
+            (
+                one.inset_top,
+                one.inset_right,
+                one.inset_bottom,
+                one.inset_left
+            ),
             (10.0, 10.0, 10.0, 10.0)
         );
 
         let two = inset_of(&parse_inset("10px 20px").unwrap());
         assert_eq!(
-            (two.inset_top, two.inset_right, two.inset_bottom, two.inset_left),
+            (
+                two.inset_top,
+                two.inset_right,
+                two.inset_bottom,
+                two.inset_left
+            ),
             (10.0, 20.0, 10.0, 20.0)
         );
 
         let three = inset_of(&parse_inset("10px 20px 30px").unwrap());
         assert_eq!(
-            (three.inset_top, three.inset_right, three.inset_bottom, three.inset_left),
+            (
+                three.inset_top,
+                three.inset_right,
+                three.inset_bottom,
+                three.inset_left
+            ),
             (10.0, 20.0, 30.0, 20.0)
         );
 
         let four = inset_of(&parse_inset("10px 20px 30px 40px").unwrap());
         assert_eq!(
-            (four.inset_top, four.inset_right, four.inset_bottom, four.inset_left),
+            (
+                four.inset_top,
+                four.inset_right,
+                four.inset_bottom,
+                four.inset_left
+            ),
             (10.0, 20.0, 30.0, 40.0)
         );
     }
@@ -1169,11 +1205,7 @@ mod autotest_generated {
     #[test]
     fn path_requires_double_quotes_on_both_ends() {
         for unquoted in [
-            "",
-            "   ",
-            "M 0 0",
-            "\"M 0 0",
-            "M 0 0\"",
+            "", "   ", "M 0 0", "\"M 0 0", "M 0 0\"",
             "'M 0 0'", // single quotes are not accepted
             "`M 0 0`",
         ] {
@@ -1198,9 +1230,18 @@ mod autotest_generated {
     fn current_path_data_is_stored_without_validation() {
         // ShapePath's doc says the data is stored but not interpreted, so any
         // garbage inside the quotes round-trips untouched.
-        assert_eq!(path_data(&parse_shape("path(\"not svg at all\")").unwrap()), "not svg at all");
-        assert_eq!(path_data(&parse_shape("path(\"\u{1F600}\")").unwrap()), "\u{1F600}");
-        assert_eq!(path_data(&parse_shape("path(\"M 0 0 L NaN inf\")").unwrap()), "M 0 0 L NaN inf");
+        assert_eq!(
+            path_data(&parse_shape("path(\"not svg at all\")").unwrap()),
+            "not svg at all"
+        );
+        assert_eq!(
+            path_data(&parse_shape("path(\"\u{1F600}\")").unwrap()),
+            "\u{1F600}"
+        );
+        assert_eq!(
+            path_data(&parse_shape("path(\"M 0 0 L NaN inf\")").unwrap()),
+            "M 0 0 L NaN inf"
+        );
     }
 
     #[test]
@@ -1256,7 +1297,9 @@ mod autotest_generated {
     fn current_length_rejects_uppercase_units_and_other_css_units() {
         // CSS units are case-insensitive and em/rem/vh/vw/pt are all legal; the
         // source has a TODO for the latter. Both are rejected today.
-        for unsupported in ["50PX", "50Px", "1em", "1rem", "1vh", "1vw", "1pt", "1cm", "1fr"] {
+        for unsupported in [
+            "50PX", "50Px", "1em", "1rem", "1vh", "1vw", "1pt", "1cm", "1fr",
+        ] {
             assert!(
                 parse_length(unsupported).is_err(),
                 "parse_length({unsupported:?}) unexpectedly succeeded"
@@ -1294,7 +1337,9 @@ mod autotest_generated {
             f32::MIN_POSITIVE
         );
         // A double-precision value beyond f32 range clamps to inf, not to a wrap.
-        assert!(parse_length(&format!("{}px", f64::MAX)).unwrap().is_infinite());
+        assert!(parse_length(&format!("{}px", f64::MAX))
+            .unwrap()
+            .is_infinite());
     }
 
     #[test]
@@ -1355,15 +1400,37 @@ mod autotest_generated {
     #[test]
     fn error_display_is_non_empty_and_names_the_variant() {
         let cases = [
-            (ShapeParseError::UnknownFunction("blob".into()), "Unknown shape function", "blob"),
-            (ShapeParseError::MissingParameter("radius".into()), "Missing required parameter", "radius"),
-            (ShapeParseError::InvalidNumber("12abc".into()), "Invalid numeric value", "12abc"),
-            (ShapeParseError::InvalidSyntax("bad parens".into()), "Invalid syntax", "bad parens"),
+            (
+                ShapeParseError::UnknownFunction("blob".into()),
+                "Unknown shape function",
+                "blob",
+            ),
+            (
+                ShapeParseError::MissingParameter("radius".into()),
+                "Missing required parameter",
+                "radius",
+            ),
+            (
+                ShapeParseError::InvalidNumber("12abc".into()),
+                "Invalid numeric value",
+                "12abc",
+            ),
+            (
+                ShapeParseError::InvalidSyntax("bad parens".into()),
+                "Invalid syntax",
+                "bad parens",
+            ),
         ];
         for (err, prefix, payload) in cases {
             let rendered = err.to_string();
-            assert!(rendered.starts_with(prefix), "{rendered:?} lacks prefix {prefix:?}");
-            assert!(rendered.contains(payload), "{rendered:?} lost its payload {payload:?}");
+            assert!(
+                rendered.starts_with(prefix),
+                "{rendered:?} lacks prefix {prefix:?}"
+            );
+            assert!(
+                rendered.contains(payload),
+                "{rendered:?} lost its payload {payload:?}"
+            );
         }
         assert_eq!(ShapeParseError::EmptyInput.to_string(), "Empty input");
     }
@@ -1417,8 +1484,8 @@ mod autotest_generated {
 
     fn assert_round_trips(shape: &CssShape) {
         let printed = shape.print_as_css_value();
-        let reparsed = parse_shape(&printed)
-            .unwrap_or_else(|e| panic!("{printed:?} did not re-parse: {e}"));
+        let reparsed =
+            parse_shape(&printed).unwrap_or_else(|e| panic!("{printed:?} did not re-parse: {e}"));
         assert_eq!(
             &reparsed, shape,
             "round-trip changed the shape via {printed:?}"
@@ -1466,7 +1533,9 @@ mod autotest_generated {
         // an inf radius survives a print/parse cycle instead of erroring out.
         let printed = CssShape::circle(ShapePoint::zero(), f32::INFINITY).print_as_css_value();
         assert_eq!(printed, "circle(infpx at 0px 0px)");
-        assert!(circle_of(&parse_shape(&printed).unwrap()).radius.is_infinite());
+        assert!(circle_of(&parse_shape(&printed).unwrap())
+            .radius
+            .is_infinite());
 
         // NaN != NaN, so assert_round_trips can't be used — check field-wise.
         let printed = CssShape::circle(ShapePoint::zero(), f32::NAN).print_as_css_value();
@@ -1489,8 +1558,9 @@ mod autotest_generated {
         // The printer will happily emit a 0/1/2-point polygon, but the parser
         // requires >= 3 points — so these shapes cannot survive a CSS round-trip.
         for count in 0..3 {
-            let points: Vec<ShapePoint> =
-                (0..count).map(|i| ShapePoint::new(i as f32, i as f32)).collect();
+            let points: Vec<ShapePoint> = (0..count)
+                .map(|i| ShapePoint::new(i as f32, i as f32))
+                .collect();
             let printed = CssShape::polygon(points.into()).print_as_css_value();
             assert!(
                 parse_shape(&printed).is_err(),

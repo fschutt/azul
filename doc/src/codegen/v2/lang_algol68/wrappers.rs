@@ -58,23 +58,40 @@ pub fn generate_wrappers(
 }
 
 fn emit_convention_header(builder: &mut CodeBuilder) {
-    builder.line("# ---------------------------------------------------------------------------- #");
-    builder.line("# Manual cleanup convention                                                     #");
-    builder.line("#                                                                                #");
-    builder.line("# Algol 68 has no destructors and a68g's reference-counted heap does NOT track  #");
-    builder.line("# resources reached through ALIEN. Every value listed below is owned by the     #");
-    builder.line("# caller; the caller MUST invoke the matching `delete <type>` PROC before the   #");
-    builder.line("# REF leaves scope, otherwise the underlying C-side resource leaks.             #");
-    builder.line("#                                                                                #");
-    builder.line("# Idiomatic pattern:                                                             #");
-    builder.line("#                                                                                #");
-    builder.line("#     REF AZAPP app := az app create (data, config);                             #");
-    builder.line("#     az app run (app, window);                                                  #");
-    builder.line("#     delete az app (app)   # release native memory before scope exit #          #");
-    builder.line("#                                                                                #");
-    builder.line("# Wrapping a value in a HEAP cell with a hand-rolled cleanup ON SCOPE EXIT       #");
-    builder.line("# pragma is also a viable pattern for users who want some automation.           #");
-    builder.line("# ---------------------------------------------------------------------------- #");
+    builder
+        .line("# ---------------------------------------------------------------------------- #");
+    builder
+        .line("# Manual cleanup convention                                                     #");
+    builder
+        .line("#                                                                                #");
+    builder
+        .line("# Algol 68 has no destructors and a68g's reference-counted heap does NOT track  #");
+    builder
+        .line("# resources reached through ALIEN. Every value listed below is owned by the     #");
+    builder
+        .line("# caller; the caller MUST invoke the matching `delete <type>` PROC before the   #");
+    builder
+        .line("# REF leaves scope, otherwise the underlying C-side resource leaks.             #");
+    builder
+        .line("#                                                                                #");
+    builder
+        .line("# Idiomatic pattern:                                                             #");
+    builder
+        .line("#                                                                                #");
+    builder
+        .line("#     REF AZAPP app := az app create (data, config);                             #");
+    builder
+        .line("#     az app run (app, window);                                                  #");
+    builder
+        .line("#     delete az app (app)   # release native memory before scope exit #          #");
+    builder
+        .line("#                                                                                #");
+    builder
+        .line("# Wrapping a value in a HEAP cell with a hand-rolled cleanup ON SCOPE EXIT       #");
+    builder
+        .line("# pragma is also a viable pattern for users who want some automation.           #");
+    builder
+        .line("# ---------------------------------------------------------------------------- #");
     builder.blank();
 }
 
@@ -97,10 +114,7 @@ fn emit_delete_helper(builder: &mut CodeBuilder, s: &StructDef) {
 // Discovery (mirrors lang_pascal/wrappers.rs:collect_wrapper_targets)
 // ============================================================================
 
-fn collect_wrapper_targets<'a>(
-    ir: &'a CodegenIR,
-    config: &CodegenConfig,
-) -> Vec<&'a StructDef> {
+fn collect_wrapper_targets<'a>(ir: &'a CodegenIR, config: &CodegenConfig) -> Vec<&'a StructDef> {
     let delete_set: BTreeSet<&str> = ir
         .functions
         .iter()

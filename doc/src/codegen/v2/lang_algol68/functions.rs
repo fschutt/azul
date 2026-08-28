@@ -38,10 +38,14 @@ pub fn generate_aliens(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("# ---------------------------------------------------------------------------- #");
-    builder.line("# ALIEN PROC declarations: every C-ABI symbol imported from libazul.            #");
-    builder.line("# Symbol names match the C bindings verbatim.                                   #");
-    builder.line("# ---------------------------------------------------------------------------- #");
+    builder
+        .line("# ---------------------------------------------------------------------------- #");
+    builder
+        .line("# ALIEN PROC declarations: every C-ABI symbol imported from libazul.            #");
+    builder
+        .line("# Symbol names match the C bindings verbatim.                                   #");
+    builder
+        .line("# ---------------------------------------------------------------------------- #");
     builder.blank();
 
     for func in &ir.functions {
@@ -106,10 +110,9 @@ fn emit_alien(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) {
         .map(|a| {
             let mode = match a.ref_kind {
                 ArgRefKind::Owned => map_type_to_algol(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => ptr_type(&a.type_name, ir),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    ptr_type(&a.type_name, ir)
+                }
             };
             format!("{} {}", mode, sanitize_identifier(&a.name))
         })

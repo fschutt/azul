@@ -1,8 +1,8 @@
 //! Shared types for CSS shadow properties (used by both `box-shadow` and `text-shadow`).
 
+use crate::corety::AzString;
 use alloc::string::{String, ToString};
 use core::fmt;
-use crate::corety::AzString;
 
 use crate::props::{
     basic::{
@@ -155,7 +155,8 @@ pub enum CssShadowParseErrorOwned {
 
 impl CssShadowParseError<'_> {
     /// Converts the borrowed error into an owned version for storage.
-    #[must_use] pub fn to_contained(&self) -> CssShadowParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> CssShadowParseErrorOwned {
         match self {
             CssShadowParseError::TooManyOrTooFewComponents(s) => {
                 CssShadowParseErrorOwned::TooManyOrTooFewComponents((*s).to_string().into())
@@ -172,17 +173,14 @@ impl CssShadowParseError<'_> {
 
 impl CssShadowParseErrorOwned {
     /// Converts the owned error back into a borrowed version.
-    #[must_use] pub fn to_shared(&self) -> CssShadowParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> CssShadowParseError<'_> {
         match self {
             Self::TooManyOrTooFewComponents(s) => {
                 CssShadowParseError::TooManyOrTooFewComponents(s.as_str())
             }
-            Self::ValueParseErr(e) => {
-                CssShadowParseError::ValueParseErr(e.to_shared())
-            }
-            Self::ColorParseError(e) => {
-                CssShadowParseError::ColorParseError(e.to_shared())
-            }
+            Self::ValueParseErr(e) => CssShadowParseError::ValueParseErr(e.to_shared()),
+            Self::ColorParseError(e) => CssShadowParseError::ColorParseError(e.to_shared()),
         }
     }
 }
@@ -196,9 +194,7 @@ impl CssShadowParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `box-shadow` value.
-pub fn parse_style_box_shadow(
-    input: &str,
-) -> Result<StyleBoxShadow, CssShadowParseError<'_>> {
+pub fn parse_style_box_shadow(input: &str) -> Result<StyleBoxShadow, CssShadowParseError<'_>> {
     let mut parts: Vec<&str> = input.split_whitespace().collect();
     let mut shadow = StyleBoxShadow::default();
 
@@ -757,7 +753,9 @@ mod autotest_generated {
 
     #[test]
     fn parse_empty_and_whitespace_only_input_is_err() {
-        for input in ["", " ", "   ", "\t", "\n", "\t\n\r ", "\u{00a0}", "\u{3000}"] {
+        for input in [
+            "", " ", "   ", "\t", "\n", "\t\n\r ", "\u{00a0}", "\u{3000}",
+        ] {
             let e = parse_style_box_shadow(input).unwrap_err();
             assert_eq!(
                 e,
@@ -776,15 +774,15 @@ mod autotest_generated {
             "{}{}{}",
             "\\\\\\",
             "\0\0",
-            "1px",                  // too few
-            "1px 2px 3px 4px 5px",  // too many
-            "inset",                // keyword only
-            "red",                  // color only
-            "inset red",            // keyword + color, no lengths
-            "inset red 1px",        // only one length left
-            "1px 2px red blue",     // two colors: "red" is left over as a length
-            "inset inset 1px 2px",  // second "inset" is not removed
-            "10% 5px",              // percent is rejected
+            "1px",                 // too few
+            "1px 2px 3px 4px 5px", // too many
+            "inset",               // keyword only
+            "red",                 // color only
+            "inset red",           // keyword + color, no lengths
+            "inset red 1px",       // only one length left
+            "1px 2px red blue",    // two colors: "red" is left over as a length
+            "inset inset 1px 2px", // second "inset" is not removed
+            "10% 5px",             // percent is rejected
             "1px 10%",
             "1px 2px 3%",
             "px px",
@@ -882,7 +880,11 @@ mod autotest_generated {
         assert_eq!(s.offset_x, px(0.0));
         assert_eq!(s.offset_y, px(0.0));
         assert_eq!(s.offset_x.inner.metric, SizeMetric::Px);
-        assert_eq!(s.color, ColorU::BLACK, "a bare 0 was eaten by the color parser");
+        assert_eq!(
+            s.color,
+            ColorU::BLACK,
+            "a bare 0 was eaten by the color parser"
+        );
     }
 
     #[test]
@@ -954,7 +956,11 @@ mod autotest_generated {
                 s.blur_radius.inner.metric,
                 s.spread_radius.inner.metric,
             ] {
-                assert_ne!(m, SizeMetric::Percent, "percent metric leaked from {input:?}");
+                assert_ne!(
+                    m,
+                    SizeMetric::Percent,
+                    "percent metric leaked from {input:?}"
+                );
             }
         }
     }
@@ -967,8 +973,8 @@ mod autotest_generated {
             "\u{1F600}",
             "\u{1F600} \u{1F600}",
             "1px 2px \u{1F600}",
-            "1px 2px #\u{1F600}",  // 4-byte char -> hits the len==4 hex branch
-            "1px 2px #\u{e9}1",    // 3 bytes -> hits the len==3 hex branch
+            "1px 2px #\u{1F600}", // 4-byte char -> hits the len==4 hex branch
+            "1px 2px #\u{e9}1",   // 3 bytes -> hits the len==3 hex branch
             "1px 2px #\u{e9}\u{e9}\u{e9}\u{e9}", // 8 bytes -> hits the len==8 branch
             "e\u{0301}\u{0301} 1px",
             "\u{202E}1px 2px",
@@ -1114,8 +1120,14 @@ mod autotest_generated {
             let s = scaled(all_ones(), factor);
             let printed = s.print_as_css_value();
             assert!(!printed.is_empty());
-            assert!(!printed.contains("NaN"), "NaN reached the CSS output: {printed}");
-            assert!(!printed.contains("inf"), "inf reached the CSS output: {printed}");
+            assert!(
+                !printed.contains("NaN"),
+                "NaN reached the CSS output: {printed}"
+            );
+            assert!(
+                !printed.contains("inf"),
+                "inf reached the CSS output: {printed}"
+            );
         }
     }
 

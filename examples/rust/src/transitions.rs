@@ -42,11 +42,11 @@
 //! Then click the buttons. The only mention of time in this file is the two
 //! declarative `0.5s` durations in the sidebar's CSS.
 
-use azul::prelude::*;
-use azul::widgets::{Button, ZombieFrame};
 use azul::dom::{IdOrClass, ZombieAnimCallback};
 use azul::image::ZombieAnimInfo;
 use azul::option::OptionF32;
+use azul::prelude::*;
+use azul::widgets::{Button, ZombieFrame};
 
 /// Which demo screen is showing, and the toggles each one owns.
 ///
@@ -224,7 +224,9 @@ fn detail(state: &AppState) -> Dom {
     // so swapping screens moves it — that displacement is the animation.
     content.add_child(shared_card("Detail"));
     let mut note = Dom::create_div().with_css(CARD);
-    note.add_child(Dom::create_p_with_text(format!("Shuffles so far: {}", state.shuffles).as_str()));
+    note.add_child(Dom::create_p_with_text(
+        format!("Shuffles so far: {}", state.shuffles).as_str(),
+    ));
     content.add_child(note);
     content
 }
@@ -250,12 +252,16 @@ extern "C" fn layout(data: RefAny, _: LayoutCallbackInfo) -> Dom {
         let mut sidebar = div_with_id("sidebar", SIDEBAR_OPEN)
             .with_animation_callback(
                 "sidebarFlyOut",
-                ZombieAnimCallback { cb: sidebar_fly_out as usize },
+                ZombieAnimCallback {
+                    cb: sidebar_fly_out as usize,
+                },
                 RefAny::new(()),
             )
             .with_animation_callback(
                 "sidebarFlyIn",
-                ZombieAnimCallback { cb: sidebar_fly_in as usize },
+                ZombieAnimCallback {
+                    cb: sidebar_fly_in as usize,
+                },
                 RefAny::new(()),
             );
         for item in ["Inbox", "Drafts", "Archive", "Trash"] {

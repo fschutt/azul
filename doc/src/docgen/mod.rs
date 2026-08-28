@@ -50,7 +50,13 @@ pub fn generate_docs(
     // Generate main index.html
     docs.insert(
         "index.html".to_string(),
-        generate_index_html(&api_data, imageoutput_path, imageoutput_url, inline_css, hostname)?,
+        generate_index_html(
+            &api_data,
+            imageoutput_path,
+            imageoutput_url,
+            inline_css,
+            hostname,
+        )?,
     );
 
     // Generate API documentation for each version
@@ -71,8 +77,7 @@ pub fn generate_docs(
     // without every page having to know the current version string.
     if let Some(latest) = api_data.get_latest_version_str() {
         let versions = api_data.get_sorted_versions();
-        let manifest =
-            serde_json::json!({ "latest": latest, "versions": versions }).to_string();
+        let manifest = serde_json::json!({ "latest": latest, "versions": versions }).to_string();
         docs.insert("api/index.json".to_string(), manifest);
     }
 
@@ -90,7 +95,10 @@ pub fn generate_docs(
     for guide in guide::get_guide_list() {
         let guide_html = guide::generate_guide_html(&guide, latest_version);
         docs.insert(format!("guide/{}.html", guide.file_name), guide_html);
-        docs.insert(format!("guide/{}.md", guide.file_name), guide.content.clone());
+        docs.insert(
+            format!("guide/{}.md", guide.file_name),
+            guide.content.clone(),
+        );
     }
 
     // Generate combined guide page
@@ -221,7 +229,11 @@ fn generate_language_tabs_html(installation: &crate::api::Installation) -> Strin
                 options_html.push_str(&format!(
                     "<option value=\"{}\"{}>{}</option>",
                     var_key,
-                    if var_key == default_variant { " selected" } else { "" },
+                    if var_key == default_variant {
+                        " selected"
+                    } else {
+                        ""
+                    },
                     var_config.display_name
                 ));
             }
@@ -435,7 +447,11 @@ fn generate_index_html(
         .replace("<!-- FOOTER -->", &azlin_footer())
         .replace(
             "<!-- PRISM_SCRIPT -->",
-            &format!("{}\n{}", get_prism_script(), get_search_init(PageKind::Other)),
+            &format!(
+                "{}\n{}",
+                get_prism_script(),
+                get_search_init(PageKind::Other)
+            ),
         );
 
     // Generate language tabs HTML from configuration
@@ -689,9 +705,7 @@ fn escape_code(s: &str) -> String {
 /// Uses CDN-hosted Prism with autoloader for automatic language loading.
 /// Should be included at the end of the body for code highlighting.
 pub fn get_prism_script() -> String {
-    format!(
-        r#"<script src="{HTML_ROOT}/prism/prism.min.js" defer></script>"#
-    )
+    format!(r#"<script src="{HTML_ROOT}/prism/prism.min.js" defer></script>"#)
 }
 
 /// CSS + JS that turns every `<h1>` … `<h4>` with an inner
@@ -840,7 +854,8 @@ document.addEventListener('DOMContentLoaded', function () {
       });
     });
 });
-</script>"##.to_string()
+</script>"##
+        .to_string()
 }
 
 /// Head tags for the /ui landing page ONLY. The landing uses the azlin.io
@@ -884,7 +899,6 @@ pub fn get_landing_head_tags(inline_css: bool) -> String {
       <script defer src='{base_url}/azul-review.js'></script>
     ", base_url=base_url, css_tag=css_tag, theme_boot=get_theme_boot_script())
 }
-
 
 /// Script tag + init for the search panel.
 ///
@@ -1175,7 +1189,11 @@ fn render_nav(links: &[(&str, &str)], active: &str) -> String {
     let panel = links
         .iter()
         .map(|(name, href)| {
-            let class = if *name == active { " class=\"active\"" } else { "" };
+            let class = if *name == active {
+                " class=\"active\""
+            } else {
+                ""
+            };
             format!("<a href=\"{href}\"{class}>{name}</a>")
         })
         .collect::<Vec<_>>()
@@ -1310,11 +1328,7 @@ pub fn azlin_page(page: &AzlinPage, inline_css: bool) -> String {
 /// and `<dir>/<name>/index.html` (serves the extensionless clean URL on
 /// GitHub Pages and python -m http.server alike). Rendered pages link the
 /// clean URL only; the .html twin is for old bookmarks/backlinks.
-pub fn write_page_clean_url(
-    dir: &std::path::Path,
-    name: &str,
-    html: &str,
-) -> anyhow::Result<()> {
+pub fn write_page_clean_url(dir: &std::path::Path, name: &str, html: &str) -> anyhow::Result<()> {
     use std::fs;
     fs::create_dir_all(dir)?;
     fs::write(dir.join(format!("{name}.html")), html)?;
@@ -1353,50 +1367,97 @@ mod stylesheet_contract {
     /// been lost at least once to an over-broad edit.
     const FLORA_REQUIRED: &[&str] = &[
         // tokens + the two dark blocks
-        "--fl-pg:", "--fl-acc:", "--fl-metal-turn:", "--fl-text:",
-        ":root[data-theme=\"dark\"]", "prefers-color-scheme: dark",
+        "--fl-pg:",
+        "--fl-acc:",
+        "--fl-metal-turn:",
+        "--fl-text:",
+        ":root[data-theme=\"dark\"]",
+        "prefers-color-scheme: dark",
         // chrome
-        ".navbar {", ".navbar::after", ".nav-links a {", ".nav-links a.active {",
-        ".fl-orb {", ".fl-orb-well", ".fl-lamp {",
+        ".navbar {",
+        ".navbar::after",
+        ".nav-links a {",
+        ".nav-links a.active {",
+        ".fl-orb {",
+        ".fl-orb-well",
+        ".fl-lamp {",
         // the tab corner assembly
-        ".fl-tab-flare", ".fl-tab-cove", ".fl-tab-runout", ".fl-tab-foot",
+        ".fl-tab-flare",
+        ".fl-tab-cove",
+        ".fl-tab-runout",
+        ".fl-tab-foot",
         // buttons - the section that keeps disappearing
-        ".btn {", ".btn-primary {", ".btn-secondary {", ".btn-hero-primary {",
+        ".btn {",
+        ".btn-primary {",
+        ".btn-secondary {",
+        ".btn-hero-primary {",
         ".btn-quiet {",
         // page structure
-        ".hero {", ".hero::before", ".ui-hero::before", ".feature-card {", ".feature-media",
-        ".faq-section {", ".docs-footer {", "footer {",
+        ".hero {",
+        ".hero::before",
+        ".ui-hero::before",
+        ".feature-card {",
+        ".feature-media",
+        ".faq-section {",
+        ".docs-footer {",
+        "footer {",
         // link colours - without these every link is UA purple
-        "a:visited", ".btn-primary, .btn-primary:visited",
+        "a:visited",
+        ".btn-primary, .btn-primary:visited",
         // furniture, code, motion, the depth rig
-        "::-webkit-scrollbar", ".token.comment", "THE DROP PANEL",
-        ".copy-btn,", ".docs-copy-btn {",
-        "STONE RIG", "FLORA DESIGN - MOTION", "@keyframes fl-sheen",
+        "::-webkit-scrollbar",
+        ".token.comment",
+        "THE DROP PANEL",
+        ".copy-btn,",
+        ".docs-copy-btn {",
+        "STONE RIG",
+        "FLORA DESIGN - MOTION",
+        "@keyframes fl-sheen",
         "prefers-reduced-motion",
     ];
 
     const DOCS_REQUIRED: &[&str] = &[
-        "body.docs", ".docs-hero", ".docs-content p,", ".docs-content pre",
+        "body.docs",
+        ".docs-hero",
+        ".docs-content p,",
+        ".docs-content pre",
         ".docs-card {",
-        ".docs-card {", ".docs-list-item {", ".docs-layout",
+        ".docs-card {",
+        ".docs-list-item {",
+        ".docs-layout",
     ];
 
     /// docs-guide.css - the guide index's cards live here.
     const GUIDE_REQUIRED: &[&str] = &[
-        ".guide-grid", ".guide-card", ".guide-links", "a.guide-link",
+        ".guide-grid",
+        ".guide-card",
+        ".guide-links",
+        "a.guide-link",
         "a.guide-card-btn",
-        ".guide-link-lead", ".azul-window", ".markdown-alert-warning", "@media print",
+        ".guide-link-lead",
+        ".azul-window",
+        ".markdown-alert-warning",
+        "@media print",
     ];
 
     const LANDING_REQUIRED: &[&str] = &[
-        ".ui-hero {", ".feature-section {", ".lang-grid button,",
-        ".lang-more-btn", ".lang-more-toggle:checked ~ .lang-more-grid",
-        ".code-panel {", ".example-code {", "#latestrelease {",
+        ".ui-hero {",
+        ".feature-section {",
+        ".lang-grid button,",
+        ".lang-more-btn",
+        ".lang-more-toggle:checked ~ .lang-more-grid",
+        ".code-panel {",
+        ".example-code {",
+        "#latestrelease {",
     ];
 
     const SEARCH_REQUIRED: &[&str] = &[
-        ".azul-search {", ".azs-inline-row", ".azs-panel", ".azs-result a",
-        ".azs-kind", "--azs-bg:",
+        ".azul-search {",
+        ".azs-inline-row",
+        ".azs-panel",
+        ".azs-result a",
+        ".azs-kind",
+        "--azs-bg:",
     ];
 
     fn check(name: &str, css: &str, required: &[&str]) {
@@ -1410,7 +1471,10 @@ mod stylesheet_contract {
         );
         let open = css.matches('{').count();
         let close = css.matches('}').count();
-        assert_eq!(open, close, "{name}: unbalanced braces ({open} open, {close} close)");
+        assert_eq!(
+            open, close,
+            "{name}: unbalanced braces ({open} open, {close} close)"
+        );
     }
 
     /// The strip and the footer have exactly ONE source each. Both used to be
@@ -1422,11 +1486,26 @@ mod stylesheet_contract {
     #[test]
     fn nav_and_footer_have_one_source() {
         const TEMPLATES: &[(&str, &str)] = &[
-            ("index.template.html", include_str!("../../templates/index.template.html")),
-            ("azlin-index.template.html", include_str!("../../templates/azlin-index.template.html")),
-            ("azlin-os.html", include_str!("../../templates/azlin-os.html")),
-            ("azlin-ws.html", include_str!("../../templates/azlin-ws.html")),
-            ("report_template.html", include_str!("../reftest/report_template.html")),
+            (
+                "index.template.html",
+                include_str!("../../templates/index.template.html"),
+            ),
+            (
+                "azlin-index.template.html",
+                include_str!("../../templates/azlin-index.template.html"),
+            ),
+            (
+                "azlin-os.html",
+                include_str!("../../templates/azlin-os.html"),
+            ),
+            (
+                "azlin-ws.html",
+                include_str!("../../templates/azlin-ws.html"),
+            ),
+            (
+                "report_template.html",
+                include_str!("../reftest/report_template.html"),
+            ),
         ];
         for (name, html) in TEMPLATES {
             assert!(

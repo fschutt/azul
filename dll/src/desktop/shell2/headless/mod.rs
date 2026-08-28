@@ -47,9 +47,9 @@
 //! └── pending_window_creates: Vec      (popup/dialog queue)
 //! ```
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
-use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
 use azul_core::{
@@ -68,11 +68,11 @@ use azul_layout::{
     window::{LayoutWindow, ScrollbarDragState},
     window_state::{FullWindowState, WindowCreateOptions},
 };
-use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
+use rust_fontconfig::FcFontCache;
 
-use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
 use crate::desktop::shell2::common::event::HitTestNode;
+use crate::desktop::wr_translate2::{AsyncHitTester, WrRenderApi};
 
 use crate::desktop::shell2::common::{
     accessibility::A11yActionQueue,
@@ -91,9 +91,13 @@ pub enum HeadlessEvent {
     /// Simulate mouse move to position
     MouseMove { x: f32, y: f32 },
     /// Simulate mouse button press
-    MouseDown { button: azul_core::events::MouseButton },
+    MouseDown {
+        button: azul_core::events::MouseButton,
+    },
     /// Simulate mouse button release
-    MouseUp { button: azul_core::events::MouseButton },
+    MouseUp {
+        button: azul_core::events::MouseButton,
+    },
     /// Simulate key press
     KeyDown { virtual_keycode: VirtualKeyCode },
     /// Simulate key release
@@ -122,11 +126,7 @@ pub enum HeadlessEvent {
 /// `detect_double_click`, `detect_long_press`, swipes and node-DnD were
 /// structurally invisible to headless E2E — the entire gesture surface was
 /// untestable.
-fn record_headless_input(
-    window: &mut HeadlessWindow,
-    is_button_down: bool,
-    is_button_up: bool,
-) {
+fn record_headless_input(window: &mut HeadlessWindow, is_button_down: bool, is_button_up: bool) {
     use crate::desktop::shell2::common::event::{
         BUTTON_STATE_LEFT, BUTTON_STATE_MIDDLE, BUTTON_STATE_NONE, BUTTON_STATE_RIGHT,
     };
@@ -212,7 +212,8 @@ pub struct CpuBackend {
     pub glyph_cache: azul_layout::glyph_cache::GlyphCache,
     /// Previous display list for damage rect computation.
     #[cfg(feature = "cpurender")]
-    pub previous_display_list: Option<std::sync::Arc<azul_layout::solver3::display_list::DisplayList>>,
+    pub previous_display_list:
+        Option<std::sync::Arc<azul_layout::solver3::display_list::DisplayList>>,
     /// `LayoutCache::build_seq` at the last present — what
     /// `LayoutCache::pending_patch_damage` drains the patch log from, so two
     /// patched builds between presents both get repainted.
@@ -465,10 +466,14 @@ impl CpuBackend {
         }
 
         // Allocate or resize compositor
-        let clear_color: [u8; 4] = if self.transparent { [0, 0, 0, 0] } else { [255, 255, 255, 255] };
-        let compositor = self.compositor.get_or_insert_with(|| {
-            cpurender::CompositorState::new(pixel_w, pixel_h)
-        });
+        let clear_color: [u8; 4] = if self.transparent {
+            [0, 0, 0, 0]
+        } else {
+            [255, 255, 255, 255]
+        };
+        let compositor = self
+            .compositor
+            .get_or_insert_with(|| cpurender::CompositorState::new(pixel_w, pixel_h));
         compositor.set_clear_color(clear_color);
 
         // Check if we need to resize the root layer
@@ -492,9 +497,12 @@ impl CpuBackend {
                 resize_preserved_pixels = true;
                 // Grow-only: resize root layer pixbuf, keep old content
                 if let Some(root_layer) = compositor.layers.get_mut(&compositor.root_layer) {
-                    let _ = root_layer.pixbuf.resize_grow_only(pixel_w, pixel_h, 255, 255, 255, 255);
+                    let _ = root_layer
+                        .pixbuf
+                        .resize_grow_only(pixel_w, pixel_h, 255, 255, 255, 255);
                     root_layer.bounds.size = azul_core::geom::LogicalSize {
-                        width: pixel_w as f32, height: pixel_h as f32,
+                        width: pixel_w as f32,
+                        height: pixel_h as f32,
                     };
                 }
                 // Damage rects are LOGICAL everywhere downstream (the renderer
@@ -626,15 +634,19 @@ impl CpuBackend {
         // damaged below. This is why the map showed only the placeholder grid on
         // Wayland — which, unlike X11, gets no spurious WM expose/configure events
         // to force a full repaint and mask the bug.
-        let vview_dls: std::collections::BTreeMap<DomId, std::sync::Arc<azul_layout::solver3::display_list::DisplayList>> =
-            layout_window
-                .layout_results
-                .iter()
-                .filter(|(id, _)| id.inner != dom_id.inner)
-                .map(|(id, r)| (*id, r.display_list.clone()))
-                .collect();
+        let vview_dls: std::collections::BTreeMap<
+            DomId,
+            std::sync::Arc<azul_layout::solver3::display_list::DisplayList>,
+        > = layout_window
+            .layout_results
+            .iter()
+            .filter(|(id, _)| id.inner != dom_id.inner)
+            .map(|(id, r)| (*id, r.display_list.clone()))
+            .collect();
         let vview_damage = cpurender::compute_virtual_view_damage(
-            display_list, &vview_dls, &self.previous_vview_dls,
+            display_list,
+            &vview_dls,
+            &self.previous_vview_dls,
         );
         let has_vview_damage = !vview_damage.is_empty();
         self.previous_vview_dls = vview_dls.clone();
@@ -653,12 +665,8 @@ impl CpuBackend {
         //
         // (scroll_id, clip, delta, new_offset) per frame whose offset changed.
         // LocalScrollId is a u64 alias.
-        let mut scroll_shifts: Vec<(
-            u64,
-            azul_core::geom::LogicalRect,
-            (f32, f32),
-            (f32, f32),
-        )> = Vec::new();
+        let mut scroll_shifts: Vec<(u64, azul_core::geom::LogicalRect, (f32, f32), (f32, f32))> =
+            Vec::new();
         for (scroll_id, offset) in &scroll_offsets {
             let prev = self
                 .previous_scroll_offsets
@@ -692,8 +700,7 @@ impl CpuBackend {
         // so slow trackpad scrolling ACCUMULATES until it crosses a device
         // pixel instead of being silently swallowed frame after frame (content
         // frozen while the logical offset advances arbitrarily far).
-        let shifted_ids: BTreeSet<u64> =
-            scroll_shifts.iter().map(|(sid, ..)| *sid).collect();
+        let shifted_ids: BTreeSet<u64> = scroll_shifts.iter().map(|(sid, ..)| *sid).collect();
         let next_scroll_baseline: azul_layout::cpurender::ScrollOffsetMap = scroll_offsets
             .iter()
             .map(|(id, off)| {
@@ -909,7 +916,10 @@ impl CpuBackend {
                     p
                 }
                 None => match cpurender::AzulPixmap::new(pixel_w, pixel_h) {
-                    Some(mut p) => { p.fill(255, 255, 255, 255); p }
+                    Some(mut p) => {
+                        p.fill(255, 255, 255, 255);
+                        p
+                    }
                     None => {
                         // Same contract as the early returns at the top: a call
                         // that produced no frame must not leave stale damage.
@@ -982,10 +992,8 @@ impl CpuBackend {
                     };
                     let x0 = mr.origin.x.min(dest.origin.x);
                     let y0 = mr.origin.y.min(dest.origin.y);
-                    let x1 = (mr.origin.x + mr.size.width)
-                        .max(dest.origin.x + dest.size.width);
-                    let y1 = (mr.origin.y + mr.size.height)
-                        .max(dest.origin.y + dest.size.height);
+                    let x1 = (mr.origin.x + mr.size.width).max(dest.origin.x + dest.size.width);
+                    let y1 = (mr.origin.y + mr.size.height).max(dest.origin.y + dest.size.height);
                     let clip = azul_core::geom::LogicalRect {
                         origin: azul_core::geom::LogicalPosition { x: x0, y: y0 },
                         size: azul_core::geom::LogicalSize {
@@ -998,13 +1006,8 @@ impl CpuBackend {
                     } else {
                         cpurender::scroll_shift_region_exact
                     };
-                    let strips = shift_exact(
-                        &mut output,
-                        &clip,
-                        (-d.0, -d.1),
-                        (0.0, 0.0),
-                        dpi_factor,
-                    );
+                    let strips =
+                        shift_exact(&mut output, &clip, (-d.0, -d.1), (0.0, 0.0), dpi_factor);
                     // Inflate the vacated strips by 1px: LCD fringe of a run
                     // hugging the mover's edge hangs one device pixel OUTSIDE
                     // the mover rect, so the un-inflated vacated region leaves
@@ -1086,13 +1089,7 @@ impl CpuBackend {
                     } else {
                         cpurender::scroll_shift_region
                     };
-                    let strips = shift(
-                        &mut output,
-                        clip,
-                        *delta,
-                        *offset,
-                        dpi_factor,
-                    );
+                    let strips = shift(&mut output, clip, *delta, *offset, dpi_factor);
                     all_damage.extend(strips);
                     // Items composited OVER the frame inside its clip (its own
                     // scrollbar, an open dropdown/tooltip) were just dragged by
@@ -1131,10 +1128,15 @@ impl CpuBackend {
         // it's handed to the renderer here so the CPU `VirtualView` arm can
         // composite them. Without this the CPU backend only drew a placeholder.
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
-            let summary: std::vec::Vec<(usize, usize)> =
-                vview_dls.iter().map(|(id, dl)| (id.inner, dl.items.len())).collect();
-            let all_ids: std::vec::Vec<usize> =
-                layout_window.layout_results.keys().map(|k| k.inner).collect();
+            let summary: std::vec::Vec<(usize, usize)> = vview_dls
+                .iter()
+                .map(|(id, dl)| (id.inner, dl.items.len()))
+                .collect();
+            let all_ids: std::vec::Vec<usize> = layout_window
+                .layout_results
+                .keys()
+                .map(|k| k.inner)
+                .collect();
             eprintln!(
                 "[cpu-vview] render_frame: layout_results ids={:?}, vview_dls (id,items)={:?}",
                 all_ids, summary
@@ -1142,13 +1144,18 @@ impl CpuBackend {
             // Item-kind census of the ROOT display list being rendered + whether
             // the maps header's #2b2b2b background rect made it in.
             use azul_layout::solver3::display_list::DisplayListItem as I;
-            let mut rects = 0; let mut texts = 0; let mut vviews = 0; let mut other = 0;
+            let mut rects = 0;
+            let mut texts = 0;
+            let mut vviews = 0;
+            let mut other = 0;
             let mut dark_rect = false;
             for it in display_list.items.iter() {
                 match it {
                     I::Rect { color, .. } => {
                         rects += 1;
-                        if color.r == 0x2b && color.g == 0x2b && color.b == 0x2b { dark_rect = true; }
+                        if color.r == 0x2b && color.g == 0x2b && color.b == 0x2b {
+                            dark_rect = true;
+                        }
                     }
                     I::Text { .. } | I::TextLayout { .. } => texts += 1,
                     I::VirtualView { .. } | I::VirtualViewPlaceholder { .. } => vviews += 1,
@@ -1167,12 +1174,18 @@ impl CpuBackend {
                 for (i, it) in display_list.items.iter().enumerate() {
                     let desc = match it {
                         I::Rect { color, bounds, .. } => format!(
-                            "Rect rgb({},{},{}) {:?}", color.r, color.g, color.b, bounds.inner()),
+                            "Rect rgb({},{},{}) {:?}",
+                            color.r,
+                            color.g,
+                            color.b,
+                            bounds.inner()
+                        ),
                         I::Text { .. } => "Text".to_string(),
                         I::TextLayout { .. } => "TextLayout".to_string(),
                         I::VirtualView { bounds, .. } => format!("VView {:?}", bounds.inner()),
-                        I::VirtualViewPlaceholder { bounds, .. } =>
-                            format!("VViewPh {:?}", bounds.inner()),
+                        I::VirtualViewPlaceholder { bounds, .. } => {
+                            format!("VViewPh {:?}", bounds.inner())
+                        }
                         other => {
                             // Debug-print the variant; truncate to keep one line.
                             let s = format!("{:?}", other);
@@ -1203,9 +1216,14 @@ impl CpuBackend {
         if is_incremental && !all_damage.is_empty() {
             // Incremental: render only damaged regions
             let _ = cpurender::render_display_list_damaged(
-                display_list, &mut output, dpi_factor,
-                renderer_resources, &layout_window.font_manager,
-                &mut self.glyph_cache, &render_state, &all_damage,
+                display_list,
+                &mut output,
+                dpi_factor,
+                renderer_resources,
+                &layout_window.font_manager,
+                &mut self.glyph_cache,
+                &render_state,
+                &all_damage,
             );
             // Exits paint ON TOP of the restored live pixels; their current
             // rects are inside `all_damage` by construction.
@@ -1219,7 +1237,12 @@ impl CpuBackend {
             }
         } else {
             // Full render
-            output.fill(clear_color[0], clear_color[1], clear_color[2], clear_color[3]);
+            output.fill(
+                clear_color[0],
+                clear_color[1],
+                clear_color[2],
+                clear_color[3],
+            );
             compositor.allocate_layers_from_display_list(
                 display_list,
                 dpi_factor,
@@ -1227,8 +1250,11 @@ impl CpuBackend {
                 &render_state.opacities,
             );
             if let Err(e) = compositor.render_layers(
-                display_list, dpi_factor, renderer_resources,
-                &layout_window.font_manager, &mut self.glyph_cache,
+                display_list,
+                dpi_factor,
+                renderer_resources,
+                &layout_window.font_manager,
+                &mut self.glyph_cache,
                 &render_state,
             ) {
                 log_error!(
@@ -1258,8 +1284,12 @@ impl CpuBackend {
                 if let Ok(bytes) = output.encode_png() {
                     let _ = std::fs::create_dir_all(&dir);
                     let _ = std::fs::write(
-                        format!("{}/frame_{:03}_{}.png", dir, n,
-                            if is_incremental { "inc" } else { "full" }),
+                        format!(
+                            "{}/frame_{:03}_{}.png",
+                            dir,
+                            n,
+                            if is_incremental { "inc" } else { "full" }
+                        ),
                         bytes,
                     );
                 }
@@ -1279,7 +1309,10 @@ impl CpuBackend {
         // The window's shape, from what this frame painted (every frame:
         // the content decides; a popover's arrow may move).
         self.last_shape = if self.shape_from_alpha {
-            Some(cpurender::alpha_shape_rects(&output, cpurender::SHAPE_ALPHA_THRESHOLD))
+            Some(cpurender::alpha_shape_rects(
+                &output,
+                cpurender::SHAPE_ALPHA_THRESHOLD,
+            ))
         } else {
             None
         };
@@ -1540,7 +1573,9 @@ impl HeadlessWindow {
 
         // Rebuild CPU hit-tester from new layout results
         if let Some(lw) = self.common.layout_window.as_ref() {
-            self.cpu_backend.hit_tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
+            self.cpu_backend
+                .hit_tester
+                .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
 
         // Also rebuild the SHARED hit-tester that the common event-dispatch path
@@ -1691,7 +1726,11 @@ impl HeadlessWindow {
     /// pre-mutation shaped text and geometry forever (the stale screen).
     pub fn relayout_only(&mut self) -> Result<(), String> {
         let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
-        let mut debug_messages = if debug_enabled { Some(Vec::new()) } else { None };
+        let mut debug_messages = if debug_enabled {
+            Some(Vec::new())
+        } else {
+            None
+        };
 
         // The common method owns the finalize tail (the CPU hit-tester
         // rebuild) and the trait wrapper delivers the lifecycle events the
@@ -1716,7 +1755,9 @@ impl HeadlessWindow {
         // hit-tester (common's was rebuilt inside `incremental_relayout`),
         // CPU frame, damage.
         if let Some(lw) = self.common.layout_window.as_ref() {
-            self.cpu_backend.hit_tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
+            self.cpu_backend
+                .hit_tester
+                .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
 
         #[cfg(feature = "cpurender")]
@@ -1883,7 +1924,8 @@ impl HeadlessWindow {
             .update_window_state(event::WindowStateSource::Os, |ws| {
                 ws.size.dimensions = LogicalSize { width, height };
             });
-        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
         let _ = self.process_window_events(0);
     }
 
@@ -1904,7 +1946,9 @@ impl HeadlessWindow {
     /// through a full input-method round-trip.
     pub fn synthesize_character_input(&mut self, vk: VirtualKeyCode) -> Option<char> {
         let c = vk.get_lowercase()?;
-        self.inject_event(HeadlessEvent::TextInput { text: c.to_string() });
+        self.inject_event(HeadlessEvent::TextInput {
+            text: c.to_string(),
+        });
         Some(c)
     }
 
@@ -1988,7 +2032,9 @@ impl HeadlessWindow {
 
     /// Check if any timers are currently active.
     pub fn has_active_timers(&self) -> bool {
-        self.common.layout_window.as_ref()
+        self.common
+            .layout_window
+            .as_ref()
             .map_or(false, |lw| !lw.timers.is_empty())
     }
 
@@ -2075,10 +2121,7 @@ impl HeadlessWindow {
         self.invoke_create_callback();
 
         // -- Perform initial layout (same as every platform) --
-        log_debug!(
-            LogCategory::Layout,
-            "[Headless] Performing initial layout"
-        );
+        log_debug!(LogCategory::Layout, "[Headless] Performing initial layout");
         if let Err(e) = self.regenerate_layout() {
             log_warn!(
                 LogCategory::Layout,
@@ -2104,18 +2147,11 @@ impl HeadlessWindow {
                             bytes.len(),
                             path,
                         ),
-                        Err(e) => log_error!(
-                            LogCategory::Rendering,
-                            "[Headless] write({}): {}",
-                            path,
-                            e
-                        ),
+                        Err(e) => {
+                            log_error!(LogCategory::Rendering, "[Headless] write({}): {}", path, e)
+                        }
                     },
-                    Err(e) => log_error!(
-                        LogCategory::Rendering,
-                        "[Headless] encode_png: {}",
-                        e
-                    ),
+                    Err(e) => log_error!(LogCategory::Rendering, "[Headless] encode_png: {}", e),
                 }
             } else {
                 log_warn!(
@@ -2320,24 +2356,24 @@ impl HeadlessWindow {
                                 "headless.mouse_down.scrollbar_click",
                             );
                         } else {
-                        match button {
-                            azul_core::events::MouseButton::Left => {
-                                self.common.mouse_state_mut().left_down = true;
+                            match button {
+                                azul_core::events::MouseButton::Left => {
+                                    self.common.mouse_state_mut().left_down = true;
+                                }
+                                azul_core::events::MouseButton::Right => {
+                                    self.common.mouse_state_mut().right_down = true;
+                                }
+                                azul_core::events::MouseButton::Middle => {
+                                    self.common.mouse_state_mut().middle_down = true;
+                                }
+                                _ => {}
                             }
-                            azul_core::events::MouseButton::Right => {
-                                self.common.mouse_state_mut().right_down = true;
+                            record_headless_input(&mut self, true, false); // MWA-A4
+                            let r = self.process_window_events(0);
+                            events_result = events_result.max(r);
+                            if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
+                                events_need_redraw = true;
                             }
-                            azul_core::events::MouseButton::Middle => {
-                                self.common.mouse_state_mut().middle_down = true;
-                            }
-                            _ => {}
-                        }
-                        record_headless_input(&mut self, true, false); // MWA-A4
-                        let r = self.process_window_events(0);
-                        events_result = events_result.max(r);
-                        if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
-                            events_need_redraw = true;
-                        }
                         }
                     }
                     HeadlessEvent::MouseUp { button } => {
@@ -2370,8 +2406,10 @@ impl HeadlessWindow {
                         self.snapshot_window_state_baseline("headless.run.key_down");
                         self.common.keyboard_state_mut().current_virtual_keycode =
                             azul_core::window::OptionVirtualKeyCode::Some(virtual_keycode);
-                        self.common.keyboard_state_mut()
-                            .pressed_virtual_keycodes.insert_hm_item(virtual_keycode);
+                        self.common
+                            .keyboard_state_mut()
+                            .pressed_virtual_keycodes
+                            .insert_hm_item(virtual_keycode);
                         let r = self.process_window_events(0);
                         events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
@@ -2382,8 +2420,10 @@ impl HeadlessWindow {
                         self.snapshot_window_state_baseline("headless.run.key_up");
                         self.common.keyboard_state_mut().current_virtual_keycode =
                             azul_core::window::OptionVirtualKeyCode::None;
-                        self.common.keyboard_state_mut()
-                            .pressed_virtual_keycodes.remove_hm_item(&virtual_keycode);
+                        self.common
+                            .keyboard_state_mut()
+                            .pressed_virtual_keycodes
+                            .remove_hm_item(&virtual_keycode);
                         let r = self.process_window_events(0);
                         events_result = events_result.max(r);
                         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
@@ -2472,11 +2512,10 @@ impl HeadlessWindow {
                         // input (subsequent deltas are picked up by the running
                         // timer via the shared ScrollInputQueue).
                         if let Some(queue) = queue {
-                            let physics_state =
-                                azul_layout::scroll_timer::ScrollPhysicsState::new(
-                                    queue,
-                                    self.common.system_style.scroll_physics.clone(),
-                                );
+                            let physics_state = azul_layout::scroll_timer::ScrollPhysicsState::new(
+                                queue,
+                                self.common.system_style.scroll_physics.clone(),
+                            );
                             let interval_ms =
                                 self.common.system_style.scroll_physics.timer_interval_ms;
                             let timer = azul_layout::timer::Timer::create(
@@ -2486,13 +2525,14 @@ impl HeadlessWindow {
                                 azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
                                     .get_system_time_fn,
                             )
-                            .with_interval(azul_core::task::Duration::System(
-                                azul_core::task::SystemTimeDiff::from_millis(interval_ms as u64),
-                            ));
-                            self.start_timer(
-                                azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id,
-                                timer,
+                            .with_interval(
+                                azul_core::task::Duration::System(
+                                    azul_core::task::SystemTimeDiff::from_millis(
+                                        interval_ms as u64,
+                                    ),
+                                ),
                             );
+                            self.start_timer(azul_core::task::SCROLL_MOMENTUM_TIMER_ID.id, timer);
                         }
                     }
                 }
@@ -2612,7 +2652,9 @@ impl HeadlessWindow {
             // ── Phase 4: Pump child windows ──────────────────────
             children.retain_mut(|child| {
                 while let Some(ev) = child.poll_event() {
-                    if let HeadlessEvent::Close = ev { child.close(); }
+                    if let HeadlessEvent::Close = ev {
+                        child.close();
+                    }
                 }
                 // Same close_requested contract as the parent window above: a
                 // callback that closes a child popup/dialog sets the flag and
@@ -2625,7 +2667,10 @@ impl HeadlessWindow {
             });
 
             // ── Phase 5: Condvar-based wait ──────────────────────
-            let has_timers = self.common.layout_window.as_ref()
+            let has_timers = self
+                .common
+                .layout_window
+                .as_ref()
                 .map_or(false, |lw| !lw.timers.is_empty());
             let has_wake_sources = has_timers
                 || self.thread_poll_timer_running
@@ -2675,10 +2720,7 @@ impl HeadlessWindow {
                 );
             } else {
                 // No timers → block indefinitely until woken
-                let _r = self.wake_condvar.wait_while(
-                    guard,
-                    |ws| !ws.woken,
-                );
+                let _r = self.wake_condvar.wait_while(guard, |ws| !ws.woken);
             }
         }
 
@@ -2791,10 +2833,7 @@ impl PlatformWindow for HeadlessWindow {
         }
     }
 
-    fn remove_threads(
-        &mut self,
-        thread_ids: &BTreeSet<azul_core::task::ThreadId>,
-    ) {
+    fn remove_threads(&mut self, thread_ids: &BTreeSet<azul_core::task::ThreadId>) {
         if let Some(lw) = self.common.layout_window.as_mut() {
             for id in thread_ids {
                 lw.threads.remove(id);
@@ -2817,11 +2856,7 @@ impl PlatformWindow for HeadlessWindow {
         // TODO: could create a sub-HeadlessWindow with the menu content
     }
 
-    fn show_tooltip_from_callback(
-        &mut self,
-        _text: &str,
-        _position: LogicalPosition,
-    ) {
+    fn show_tooltip_from_callback(&mut self, _text: &str, _position: LogicalPosition) {
         // No-op — no visual surface to show a tooltip on
     }
 
@@ -2862,7 +2897,8 @@ mod tests {
             icon_provider,
             fc_cache,
             None,
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]
@@ -2881,9 +2917,9 @@ mod tests {
     // =====================================================================
 
     use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo};
-    use azul_core::refany::OptionRefAny;
     use azul_core::dom::Dom;
     use azul_core::geom::LogicalSize;
+    use azul_core::refany::OptionRefAny;
     use azul_layout::solver3::display_list::DisplayListItem;
 
     /// Minimal app state the harness layout callback reads.
@@ -2901,8 +2937,9 @@ mod tests {
             .downcast_ref::<UiState>()
             .map(|s| s.label.clone())
             .unwrap_or_default();
-        Dom::create_body()
-            .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label.as_str())))
+        Dom::create_body().with_child(Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(label.as_str()),
+        ))
     }
 
     /// One embedded font for the whole harness. Using a bundled font instead of
@@ -3004,9 +3041,7 @@ mod tests {
         match d {
             FrameDamage::None => Some(0.0),
             FrameDamage::Full => None,
-            FrameDamage::Rects(rs) => {
-                Some(rs.iter().map(|r| r.size.width * r.size.height).sum())
-            }
+            FrameDamage::Rects(rs) => Some(rs.iter().map(|r| r.size.width * r.size.height).sum()),
         }
     }
 
@@ -3018,17 +3053,32 @@ mod tests {
     }
 
     extern "C" fn harness_layout_box(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::property::CssProperty;
         use azul_css::dynamic_selector::CssPropertyWithConditions;
         use azul_css::props::basic::color::ColorU;
-        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::property::CssProperty;
+        use azul_css::props::style::background::{
+            StyleBackgroundContent, StyleBackgroundContentVec,
+        };
 
-        let red = data.downcast_ref::<BoxState>().map(|s| s.red).unwrap_or(false);
+        let red = data
+            .downcast_ref::<BoxState>()
+            .map(|s| s.red)
+            .unwrap_or(false);
         let color = if red {
-            ColorU { r: 255, g: 0, b: 0, a: 255 }
+            ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            }
         } else {
-            ColorU { r: 0, g: 0, b: 255, a: 255 }
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            }
         };
         let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
         Dom::create_body().with_child(
@@ -3075,10 +3125,15 @@ mod tests {
                     ]
                     .into(),
                 )
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    text,
+                ))
         };
         let spacer = Dom::create_div().with_css_props(
-            vec![C::simple(CssProperty::flex_grow(LayoutFlexGrow::const_new(1)))].into(),
+            vec![C::simple(CssProperty::flex_grow(
+                LayoutFlexGrow::const_new(1),
+            ))]
+            .into(),
         );
         let row = Dom::create_div()
             .with_css_props(
@@ -3093,10 +3148,10 @@ mod tests {
             .with_child(group(bg(60, 160, 60), "Font"))
             .with_child(group(bg(60, 60, 200), "Layout"));
         let centered = Dom::create_div()
-            .with_css_props(
-                vec![C::simple(CssProperty::text_align(StyleTextAlign::Center))].into(),
-            )
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label.as_str()));
+            .with_css_props(vec![C::simple(CssProperty::text_align(StyleTextAlign::Center))].into())
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                label.as_str(),
+            ));
         Dom::create_body().with_child(row).with_child(centered)
     }
 
@@ -3123,9 +3178,11 @@ mod tests {
                 LogicalSize::new(prev_w, 240.0),
                 LogicalSize::new(w, 240.0),
             );
-            window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-                ws.size.dimensions = LogicalSize::new(w, 240.0);
-            });
+            window
+                .common
+                .update_window_state(event::WindowStateSource::Os, |ws| {
+                    ws.size.dimensions = LogicalSize::new(w, 240.0);
+                });
             if full {
                 window.regenerate_layout().expect("regen");
             } else {
@@ -3186,35 +3243,44 @@ mod tests {
     fn real_ribbon_resize_sweep_matches_fresh_at_every_step() {
         use azul_core::geom::LogicalSize;
         use azul_layout::widgets::ribbon::{
-            Ribbon, RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonTab,
-            RibbonTabVec,
+            Ribbon, RibbonButton, RibbonColumn, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec,
         };
 
         fn tabs() -> RibbonTabVec {
             let col = |a: (&str, &str), b: (&str, &str)| {
                 RibbonItem::Column(
                     RibbonColumn::new()
-                        .with_item(RibbonItem::SmallButton(RibbonButton::new(a.0.into(), a.1.into())))
-                        .with_item(RibbonItem::SmallButton(RibbonButton::new(b.0.into(), b.1.into()))),
+                        .with_item(RibbonItem::SmallButton(RibbonButton::new(
+                            a.0.into(),
+                            a.1.into(),
+                        )))
+                        .with_item(RibbonItem::SmallButton(RibbonButton::new(
+                            b.0.into(),
+                            b.1.into(),
+                        ))),
                 )
             };
-            let home = RibbonTab::new("HOME".into())
-                .with_group(
-                    RibbonGroup::new("Clipboard".into())
-                        .with_item(RibbonItem::LargeButton(RibbonButton::new("content_paste".into(), "Paste".into())))
-                        .with_item(col(("content_cut", "Cut"), ("content_copy", "Copy"))),
-                )
-                .with_group(
-                    RibbonGroup::new("Font".into())
-                        .with_item(col(("format_bold", "Bold"), ("format_italic", "Italic")))
-                        .with_item(col(
-                            ("format_underlined", "Underline"),
-                            ("format_color_text", "Color"),
-                        )),
-                )
-                .with_group(RibbonGroup::new("Styles".into()).with_item(RibbonItem::LargeButton(
-                    RibbonButton::new("style".into(), "Styles".into()),
-                )));
+            let home =
+                RibbonTab::new("HOME".into())
+                    .with_group(
+                        RibbonGroup::new("Clipboard".into())
+                            .with_item(RibbonItem::LargeButton(RibbonButton::new(
+                                "content_paste".into(),
+                                "Paste".into(),
+                            )))
+                            .with_item(col(("content_cut", "Cut"), ("content_copy", "Copy"))),
+                    )
+                    .with_group(
+                        RibbonGroup::new("Font".into())
+                            .with_item(col(("format_bold", "Bold"), ("format_italic", "Italic")))
+                            .with_item(col(
+                                ("format_underlined", "Underline"),
+                                ("format_color_text", "Color"),
+                            )),
+                    )
+                    .with_group(RibbonGroup::new("Styles".into()).with_item(
+                        RibbonItem::LargeButton(RibbonButton::new("style".into(), "Styles".into())),
+                    ));
             RibbonTabVec::from_vec(vec![
                 home,
                 RibbonTab::new("INSERT".into()).with_group(
@@ -3250,9 +3316,11 @@ mod tests {
                 LogicalSize::new(prev_w, 260.0),
                 LogicalSize::new(w, 260.0),
             );
-            window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-                ws.size.dimensions = LogicalSize::new(w, 260.0);
-            });
+            window
+                .common
+                .update_window_state(event::WindowStateSource::Os, |ws| {
+                    ws.size.dimensions = LogicalSize::new(w, 260.0);
+                });
             if full {
                 window.regenerate_layout().expect("regen");
             } else {
@@ -3350,7 +3418,14 @@ mod tests {
         };
 
         const TAB_LABELS: &[&str] = &[
-            "HOME", "INSERT", "DESIGN", "PAGE LAYOUT", "REFERENCES", "MAILINGS", "REVIEW", "VIEW",
+            "HOME",
+            "INSERT",
+            "DESIGN",
+            "PAGE LAYOUT",
+            "REFERENCES",
+            "MAILINGS",
+            "REVIEW",
+            "VIEW",
         ];
         const CAPTIONS: &[&str] = &["Clipboard", "Font", "Paragraph", "Styles"];
 
@@ -3370,25 +3445,34 @@ mod tests {
                     )))
                 }))
             };
-            let home = RibbonTab::new("HOME".into())
-                .with_group(
-                    RibbonGroup::new("Clipboard".into())
-                        .with_item(col(["Cut", "Copy", "Format Painter"])),
-                )
-                .with_group(
-                    RibbonGroup::new("Font".into()).with_item(col(["Grow", "Shrink", "Clear"])),
-                )
-                .with_group(
-                    RibbonGroup::new("Paragraph".into())
-                        .with_item(col(["Bullets", "Numbering", "Sort"])),
-                )
-                .with_group(RibbonGroup::new("Styles".into()).with_item(
-                    RibbonItem::LargeButton(RibbonButton::new("style".into(), "Styles".into())),
-                ));
+            let home =
+                RibbonTab::new("HOME".into())
+                    .with_group(RibbonGroup::new("Clipboard".into()).with_item(col([
+                        "Cut",
+                        "Copy",
+                        "Format Painter",
+                    ])))
+                    .with_group(
+                        RibbonGroup::new("Font".into()).with_item(col(["Grow", "Shrink", "Clear"])),
+                    )
+                    .with_group(RibbonGroup::new("Paragraph".into()).with_item(col([
+                        "Bullets",
+                        "Numbering",
+                        "Sort",
+                    ])))
+                    .with_group(RibbonGroup::new("Styles".into()).with_item(
+                        RibbonItem::LargeButton(RibbonButton::new("style".into(), "Styles".into())),
+                    ));
             let mut tabs = vec![home];
-            for label in
-                ["INSERT", "DESIGN", "PAGE LAYOUT", "REFERENCES", "MAILINGS", "REVIEW", "VIEW"]
-            {
+            for label in [
+                "INSERT",
+                "DESIGN",
+                "PAGE LAYOUT",
+                "REFERENCES",
+                "MAILINGS",
+                "REVIEW",
+                "VIEW",
+            ] {
                 tabs.push(RibbonTab::new(label.into()).with_group(
                     RibbonGroup::new("Preview".into()).with_item(RibbonItem::LargeButton(
                         RibbonButton::new("layers".into(), label.into()),
@@ -3398,11 +3482,11 @@ mod tests {
             let mut ribbon = Ribbon::new(RibbonTabVec::from_vec(tabs))
                 .with_app_button(RibbonAppButton::new("FILE".into()));
             let mut v = ribbon.style.container_style.as_ref().to_vec();
-            v.push(CssPropertyWithConditions::simple(CssProperty::const_font_family(
-                StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(
-                    "Liberation Sans".into(),
-                )]),
-            )));
+            v.push(CssPropertyWithConditions::simple(
+                CssProperty::const_font_family(StyleFontFamilyVec::from_vec(vec![
+                    StyleFontFamily::System("Liberation Sans".into()),
+                ])),
+            ));
             ribbon.style.container_style = CssPropertyWithConditionsVec::from_vec(v);
             Dom::create_body().with_child(ribbon.dom_desktop())
         }
@@ -3438,9 +3522,9 @@ mod tests {
             lw_of(window).get_node_layout_rect(id)
         }
 
-
         let state = Arc::new(RefCell::new(RefAny::new(0usize)));
-        let mut window = make_window_sized_real_fonts(&state, layout_azwriter_ribbon, 1000.0, 300.0);
+        let mut window =
+            make_window_sized_real_fonts(&state, layout_azwriter_ribbon, 1000.0, 300.0);
         window.regenerate_layout().expect("initial layout");
         window.regenerate_layout().expect("settle");
 
@@ -3462,8 +3546,8 @@ mod tests {
                 let i = find_text_node(window, l)
                     .unwrap_or_else(|| panic!("tab '{l}' vanished at w={w}"));
                 let p = parent_of(window, i).expect("tab <p>");
-                let r = rect_of(window, p)
-                    .unwrap_or_else(|| panic!("tab '{l}' has no box at w={w}"));
+                let r =
+                    rect_of(window, p).unwrap_or_else(|| panic!("tab '{l}' has no box at w={w}"));
                 assert!(
                     r.size.height <= base_h[k] * 1.5,
                     "tab '{l}' WRAPPED at w={w}: <p> height {:.2} vs one-line {:.2} — the live \
@@ -3479,8 +3563,7 @@ mod tests {
                 let pr = rect_of(window, p).expect("caption <p> rect");
                 let f = parent_of(window, p.index()).expect("caption footer");
                 let fr = rect_of(window, f).expect("footer rect");
-                let err = (pr.origin.x + pr.size.width / 2.0)
-                    - (fr.origin.x + fr.size.width / 2.0);
+                let err = (pr.origin.x + pr.size.width / 2.0) - (fr.origin.x + fr.size.width / 2.0);
                 assert!(
                     err.abs() <= 1.0,
                     "caption '{l}' OFF-CENTER by {err:.2}px at w={w} — the live de-centering \
@@ -3509,9 +3592,11 @@ mod tests {
                     LogicalSize::new(prev_w, 300.0),
                     LogicalSize::new(w, 300.0),
                 );
-                window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-                    ws.size.dimensions = LogicalSize::new(w, 300.0);
-                });
+                window
+                    .common
+                    .update_window_state(event::WindowStateSource::Os, |ws| {
+                        ws.size.dimensions = LogicalSize::new(w, 300.0);
+                    });
                 if full {
                     window.regenerate_layout().expect("regen");
                 } else {
@@ -3550,10 +3635,7 @@ mod tests {
         swizzle_rb_in_rects(&mut buf, stride, h, &rects);
         let inside = |x: usize, y: usize| {
             rects.iter().any(|&(rx, ry, rw, rh)| {
-                (x as i32) >= rx
-                    && (x as i32) < rx + rw
-                    && (y as i32) >= ry
-                    && (y as i32) < ry + rh
+                (x as i32) >= rx && (x as i32) < rx + rw && (y as i32) >= ry && (y as i32) < ry + rh
             })
         };
         for y in 0..h {
@@ -3563,7 +3645,11 @@ mod tests {
                     assert_eq!(buf[o], orig[o + 2], "R<-B at {x},{y}");
                     assert_eq!(buf[o + 2], orig[o], "B<-R at {x},{y}");
                 } else {
-                    assert_eq!(&buf[o..o + 4], &orig[o..o + 4], "untouched outside at {x},{y}");
+                    assert_eq!(
+                        &buf[o..o + 4],
+                        &orig[o..o + 4],
+                        "untouched outside at {x},{y}"
+                    );
                 }
                 assert_eq!(buf[o + 1], orig[o + 1], "G untouched at {x},{y}");
                 assert_eq!(buf[o + 3], orig[o + 3], "A untouched at {x},{y}");
@@ -3581,9 +3667,7 @@ mod tests {
     /// flips the box color at viewport width <= 720 (a threshold that was
     /// NOT on the old hardcoded CSS_BREAKPOINTS guess list).
     extern "C" fn harness_layout_breakpoint(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::dynamic_selector::{
-            CssPropertyWithConditions, DynamicSelector, MinMaxRange,
-        };
+        use azul_css::dynamic_selector::{CssPropertyWithConditions, DynamicSelector, MinMaxRange};
         use azul_css::props::basic::color::ColorU;
         use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
         use azul_css::props::property::CssProperty;
@@ -3594,25 +3678,40 @@ mod tests {
         if let Some(mut st) = data.downcast_mut::<BreakpointState>() {
             st.layouts += 1;
         }
-        let blue: StyleBackgroundContentVec =
-            vec![StyleBackgroundContent::Color(ColorU { r: 0, g: 0, b: 255, a: 255 })].into();
-        let red: StyleBackgroundContentVec =
-            vec![StyleBackgroundContent::Color(ColorU { r: 255, g: 0, b: 0, a: 255 })].into();
+        let blue: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 255,
+        })]
+        .into();
+        let red: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        })]
+        .into();
         let cond_mobile: azul_css::dynamic_selector::DynamicSelectorVec =
-            vec![DynamicSelector::ViewportWidth(MinMaxRange { min: f32::NAN, max: 720.0 })]
-                .into();
-        Dom::create_body().with_child(Dom::create_div().with_css_props(
-            vec![
-                CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(100.0))),
-                CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(50.0))),
-                CssPropertyWithConditions::simple(CssProperty::background_content(blue)),
-                CssPropertyWithConditions::with_conditions(
-                    CssProperty::background_content(red),
-                    cond_mobile,
-                ),
-            ]
-            .into(),
-        ))
+            vec![DynamicSelector::ViewportWidth(MinMaxRange {
+                min: f32::NAN,
+                max: 720.0,
+            })]
+            .into();
+        Dom::create_body().with_child(
+            Dom::create_div().with_css_props(
+                vec![
+                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(100.0))),
+                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(50.0))),
+                    CssPropertyWithConditions::simple(CssProperty::background_content(blue)),
+                    CssPropertyWithConditions::with_conditions(
+                        CssProperty::background_content(red),
+                        cond_mobile,
+                    ),
+                ]
+                .into(),
+            ),
+        )
     }
 
     /// The first non-white Rect color in DOM 0's display list.
@@ -3648,19 +3747,23 @@ mod tests {
             .map(|s| s.layouts)
             .unwrap_or(0);
         assert!(base > 0, "the layout callback must have run");
-        assert_eq!(first_box_color(&window), Some((0, 0, 255)), "desktop = blue");
+        assert_eq!(
+            first_box_color(&window),
+            Some((0, 0, 255)),
+            "desktop = blue"
+        );
 
         // 800 -> 750 crosses the old guess-list's 768 but NO threshold of
         // THIS dom: stays incremental, layout() NOT re-invoked.
-        let full = window
+        let full = window.common.request_regeneration_for_resize(
+            LogicalSize::new(800.0, 600.0),
+            LogicalSize::new(750.0, 600.0),
+        );
+        window
             .common
-            .request_regeneration_for_resize(
-                LogicalSize::new(800.0, 600.0),
-                LogicalSize::new(750.0, 600.0),
-            );
-        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-            ws.size.dimensions = LogicalSize::new(750.0, 600.0);
-        });
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions = LogicalSize::new(750.0, 600.0);
+            });
         assert!(
             !full,
             "768 is not a threshold of this DOM — the hardcoded guess list must not fire"
@@ -3674,27 +3777,40 @@ mod tests {
             .downcast_ref::<BreakpointState>()
             .map(|s| s.layouts)
             .unwrap_or(0);
-        assert_eq!(after_750, base, "no layout() re-invoke for a non-crossing resize");
-        assert_eq!(first_box_color(&window), Some((0, 0, 255)), "still blue at 750");
+        assert_eq!(
+            after_750, base,
+            "no layout() re-invoke for a non-crossing resize"
+        );
+        assert_eq!(
+            first_box_color(&window),
+            Some((0, 0, 255)),
+            "still blue at 750"
+        );
 
         // 750 -> 600 crosses the harvested 720: full regeneration + flip.
-        let full = window
+        let full = window.common.request_regeneration_for_resize(
+            LogicalSize::new(750.0, 600.0),
+            LogicalSize::new(600.0, 600.0),
+        );
+        window
             .common
-            .request_regeneration_for_resize(
-                LogicalSize::new(750.0, 600.0),
-                LogicalSize::new(600.0, 600.0),
-            );
-        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-            ws.size.dimensions = LogicalSize::new(600.0, 600.0);
-        });
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions = LogicalSize::new(600.0, 600.0);
+            });
         window.regenerate_layout().expect("regen at 600");
-        assert!(full, "crossing the harvested 720 must regenerate (shrink side!)");
+        assert!(
+            full,
+            "crossing the harvested 720 must regenerate (shrink side!)"
+        );
         let after_600 = state
             .borrow_mut()
             .downcast_ref::<BreakpointState>()
             .map(|s| s.layouts)
             .unwrap_or(0);
-        assert!(after_600 > after_750, "layout() must re-run across the breakpoint");
+        assert!(
+            after_600 > after_750,
+            "layout() must re-run across the breakpoint"
+        );
         assert_eq!(
             first_box_color(&window),
             Some((255, 0, 0)),
@@ -3702,15 +3818,15 @@ mod tests {
         );
 
         // And back up: 600 -> 800 crosses 720 the other way.
-        let full = window
+        let full = window.common.request_regeneration_for_resize(
+            LogicalSize::new(600.0, 600.0),
+            LogicalSize::new(800.0, 600.0),
+        );
+        window
             .common
-            .request_regeneration_for_resize(
-                LogicalSize::new(600.0, 600.0),
-                LogicalSize::new(800.0, 600.0),
-            );
-        window.common.update_window_state(event::WindowStateSource::Os, |ws| {
-            ws.size.dimensions = LogicalSize::new(800.0, 600.0);
-        });
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+            });
         window.regenerate_layout().expect("regen back at 800");
         assert!(full, "growing back across 720 regenerates too");
         assert_eq!(first_box_color(&window), Some((0, 0, 255)), "desktop again");
@@ -3798,9 +3914,17 @@ mod tests {
             };
             use azul_css::props::style::box_shadow::{BoxShadowClipMode, StyleBoxShadow};
 
-            let v = data.downcast_ref::<ShapeState>().map(|s| s.variant).unwrap_or(0);
-            let bg: StyleBackgroundContentVec =
-                vec![StyleBackgroundContent::Color(ColorU { r: 0, g: 0, b: 200, a: 255 })].into();
+            let v = data
+                .downcast_ref::<ShapeState>()
+                .map(|s| s.variant)
+                .unwrap_or(0);
+            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
+                r: 0,
+                g: 0,
+                b: 200,
+                a: 255,
+            })]
+            .into();
 
             // Variant drives size, shadow presence and child count together,
             // so consecutive steps exercise several shapes at once.
@@ -3817,12 +3941,25 @@ mod tests {
             ];
             {
                 let shadow = StyleBoxShadow {
-                    offset_x: PixelValueNoPercent { inner: PixelValue::const_px(6) },
-                    offset_y: PixelValueNoPercent { inner: PixelValue::const_px(6) },
-                    blur_radius: PixelValueNoPercent { inner: PixelValue::const_px(8) },
-                    spread_radius: PixelValueNoPercent { inner: PixelValue::const_px(4) },
+                    offset_x: PixelValueNoPercent {
+                        inner: PixelValue::const_px(6),
+                    },
+                    offset_y: PixelValueNoPercent {
+                        inner: PixelValue::const_px(6),
+                    },
+                    blur_radius: PixelValueNoPercent {
+                        inner: PixelValue::const_px(8),
+                    },
+                    spread_radius: PixelValueNoPercent {
+                        inner: PixelValue::const_px(4),
+                    },
                     clip_mode: BoxShadowClipMode::default(),
-                    color: ColorU { r: 0, g: 0, b: 0, a: 200 },
+                    color: ColorU {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        a: 200,
+                    },
                 };
                 props.push(P::simple(CssProperty::box_shadow_left(shadow.clone())));
                 props.push(P::simple(CssProperty::box_shadow_right(shadow.clone())));
@@ -3834,9 +3971,9 @@ mod tests {
             // an inline formatting context creates (which have no DOM node),
             // while keeping the display-list item COUNT stable so the frame
             // stays on the incremental path — see the note on the test.
-            let div = Dom::create_div()
-                .with_css_props(props.into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("one two three"));
+            let div = Dom::create_div().with_css_props(props.into()).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("one two three"),
+            );
             Dom::create_body().with_child(div)
         }
 
@@ -3862,7 +3999,12 @@ mod tests {
 
             let mut fresh = make_window_with(&state, layout_shapes);
             fresh.regenerate_layout().expect("fresh layout");
-            let full = fresh.cpu_backend.last_frame.as_ref().expect("fresh").clone_pixmap();
+            let full = fresh
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("fresh")
+                .clone_pixmap();
 
             let (a, b) = (incremental.data(), full.data());
             let mut diffs = 0usize;
@@ -3911,10 +4053,17 @@ mod tests {
                 StyleBackgroundContent, StyleBackgroundContentVec,
             };
 
-            let v = data.downcast_ref::<NbState>().map(|s| s.variant).unwrap_or(0);
-            let bg: StyleBackgroundContentVec =
-                vec![StyleBackgroundContent::Color(ColorU { r: 200, g: 30, b: 30, a: 255 })]
-                    .into();
+            let v = data
+                .downcast_ref::<NbState>()
+                .map(|s| s.variant)
+                .unwrap_or(0);
+            let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
+                r: 200,
+                g: 30,
+                b: 30,
+                a: 255,
+            })]
+            .into();
             // Sizes change per step, item count stays stable → the frames
             // after the first take the INCREMENTAL path (asserted below).
             let (w, h) = match v % 3 {
@@ -3931,7 +4080,9 @@ mod tests {
                     ]
                     .into(),
                 )
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("native backbuffer"));
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "native backbuffer",
+                ));
             Dom::create_body().with_child(div)
         }
 
@@ -4026,11 +4177,13 @@ mod tests {
         fn doc_dom() -> Dom {
             let mut body = Dom::create_body();
             for i in 0..14usize {
-                body = body.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(match i % 3 {
-                    0 => "alpha beta gamma delta epsilon zeta eta theta iota kappa",
-                    1 => "the quick brown fox jumps over the lazy dog again and again",
-                    _ => "lorem ipsum dolor sit amet consectetur adipiscing elit sed do",
-                }));
+                body = body.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    match i % 3 {
+                        0 => "alpha beta gamma delta epsilon zeta eta theta iota kappa",
+                        1 => "the quick brown fox jumps over the lazy dog again and again",
+                        _ => "lorem ipsum dolor sit amet consectetur adipiscing elit sed do",
+                    },
+                ));
             }
             body
         }
@@ -4045,7 +4198,10 @@ mod tests {
 
         // (a) fork law: every shaped entry is shared, not copied.
         let keys = lw.text_cache.per_item_keys();
-        assert!(!keys.is_empty(), "screen layout shaped nothing — fixture broken");
+        assert!(
+            !keys.is_empty(),
+            "screen layout shaped nothing — fixture broken"
+        );
         let fork = lw.text_cache.fork_shared();
         for k in &keys {
             assert!(
@@ -4230,18 +4386,27 @@ mod tests {
         // exactly, and there is no rand dependency in this crate.
         let mut seed: u64 = 0x2545_F491_4F6C_DD1D;
         let mut next = move || {
-            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (seed >> 33) as usize
         };
 
         let mut text = String::from("alpha beta gamma");
         for step in 0..40 {
             match next() % 5 {
-                0 => text.push_str(WORDS[next() % WORDS.len()]),      // append
+                0 => text.push_str(WORDS[next() % WORDS.len()]), // append
                 1 => {
                     // insert in the middle
-                    let at = if text.is_empty() { 0 } else { next() % text.len() };
-                    let at = (0..=at).rev().find(|i| text.is_char_boundary(*i)).unwrap_or(0);
+                    let at = if text.is_empty() {
+                        0
+                    } else {
+                        next() % text.len()
+                    };
+                    let at = (0..=at)
+                        .rev()
+                        .find(|i| text.is_char_boundary(*i))
+                        .unwrap_or(0);
                     text.insert_str(at, WORDS[next() % WORDS.len()]);
                 }
                 2 => {
@@ -4249,13 +4414,18 @@ mod tests {
                     if !text.is_empty() {
                         let a = next() % text.len();
                         let b = (a + 1 + next() % 5).min(text.len());
-                        let a = (0..=a).rev().find(|i| text.is_char_boundary(*i)).unwrap_or(0);
-                        let b = (b..=text.len()).find(|i| text.is_char_boundary(*i)).unwrap_or(text.len());
+                        let a = (0..=a)
+                            .rev()
+                            .find(|i| text.is_char_boundary(*i))
+                            .unwrap_or(0);
+                        let b = (b..=text.len())
+                            .find(|i| text.is_char_boundary(*i))
+                            .unwrap_or(text.len());
                         text.replace_range(a..b, "");
                     }
                 }
-                3 => text = WORDS[next() % WORDS.len()].to_string(),  // replace all
-                _ => text.push(' '),                                  // whitespace only
+                3 => text = WORDS[next() % WORDS.len()].to_string(), // replace all
+                _ => text.push(' '),                                 // whitespace only
             }
 
             set_label(&state, &text);
@@ -4271,7 +4441,12 @@ mod tests {
             // Ground truth: the same content painted from scratch.
             let mut fresh = make_harness_window(&state);
             fresh.regenerate_layout().expect("fresh layout");
-            let full = fresh.cpu_backend.last_frame.as_ref().expect("fresh").clone_pixmap();
+            let full = fresh
+                .cpu_backend
+                .last_frame
+                .as_ref()
+                .expect("fresh")
+                .clone_pixmap();
 
             let (a, b) = (incremental.data(), full.data());
             let mut diffs = 0usize;
@@ -4513,12 +4688,11 @@ mod tests {
             ctx: OptionRefAny::None,
         };
         opts.window_state.size.dimensions = LogicalSize::new(400.0, 300.0);
-        opts.create_callback = azul_layout::callbacks::OptionCallback::Some(
-            azul_layout::callbacks::Callback {
+        opts.create_callback =
+            azul_layout::callbacks::OptionCallback::Some(azul_layout::callbacks::Callback {
                 cb: create_cb_installs_timer,
                 ctx: OptionRefAny::None,
-            },
-        );
+            });
         let mut window = HeadlessWindow::new(
             opts,
             state.clone(),
@@ -4537,14 +4711,22 @@ mod tests {
             "no timer may exist before invoke_create_callback"
         );
         assert_eq!(
-            state.borrow_mut().downcast_ref::<CreateState>().unwrap().fired,
+            state
+                .borrow_mut()
+                .downcast_ref::<CreateState>()
+                .unwrap()
+                .fired,
             0
         );
 
         window.invoke_create_callback();
 
         assert_eq!(
-            state.borrow_mut().downcast_ref::<CreateState>().unwrap().fired,
+            state
+                .borrow_mut()
+                .downcast_ref::<CreateState>()
+                .unwrap()
+                .fired,
             1,
             "create_callback must run with the APP data (parity with OS shells)"
         );
@@ -4558,7 +4740,11 @@ mod tests {
         // not re-fire it (OS shells consume the callback at window creation).
         window.invoke_create_callback();
         assert_eq!(
-            state.borrow_mut().downcast_ref::<CreateState>().unwrap().fired,
+            state
+                .borrow_mut()
+                .downcast_ref::<CreateState>()
+                .unwrap()
+                .fired,
             1,
             "create_callback fired more than once"
         );
@@ -4613,7 +4799,9 @@ mod tests {
                 a < window_area * 0.5,
                 "box recolor damage area {} should be ~box-sized (~5000), not \
                  near-full-window {} — damage={:?}",
-                a, window_area, damage
+                a,
+                window_area,
+                damage
             ),
             other => panic!(
                 "box recolor should produce bounded incremental damage, got \
@@ -4717,11 +4905,13 @@ mod tests {
     }
 
     extern "C" fn harness_layout_grid(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::property::CssProperty;
         use azul_css::dynamic_selector::CssPropertyWithConditions;
         use azul_css::props::basic::color::ColorU;
-        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::property::CssProperty;
+        use azul_css::props::style::background::{
+            StyleBackgroundContent, StyleBackgroundContentVec,
+        };
 
         let (boxes, highlight) = data
             .downcast_ref::<GridState>()
@@ -4730,21 +4920,40 @@ mod tests {
         let mut body = Dom::create_body();
         for (i, (w, h)) in boxes.iter().enumerate() {
             let color = if Some(i) == highlight {
-                ColorU { r: 30, g: 220, b: 30, a: 255 } // highlighted box
+                ColorU {
+                    r: 30,
+                    g: 220,
+                    b: 30,
+                    a: 255,
+                } // highlighted box
             } else if i % 2 == 0 {
-                ColorU { r: 220, g: 30, b: 30, a: 255 }
+                ColorU {
+                    r: 220,
+                    g: 30,
+                    b: 30,
+                    a: 255,
+                }
             } else {
-                ColorU { r: 30, g: 30, b: 220, a: 255 }
+                ColorU {
+                    r: 30,
+                    g: 30,
+                    b: 220,
+                    a: 255,
+                }
             };
             let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
-            body = body.with_child(Dom::create_div().with_css_props(
-                vec![
-                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(*w))),
-                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(*h))),
-                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
-                ]
-                .into(),
-            ));
+            body = body.with_child(
+                Dom::create_div().with_css_props(
+                    vec![
+                        CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(*w))),
+                        CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(
+                            *h,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                    ]
+                    .into(),
+                ),
+            );
         }
         body
     }
@@ -4802,7 +5011,9 @@ mod tests {
                 a < window_area * 0.5,
                 "size reflow damage area {} should be box-sized (~10000), not \
                  near-full-window {} — damage={:?}",
-                a, window_area, damage
+                a,
+                window_area,
+                damage
             ),
             other => panic!(
                 "size reflow should produce bounded incremental damage, got \
@@ -4836,7 +5047,8 @@ mod tests {
             max_y >= 140.0,
             "reflow-shift damage must reach the shifted sibling (bottom ~158), \
              got max_y={} damage={:?} — box2 would ghost/not repaint",
-            max_y, damage
+            max_y,
+            damage
         );
     }
 
@@ -4868,12 +5080,13 @@ mod tests {
                     max_y >= 90.0,
                     "structural add must damage the new box (~y 108), got \
                      max_y={} damage={:?}",
-                    max_y, damage
+                    max_y,
+                    damage
                 );
             }
-            FrameDamage::None => panic!(
-                "structural add produced NO damage — the new box would never paint"
-            ),
+            FrameDamage::None => {
+                panic!("structural add produced NO damage — the new box would never paint")
+            }
         }
     }
 
@@ -4921,12 +5134,12 @@ mod tests {
             Dom::create_div()
                 .with_css_props(
                     vec![
-                        CssPropertyWithConditions::simple(CssProperty::width(
-                            LayoutWidth::px(400.0),
-                        )),
-                        CssPropertyWithConditions::simple(CssProperty::height(
-                            LayoutHeight::px(300.0),
-                        )),
+                        CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(
+                            400.0,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(
+                            300.0,
+                        ))),
                     ]
                     .into(),
                 )
@@ -4956,8 +5169,18 @@ mod tests {
         window.regenerate_layout().expect("initial layout");
 
         step(&mut window, HeadlessEvent::MouseMove { x: 200.0, y: 150.0 });
-        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
-        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
         assert_eq!(
             hits.load(core::sync::atomic::Ordering::SeqCst),
             1,
@@ -4978,8 +5201,18 @@ mod tests {
         );
 
         // A genuine second click still works (the delta is consumed, not lost).
-        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
-        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
         assert_eq!(
             hits.load(core::sync::atomic::Ordering::SeqCst),
             2,
@@ -5032,18 +5265,24 @@ mod tests {
         Dom::create_body()
             .with_css_props(
                 vec![
-                    C::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(20))),
-                    C::simple(CssProperty::const_padding_right(LayoutPaddingRight::const_px(20))),
-                    C::simple(CssProperty::const_padding_bottom(LayoutPaddingBottom::const_px(20))),
-                    C::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(20))),
+                    C::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+                        20,
+                    ))),
+                    C::simple(CssProperty::const_padding_right(
+                        LayoutPaddingRight::const_px(20),
+                    )),
+                    C::simple(CssProperty::const_padding_bottom(
+                        LayoutPaddingBottom::const_px(20),
+                    )),
+                    C::simple(CssProperty::const_padding_left(
+                        LayoutPaddingLeft::const_px(20),
+                    )),
                 ]
                 .into(),
             )
-            .with_child(
-                Dom::create_div().with_child(
-                    Dom::create_text_do_not_use_without_block_level_wrapper(caption.as_str()),
-                ),
-            )
+            .with_child(Dom::create_div().with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(caption.as_str()),
+            ))
             .with_child(
                 Slider::create(value, 0.0, 100.0)
                     .with_on_value_change(
@@ -5100,7 +5339,11 @@ mod tests {
         let mut fresh = CpuBackend::new();
         let lw = window.common.layout_window.as_ref().expect("layout window");
         fresh.render_frame(lw, &window.common.renderer_resources, w, h, dpi);
-        let full = fresh.last_frame.as_ref().expect("full frame").clone_pixmap();
+        let full = fresh
+            .last_frame
+            .as_ref()
+            .expect("full frame")
+            .clone_pixmap();
         assert_eq!(incremental.width(), full.width());
         assert_eq!(incremental.height(), full.height());
         let (a, b) = (incremental.data(), full.data());
@@ -5141,7 +5384,12 @@ mod tests {
         println!("[slider] track={track:?} thumb={thumb0:?}");
 
         step(&mut window, HeadlessEvent::MouseMove { x: x0, y });
-        let press_damage = step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        let press_damage = step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
         println!(
             "[slider] press: dragging={:?} damage={press_damage:?} thumb={:?}",
             slider_dragging(&window),
@@ -5190,13 +5438,18 @@ mod tests {
         // on change.
         let last_x = x0 + 96.0;
         let fraction = ((last_x - track.origin.x) / track.size.width).clamp(0.0, 1.0);
-        let expected_x = track.origin.x + (fraction * (track.size.width - thumb0.size.width)).round();
+        let expected_x =
+            track.origin.x + (fraction * (track.size.width - thumb0.size.width)).round();
         assert!(
             (prev_thumb.origin.x - expected_x).abs() <= 1.0,
             "the thumb did not follow the drag: at {prev_thumb:?}, expected x≈{expected_x} for \
              cursor x={last_x} (started at {thumb0:?})"
         );
-        assert_eq!(slider_dragging(&window), Some(true), "still dragging inside the track");
+        assert_eq!(
+            slider_dragging(&window),
+            Some(true),
+            "still dragging inside the track"
+        );
 
         // Leaving the TRACK ends the drag (the widget's rule); the thumb
         // stays where the last in-track move put it, and the frame is still
@@ -5204,16 +5457,27 @@ mod tests {
         let outside_x = track.origin.x + track.size.width + 2.0;
         step(&mut window, HeadlessEvent::MouseMove { x: outside_x, y });
         let (diffs, first) = incremental_vs_full(&mut window);
-        assert_eq!(diffs, 0, "after leaving the track: {diffs} stale px, first at {first:?}");
+        assert_eq!(
+            diffs, 0,
+            "after leaving the track: {diffs} stale px, first at {first:?}"
+        );
         assert_eq!(
             slider_dragging(&window),
             Some(false),
             "leaving the track ends the drag"
         );
         let parked = rects_by_class(&window, "__azul-native-slider-thumb");
-        assert_eq!(parked.first().map(|r| r.origin.x), Some(prev_thumb.origin.x));
+        assert_eq!(
+            parked.first().map(|r| r.origin.x),
+            Some(prev_thumb.origin.x)
+        );
 
-        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(
+            &mut window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
         assert_eq!(slider_dragging(&window), Some(false), "released");
     }
 
@@ -5240,15 +5504,21 @@ mod tests {
             )
             .with_child(
                 Dom::create_p_with_text("Every built-in widget (callbacks fired so far: 0)")
-                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("sub".into())].into())
+                    .with_ids_and_classes(
+                        vec![azul_core::dom::IdOrClass::Class("sub".into())].into(),
+                    )
                     .with_css("font-size: 14px; margin: 10px;"),
             )
     }
 
     fn selection_rect_count(window: &HeadlessWindow) -> usize {
         use azul_core::dom::DomId;
-        let Some(lw) = window.common.layout_window.as_ref() else { return 0 };
-        let Some(lr) = lw.layout_results.get(&DomId { inner: 0 }) else { return 0 };
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            return 0;
+        };
+        let Some(lr) = lw.layout_results.get(&DomId { inner: 0 }) else {
+            return 0;
+        };
         lr.display_list
             .items
             .iter()
@@ -5258,8 +5528,8 @@ mod tests {
 
     #[test]
     fn a_text_selection_survives_a_relayout() {
-        use azul_core::events::MouseButton;
         use crate::desktop::shell2::common::event::PlatformWindow;
+        use azul_core::events::MouseButton;
 
         let state = Arc::new(RefCell::new(RefAny::new(())));
         let mut window = make_window_sized(&state, selection_layout, 500.0, 200.0);
@@ -5274,9 +5544,23 @@ mod tests {
 
         // Press inside the heading's first glyphs, drag into the subtitle.
         let start = (h.origin.x + 6.0, h.origin.y + h.size.height / 2.0);
-        let end = (sub.origin.x + sub.size.width * 0.5, sub.origin.y + sub.size.height / 2.0);
-        step(&mut window, HeadlessEvent::MouseMove { x: start.0, y: start.1 });
-        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        let end = (
+            sub.origin.x + sub.size.width * 0.5,
+            sub.origin.y + sub.size.height / 2.0,
+        );
+        step(
+            &mut window,
+            HeadlessEvent::MouseMove {
+                x: start.0,
+                y: start.1,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
         for i in 1..=6 {
             let t = i as f32 / 6.0;
             step(
@@ -5287,7 +5571,12 @@ mod tests {
                 },
             );
         }
-        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(
+            &mut window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
 
         let cross_block = window
             .common
@@ -5484,8 +5773,7 @@ mod tests {
         content: RefAny,
     }
 
-    static VV_INVOCATIONS: std::sync::atomic::AtomicUsize =
-        std::sync::atomic::AtomicUsize::new(0);
+    static VV_INVOCATIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
     extern "C" fn counter_view_render(
         data: RefAny,
@@ -5545,11 +5833,12 @@ mod tests {
     }
 
     fn pending_virtual_view_updates(window: &HeadlessWindow) -> usize {
-        window
-            .common
-            .layout_window
-            .as_ref()
-            .map_or(0, |lw| lw.pending_virtual_view_updates.values().map(|m| m.len()).sum())
+        window.common.layout_window.as_ref().map_or(0, |lw| {
+            lw.pending_virtual_view_updates
+                .values()
+                .map(|m| m.len())
+                .sum()
+        })
     }
 
     #[test]
@@ -5569,7 +5858,9 @@ mod tests {
         // count below starts from a drained state.
         window.common.drain_virtual_view_updates();
         assert!(
-            nested_dom_texts(&window).iter().any(|t| t.contains("value 0")),
+            nested_dom_texts(&window)
+                .iter()
+                .any(|t| t.contains("value 0")),
             "the view must have rendered the initial model: {:?}",
             nested_dom_texts(&window)
         );
@@ -5604,7 +5895,11 @@ mod tests {
             window.common.drain_virtual_view_updates(),
             "the drain must report that a view was rebuilt"
         );
-        assert_eq!(pending_virtual_view_updates(&window), 0, "the drain empties the queue");
+        assert_eq!(
+            pending_virtual_view_updates(&window),
+            0,
+            "the drain empties the queue"
+        );
         assert!(
             VV_INVOCATIONS.load(Ordering::SeqCst) > invocations_before,
             "the view's callback must run again after the RefreshDom"
@@ -5624,7 +5919,8 @@ mod tests {
             .expect("headless owns a CPU hit-tester");
         let hits = ht.hit_test(LogicalPosition::new(100.0, 50.0));
         assert!(
-            hits.iter().any(|(dom, node)| dom.inner == 0 && node.index() == 1),
+            hits.iter()
+                .any(|(dom, node)| dom.inner == 0 && node.index() == 1),
             "after the drain the hit-tester must still resolve the VirtualView host: {hits:?}"
         );
     }
@@ -5701,9 +5997,9 @@ mod tests {
 
     #[test]
     fn a_native_pinch_is_visible_to_the_callbacks_of_its_own_pass() {
+        use crate::desktop::shell2::common::event::PlatformWindow;
         use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
         use core::sync::atomic::{AtomicUsize, Ordering};
-        use crate::desktop::shell2::common::event::PlatformWindow;
 
         let log = PinchLog {
             seen: Arc::new(AtomicUsize::new(0)),
@@ -5783,7 +6079,8 @@ mod tests {
         if let Some(log) = refany.downcast_ref::<ResizeLog>() {
             log.hits.fetch_add(1, Ordering::SeqCst);
             if let Some(size) = info.get_node_size(info.get_hit_node()) {
-                log.last_width.store(size.width.round() as usize, Ordering::SeqCst);
+                log.last_width
+                    .store(size.width.round() as usize, Ordering::SeqCst);
             }
         }
         azul_core::callbacks::Update::DoNothing
@@ -5799,7 +6096,8 @@ mod tests {
         Dom::create_body()
             .with_css("display: flex; flex-direction: row; width: 100%; height: 100%; margin: 0;")
             .with_child(
-                Dom::create_div().with_css("width: 100px; height: 50px; flex-grow: 0; flex-shrink: 0;"),
+                Dom::create_div()
+                    .with_css("width: 100px; height: 50px; flex-grow: 0; flex-shrink: 0;"),
             )
             .with_child(
                 Dom::create_div()
@@ -5831,7 +6129,11 @@ mod tests {
         let mut window = make_window_sized(&state, node_resized_layout, 400.0, 100.0);
         window.regenerate_layout().expect("initial layout");
         window.regenerate_layout().expect("settle");
-        assert_eq!(log.hits.load(Ordering::SeqCst), 0, "a mount is not a resize");
+        assert_eq!(
+            log.hits.load(Ordering::SeqCst),
+            0,
+            "a mount is not a resize"
+        );
 
         // Widen through the RESIZE FAST PATH (no rebuild): 400 → 600 px grows
         // the flex child from 300 to 500 px.
@@ -5851,13 +6153,21 @@ mod tests {
             "NodeResized must fire once for the child whose box grew (and not for \
              the fixed-width sibling)"
         );
-        assert_eq!(log.last_width.load(Ordering::SeqCst), 500, "the callback sees the NEW size");
+        assert_eq!(
+            log.last_width.load(Ordering::SeqCst),
+            500,
+            "the callback sees the NEW size"
+        );
 
         // A relayout that changes nothing is not a resize.
         window
             .incremental_relayout_dispatching(IncrementalRelayout::Restyle, &mut debug_messages)
             .expect("restyle");
-        assert_eq!(log.hits.load(Ordering::SeqCst), 1, "an unchanged box must not re-fire");
+        assert_eq!(
+            log.hits.load(Ordering::SeqCst),
+            1,
+            "an unchanged box must not re-fire"
+        );
 
         // A FULL regeneration at yet another size fires too: the node keeps
         // its identity across the rebuild, so its baseline follows it.
@@ -5870,7 +6180,11 @@ mod tests {
             .common
             .request_regeneration(azul_core::callbacks::RelayoutReason::Resize);
         window.regenerate_layout().expect("full regeneration");
-        assert_eq!(log.hits.load(Ordering::SeqCst), 2, "the full path delivers NodeResized as well");
+        assert_eq!(
+            log.hits.load(Ordering::SeqCst),
+            2,
+            "the full path delivers NodeResized as well"
+        );
         assert_eq!(log.last_width.load(Ordering::SeqCst), 400);
     }
 
@@ -5941,7 +6255,10 @@ mod tests {
 
         let tile = rects_by_class(&window, "cam");
         assert_eq!(tile.len(), 1, "{tile:?}");
-        assert!((tile[0].size.width - 200.0).abs() < 1.0, "50% of 400: {tile:?}");
+        assert!(
+            (tile[0].size.width - 200.0).abs() < 1.0,
+            "50% of 400: {tile:?}"
+        );
 
         let (preview, has_thread) = camera_state_of(&window);
         assert!(has_thread, "AfterMount starts the capture worker");
@@ -5969,7 +6286,11 @@ mod tests {
         window
             .incremental_relayout_dispatching(IncrementalRelayout::Resize, &mut debug_messages)
             .expect("resize fast path");
-        assert_eq!(camera_state_of(&window).0, Some((300, 90)), "NodeResized re-targets the worker");
+        assert_eq!(
+            camera_state_of(&window).0,
+            Some((300, 90)),
+            "NodeResized re-targets the worker"
+        );
 
         // A Retina display: the same 300x90 LOGICAL tile is 600x180 DEVICE
         // pixels — the size the preview must be cut at (logical px undersized
@@ -6031,13 +6352,19 @@ mod tests {
         deleted: Arc<core::sync::atomic::AtomicUsize>,
     }
 
-    extern "C" fn accel_save(mut data: RefAny, _info: azul_layout::callbacks::CallbackInfo) -> azul_core::callbacks::Update {
+    extern "C" fn accel_save(
+        mut data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
         if let Some(s) = data.downcast_ref::<AccelLog>() {
             s.saved.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
         }
         azul_core::callbacks::Update::DoNothing
     }
-    extern "C" fn accel_delete(mut data: RefAny, _info: azul_layout::callbacks::CallbackInfo) -> azul_core::callbacks::Update {
+    extern "C" fn accel_delete(
+        mut data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
         if let Some(s) = data.downcast_ref::<AccelLog>() {
             s.deleted.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
         }
@@ -6061,7 +6388,12 @@ mod tests {
         let chord = |keys: &[K]| VirtualKeyCodeCombo {
             keys: VirtualKeyCodeVec::from_vec(keys.to_vec()),
         };
-        let item = |label: &str, cb: extern "C" fn(RefAny, azul_layout::callbacks::CallbackInfo) -> azul_core::callbacks::Update, keys: &[K]| {
+        let item = |label: &str,
+                    cb: extern "C" fn(
+            RefAny,
+            azul_layout::callbacks::CallbackInfo,
+        ) -> azul_core::callbacks::Update,
+                    keys: &[K]| {
             let mut it = StringMenuItem::create(label.into()).with_callback(
                 state.clone(),
                 CoreCallback {
@@ -6108,45 +6440,169 @@ mod tests {
 
         // The platform's primary modifier: Cmd on macOS, Ctrl elsewhere — the
         // `[LWin, S]` combo means exactly that on each (one definition).
-        let primary = if cfg!(target_os = "macos") { K::LWin } else { K::LControl };
+        let primary = if cfg!(target_os = "macos") {
+            K::LWin
+        } else {
+            K::LControl
+        };
 
         // Ctrl+S -> Save, once.
-        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: primary });
-        assert_eq!(saved.load(Ordering::SeqCst), 0, "a lone modifier is not a chord");
-        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
-        assert_eq!(saved.load(Ordering::SeqCst), 1, "Ctrl+S runs File > Save through the shared dispatch");
+        step(
+            &mut window,
+            HeadlessEvent::KeyDown {
+                virtual_keycode: primary,
+            },
+        );
+        assert_eq!(
+            saved.load(Ordering::SeqCst),
+            0,
+            "a lone modifier is not a chord"
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyDown {
+                virtual_keycode: K::S,
+            },
+        );
+        assert_eq!(
+            saved.load(Ordering::SeqCst),
+            1,
+            "Ctrl+S runs File > Save through the shared dispatch"
+        );
         // A pass without a new key-down (a redraw, a timer tick) must not re-fire.
         window.regenerate_layout().expect("an unrelated pass");
-        assert_eq!(saved.load(Ordering::SeqCst), 1, "the chord fires on the key-down, not on every pass");
+        assert_eq!(
+            saved.load(Ordering::SeqCst),
+            1,
+            "the chord fires on the key-down, not on every pass"
+        );
         // Release + press again = a second chord.
-        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
-        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
+        step(
+            &mut window,
+            HeadlessEvent::KeyUp {
+                virtual_keycode: K::S,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyDown {
+                virtual_keycode: K::S,
+            },
+        );
         assert_eq!(saved.load(Ordering::SeqCst), 2);
-        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
-        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: primary });
+        step(
+            &mut window,
+            HeadlessEvent::KeyUp {
+                virtual_keycode: K::S,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyUp {
+                virtual_keycode: primary,
+            },
+        );
         // S alone is typing, not a chord; Shift+Ctrl+S is a DIFFERENT chord.
-        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
-        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
-        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::LShift });
-        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: primary });
-        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::S });
-        assert_eq!(saved.load(Ordering::SeqCst), 2, "exact modifiers: Ctrl+Shift+S is not Ctrl+S");
-        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::S });
-        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: primary });
-        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::LShift });
+        step(
+            &mut window,
+            HeadlessEvent::KeyDown {
+                virtual_keycode: K::S,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyUp {
+                virtual_keycode: K::S,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyDown {
+                virtual_keycode: K::LShift,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyDown {
+                virtual_keycode: primary,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyDown {
+                virtual_keycode: K::S,
+            },
+        );
+        assert_eq!(
+            saved.load(Ordering::SeqCst),
+            2,
+            "exact modifiers: Ctrl+Shift+S is not Ctrl+S"
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyUp {
+                virtual_keycode: K::S,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyUp {
+                virtual_keycode: primary,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyUp {
+                virtual_keycode: K::LShift,
+            },
+        );
 
         // The context menu's Delete fires only while its node is focused.
-        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::Delete });
-        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::Delete });
-        assert_eq!(deleted.load(Ordering::SeqCst), 0, "nothing focused: no context menu applies");
+        step(
+            &mut window,
+            HeadlessEvent::KeyDown {
+                virtual_keycode: K::Delete,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyUp {
+                virtual_keycode: K::Delete,
+            },
+        );
+        assert_eq!(
+            deleted.load(Ordering::SeqCst),
+            0,
+            "nothing focused: no context menu applies"
+        );
         let boxes = rects_by_class(&window, "box");
         assert_eq!(boxes.len(), 1, "{boxes:?}");
         let (x, y) = (boxes[0].origin.x + 10.0, boxes[0].origin.y + 10.0);
         step(&mut window, HeadlessEvent::MouseMove { x, y });
-        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
-        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
-        step(&mut window, HeadlessEvent::KeyDown { virtual_keycode: K::Delete });
-        step(&mut window, HeadlessEvent::KeyUp { virtual_keycode: K::Delete });
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyDown {
+                virtual_keycode: K::Delete,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::KeyUp {
+                virtual_keycode: K::Delete,
+            },
+        );
         assert_eq!(
             deleted.load(Ordering::SeqCst),
             1,
@@ -6168,15 +6624,21 @@ mod tests {
 
     extern "C" fn empty_text_input_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         use azul_layout::widgets::text_input::TextInput;
-        Dom::create_body()
-            .with_css("padding: 20px;")
-            .with_child(TextInput::create().with_placeholder("Type something...".into()).dom())
+        Dom::create_body().with_css("padding: 20px;").with_child(
+            TextInput::create()
+                .with_placeholder("Type something...".into())
+                .dom(),
+        )
     }
 
     fn caret_items(window: &HeadlessWindow) -> Vec<azul_core::geom::LogicalRect> {
         use azul_core::dom::DomId;
-        let Some(lw) = window.common.layout_window.as_ref() else { return Vec::new() };
-        let Some(lr) = lw.layout_results.get(&DomId { inner: 0 }) else { return Vec::new() };
+        let Some(lw) = window.common.layout_window.as_ref() else {
+            return Vec::new();
+        };
+        let Some(lr) = lw.layout_results.get(&DomId { inner: 0 }) else {
+            return Vec::new();
+        };
         lr.display_list
             .items
             .iter()
@@ -6202,10 +6664,23 @@ mod tests {
         let c = containers[0];
 
         // Click into the empty field.
-        let (x, y) = (c.origin.x + c.size.width * 0.5, c.origin.y + c.size.height * 0.5);
+        let (x, y) = (
+            c.origin.x + c.size.width * 0.5,
+            c.origin.y + c.size.height * 0.5,
+        );
         step(&mut window, HeadlessEvent::MouseMove { x, y });
-        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
-        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
         window.regenerate_layout().expect("layout after focus");
 
         // THE FIELD IS NOT BLANK ON FOCUS. Before, focus hid the placeholder
@@ -6216,7 +6691,10 @@ mod tests {
         // IFC inside an editing host keeps a strut line box (fc.rs
         // `editing_host_strut_height`), which is the line the caret stands
         // on and the height the value `<p>` keeps.
-        assert!(c.size.height > 12.0, "an empty field keeps a line, not just its chrome: {c:?}");
+        assert!(
+            c.size.height > 12.0,
+            "an empty field keeps a line, not just its chrome: {c:?}"
+        );
         let placeholder = rects_by_class(&window, "__azul-native-text-input-placeholder");
         assert!(
             placeholder.first().is_some_and(|r| r.size.height > 0.0),
@@ -6267,12 +6745,16 @@ mod tests {
                 Dom::create_div()
                     .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
                     .with_child(
-                        TextArea::create().with_placeholder("Multi line text area".into()).dom(),
+                        TextArea::create()
+                            .with_placeholder("Multi line text area".into())
+                            .dom(),
                     ),
             )
             .with_child(
                 Dom::create_div()
-                    .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("next".into())].into())
+                    .with_ids_and_classes(
+                        vec![azul_core::dom::IdOrClass::Class("next".into())].into(),
+                    )
                     .with_css("height: 24px;"),
             )
     }
@@ -6310,7 +6792,10 @@ mod tests {
                 .common
                 .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
             window.regenerate_layout().expect("refresh");
-            assert_text_area_does_not_overlap_its_next_sibling(&window, &format!("after RefreshDom #{pass}"));
+            assert_text_area_does_not_overlap_its_next_sibling(
+                &window,
+                &format!("after RefreshDom #{pass}"),
+            );
         }
     }
 
@@ -6341,7 +6826,9 @@ mod tests {
                 .with_css("display: flex; flex-direction: column; margin-bottom: 16px;")
                 .with_child(
                     Dom::create_span_with_text(label)
-                        .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class(class.into())].into())
+                        .with_ids_and_classes(
+                            vec![azul_core::dom::IdOrClass::Class(class.into())].into(),
+                        )
                         .with_css("font-size: 13px; margin-bottom: 4px;"),
                 )
                 .with_child(widget)
@@ -6351,7 +6838,9 @@ mod tests {
             .with_child(labelled(
                 "TextArea",
                 "cap-ta",
-                TextArea::create().with_placeholder("Multi line text area".into()).dom(),
+                TextArea::create()
+                    .with_placeholder("Multi line text area".into())
+                    .dom(),
             ))
             .with_child(labelled(
                 "Slider",
@@ -6370,7 +6859,14 @@ mod tests {
 
     /// The rects the report watched: textarea box, its placeholder, the
     /// caption under it (the slider's label).
-    fn watched_rects(window: &HeadlessWindow, when: &str) -> (azul_core::geom::LogicalRect, azul_core::geom::LogicalRect, azul_core::geom::LogicalRect) {
+    fn watched_rects(
+        window: &HeadlessWindow,
+        when: &str,
+    ) -> (
+        azul_core::geom::LogicalRect,
+        azul_core::geom::LogicalRect,
+        azul_core::geom::LogicalRect,
+    ) {
         let ta = rects_by_class(window, "__azul-native-text-area-container");
         let ph = rects_by_class(window, "__azul-native-text-area-placeholder");
         let cap = rects_by_class(window, "cap-slider");
@@ -6394,8 +6890,8 @@ mod tests {
 
     #[test]
     fn the_patched_display_list_equals_the_wholesale_build_for_the_widgets_scene() {
-        use azul_core::events::MouseButton;
         use crate::desktop::shell2::common::event::PlatformWindow;
+        use azul_core::events::MouseButton;
 
         let state = Arc::new(RefCell::new(RefAny::new(SliderUiState {
             slider_value: 40.0,
@@ -6419,9 +6915,18 @@ mod tests {
         let thumbs = rects_by_class(&window, "__azul-native-slider-thumb");
         assert_eq!(thumbs.len(), 1, "{thumbs:?}");
         let t = thumbs[0];
-        step(&mut window, HeadlessEvent::MouseMove { x: t.origin.x + t.size.width / 2.0, y: t.origin.y + t.size.height / 2.0 });
+        step(
+            &mut window,
+            HeadlessEvent::MouseMove {
+                x: t.origin.x + t.size.width / 2.0,
+                y: t.origin.y + t.size.height / 2.0,
+            },
+        );
         let hovered = watched_rects(&window, "hovering the thumb");
-        assert_eq!(second, hovered, "a hover on the slider must not move the textarea's placeholder");
+        assert_eq!(
+            second, hovered,
+            "a hover on the slider must not move the textarea's placeholder"
+        );
         window
             .common
             .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
@@ -6431,19 +6936,46 @@ mod tests {
 
         // Drag the slider (the widget's own RefreshDom + dataset merge), then
         // hover the textarea itself (its :hover border) — every frame agrees.
-        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
-        step(&mut window, HeadlessEvent::MouseMove { x: t.origin.x + 40.0, y: t.origin.y + t.size.height / 2.0 });
-        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::MouseMove {
+                x: t.origin.x + 40.0,
+                y: t.origin.y + t.size.height / 2.0,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
         assert_eq!(second, watched_rects(&window, "after the drag"));
         assert_builders_agree(&mut window, "after the slider drag");
         let ta = second.0;
-        step(&mut window, HeadlessEvent::MouseMove { x: ta.origin.x + 10.0, y: ta.origin.y + 10.0 });
+        step(
+            &mut window,
+            HeadlessEvent::MouseMove {
+                x: ta.origin.x + 10.0,
+                y: ta.origin.y + 10.0,
+            },
+        );
         assert_eq!(second, watched_rects(&window, "hovering the textarea"));
         window
             .common
             .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
-        window.regenerate_layout().expect("RefreshDom under the textarea hover");
-        assert_eq!(second, watched_rects(&window, "RefreshDom under the textarea hover"));
+        window
+            .regenerate_layout()
+            .expect("RefreshDom under the textarea hover");
+        assert_eq!(
+            second,
+            watched_rects(&window, "RefreshDom under the textarea hover")
+        );
         assert_builders_agree(&mut window, "after a RefreshDom under the textarea hover");
     }
 
@@ -6493,7 +7025,10 @@ mod tests {
 
     extern "C" fn press_capture_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         use azul_core::events::HoverEventFilter;
-        let log = data.downcast_ref::<PressLog>().map(|l| l.clone()).expect("press log");
+        let log = data
+            .downcast_ref::<PressLog>()
+            .map(|l| l.clone())
+            .expect("press log");
         Dom::create_body()
             .with_css("display: flex; flex-direction: row; width: 100%; height: 100%;")
             .with_callbacks(vec![counting_callback(HoverEventFilter::MouseUp, &log.body_up)].into())
@@ -6513,7 +7048,9 @@ mod tests {
                 Dom::create_div()
                     .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("b".into())].into())
                     .with_css("width: 100px; height: 100px;")
-                    .with_callbacks(vec![counting_callback(HoverEventFilter::MouseUp, &log.b_up)].into()),
+                    .with_callbacks(
+                        vec![counting_callback(HoverEventFilter::MouseUp, &log.b_up)].into(),
+                    ),
             )
     }
 
@@ -6534,17 +7071,31 @@ mod tests {
 
         // Press on A, drag onto B, release there.
         step(&mut window, HeadlessEvent::MouseMove { x: 50.0, y: 50.0 });
-        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
         assert_eq!(log.a_down.load(Ordering::SeqCst), 1);
         step(&mut window, HeadlessEvent::MouseMove { x: 150.0, y: 50.0 });
-        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(
+            &mut window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
 
         assert_eq!(
             log.a_up.load(Ordering::SeqCst),
             1,
             "the node that was PRESSED must get the release although the pointer let go over B"
         );
-        assert_eq!(log.b_up.load(Ordering::SeqCst), 1, "the hovered node's release is unchanged");
+        assert_eq!(
+            log.b_up.load(Ordering::SeqCst),
+            1,
+            "the hovered node's release is unchanged"
+        );
         assert_eq!(
             log.body_up.load(Ordering::SeqCst),
             1,
@@ -6553,8 +7104,18 @@ mod tests {
 
         // Press and release on the same node: exactly one release, as before.
         step(&mut window, HeadlessEvent::MouseMove { x: 50.0, y: 50.0 });
-        step(&mut window, HeadlessEvent::MouseDown { button: MouseButton::Left });
-        step(&mut window, HeadlessEvent::MouseUp { button: MouseButton::Left });
+        step(
+            &mut window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        step(
+            &mut window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        );
         assert_eq!(log.a_up.load(Ordering::SeqCst), 2);
         assert_eq!(log.body_up.load(Ordering::SeqCst), 2);
     }
@@ -6582,7 +7143,10 @@ mod tests {
     #[test]
     fn indicator_marks_are_centred_in_their_boxes() {
         fn centre(r: &azul_core::geom::LogicalRect) -> (f32, f32) {
-            (r.origin.x + r.size.width / 2.0, r.origin.y + r.size.height / 2.0)
+            (
+                r.origin.x + r.size.width / 2.0,
+                r.origin.y + r.size.height / 2.0,
+            )
         }
         let state = Arc::new(RefCell::new(RefAny::new(())));
         let mut window = make_window_sized(&state, indicator_layout, 400.0, 300.0);
@@ -6593,9 +7157,24 @@ mod tests {
         // A switch knob sits at one END of its track by design; only its
         // vertical centring is a layout invariant.
         for (widget, container, mark, both_axes) in [
-            ("CheckBox", "__azul-native-checkbox-container", "__azul-native-checkbox-content", true),
-            ("RadioGroup", "__azul-native-radio-group-circle", "__azul-native-radio-group-dot", true),
-            ("Switch", "__azul-native-switch", "__azul-native-switch-knob", false),
+            (
+                "CheckBox",
+                "__azul-native-checkbox-container",
+                "__azul-native-checkbox-content",
+                true,
+            ),
+            (
+                "RadioGroup",
+                "__azul-native-radio-group-circle",
+                "__azul-native-radio-group-dot",
+                true,
+            ),
+            (
+                "Switch",
+                "__azul-native-switch",
+                "__azul-native-switch-knob",
+                false,
+            ),
         ] {
             let boxes = rects_by_class(&window, container);
             let marks = rects_by_class(&window, mark);
@@ -6663,6 +7242,7 @@ mod tests {
 
     extern "C" fn ribbon_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
         use azul_css::props::basic::color::ColorU;
         use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
         use azul_css::props::property::CssProperty;
@@ -6670,17 +7250,15 @@ mod tests {
             StyleBackgroundContent, StyleBackgroundContentVec,
         };
         use azul_css::AzString;
-        use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
         use azul_layout::widgets::ribbon::{
             Ribbon, RibbonButton, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec,
         };
 
         use azul_css::props::style::border::{
-            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
-            LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
-            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
-            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
-            StyleBorderTopStyle,
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBorderBottomColor, StyleBorderBottomStyle,
+            StyleBorderLeftColor, StyleBorderLeftStyle, StyleBorderRightColor,
+            StyleBorderRightStyle, StyleBorderTopColor, StyleBorderTopStyle,
         };
 
         let (active, bordered) = data
@@ -6695,16 +7273,24 @@ mod tests {
             let c = ColorU { r, g, b, a: 255 };
             CssPropertyWithConditionsVec::from_vec(vec![
                 CssPropertyWithConditions::simple(CssProperty::border_top_style(
-                    StyleBorderTopStyle { inner: BorderStyle::Solid },
+                    StyleBorderTopStyle {
+                        inner: BorderStyle::Solid,
+                    },
                 )),
                 CssPropertyWithConditions::simple(CssProperty::border_right_style(
-                    StyleBorderRightStyle { inner: BorderStyle::Solid },
+                    StyleBorderRightStyle {
+                        inner: BorderStyle::Solid,
+                    },
                 )),
                 CssPropertyWithConditions::simple(CssProperty::border_bottom_style(
-                    StyleBorderBottomStyle { inner: BorderStyle::Solid },
+                    StyleBorderBottomStyle {
+                        inner: BorderStyle::Solid,
+                    },
                 )),
                 CssPropertyWithConditions::simple(CssProperty::border_left_style(
-                    StyleBorderLeftStyle { inner: BorderStyle::Solid },
+                    StyleBorderLeftStyle {
+                        inner: BorderStyle::Solid,
+                    },
                 )),
                 CssPropertyWithConditions::simple(CssProperty::border_top_width(
                     LayoutBorderTopWidth::const_px(2),
@@ -6772,9 +7358,12 @@ mod tests {
                 CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(RIBBON_W))),
                 CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(RIBBON_H))),
                 CssPropertyWithConditions::simple(CssProperty::background_content(
-                    StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(
-                        ColorU { r: 0, g: 128, b: 0, a: 255 },
-                    )]),
+                    StyleBackgroundContentVec::from(vec![StyleBackgroundContent::Color(ColorU {
+                        r: 0,
+                        g: 128,
+                        b: 0,
+                        a: 255,
+                    })]),
                 )),
             ]
             .into(),
@@ -6784,10 +7373,7 @@ mod tests {
     }
 
     /// On-screen rects of every laid-out node carrying `class`, left to right.
-    fn rects_by_class(
-        window: &HeadlessWindow,
-        class: &str,
-    ) -> Vec<azul_core::geom::LogicalRect> {
+    fn rects_by_class(window: &HeadlessWindow, class: &str) -> Vec<azul_core::geom::LogicalRect> {
         use azul_core::dom::{DomId, DomNodeId, IdOrClass};
         use azul_core::geom::LogicalRect;
         use azul_core::styled_dom::NodeHierarchyItemId;
@@ -6799,8 +7385,13 @@ mod tests {
             return Vec::new();
         };
         let mut found: Vec<LogicalRect> = Vec::new();
-        for (node_id, data) in
-            dom.styled_dom.node_data.as_container().internal.iter().enumerate()
+        for (node_id, data) in dom
+            .styled_dom
+            .node_data
+            .as_container()
+            .internal
+            .iter()
+            .enumerate()
         {
             let matches = data.get_ids_and_classes().iter().any(|c| match c {
                 IdOrClass::Class(s) => s.as_str() == class,
@@ -6811,9 +7402,9 @@ mod tests {
             }
             let dnid = DomNodeId {
                 dom: DomId { inner: 0 },
-                node: NodeHierarchyItemId::from_crate_internal(Some(
-                    azul_core::dom::NodeId::new(node_id),
-                )),
+                node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(
+                    node_id,
+                ))),
             };
             // A tab header has a MouseUp callback, so it has a tag and a
             // HitTestArea; the ribbon root does not, so fall back to the
@@ -6861,8 +7452,18 @@ mod tests {
     fn click_at(window: &mut HeadlessWindow, x: f32, y: f32) -> FrameDamage {
         use azul_core::events::MouseButton;
         step(window, HeadlessEvent::MouseMove { x, y });
-        step(window, HeadlessEvent::MouseDown { button: MouseButton::Left });
-        step(window, HeadlessEvent::MouseUp { button: MouseButton::Left })
+        step(
+            window,
+            HeadlessEvent::MouseDown {
+                button: MouseButton::Left,
+            },
+        );
+        step(
+            window,
+            HeadlessEvent::MouseUp {
+                button: MouseButton::Left,
+            },
+        )
     }
 
     /// Text items of a window's display list, as debug strings.
@@ -6886,7 +7487,10 @@ mod tests {
     /// Build the pair the tab-switch tests compare: a window that reached
     /// `active_tab = 1` by CLICKING, and a fresh one that started there.
     fn switched_and_fresh() -> (HeadlessWindow, HeadlessWindow, f32, f32, FrameDamage) {
-        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 0, bordered: false })));
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState {
+            active_tab: 0,
+            bordered: false,
+        })));
         let mut window = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
         window.regenerate_layout().expect("initial layout");
         window.regenerate_layout().expect("settle");
@@ -6908,11 +7512,16 @@ mod tests {
         // in its hover style, so a fresh window with the mouse elsewhere is
         // a DIFFERENT picture and the comparison would report hover as
         // staleness.
-        let fresh_state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 1, bordered: false })));
+        let fresh_state = Arc::new(RefCell::new(RefAny::new(RibbonUiState {
+            active_tab: 1,
+            bordered: false,
+        })));
         let mut fresh = make_window_sized(&fresh_state, ribbon_layout, RIBBON_W, RIBBON_H);
         fresh.regenerate_layout().expect("fresh layout");
         step(&mut fresh, HeadlessEvent::MouseMove { x, y });
-        fresh.regenerate_layout().expect("fresh layout under the cursor");
+        fresh
+            .regenerate_layout()
+            .expect("fresh layout under the cursor");
 
         (window, fresh, x, y, damage)
     }
@@ -6937,7 +7546,10 @@ mod tests {
 
         // Switch on to a tab that GROWS the tree again, then back: both
         // directions of the size change go through the positional fallback.
-        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 1, bordered: false })));
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState {
+            active_tab: 1,
+            bordered: false,
+        })));
         let mut w2 = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
         w2.regenerate_layout().expect("layout");
         for target in [0usize, 2, 1, 0] {
@@ -6958,7 +7570,10 @@ mod tests {
                 .as_ref()
                 .unwrap_or_else(|| panic!("{name} window produced no frame"))
                 .clone_pixmap();
-            assert_eq!((pm.width(), pm.height()), (RIBBON_W as u32, RIBBON_H as u32));
+            assert_eq!(
+                (pm.width(), pm.height()),
+                (RIBBON_W as u32, RIBBON_H as u32)
+            );
         }
     }
 
@@ -7000,7 +7615,10 @@ mod tests {
     #[test]
     #[ignore = "known gap: a structural change falls back to FULL damage"]
     fn ribbon_tab_click_does_not_damage_the_document_below() {
-        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState { active_tab: 0, bordered: false })));
+        let state = Arc::new(RefCell::new(RefAny::new(RibbonUiState {
+            active_tab: 0,
+            bordered: false,
+        })));
         let mut window = make_window_sized(&state, ribbon_layout, RIBBON_W, RIBBON_H);
         window.regenerate_layout().expect("initial layout");
         window.regenerate_layout().expect("settle");
@@ -7069,11 +7687,15 @@ mod tests {
             Dom::create_div()
                 .with_css_props(
                     vec![CssPropertyWithConditions::simple(CssProperty::text_color(
-                        StyleTextColor { inner: ColorU { r, g, b, a: 255 } },
+                        StyleTextColor {
+                            inner: ColorU { r, g, b, a: 255 },
+                        },
                     ))]
                     .into(),
                 )
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Label"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Label",
+                ))
         };
         Dom::create_body()
             .with_child(label(255, 0, 0))
@@ -7089,8 +7711,14 @@ mod tests {
         let texts = dl_texts(&window);
         assert_eq!(texts.len(), 2, "one Text item per label: {texts:?}");
 
-        let red = texts.iter().filter(|t| t.contains("r: 255, g: 0, b: 0")).count();
-        let blue = texts.iter().filter(|t| t.contains("r: 0, g: 0, b: 255")).count();
+        let red = texts
+            .iter()
+            .filter(|t| t.contains("r: 255, g: 0, b: 0"))
+            .count();
+        let blue = texts
+            .iter()
+            .filter(|t| t.contains("r: 0, g: 0, b: 255"))
+            .count();
         assert_eq!(
             (red, blue),
             (1, 1),
@@ -7208,7 +7836,9 @@ mod tests {
         let mut fresh = make_window_sized(&fresh_state, ribbon_layout, RIBBON_W, RIBBON_H);
         fresh.regenerate_layout().expect("fresh layout");
         step(&mut fresh, HeadlessEvent::MouseMove { x, y });
-        fresh.regenerate_layout().expect("fresh layout under the cursor");
+        fresh
+            .regenerate_layout()
+            .expect("fresh layout under the cursor");
 
         assert_eq!(
             dl_texts(&window),
@@ -7219,17 +7849,16 @@ mod tests {
     }
 
     fn step(window: &mut HeadlessWindow, event: HeadlessEvent) -> FrameDamage {
+        use crate::desktop::shell2::common::event::PlatformWindow;
         use azul_core::events::{MouseButton, ProcessEventResult};
         use azul_core::window::CursorPosition;
-        use crate::desktop::shell2::common::event::PlatformWindow;
 
         window.snapshot_window_state_baseline("headless.test.step");
         let mut needs_redraw = false;
         match event {
             HeadlessEvent::MouseMove { x, y } => {
                 let pos = LogicalPosition { x, y };
-                window.common.mouse_state_mut().cursor_position =
-                    CursorPosition::InWindow(pos);
+                window.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
                 // MWA-C-scroll: active scrollbar thumb drag (desktop pattern).
                 if window.common.scrollbar_drag_state.is_some() {
                     needs_redraw = !matches!(
@@ -7315,8 +7944,11 @@ mod tests {
             HeadlessEvent::KeyDown { virtual_keycode } => {
                 window.common.keyboard_state_mut().current_virtual_keycode =
                     azul_core::window::OptionVirtualKeyCode::Some(virtual_keycode);
-                window.common.keyboard_state_mut()
-                    .pressed_virtual_keycodes.insert_hm_item(virtual_keycode);
+                window
+                    .common
+                    .keyboard_state_mut()
+                    .pressed_virtual_keycodes
+                    .insert_hm_item(virtual_keycode);
                 needs_redraw = !matches!(
                     window.process_window_events(0),
                     ProcessEventResult::DoNothing
@@ -7325,8 +7957,11 @@ mod tests {
             HeadlessEvent::KeyUp { virtual_keycode } => {
                 window.common.keyboard_state_mut().current_virtual_keycode =
                     azul_core::window::OptionVirtualKeyCode::None;
-                window.common.keyboard_state_mut()
-                    .pressed_virtual_keycodes.remove_hm_item(&virtual_keycode);
+                window
+                    .common
+                    .keyboard_state_mut()
+                    .pressed_virtual_keycodes
+                    .remove_hm_item(&virtual_keycode);
                 needs_redraw = !matches!(
                     window.process_window_events(0),
                     ProcessEventResult::DoNothing
@@ -7360,12 +7995,16 @@ mod tests {
         // no callbacks must NOT repaint. Otherwise every pointer move repaints
         // the frame — unusable (esp. with the cursor moving constantly).
         assert_eq!(
-            d1, FrameDamage::None,
-            "mouse move over static content produced damage {:?}", d1
+            d1,
+            FrameDamage::None,
+            "mouse move over static content produced damage {:?}",
+            d1
         );
         assert_eq!(
-            d2, FrameDamage::None,
-            "second mouse move over static content produced damage {:?}", d2
+            d2,
+            FrameDamage::None,
+            "second mouse move over static content produced damage {:?}",
+            d2
         );
     }
 
@@ -7384,7 +8023,10 @@ mod tests {
         set_highlight(&state, Some(15));
         window.regenerate_layout().expect("highlight one box");
         let damage = window.cpu_backend.last_frame_damage.clone();
-        println!("[harness] single paint in {}-box grid: damage={:?}", n, damage);
+        println!(
+            "[harness] single paint in {}-box grid: damage={:?}",
+            n, damage
+        );
 
         // HONEST + perf-critical: changing ONE box's colour must damage ~one box
         // (100x20 = 2000 px²), NOT the whole grid (600px tall) or the window.
@@ -7397,7 +8039,9 @@ mod tests {
                 "single-box recolor in a {}-box grid damaged area {} — should be \
                  ~one box (~2000 px²), not the whole grid/window. Damage is not \
                  incremental at scale. damage={:?}",
-                n, a, damage
+                n,
+                a,
+                damage
             ),
             other => panic!(
                 "single-box recolor should produce small local damage, got \
@@ -7417,14 +8061,19 @@ mod tests {
     /// A 200x100 `overflow:scroll` container holding `n_items` 30px-tall rows
     /// (so n_items > ~3 overflows and makes it scrollable).
     extern "C" fn harness_layout_scroll(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
         use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
         use azul_css::props::layout::overflow::LayoutOverflow;
         use azul_css::props::property::CssProperty;
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+        use azul_css::props::style::background::{
+            StyleBackgroundContent, StyleBackgroundContentVec,
+        };
 
-        let n = data.downcast_ref::<ScrollTestState>().map(|s| s.n_items).unwrap_or(0);
+        let n = data
+            .downcast_ref::<ScrollTestState>()
+            .map(|s| s.n_items)
+            .unwrap_or(0);
         let mut container = Dom::create_div().with_css_props(
             vec![
                 CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(200.0))),
@@ -7435,19 +8084,35 @@ mod tests {
         );
         for i in 0..n {
             let color = if i % 2 == 0 {
-                ColorU { r: 200, g: 60, b: 60, a: 255 }
+                ColorU {
+                    r: 200,
+                    g: 60,
+                    b: 60,
+                    a: 255,
+                }
             } else {
-                ColorU { r: 60, g: 60, b: 200, a: 255 }
+                ColorU {
+                    r: 60,
+                    g: 60,
+                    b: 200,
+                    a: 255,
+                }
             };
             let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
-            container = container.with_child(Dom::create_div().with_css_props(
-                vec![
-                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(180.0))),
-                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(30.0))),
-                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
-                ]
-                .into(),
-            ));
+            container = container.with_child(
+                Dom::create_div().with_css_props(
+                    vec![
+                        CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(
+                            180.0,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(
+                            30.0,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                    ]
+                    .into(),
+                ),
+            );
         }
         Dom::create_body().with_child(container)
     }
@@ -7457,14 +8122,19 @@ mod tests {
     /// scrollable diagonally (mobile pan). Rows alternate colour every 30px so a
     /// vertical scroll is visible at a fixed pixel.
     extern "C" fn harness_layout_scroll_2d(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
         use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
         use azul_css::props::layout::overflow::LayoutOverflow;
         use azul_css::props::property::CssProperty;
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+        use azul_css::props::style::background::{
+            StyleBackgroundContent, StyleBackgroundContentVec,
+        };
 
-        let n = data.downcast_ref::<ScrollTestState>().map(|s| s.n_items).unwrap_or(0);
+        let n = data
+            .downcast_ref::<ScrollTestState>()
+            .map(|s| s.n_items)
+            .unwrap_or(0);
         let mut container = Dom::create_div().with_css_props(
             vec![
                 CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(200.0))),
@@ -7476,19 +8146,35 @@ mod tests {
         );
         for i in 0..n {
             let color = if i % 2 == 0 {
-                ColorU { r: 200, g: 60, b: 60, a: 255 }
+                ColorU {
+                    r: 200,
+                    g: 60,
+                    b: 60,
+                    a: 255,
+                }
             } else {
-                ColorU { r: 60, g: 60, b: 200, a: 255 }
+                ColorU {
+                    r: 60,
+                    g: 60,
+                    b: 200,
+                    a: 255,
+                }
             };
             let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
-            container = container.with_child(Dom::create_div().with_css_props(
-                vec![
-                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(400.0))),
-                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(30.0))),
-                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
-                ]
-                .into(),
-            ));
+            container = container.with_child(
+                Dom::create_div().with_css_props(
+                    vec![
+                        CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(
+                            400.0,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(
+                            30.0,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                    ]
+                    .into(),
+                ),
+            );
         }
         Dom::create_body().with_child(container)
     }
@@ -7499,39 +8185,67 @@ mod tests {
     /// intersecting several disjoint damage rects repainted across their
     /// whole union, erasing the untouched content in between).
     extern "C" fn harness_layout_grid_on_bg(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
-        use azul_css::props::property::CssProperty;
         use azul_css::dynamic_selector::CssPropertyWithConditions;
         use azul_css::props::basic::color::ColorU;
-        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+        use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
+        use azul_css::props::property::CssProperty;
+        use azul_css::props::style::background::{
+            StyleBackgroundContent, StyleBackgroundContentVec,
+        };
 
         let (boxes, highlight) = data
             .downcast_ref::<GridState>()
             .map(|s| (s.boxes.clone(), s.highlight))
             .unwrap_or_default();
-        let body_bg: StyleBackgroundContentVec =
-            vec![StyleBackgroundContent::Color(ColorU { r: 40, g: 40, b: 40, a: 255 })].into();
+        let body_bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(ColorU {
+            r: 40,
+            g: 40,
+            b: 40,
+            a: 255,
+        })]
+        .into();
         let mut body = Dom::create_body().with_css_props(
-            vec![CssPropertyWithConditions::simple(CssProperty::background_content(body_bg))]
-                .into(),
+            vec![CssPropertyWithConditions::simple(
+                CssProperty::background_content(body_bg),
+            )]
+            .into(),
         );
         for (i, (w, h)) in boxes.iter().enumerate() {
             let color = if Some(i) == highlight {
-                ColorU { r: 30, g: 220, b: 30, a: 255 }
+                ColorU {
+                    r: 30,
+                    g: 220,
+                    b: 30,
+                    a: 255,
+                }
             } else if i % 2 == 0 {
-                ColorU { r: 220, g: 30, b: 30, a: 255 }
+                ColorU {
+                    r: 220,
+                    g: 30,
+                    b: 30,
+                    a: 255,
+                }
             } else {
-                ColorU { r: 30, g: 30, b: 220, a: 255 }
+                ColorU {
+                    r: 30,
+                    g: 30,
+                    b: 220,
+                    a: 255,
+                }
             };
             let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
-            body = body.with_child(Dom::create_div().with_css_props(
-                vec![
-                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(*w))),
-                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(*h))),
-                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
-                ]
-                .into(),
-            ));
+            body = body.with_child(
+                Dom::create_div().with_css_props(
+                    vec![
+                        CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(*w))),
+                        CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(
+                            *h,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                    ]
+                    .into(),
+                ),
+            );
         }
         body
     }
@@ -7597,12 +8311,14 @@ mod tests {
         mut data: RefAny,
         _info: LayoutCallbackInfo,
     ) -> Dom {
+        use azul_css::dynamic_selector::CssPropertyWithConditions;
+        use azul_css::props::basic::color::ColorU;
         use azul_css::props::layout::dimensions::{LayoutHeight, LayoutWidth};
         use azul_css::props::layout::overflow::LayoutOverflow;
         use azul_css::props::property::CssProperty;
-        use azul_css::dynamic_selector::CssPropertyWithConditions;
-        use azul_css::props::basic::color::ColorU;
-        use azul_css::props::style::background::{StyleBackgroundContent, StyleBackgroundContentVec};
+        use azul_css::props::style::background::{
+            StyleBackgroundContent, StyleBackgroundContentVec,
+        };
 
         let (n, highlight) = data
             .downcast_ref::<ScrollHighlightState>()
@@ -7618,21 +8334,42 @@ mod tests {
         );
         for i in 0..n {
             let color = if Some(i) == highlight {
-                ColorU { r: 30, g: 220, b: 30, a: 255 }
+                ColorU {
+                    r: 30,
+                    g: 220,
+                    b: 30,
+                    a: 255,
+                }
             } else if i % 2 == 0 {
-                ColorU { r: 200, g: 60, b: 60, a: 255 }
+                ColorU {
+                    r: 200,
+                    g: 60,
+                    b: 60,
+                    a: 255,
+                }
             } else {
-                ColorU { r: 60, g: 60, b: 200, a: 255 }
+                ColorU {
+                    r: 60,
+                    g: 60,
+                    b: 200,
+                    a: 255,
+                }
             };
             let bg: StyleBackgroundContentVec = vec![StyleBackgroundContent::Color(color)].into();
-            container = container.with_child(Dom::create_div().with_css_props(
-                vec![
-                    CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(180.0))),
-                    CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(30.0))),
-                    CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
-                ]
-                .into(),
-            ));
+            container = container.with_child(
+                Dom::create_div().with_css_props(
+                    vec![
+                        CssPropertyWithConditions::simple(CssProperty::width(LayoutWidth::px(
+                            180.0,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::height(LayoutHeight::px(
+                            30.0,
+                        ))),
+                        CssPropertyWithConditions::simple(CssProperty::background_content(bg)),
+                    ]
+                    .into(),
+                ),
+            );
         }
         Dom::create_body().with_child(container)
     }
@@ -7657,7 +8394,13 @@ mod tests {
             .common
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .and_then(|lw| {
+                lw.layout_cache
+                    .scroll_id_to_node_id
+                    .values()
+                    .next()
+                    .copied()
+            })
             .expect("no scroll frame registered");
         let sp = ScrollPosition {
             parent_rect: LogicalRect {
@@ -7749,7 +8492,10 @@ mod tests {
         window.regenerate_layout().expect("step 3");
         let d3 = window.cpu_backend.last_frame_damage.clone();
 
-        println!("[harness] subpixel damage steps = {:?} / {:?} / {:?}", d1, d2, d3);
+        println!(
+            "[harness] subpixel damage steps = {:?} / {:?} / {:?}",
+            d1, d2, d3
+        );
         // A sub-device-pixel scroll must repaint NOTHING — not the content
         // (the frame builder's half-device-pixel threshold drops the shift)
         // and not the scrollbar either (`quantize_thumb_offset` rounds the
@@ -7840,7 +8586,11 @@ mod tests {
                     let y0 = r.origin.y.max(clip.origin.y);
                     let x1 = (r.origin.x + r.size.width).min(clip.origin.x + clip.size.width);
                     let y1 = (r.origin.y + r.size.height).min(clip.origin.y + clip.size.height);
-                    if x1 > x0 && y1 > y0 { Some((x1 - x0) * (y1 - y0)) } else { None }
+                    if x1 > x0 && y1 > y0 {
+                        Some((x1 - x0) * (y1 - y0))
+                    } else {
+                        None
+                    }
                 })
                 .sum(),
         };
@@ -8019,10 +8769,8 @@ mod tests {
         // display list carries the keys). A reference built without them
         // paints every thumb at its display-list-baked initial position, so
         // it would call a correctly-moved thumb a diff.
-        let (gpu_transforms, gpu_opacities) = azul_layout::cpurender::extract_gpu_values(
-            lw.gpu_state_manager.get_cache(dom),
-            dom,
-        );
+        let (gpu_transforms, gpu_opacities) =
+            azul_layout::cpurender::extract_gpu_values(lw.gpu_state_manager.get_cache(dom), dom);
         let mut rs = azul_layout::cpurender::CpuRenderState::new(offsets)
             .with_system_style(lw.system_style.clone());
         rs.transforms = gpu_transforms;
@@ -8067,7 +8815,13 @@ mod tests {
             .common
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .and_then(|lw| {
+                lw.layout_cache
+                    .scroll_id_to_node_id
+                    .values()
+                    .next()
+                    .copied()
+            })
             .expect("scroll frame should exist");
         let sp = ScrollPosition {
             parent_rect: LogicalRect {
@@ -8135,7 +8889,11 @@ mod tests {
             .map(|lw| {
                 (
                     lw.layout_cache.scroll_id_to_node_id.len(),
-                    lw.layout_cache.scroll_id_to_node_id.values().next().copied(),
+                    lw.layout_cache
+                        .scroll_id_to_node_id
+                        .values()
+                        .next()
+                        .copied(),
                 )
             })
             .unwrap_or((0, None));
@@ -8187,7 +8945,8 @@ mod tests {
             assert!(
                 before_px.is_some() && after_px.is_some(),
                 "no rendered pixmap to sample (before={:?} after={:?})",
-                before_px, after_px
+                before_px,
+                after_px
             );
             assert_ne!(
                 before_px, after_px,
@@ -8216,7 +8975,13 @@ mod tests {
             .common
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .and_then(|lw| {
+                lw.layout_cache
+                    .scroll_id_to_node_id
+                    .values()
+                    .next()
+                    .copied()
+            })
             .expect("scroll frame should exist");
         let sp = ScrollPosition {
             parent_rect: LogicalRect {
@@ -8239,14 +9004,23 @@ mod tests {
         let paint = damage_area(&window.cpu_backend.last_frame_damage);
         let present = damage_area(&window.cpu_backend.last_present_damage);
         println!("[harness] paint={:?} present={:?}", paint, present);
-        let (paint, present) = (paint.expect("paint finite"), present.expect("present finite"));
+        let (paint, present) = (
+            paint.expect("paint finite"),
+            present.expect("present finite"),
+        );
         // Paint stays a strip; present covers the ~188x100 clip; present > paint.
-        assert!(paint <= 10_000.0, "paint damage should be a strip, got {paint}px");
+        assert!(
+            paint <= 10_000.0,
+            "paint damage should be a strip, got {paint}px"
+        );
         assert!(
             present >= 18_000.0,
             "present damage should cover the full ~188x100 clip, got {present}px"
         );
-        assert!(present > paint, "present ({present}) must exceed paint ({paint})");
+        assert!(
+            present > paint,
+            "present ({present}) must exceed paint ({paint})"
+        );
     }
 
     #[test]
@@ -8262,7 +9036,13 @@ mod tests {
             .common
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .and_then(|lw| {
+                lw.layout_cache
+                    .scroll_id_to_node_id
+                    .values()
+                    .next()
+                    .copied()
+            })
             .expect("scroll frame should exist");
 
         // Scroll down 30px (one row) in the 200x100 viewport.
@@ -8303,7 +9083,8 @@ mod tests {
                 "scroll repainted {} px — should be a ~30px strip + scrollbar (~6.8k \
                  px), not the full viewport (~20k px = m×n). Wire scroll_layer \
                  pixel-shift (#14). damage={:?}",
-                px, damage
+                px,
+                damage
             ),
             None => panic!(
                 "scroll produced Full damage — worse than full-viewport. damage={:?}",
@@ -8331,7 +9112,13 @@ mod tests {
             .common
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .and_then(|lw| {
+                lw.layout_cache
+                    .scroll_id_to_node_id
+                    .values()
+                    .next()
+                    .copied()
+            })
             .expect("2-axis scroll frame should exist");
 
         // Pan down-right: 20px right + 30px down (one row).
@@ -8354,7 +9141,10 @@ mod tests {
         window.regenerate_layout().expect("scroll relayout");
         let damage = window.cpu_backend.last_frame_damage.clone();
         let pixels = damage_area(&damage);
-        println!("[harness] diagonal pan pixels = {:?} damage = {:?}", pixels, damage);
+        println!(
+            "[harness] diagonal pan pixels = {:?} damage = {:?}",
+            pixels, damage
+        );
 
         // Perf: the L-shape (two thin strips + scrollbars) must stay well under a
         // full re-render. A diagonal that fell back to a full-clip repaint (the
@@ -8364,7 +9154,8 @@ mod tests {
                 px > 0.0 && px <= 12_000.0,
                 "diagonal pan repainted {} px — expected a thin L-shape (two strips \
                  + scrollbars), not a full-clip repaint. damage={:?}",
-                px, damage
+                px,
+                damage
             ),
             None => panic!("diagonal pan produced Full damage. damage={:?}", damage),
         }
@@ -8380,7 +9171,8 @@ mod tests {
                 content_strips >= 2,
                 "diagonal pan must expose TWO content strips (bottom + right), got \
                  {} sizeable rects in {:?}",
-                content_strips, damage
+                content_strips,
+                damage
             );
         }
 
@@ -8404,7 +9196,8 @@ mod tests {
     #[test]
     #[cfg(feature = "cpurender")]
     fn png_scroll_vertical_fast_matches_full_render() {
-        let damage = assert_fast_matches_full_scroll(harness_layout_scroll, 0.0, 30.0, "scroll_vert");
+        let damage =
+            assert_fast_matches_full_scroll(harness_layout_scroll, 0.0, 30.0, "scroll_vert");
         // It really took the fast path (a strip), not a full clip repaint.
         match damage_area(&damage) {
             Some(px) => assert!(
@@ -8449,7 +9242,13 @@ mod tests {
             .common
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.layout_cache.scroll_id_to_node_id.values().next().copied())
+            .and_then(|lw| {
+                lw.layout_cache
+                    .scroll_id_to_node_id
+                    .values()
+                    .next()
+                    .copied()
+            })
             .expect("scroll frame");
         let sp = ScrollPosition {
             parent_rect: LogicalRect {
@@ -8507,7 +9306,10 @@ mod tests {
         window.inject_event(HeadlessEvent::MouseMove { x: 100.0, y: 200.0 });
         window.inject_event(HeadlessEvent::Close);
 
-        assert!(matches!(window.poll_event(), Some(HeadlessEvent::MouseMove { .. })));
+        assert!(matches!(
+            window.poll_event(),
+            Some(HeadlessEvent::MouseMove { .. })
+        ));
         assert!(matches!(window.poll_event(), Some(HeadlessEvent::Close)));
         assert!(window.poll_event().is_none());
     }
@@ -8544,9 +9346,9 @@ mod tests {
     #[test]
     fn test_cpu_backend_creation() {
         let backend = CpuBackend::new();
-        let results = backend.hit_tester.hit_test(
-            azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 },
-        );
+        let results = backend
+            .hit_tester
+            .hit_test(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
         assert!(results.is_empty());
     }
 

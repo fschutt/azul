@@ -459,7 +459,9 @@ impl RustStaticGenerator {
 
         // #[no_mangle] gated behind export feature
         if let CAbiFunctionMode::InternalBindings { export_feature } = &config.cabi_functions {
-            builder.line(&format!("#[cfg_attr(feature = \"{export_feature}\", no_mangle)]"));
+            builder.line(&format!(
+                "#[cfg_attr(feature = \"{export_feature}\", no_mangle)]"
+            ));
             builder.line("#[inline]");
         }
 

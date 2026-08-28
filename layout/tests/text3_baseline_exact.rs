@@ -17,9 +17,9 @@ use azul_layout::font::parsed::ParsedFont;
 use azul_layout::parsed_font_to_font_ref;
 use azul_layout::text3::cache::{
     create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
-    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent, LoadedFonts,
-    OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints,
-    UnifiedLayout, VerticalAlign,
+    AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, InlineContent,
+    LoadedFonts, OverflowInfo, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
+    UnifiedConstraints, UnifiedLayout, VerticalAlign,
 };
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
@@ -40,7 +40,13 @@ fn mono_ref() -> FontRef {
     parsed_font_to_font_ref(parsed)
 }
 
-fn styled_run(text: &str, size: f32, va: VerticalAlign, font_ref: &FontRef, start: usize) -> InlineContent {
+fn styled_run(
+    text: &str,
+    size: f32,
+    va: VerticalAlign,
+    font_ref: &FontRef,
+    start: usize,
+) -> InlineContent {
     InlineContent::Text(StyledRun {
         text: Arc::from(text),
         style: Arc::new(StyleProperties {
@@ -70,10 +76,14 @@ fn layout_runs_strut(
     loaded.insert(FontId::new(), font_ref.clone());
     let logical = create_logical_items(content, &[], &mut None);
     if logical.is_empty() {
-        return UnifiedLayout { items: Vec::new(), overflow: OverflowInfo::default() };
+        return UnifiedLayout {
+            items: Vec::new(),
+            overflow: OverflowInfo::default(),
+        };
     }
-    let visual = reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
-        .expect("bidi reorder");
+    let visual =
+        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+            .expect("bidi reorder");
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
     let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shaping");
@@ -122,8 +132,13 @@ fn dump_mixed_sizes() {
             let ascent_px = fm.ascent / f32::from(fm.units_per_em) * c.style.font_size_px;
             println!(
                 "run={} text={:?} size={} y={} height={} ascent_px={} baseline_y={}",
-                c.source_cluster_id.source_run, c.text(), c.style.font_size_px,
-                it.position.y, it.item.bounds().height, ascent_px, it.position.y + ascent_px
+                c.source_cluster_id.source_run,
+                c.text(),
+                c.style.font_size_px,
+                it.position.y,
+                it.item.bounds().height,
+                ascent_px,
+                it.position.y + ascent_px
             );
         }
     }
@@ -152,7 +167,11 @@ fn mixed_20_40_share_baseline() {
     assert_px(base20, base40, "both runs share the SAME baseline y");
     assert_px(base40, 32.0, "line baseline = taller run ascent = 32px");
     assert_px(y40, 0.0, "40px run top sits at line top (y=0)");
-    assert_px(y20, 16.0, "20px run top is pushed down so its baseline meets 32px");
+    assert_px(
+        y20,
+        16.0,
+        "20px run top is pushed down so its baseline meets 32px",
+    );
 }
 
 #[test]
@@ -173,7 +192,11 @@ fn mixed_line_box_is_taller_run_height() {
             _ => None,
         })
         .fold(f32::MIN, f32::max);
-    assert_px(bottom, 40.0, "line content bottom = 40px (taller run governs)");
+    assert_px(
+        bottom,
+        40.0,
+        "line content bottom = 40px (taller run governs)",
+    );
 }
 
 // ===========================================================================
@@ -199,7 +222,10 @@ fn vertical_align_super_raises_glyph() {
     // super shifts the baseline up by line_ascent*0.4. Both runs 20px => the
     // shifted cluster top y is 0.4*16 = 6.4px ABOVE the baseline cluster top.
     let (y_base, y_super) = shifted(VerticalAlign::Super);
-    assert!(y_super < y_base, "super must raise the glyph (smaller y): base {y_base}, super {y_super}");
+    assert!(
+        y_super < y_base,
+        "super must raise the glyph (smaller y): base {y_base}, super {y_super}"
+    );
     assert_px(y_base - y_super, 6.4, "super raise = line_ascent(16) * 0.4");
 }
 
@@ -207,7 +233,10 @@ fn vertical_align_super_raises_glyph() {
 fn vertical_align_sub_lowers_glyph() {
     // sub shifts the baseline down by line_ascent*0.3 = 4.8px.
     let (y_base, y_sub) = shifted(VerticalAlign::Sub);
-    assert!(y_sub > y_base, "sub must lower the glyph (larger y): base {y_base}, sub {y_sub}");
+    assert!(
+        y_sub > y_base,
+        "sub must lower the glyph (larger y): base {y_base}, sub {y_sub}"
+    );
     assert_px(y_sub - y_base, 4.8, "sub lower = line_ascent(16) * 0.3");
 }
 
@@ -239,7 +268,11 @@ fn vertical_align_text_top_bottom_coincide_when_strut_matches_run() {
         let l = layout_runs_strut(&content, &font_ref, Some((16.0, 4.0)));
         let (y_base, _) = cluster_y_and_baseline(&l, 0);
         let (y_shift, _) = cluster_y_and_baseline(&l, 1);
-        assert_px(y_shift, y_base, "text-top/bottom coincide with baseline when strut==run");
+        assert_px(
+            y_shift,
+            y_base,
+            "text-top/bottom coincide with baseline when strut==run",
+        );
     }
 }
 
@@ -251,5 +284,9 @@ fn vertical_align_text_top_shifts_by_strut_mismatch() {
     // (item_ascent 16 - strut_ascent 12.8) = 3.2px. This pins that text-top
     // follows the container strut, not the run's own ascent.
     let (y_base, y_top) = shifted(VerticalAlign::TextTop);
-    assert_px(y_top - y_base, 3.2, "text-top lowers box by item_ascent(16) - default strut_ascent(12.8)");
+    assert_px(
+        y_top - y_base,
+        3.2,
+        "text-top lowers box by item_ascent(16) - default strut_ascent(12.8)",
+    );
 }

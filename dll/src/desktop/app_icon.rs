@@ -104,7 +104,9 @@ mod macos {
         let Some(mtm) = MainThreadMarker::new() else {
             return IconOutcome::Unsupported;
         };
-        let Some(rendered) = crate::desktop::tray::render_named_icon(spec, APP_ICON_PIXELS, provider, font_manager) else {
+        let Some(rendered) =
+            crate::desktop::tray::render_named_icon(spec, APP_ICON_PIXELS, provider, font_manager)
+        else {
             return IconOutcome::NotFound;
         };
         let Some(image) = crate::desktop::tray::macos::nsimage_from_rgba(

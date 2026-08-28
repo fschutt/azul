@@ -12,10 +12,10 @@
 
 #![cfg(feature = "text_layout")]
 
+use azul_css::props::basic::FontRef;
 use azul_layout::font::parsed::ParsedFont;
 use azul_layout::text3::cache::FontManager;
 use azul_layout::text3::default::PathLoader;
-use azul_css::props::basic::FontRef;
 // FontManager keys its `parsed_fonts` map by `rust_fontconfig::FontId`, not the
 // `azul_layout::font_traits::FontId` newtype.
 use rust_fontconfig::FontId;
@@ -39,9 +39,9 @@ fn loaded_font_enumerate_and_retrieve_bytes() {
     // closure `load_fonts_from_disk` feeds during a real layout pass, and it
     // sets `original_bytes` so `source_bytes_for_subset()` works.
     let loader = PathLoader;
-    let bytes_arc = std::sync::Arc::new(rust_fontconfig::FontBytes::Owned(
-        std::sync::Arc::from(KOHO_LIGHT),
-    ));
+    let bytes_arc = std::sync::Arc::new(rust_fontconfig::FontBytes::Owned(std::sync::Arc::from(
+        KOHO_LIGHT,
+    )));
     let font_ref = loader
         .load_font_shared(bytes_arc, 0)
         .expect("load_font_shared must parse KoHo-Light");
@@ -59,7 +59,10 @@ fn loaded_font_enumerate_and_retrieve_bytes() {
         assert_eq!(guard.len(), 1, "exactly one font is loaded");
         let fr = guard.values().next().unwrap();
         let p = parsed(fr);
-        assert_eq!(p.hash, expected_hash, "enumerated hash matches glyph-run hash");
+        assert_eq!(
+            p.hash, expected_hash,
+            "enumerated hash matches glyph-run hash"
+        );
         assert!(p.num_glyphs > 0, "font reports a glyph count");
         // KoHo-Light has a PostScript name in its NAME table.
         assert!(

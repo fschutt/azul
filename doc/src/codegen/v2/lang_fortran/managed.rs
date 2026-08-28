@@ -313,7 +313,10 @@ pub fn emit_managed_bodies(builder: &mut CodeBuilder, ir: &CodegenIR) {
         for a in &args {
             builder.line(&format!("type(c_ptr), value :: {}", a));
         }
-        builder.line(&format!("procedure(azul_{}_user_iface), pointer :: fp", snake));
+        builder.line(&format!(
+            "procedure(azul_{}_user_iface), pointer :: fp",
+            snake
+        ));
         builder.line("type(c_funptr) :: raw");
         builder.line("raw = azul_lookup_cb_handle(id)");
         builder.line("if (.not. c_associated(raw)) return");

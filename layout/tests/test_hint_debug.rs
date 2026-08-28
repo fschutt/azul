@@ -20,8 +20,8 @@ use allsorts::tables::FontTableProvider;
 use allsorts::tag;
 
 fn load_helvetica_neue() -> Option<ParsedFont> {
-    use std::sync::Arc;
     use rust_fontconfig::FontBytes;
+    use std::sync::Arc;
     let font_path = "/System/Library/Fonts/HelveticaNeue.ttc";
     let font_bytes = fs::read(font_path).ok()?;
     let mut warnings = Vec::new();
@@ -55,7 +55,10 @@ fn hex_dump(data: &[u8]) -> String {
 }
 
 fn hex_dump_short(data: &[u8]) -> String {
-    data.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
+    data.iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[test]
@@ -74,7 +77,11 @@ fn test_phase1_decoding() {
 
     // ---- Font-level data ----
     let mut font_out = String::new();
-    writeln!(font_out, "=== Font-level hinting data for HelveticaNeue.ttc (index 0) ===").unwrap();
+    writeln!(
+        font_out,
+        "=== Font-level hinting data for HelveticaNeue.ttc (index 0) ==="
+    )
+    .unwrap();
     writeln!(font_out, "units_per_em: {upem}").unwrap();
     writeln!(font_out, "ppem: {ppem}").unwrap();
     writeln!(font_out, "scale (16.16 fixed): {scale}").unwrap();
@@ -89,8 +96,18 @@ fn test_phase1_decoding() {
         writeln!(font_out, "max_storage: {}", v1.max_storage).unwrap();
         writeln!(font_out, "max_function_defs: {}", v1.max_function_defs).unwrap();
         writeln!(font_out, "max_twilight_points: {}", v1.max_twilight_points).unwrap();
-        writeln!(font_out, "max_instruction_defs: {}", v1.max_instruction_defs).unwrap();
-        writeln!(font_out, "max_size_of_instructions: {}", v1.max_size_of_instructions).unwrap();
+        writeln!(
+            font_out,
+            "max_instruction_defs: {}",
+            v1.max_instruction_defs
+        )
+        .unwrap();
+        writeln!(
+            font_out,
+            "max_size_of_instructions: {}",
+            v1.max_size_of_instructions
+        )
+        .unwrap();
     }
     writeln!(font_out).unwrap();
 
@@ -102,13 +119,23 @@ fn test_phase1_decoding() {
     let fpgm_data = read_table(source_bytes, font.original_index, tag::FPGM);
     let prep_data = read_table(source_bytes, font.original_index, tag::PREP);
 
-    writeln!(font_out, "=== fpgm bytecode ({} bytes) ===", fpgm_data.as_ref().map_or(0, |d| d.len())).unwrap();
+    writeln!(
+        font_out,
+        "=== fpgm bytecode ({} bytes) ===",
+        fpgm_data.as_ref().map_or(0, |d| d.len())
+    )
+    .unwrap();
     if let Some(ref data) = fpgm_data {
         font_out.push_str(&hex_dump(data));
     }
     writeln!(font_out).unwrap();
 
-    writeln!(font_out, "=== prep bytecode ({} bytes) ===", prep_data.as_ref().map_or(0, |d| d.len())).unwrap();
+    writeln!(
+        font_out,
+        "=== prep bytecode ({} bytes) ===",
+        prep_data.as_ref().map_or(0, |d| d.len())
+    )
+    .unwrap();
     if let Some(ref data) = prep_data {
         font_out.push_str(&hex_dump(data));
     }
@@ -123,14 +150,24 @@ fn test_phase1_decoding() {
         }
 
         let cvt_funits = hint.cvt_funits();
-        writeln!(font_out, "=== CVT funits ({} entries) ===", cvt_funits.len()).unwrap();
+        writeln!(
+            font_out,
+            "=== CVT funits ({} entries) ===",
+            cvt_funits.len()
+        )
+        .unwrap();
         for (i, &v) in cvt_funits.iter().enumerate() {
             writeln!(font_out, "  cvt[{i}] = {v} funits").unwrap();
         }
         writeln!(font_out).unwrap();
 
         let cvt_scaled = hint.interpreter.cvt();
-        writeln!(font_out, "=== CVT scaled F26Dot6 ({} entries) ===", cvt_scaled.len()).unwrap();
+        writeln!(
+            font_out,
+            "=== CVT scaled F26Dot6 ({} entries) ===",
+            cvt_scaled.len()
+        )
+        .unwrap();
         for (i, &v) in cvt_scaled.iter().enumerate() {
             let pixels = v as f64 / 64.0;
             writeln!(font_out, "  cvt[{i}] = {v} (F26Dot6) = {pixels:.4} px").unwrap();
@@ -141,27 +178,44 @@ fn test_phase1_decoding() {
         writeln!(font_out, "max_stack: {}", hint.interpreter.max_stack()).unwrap();
         writeln!(font_out, "storage_len: {}", hint.interpreter.storage_len()).unwrap();
         writeln!(font_out, "fdef_count: {}", hint.interpreter.fdef_count()).unwrap();
-        writeln!(font_out, "twilight_point_count: {}", hint.interpreter.twilight_point_count()).unwrap();
+        writeln!(
+            font_out,
+            "twilight_point_count: {}",
+            hint.interpreter.twilight_point_count()
+        )
+        .unwrap();
         writeln!(font_out, "fpgm_executed: {}", hint.fpgm_executed()).unwrap();
-        writeln!(font_out, "prep_bytecode len: {}", hint.prep_bytecode().len()).unwrap();
+        writeln!(
+            font_out,
+            "prep_bytecode len: {}",
+            hint.prep_bytecode().len()
+        )
+        .unwrap();
         writeln!(font_out).unwrap();
     } else {
         writeln!(font_out, "hint_instance: None (no TrueType hinting)").unwrap();
     }
 
-    fs::write("/tmp/font_data_allsorts.txt", &font_out).expect("failed to write font_data_allsorts.txt");
-    eprintln!("Wrote /tmp/font_data_allsorts.txt ({} bytes)", font_out.len());
+    fs::write("/tmp/font_data_allsorts.txt", &font_out)
+        .expect("failed to write font_data_allsorts.txt");
+    eprintln!(
+        "Wrote /tmp/font_data_allsorts.txt ({} bytes)",
+        font_out.len()
+    );
 
     // ---- Per-glyph decoding data ----
-    let glyphs_to_test = [
-        ('R', "R"), ('T', "T"), ('f', "f"),
-    ];
+    let glyphs_to_test = [('R', "R"), ('T', "T"), ('f', "f")];
 
     let mut decode_out = String::new();
 
     for (ch, name) in &glyphs_to_test {
         writeln!(decode_out, "========================================").unwrap();
-        writeln!(decode_out, "=== Glyph '{}' (U+{:04X}) ===", name, *ch as u32).unwrap();
+        writeln!(
+            decode_out,
+            "=== Glyph '{}' (U+{:04X}) ===",
+            name, *ch as u32
+        )
+        .unwrap();
         writeln!(decode_out, "========================================").unwrap();
 
         let glyph_id = font.lookup_glyph_index(*ch as u32);
@@ -178,9 +232,15 @@ fn test_phase1_decoding() {
         match font.get_or_decode_glyph(glyph_id) {
             Some(owned) => {
                 writeln!(decode_out, "horz_advance: {}", owned.horz_advance).unwrap();
-                writeln!(decode_out, "bounding_box: min=({}, {}), max=({}, {})",
-                    owned.bounding_box.min_x, owned.bounding_box.min_y,
-                    owned.bounding_box.max_x, owned.bounding_box.max_y).unwrap();
+                writeln!(
+                    decode_out,
+                    "bounding_box: min=({}, {}), max=({}, {})",
+                    owned.bounding_box.min_x,
+                    owned.bounding_box.min_y,
+                    owned.bounding_box.max_x,
+                    owned.bounding_box.max_y
+                )
+                .unwrap();
                 writeln!(decode_out).unwrap();
 
                 // raw_points
@@ -192,7 +252,9 @@ fn test_phase1_decoding() {
                             writeln!(decode_out, "  pt[{i}] = ({x}, {y})").unwrap();
                         }
                     }
-                    None => { writeln!(decode_out, "  None").unwrap(); }
+                    None => {
+                        writeln!(decode_out, "  None").unwrap();
+                    }
                 }
                 writeln!(decode_out).unwrap();
 
@@ -201,10 +263,13 @@ fn test_phase1_decoding() {
                 match &owned.raw_on_curve {
                     Some(flags) => {
                         writeln!(decode_out, "count: {}", flags.len()).unwrap();
-                        let flags_str: Vec<&str> = flags.iter().map(|&f| if f { "1" } else { "0" }).collect();
+                        let flags_str: Vec<&str> =
+                            flags.iter().map(|&f| if f { "1" } else { "0" }).collect();
                         writeln!(decode_out, "  [{}]", flags_str.join(", ")).unwrap();
                     }
-                    None => { writeln!(decode_out, "  None").unwrap(); }
+                    None => {
+                        writeln!(decode_out, "  None").unwrap();
+                    }
                 }
                 writeln!(decode_out).unwrap();
 
@@ -216,7 +281,9 @@ fn test_phase1_decoding() {
                         let ends_str: Vec<String> = ends.iter().map(|e| e.to_string()).collect();
                         writeln!(decode_out, "  [{}]", ends_str.join(", ")).unwrap();
                     }
-                    None => { writeln!(decode_out, "  None").unwrap(); }
+                    None => {
+                        writeln!(decode_out, "  None").unwrap();
+                    }
                 }
                 writeln!(decode_out).unwrap();
 
@@ -227,7 +294,9 @@ fn test_phase1_decoding() {
                         writeln!(decode_out, "length: {} bytes", instr.len()).unwrap();
                         writeln!(decode_out, "hex: {}", hex_dump_short(instr)).unwrap();
                     }
-                    None => { writeln!(decode_out, "  None").unwrap(); }
+                    None => {
+                        writeln!(decode_out, "  None").unwrap();
+                    }
                 }
                 writeln!(decode_out).unwrap();
 
@@ -239,7 +308,9 @@ fn test_phase1_decoding() {
                             writeln!(decode_out, "  phantom[{}] = ({}, {})", i, p.0, p.1).unwrap();
                         }
                     }
-                    None => { writeln!(decode_out, "  None").unwrap(); }
+                    None => {
+                        writeln!(decode_out, "  None").unwrap();
+                    }
                 }
                 writeln!(decode_out).unwrap();
 
@@ -249,21 +320,37 @@ fn test_phase1_decoding() {
                     for (i, (x, y)) in pts.iter().enumerate() {
                         let sx = F26Dot6::from_funits(*x as i32, scale);
                         let sy = F26Dot6::from_funits(*y as i32, scale);
-                        writeln!(decode_out, "  pt[{}] = funits({}, {}) => F26Dot6({}, {}) = ({:.4}, {:.4}) px",
-                            i, x, y, sx.to_bits(), sy.to_bits(),
-                            sx.to_bits() as f64 / 64.0, sy.to_bits() as f64 / 64.0).unwrap();
+                        writeln!(
+                            decode_out,
+                            "  pt[{}] = funits({}, {}) => F26Dot6({}, {}) = ({:.4}, {:.4}) px",
+                            i,
+                            x,
+                            y,
+                            sx.to_bits(),
+                            sy.to_bits(),
+                            sx.to_bits() as f64 / 64.0,
+                            sy.to_bits() as f64 / 64.0
+                        )
+                        .unwrap();
                     }
                 }
                 writeln!(decode_out).unwrap();
             }
             None => {
-                writeln!(decode_out, "ERROR: glyph_id {glyph_id} not found in glyph_records_decoded\n").unwrap();
+                writeln!(
+                    decode_out,
+                    "ERROR: glyph_id {glyph_id} not found in glyph_records_decoded\n"
+                )
+                .unwrap();
             }
         }
     }
 
     fs::write("/tmp/phase1_decoding_allsorts.txt", &decode_out).expect("failed to write");
-    eprintln!("Wrote /tmp/phase1_decoding_allsorts.txt ({} bytes)", decode_out.len());
+    eprintln!(
+        "Wrote /tmp/phase1_decoding_allsorts.txt ({} bytes)",
+        decode_out.len()
+    );
 }
 
 #[test]
@@ -288,17 +375,24 @@ fn test_phase2_hinting() {
         }
     };
 
-    let glyphs_to_test = [
-        ('R', "R"), ('T', "T"), ('f', "f"),
-    ];
+    let glyphs_to_test = [('R', "R"), ('T', "T"), ('f', "f")];
 
     let mut hint_out = String::new();
-    writeln!(hint_out, "=== Phase 2: Hinting execution (ppem={ppem}, upem={upem}, scale={scale}) ===").unwrap();
+    writeln!(
+        hint_out,
+        "=== Phase 2: Hinting execution (ppem={ppem}, upem={upem}, scale={scale}) ==="
+    )
+    .unwrap();
     writeln!(hint_out).unwrap();
 
     for (ch, name) in &glyphs_to_test {
         writeln!(hint_out, "========================================").unwrap();
-        writeln!(hint_out, "=== Hinting glyph '{}' (U+{:04X}) ===", name, *ch as u32).unwrap();
+        writeln!(
+            hint_out,
+            "=== Hinting glyph '{}' (U+{:04X}) ===",
+            name, *ch as u32
+        )
+        .unwrap();
         writeln!(hint_out, "========================================").unwrap();
 
         let glyph_id = match font.lookup_glyph_index(*ch as u32) {
@@ -348,19 +442,38 @@ fn test_phase2_hinting() {
         writeln!(hint_out).unwrap();
 
         // Scale points to F26Dot6
-        let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|(x, y)| {
-            (F26Dot6::from_funits(*x as i32, scale).to_bits(),
-             F26Dot6::from_funits(*y as i32, scale).to_bits())
-        }).collect();
+        let points_f26dot6: Vec<(i32, i32)> = raw_points
+            .iter()
+            .map(|(x, y)| {
+                (
+                    F26Dot6::from_funits(*x as i32, scale).to_bits(),
+                    F26Dot6::from_funits(*y as i32, scale).to_bits(),
+                )
+            })
+            .collect();
 
         let adv_f26dot6 = F26Dot6::from_funits(owned.horz_advance as i32, scale).to_bits();
 
         writeln!(hint_out, "--- Input points (F26Dot6) ---").unwrap();
         for (i, (x, y)) in points_f26dot6.iter().enumerate() {
-            writeln!(hint_out, "  pt[{}] = ({}, {})  = ({:.4}, {:.4}) px",
-                i, x, y, *x as f64 / 64.0, *y as f64 / 64.0).unwrap();
+            writeln!(
+                hint_out,
+                "  pt[{}] = ({}, {})  = ({:.4}, {:.4}) px",
+                i,
+                x,
+                y,
+                *x as f64 / 64.0,
+                *y as f64 / 64.0
+            )
+            .unwrap();
         }
-        writeln!(hint_out, "  advance_width = {} = {:.4} px", adv_f26dot6, adv_f26dot6 as f64 / 64.0).unwrap();
+        writeln!(
+            hint_out,
+            "  advance_width = {} = {:.4} px",
+            adv_f26dot6,
+            adv_f26dot6 as f64 / 64.0
+        )
+        .unwrap();
         writeln!(hint_out).unwrap();
 
         // Run hinting
@@ -384,15 +497,32 @@ fn test_phase2_hinting() {
                 for (i, (x, y)) in hinted_pts.iter().enumerate() {
                     if i < points_f26dot6.len() {
                         let orig = &points_f26dot6[i];
-                        writeln!(hint_out, "  pt[{}]: ({}, {}) => ({}, {})  delta=({}, {})  px=({:.4}, {:.4})",
-                            i, orig.0, orig.1, x, y,
-                            x - orig.0, y - orig.1,
-                            *x as f64 / 64.0, *y as f64 / 64.0).unwrap();
+                        writeln!(
+                            hint_out,
+                            "  pt[{}]: ({}, {}) => ({}, {})  delta=({}, {})  px=({:.4}, {:.4})",
+                            i,
+                            orig.0,
+                            orig.1,
+                            x,
+                            y,
+                            x - orig.0,
+                            y - orig.1,
+                            *x as f64 / 64.0,
+                            *y as f64 / 64.0
+                        )
+                        .unwrap();
                     } else {
                         // phantom points
-                        writeln!(hint_out, "  phantom[{}]: ({}, {})  px=({:.4}, {:.4})",
-                            i - points_f26dot6.len(), x, y,
-                            *x as f64 / 64.0, *y as f64 / 64.0).unwrap();
+                        writeln!(
+                            hint_out,
+                            "  phantom[{}]: ({}, {})  px=({:.4}, {:.4})",
+                            i - points_f26dot6.len(),
+                            x,
+                            y,
+                            *x as f64 / 64.0,
+                            *y as f64 / 64.0
+                        )
+                        .unwrap();
                     }
                 }
             }
@@ -404,7 +534,10 @@ fn test_phase2_hinting() {
     }
 
     fs::write("/tmp/phase2_hinting_allsorts.txt", &hint_out).expect("failed to write");
-    eprintln!("Wrote /tmp/phase2_hinting_allsorts.txt ({} bytes)", hint_out.len());
+    eprintln!(
+        "Wrote /tmp/phase2_hinting_allsorts.txt ({} bytes)",
+        hint_out.len()
+    );
 }
 
 /// Phase 2b: Trace the interpreter step-by-step for glyph 'T' only.
@@ -439,10 +572,15 @@ fn test_phase2b_trace_t() {
     let raw_contour_ends = owned.raw_contour_ends.as_ref().expect("no contour_ends");
     let instructions = owned.instructions.as_deref().unwrap_or(&[]);
 
-    let points_f26dot6: Vec<(i32, i32)> = raw_points.iter().map(|(x, y)| {
-        (F26Dot6::from_funits(*x as i32, scale).to_bits(),
-         F26Dot6::from_funits(*y as i32, scale).to_bits())
-    }).collect();
+    let points_f26dot6: Vec<(i32, i32)> = raw_points
+        .iter()
+        .map(|(x, y)| {
+            (
+                F26Dot6::from_funits(*x as i32, scale).to_bits(),
+                F26Dot6::from_funits(*y as i32, scale).to_bits(),
+            )
+        })
+        .collect();
     let adv_f26dot6 = F26Dot6::from_funits(owned.horz_advance as i32, scale).to_bits();
 
     let mut hint = hint_mutex.lock().unwrap();

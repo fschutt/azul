@@ -95,7 +95,6 @@ pub fn generate(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // call hasn't run yet.
     types::emit_records_in_sort_order(&mut builder, ir, config);
 
-
     // `$ffi->attach(...)` for every C-ABI symbol.
     functions::emit_attach_functions(&mut builder, ir, config);
 

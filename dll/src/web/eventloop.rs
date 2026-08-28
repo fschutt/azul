@@ -53,8 +53,8 @@ use std::sync::atomic::AtomicUsize;
 use azul_core::dom::Dom;
 use azul_core::refany::{RefAny, RefCount, RefCountInner};
 use azul_core::styled_dom::StyledDom;
-use azul_css::AzString;
 use azul_css::css::Css;
+use azul_css::AzString;
 
 /// WEB-LIFT FIX (2026-06-02): the embedded fallback font, exposed at MODULE level so the
 /// transpiler can force-mirror its FULL byte range into the wasm. The lift otherwise only
@@ -121,23 +121,23 @@ pub const EVENT_BYTES_LEN: u32 = 256;
 /// `AzStartup_dispatchEvent`. Indices match azul's existing
 /// EventFilter ordering for the cases that map directly.
 pub mod event_kind {
-    pub const CLICK:      u32 = 0;
-    pub const MOUSEDOWN:  u32 = 1;
-    pub const MOUSEUP:    u32 = 2;
-    pub const MOUSEMOVE:  u32 = 3;
-    pub const DBLCLICK:   u32 = 4;
-    pub const WHEEL:      u32 = 5;
-    pub const KEYDOWN:    u32 = 6;
-    pub const KEYUP:      u32 = 7;
-    pub const FOCUSIN:    u32 = 8;
-    pub const FOCUSOUT:   u32 = 9;
-    pub const RESIZE:     u32 = 10;
-    pub const SCROLL:     u32 = 11;
+    pub const CLICK: u32 = 0;
+    pub const MOUSEDOWN: u32 = 1;
+    pub const MOUSEUP: u32 = 2;
+    pub const MOUSEMOVE: u32 = 3;
+    pub const DBLCLICK: u32 = 4;
+    pub const WHEEL: u32 = 5;
+    pub const KEYDOWN: u32 = 6;
+    pub const KEYUP: u32 = 7;
+    pub const FOCUSIN: u32 = 8;
+    pub const FOCUSOUT: u32 = 9;
+    pub const RESIZE: u32 = 10;
+    pub const SCROLL: u32 = 11;
     // S1 (2026-06-11) — non-bubbling pointer events routed by DOM target,
     // plus right-click. Mirrors azul HoverEventFilter::MouseEnter /
     // MouseLeave / RightMouseUp.
-    pub const MOUSEENTER:  u32 = 12;
-    pub const MOUSELEAVE:  u32 = 13;
+    pub const MOUSEENTER: u32 = 12;
+    pub const MOUSELEAVE: u32 = 13;
     pub const CONTEXTMENU: u32 = 14;
 }
 
@@ -145,19 +145,19 @@ pub mod event_kind {
 /// `DataView.setUint32/Float32(off, val, /*LE=*/ true)`. Per-kind
 /// extras live past `MODIFIERS`.
 pub mod event_offset {
-    pub const NODE_IDX:      u32 = 0;
-    pub const X:             u32 = 4;
-    pub const Y:             u32 = 8;
+    pub const NODE_IDX: u32 = 0;
+    pub const X: u32 = 4;
+    pub const Y: u32 = 8;
     pub const BUTTON_OR_KEY: u32 = 12;
-    pub const MODIFIERS:     u32 = 16;
+    pub const MODIFIERS: u32 = 16;
 }
 
 // =====================================================================
 // AzUpdate values (mirror dll_api_internal.rs's enum).
 // =====================================================================
 
-pub const UPDATE_DO_NOTHING:              u32 = 0;
-pub const UPDATE_REFRESH_DOM:             u32 = 1;
+pub const UPDATE_DO_NOTHING: u32 = 0;
+pub const UPDATE_REFRESH_DOM: u32 = 1;
 pub const UPDATE_REFRESH_DOM_ALL_WINDOWS: u32 = 2;
 
 /// Browser-side App state. One per page. Returned from
@@ -183,7 +183,6 @@ pub struct EventloopState {
     pub cb_fn_cache: BTreeMap<u32, u64>,
 
     // M9-3 fields ─────────────────────────────────────────────────
-
     /// WebAssembly.Table index of the lifted layout cb's wrapper
     /// `callback` export. JS sets this once via
     /// [`AzStartup_setLayoutCbTableIdx`] after instantiating
@@ -205,7 +204,6 @@ pub struct EventloopState {
     pub last_layout_status: u32,
 
     // M9-4 fields ─────────────────────────────────────────────────
-
     /// Most recently registered cb node_idx — the stub
     /// [`AzStartup_hitTest`] returns this for any (x, y) input.
     /// JS calls [`AzStartup_registerCbNode`] for each per-cb wasm
@@ -222,7 +220,6 @@ pub struct EventloopState {
     pub cb_node_kinds: [u8; 64],
 
     // M9-6 fields ─────────────────────────────────────────────────
-
     /// Wasm offset of the user-data model that the hydrated RefAny
     /// wraps. JS sets this once at hydrate time via
     /// [`AzStartup_setModelPtr`]. [`AzStartup_dispatchEvent`] reads
@@ -243,7 +240,6 @@ pub struct EventloopState {
     pub patch_buf_ptr: u32,
 
     // M11 Sprint 1 fields ─────────────────────────────────────────
-
     /// `1` once [`AzStartup_hydrateStyledDom`] has confirmed the
     /// AzDom blob at [`Self::current_dom_ptr`] is reachable +
     /// well-formed. JS calls hydrate immediately after
@@ -279,7 +275,6 @@ pub struct EventloopState {
     pub current_dom_styled_ptr: u32,
 
     // M11 Sprint 1.C / Sprint 2 fields ─────────────────────────────
-
     /// `1` once `AzStartup_solveLayout` has populated
     /// [`Self::positioned_rects_ptr`]. JS reads this to know hit-
     /// test has authoritative coordinates.
@@ -293,7 +288,6 @@ pub struct EventloopState {
     pub positioned_rects_len: u32,
 
     // M11 Sprint 5 fields ──────────────────────────────────────────
-
     /// Per-state auto-virtualize threshold (Default
     /// [`AZ_AUTO_VIRTUALIZE_THRESHOLD`]). `0` disables. JS can
     /// override via `AzStartup_setAutoVirtualizeThreshold`.
@@ -304,7 +298,6 @@ pub struct EventloopState {
     pub virtual_view_provider_table_idx: u32,
 
     // S1 input-event fields (2026-06-11) ──────────────────────────
-
     /// node_idx of the currently focused node (`u32::MAX` = none).
     /// Updated by FOCUSIN/FOCUSOUT dispatches; KEYDOWN/KEYUP route
     /// here when set, else broadcast to kind-registered nodes.
@@ -606,10 +599,7 @@ pub unsafe extern "C" fn AzStartup_hydrate(
 /// being called before init — in which case the call is a no-op
 /// and the deserializer setting is lost).
 #[no_mangle]
-pub unsafe extern "C" fn AzStartup_registerStateDeserializer(
-    state: u32,
-    fn_addr: u64,
-) {
+pub unsafe extern "C" fn AzStartup_registerStateDeserializer(state: u32, fn_addr: u64) {
     if state == 0 {
         return;
     }
@@ -729,13 +719,7 @@ pub unsafe extern "C" fn AzStartup_initLayoutCache(
     }
     let info_ptr = AzStartup_alloc(512);
     let out_ptr = AzStartup_alloc(4096);
-    let cb_status = __az_call_indirect_layout4(
-        table_idx,
-        refany_ptr as u64,
-        0,
-        info_ptr,
-        out_ptr,
-    );
+    let cb_status = __az_call_indirect_layout4(table_idx, refany_ptr as u64, 0, info_ptr, out_ptr);
     s.last_layout_status = cb_status;
     if cb_status != 0 {
         return 100 + cb_status;
@@ -887,11 +871,7 @@ pub unsafe extern "C" fn AzStartup_setDisplayNode(state: u32, node_idx: u32) {
 /// Falls back to `state.last_registered_cb_node_idx` when the
 /// rect cache is empty (`solveLayout` hasn't run, or no nodes).
 #[no_mangle]
-pub unsafe extern "C" fn AzStartup_hitTest(
-    state: u32,
-    x_f32_bits: u32,
-    y_f32_bits: u32,
-) -> u32 {
+pub unsafe extern "C" fn AzStartup_hitTest(state: u32, x_f32_bits: u32, y_f32_bits: u32) -> u32 {
     if state == 0 {
         return u32::MAX;
     }
@@ -924,11 +904,7 @@ pub unsafe extern "C" fn AzStartup_hitTest(
         if rx == u32::MAX {
             continue;
         }
-        if x >= rx
-            && x < rx.wrapping_add(rw)
-            && y >= ry
-            && y < ry.wrapping_add(rh)
-        {
+        if x >= rx && x < rx.wrapping_add(rw) && y >= ry && y < ry.wrapping_add(rh) {
             return i;
         }
     }
@@ -1026,8 +1002,7 @@ unsafe fn count_az_dom_nodes(root: *const u8) -> u32 {
         // We only need ptr@0 and len@8. The destructor enum past
         // offset 16 we ignore.
         let dvec = node.add(children_off);
-        let child_ptr_raw =
-            core::ptr::read_unaligned(dvec as *const usize) as *const u8;
+        let child_ptr_raw = core::ptr::read_unaligned(dvec as *const usize) as *const u8;
         let child_len = core::ptr::read_unaligned(dvec.add(8) as *const usize);
         if count == 1 && !child_ptr_raw.is_null() && child_len > 0 {
             core::ptr::write_volatile(0x406E8 as *mut u32, core::ptr::read(child_ptr_raw) as u32);
@@ -1179,7 +1154,10 @@ pub unsafe extern "C" fn AzStartup_hydrateStyledDom(state: u32) -> u32 {
     unsafe {
         let bc = dom_ref.children.as_ref().len() as u32;
         core::ptr::write_volatile(0x40620 as *mut u32, 0x4042_0000u32 | (bc & 0xFFFF));
-        core::ptr::write_volatile(0x40624 as *mut u32, dom_ref.root.style.rules().count() as u32);
+        core::ptr::write_volatile(
+            0x40624 as *mut u32,
+            dom_ref.root.style.rules().count() as u32,
+        );
         if bc > 0 {
             core::ptr::write_volatile(0x40628 as *mut u32, 0xBEEF_0000u32);
             let button = &dom_ref.children.as_ref()[0];
@@ -1228,7 +1206,6 @@ pub unsafe extern "C" fn AzStartup_isStyledDomHydrated(state: u32) -> u32 {
     let s = &*(state as usize as *mut EventloopState);
     s.current_dom_hydrated
 }
-
 
 /// Read [`EventloopState::current_dom_node_count`] for JS-side
 /// debugging + Sprint 3 diff arena sizing. Returns `0` when
@@ -1312,10 +1289,7 @@ pub const AZ_AUTO_VIRTUALIZE_THRESHOLD: u32 = 500;
 /// Set the auto-virtualize threshold. `0` disables. Defaults to
 /// [`AZ_AUTO_VIRTUALIZE_THRESHOLD`].
 #[no_mangle]
-pub unsafe extern "C" fn AzStartup_setAutoVirtualizeThreshold(
-    state: u32,
-    threshold: u32,
-) {
+pub unsafe extern "C" fn AzStartup_setAutoVirtualizeThreshold(state: u32, threshold: u32) {
     if state == 0 {
         return;
     }
@@ -1338,10 +1312,7 @@ pub unsafe extern "C" fn AzStartup_getAutoVirtualizeThreshold(state: u32) -> u32
 /// layout pass encounters a `VirtualView` node + when scroll
 /// events cross an edge threshold.
 #[no_mangle]
-pub unsafe extern "C" fn AzStartup_setVirtualViewProvider(
-    state: u32,
-    table_idx: u32,
-) {
+pub unsafe extern "C" fn AzStartup_setVirtualViewProvider(state: u32, table_idx: u32) {
     if state == 0 {
         return;
     }
@@ -1427,10 +1398,10 @@ pub unsafe extern "C" fn AzStartup_solveLayout(
     while i < node_count {
         let off = (i * POSITIONED_RECT_BYTES) as usize;
         let p = (buf as usize + off) as *mut u32;
-        core::ptr::write_unaligned(p, 0);                    // x
-        core::ptr::write_unaligned(p.add(1), i * h);         // y
-        core::ptr::write_unaligned(p.add(2), viewport_w);    // w
-        core::ptr::write_unaligned(p.add(3), h);             // h
+        core::ptr::write_unaligned(p, 0); // x
+        core::ptr::write_unaligned(p.add(1), i * h); // y
+        core::ptr::write_unaligned(p.add(2), viewport_w); // w
+        core::ptr::write_unaligned(p.add(3), h); // h
         i += 1;
     }
     s.positioned_rects_ptr = buf;
@@ -1503,40 +1474,73 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // Markers 0x40700+; 0xDEAD000N sentinel = test trapped before that marker.
     {
         use std::collections::BTreeMap;
-        for i in 0..14u32 { core::ptr::write_volatile((0x40700 + i * 4) as *mut u32, 0xDEAD_0000u32 | i); }
+        for i in 0..14u32 {
+            core::ptr::write_volatile((0x40700 + i * 4) as *mut u32, 0xDEAD_0000u32 | i);
+        }
         let mut m1: BTreeMap<u32, u32> = BTreeMap::new();
-        m1.insert(42, 99); m1.insert(7, 13);
-        let mut s1 = 0u32; for (k, v) in m1.iter() { s1 = s1.wrapping_add(*k).wrapping_add(*v); }
-        core::ptr::write_volatile(0x40700 as *mut u32, m1.len() as u32);     // expect 2
-        core::ptr::write_volatile(0x40704 as *mut u32, s1);                  // expect 161
+        m1.insert(42, 99);
+        m1.insert(7, 13);
+        let mut s1 = 0u32;
+        for (k, v) in m1.iter() {
+            s1 = s1.wrapping_add(*k).wrapping_add(*v);
+        }
+        core::ptr::write_volatile(0x40700 as *mut u32, m1.len() as u32); // expect 2
+        core::ptr::write_volatile(0x40704 as *mut u32, s1); // expect 161
         let mut m2: BTreeMap<String, u32> = BTreeMap::new();
-        m2.insert("foo".to_string(), 5); m2.insert("bar".to_string(), 9);
-        let mut s2 = 0u32; for (k, v) in m2.iter() { s2 = s2.wrapping_add(k.len() as u32).wrapping_add(*v); }
-        core::ptr::write_volatile(0x40708 as *mut u32, m2.len() as u32);     // expect 2
-        core::ptr::write_volatile(0x4070C as *mut u32, s2);                  // expect 20
+        m2.insert("foo".to_string(), 5);
+        m2.insert("bar".to_string(), 9);
+        let mut s2 = 0u32;
+        for (k, v) in m2.iter() {
+            s2 = s2.wrapping_add(k.len() as u32).wrapping_add(*v);
+        }
+        core::ptr::write_volatile(0x40708 as *mut u32, m2.len() as u32); // expect 2
+        core::ptr::write_volatile(0x4070C as *mut u32, s2); // expect 20
         let mut v3: Vec<String> = Vec::new();
-        v3.push("aa".to_string()); v3.push("bbb".to_string());
-        let mut s3 = 0u32; for x in v3.iter() { s3 = s3.wrapping_add(x.len() as u32); }
-        core::ptr::write_volatile(0x40710 as *mut u32, v3.len() as u32);     // expect 2
-        core::ptr::write_volatile(0x40714 as *mut u32, s3);                  // expect 5
-        // T_sse: the EXACT SSE ops + memset(0xFF) control-init the hashbrown SwissTable probe uses.
+        v3.push("aa".to_string());
+        v3.push("bbb".to_string());
+        let mut s3 = 0u32;
+        for x in v3.iter() {
+            s3 = s3.wrapping_add(x.len() as u32);
+        }
+        core::ptr::write_volatile(0x40710 as *mut u32, v3.len() as u32); // expect 2
+        core::ptr::write_volatile(0x40714 as *mut u32, s3); // expect 5
+                                                            // T_sse: the EXACT SSE ops + memset(0xFF) control-init the hashbrown SwissTable probe uses.
         #[cfg(target_arch = "x86_64")]
         unsafe {
             use core::arch::x86_64::*;
             let all_ff = [0xFFu8; 16];
-            core::ptr::write_volatile(0x40718 as *mut u32, _mm_movemask_epi8(_mm_loadu_si128(all_ff.as_ptr() as *const __m128i)) as u32); // movdqu+pmovmskb → 0xffff
-            let mut c = [0u8; 16]; c[0] = 0x42; c[2] = 0x42; c[4] = 0x42;
-            core::ptr::write_volatile(0x4071C as *mut u32, _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(c.as_ptr() as *const __m128i), _mm_set1_epi8(0x42i8))) as u32); // pcmpeqb → 0x15
-            core::ptr::write_volatile(0x40720 as *mut u32, _mm_movemask_epi8(_mm_set1_epi8(0x80u8 as i8)) as u32); // set1+pmovmskb → 0xffff
+            core::ptr::write_volatile(
+                0x40718 as *mut u32,
+                _mm_movemask_epi8(_mm_loadu_si128(all_ff.as_ptr() as *const __m128i)) as u32,
+            ); // movdqu+pmovmskb → 0xffff
+            let mut c = [0u8; 16];
+            c[0] = 0x42;
+            c[2] = 0x42;
+            c[4] = 0x42;
+            core::ptr::write_volatile(
+                0x4071C as *mut u32,
+                _mm_movemask_epi8(_mm_cmpeq_epi8(
+                    _mm_loadu_si128(c.as_ptr() as *const __m128i),
+                    _mm_set1_epi8(0x42i8),
+                )) as u32,
+            ); // pcmpeqb → 0x15
+            core::ptr::write_volatile(
+                0x40720 as *mut u32,
+                _mm_movemask_epi8(_mm_set1_epi8(0x80u8 as i8)) as u32,
+            ); // set1+pmovmskb → 0xffff
             let mut buf = vec![0u8; 32];
             core::ptr::write_bytes(buf.as_mut_ptr(), 0xFFu8, 32);
-            core::ptr::write_volatile(0x40724 as *mut u32, _mm_movemask_epi8(_mm_loadu_si128(buf.as_ptr() as *const __m128i)) as u32); // memset+movdqu → 0xffff
+            core::ptr::write_volatile(
+                0x40724 as *mut u32,
+                _mm_movemask_epi8(_mm_loadu_si128(buf.as_ptr() as *const __m128i)) as u32,
+            ); // memset+movdqu → 0xffff
             core::ptr::write_volatile(0x40728 as *mut u32, buf[20] as u32); // memset reached byte20 → 0xff
         }
         // T6: HashMap baseline (BROKEN — was len=0)
         let mut h6: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
-        h6.insert(11, 110); h6.insert(22, 220);
-        core::ptr::write_volatile(0x4072C as *mut u32, h6.len() as u32);     // expect 2 (was 0)
+        h6.insert(11, 110);
+        h6.insert(22, 220);
+        core::ptr::write_volatile(0x4072C as *mut u32, h6.len() as u32); // expect 2 (was 0)
     }
     let s = &mut *(state as usize as *mut EventloopState);
     if s.current_dom_styled_ptr == 0 {
@@ -1561,7 +1565,11 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         match styled.css_property_cache.ptr.compact_cache.as_ref() {
             Some(cc) => {
                 core::ptr::write_volatile(0x40578 as *mut u32, 0xCC5E_0000u32);
-                let n = if node_count < 5 { node_count as usize } else { 5usize };
+                let n = if node_count < 5 {
+                    node_count as usize
+                } else {
+                    5usize
+                };
                 for i in 0..n {
                     let b = 0x40580 + i * 16;
                     core::ptr::write_volatile(b as *mut u32, cc.get_width_raw(i));
@@ -1569,7 +1577,8 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
                     core::ptr::write_volatile(
                         (b + 8) as *mut u32,
                         0xD000_0000u32
-                            | (azul_css::compact_cache::layout_display_to_u8(cc.get_display(i)) as u32),
+                            | (azul_css::compact_cache::layout_display_to_u8(cc.get_display(i))
+                                as u32),
                     );
                 }
             }
@@ -1608,9 +1617,18 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         match azul_layout::font::parsed::ParsedFont::from_bytes(az_web_fallback_font, 0, &mut w2) {
             Some(pf) => unsafe {
                 core::ptr::write_volatile(0x40670 as *mut u32, 0x600D0001u32);
-                core::ptr::write_volatile(0x40674 as *mut u32, pf.pdf_font_metrics.units_per_em as u32);
-                core::ptr::write_volatile(0x40678 as *mut u32, pf.pdf_font_metrics.ascender as i32 as u32);
-                core::ptr::write_volatile(0x4067C as *mut u32, pf.pdf_font_metrics.descender as i32 as u32);
+                core::ptr::write_volatile(
+                    0x40674 as *mut u32,
+                    pf.pdf_font_metrics.units_per_em as u32,
+                );
+                core::ptr::write_volatile(
+                    0x40678 as *mut u32,
+                    pf.pdf_font_metrics.ascender as i32 as u32,
+                );
+                core::ptr::write_volatile(
+                    0x4067C as *mut u32,
+                    pf.pdf_font_metrics.descender as i32 as u32,
+                );
             },
             None => unsafe {
                 core::ptr::write_volatile(0x40670 as *mut u32, 0x600DDEADu32);
@@ -1625,7 +1643,10 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // `vec!` of a complex nested struct (M11/M12 gap), giving with_memory_fonts an
     // EMPTY list → fc_cache.len()=0 → no font → text height 0.
     let mut fc_unicode = Vec::new();
-    fc_unicode.push(rust_fontconfig::UnicodeRange { start: 0, end: 0x10FFFF });
+    fc_unicode.push(rust_fontconfig::UnicodeRange {
+        start: 0,
+        end: 0x10FFFF,
+    });
     let fc_pattern = rust_fontconfig::FcPattern {
         name: Some("serif sans-serif monospace".to_string()),
         family: Some("serif sans-serif monospace".to_string()),
@@ -1650,7 +1671,9 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // A0A00001=before insert (trap here=insert broken); A0A00002=insert done; A0A00003=get OK.
     {
         use std::collections::HashMap;
-        unsafe { core::ptr::write_volatile(0x40870 as *mut u32, 0xA0A00001u32); }
+        unsafe {
+            core::ptr::write_volatile(0x40870 as *mut u32, 0xA0A00001u32);
+        }
         let mut hm: HashMap<String, u32> = HashMap::new();
         hm.insert("serif".to_string(), 1u32);
         hm.insert(format!("sans-{}", viewport_w & 1), 2u32);
@@ -1671,12 +1694,22 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // F051_DEAD parse-None), 0x40654=units_per_em, 0x40658=ascender(i16), 0x4065C=descender(i16).
     {
         let mut warns = Vec::new();
-        match azul_layout::font::parsed::ParsedFont::from_bytes(az_web_fallback_font, 0, &mut warns) {
+        match azul_layout::font::parsed::ParsedFont::from_bytes(az_web_fallback_font, 0, &mut warns)
+        {
             Some(pf) => unsafe {
                 core::ptr::write_volatile(0x40650 as *mut u32, 0xF0510001u32);
-                core::ptr::write_volatile(0x40654 as *mut u32, pf.pdf_font_metrics.units_per_em as u32);
-                core::ptr::write_volatile(0x40658 as *mut u32, pf.pdf_font_metrics.ascender as i32 as u32);
-                core::ptr::write_volatile(0x4065C as *mut u32, pf.pdf_font_metrics.descender as i32 as u32);
+                core::ptr::write_volatile(
+                    0x40654 as *mut u32,
+                    pf.pdf_font_metrics.units_per_em as u32,
+                );
+                core::ptr::write_volatile(
+                    0x40658 as *mut u32,
+                    pf.pdf_font_metrics.ascender as i32 as u32,
+                );
+                core::ptr::write_volatile(
+                    0x4065C as *mut u32,
+                    pf.pdf_font_metrics.descender as i32 as u32,
+                );
             },
             None => unsafe {
                 core::ptr::write_volatile(0x40650 as *mut u32, 0xF051DEADu32);
@@ -1685,7 +1718,10 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
                     let b = w.message.as_bytes();
                     let mut m = [0u32; 3];
                     let mut i = 0;
-                    while i < 12 && i < b.len() { m[i / 4] |= (b[i] as u32) << (8 * (i % 4)); i += 1; }
+                    while i < 12 && i < b.len() {
+                        m[i / 4] |= (b[i] as u32) << (8 * (i % 4));
+                        i += 1;
+                    }
                     core::ptr::write_volatile(0x40658 as *mut u32, m[0]);
                     core::ptr::write_volatile(0x4065C as *mut u32, m[1]);
                     core::ptr::write_volatile(0x40660 as *mut u32, m[2]);
@@ -1708,11 +1744,18 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         // TRAPS → the bug is in find_unicode_fallbacks. If this TRAPS (stays B0B00001) → the
         // bug is in expand / fuzzy_query_by_name / chain_cache.get. (Different scripts_hint =
         // different cache key, so this probe does NOT cache-shadow the VERIFY block.)
-        unsafe { core::ptr::write_volatile(0x406B0 as *mut u32, 0xB0B00001u32); }
+        unsafe {
+            core::ptr::write_volatile(0x406B0 as *mut u32, 0xB0B00001u32);
+        }
         let mut tp = Vec::new();
         let cp = fc_cache.resolve_font_chain_with_scripts(
-            &["serif".to_string()], FcWeight::Normal, PatternMatch::False, PatternMatch::False,
-            Some(&no_ranges), &mut tp);
+            &["serif".to_string()],
+            FcWeight::Normal,
+            PatternMatch::False,
+            PatternMatch::False,
+            Some(&no_ranges),
+            &mut tp,
+        );
         unsafe {
             core::ptr::write_volatile(0x406B0 as *mut u32, 0xB0B00002u32);
             core::ptr::write_volatile(0x406B4 as *mut u32, cp.css_fallbacks.len() as u32);
@@ -1734,18 +1777,26 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         }
         let mut meta_ok = 0u32;
         for id in &ids {
-            if fc_cache.get_metadata_by_id(id).is_some() { meta_ok += 1; }
+            if fc_cache.get_metadata_by_id(id).is_some() {
+                meta_ok += 1;
+            }
         }
         unsafe {
             core::ptr::write_volatile(0x406BC as *mut u32, 0xC0C00002u32);
             core::ptr::write_volatile(0x406C4 as *mut u32, meta_ok);
         }
         let mut ur = Vec::new();
-        ur.push(UnicodeRange { start: 0x20, end: 0x7F });
+        ur.push(UnicodeRange {
+            start: 0x20,
+            end: 0x7F,
+        });
         let pat = FcPattern {
-            name: None, weight: FcWeight::Normal,
-            italic: PatternMatch::DontCare, oblique: PatternMatch::DontCare,
-            unicode_ranges: ur, ..Default::default()
+            name: None,
+            weight: FcWeight::Normal,
+            italic: PatternMatch::DontCare,
+            oblique: PatternMatch::DontCare,
+            unicode_ranges: ur,
+            ..Default::default()
         };
         let mut qt = Vec::new();
         let qr = fc_cache.query(&pat, &mut qt);
@@ -1760,14 +1811,18 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         // 0x406CC: D0D00001=.len() TRAPPED (Vec field garbage); D0D00002=iterating TRAPPED;
         // D0D00003=OK (clone fine → trap is the candidates Vec / FontMatch struct sret-return).
         if let Some(fm) = &qr {
-            unsafe { core::ptr::write_volatile(0x406CC as *mut u32, 0xD0D00001u32); }
+            unsafe {
+                core::ptr::write_volatile(0x406CC as *mut u32, 0xD0D00001u32);
+            }
             let nr = fm.unicode_ranges.len();
             unsafe {
                 core::ptr::write_volatile(0x406CC as *mut u32, 0xD0D00002u32);
                 core::ptr::write_volatile(0x406D0 as *mut u32, nr as u32);
             }
             let mut s = 0u32;
-            for r in &fm.unicode_ranges { s = s.wrapping_add(r.start ^ r.end); }
+            for r in &fm.unicode_ranges {
+                s = s.wrapping_add(r.start ^ r.end);
+            }
             unsafe {
                 core::ptr::write_volatile(0x406CC as *mut u32, 0xD0D00003u32);
                 core::ptr::write_volatile(0x406D4 as *mut u32, s);
@@ -1782,21 +1837,40 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // E0E00001=collect TRAPPED; E0E00002=iterating element.unicode_ranges TRAPPED (moved
     // FontMatch's Vec field garbage); E0E00003=OK (collect fine → query_internal-specific).
     {
-        use rust_fontconfig::{FontMatch, FontId, UnicodeRange};
-        unsafe { core::ptr::write_volatile(0x406D8 as *mut u32, 0xE0E00001u32); }
-        let tuples: Vec<u128> = { let mut t = Vec::new(); t.push(0u128); t.push(1u128); t };
-        let fms: Vec<FontMatch> = tuples.into_iter().map(|id| {
-            let mut ur = Vec::new();
-            ur.push(UnicodeRange { start: 0, end: 0x10FFFF });
-            FontMatch { id: FontId(id), unicode_ranges: ur, fallbacks: Vec::new() }
-        }).collect();
+        use rust_fontconfig::{FontId, FontMatch, UnicodeRange};
+        unsafe {
+            core::ptr::write_volatile(0x406D8 as *mut u32, 0xE0E00001u32);
+        }
+        let tuples: Vec<u128> = {
+            let mut t = Vec::new();
+            t.push(0u128);
+            t.push(1u128);
+            t
+        };
+        let fms: Vec<FontMatch> = tuples
+            .into_iter()
+            .map(|id| {
+                let mut ur = Vec::new();
+                ur.push(UnicodeRange {
+                    start: 0,
+                    end: 0x10FFFF,
+                });
+                FontMatch {
+                    id: FontId(id),
+                    unicode_ranges: ur,
+                    fallbacks: Vec::new(),
+                }
+            })
+            .collect();
         unsafe {
             core::ptr::write_volatile(0x406D8 as *mut u32, 0xE0E00002u32);
             core::ptr::write_volatile(0x406DC as *mut u32, fms.len() as u32);
         }
         let mut s = 0u32;
         for fm in &fms {
-            for r in &fm.unicode_ranges { s = s.wrapping_add(r.end); }
+            for r in &fm.unicode_ranges {
+                s = s.wrapping_add(r.end);
+            }
         }
         unsafe {
             core::ptr::write_volatile(0x406D8 as *mut u32, 0xE0E00003u32);
@@ -1810,8 +1884,10 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // EXACT Src+Dst+closure → same in_place_collect monomorphization. 0x406E4: F0F00001=collect
     // (in_place) TRAPPED; F0F00002=iterating element TRAPPED; F0F00003=OK (→ size/align differs).
     {
-        use rust_fontconfig::{FontMatch, FontId, FcPattern, UnicodeRange};
-        unsafe { core::ptr::write_volatile(0x406E4 as *mut u32, 0xF0F00001u32); }
+        use rust_fontconfig::{FcPattern, FontId, FontMatch, UnicodeRange};
+        unsafe {
+            core::ptr::write_volatile(0x406E4 as *mut u32, 0xF0F00001u32);
+        }
         // PROBE6 (2026-06-24): PROBE5 PASSED but used CONSTANT inputs (maybe const-folded) +
         // Default (EMPTY) name/family Strings. query_internal's real FcPattern has NON-EMPTY
         // name/family Strings. The try_fold is DEDUP'd (one .ll shared) yet PROBE5 passes /
@@ -1820,23 +1896,40 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         let n = ((viewport_w & 1) as u128) + 2;
         let mut src: Vec<(FontId, i32, i32, FcPattern)> = Vec::new();
         for k in 0..n {
-            let mut ur = Vec::new(); ur.push(UnicodeRange { start: k as u32, end: 0x10FFFF });
-            src.push((FontId(k), k as i32, (k as i32) + 1, FcPattern {
-                name: Some(format!("serif sans-serif monospace {}", k)),
-                family: Some("serif sans-serif monospace".to_string()),
-                unicode_ranges: ur, ..Default::default()
-            }));
+            let mut ur = Vec::new();
+            ur.push(UnicodeRange {
+                start: k as u32,
+                end: 0x10FFFF,
+            });
+            src.push((
+                FontId(k),
+                k as i32,
+                (k as i32) + 1,
+                FcPattern {
+                    name: Some(format!("serif sans-serif monospace {}", k)),
+                    family: Some("serif sans-serif monospace".to_string()),
+                    unicode_ranges: ur,
+                    ..Default::default()
+                },
+            ));
         }
-        let fms: Vec<FontMatch> = src.into_iter().map(|(id, _, _, metadata)| {
-            FontMatch { id, unicode_ranges: metadata.unicode_ranges.clone(), fallbacks: Vec::new() }
-        }).collect();
+        let fms: Vec<FontMatch> = src
+            .into_iter()
+            .map(|(id, _, _, metadata)| FontMatch {
+                id,
+                unicode_ranges: metadata.unicode_ranges.clone(),
+                fallbacks: Vec::new(),
+            })
+            .collect();
         unsafe {
             core::ptr::write_volatile(0x406E4 as *mut u32, 0xF0F00002u32);
             core::ptr::write_volatile(0x406E8 as *mut u32, fms.len() as u32);
         }
         let mut s = 0u32;
         for fm in &fms {
-            for r in &fm.unicode_ranges { s = s.wrapping_add(r.end); }
+            for r in &fm.unicode_ranges {
+                s = s.wrapping_add(r.end);
+            }
         }
         unsafe {
             core::ptr::write_volatile(0x406E4 as *mut u32, 0xF0F00003u32);
@@ -1846,7 +1939,9 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         // (= chain.unicode_fallbacks.clone() inside chain_cache.insert, the trap @CC000011) was NEVER tested:
         // PROBE4/5/6 only built+iterated, never cloned. 0x40860: C8C80001=clone TRAPPED (minimal repro!);
         // C8C80002=iterating-clone TRAPPED; C8C80003=OK (clone fine → bug is real-chain/HashMap-specific).
-        unsafe { core::ptr::write_volatile(0x40860 as *mut u32, 0xC8C80001u32); }
+        unsafe {
+            core::ptr::write_volatile(0x40860 as *mut u32, 0xC8C80001u32);
+        }
         let fms_cloned: Vec<FontMatch> = fms.clone();
         unsafe {
             core::ptr::write_volatile(0x40860 as *mut u32, 0xC8C80002u32);
@@ -1854,7 +1949,9 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         }
         let mut s2 = 0u32;
         for fm in &fms_cloned {
-            s2 = s2.wrapping_add(fm.unicode_ranges.len() as u32).wrapping_add(fm.fallbacks.len() as u32);
+            s2 = s2
+                .wrapping_add(fm.unicode_ranges.len() as u32)
+                .wrapping_add(fm.fallbacks.len() as u32);
         }
         unsafe {
             core::ptr::write_volatile(0x40860 as *mut u32, 0xC8C80003u32);
@@ -1870,13 +1967,23 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // bug is existing_prefixes / the outer sort_by(calculate_font_similarity_score).
     {
         use rust_fontconfig::{FcWeight, PatternMatch, UnicodeRange};
-        let latin7 = [UnicodeRange { start: 0x20, end: 0x7F }];
+        let latin7 = [UnicodeRange {
+            start: 0x20,
+            end: 0x7F,
+        }];
         let empty_fam: [String; 0] = [];
-        unsafe { core::ptr::write_volatile(0x406F0 as *mut u32, 0xF7F70001u32); }
+        unsafe {
+            core::ptr::write_volatile(0x406F0 as *mut u32, 0xF7F70001u32);
+        }
         let mut t7 = Vec::new();
         let c7 = fc_cache.resolve_font_chain_with_scripts(
-            &empty_fam, FcWeight::Normal, PatternMatch::False, PatternMatch::False,
-            Some(&latin7), &mut t7);
+            &empty_fam,
+            FcWeight::Normal,
+            PatternMatch::False,
+            PatternMatch::False,
+            Some(&latin7),
+            &mut t7,
+        );
         unsafe {
             core::ptr::write_volatile(0x406F0 as *mut u32, 0xF7F70002u32);
             core::ptr::write_volatile(0x406F4 as *mut u32, c7.unicode_fallbacks.len() as u32);
@@ -1889,7 +1996,10 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // A0='H' font_id low32. If 9C=0 → matching is the root cause (token_index no-op / name
     // mismatch); if 9C=1 → font resolves → the height-0 is in shaping/measurement.
     {
-        let latin = [rust_fontconfig::UnicodeRange { start: 0x20, end: 0x7F }];
+        let latin = [rust_fontconfig::UnicodeRange {
+            start: 0x20,
+            end: 0x7F,
+        }];
         let mut trace = Vec::new();
         // SUB-MARKERS (2026-06-24): the resolve block TRAPS (markers: css/fontParsePre/
         // fontParsePostWMF all set, resolveChain=0 → trap is in one of the 4 calls below).
@@ -1897,7 +2007,9 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         // 0x5E5E0001 (set after this block) = all four completed. Wasm trap = func[248]
         // `i64.load [garbage_ptr-8]→RDX` in a loop → likely a hashbrown ctrl/bucket walk on
         // a garbage table ptr (chain_cache Mutex<HashMap>, the first chain_cache use).
-        unsafe { core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0001u32); }
+        unsafe {
+            core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0001u32);
+        }
         let chain = fc_cache.resolve_font_chain_with_scripts(
             &["serif".to_string()],
             rust_fontconfig::FcWeight::Normal,
@@ -1906,21 +2018,33 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
             Some(&latin),
             &mut trace,
         );
-        unsafe { core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0002u32); }
+        unsafe {
+            core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0002u32);
+        }
         let css_count: usize = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum();
         let uni_count = chain.unicode_fallbacks.len();
-        unsafe { core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0003u32); }
+        unsafe {
+            core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0003u32);
+        }
         let h = chain.resolve_char(&fc_cache, 'H');
-        unsafe { core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0004u32); }
+        unsafe {
+            core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0004u32);
+        }
         // Is the font even REGISTERED? len()=0 ⇒ with_memory_fonts didn't persist.
         let nfonts = fc_cache.len();
-        unsafe { core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0005u32); }
+        unsafe {
+            core::ptr::write_volatile(0x40690 as *mut u32, 0xAAAA0005u32);
+        }
         // list() iterates state.patterns. If len()=1 but list().len()=0 → the Vec
         // ITERATION mis-lifts (len field ok, ptr/content wrong). If list().len()=1 →
         // iteration ok → query_matches_internal/find_unicode_fallbacks is the issue.
         let lst = fc_cache.list();
         let nlist = lst.len();
-        let name_ok = lst.first().and_then(|(p, _)| p.name.as_ref()).map(|n| n.len()).unwrap_or(0);
+        let name_ok = lst
+            .first()
+            .and_then(|(p, _)| p.name.as_ref())
+            .map(|n| n.len())
+            .unwrap_or(0);
         unsafe {
             core::ptr::write_volatile(0x40690 as *mut u32, 0x5E5E0001u32);
             core::ptr::write_volatile(0x40694 as *mut u32, css_count as u32);
@@ -1978,7 +2102,8 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     }
     // `buf` is alloc-aligned and each node's quad is 4-byte aligned, so a
     // plain `&mut [u32]` (4 lanes per node) is sound — no unaligned writes.
-    let rects = core::slice::from_raw_parts_mut(buf as usize as *mut u32, (node_count * 4) as usize);
+    let rects =
+        core::slice::from_raw_parts_mut(buf as usize as *mut u32, (node_count * 4) as usize);
     for i in 0..node_count as usize {
         let node_id = DomNodeId {
             dom: DomId::ROOT_ID,
@@ -2072,18 +2197,18 @@ pub unsafe extern "C" fn AzStartup_getPositionedRectsPtr(state: u32) -> u32 {
 // constant's own comment gives the fields that follow its header.
 
 const TLV_HEADER_BYTES: u32 = 1 + 4 + 4;
-pub const PATCH_KIND_SET_TEXT:         u8 = 1;
-pub const PATCH_KIND_SET_ATTR:         u8 = 2;
-pub const PATCH_KIND_REMOVE_ATTR:      u8 = 3;
+pub const PATCH_KIND_SET_TEXT: u8 = 1;
+pub const PATCH_KIND_SET_ATTR: u8 = 2;
+pub const PATCH_KIND_REMOVE_ATTR: u8 = 3;
 pub const PATCH_KIND_SET_INLINE_STYLE: u8 = 4;
-pub const PATCH_KIND_REMOVE_NODE:      u8 = 5;
-pub const PATCH_KIND_INSERT_NODE:      u8 = 6;
-pub const PATCH_KIND_MOVE_NODE:        u8 = 7;
-pub const PATCH_KIND_REPLACE_SUBTREE:  u8 = 8;
-pub const PATCH_KIND_FOCUS:            u8 = 9;
-pub const PATCH_KIND_SCROLL_TO:        u8 = 10;
-pub const PATCH_KIND_ADD_CLASS:        u8 = 11;
-pub const PATCH_KIND_REMOVE_CLASS:     u8 = 12;
+pub const PATCH_KIND_REMOVE_NODE: u8 = 5;
+pub const PATCH_KIND_INSERT_NODE: u8 = 6;
+pub const PATCH_KIND_MOVE_NODE: u8 = 7;
+pub const PATCH_KIND_REPLACE_SUBTREE: u8 = 8;
+pub const PATCH_KIND_FOCUS: u8 = 9;
+pub const PATCH_KIND_SCROLL_TO: u8 = 10;
+pub const PATCH_KIND_ADD_CLASS: u8 = 11;
+pub const PATCH_KIND_REMOVE_CLASS: u8 = 12;
 
 /// Write a u32 in little-endian into `out` starting at `offset`.
 /// Returns the byte count written (always 4). The store is a single
@@ -2291,8 +2416,7 @@ pub unsafe extern "C" fn AzStartup_relayout(state: u32) -> u32 {
     s.current_dom_hydrated = 0;
     s.layout_solved = 0;
     // Recount the new tree's nodes for diff arena sizing.
-    s.current_dom_node_count =
-        count_az_dom_nodes(new_out_ptr as usize as *const u8);
+    s.current_dom_node_count = count_az_dom_nodes(new_out_ptr as usize as *const u8);
     0
 }
 
@@ -2338,11 +2462,7 @@ const FAKE_REFANY_HI: u64 = 0;
 /// hydrated refany. The info pointer is still the raw event bytes (S1) —
 /// S2 replaces it with a real wasm-side `CallbackInfo`. Returns the cb's
 /// `Update`, or 0 when the node has no resolvable callback.
-unsafe fn invoke_node_cb(
-    s: &mut EventloopState,
-    node_idx: u32,
-    event_bytes_ptr: u32,
-) -> u32 {
+unsafe fn invoke_node_cb(s: &mut EventloopState, node_idx: u32, event_bytes_ptr: u32) -> u32 {
     let table_idx = __az_resolve_callback(node_idx as u64);
     if table_idx == u32::MAX {
         return 0;
@@ -2458,10 +2578,7 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
     // format to decimal, encode the TLV. JS reads the returned
     // `(patch_ptr, patch_len)` and applies via the existing
     // azApplyPatches decoder.
-    if update >= UPDATE_REFRESH_DOM
-        && s.model_ptr != 0
-        && s.display_text_node_idx != u32::MAX
-    {
+    if update >= UPDATE_REFRESH_DOM && s.model_ptr != 0 && s.display_text_node_idx != u32::MAX {
         // Lazy-allocate the patch buffer (32 bytes covers any
         // SetText: 9 header + ≤10 ASCII digits + slack).
         if s.patch_buf_ptr == 0 {
@@ -2469,12 +2586,8 @@ pub unsafe extern "C" fn AzStartup_dispatchEvent(
         }
         if s.patch_buf_ptr != 0 {
             let counter = core::ptr::read_unaligned(s.model_ptr as usize as *const u32);
-            let used = AzStartup_buildCounterPatch(
-                s.patch_buf_ptr,
-                32,
-                s.display_text_node_idx,
-                counter,
-            );
+            let used =
+                AzStartup_buildCounterPatch(s.patch_buf_ptr, 32, s.display_text_node_idx, counter);
             core::ptr::write_unaligned(out_len_ptr as usize as *mut u32, used);
             return s.patch_buf_ptr;
         }

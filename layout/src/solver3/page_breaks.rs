@@ -21,9 +21,7 @@
 
 use azul_core::dom::NodeId;
 
-use crate::solver3::display_list::{
-    calculate_display_list_height, DisplayList, SlicerConfig,
-};
+use crate::solver3::display_list::{calculate_display_list_height, DisplayList, SlicerConfig};
 
 /// Why a page ends where it does.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -232,8 +230,7 @@ pub fn compute_page_breaks_with_report(
     policy: &BreakPolicy,
 ) -> (Vec<PageBreakPosition>, Vec<MonolithWarning>) {
     let mut warnings = Vec::new();
-    let breaks =
-        compute_page_breaks_impl(input, *constraints, policy, None, Some(&mut warnings));
+    let breaks = compute_page_breaks_impl(input, *constraints, policy, None, Some(&mut warnings));
     (breaks, warnings)
 }
 
@@ -469,7 +466,9 @@ fn collect_avoid_ranges(
             let Some(node) = input.display_list.node_mapping.get(idx).copied().flatten() else {
                 continue;
             };
-            let Some(bounds) = item.bounds() else { continue };
+            let Some(bounds) = item.bounds() else {
+                continue;
+            };
             if get_break_inside(input.styled_dom, Some(node)) != BreakInside::Avoid {
                 continue;
             }
@@ -510,10 +509,7 @@ fn collect_avoid_ranges(
         // Every text item's rect is a line-box fragment; a break through one
         // slices a line (the "baseline-sliced line" artifact). Snap to its top.
         for item in &input.display_list.items {
-            if let crate::solver3::display_list::DisplayListItem::Text {
-                clip_rect, ..
-            } = item
-            {
+            if let crate::solver3::display_list::DisplayListItem::Text { clip_rect, .. } = item {
                 let r = clip_rect.inner();
                 if r.size.height > 0.0 {
                     ranges.push(AvoidRange {
@@ -751,7 +747,10 @@ pub fn compute_page_breaks_from_positions(
 ) -> Vec<PageBreakPosition> {
     let typed: Vec<crate::solver3::display_list::ForcedBreak> = forced_breaks
         .iter()
-        .map(|&y| crate::solver3::display_list::ForcedBreak { y, causing_node: None })
+        .map(|&y| crate::solver3::display_list::ForcedBreak {
+            y,
+            causing_node: None,
+        })
         .collect();
     compute_page_breaks_from_forced(&typed, constraints, total_height)
 }
@@ -789,7 +788,8 @@ pub fn compute_page_breaks_from_forced(
     // cursor — emit the first-page break once and stop (defect 3: the old loop
     // never terminated here).
     let mut y = first;
-    #[allow(clippy::while_float)] // intentional bounded float loop; an integer counter would be artificial
+    #[allow(clippy::while_float)]
+    // intentional bounded float loop; an integer counter would be artificial
     while y < total_height {
         breaks.push(PageBreakPosition {
             y,
@@ -937,15 +937,20 @@ mod tests {
             (&[], 50.0, 100.0, 1000.0),
             (&[50.0], 100.0, 100.0, 250.0),
             (&[50.0, 150.0], 100.0, 100.0, 250.0),
-            (&[-10.0, 0.0, 250.0, 9999.0, f32::NAN, f32::INFINITY], 100.0, 100.0, 250.0),
+            (
+                &[-10.0, 0.0, 250.0, 9999.0, f32::NAN, f32::INFINITY],
+                100.0,
+                100.0,
+                250.0,
+            ),
             (&[50.0, 50.4], 100.0, 100.0, 250.0), // forced-forced merge: first wins in both
             (&[249.5], 100.0, 100.0, 250.0),
-            (&[], 0.0, 100.0, 250.0),   // degenerate: single page
-            (&[], -50.0, 100.0, 250.0), // degenerate: single page
-            (&[], 100.0, 100.0, 0.0),   // empty document
-            (&[], 100.0, 100.0, -5.0),  // negative height
+            (&[], 0.0, 100.0, 250.0),      // degenerate: single page
+            (&[], -50.0, 100.0, 250.0),    // degenerate: single page
+            (&[], 100.0, 100.0, 0.0),      // empty document
+            (&[], 100.0, 100.0, -5.0),     // negative height
             (&[], f32::NAN, 100.0, 250.0), // NaN first: one unsplit page in both
-            (&[], 100.0, 100.0, 50.0),  // total < first
+            (&[], 100.0, 100.0, 50.0),     // total < first
         ];
         for &(forced, first, normal, total) in corpus {
             assert_eq!(
@@ -976,8 +981,7 @@ mod tests {
         assert_eq!(old, vec![(0.0, 100.0), (100.0, 200.0), (200.0, 250.0)]);
 
         // Forced break BELOW the interval break in the window: same outcome.
-        let breaks =
-            compute_page_breaks_from_positions(&[99.6], &constraints(100.0, 100.0), 250.0);
+        let breaks = compute_page_breaks_from_positions(&[99.6], &constraints(100.0, 100.0), 250.0);
         assert_eq!(ys(&breaks), vec![99.6, 200.0]);
         assert_eq!(breaks[0].kind, BreakKind::Forced);
     }
@@ -1029,10 +1033,10 @@ mod tests {
     // B3: break-awareness (policy-gated)
     // ==================================================================
 
+    use crate::solver3::display_list::BorderRadius as DlBorderRadius;
     use crate::solver3::display_list::{DisplayList, DisplayListItem};
     use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
     use azul_core::styled_dom::StyledDom;
-    use crate::solver3::display_list::BorderRadius as DlBorderRadius;
     use azul_css::props::basic::ColorU;
 
     fn rect(y: f32, h: f32) -> LogicalRect {
@@ -1079,8 +1083,9 @@ mod tests {
     fn avoid_fixture(items: Vec<(DisplayListItem, Option<usize>)>) -> (StyledDom, DisplayList) {
         let mut dom = azul_core::dom::Dom::create_div();
         dom.add_child(
-            azul_core::dom::Dom::create_div()
-                .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("avoid".into())].into()),
+            azul_core::dom::Dom::create_div().with_ids_and_classes(
+                vec![azul_core::dom::IdOrClass::Class("avoid".into())].into(),
+            ),
         );
         let (css, _warnings) = azul_css::parser2::new_from_str(
             ".avoid { break-inside: avoid; } p { widows: 2; orphans: 2; }",
@@ -1142,7 +1147,9 @@ mod tests {
             breaks[0].y, 80.0,
             "the break must land at the avoid-box top, got {breaks:?}"
         );
-        assert!(matches!(breaks[0].kind, BreakKind::Avoided { pushed_from } if (pushed_from - 100.0).abs() < 0.01));
+        assert!(
+            matches!(breaks[0].kind, BreakKind::Avoided { pushed_from } if (pushed_from - 100.0).abs() < 0.01)
+        );
         // Following pages re-flow from the moved break.
         assert_eq!(breaks[1].y, 180.0);
     }
@@ -1172,7 +1179,10 @@ mod tests {
             (rect_item(0.0, 250.0), None),
             (rect_item(80.0, 60.0), Some(1)),
         ]);
-        dl.forced_page_breaks = vec![crate::solver3::display_list::ForcedBreak { y: 90.0, causing_node: None }];
+        dl.forced_page_breaks = vec![crate::solver3::display_list::ForcedBreak {
+            y: 90.0,
+            causing_node: None,
+        }];
         let policy = BreakPolicy {
             honor_break_inside: true,
             ..Default::default()
@@ -1247,8 +1257,7 @@ mod tests {
         // (orphans: 1 satisfied), 2 lines carry over (widows: 2 satisfied).
         let mut dom = azul_core::dom::Dom::create_div();
         dom.add_child(azul_core::dom::Dom::create_p());
-        let (css, _warnings) =
-            azul_css::parser2::new_from_str("p { widows: 2; orphans: 1; }");
+        let (css, _warnings) = azul_css::parser2::new_from_str("p { widows: 2; orphans: 1; }");
         let styled = StyledDom::create(&mut dom, css);
         let mut dl = DisplayList::default();
         for (item, node) in [
@@ -1327,11 +1336,7 @@ mod tests {
     /// A synthetic table DOM + display list: div > table > (thead > tr,
     /// tbody > tr×3), with one rect item per row (and one for the thead),
     /// mapped to the right nodes.
-    fn table_fixture(
-        thead_h: f32,
-        row_h: f32,
-        rows: usize,
-    ) -> (StyledDom, DisplayList) {
+    fn table_fixture(thead_h: f32, row_h: f32, rows: usize) -> (StyledDom, DisplayList) {
         use azul_core::dom::Dom;
         let tag = azul_core::xml::tag_to_node_type;
         let mut table = Dom::create_node(tag("table"));
@@ -1351,12 +1356,7 @@ mod tests {
         let container = styled.node_data.as_container();
         let trs: Vec<NodeId> = (0..container.len())
             .map(NodeId::new)
-            .filter(|n| {
-                matches!(
-                    container[*n].get_node_type(),
-                    azul_core::dom::NodeType::Tr
-                )
-            })
+            .filter(|n| matches!(container[*n].get_node_type(), azul_core::dom::NodeType::Tr))
             .collect();
         assert_eq!(trs.len(), rows + 1, "thead tr + body trs");
 
@@ -1366,8 +1366,7 @@ mod tests {
         dl.node_mapping.push(Some(trs[0]));
         // body rows stacked below.
         for (i, tr) in trs[1..].iter().enumerate() {
-            dl.items
-                .push(rect_item(thead_h + i as f32 * row_h, row_h));
+            dl.items.push(rect_item(thead_h + i as f32 * row_h, row_h));
             dl.node_mapping.push(Some(*tr));
         }
         (styled, dl)
@@ -1376,8 +1375,7 @@ mod tests {
     #[test]
     fn collect_table_headers_registers_the_thead_rebased() {
         let (styled, dl) = table_fixture(20.0, 30.0, 3);
-        let tracker =
-            crate::solver3::pagination::collect_table_headers(&dl, &styled);
+        let tracker = crate::solver3::pagination::collect_table_headers(&dl, &styled);
         assert_eq!(tracker.tables.len(), 1, "one table registered");
         let info = &tracker.tables[0];
         assert_eq!(info.thead_height, 20.0);
@@ -1392,8 +1390,7 @@ mod tests {
     fn continuation_pages_inside_a_table_reserve_the_thead_height() {
         // Table spans 0..320 (thead 20 + 10 rows × 30); page height 100.
         let (styled, dl) = table_fixture(20.0, 30.0, 10);
-        let tracker =
-            crate::solver3::pagination::collect_table_headers(&dl, &styled);
+        let tracker = crate::solver3::pagination::collect_table_headers(&dl, &styled);
         let policy = BreakPolicy {
             repeat_table_headers: true,
             ..Default::default()
@@ -1507,7 +1504,11 @@ mod tests {
         let mut seq = PageSequence::uniform(setup(100.0));
         seq.first_page = Some(setup(40.0));
         let breaks = compute_page_breaks_with_sequence(&input, &seq, &BreakPolicy::default());
-        assert_eq!(ys(&breaks), vec![40.0, 140.0, 240.0, 340.0, 440.0], "{breaks:?}");
+        assert_eq!(
+            ys(&breaks),
+            vec![40.0, 140.0, 240.0, 340.0, 440.0],
+            "{breaks:?}"
+        );
 
         // Precedence: explicit override BEATS parity on the same index.
         let mut seq = PageSequence::uniform(setup(100.0));
@@ -1563,7 +1564,10 @@ mod tests {
         // above stay value-identical, the region re-flows from the forced
         // break, and positions that happen to coincide again converge.
         let mut dl2 = dl.clone();
-        dl2.forced_page_breaks = vec![crate::solver3::display_list::ForcedBreak { y: 450.0, causing_node: None }];
+        dl2.forced_page_breaks = vec![crate::solver3::display_list::ForcedBreak {
+            y: 450.0,
+            causing_node: None,
+        }];
         let input2 = PageBreakInput {
             display_list: &dl2,
             layout_tree: None,

@@ -12,8 +12,8 @@
 //! - [`X11Window::render_and_present`] — full render cycle: layout
 //!   regeneration, WebRender update, and buffer swap (GPU) or XPutImage (CPU).
 
-use azul_layout::solver3::LayoutNodeId;
 use crate::impl_platform_window_getters;
+use azul_layout::solver3::LayoutNodeId;
 
 pub mod accessibility;
 pub mod clipboard;
@@ -191,33 +191,28 @@ enum RenderMode {
 ///
 /// Try to load XRandR and subscribe to screen change notifications.
 /// Returns the XRandR event base if successful (screen change events = event_base + 0).
-fn try_subscribe_xrandr(
-    display: *mut Display,
-    root: Window,
-) -> Option<i32> {
+fn try_subscribe_xrandr(display: *mut Display, root: Window) -> Option<i32> {
     use crate::desktop::shell2::{
         common::{dlopen::load_first_available, DynamicLibrary},
         linux::x11::dlopen::Library,
     };
 
     type XRRQueryExtensionFn = unsafe extern "C" fn(
-        *mut Display, *mut std::ffi::c_int, *mut std::ffi::c_int,
+        *mut Display,
+        *mut std::ffi::c_int,
+        *mut std::ffi::c_int,
     ) -> std::ffi::c_int;
-    type XRRSelectInputFn = unsafe extern "C" fn(
-        *mut Display, Window, std::ffi::c_int,
-    );
+    type XRRSelectInputFn = unsafe extern "C" fn(*mut Display, Window, std::ffi::c_int);
 
     const RR_SCREEN_CHANGE_NOTIFY_MASK: std::ffi::c_int = 1 << 0;
 
     unsafe {
-        let xrandr_lib = load_first_available::<Library>(
-            &["libXrandr.so.2", "libXrandr.so"],
-        ).ok()?;
+        let xrandr_lib =
+            load_first_available::<Library>(&["libXrandr.so.2", "libXrandr.so"]).ok()?;
 
         let query_extension: XRRQueryExtensionFn =
             xrandr_lib.get_symbol("XRRQueryExtension").ok()?;
-        let select_input: XRRSelectInputFn =
-            xrandr_lib.get_symbol("XRRSelectInput").ok()?;
+        let select_input: XRRSelectInputFn = xrandr_lib.get_symbol("XRRSelectInput").ok()?;
 
         let mut event_base: std::ffi::c_int = 0;
         let mut error_base: std::ffi::c_int = 0;
@@ -341,7 +336,12 @@ unsafe fn apply_net_wm_icon(
         data.push(w as c_ulong);
         data.push(h as c_ulong);
         for px in rgba[..w * h * 4].chunks_exact(4) {
-            let (r, g, b, a) = (px[0] as c_ulong, px[1] as c_ulong, px[2] as c_ulong, px[3] as c_ulong);
+            let (r, g, b, a) = (
+                px[0] as c_ulong,
+                px[1] as c_ulong,
+                px[2] as c_ulong,
+                px[3] as c_ulong,
+            );
             data.push((a << 24) | (r << 16) | (g << 8) | b);
         }
     }
@@ -349,11 +349,7 @@ unsafe fn apply_net_wm_icon(
         return;
     }
 
-    let atom = (xlib.XInternAtom)(
-        display,
-        b"_NET_WM_ICON\0".as_ptr() as *const c_char,
-        0,
-    );
+    let atom = (xlib.XInternAtom)(display, b"_NET_WM_ICON\0".as_ptr() as *const c_char, 0);
     if atom == 0 {
         return;
     }
@@ -410,11 +406,7 @@ unsafe fn apply_motif_wm_hints(
         input_mode: 0,
         status: 0,
     };
-    let atom = (xlib.XInternAtom)(
-        display,
-        b"_MOTIF_WM_HINTS\0".as_ptr() as *const c_char,
-        0,
-    );
+    let atom = (xlib.XInternAtom)(display, b"_MOTIF_WM_HINTS\0".as_ptr() as *const c_char, 0);
     if atom == 0 {
         return;
     }
@@ -505,8 +497,7 @@ fn try_create_argb_window(
     // CWOverrideRedirect is always in the mask so `attributes.override_redirect`
     // (0 for normal windows, 1 for menus/popups) is actually applied — without it
     // in the valuemask, XCreateWindow silently ignores the override_redirect field.
-    let attr_mask =
-        CWColormap | CWBackPixmap | CWBorderPixel | CWEventMask | CWOverrideRedirect;
+    let attr_mask = CWColormap | CWBackPixmap | CWBorderPixel | CWEventMask | CWOverrideRedirect;
 
     // Create window with ARGB visual (X11 wire size = PHYSICAL pixels)
     let phys_size = size.get_physical_size();
@@ -562,8 +553,7 @@ fn try_create_argb_window(
 /// continuous (X11's touchpad verdict is a heuristic — any fractional detent)
 /// costs nothing: a wheel scroll is hard-clamped and has no overshoot to
 /// release.
-pub(super) const TRACKPAD_GESTURE_IDLE: std::time::Duration =
-    std::time::Duration::from_millis(100);
+pub(super) const TRACKPAD_GESTURE_IDLE: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// Has the trackpad gesture that last scrolled at `last_scroll` gone quiet
 /// long enough to call it over?
@@ -591,7 +581,8 @@ pub(super) fn poll_timeout_with_trackpad_deadline(
     let Some(last_scroll) = last_scroll else {
         return timeout_ms;
     };
-    let remaining = TRACKPAD_GESTURE_IDLE.saturating_sub(now.saturating_duration_since(last_scroll));
+    let remaining =
+        TRACKPAD_GESTURE_IDLE.saturating_sub(now.saturating_duration_since(last_scroll));
     // `.max(1)`: a deadline already reached must still let poll() return
     // immediately rather than be read as "block forever".
     let deadline_ms = (remaining.as_millis().min(i32::MAX as u128) as std::os::raw::c_int).max(1);
@@ -673,7 +664,6 @@ struct PadAxes {
     /// `(valuator number, min, max)` of the ring or strip, if the pad has one.
     ring: Option<(i32, f64, f64)>,
 }
-
 
 /// The smooth-scroll (XI2.1) axes of ONE physical device.
 ///
@@ -877,7 +867,9 @@ fn init_xinput2(
                 let dev_name = if dev.name.is_null() {
                     String::new()
                 } else {
-                    std::ffi::CStr::from_ptr(dev.name).to_string_lossy().to_lowercase()
+                    std::ffi::CStr::from_ptr(dev.name)
+                        .to_string_lossy()
+                        .to_lowercase()
                 };
                 let is_eraser = dev_name.contains("eraser");
                 let is_pad = dev_name.ends_with(" pad") || dev_name.contains(" pad ");
@@ -1039,8 +1031,7 @@ fn smooth_scroll_pixels(
     if vert_detents == 0.0 && horiz_detents == 0.0 {
         return None;
     }
-    let fractional =
-        vert_detents.fract().abs() > 1e-3 || horiz_detents.fract().abs() > 1e-3;
+    let fractional = vert_detents.fract().abs() > 1e-3 || horiz_detents.fract().abs() > 1e-3;
     let px = f64::from(events::X11_SCROLL_TICK_PIXELS);
     Some((
         -(horiz_detents * px) as f32,
@@ -1265,10 +1256,7 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
 /// Never fetches and never frees: `handle_xi_event` owns the cookie for the
 /// whole of this call (`ev` is borrowed from the cookie payload) and is also
 /// the only place that decides which window an XI2 event belongs to.
-fn handle_xi_device_event(
-    win: &mut X11Window,
-    ev: &defines::XIDeviceEvent,
-) -> ProcessEventResult {
+fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> ProcessEventResult {
     let mut result = ProcessEventResult::DoNothing;
     unsafe {
         let evtype = ev.evtype;
@@ -1595,7 +1583,7 @@ pub struct X11Window {
     /// Optional XShape for alpha-shaped windows (loaded on first use).
     xext: Option<Rc<dlopen::Xext>>,
     xext_probed: bool,
-    pub gtk_im: Option<Rc<Gtk3Im>>,           // Optional GTK IM context for IME
+    pub gtk_im: Option<Rc<Gtk3Im>>, // Optional GTK IM context for IME
     pub gtk_im_context: Option<*mut dlopen::GtkIMContext>, // GTK IM context instance
     pub display: *mut Display,
     /// True if THIS window opened `display` (and must XCloseDisplay it on Drop +
@@ -1919,9 +1907,14 @@ impl X11Window {
             return;
         }
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
-            eprintln!("[a11y] {} action(s) polled: {:?}",
+            eprintln!(
+                "[a11y] {} action(s) polled: {:?}",
                 actions.len(),
-                actions.iter().map(|(d, n, a)| (d.inner, n.index(), format!("{:?}", a))).collect::<Vec<_>>());
+                actions
+                    .iter()
+                    .map(|(d, n, a)| (d.inner, n.index(), format!("{:?}", a)))
+                    .collect::<Vec<_>>()
+            );
         }
 
         // Body shared with every other backend
@@ -2091,13 +2084,13 @@ impl X11Window {
             return Ok(());
         }
         let mut layout_window =
-            crate::desktop::shell2::common::layout::layout_window_sharing_fonts(self.resources.font_manager.as_ref(), &self.resources.fc_cache)
-                .map_err(|e| {
-                    WindowError::PlatformError(format!(
-                        "Failed to create LayoutWindow: {:?}",
-                        e
-                    ))
-                })?;
+            crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
+                self.resources.font_manager.as_ref(),
+                &self.resources.fc_cache,
+            )
+            .map_err(|e| {
+                WindowError::PlatformError(format!("Failed to create LayoutWindow: {:?}", e))
+            })?;
 
         if let Some(doc_id) = self.common.document_id {
             layout_window.document_id = doc_id;
@@ -2127,12 +2120,16 @@ impl X11Window {
         // Note: When a material is set, the renderer will use transparent clear color automatically
         if options.window_state.background_color.is_none() {
             use azul_core::window::WindowBackgroundMaterial;
-            if matches!(options.window_state.flags.background_material, WindowBackgroundMaterial::Opaque) {
-                options.window_state.background_color = resources.system_style.colors.window_background;
+            if matches!(
+                options.window_state.flags.background_material,
+                WindowBackgroundMaterial::Opaque
+            ) {
+                options.window_state.background_color =
+                    resources.system_style.colors.window_background;
             }
             // For materials, leave background_color as None - renderer handles transparency
         }
-        
+
         // Extract create_callback before consuming options
         let create_callback = options.create_callback.clone();
 
@@ -2203,12 +2200,12 @@ impl X11Window {
         // parent or the parent isn't an X11 window.
         let shared_parent_display: Option<*mut Display> = if options.parent_window_id != 0 {
             unsafe {
-                super::registry::get_window(options.parent_window_id).and_then(|wptr| {
-                    match &*wptr {
+                super::registry::get_window(options.parent_window_id).and_then(
+                    |wptr| match &*wptr {
                         super::LinuxWindow::X11(parent) => Some(parent.display),
                         _ => None,
-                    }
-                })
+                    },
+                )
             }
         } else {
             None
@@ -2372,11 +2369,7 @@ impl X11Window {
                         b"_NET_WM_WINDOW_TYPE\0".as_ptr() as *const c_char,
                         0,
                     );
-                    let type_atom = (xlib.XInternAtom)(
-                        display,
-                        name.as_ptr() as *const c_char,
-                        0,
-                    );
+                    let type_atom = (xlib.XInternAtom)(display, name.as_ptr() as *const c_char, 0);
                     // format=32 properties are arrays of C `long` on the wire side
                     // of Xlib (it packs to 32-bit); pass a c_long, not a u32.
                     let type_atom_long: std::os::raw::c_long = type_atom as std::os::raw::c_long;
@@ -2417,10 +2410,7 @@ impl X11Window {
             use azul_core::window::WindowIcon;
 
             let mut icons: Vec<(u32, u32, &[u8])> = Vec::new();
-            let linux_opts = &options
-                .window_state
-                .platform_specific_options
-                .linux_options;
+            let linux_opts = &options.window_state.platform_specific_options.linux_options;
             if let Some(icon) = linux_opts.window_icon.as_ref() {
                 match icon {
                     WindowIcon::Small(i) => icons.push((16, 16, i.rgba_bytes.as_ref())),
@@ -2528,98 +2518,122 @@ impl X11Window {
                 "[X11] CPU rendering requested (AZ_BACKEND=cpu) — skipping GL context (cpurender)"
             );
             let gc = unsafe { (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut()) };
-            (RenderMode::Cpu(Some(gc)), None, None, None, None, None, None.into())
+            (
+                RenderMode::Cpu(Some(gc)),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None.into(),
+            )
         } else {
             match gl::GlContext::new(&xlib, &egl, display, window_handle) {
-            Ok(gl_context) => 'gpu: {
-                gl_context.make_current();
-                gl_context.configure_vsync(options.window_state.renderer_options.vsync);
-                // ANY failure past this point falls back to CPU rendering in THIS
-                // window — "GPU init failed" must never mean "no window".
-                let gl_functions = match GlFunctions::initialize(&egl) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        crate::plog_warn!(
+                Ok(gl_context) => 'gpu: {
+                    gl_context.make_current();
+                    gl_context.configure_vsync(options.window_state.renderer_options.vsync);
+                    // ANY failure past this point falls back to CPU rendering in THIS
+                    // window — "GPU init failed" must never mean "no window".
+                    let gl_functions = match GlFunctions::initialize(&egl) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            crate::plog_warn!(
                             "[X11] GL function loading failed: {:?} — falling back to CPU rendering",
                             e
                         );
-                        let gc = unsafe {
-                            (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
-                        };
-                        break 'gpu (RenderMode::Cpu(Some(gc)), None, None, None, None, None, None.into());
-                    }
-                };
+                            let gc = unsafe {
+                                (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
+                            };
+                            break 'gpu (
+                                RenderMode::Cpu(Some(gc)),
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None.into(),
+                            );
+                        }
+                    };
 
-                let new_frame_ready = new_frame_ready_shared.clone();
-                // Wake the poll() loop from WebRender's backend thread when a
-                // frame finishes building (frame_ready_wake_fd is in the poll
-                // set) — the condvar alone woke nobody, so the LAST frame of
-                // an interaction stayed unpresented until the next X event.
-                let wake_fd_for_notifier = frame_ready_wake_fd;
-                let (mut renderer, sender) = match webrender::create_webrender_instance(
-                    gl_functions.functions.clone(),
-                    Box::new(Notifier {
-                        new_frame_ready: new_frame_ready.clone(),
-                        wake: Some(Arc::new(move || {
-                            let one: u64 = 1;
-                            unsafe {
-                                libc::write(
-                                    wake_fd_for_notifier,
-                                    std::ptr::addr_of!(one).cast(),
-                                    8,
-                                );
-                            }
-                        })),
-                    }),
-                    wr_translate2::default_renderer_options(
-                        &options,
-                        wr_translate2::create_program_cache(&gl_functions.functions),
-                        // EGL backend: buffer-age partial present (WR
-                        // accumulates dirty regions over the back buffer's
-                        // age and reports the total through this cell; the
-                        // swap passes it to eglSwapBuffersWithDamage).
-                        Some(gl_context.wr_damage.clone()),
-                    ),
-                    None,
-                ) {
-                    Ok(rs) => rs,
-                    Err(e) => {
-                        crate::plog_warn!(
-                            "[X11] WebRender init failed: {:?} — falling back to CPU rendering",
-                            e
-                        );
-                        let gc = unsafe {
-                            (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
-                        };
-                        break 'gpu (RenderMode::Cpu(Some(gc)), None, None, None, None, None, None.into());
-                    }
-                };
+                    let new_frame_ready = new_frame_ready_shared.clone();
+                    // Wake the poll() loop from WebRender's backend thread when a
+                    // frame finishes building (frame_ready_wake_fd is in the poll
+                    // set) — the condvar alone woke nobody, so the LAST frame of
+                    // an interaction stayed unpresented until the next X event.
+                    let wake_fd_for_notifier = frame_ready_wake_fd;
+                    let (mut renderer, sender) = match webrender::create_webrender_instance(
+                        gl_functions.functions.clone(),
+                        Box::new(Notifier {
+                            new_frame_ready: new_frame_ready.clone(),
+                            wake: Some(Arc::new(move || {
+                                let one: u64 = 1;
+                                unsafe {
+                                    libc::write(
+                                        wake_fd_for_notifier,
+                                        std::ptr::addr_of!(one).cast(),
+                                        8,
+                                    );
+                                }
+                            })),
+                        }),
+                        wr_translate2::default_renderer_options(
+                            &options,
+                            wr_translate2::create_program_cache(&gl_functions.functions),
+                            // EGL backend: buffer-age partial present (WR
+                            // accumulates dirty regions over the back buffer's
+                            // age and reports the total through this cell; the
+                            // swap passes it to eglSwapBuffersWithDamage).
+                            Some(gl_context.wr_damage.clone()),
+                        ),
+                        None,
+                    ) {
+                        Ok(rs) => rs,
+                        Err(e) => {
+                            crate::plog_warn!(
+                                "[X11] WebRender init failed: {:?} — falling back to CPU rendering",
+                                e
+                            );
+                            let gc = unsafe {
+                                (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
+                            };
+                            break 'gpu (
+                                RenderMode::Cpu(Some(gc)),
+                                None,
+                                None,
+                                None,
+                                None,
+                                None,
+                                None.into(),
+                            );
+                        }
+                    };
 
-                // External-image-backed content (the paint canvas, GL textures) needs
-                // an ExternalImageHandler or WebRender panics ("Found external image, but
-                // no handler set!"). macOS/Windows register this; Linux must too — without
-                // it, azul-paint crashes the instant external-image content renders (#9).
-                renderer.set_external_image_handler(Box::new(
-                    crate::desktop::wr_translate2::Compositor::default(),
-                ));
+                    // External-image-backed content (the paint canvas, GL textures) needs
+                    // an ExternalImageHandler or WebRender panics ("Found external image, but
+                    // no handler set!"). macOS/Windows register this; Linux must too — without
+                    // it, azul-paint crashes the instant external-image content renders (#9).
+                    renderer.set_external_image_handler(Box::new(
+                        crate::desktop::wr_translate2::Compositor::default(),
+                    ));
 
-                let render_api = sender.create_api();
-                // WebRender documents/framebuffers are sized in PHYSICAL pixels.
-                let phys = size.get_physical_size();
-                let framebuffer_size = webrender::api::units::DeviceIntSize::new(
-                    (phys.width as i32).max(1),
-                    (phys.height as i32).max(1),
-                );
-                let wr_doc_id = render_api.add_document(framebuffer_size);
-                let document_id = wr_translate2::translate_document_id_wr(wr_doc_id);
-                let id_namespace =
-                    wr_translate2::translate_id_namespace_wr(render_api.get_namespace_id());
-                let hit_tester_request = render_api.request_hit_tester(wr_doc_id);
-                // R1: a software GL stack (llvmpipe/swrast) presents as a real GL
-                // context but can't compile the desktop GLSL-150 SVG/FXAA shaders.
-                // Detect it and mark the GlContextPtr Software so those shaders are
-                // skipped (see GlContextPtr::new). WebRender compositing is left as-is.
-                let renderer_type = match crate::desktop::shell2::common::compositor::query_gpu_info(
+                    let render_api = sender.create_api();
+                    // WebRender documents/framebuffers are sized in PHYSICAL pixels.
+                    let phys = size.get_physical_size();
+                    let framebuffer_size = webrender::api::units::DeviceIntSize::new(
+                        (phys.width as i32).max(1),
+                        (phys.height as i32).max(1),
+                    );
+                    let wr_doc_id = render_api.add_document(framebuffer_size);
+                    let document_id = wr_translate2::translate_document_id_wr(wr_doc_id);
+                    let id_namespace =
+                        wr_translate2::translate_id_namespace_wr(render_api.get_namespace_id());
+                    let hit_tester_request = render_api.request_hit_tester(wr_doc_id);
+                    // R1: a software GL stack (llvmpipe/swrast) presents as a real GL
+                    // context but can't compile the desktop GLSL-150 SVG/FXAA shaders.
+                    // Detect it and mark the GlContextPtr Software so those shaders are
+                    // skipped (see GlContextPtr::new). WebRender compositing is left as-is.
+                    let renderer_type = match crate::desktop::shell2::common::compositor::query_gpu_info(
                     &gl_functions.functions,
                 ) {
                     crate::desktop::shell2::common::compositor::GpuCheckResult::Blacklisted {
@@ -2636,59 +2650,68 @@ impl X11Window {
                     }
                     _ => RendererType::Hardware,
                 };
-                let gl_ptr = GlContextPtr::new(renderer_type, gl_functions.functions.clone());
-                // PROVE the context: if the shaders didn't compile (broken
-                // driver), is_gl_usable() is false — fall back to CPU rendering
-                // for this window instead of presenting a black/garbled GPU
-                // surface. (The probe lives in azul_core::gl::GlContextPtr::new.)
-                let gl_usable = gl_ptr.is_gl_usable();
-                if matches!(renderer_type, RendererType::Hardware) && !gl_usable {
-                    crate::plog_warn!(
+                    let gl_ptr = GlContextPtr::new(renderer_type, gl_functions.functions.clone());
+                    // PROVE the context: if the shaders didn't compile (broken
+                    // driver), is_gl_usable() is false — fall back to CPU rendering
+                    // for this window instead of presenting a black/garbled GPU
+                    // surface. (The probe lives in azul_core::gl::GlContextPtr::new.)
+                    let gl_usable = gl_ptr.is_gl_usable();
+                    if matches!(renderer_type, RendererType::Hardware) && !gl_usable {
+                        crate::plog_warn!(
                         "[X11] GL context unusable (shaders failed to compile at any GLSL version) \
                          — falling back to CPU rendering for this window"
                     );
-                    drop(gl_ptr);
+                        drop(gl_ptr);
+                        let gc = unsafe {
+                            (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
+                        };
+                        (
+                            RenderMode::Cpu(Some(gc)),
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None.into(),
+                        )
+                    } else {
+                        let gl_context_ptr = OptionGlContextPtr::Some(gl_ptr);
+                        log_debug!(
+                            LogCategory::Platform,
+                            "[X11] GPU rendering initialized ({}x{})",
+                            framebuffer_size.width,
+                            framebuffer_size.height
+                        );
+                        (
+                            RenderMode::Gpu(gl_context, gl_functions),
+                            Some(renderer),
+                            Some(render_api),
+                            Some(AsyncHitTester::Requested(hit_tester_request)),
+                            Some(document_id),
+                            Some(id_namespace),
+                            gl_context_ptr,
+                        )
+                    }
+                }
+                Err(e) => {
+                    log_warn!(
+                        LogCategory::Platform,
+                        "[X11] GL context creation failed: {:?}, falling back to CPU rendering",
+                        e
+                    );
                     let gc = unsafe {
                         (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut())
                     };
-                    (RenderMode::Cpu(Some(gc)), None, None, None, None, None, None.into())
-                } else {
-                    let gl_context_ptr = OptionGlContextPtr::Some(gl_ptr);
-                    log_debug!(
-                        LogCategory::Platform,
-                        "[X11] GPU rendering initialized ({}x{})",
-                        framebuffer_size.width,
-                        framebuffer_size.height
-                    );
                     (
-                        RenderMode::Gpu(gl_context, gl_functions),
-                        Some(renderer),
-                        Some(render_api),
-                        Some(AsyncHitTester::Requested(hit_tester_request)),
-                        Some(document_id),
-                        Some(id_namespace),
-                        gl_context_ptr,
+                        RenderMode::Cpu(Some(gc)),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None.into(),
                     )
                 }
-            }
-            Err(e) => {
-                log_warn!(
-                    LogCategory::Platform,
-                    "[X11] GL context creation failed: {:?}, falling back to CPU rendering",
-                    e
-                );
-                let gc =
-                    unsafe { (xlib.XCreateGC)(display, window_handle, 0, std::ptr::null_mut()) };
-                (
-                    RenderMode::Cpu(Some(gc)),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None.into(),
-                )
-            }
             }
         };
 
@@ -2793,8 +2816,9 @@ impl X11Window {
             gnome_menu: None, // New dlopen-based implementation
             resources: resources.clone(),
             dynamic_selector_context: {
-                let mut ctx =
-                    azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(&resources.system_style);
+                let mut ctx = azul_css::dynamic_selector::DynamicSelectorContext::from_system_style(
+                    &resources.system_style,
+                );
                 ctx.viewport_width = options.window_state.size.dimensions.width;
                 ctx.viewport_height = options.window_state.size.dimensions.height;
                 ctx.orientation = if ctx.viewport_width > ctx.viewport_height {
@@ -2846,7 +2870,12 @@ impl X11Window {
             index: monitor_id as usize,
             hash: 0,
         };
-        window.position_window_on_monitor(monitor_id_typed, position, size, options.parent_window_id);
+        window.position_window_on_monitor(
+            monitor_id_typed,
+            position,
+            size,
+            options.parent_window_id,
+        );
 
         // Initialize GNOME native menus V2 (dlopen-based)
         // Only attempt if use_native_menus is true and GNOME is available
@@ -2930,7 +2959,9 @@ impl X11Window {
             for change in &changes {
                 let r = window.apply_user_change(change);
                 if r != azul_core::events::ProcessEventResult::DoNothing {
-                    window.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    window
+                        .common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                 }
             }
         }
@@ -2944,7 +2975,11 @@ impl X11Window {
         // Apply initial background material if not Opaque
         {
             use azul_core::window::WindowBackgroundMaterial;
-            let initial_material = window.common.current_window_state().flags.background_material;
+            let initial_material = window
+                .common
+                .current_window_state()
+                .flags
+                .background_material;
             if !matches!(initial_material, WindowBackgroundMaterial::Opaque) {
                 log_trace!(
                     LogCategory::Window,
@@ -3177,10 +3212,13 @@ impl X11Window {
             use azul_core::callbacks::Update;
             match update {
                 Update::RefreshDom => {
-                    event_result = event_result.max(azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow);
+                    event_result = event_result.max(
+                        azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow,
+                    );
                 }
                 Update::RefreshDomAllWindows => {
-                    event_result = event_result.max(azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows);
+                    event_result = event_result
+                        .max(azul_core::events::ProcessEventResult::ShouldRegenerateDomAllWindows);
                 }
                 Update::DoNothing => {}
             }
@@ -3199,12 +3237,15 @@ impl X11Window {
                         }
                         if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
                             if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
-                                w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                                w.common.request_regeneration(
+                                    azul_core::callbacks::RelayoutReason::RefreshDom,
+                                );
                                 w.request_redraw();
                             }
                         }
                     }
-                    self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    self.common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     self.request_redraw();
                 }
                 ProcessEventResult::ShouldIncrementalRelayout => {
@@ -3231,7 +3272,8 @@ impl X11Window {
                 }
                 ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 | ProcessEventResult::UpdateHitTesterAndProcessAgain => {
-                    self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    self.common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     self.request_redraw();
                 }
                 // ShouldUpdateDisplayListCurrentWindow: pending VirtualView updates are
@@ -3335,8 +3377,11 @@ impl X11Window {
             // gesture-end event), so nothing will wake this poll to observe
             // it. Shorten the park to the remaining idle budget instead —
             // no extra fd, no timerfd churn at touchpad event rates.
-            let timeout_ms =
-                poll_timeout_with_trackpad_deadline(timeout_ms, self.earliest_trackpad_deadline(), std::time::Instant::now());
+            let timeout_ms = poll_timeout_with_trackpad_deadline(
+                timeout_ms,
+                self.earliest_trackpad_deadline(),
+                std::time::Instant::now(),
+            );
 
             let result = libc::poll(
                 pollfds.as_mut_ptr(),
@@ -3605,7 +3650,11 @@ impl X11Window {
                 // final event is mopped up by poll_event's gate.
                 if count == 0 {
                     if let Err(e) = self.render_and_present() {
-                        log_warn!(LogCategory::Rendering, "[X11] handle_event Expose render failed: {:?}", e);
+                        log_warn!(
+                            LogCategory::Rendering,
+                            "[X11] handle_event Expose render failed: {:?}",
+                            e
+                        );
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -3700,7 +3749,8 @@ impl X11Window {
                     ProcessEventResult::DoNothing
                 } else {
                     self.snapshot_window_state_baseline("x11.handle_event.focus_in");
-                    self.common.update_unsynced_state(|ws| ws.window_focused = true);
+                    self.common
+                        .update_unsynced_state(|ws| ws.window_focused = true);
                     self.dynamic_selector_context.window_focused = true;
                     // The keyboard state is a guess again: everything released
                     // while another window had focus was delivered THERE. The
@@ -3739,11 +3789,11 @@ impl X11Window {
                         // latched and turns every later keystroke into a shortcut. Windows
                         // has done this since it was written; the other three never did.
                         ws.keyboard_state.current_virtual_keycode =
-                        azul_core::window::OptionVirtualKeyCode::None;
+                            azul_core::window::OptionVirtualKeyCode::None;
                         ws.keyboard_state.pressed_virtual_keycodes =
-                        azul_core::window::VirtualKeyCodeVec::from_vec(Vec::new());
+                            azul_core::window::VirtualKeyCodeVec::from_vec(Vec::new());
                         ws.keyboard_state.pressed_scancodes =
-                        azul_core::window::ScanCodeVec::from_vec(Vec::new());
+                            azul_core::window::ScanCodeVec::from_vec(Vec::new());
                     });
                     self.dynamic_selector_context.window_focused = false;
                     // Releases that happen while another window has focus are
@@ -3813,9 +3863,8 @@ impl X11Window {
                 self.os_present_requested = true;
                 match record_map(&mut self.has_been_mapped) {
                     MapWork::FirstMap => {
-                        self.common.request_regeneration(
-                            azul_core::callbacks::RelayoutReason::RefreshDom,
-                        );
+                        self.common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         ProcessEventResult::ShouldRegenerateDomCurrentWindow
                     }
                     // A RE-map — unminimize, a workspace switch back, any
@@ -3888,28 +3937,26 @@ impl X11Window {
                 ) {
                     AbsoluteOriginPlan::UseEvent => (ev.x, ev.y),
                     AbsoluteOriginPlan::Reuse(x, y) => (x, y),
-                    AbsoluteOriginPlan::Translate => {
-                        match self.xlib.XTranslateCoordinates {
-                            Some(translate) => unsafe {
-                                let screen = (self.xlib.XDefaultScreen)(self.display);
-                                let root = (self.xlib.XRootWindow)(self.display, screen);
-                                let (mut rx, mut ry) = (0i32, 0i32);
-                                let mut child: Window = 0;
-                                (translate)(
-                                    self.display,
-                                    self.window,
-                                    root,
-                                    0,
-                                    0,
-                                    &mut rx,
-                                    &mut ry,
-                                    &mut child,
-                                );
-                                (rx, ry)
-                            },
-                            None => (ev.x, ev.y),
-                        }
-                    }
+                    AbsoluteOriginPlan::Translate => match self.xlib.XTranslateCoordinates {
+                        Some(translate) => unsafe {
+                            let screen = (self.xlib.XDefaultScreen)(self.display);
+                            let root = (self.xlib.XRootWindow)(self.display, screen);
+                            let (mut rx, mut ry) = (0i32, 0i32);
+                            let mut child: Window = 0;
+                            (translate)(
+                                self.display,
+                                self.window,
+                                root,
+                                0,
+                                0,
+                                &mut rx,
+                                &mut ry,
+                                &mut child,
+                            );
+                            (rx, ry)
+                        },
+                        None => (ev.x, ev.y),
+                    },
                 };
                 self.last_absolute_origin = Some((abs_x, abs_y));
 
@@ -3961,10 +4008,9 @@ impl X11Window {
                     // regenerate_now(Resize) — a full DOM rebuild per
                     // ConfigureNotify, the X11 spelling of the 654-942 ms
                     // drag lag.
-                    let full = self.common.request_regeneration_for_resize(
-                        old_logical,
-                        new_logical,
-                    );
+                    let full = self
+                        .common
+                        .request_regeneration_for_resize(old_logical, new_logical);
                     if full {
                         log_debug!(
                             LogCategory::Layout,
@@ -3992,7 +4038,13 @@ impl X11Window {
 
                 crate::plog_trace!(
                     "[x11 ev] ConfigureNotify x={} y={} (abs {}/{}) w={} h={} send_event={}",
-                    ev.x, ev.y, abs_x, abs_y, new_width, new_height, ev.send_event
+                    ev.x,
+                    ev.y,
+                    abs_x,
+                    abs_y,
+                    new_width,
+                    new_height,
+                    ev.send_event
                 );
 
                 // F4: OS-reported geometry (source = Os) — acknowledge into both
@@ -4071,10 +4123,12 @@ impl X11Window {
                         }
                         // Same 0.25-step quantization as detect_initial_dpi, so a
                         // noisy mm-based estimate (~1.04) stays at exactly 96 DPI.
-                        let new_dpi =
-                            (((display.scale_factor * 4.0).round() / 4.0) * 96.0) as u32;
+                        let new_dpi = (((display.scale_factor * 4.0).round() / 4.0) * 96.0) as u32;
                         let old_dpi = self.common.current_window_state().size.dpi;
-                        if !has_xft_dpi && new_dpi > 0 && (new_dpi as i32 - old_dpi as i32).abs() > 1 {
+                        if !has_xft_dpi
+                            && new_dpi > 0
+                            && (new_dpi as i32 - old_dpi as i32).abs() > 1
+                        {
                             log_debug!(
                                 LogCategory::Window,
                                 "[X11 DPI Change] {} -> {} (moved to different monitor)",
@@ -4198,7 +4252,8 @@ impl X11Window {
             ProcessEventResult::ShouldRegenerateDomCurrentWindow
                 | ProcessEventResult::ShouldRegenerateDomAllWindows
         ) {
-            self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+            self.common
+                .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         }
 
         // Fan out a cross-window refresh. For RefreshDomAllWindows we must
@@ -4214,7 +4269,8 @@ impl X11Window {
                 }
                 if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
                     if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
-                        w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                        w.common
+                            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                         w.request_redraw();
                     }
                 }
@@ -4306,10 +4362,7 @@ impl X11Window {
     }
 
     /// Handle an XDND `ClientMessage` (Enter / Position / Leave / Drop).
-    fn handle_xdnd_client_message(
-        &mut self,
-        cm: &XClientMessageEvent,
-    ) -> ProcessEventResult {
+    fn handle_xdnd_client_message(&mut self, cm: &XClientMessageEvent) -> ProcessEventResult {
         let data = unsafe { cm.data.l };
         let mtype = cm.message_type;
 
@@ -4428,8 +4481,7 @@ impl X11Window {
                 // XdndFinished is sent after we receive + parse the data.
             } else {
                 // Nothing we can accept — tell the source we are done.
-                let finished: [c_long; 5] =
-                    [self.window as c_long, 0, 0, 0, 0];
+                let finished: [c_long; 5] = [self.window as c_long, 0, 0, 0, 0];
                 self.xdnd_send(source, self.xdnd.finished, finished);
             }
             ProcessEventResult::DoNothing
@@ -4439,10 +4491,7 @@ impl X11Window {
     }
 
     /// Handle the `SelectionNotify` that delivers the dropped `text/uri-list`.
-    fn handle_xdnd_selection_notify(
-        &mut self,
-        sel: &XSelectionEvent,
-    ) -> ProcessEventResult {
+    fn handle_xdnd_selection_notify(&mut self, sel: &XSelectionEvent) -> ProcessEventResult {
         // Only react to our own XDND drop conversion.
         if sel.selection != self.xdnd.selection || sel.property == 0 {
             return ProcessEventResult::DoNothing;
@@ -4470,7 +4519,11 @@ impl X11Window {
             let finished: [c_long; 5] = [
                 self.window as c_long,
                 if accepted { 1 } else { 0 },
-                if accepted { self.xdnd.action_copy as c_long } else { 0 },
+                if accepted {
+                    self.xdnd.action_copy as c_long
+                } else {
+                    0
+                },
                 0,
                 0,
             ];
@@ -4560,10 +4613,7 @@ impl X11Window {
             {
                 // 32-bit-format properties are returned as an array of C `long`
                 // (Atom = c_ulong), one per item, per Xlib convention.
-                let atoms = std::slice::from_raw_parts(
-                    prop_data as *const Atom,
-                    nitems as usize,
-                );
+                let atoms = std::slice::from_raw_parts(prop_data as *const Atom, nitems as usize);
                 found = atoms.iter().any(|&a| a == self.xdnd.uri_list);
             }
             if !prop_data.is_null() {
@@ -4634,28 +4684,32 @@ impl X11Window {
                     // on the menu container in menu_renderer).
                     if final_size.dimensions.height * scale > wa.size.height {
                         final_size.dimensions.height = wa.size.height / scale;
-                        self.common.update_window_state(
-                            event::WindowStateSource::Os,
-                            |ws| ws.size = final_size,
-                        );
+                        self.common
+                            .update_window_state(event::WindowStateSource::Os, |ws| {
+                                ws.size = final_size
+                            });
                     }
                     let w = final_size.dimensions.width * scale;
                     let h = final_size.dimensions.height * scale;
                     let nx = posf.x.min(wa.origin.x + wa.size.width - w).max(wa.origin.x);
-                    let ny = posf.y.min(wa.origin.y + wa.size.height - h).max(wa.origin.y);
+                    let ny = posf
+                        .y
+                        .min(wa.origin.y + wa.size.height - h)
+                        .max(wa.origin.y);
                     if (nx - posf.x).abs() > 0.5 || (ny - posf.y).abs() > 0.5 {
-                        self.common.update_window_state(
-                            event::WindowStateSource::Os,
-                            |ws| {
+                        self.common
+                            .update_window_state(event::WindowStateSource::Os, |ws| {
                                 ws.position = WindowPosition::Initialized(
-                                    azul_core::geom::PhysicalPositionI32::new(
-                                        nx as i32, ny as i32,
-                                    ),
+                                    azul_core::geom::PhysicalPositionI32::new(nx as i32, ny as i32),
                                 );
-                            },
-                        );
+                            });
                         unsafe {
-                            (self.xlib.XMoveWindow)(self.display, self.window, nx as i32, ny as i32);
+                            (self.xlib.XMoveWindow)(
+                                self.display,
+                                self.window,
+                                nx as i32,
+                                ny as i32,
+                            );
                         }
                     }
                 }
@@ -4712,7 +4766,8 @@ impl X11Window {
         }
 
         // 5. Re-layout at the final size (drops the scrollbars the tiny pass added).
-        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
 
         // Both baselines have to be told, and they are told different things.
         //
@@ -4738,7 +4793,9 @@ impl X11Window {
         self.seed_window_state_baseline("x11.apply_size_to_content");
     }
 
-    pub fn regenerate_layout_inner(&mut self) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
+    pub fn regenerate_layout_inner(
+        &mut self,
+    ) -> Result<crate::desktop::shell2::common::layout::LayoutRegenerateResult, String> {
         // Consume the reason tag BEFORE borrowing the layout window: this is
         // the regeneration this window asked for, and the tag travels with
         // the request (see CommonWindowState::request_regeneration).
@@ -4767,7 +4824,6 @@ impl X11Window {
             borrows.system_style,
             &self.resources.icon_provider,
             &mut debug_messages,
-        
             relayout_reason,
         )?;
 
@@ -4846,14 +4902,12 @@ impl X11Window {
         if let Some(layout_window) = &self.common.layout_window {
             if let Some(cursor_rect) = layout_window.get_focused_cursor_rect_viewport() {
                 // Successfully calculated cursor position from text layout
-                self.common
-                    .update_unsynced_state(|ws| {
-                        ws.ime_position = ImePosition::Initialized(cursor_rect);
-                    });
+                self.common.update_unsynced_state(|ws| {
+                    ws.ime_position = ImePosition::Initialized(cursor_rect);
+                });
             }
         }
     }
-
 
     /// Render and present a frame using WebRender
     ///
@@ -4939,7 +4993,8 @@ impl X11Window {
             // Retire ONLY the request this frame observed: a lifecycle callback
             // running inside the render above can raise a new one, and a bare
             // `= false` here would erase it.
-            self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+            self.common
+                .clear_regeneration_unless_reraised(regen_epoch_seen);
             if let RenderMode::Gpu(ref gl_context, _) = self.render_mode {
                 gl_context.make_current();
             }
@@ -4967,7 +5022,8 @@ impl X11Window {
             // Retire ONLY the request this frame observed: a lifecycle callback
             // running inside the render above can raise a new one, and a bare
             // `= false` here would erase it.
-            self.common.clear_regeneration_unless_reraised(regen_epoch_seen);
+            self.common
+                .clear_regeneration_unless_reraised(regen_epoch_seen);
             true
         } else {
             false
@@ -5008,13 +5064,12 @@ impl X11Window {
                         // Advance easing-based scroll animations
                         {
                             #[cfg(feature = "std")]
-                            let now = azul_core::task::Instant::System(
-                                std::time::Instant::now().into(),
-                            );
+                            let now =
+                                azul_core::task::Instant::System(std::time::Instant::now().into());
                             #[cfg(not(feature = "std"))]
-                            let now = azul_core::task::Instant::Tick(
-                                azul_core::task::SystemTick { tick_counter: 0 },
-                            );
+                            let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick {
+                                tick_counter: 0,
+                            });
                             let tick_result = layout_window.scroll_manager.tick(now);
                             if tick_result.needs_repaint {
                                 layout_window.scroll_manager.calculate_scrollbar_states();
@@ -5062,7 +5117,8 @@ impl X11Window {
                                 // scrolling left the content frozen — #13/#14).
                                 // Transparent material: clear to alpha 0 (the
                                 // ARGB visual carries it); shape from alpha if asked.
-                                self.cpu_backend.sync_window_flags(&layout_window.current_window_state);
+                                self.cpu_backend
+                                    .sync_window_flags(&layout_window.current_window_state);
                                 self.cpu_backend.render_frame(
                                     layout_window,
                                     &layout_window.renderer_resources,
@@ -5105,7 +5161,8 @@ impl X11Window {
                                     // window background (black) — the reported "bg goes
                                     // black when window < content". Surface it so the
                                     // per-OS run can confirm this is the flicker source.
-                                    let phys = self.common.current_window_state().size.get_physical_size();
+                                    let phys =
+                                        self.common.current_window_state().size.get_physical_size();
                                     if pw != phys.width || ph != phys.height {
                                         crate::plog_warn!(
                                             "[x11 cpu] pixmap {}x{} != window {}x{} — uncovered area will show black (R2)",
@@ -5159,7 +5216,8 @@ impl X11Window {
                                             let depth: c_uint = if self.has_argb_visual {
                                                 32
                                             } else {
-                                                (self.xlib.XDefaultDepth)(self.display, screen) as c_uint
+                                                (self.xlib.XDefaultDepth)(self.display, screen)
+                                                    as c_uint
                                             };
 
                                             for (rx, ry, rw, rh) in rects {
@@ -5260,8 +5318,7 @@ impl X11Window {
 
                 #[cfg(not(feature = "cpurender"))]
                 unsafe {
-                    let physical_size =
-                        self.common.current_window_state().size.get_physical_size();
+                    let physical_size = self.common.current_window_state().size.get_physical_size();
                     (self.xlib.XSetForeground)(self.display, *gc, CPU_FALLBACK_BG_COLOR);
                     (self.xlib.XFillRectangle)(
                         self.display,
@@ -5294,7 +5351,10 @@ impl X11Window {
 
             // Re-arm for an active scrollbar fade (same as the GPU tail below)
             // so the fade animation keeps getting frames on the CPU backend too.
-            let needs_fade_frame = self.common.layout_window.as_ref()
+            let needs_fade_frame = self
+                .common
+                .layout_window
+                .as_ref()
                 .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
                 .unwrap_or(false);
             if needs_fade_frame {
@@ -5337,14 +5397,24 @@ impl X11Window {
             // and layout wasn't regenerated, check if there's any visual change at all.
             // If not, skip the entire WebRender render cycle to save GPU work.
             if self.common.display_list_initialized {
-                let scroll_active = self.common.layout_window.as_ref()
-                    .map(|lw| lw.scroll_manager.has_active_animations()
-                        || lw.needs_animation_frame())
+                let scroll_active = self
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .map(|lw| {
+                        lw.scroll_manager.has_active_animations() || lw.needs_animation_frame()
+                    })
                     .unwrap_or(false);
-                let scrollbar_fade = self.common.layout_window.as_ref()
+                let scrollbar_fade = self
+                    .common
+                    .layout_window
+                    .as_ref()
                     .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
                     .unwrap_or(false);
-                let virtual_view_pending = self.common.layout_window.as_ref()
+                let virtual_view_pending = self
+                    .common
+                    .layout_window
+                    .as_ref()
                     .map(|lw| !lw.pending_virtual_view_updates.is_empty())
                     .unwrap_or(false);
                 if !want_redraw && !scroll_active && !scrollbar_fade && !virtual_view_pending {
@@ -5365,7 +5435,9 @@ impl X11Window {
                     #[cfg(feature = "std")]
                     let now = azul_core::task::Instant::System(std::time::Instant::now().into());
                     #[cfg(not(feature = "std"))]
-                    let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 });
+                    let now = azul_core::task::Instant::Tick(azul_core::task::SystemTick {
+                        tick_counter: 0,
+                    });
                     let tick_result = layout_window.scroll_manager.tick(now);
                     if tick_result.needs_repaint {
                         layout_window.scroll_manager.calculate_scrollbar_states();
@@ -5374,7 +5446,8 @@ impl X11Window {
 
                 // Process pending VirtualView updates (queued by ScrollTo -> check_and_queue_virtual_view_reinvoke).
                 // If present, we need a full display list rebuild rather than lightweight.
-                let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
+                let has_virtual_view_updates =
+                    !layout_window.pending_virtual_view_updates.is_empty();
                 // display_list_dirty = the display list was regenerated
                 // internally WITHOUT a relayout (caret blink toggle, selection
                 // change, text undo/redo, IME preedit, ChangeNodeImage). The
@@ -5455,8 +5528,10 @@ impl X11Window {
             Ok(results) => {
                 // Store WebRender's dirty rects for per-rect Expose invalidation.
                 let dpi_scale = self.common.current_window_state().size.dpi as f32 / 96.0;
-                self.gpu_damage_rects = results.dirty_rects.iter().map(|dr| {
-                    azul_core::geom::LogicalRect {
+                self.gpu_damage_rects = results
+                    .dirty_rects
+                    .iter()
+                    .map(|dr| azul_core::geom::LogicalRect {
                         origin: azul_core::geom::LogicalPosition {
                             x: dr.min.x as f32 / dpi_scale,
                             y: dr.min.y as f32 / dpi_scale,
@@ -5465,8 +5540,8 @@ impl X11Window {
                             width: dr.width() as f32 / dpi_scale,
                             height: dr.height() as f32 / dpi_scale,
                         },
-                    }
-                }).collect();
+                    })
+                    .collect();
             }
             Err(errors) => {
                 log_warn!(LogCategory::Rendering, "[X11] Render errors: {:?}", errors);
@@ -5495,9 +5570,10 @@ impl X11Window {
                 let _ = gl_context.wr_damage.take(); // drop stale region
                 None
             } else {
-                gl_context.wr_damage.take().map(|rects| {
-                    wr_translate2::device_rects_to_present_rects(&rects, fb_w, fb_h)
-                })
+                gl_context
+                    .wr_damage
+                    .take()
+                    .map(|rects| wr_translate2::device_rects_to_present_rects(&rects, fb_w, fb_h))
             };
             let swap_result = match damage {
                 Some(rects) => gl_context.swap_buffers_with_damage(&rects, fb_h),
@@ -5521,7 +5597,10 @@ impl X11Window {
 
         // If any scrollbar is actively fading (0 < opacity < 1), schedule
         // another frame so the fade-out animation runs to completion.
-        let needs_fade_frame = self.common.layout_window.as_ref()
+        let needs_fade_frame = self
+            .common
+            .layout_window
+            .as_ref()
             .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
             .unwrap_or(false);
         if needs_fade_frame {
@@ -5602,7 +5681,12 @@ impl X11Window {
         }
 
         // prevent_system_sleep
-        if self.common.current_window_state().flags.prevent_system_sleep {
+        if self
+            .common
+            .current_window_state()
+            .flags
+            .prevent_system_sleep
+        {
             self.set_prevent_system_sleep(true);
         }
 
@@ -5658,7 +5742,16 @@ impl X11Window {
                         let root = (self.xlib.XRootWindow)(self.display, screen);
                         let (mut rx, mut ry) = (0i32, 0i32);
                         let mut child: Window = 0;
-                        (translate)(self.display, self.window, root, 0, 0, &mut rx, &mut ry, &mut child);
+                        (translate)(
+                            self.display,
+                            self.window,
+                            root,
+                            0,
+                            0,
+                            &mut rx,
+                            &mut ry,
+                            &mut child,
+                        );
                         (rx as f32, ry as f32)
                     },
                     None => (0.0, 0.0),
@@ -5763,7 +5856,12 @@ impl X11Window {
                 azul_core::window::WindowPosition::RelativeToParentWindow(offset) => {
                     if let Some((px, py)) = Self::resolve_parent_origin(self.parent_window_id) {
                         unsafe {
-                            (self.xlib.XMoveWindow)(self.display, self.window, px + offset.x, py + offset.y);
+                            (self.xlib.XMoveWindow)(
+                                self.display,
+                                self.window,
+                                px + offset.x,
+                                py + offset.y,
+                            );
                             (self.xlib.XFlush)(self.display);
                         }
                     }
@@ -5798,27 +5896,21 @@ impl X11Window {
                         Some(b"_NET_WM_STATE_MAXIMIZED_HORZ\0"),
                     );
                 },
-                WindowFrame::Normal => {
-                    unsafe {
-                        if previous.flags.frame == WindowFrame::Maximized {
-                            self.send_wm_state_change(
-                                0,
-                                b"_NET_WM_STATE_MAXIMIZED_VERT\0",
-                                Some(b"_NET_WM_STATE_MAXIMIZED_HORZ\0"),
-                            );
-                        }
-                        if previous.flags.frame == WindowFrame::Fullscreen {
-                            self.send_wm_state_change(
-                                0,
-                                b"_NET_WM_STATE_FULLSCREEN\0",
-                                None,
-                            );
-                        }
-                        if previous.flags.frame == WindowFrame::Minimized {
-                            (self.xlib.XMapWindow)(self.display, self.window);
-                        }
+                WindowFrame::Normal => unsafe {
+                    if previous.flags.frame == WindowFrame::Maximized {
+                        self.send_wm_state_change(
+                            0,
+                            b"_NET_WM_STATE_MAXIMIZED_VERT\0",
+                            Some(b"_NET_WM_STATE_MAXIMIZED_HORZ\0"),
+                        );
                     }
-                }
+                    if previous.flags.frame == WindowFrame::Fullscreen {
+                        self.send_wm_state_change(0, b"_NET_WM_STATE_FULLSCREEN\0", None);
+                    }
+                    if previous.flags.frame == WindowFrame::Minimized {
+                        (self.xlib.XMapWindow)(self.display, self.window);
+                    }
+                },
                 WindowFrame::Fullscreen => unsafe {
                     if previous.flags.frame == WindowFrame::Maximized {
                         self.send_wm_state_change(
@@ -6002,7 +6094,6 @@ impl X11Window {
             (self.xlib.XFreeCursor)(self.display, cursor);
         }
     }
-
 }
 
 // PlatformWindow Trait Implementation
@@ -6071,7 +6162,6 @@ impl PlatformWindow for X11Window {
         // default `regenerate_layout`, which is what frame paths call.
         self.regenerate_layout_inner()
     }
-
 
     impl_platform_window_getters!(common);
 
@@ -6146,7 +6236,8 @@ impl PlatformWindow for X11Window {
         // For X11, we don't need a separate timer - threads are checked
         // in the event loop when layout_window.threads is non-empty
         // Just mark for regeneration to start checking
-        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     }
 
     fn stop_thread_poll_timer(&mut self) {
@@ -6165,7 +6256,8 @@ impl PlatformWindow for X11Window {
         }
 
         // Mark for regeneration to start thread polling
-        self.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
     }
 
     fn remove_threads(
@@ -6186,7 +6278,8 @@ impl PlatformWindow for X11Window {
             }
             if let Some(wptr) = unsafe { super::registry::get_window(wid) } {
                 if let super::LinuxWindow::X11(w) = unsafe { &mut *wptr } {
-                    w.common.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+                    w.common
+                        .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
                     w.request_redraw();
                 }
             }
@@ -6205,7 +6298,12 @@ impl PlatformWindow for X11Window {
         position: azul_core::geom::LogicalPosition,
     ) {
         // Check if native menus are enabled (GNOME menus on Linux)
-        if self.common.current_window_state().flags.use_native_context_menus {
+        if self
+            .common
+            .current_window_state()
+            .flags
+            .use_native_context_menus
+        {
             // TODO: Show GNOME native menu via DBus
             log_debug!(
                 LogCategory::Window,
@@ -6280,9 +6378,9 @@ impl X11Window {
             menu.clone(),
             self.common.system_style.clone(),
             parent_pos,
-            None,                   // No trigger rect
+            None,                  // No trigger rect
             Some(physical_cursor), // Position for menu (physical px)
-            None,                   // No parent menu
+            None,                  // No parent menu
         );
         // Parent the menu to THIS window so it reuses our X display (single
         // shared event pump) and is positioned relative to us.
@@ -6326,7 +6424,8 @@ impl X11Window {
             use azul_core::{geom::LogicalPosition, resources::DpiScaleFactor};
 
             let position = LogicalPosition::new(x as f32, y as f32);
-            let dpi = DpiScaleFactor::new(self.common.current_window_state().size.dpi as f32 / 96.0);
+            let dpi =
+                DpiScaleFactor::new(self.common.current_window_state().size.dpi as f32 / 96.0);
 
             if let Err(e) = tooltip.show(&text, position, dpi) {
                 log_error!(LogCategory::Window, "[X11] Failed to show tooltip: {}", e);
@@ -6618,9 +6717,8 @@ impl X11Window {
             (self.xlib.XInternAtom)(self.display, atom1_name.as_ptr() as *const c_char, 0)
                 as std::os::raw::c_long;
         if let Some(a2) = atom2_name {
-            event.data.l[2] =
-                (self.xlib.XInternAtom)(self.display, a2.as_ptr() as *const c_char, 0)
-                    as std::os::raw::c_long;
+            event.data.l[2] = (self.xlib.XInternAtom)(self.display, a2.as_ptr() as *const c_char, 0)
+                as std::os::raw::c_long;
         }
         event.data.l[3] = 1;
 
@@ -6742,10 +6840,7 @@ impl X11Window {
             let dbus_lib = match super::gnome_menu::get_shared_dbus_lib() {
                 Some(lib) => lib,
                 None => {
-                    log_warn!(
-                        LogCategory::Platform,
-                        "[X11] Failed to load D-Bus library"
-                    );
+                    log_warn!(LogCategory::Platform, "[X11] Failed to load D-Bus library");
                     log_warn!(
                         LogCategory::Platform,
                         "[X11] System sleep prevention not available"
@@ -6899,10 +6994,7 @@ impl X11Window {
             let dbus_lib = match super::gnome_menu::get_shared_dbus_lib() {
                 Some(lib) => lib,
                 None => {
-                    log_warn!(
-                        LogCategory::Platform,
-                        "[X11] Failed to load D-Bus library"
-                    );
+                    log_warn!(LogCategory::Platform, "[X11] Failed to load D-Bus library");
                     return;
                 }
             };
@@ -6999,8 +7091,7 @@ mod error_decode_tests {
 
         // Every core code has a distinct name — a table that mapped two
         // codes to one string would quietly mislead.
-        let names: std::collections::BTreeSet<_> =
-            (1u8..=17).map(x11_error_name).collect();
+        let names: std::collections::BTreeSet<_> = (1u8..=17).map(x11_error_name).collect();
         assert_eq!(names.len(), 17, "core error names must be distinct");
     }
 }
@@ -7033,7 +7124,10 @@ mod trackpad_gesture_end_tests {
             Some(start),
             start + TRACKPAD_GESTURE_IDLE
         ));
-        assert!(trackpad_gesture_ended(Some(start), start + Duration::from_secs(5)));
+        assert!(trackpad_gesture_ended(
+            Some(start),
+            start + Duration::from_secs(5)
+        ));
     }
 
     /// No gesture in flight, nothing to end — a mouse-wheel-only session must
@@ -7073,7 +7167,10 @@ mod trackpad_gesture_end_tests {
     fn an_expired_deadline_never_becomes_an_infinite_park() {
         let now = Instant::now();
         let long_ago = now - Duration::from_secs(10);
-        assert_eq!(poll_timeout_with_trackpad_deadline(-1, Some(long_ago), now), 1);
+        assert_eq!(
+            poll_timeout_with_trackpad_deadline(-1, Some(long_ago), now),
+            1
+        );
     }
 
     /// The clamp only ever SHORTENS the park: the 16 ms thread tick and every
@@ -7205,13 +7302,13 @@ mod map_and_configure_tests {
 #[cfg(test)]
 mod x11_seam_tests {
     use super::{
-        defines, is_grab_focus_change, smooth_scroll_pixels, x11_event_name,
-        X11_WINDOW_EVENT_MASK,
+        defines, is_grab_focus_change, smooth_scroll_pixels, x11_event_name, X11_WINDOW_EVENT_MASK,
     };
 
-    fn focus_event(mode: std::os::raw::c_int, detail: std::os::raw::c_int)
-        -> defines::XFocusChangeEvent
-    {
+    fn focus_event(
+        mode: std::os::raw::c_int,
+        detail: std::os::raw::c_int,
+    ) -> defines::XFocusChangeEvent {
         defines::XFocusChangeEvent {
             type_: 9,
             serial: 0,
@@ -7332,7 +7429,10 @@ mod x11_seam_tests {
     #[test]
     fn a_fractional_detent_is_a_touchpad_and_keeps_its_precision() {
         let (_, dy, continuous) = smooth_scroll_pixels(0.0, 0.25, false).unwrap();
-        assert_eq!(dy, -5.0, "a quarter detent is a quarter tick, not a whole one");
+        assert_eq!(
+            dy, -5.0,
+            "a quarter detent is a quarter tick, not a whole one"
+        );
         assert!(continuous);
     }
 

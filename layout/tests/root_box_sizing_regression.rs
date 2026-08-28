@@ -89,9 +89,9 @@ fn node_id(n: usize) -> DomNodeId {
 fn test_root_height_percent_plus_padding_does_not_overflow_viewport() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
-        .with_child(Dom::create_div().with_ids_and_classes(
-            vec![IdOrClass::Class("child".into())].into(),
-        ));
+        .with_child(
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()),
+        );
 
     let css = r#"
         .root {
@@ -147,9 +147,9 @@ fn test_root_height_percent_plus_padding_does_not_overflow_viewport() {
 fn test_flex_child_fills_content_box_without_double_padding_subtraction() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
-        .with_child(Dom::create_div().with_ids_and_classes(
-            vec![IdOrClass::Class("child".into())].into(),
-        ));
+        .with_child(
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()),
+        );
 
     let css = r#"
         .root {
@@ -215,9 +215,9 @@ fn test_flex_child_fills_content_box_without_double_padding_subtraction() {
 fn test_flex_child_has_symmetric_horizontal_padding_gutters() {
     let dom = Dom::create_div()
         .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into())
-        .with_child(Dom::create_div().with_ids_and_classes(
-            vec![IdOrClass::Class("child".into())].into(),
-        ));
+        .with_child(
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("child".into())].into()),
+        );
 
     let css = r#"
         .root {
@@ -262,8 +262,7 @@ fn test_flex_child_has_symmetric_horizontal_padding_gutters() {
 /// (the border-box interpretation applies equally to explicit dimensions).
 #[test]
 fn test_root_explicit_height_plus_padding_treated_as_border_box() {
-    let dom = Dom::create_div()
-        .with_ids_and_classes(vec![IdOrClass::Class("root".into())].into());
+    let dom = Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("root".into())].into());
 
     let css = r#"
         .root {

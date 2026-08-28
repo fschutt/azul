@@ -149,32 +149,41 @@ pub struct EyedropperResult {
     pub color: Option<ColorU>,
 }
 
-static PENDING_REQUESTS: std::sync::Mutex<Vec<EyedropperRequest>> = std::sync::Mutex::new(Vec::new());
+static PENDING_REQUESTS: std::sync::Mutex<Vec<EyedropperRequest>> =
+    std::sync::Mutex::new(Vec::new());
 static PENDING_RESULTS: std::sync::Mutex<Vec<EyedropperResult>> = std::sync::Mutex::new(Vec::new());
 
 /// Queue a pick for the platform backend (from a callback, any thread).
 pub fn push_request(request: EyedropperRequest) {
-    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_REQUESTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(request);
 }
 
 /// Take every queued pick. The dll dispatches each to the platform.
 pub fn drain_requests() -> Vec<EyedropperRequest> {
-    let mut q = PENDING_REQUESTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_REQUESTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
 }
 
 /// Park a finished pick (from the platform backend - the loupe window's
 /// click handler, or the system sampler's completion block).
 pub fn push_result(result: EyedropperResult) {
-    let mut q = PENDING_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_RESULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     q.push(result);
 }
 
 /// Take the parked results addressed to `ids`, leaving the others for the
 /// window that issued them.
 pub fn drain_results_for(ids: &[u64]) -> Vec<EyedropperResult> {
-    let mut q = PENDING_RESULTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut q = PENDING_RESULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (mine, others): (Vec<_>, Vec<_>) = core::mem::take(&mut *q)
         .into_iter()
         .partition(|r| ids.contains(&r.request_id));
@@ -193,10 +202,18 @@ mod tests {
         let ra = a.begin_request();
         let rb = b.begin_request();
         assert!(in_flight_anywhere());
-        push_result(EyedropperResult { request_id: rb, color: None });
+        push_result(EyedropperResult {
+            request_id: rb,
+            color: None,
+        });
         push_result(EyedropperResult {
             request_id: ra,
-            color: Some(ColorU { r: 1, g: 2, b: 3, a: 255 }),
+            color: Some(ColorU {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 255,
+            }),
         });
 
         let for_a = drain_results_for(a.issued());
@@ -205,9 +222,23 @@ mod tests {
         for r in for_a {
             assert!(a.fold_result(r.request_id, r.color));
         }
-        assert_eq!(a.last_result(), Some(Some(ColorU { r: 1, g: 2, b: 3, a: 255 })));
+        assert_eq!(
+            a.last_result(),
+            Some(Some(ColorU {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 255
+            }))
+        );
         assert!(!a.has_pending_async());
-        assert_eq!(a.get_pending_events(Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })).len(), 1);
+        assert_eq!(
+            a.get_pending_events(Instant::Tick(azul_core::task::SystemTick {
+                tick_counter: 0
+            }))
+            .len(),
+            1
+        );
 
         // b's result was left in the channel for b.
         let for_b = drain_results_for(b.issued());

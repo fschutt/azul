@@ -227,10 +227,7 @@ fn emit_per_kind_invoker(builder: &mut CodeBuilder, cb: &CallbackTypedefDef, ir:
         ";; Invoker for {w}: dispatch to the user proc stored under `id`.",
         w = w
     ));
-    builder.line(&format!(
-        "(define {k}-invoker",
-        k = kebab
-    ));
+    builder.line(&format!("(define {k}-invoker", k = kebab));
     builder.indent();
     builder.line(&format!("(pin! (lambda ({}) ", params.join(" ")));
     builder.indent();

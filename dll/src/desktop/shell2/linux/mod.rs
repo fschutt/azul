@@ -27,8 +27,8 @@ use azul_core::refany::RefAny;
 use azul_layout::window_state::WindowCreateOptions;
 pub use resources::AppResources;
 
-use super::common::WindowError;
 use super::common::event::SharedUndoManager;
+use super::common::WindowError;
 
 use super::common::debug_server::LogCategory;
 use crate::{log_info, log_warn};
@@ -98,7 +98,6 @@ impl LinuxWindow {
             LinuxWindow::Wayland(w) => w.request_redraw(),
         }
     }
-
 }
 
 impl LinuxWindow {
@@ -214,4 +213,3 @@ pub(crate) enum BackendType {
     X11,
     Wayland,
 }
-

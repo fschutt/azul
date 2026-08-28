@@ -147,23 +147,26 @@ impl Timer {
     /// one tick as one millisecond, so a `5t` interval asked the OS to wake ~16x
     /// more often than the timer could possibly fire — a measurable idle burn for
     /// a timer that flips at most every 5 frames.
-    #[must_use] pub const fn tick_millis(&self) -> u64 {
+    #[must_use]
+    pub const fn tick_millis(&self) -> u64 {
         match self.interval.as_ref() {
             Some(d) => d.as_millis_u64(),
             None => DEFAULT_TIMER_TICK_MS,
         }
     }
 
-    #[must_use] pub fn is_about_to_finish(&self, instant_now: &Instant) -> bool {
+    #[must_use]
+    pub fn is_about_to_finish(&self, instant_now: &Instant) -> bool {
         match self.timeout {
-            OptionDuration::Some(timeout) => {
-                instant_now.duration_since(&self.created).greater_than(&timeout)
-            }
+            OptionDuration::Some(timeout) => instant_now
+                .duration_since(&self.created)
+                .greater_than(&timeout),
             OptionDuration::None => false,
         }
     }
 
-    #[must_use] pub fn instant_of_next_run(&self) -> Instant {
+    #[must_use]
+    pub fn instant_of_next_run(&self) -> Instant {
         let last_run = self.last_run.as_ref().map_or(&self.created, |s| s);
 
         last_run
@@ -173,19 +176,22 @@ impl Timer {
     }
 
     #[inline]
-    #[must_use] pub const fn with_delay(mut self, delay: Duration) -> Self {
+    #[must_use]
+    pub const fn with_delay(mut self, delay: Duration) -> Self {
         self.delay = OptionDuration::Some(delay);
         self
     }
 
     #[inline]
-    #[must_use] pub const fn with_interval(mut self, interval: Duration) -> Self {
+    #[must_use]
+    pub const fn with_interval(mut self, interval: Duration) -> Self {
         self.interval = OptionDuration::Some(interval);
         self
     }
 
     #[inline]
-    #[must_use] pub const fn with_timeout(mut self, timeout: Duration) -> Self {
+    #[must_use]
+    pub const fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = OptionDuration::Some(timeout);
         self
     }
@@ -244,8 +250,7 @@ impl Timer {
                     // deadline would demand a burst of catch-up fires. Fall back
                     // to the arrival time and resynchronise.
                     if elapsed.as_nanos() < interval_ns.saturating_mul(2) {
-                        phase_target =
-                            Some(last_run.add_optional_duration(Some(&interval)));
+                        phase_target = Some(last_run.add_optional_duration(Some(&interval)));
                     }
                 }
             }
@@ -333,7 +338,8 @@ pub struct TimerCallbackInfo {
 }
 
 impl TimerCallbackInfo {
-    #[must_use] pub const fn create(
+    #[must_use]
+    pub const fn create(
         callback_info: CallbackInfo,
         node_id: OptionDomNodeId,
         frame_start: Instant,
@@ -351,17 +357,20 @@ impl TimerCallbackInfo {
         }
     }
 
-    #[must_use] pub fn get_attached_node_size(&self) -> Option<LogicalSize> {
+    #[must_use]
+    pub fn get_attached_node_size(&self) -> Option<LogicalSize> {
         let node_id = self.node_id.into_option()?;
         self.callback_info.get_node_size(node_id)
     }
 
-    #[must_use] pub fn get_attached_node_position(&self) -> Option<LogicalPosition> {
+    #[must_use]
+    pub fn get_attached_node_position(&self) -> Option<LogicalPosition> {
         let node_id = self.node_id.into_option()?;
         self.callback_info.get_node_position(node_id)
     }
 
-    #[must_use] pub const fn get_callback_info(&self) -> &CallbackInfo {
+    #[must_use]
+    pub const fn get_callback_info(&self) -> &CallbackInfo {
         &self.callback_info
     }
 
@@ -374,7 +383,8 @@ impl TimerCallbackInfo {
     // as CallbackInfo without using Deref (which causes issues with FFI codegen)
 
     /// Get the callable for FFI language bindings (Python, etc.)
-    #[must_use] pub fn get_ctx(&self) -> OptionRefAny {
+    #[must_use]
+    pub fn get_ctx(&self) -> OptionRefAny {
         self.callback_info.get_ctx()
     }
 
@@ -438,7 +448,8 @@ impl TimerCallbackInfo {
 
     /// Trigger re-rendering of a `VirtualView` (applied after callback returns)
     pub fn trigger_virtual_view_rerender(&mut self, dom_id: DomId, node_id: NodeId) {
-        self.callback_info.trigger_virtual_view_rerender(dom_id, node_id);
+        self.callback_info
+            .trigger_virtual_view_rerender(dom_id, node_id);
     }
 
     /// Reload system fonts (applied after callback returns)
@@ -482,82 +493,98 @@ impl TimerCallbackInfo {
     }
 
     /// Get current window flags
-    #[must_use] pub const fn get_current_window_flags(&self) -> WindowFlags {
+    #[must_use]
+    pub const fn get_current_window_flags(&self) -> WindowFlags {
         self.callback_info.get_current_window_flags()
     }
 
     /// Get current keyboard state
-    #[must_use] pub fn get_current_keyboard_state(&self) -> KeyboardState {
+    #[must_use]
+    pub fn get_current_keyboard_state(&self) -> KeyboardState {
         self.callback_info.get_current_keyboard_state()
     }
 
     /// Get current mouse state
-    #[must_use] pub const fn get_current_mouse_state(&self) -> MouseState {
+    #[must_use]
+    pub const fn get_current_mouse_state(&self) -> MouseState {
         self.callback_info.get_current_mouse_state()
     }
 
     /// Get the cursor position relative to the hit node
-    #[must_use] pub const fn get_cursor_relative_to_node(&self) -> azul_core::geom::OptionCursorNodePosition {
+    #[must_use]
+    pub const fn get_cursor_relative_to_node(&self) -> azul_core::geom::OptionCursorNodePosition {
         self.callback_info.get_cursor_relative_to_node()
     }
 
     /// Get the cursor position relative to the viewport
-    #[must_use] pub const fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition {
+    #[must_use]
+    pub const fn get_cursor_relative_to_viewport(&self) -> OptionLogicalPosition {
         self.callback_info.get_cursor_relative_to_viewport()
     }
 
     /// Get the current cursor position
-    #[must_use] pub fn get_cursor_position(&self) -> Option<LogicalPosition> {
+    #[must_use]
+    pub fn get_cursor_position(&self) -> Option<LogicalPosition> {
         self.callback_info.get_cursor_position()
     }
 
     /// Get the current time (when the timer callback started)
-    #[must_use] pub fn get_current_time(&self) -> Instant {
+    #[must_use]
+    pub fn get_current_time(&self) -> Instant {
         self.frame_start.clone()
     }
 
     /// Check if any node in a specific DOM is focused
-    #[must_use] pub fn is_dom_focused(&self, dom_id: DomId) -> bool {
+    #[must_use]
+    pub fn is_dom_focused(&self, dom_id: DomId) -> bool {
         self.callback_info.is_dom_focused(dom_id)
     }
 
     /// Check if pen is in contact
-    #[must_use] pub fn is_pen_in_contact(&self) -> bool {
+    #[must_use]
+    pub fn is_pen_in_contact(&self) -> bool {
         self.callback_info.is_pen_in_contact()
     }
 
     /// Check if pen eraser is active
-    #[must_use] pub fn is_pen_eraser(&self) -> bool {
+    #[must_use]
+    pub fn is_pen_eraser(&self) -> bool {
         self.callback_info.is_pen_eraser()
     }
 
     /// Check if pen barrel button is pressed
-    #[must_use] pub fn is_pen_barrel_button_pressed(&self) -> bool {
+    #[must_use]
+    pub fn is_pen_barrel_button_pressed(&self) -> bool {
         self.callback_info.is_pen_barrel_button_pressed()
     }
 
     /// Check if dragging is active
-    #[must_use] pub const fn is_dragging(&self) -> bool {
+    #[must_use]
+    pub const fn is_dragging(&self) -> bool {
         self.callback_info.get_current_mouse_state().left_down
     }
 
     /// Check if drag is active
-    #[must_use] pub const fn is_drag_active(&self) -> bool {
+    #[must_use]
+    pub const fn is_drag_active(&self) -> bool {
         self.callback_info.get_current_mouse_state().left_down
     }
 
     /// Check if node drag is active
-    #[must_use] pub const fn is_node_drag_active(&self) -> bool {
+    #[must_use]
+    pub const fn is_node_drag_active(&self) -> bool {
         self.callback_info.get_current_mouse_state().left_down
     }
 
     /// Check if file drag is active
-    #[must_use] pub fn is_file_drag_active(&self) -> bool {
+    #[must_use]
+    pub fn is_file_drag_active(&self) -> bool {
         self.callback_info.is_file_drag_active()
     }
 
     /// Check if there's sufficient history for gestures
-    #[must_use] pub fn has_sufficient_history_for_gestures(&self) -> bool {
+    #[must_use]
+    pub fn has_sufficient_history_for_gestures(&self) -> bool {
         self.callback_info.has_sufficient_history_for_gestures()
     }
 
@@ -566,7 +593,8 @@ impl TimerCallbackInfo {
     /// Get a read-only snapshot of a scroll node's bounds and position.
     ///
     /// Timer callbacks use this to read current scroll state for physics calculation.
-    #[must_use] pub fn get_scroll_node_info(
+    #[must_use]
+    pub fn get_scroll_node_info(
         &self,
         dom_id: DomId,
         node_id: NodeId,
@@ -578,11 +606,8 @@ impl TimerCallbackInfo {
     /// [`CallbackInfo::find_scroll_parent`](crate::callbacks::CallbackInfo::find_scroll_parent).
     ///
     /// Used by the scroll physics timer to chain leftover momentum OUTWARDS.
-    #[must_use] pub fn find_scroll_parent(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Option<NodeId> {
+    #[must_use]
+    pub fn find_scroll_parent(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         self.callback_info.find_scroll_parent(dom_id, node_id)
     }
 
@@ -591,11 +616,8 @@ impl TimerCallbackInfo {
     ///
     /// Used by the auto-scroll timer to pick which container to scroll when
     /// the user drags beyond its edge.
-    #[must_use] pub fn find_scroll_target(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Option<NodeId> {
+    #[must_use]
+    pub fn find_scroll_target(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
         self.callback_info.find_scroll_target(dom_id, node_id)
     }
 
@@ -604,9 +626,8 @@ impl TimerCallbackInfo {
     /// The physics timer calls `take_all()` each tick to drain inputs
     /// recorded by platform event handlers.
     #[cfg(feature = "std")]
-    #[must_use] pub fn get_scroll_input_queue(
-        &self,
-    ) -> crate::managers::scroll_state::ScrollInputQueue {
+    #[must_use]
+    pub fn get_scroll_input_queue(&self) -> crate::managers::scroll_state::ScrollInputQueue {
         self.callback_info.get_scroll_input_queue()
     }
 
@@ -630,22 +651,24 @@ impl TimerCallbackInfo {
         node_id: azul_core::styled_dom::NodeHierarchyItemId,
         position: LogicalPosition,
     ) {
-        self.callback_info.scroll_to_unclamped(dom_id, node_id, position);
+        self.callback_info
+            .scroll_to_unclamped(dom_id, node_id, position);
     }
 
     // Cursor blink timer methods
-    
+
     /// Set cursor visibility state (for cursor blink timer)
     pub fn set_cursor_visibility(&mut self, visible: bool) {
         self.callback_info.set_cursor_visibility(visible);
     }
-    
+
     /// Toggle cursor visibility (for cursor blink timer).
     pub fn set_cursor_visibility_toggle(&mut self) {
         use crate::callbacks::CallbackChange;
-        self.callback_info.push_change(CallbackChange::ToggleCursorVisibility);
+        self.callback_info
+            .push_change(CallbackChange::ToggleCursorVisibility);
     }
-    
+
     /// Reset cursor blink state on user input
     pub fn reset_cursor_blink(&mut self) {
         self.callback_info.reset_cursor_blink();
@@ -656,7 +679,8 @@ impl TimerCallbackInfo {
 #[derive(Debug, Clone)]
 #[repr(C, u8)]
 // FFI Option enum; boxing the Some variant would break the #[repr(C, u8)] C ABI / api.json.
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 #[allow(clippy::large_enum_variant)]
 pub enum OptionTimer {
     None,
@@ -670,7 +694,8 @@ impl From<Option<Timer>> for OptionTimer {
 }
 
 impl OptionTimer {
-    #[must_use] pub fn into_option(self) -> Option<Timer> {
+    #[must_use]
+    pub fn into_option(self) -> Option<Timer> {
         match self {
             Self::None => None,
             Self::Some(t) => Some(t),
@@ -938,7 +963,11 @@ mod autotest_generated {
         let _g = clock_guard();
         let t = timer_at(12_345, recording_cb as TimerCallbackType);
 
-        assert_eq!(tick_of(&t.created), 12_345, "created must come from the clock");
+        assert_eq!(
+            tick_of(&t.created),
+            12_345,
+            "created must come from the clock"
+        );
         assert_eq!(t.run_count, 0);
         assert_eq!(t.last_run, OptionInstant::None);
         assert_eq!(t.delay, OptionDuration::None);
@@ -1000,13 +1029,7 @@ mod autotest_generated {
     #[test]
     fn tick_millis_converts_tick_intervals_at_the_nominal_frame_rate() {
         let _g = clock_guard();
-        for (raw, expected_ms) in [
-            (0_u64, 0_u64),
-            (1, 16),
-            (5, 83),
-            (60, 1_000),
-            (600, 10_000),
-        ] {
+        for (raw, expected_ms) in [(0_u64, 0_u64), (1, 16), (5, 83), (60, 1_000), (600, 10_000)] {
             let t = timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(raw));
             assert_eq!(
                 t.tick_millis(),
@@ -1037,7 +1060,8 @@ mod autotest_generated {
         // from_millis -> millis() is an exact round-trip, even at u64::MAX
         // (secs*1000 + 615 lands exactly on u64::MAX without saturating).
         for ms in [0_u64, 1, 999, 1_000, 1_001, 86_400_000, u64::MAX] {
-            let t = timer_at(0, recording_cb as TimerCallbackType).with_interval(sys_dur_millis(ms));
+            let t =
+                timer_at(0, recording_cb as TimerCallbackType).with_interval(sys_dur_millis(ms));
             assert_eq!(t.tick_millis(), ms, "millis {ms} must round-trip");
         }
     }
@@ -1073,7 +1097,10 @@ mod autotest_generated {
         let _g = clock_guard();
         let t = timer_at(0, recording_cb as TimerCallbackType);
         assert!(!t.is_about_to_finish(&tick(0)));
-        assert!(!t.is_about_to_finish(&tick(u64::MAX)), "no timeout = never finishes");
+        assert!(
+            !t.is_about_to_finish(&tick(u64::MAX)),
+            "no timeout = never finishes"
+        );
     }
 
     #[test]
@@ -1149,10 +1176,18 @@ mod autotest_generated {
     fn instant_of_next_run_prefers_last_run_over_created() {
         let _g = clock_guard();
         let mut t = timer_at(100, recording_cb as TimerCallbackType).with_interval(tick_dur(7));
-        assert_eq!(tick_of(&t.instant_of_next_run()), 107, "no run yet: created + interval");
+        assert_eq!(
+            tick_of(&t.instant_of_next_run()),
+            107,
+            "no run yet: created + interval"
+        );
 
         t.last_run = OptionInstant::Some(tick(500));
-        assert_eq!(tick_of(&t.instant_of_next_run()), 507, "after a run: last_run + interval");
+        assert_eq!(
+            tick_of(&t.instant_of_next_run()),
+            507,
+            "after a run: last_run + interval"
+        );
     }
 
     #[test]
@@ -1305,7 +1340,11 @@ mod autotest_generated {
         // Ord must be antisymmetric and consistent with partial_cmp.
         assert_eq!(a.cmp(&b), a.partial_cmp(&b).unwrap());
         assert_eq!(a.cmp(&b).reverse(), b.cmp(&a));
-        assert_ne!(a.cmp(&b), core::cmp::Ordering::Equal, "distinct fns must order strictly");
+        assert_ne!(
+            a.cmp(&b),
+            core::cmp::Ordering::Equal,
+            "distinct fns must order strictly"
+        );
     }
 
     #[test]
@@ -1395,7 +1434,10 @@ mod autotest_generated {
                 0,
                 false,
             );
-            assert!(info.get_attached_node_size().is_none(), "must not panic or index OOB");
+            assert!(
+                info.get_attached_node_size().is_none(),
+                "must not panic or index OOB"
+            );
             assert!(info.get_attached_node_position().is_none());
         });
     }
@@ -1406,7 +1448,10 @@ mod autotest_generated {
             let mut info = env.timer_info();
             let addr_shared = std::ptr::from_ref(info.get_callback_info());
             let addr_mut = std::ptr::from_mut(info.get_callback_info_mut()).cast_const();
-            assert!(std::ptr::eq(addr_shared, addr_mut), "both must alias the inner CallbackInfo");
+            assert!(
+                std::ptr::eq(addr_shared, addr_mut),
+                "both must alias the inner CallbackInfo"
+            );
 
             // A change pushed through the &mut view lands in the shared log.
             info.get_callback_info_mut().prevent_default();
@@ -1425,7 +1470,11 @@ mod autotest_generated {
     fn get_ctx_hands_back_the_ffi_callable() {
         let ctx = RefAny::new(0xDEAD_BEEF_u32);
         with_env_cfg(false, OptionRefAny::Some(ctx.clone()), |env| {
-            let got = env.timer_info().get_ctx().into_option().expect("ctx must survive");
+            let got = env
+                .timer_info()
+                .get_ctx()
+                .into_option()
+                .expect("ctx must survive");
             assert_eq!(got, ctx, "get_ctx must hand back the same RefAny");
         });
     }
@@ -1445,13 +1494,20 @@ mod autotest_generated {
                 panic!("expected AddTimer");
             };
             assert_eq!(timer_id, id);
-            assert_eq!(tick_of(&timer.created), 1, "the timer must be stored verbatim");
+            assert_eq!(
+                tick_of(&timer.created),
+                1,
+                "the timer must be stored verbatim"
+            );
 
             info.remove_timer(TimerId { id: 0 });
             let CallbackChange::RemoveTimer { timer_id } = env.take_one() else {
                 panic!("expected RemoveTimer");
             };
-            assert_eq!(timer_id.id, 0, "id 0 (a reserved system id) is still accepted");
+            assert_eq!(
+                timer_id.id, 0,
+                "id 0 (a reserved system id) is still accepted"
+            );
         });
     }
 
@@ -1495,13 +1551,20 @@ mod autotest_generated {
             info.set_cursor_visibility_toggle();
 
             let changes = env.take_changes();
-            assert_eq!(changes.len(), 8, "one change per call, no drops: {changes:?}");
+            assert_eq!(
+                changes.len(),
+                8,
+                "one change per call, no drops: {changes:?}"
+            );
             assert!(matches!(changes[0], CallbackChange::StopPropagation));
             assert!(matches!(changes[1], CallbackChange::PreventDefault));
             assert!(matches!(changes[2], CallbackChange::CloseWindow));
             assert!(matches!(changes[3], CallbackChange::HideTooltip));
             assert!(matches!(changes[4], CallbackChange::ReloadSystemFonts));
-            assert!(matches!(changes[5], CallbackChange::UpdateAllImageCallbacks));
+            assert!(matches!(
+                changes[5],
+                CallbackChange::UpdateAllImageCallbacks
+            ));
             assert!(matches!(changes[6], CallbackChange::ResetCursorBlink));
             assert!(matches!(changes[7], CallbackChange::ToggleCursorVisibility));
         });
@@ -1532,10 +1595,16 @@ mod autotest_generated {
         with_env(|env| {
             let mut info = env.timer_info();
             info.create_window(WindowCreateOptions::default());
-            assert!(matches!(env.take_one(), CallbackChange::CreateNewWindow { .. }));
+            assert!(matches!(
+                env.take_one(),
+                CallbackChange::CreateNewWindow { .. }
+            ));
 
             info.modify_window_state(FullWindowState::default());
-            assert!(matches!(env.take_one(), CallbackChange::ModifyWindowState { .. }));
+            assert!(matches!(
+                env.take_one(),
+                CallbackChange::ModifyWindowState { .. }
+            ));
         });
     }
 
@@ -1568,7 +1637,10 @@ mod autotest_generated {
     fn trigger_virtual_view_rerender_accepts_out_of_range_ids() {
         with_env(|env| {
             let mut info = env.timer_info();
-            info.trigger_virtual_view_rerender(DomId { inner: usize::MAX }, NodeId::new(usize::MAX));
+            info.trigger_virtual_view_rerender(
+                DomId { inner: usize::MAX },
+                NodeId::new(usize::MAX),
+            );
             let CallbackChange::UpdateVirtualView { dom_id, node_id } = env.take_one() else {
                 panic!("expected UpdateVirtualView");
             };
@@ -1603,10 +1675,7 @@ mod autotest_generated {
     fn open_menu_at_passes_non_finite_coordinates_through_unchanged() {
         with_env(|env| {
             let mut info = env.timer_info();
-            info.open_menu_at(
-                empty_menu(),
-                LogicalPosition::new(f32::NAN, f32::INFINITY),
-            );
+            info.open_menu_at(empty_menu(), LogicalPosition::new(f32::NAN, f32::INFINITY));
             let CallbackChange::OpenMenu { position, .. } = env.take_one() else {
                 panic!("expected OpenMenu");
             };
@@ -1656,7 +1725,10 @@ mod autotest_generated {
         with_env(|env| {
             let cursor = LogicalPosition::new(3.0, 4.0);
             let mut info = TimerCallbackInfo::create(
-                env.info_with(OptionLogicalPosition::None, OptionLogicalPosition::Some(cursor)),
+                env.info_with(
+                    OptionLogicalPosition::None,
+                    OptionLogicalPosition::Some(cursor),
+                ),
                 OptionDomNodeId::None,
                 tick(0),
                 0,
@@ -1736,8 +1808,16 @@ mod autotest_generated {
                 let CallbackChange::ScrollTo { position, .. } = env.take_one() else {
                     panic!("expected ScrollTo");
                 };
-                assert_eq!(position.x.to_bits(), pos.x.to_bits(), "x must be recorded bit-exact");
-                assert_eq!(position.y.to_bits(), pos.y.to_bits(), "y must be recorded bit-exact");
+                assert_eq!(
+                    position.x.to_bits(),
+                    pos.x.to_bits(),
+                    "x must be recorded bit-exact"
+                );
+                assert_eq!(
+                    position.y.to_bits(),
+                    pos.y.to_bits(),
+                    "y must be recorded bit-exact"
+                );
             }
 
             // NaN separately — it is never == to itself.
@@ -1747,12 +1827,17 @@ mod autotest_generated {
                 LogicalPosition::new(f32::NAN, f32::NAN),
             );
             let CallbackChange::ScrollTo {
-                position, unclamped, ..
+                position,
+                unclamped,
+                ..
             } = env.take_one()
             else {
                 panic!("expected ScrollTo");
             };
-            assert!(position.x.is_nan() && position.y.is_nan(), "NaN is passed through, not zeroed");
+            assert!(
+                position.x.is_nan() && position.y.is_nan(),
+                "NaN is passed through, not zeroed"
+            );
             assert!(unclamped);
         });
     }
@@ -1761,17 +1846,20 @@ mod autotest_generated {
     fn scroll_queries_are_none_on_an_empty_window() {
         with_env(|env| {
             let info = env.timer_info();
-            assert!(info.get_scroll_node_info(DomId::ROOT_ID, NodeId::new(0)).is_none());
+            assert!(info
+                .get_scroll_node_info(DomId::ROOT_ID, NodeId::new(0))
+                .is_none());
             assert!(
                 info.get_scroll_node_info(DomId { inner: usize::MAX }, NodeId::new(usize::MAX))
                     .is_none(),
                 "an out-of-range dom/node must return None, not panic"
             );
-            assert!(info.find_scroll_parent(DomId::ROOT_ID, NodeId::new(0)).is_none());
-            assert!(
-                info.find_scroll_parent(DomId { inner: usize::MAX }, NodeId::new(usize::MAX))
-                    .is_none()
-            );
+            assert!(info
+                .find_scroll_parent(DomId::ROOT_ID, NodeId::new(0))
+                .is_none());
+            assert!(info
+                .find_scroll_parent(DomId { inner: usize::MAX }, NodeId::new(usize::MAX))
+                .is_none());
         });
     }
 
@@ -1781,7 +1869,10 @@ mod autotest_generated {
             let info = env.timer_info();
             let queue = info.get_scroll_input_queue();
             assert!(queue.take_all().is_empty());
-            assert!(queue.take_all().is_empty(), "draining twice must stay empty");
+            assert!(
+                queue.take_all().is_empty(),
+                "draining twice must stay empty"
+            );
         });
     }
 
@@ -1836,7 +1927,10 @@ mod autotest_generated {
             let info = env.timer_info();
             let default_state = FullWindowState::default();
             assert_eq!(info.get_current_window_flags(), default_state.flags);
-            assert_eq!(info.get_current_keyboard_state(), default_state.keyboard_state);
+            assert_eq!(
+                info.get_current_keyboard_state(),
+                default_state.keyboard_state
+            );
             assert_eq!(info.get_current_mouse_state(), default_state.mouse_state);
         });
     }
@@ -1846,7 +1940,10 @@ mod autotest_generated {
         with_env(|env| {
             let info = env.timer_info();
             assert!(info.get_cursor_position().is_none());
-            assert_eq!(info.get_cursor_relative_to_viewport(), OptionLogicalPosition::None);
+            assert_eq!(
+                info.get_cursor_relative_to_viewport(),
+                OptionLogicalPosition::None
+            );
             assert!(info.get_cursor_relative_to_node().is_none());
 
             let viewport = LogicalPosition::new(f32::NAN, 7.5);
@@ -1882,13 +1979,16 @@ mod autotest_generated {
     fn invoke_does_not_run_the_callback_before_the_delay_elapses() {
         let _g = clock_guard();
         with_env(|env| {
-            let mut t =
-                timer_at(0, recording_cb as TimerCallbackType).with_delay(tick_dur(100));
+            let mut t = timer_at(0, recording_cb as TimerCallbackType).with_delay(tick_dur(100));
             let info = env.info();
 
             set_now(99);
             let r = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 0, "callback must not fire early");
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                0,
+                "callback must not fire early"
+            );
             assert_eq!(r.should_update, Update::DoNothing);
             assert_eq!(r.should_terminate, TerminateTimer::Continue);
             // A skipped tick must leave the timer's progress untouched.
@@ -1909,8 +2009,7 @@ mod autotest_generated {
     fn invoke_gates_subsequent_runs_on_the_interval() {
         let _g = clock_guard();
         with_env(|env| {
-            let mut t =
-                timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(10));
+            let mut t = timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(10));
             let info = env.info();
 
             // No delay -> the first invoke runs immediately.
@@ -1921,7 +2020,11 @@ mod autotest_generated {
 
             set_now(9);
             let r = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 1, "1 tick short of the interval");
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                1,
+                "1 tick short of the interval"
+            );
             assert_eq!(r.should_update, Update::DoNothing);
             assert_eq!(t.run_count, 1, "a skipped tick must not count as a run");
 
@@ -1943,8 +2046,7 @@ mod autotest_generated {
     fn invoke_keeps_its_phase_when_a_fire_arrives_late() {
         let _g = clock_guard();
         with_env(|env| {
-            let mut t =
-                timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(10));
+            let mut t = timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(10));
             let info = env.info();
 
             // First run establishes the schedule at t=0.
@@ -1980,8 +2082,7 @@ mod autotest_generated {
     fn invoke_resynchronises_after_falling_far_behind() {
         let _g = clock_guard();
         with_env(|env| {
-            let mut t =
-                timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(10));
+            let mut t = timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(10));
             let info = env.info();
             let _ = t.invoke(&info, &fake_clock_cb());
 
@@ -2005,13 +2106,25 @@ mod autotest_generated {
 
             set_now(5);
             let _ = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(CB_SEEN_CALL_COUNT.load(Ordering::SeqCst), 0, "first run is call 0");
-            assert_eq!(CB_SEEN_FRAME_START.load(Ordering::SeqCst), 5, "frame_start == now");
+            assert_eq!(
+                CB_SEEN_CALL_COUNT.load(Ordering::SeqCst),
+                0,
+                "first run is call 0"
+            );
+            assert_eq!(
+                CB_SEEN_FRAME_START.load(Ordering::SeqCst),
+                5,
+                "frame_start == now"
+            );
             assert!(!CB_SEEN_ABOUT_TO_FINISH.load(Ordering::SeqCst));
 
             set_now(6);
             let _ = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(CB_SEEN_CALL_COUNT.load(Ordering::SeqCst), 1, "run_count increments by 1");
+            assert_eq!(
+                CB_SEEN_CALL_COUNT.load(Ordering::SeqCst),
+                1,
+                "run_count increments by 1"
+            );
             assert_eq!(CB_SEEN_FRAME_START.load(Ordering::SeqCst), 6);
         });
     }
@@ -2027,15 +2140,26 @@ mod autotest_generated {
 
             set_now(5);
             let r = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(r.should_terminate, TerminateTimer::Continue, "elapsed == timeout: alive");
+            assert_eq!(
+                r.should_terminate,
+                TerminateTimer::Continue,
+                "elapsed == timeout: alive"
+            );
             assert!(!CB_SEEN_ABOUT_TO_FINISH.load(Ordering::SeqCst));
 
             set_now(6);
             let r = t.invoke(&info, &fake_clock_cb());
             // ...but the timeout overrides it, and the callback is told so.
-            assert!(CB_SEEN_ABOUT_TO_FINISH.load(Ordering::SeqCst), "last-call flag must be set");
+            assert!(
+                CB_SEEN_ABOUT_TO_FINISH.load(Ordering::SeqCst),
+                "last-call flag must be set"
+            );
             assert_eq!(r.should_terminate, TerminateTimer::Terminate);
-            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 2, "the final run still happens");
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                2,
+                "the final run still happens"
+            );
         });
     }
 
@@ -2059,8 +2183,7 @@ mod autotest_generated {
     fn invoke_skips_deterministically_when_the_clock_runs_backwards() {
         let _g = clock_guard();
         with_env(|env| {
-            let mut t =
-                timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(10));
+            let mut t = timer_at(0, recording_cb as TimerCallbackType).with_interval(tick_dur(10));
             t.last_run = OptionInstant::Some(tick(1_000));
             let info = env.info();
 
@@ -2071,7 +2194,11 @@ mod autotest_generated {
             assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 0);
             assert_eq!(r.should_terminate, TerminateTimer::Continue);
             assert_eq!(t.run_count, 0);
-            assert_eq!(t.last_run, OptionInstant::Some(tick(1_000)), "last_run is untouched");
+            assert_eq!(
+                t.last_run,
+                OptionInstant::Some(tick(1_000)),
+                "last_run is untouched"
+            );
         });
     }
 
@@ -2086,8 +2213,8 @@ mod autotest_generated {
         let _g = clock_guard();
         with_env(|env| {
             // 60_000ms is exactly 3600 frames at 60Hz.
-            let mut t =
-                timer_at(0, recording_cb as TimerCallbackType).with_interval(sys_dur_millis(60_000));
+            let mut t = timer_at(0, recording_cb as TimerCallbackType)
+                .with_interval(sys_dur_millis(60_000));
             let info = env.info();
 
             // First invoke has no `last_run`, so only the (absent) delay gates it.
@@ -2105,12 +2232,20 @@ mod autotest_generated {
             // One frame BEFORE the interval: still nothing.
             set_now(3_599);
             let _ = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 1, "frame 3599 is early");
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                1,
+                "frame 3599 is early"
+            );
 
             // Exactly at the interval: fires, because the gate is `elapsed < interval`.
             set_now(3_600);
             let _ = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 2, "frame 3600 is the flip");
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                2,
+                "frame 3600 is the flip"
+            );
             assert_eq!(t.run_count, 2);
         });
     }
@@ -2155,18 +2290,30 @@ mod autotest_generated {
             // Frame 5 is the flip.
             set_now(5);
             let _ = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 2, "frame 5 must fire");
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                2,
+                "frame 5 must fire"
+            );
             assert_eq!(CB_SEEN_FRAME_START.load(Ordering::SeqCst), 5);
             assert_eq!(t.last_run, OptionInstant::Some(tick(5)));
 
             // ...and frame 6 is early again for the NEXT interval.
             set_now(6);
             let _ = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 2, "frame 6 restarts the wait");
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                2,
+                "frame 6 restarts the wait"
+            );
 
             set_now(10);
             let _ = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 3, "frame 10 is the second flip");
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                3,
+                "frame 10 is the second flip"
+            );
         });
     }
 
@@ -2212,7 +2359,11 @@ mod autotest_generated {
 
             set_now(3);
             let _ = t.invoke(&info, &fake_clock_cb());
-            assert_eq!(CB_INVOCATIONS.load(Ordering::SeqCst), 1, "frame 3 is the first run");
+            assert_eq!(
+                CB_INVOCATIONS.load(Ordering::SeqCst),
+                1,
+                "frame 3 is the first run"
+            );
         });
     }
 

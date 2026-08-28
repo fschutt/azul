@@ -122,7 +122,14 @@ pub fn mic_read(handle: u64, out: &mut Vec<f32>) -> u32 {
     let ch = mic.channels.max(1) as usize;
     out.clear();
     out.resize(FRAMES as usize * ch, 0.0);
-    let n = unsafe { (f.read)(mic.stream, out.as_mut_ptr() as *mut c_void, FRAMES, TIMEOUT_NS) };
+    let n = unsafe {
+        (f.read)(
+            mic.stream,
+            out.as_mut_ptr() as *mut c_void,
+            FRAMES,
+            TIMEOUT_NS,
+        )
+    };
     if n <= 0 {
         out.clear();
         return 0;
@@ -173,7 +180,12 @@ impl AAudioSink {
         }
         if let Some(f) = aaudio() {
             unsafe {
-                (f.write)(self.stream, samples.as_ptr() as *const c_void, frames, TIMEOUT_NS);
+                (f.write)(
+                    self.stream,
+                    samples.as_ptr() as *const c_void,
+                    frames,
+                    TIMEOUT_NS,
+                );
             }
         }
     }

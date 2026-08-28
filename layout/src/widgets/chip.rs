@@ -23,18 +23,32 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutMarginLeft},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            StyleFontSize,
+        },
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutMarginLeft, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+            LayoutPaddingTop,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContentVec, StyleBackgroundContent, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleTextAlign, StyleUserSelect, StyleCursor},
+        style::{
+            StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderBottomLeftRadius,
+            StyleBorderBottomRightRadius, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+            StyleCursor, StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
 
-static CHIP_CONTAINER_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-chip"))];
+static CHIP_CONTAINER_CLASS: &[IdOrClass] =
+    &[Class(AzString::from_const_str("__azul-native-chip"))];
 static CHIP_LABEL_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-chip-label"))];
 static CHIP_REMOVE_CLASS: &[IdOrClass] =
@@ -112,22 +126,81 @@ impl ChipKind {
     /// Returns the `(background, text)` colours for this chip kind.
     #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU) {
-        const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-        const DARK: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
+        const WHITE: ColorU = ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        const DARK: ColorU = ColorU {
+            r: 33,
+            g: 37,
+            b: 41,
+            a: 255,
+        };
         match self {
             // The default chip is a light neutral pill with dark text (the
             // common "tag" look), unlike Badge's solid grey.
-            Self::Default => (ColorU { r: 233, g: 236, b: 239, a: 255 }, DARK),
-            Self::Primary => (ColorU { r: 13, g: 110, b: 253, a: 255 }, WHITE),
-            Self::Success => (ColorU { r: 25, g: 135, b: 84, a: 255 }, WHITE),
-            Self::Danger => (ColorU { r: 220, g: 53, b: 69, a: 255 }, WHITE),
-            Self::Warning => (ColorU { r: 255, g: 193, b: 7, a: 255 }, DARK),
-            Self::Info => (ColorU { r: 13, g: 202, b: 240, a: 255 }, DARK),
+            Self::Default => (
+                ColorU {
+                    r: 233,
+                    g: 236,
+                    b: 239,
+                    a: 255,
+                },
+                DARK,
+            ),
+            Self::Primary => (
+                ColorU {
+                    r: 13,
+                    g: 110,
+                    b: 253,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            Self::Success => (
+                ColorU {
+                    r: 25,
+                    g: 135,
+                    b: 84,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            Self::Danger => (
+                ColorU {
+                    r: 220,
+                    g: 53,
+                    b: 69,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            Self::Warning => (
+                ColorU {
+                    r: 255,
+                    g: 193,
+                    b: 7,
+                    a: 255,
+                },
+                DARK,
+            ),
+            Self::Info => (
+                ColorU {
+                    r: 13,
+                    g: 202,
+                    b: 240,
+                    a: 255,
+                },
+                DARK,
+            ),
         }
     }
 
     /// CSS class name for this chip kind (mirrors `BadgeKind::class_name`).
-    #[must_use] pub const fn class_name(&self) -> &'static str {
+    #[must_use]
+    pub const fn class_name(&self) -> &'static str {
         match self {
             Self::Default => "__azul-chip-default",
             Self::Primary => "__azul-chip-primary",
@@ -199,9 +272,9 @@ fn build_chip_style(kind: ChipKind) -> CssPropertyWithConditionsVec {
             0,
         ))),
         // padding: 4px 10px
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-            4,
-        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(4,)
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
             LayoutPaddingBottom::const_px(4),
         )),
@@ -224,7 +297,9 @@ fn build_chip_style(kind: ChipKind) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
             StyleBorderBottomRightRadius::const_px(12),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            13
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
         // Text colour is inherited by the label + "x" children.
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
@@ -255,13 +330,15 @@ static CHIP_REMOVE_STYLE: &[CssPropertyWithConditions] = &[
 impl Chip {
     /// Creates a new chip with the given label and the default (light-grey) kind.
     #[inline]
-    #[must_use] pub fn create(label: AzString) -> Self {
+    #[must_use]
+    pub fn create(label: AzString) -> Self {
         Self::with_kind(label, ChipKind::Default)
     }
 
     /// Creates a new chip with the given label and colour variant.
     #[inline]
-    #[must_use] pub fn with_kind(label: AzString, kind: ChipKind) -> Self {
+    #[must_use]
+    pub fn with_kind(label: AzString, kind: ChipKind) -> Self {
         Self {
             chip_state: ChipStateWrapper::default(),
             label,
@@ -280,7 +357,8 @@ impl Chip {
 
     /// Builder-style setter for the colour variant.
     #[inline]
-    #[must_use] pub fn with_chip_kind(mut self, kind: ChipKind) -> Self {
+    #[must_use]
+    pub fn with_chip_kind(mut self, kind: ChipKind) -> Self {
         self.set_kind(kind);
         self
     }
@@ -293,7 +371,8 @@ impl Chip {
 
     /// Builder-style setter for the removable flag.
     #[inline]
-    #[must_use] pub const fn with_removable(mut self, removable: bool) -> Self {
+    #[must_use]
+    pub const fn with_removable(mut self, removable: bool) -> Self {
         self.set_removable(removable);
         self
     }
@@ -311,7 +390,8 @@ impl Chip {
 
     /// Builder-style setter for the remove callback (implies removable).
     #[inline]
-    #[must_use] pub fn with_on_remove<C: Into<ChipOnRemoveCallback>>(
+    #[must_use]
+    pub fn with_on_remove<C: Into<ChipOnRemoveCallback>>(
         mut self,
         data: RefAny,
         on_remove: C,
@@ -332,7 +412,8 @@ impl Chip {
 
     /// Builder-style setter for the click callback.
     #[inline]
-    #[must_use] pub fn with_on_click<C: Into<ChipOnClickCallback>>(
+    #[must_use]
+    pub fn with_on_click<C: Into<ChipOnClickCallback>>(
         mut self,
         data: RefAny,
         on_click: C,
@@ -343,7 +424,8 @@ impl Chip {
 
     /// Replaces `self` with an empty default chip and returns the original.
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
@@ -351,7 +433,8 @@ impl Chip {
 
     /// Converts this chip into a DOM subtree with the `__azul-native-chip` class.
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -366,7 +449,9 @@ impl Chip {
 
         let mut label = crate::widgets::widget_p_with_text(self.label)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(CHIP_LABEL_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(CHIP_LABEL_STYLE));
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                CHIP_LABEL_STYLE,
+            ));
 
         // The click callback is attached to the LABEL node rather than the
         // pill container: a container-level MouseUp would also fire when the
@@ -383,16 +468,16 @@ impl Chip {
                     ..Default::default()
                 })
                 .with_callbacks(
-                alloc::vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                    callback: CoreCallback {
-                        cb: default_on_chip_click as usize,
-                        ctx: OptionRefAny::None,
-                    },
-                    refany: state_ref.clone(),
-                }]
-                .into(),
-            );
+                    alloc::vec![CoreCallbackData {
+                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        callback: CoreCallback {
+                            cb: default_on_chip_click as usize,
+                            ctx: OptionRefAny::None,
+                        },
+                        refany: state_ref.clone(),
+                    }]
+                    .into(),
+                );
         }
 
         let mut children = alloc::vec![label];
@@ -534,8 +619,18 @@ mod autotest_generated {
         ChipKind::Info,
     ];
 
-    const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-    const DARK: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
+    const WHITE: ColorU = ColorU {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    const DARK: ColorU = ColorU {
+        r: 33,
+        g: 37,
+        b: 41,
+        a: 255,
+    };
 
     /// The declared properties of a style vec, in declaration order.
     fn properties(v: &CssPropertyWithConditionsVec) -> Vec<CssProperty> {
@@ -546,14 +641,22 @@ mod autotest_generated {
     fn property_types(
         v: &CssPropertyWithConditionsVec,
     ) -> Vec<core::mem::Discriminant<CssProperty>> {
-        v.as_ref().iter().map(|p| core::mem::discriminant(&p.property)).collect()
+        v.as_ref()
+            .iter()
+            .map(|p| core::mem::discriminant(&p.property))
+            .collect()
     }
 
     /// The `f32` of a `PixelValue`, asserting it is an absolute `px` length — an
     /// `em`/`%` slipping into the pill geometry would resolve against the parent
     /// font/box instead of the intended fixed padding or radius.
     fn px(pv: &PixelValue) -> f32 {
-        assert_eq!(pv.metric, SizeMetric::Px, "chip geometry must be absolute px, got {:?}", pv.metric);
+        assert_eq!(
+            pv.metric,
+            SizeMetric::Px,
+            "chip geometry must be absolute px, got {:?}",
+            pv.metric
+        );
         pv.number.get()
     }
 
@@ -561,7 +664,9 @@ mod autotest_generated {
     fn padding_px(
         v: &CssPropertyWithConditionsVec,
     ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
-        let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| v.as_ref().iter().find_map(|p| f(&p.property));
+        let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| {
+            v.as_ref().iter().find_map(|p| f(&p.property))
+        };
         (
             find(&|p| match p {
                 CssProperty::PaddingTop(x) => x.get_property().map(|x| px(&x.inner)),
@@ -617,7 +722,11 @@ mod autotest_generated {
             CssProperty::BackgroundContent(b) => b.get_property(),
             _ => None,
         })?;
-        assert_eq!(bg.as_ref().len(), 1, "a chip must declare exactly one background layer");
+        assert_eq!(
+            bg.as_ref().len(),
+            1,
+            "a chip must declare exactly one background layer"
+        );
         match &bg.as_ref()[0] {
             StyleBackgroundContent::Color(c) => Some(*c),
             other => panic!("chip background is not a flat colour: {other:?}"),
@@ -668,7 +777,11 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
     }
 
     /// Adversarial chip labels: empty, whitespace, combining marks, ZWJ emoji,
@@ -756,7 +869,9 @@ mod autotest_generated {
         if let Some(mut probe) = data.downcast_mut::<ReentrantProbe>() {
             probe.calls += 1;
             let mut state = probe.state.clone();
-            probe.saw_state = state.downcast_ref::<ChipStateWrapper>().map(|w| w.inner.visible);
+            probe.saw_state = state
+                .downcast_ref::<ChipStateWrapper>()
+                .map(|w| w.inner.visible);
         }
         Update::DoNothing
     }
@@ -831,7 +946,9 @@ mod autotest_generated {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         if let Some(sd) = styled {
-            layout_window.layout_results.insert(DomId::ROOT_ID, layout_result(sd));
+            layout_window
+                .layout_results
+                .insert(DomId::ROOT_ID, layout_result(sd));
         }
 
         let renderer_resources = RendererResources::default();
@@ -897,7 +1014,12 @@ mod autotest_generated {
     fn display_writes(changes: &[CallbackChange]) -> Vec<(usize, LayoutDisplay)> {
         let mut out = Vec::new();
         for change in changes {
-            if let CallbackChange::ChangeNodeCssProperties { node_id, properties, .. } = change {
+            if let CallbackChange::ChangeNodeCssProperties {
+                node_id,
+                properties,
+                ..
+            } = change
+            {
                 for p in properties.as_ref() {
                     if let CssProperty::Display(v) = p {
                         if let Some(d) = v.get_property() {
@@ -931,8 +1053,11 @@ mod autotest_generated {
         let state = RefAny::new(ChipStateWrapper {
             inner: ChipState { visible },
             on_remove: OptionChipOnRemove::None,
-            on_click: Some(ChipOnClick { callback: click_cb(record_click), refany: log.clone() })
-                .into(),
+            on_click: Some(ChipOnClick {
+                callback: click_cb(record_click),
+                refany: log.clone(),
+            })
+            .into(),
         });
         (state, log)
     }
@@ -946,15 +1071,73 @@ mod autotest_generated {
         let expected = [
             // NOTE: unlike `BadgeKind::Default` (solid grey + white text), the
             // default *chip* is the light neutral "tag" pill with dark text.
-            (ChipKind::Default, ColorU { r: 233, g: 236, b: 239, a: 255 }, DARK),
-            (ChipKind::Primary, ColorU { r: 13, g: 110, b: 253, a: 255 }, WHITE),
-            (ChipKind::Success, ColorU { r: 25, g: 135, b: 84, a: 255 }, WHITE),
-            (ChipKind::Danger, ColorU { r: 220, g: 53, b: 69, a: 255 }, WHITE),
-            (ChipKind::Warning, ColorU { r: 255, g: 193, b: 7, a: 255 }, DARK),
-            (ChipKind::Info, ColorU { r: 13, g: 202, b: 240, a: 255 }, DARK),
+            (
+                ChipKind::Default,
+                ColorU {
+                    r: 233,
+                    g: 236,
+                    b: 239,
+                    a: 255,
+                },
+                DARK,
+            ),
+            (
+                ChipKind::Primary,
+                ColorU {
+                    r: 13,
+                    g: 110,
+                    b: 253,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            (
+                ChipKind::Success,
+                ColorU {
+                    r: 25,
+                    g: 135,
+                    b: 84,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            (
+                ChipKind::Danger,
+                ColorU {
+                    r: 220,
+                    g: 53,
+                    b: 69,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            (
+                ChipKind::Warning,
+                ColorU {
+                    r: 255,
+                    g: 193,
+                    b: 7,
+                    a: 255,
+                },
+                DARK,
+            ),
+            (
+                ChipKind::Info,
+                ColorU {
+                    r: 13,
+                    g: 202,
+                    b: 240,
+                    a: 255,
+                },
+                DARK,
+            ),
         ];
         for (kind, bg, text) in expected {
-            assert_eq!(kind.colors(), (bg, text), "{kind:?}: wrong (background, text) pair");
+            assert_eq!(
+                kind.colors(),
+                (bg, text),
+                "{kind:?}: wrong (background, text) pair"
+            );
         }
         // The doc comments promise Default/Warning/Info are the dark-text kinds and
         // no others: a fourth dark-text kind sneaking in here is a regression.
@@ -1023,11 +1206,19 @@ mod autotest_generated {
                 "{kind:?}: text {text:?} (delta luma {chosen:.1}) is less readable on {bg:?} than \
                  {other:?} (delta luma {rejected:.1})"
             );
-            assert!(chosen >= 60.0, "{kind:?}: text/background brightness gap {chosen:.1} is too low to read");
+            assert!(
+                chosen >= 60.0,
+                "{kind:?}: text/background brightness gap {chosen:.1} is too low to read"
+            );
 
             // Mid-grey split: a light pill must not carry white text.
             let light_bg = luma(bg) >= 128.0;
-            assert_eq!(text == DARK, light_bg, "{kind:?}: bg luma {:.1} but text is {text:?}", luma(bg));
+            assert_eq!(
+                text == DARK,
+                light_bg,
+                "{kind:?}: bg luma {:.1} but text is {text:?}",
+                luma(bg)
+            );
         }
     }
 
@@ -1039,15 +1230,31 @@ mod autotest_generated {
         // through a copy, must be side-effect free and identical.
         for kind in ALL_KINDS {
             let copy = kind;
-            assert_eq!(kind.colors(), kind.colors(), "{kind:?}: colors() is not pure");
-            assert_eq!(kind.colors(), copy.colors(), "{kind:?}: a copy disagrees with the original");
+            assert_eq!(
+                kind.colors(),
+                kind.colors(),
+                "{kind:?}: colors() is not pure"
+            );
+            assert_eq!(
+                kind.colors(),
+                copy.colors(),
+                "{kind:?}: a copy disagrees with the original"
+            );
         }
     }
 
     #[test]
     fn colors_is_const_evaluable() {
         const DEFAULT: (ColorU, ColorU) = ChipKind::Default.colors();
-        assert_eq!(DEFAULT.0, ColorU { r: 233, g: 236, b: 239, a: 255 });
+        assert_eq!(
+            DEFAULT.0,
+            ColorU {
+                r: 233,
+                g: 236,
+                b: 239,
+                a: 255
+            }
+        );
         assert_eq!(DEFAULT.1, DARK);
     }
 
@@ -1071,13 +1278,20 @@ mod autotest_generated {
         let mut seen = HashSet::new();
         for kind in ALL_KINDS {
             let name = kind.class_name();
-            assert!(seen.insert(name), "{kind:?}: class name {name:?} collides with another kind");
+            assert!(
+                seen.insert(name),
+                "{kind:?}: class name {name:?} collides with another kind"
+            );
             assert!(!name.is_empty(), "{kind:?}: empty class name");
-            assert!(name.starts_with("__azul-chip-"), "{kind:?}: unnamespaced class {name:?}");
+            assert!(
+                name.starts_with("__azul-chip-"),
+                "{kind:?}: unnamespaced class {name:?}"
+            );
             assert!(name.is_ascii(), "{kind:?}: non-ASCII class name {name:?}");
             // A space, a dot or a `#` would silently split/re-target the selector.
             assert!(
-                name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+                name.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
                 "{kind:?}: class name {name:?} contains a CSS-significant character"
             );
             // The returned `&'static str` must be stable across calls.
@@ -1095,12 +1309,18 @@ mod autotest_generated {
         // `__azul-native-chip` is a *prefix* of `__azul-native-chip-label` and
         // `__azul-native-chip-remove`; the kind classes live in their own
         // `__azul-chip-` namespace and must not alias any of the three.
-        let element_classes =
-            ["__azul-native-chip", "__azul-native-chip-label", "__azul-native-chip-remove"];
+        let element_classes = [
+            "__azul-native-chip",
+            "__azul-native-chip-label",
+            "__azul-native-chip-remove",
+        ];
         for kind in ALL_KINDS {
             let name = kind.class_name();
             for element in element_classes {
-                assert_ne!(name, element, "{kind:?}: kind class shadows the element class {element:?}");
+                assert_ne!(
+                    name, element,
+                    "{kind:?}: kind class shadows the element class {element:?}"
+                );
             }
         }
     }
@@ -1129,7 +1349,11 @@ mod autotest_generated {
                 vec![12.0, 12.0, 12.0, 12.0],
                 "{kind:?}: all four corners must carry a 12px radius"
             );
-            assert_eq!(font_size_px(&style), Some(13.0), "{kind:?}: wrong font size");
+            assert_eq!(
+                font_size_px(&style),
+                Some(13.0),
+                "{kind:?}: wrong font size"
+            );
         }
     }
 
@@ -1159,7 +1383,10 @@ mod autotest_generated {
             let props = properties(&build_chip_style(kind));
             let has = |p: &CssProperty| props.contains(p);
 
-            assert!(has(&CssProperty::const_display(LayoutDisplay::Flex)), "{kind:?}: not a flex box");
+            assert!(
+                has(&CssProperty::const_display(LayoutDisplay::Flex)),
+                "{kind:?}: not a flex box"
+            );
             assert!(
                 has(&CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
                 "{kind:?}: the label and the x must sit side by side"
@@ -1214,16 +1441,31 @@ mod autotest_generated {
                     _ => None,
                 })
                 .collect();
-            assert_eq!(families.len(), 1, "{kind:?}: exactly one font-family declaration");
+            assert_eq!(
+                families.len(),
+                1,
+                "{kind:?}: exactly one font-family declaration"
+            );
             let fams = families[0].as_ref();
-            assert_eq!(fams.len(), 1, "{kind:?}: expected a single system-ui family");
+            assert_eq!(
+                fams.len(),
+                1,
+                "{kind:?}: expected a single system-ui family"
+            );
             match &fams[0] {
                 StyleFontFamily::System(name) => {
-                    assert_eq!(name.as_str(), "system:ui", "{kind:?}: wrong system font family")
+                    assert_eq!(
+                        name.as_str(),
+                        "system:ui",
+                        "{kind:?}: wrong system font family"
+                    )
                 }
                 other => panic!("{kind:?}: chip must use the system UI font, got {other:?}"),
             }
-            assert!(text_color(&style).is_some(), "{kind:?}: no inheritable text colour declared");
+            assert!(
+                text_color(&style).is_some(),
+                "{kind:?}: no inheritable text colour declared"
+            );
         }
     }
 
@@ -1232,8 +1474,16 @@ mod autotest_generated {
         for kind in ALL_KINDS {
             let style = build_chip_style(kind);
             let (bg, text) = kind.colors();
-            assert_eq!(background_color(&style), Some(bg), "{kind:?}: emitted background != colors().0");
-            assert_eq!(text_color(&style), Some(text), "{kind:?}: emitted text colour != colors().1");
+            assert_eq!(
+                background_color(&style),
+                Some(bg),
+                "{kind:?}: emitted background != colors().0"
+            );
+            assert_eq!(
+                text_color(&style),
+                Some(text),
+                "{kind:?}: emitted text colour != colors().1"
+            );
         }
     }
 
@@ -1245,7 +1495,10 @@ mod autotest_generated {
             let types = property_types(&build_chip_style(kind));
             let mut seen = HashSet::new();
             for t in &types {
-                assert!(seen.insert(*t), "{kind:?}: the container style declares the same property twice");
+                assert!(
+                    seen.insert(*t),
+                    "{kind:?}: the container style declares the same property twice"
+                );
             }
             assert_eq!(seen.len(), types.len());
         }
@@ -1269,7 +1522,10 @@ mod autotest_generated {
     #[test]
     fn build_chip_style_is_deterministic_and_kind_dependent() {
         let baseline = property_types(&build_chip_style(ChipKind::Default));
-        assert!(!baseline.is_empty(), "the container style must not be empty");
+        assert!(
+            !baseline.is_empty(),
+            "the container style must not be empty"
+        );
 
         for kind in ALL_KINDS {
             assert_eq!(
@@ -1318,13 +1574,20 @@ mod autotest_generated {
                     differing.len(),
                     expected,
                     "{a:?} vs {b:?}: only the background{} may depend on the kind",
-                    if same_text { "" } else { " and the text colour" }
+                    if same_text {
+                        ""
+                    } else {
+                        " and the text colour"
+                    }
                 );
-                let bg_differs = style_a
-                    .as_ref()
-                    .iter()
-                    .zip(style_b.as_ref().iter())
-                    .any(|(x, y)| x != y && matches!(x.property, CssProperty::BackgroundContent(_)));
+                let bg_differs =
+                    style_a
+                        .as_ref()
+                        .iter()
+                        .zip(style_b.as_ref().iter())
+                        .any(|(x, y)| {
+                            x != y && matches!(x.property, CssProperty::BackgroundContent(_))
+                        });
                 assert!(
                     bg_differs,
                     "{a:?} vs {b:?}: the background must be one of the differing declarations"
@@ -1339,12 +1602,19 @@ mod autotest_generated {
         // a NaN/inf/negative length must never reach the layout solver.
         for kind in ALL_KINDS {
             let values = all_pixel_values(&build_chip_style(kind));
-            assert_eq!(values.len(), 9, "{kind:?}: expected 4 paddings + 4 radii + 1 font size");
+            assert_eq!(
+                values.len(),
+                9,
+                "{kind:?}: expected 4 paddings + 4 radii + 1 font size"
+            );
             for pv in values {
                 let n = px(&pv); // also asserts SizeMetric::Px
                 assert!(n.is_finite(), "{kind:?}: non-finite length {n}");
                 assert!(n >= 0.0, "{kind:?}: negative length {n}");
-                assert!(n <= 128.0, "{kind:?}: implausibly large length {n} for a chip");
+                assert!(
+                    n <= 128.0,
+                    "{kind:?}: implausibly large length {n} for a chip"
+                );
             }
         }
     }
@@ -1354,11 +1624,16 @@ mod autotest_generated {
         for (name, style) in [("label", CHIP_LABEL_STYLE), ("remove", CHIP_REMOVE_STYLE)] {
             let vec = CssPropertyWithConditionsVec::from_const_slice(style);
             for p in vec.as_ref() {
-                assert!(p.apply_if.as_ref().is_empty(), "{name}: {:?} must be unconditional", p.property);
+                assert!(
+                    p.apply_if.as_ref().is_empty(),
+                    "{name}: {:?} must be unconditional",
+                    p.property
+                );
             }
             // Both children must hug their content, or the "x" is pushed off the pill.
             assert!(
-                properties(&vec).contains(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+                properties(&vec)
+                    .contains(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
                 "{name}: child must not grow inside the pill"
             );
             for pv in all_pixel_values(&vec) {
@@ -1387,7 +1662,9 @@ mod autotest_generated {
             "dragging across the x must not select the glyph"
         );
         assert!(
-            props.contains(&CssProperty::const_margin_left(LayoutMarginLeft::const_px(6))),
+            props.contains(&CssProperty::const_margin_left(LayoutMarginLeft::const_px(
+                6
+            ))),
             "the x needs breathing room from the label"
         );
 
@@ -1402,7 +1679,9 @@ mod autotest_generated {
             "the label must not be selectable (it is a click target)"
         );
         assert!(
-            !label_props.iter().any(|p| matches!(p, CssProperty::Cursor(_))),
+            !label_props
+                .iter()
+                .any(|p| matches!(p, CssProperty::Cursor(_))),
             "only the x declares a pointer cursor"
         );
     }
@@ -1415,14 +1694,35 @@ mod autotest_generated {
     fn create_defaults_to_the_neutral_tag_and_keeps_the_label_verbatim() {
         for s in adversarial_strings() {
             let c = Chip::create(AzString::from(s.clone()));
-            assert_eq!(c.label.as_str(), s.as_str(), "the label was not preserved verbatim");
-            assert_eq!(c.label.len(), s.len(), "byte length changed (NUL truncation?)");
-            assert_eq!(c.kind, ChipKind::Default, "create() must use the neutral default kind");
+            assert_eq!(
+                c.label.as_str(),
+                s.as_str(),
+                "the label was not preserved verbatim"
+            );
+            assert_eq!(
+                c.label.len(),
+                s.len(),
+                "byte length changed (NUL truncation?)"
+            );
+            assert_eq!(
+                c.kind,
+                ChipKind::Default,
+                "create() must use the neutral default kind"
+            );
             assert!(!c.removable, "a fresh chip renders no x");
             assert!(c.chip_state.inner.visible, "a fresh chip is visible");
-            assert!(c.chip_state.on_remove.is_none(), "a fresh chip carries no remove callback");
-            assert!(c.chip_state.on_click.is_none(), "a fresh chip carries no click callback");
-            assert_eq!(properties(&c.container_style), properties(&build_chip_style(ChipKind::Default)));
+            assert!(
+                c.chip_state.on_remove.is_none(),
+                "a fresh chip carries no remove callback"
+            );
+            assert!(
+                c.chip_state.on_click.is_none(),
+                "a fresh chip carries no click callback"
+            );
+            assert_eq!(
+                properties(&c.container_style),
+                properties(&build_chip_style(ChipKind::Default))
+            );
         }
     }
 
@@ -1431,12 +1731,22 @@ mod autotest_generated {
         for kind in ALL_KINDS {
             for s in adversarial_strings() {
                 let c = Chip::with_kind(AzString::from(s.clone()), kind);
-                assert_eq!(c.label.as_str(), s.as_str(), "{kind:?}: label not preserved");
+                assert_eq!(
+                    c.label.as_str(),
+                    s.as_str(),
+                    "{kind:?}: label not preserved"
+                );
                 assert_eq!(c.label.len(), s.len(), "{kind:?}: byte length changed");
-                assert_eq!(c.kind, kind, "{kind:?}: kind field does not match the argument");
+                assert_eq!(
+                    c.kind, kind,
+                    "{kind:?}: kind field does not match the argument"
+                );
                 assert!(!c.removable, "{kind:?}: with_kind must not turn on the x");
                 // The invariant that makes `container_style` a cache and not a lie.
-                assert_eq!(properties(&c.container_style), properties(&build_chip_style(kind)));
+                assert_eq!(
+                    properties(&c.container_style),
+                    properties(&build_chip_style(kind))
+                );
                 assert_eq!(background_color(&c.container_style), Some(kind.colors().0));
             }
         }
@@ -1461,7 +1771,11 @@ mod autotest_generated {
         assert!(!d.removable);
         assert_eq!(d.clone(), d, "Clone must preserve equality");
 
-        assert_ne!(d, Chip::create(AzString::from_const_str("tag")), "the label must affect equality");
+        assert_ne!(
+            d,
+            Chip::create(AzString::from_const_str("tag")),
+            "the label must affect equality"
+        );
         assert_ne!(
             Chip::with_kind(AzString::from_const_str("t"), ChipKind::Danger),
             Chip::with_kind(AzString::from_const_str("t"), ChipKind::Success),
@@ -1480,9 +1794,14 @@ mod autotest_generated {
         // allocated payloads holding the same `u8` are distinct, so the chips
         // that carry them must not compare equal either.
         let shared = RefAny::new(0u8);
-        let a = Chip::create(AzString::from("t")).with_on_click(shared.clone(), click_cb(click_do_nothing));
-        let b = Chip::create(AzString::from("t")).with_on_click(shared.clone(), click_cb(click_do_nothing));
-        assert_eq!(a, b, "chips sharing one payload and one callback must be equal");
+        let a = Chip::create(AzString::from("t"))
+            .with_on_click(shared.clone(), click_cb(click_do_nothing));
+        let b = Chip::create(AzString::from("t"))
+            .with_on_click(shared.clone(), click_cb(click_do_nothing));
+        assert_eq!(
+            a, b,
+            "chips sharing one payload and one callback must be equal"
+        );
 
         let c = Chip::create(AzString::from("t"))
             .with_on_click(RefAny::new(0u8), click_cb(click_do_nothing));
@@ -1521,14 +1840,21 @@ mod autotest_generated {
                 Some(kind.colors().0),
                 "round {round}: stale background"
             );
-            assert_eq!(c.label.as_str(), "tag", "round {round}: set_kind ate the label");
+            assert_eq!(
+                c.label.as_str(),
+                "tag",
+                "round {round}: set_kind ate the label"
+            );
         }
     }
 
     #[test]
     fn set_kind_leaves_label_removable_and_callbacks_alone() {
         let mut c = Chip::create(AzString::from("keep me"));
-        c.set_on_remove(RefAny::new(StateLog { calls: Vec::new() }), remove_cb(remove_do_nothing));
+        c.set_on_remove(
+            RefAny::new(StateLog { calls: Vec::new() }),
+            remove_cb(remove_do_nothing),
+        );
         c.set_on_click(RefAny::new(0u8), click_cb(click_do_nothing));
         c.chip_state.inner.visible = false;
 
@@ -1536,9 +1862,18 @@ mod autotest_generated {
 
         assert_eq!(c.label.as_str(), "keep me");
         assert!(c.removable, "set_kind must not clear the x");
-        assert!(c.chip_state.on_remove.is_some(), "set_kind must not drop the remove callback");
-        assert!(c.chip_state.on_click.is_some(), "set_kind must not drop the click callback");
-        assert!(!c.chip_state.inner.visible, "set_kind must not resurrect a removed chip");
+        assert!(
+            c.chip_state.on_remove.is_some(),
+            "set_kind must not drop the remove callback"
+        );
+        assert!(
+            c.chip_state.on_click.is_some(),
+            "set_kind must not drop the click callback"
+        );
+        assert!(
+            !c.chip_state.inner.visible,
+            "set_kind must not resurrect a removed chip"
+        );
     }
 
     #[test]
@@ -1556,9 +1891,15 @@ mod autotest_generated {
         assert_eq!(chained, mutated, "the builder and the mutator must agree");
         assert_eq!(chained.kind, ChipKind::Info);
         assert_eq!(chained.label.as_str(), "t");
-        assert_eq!(properties(&chained.container_style), properties(&build_chip_style(ChipKind::Info)));
+        assert_eq!(
+            properties(&chained.container_style),
+            properties(&build_chip_style(ChipKind::Info))
+        );
         // In particular the Danger red must be completely gone.
-        assert_eq!(background_color(&chained.container_style), Some(ChipKind::Info.colors().0));
+        assert_eq!(
+            background_color(&chained.container_style),
+            Some(ChipKind::Info.colors().0)
+        );
     }
 
     #[test]
@@ -1566,7 +1907,10 @@ mod autotest_generated {
         for kind in ALL_KINDS {
             let once = Chip::with_kind(AzString::from_const_str("x"), kind);
             let twice = once.clone().with_chip_kind(kind);
-            assert_eq!(once, twice, "{kind:?}: re-setting the same kind changed the chip");
+            assert_eq!(
+                once, twice,
+                "{kind:?}: re-setting the same kind changed the chip"
+            );
         }
         // A full cycle through every kind and back must not accumulate state.
         let original = Chip::create(AzString::from("t"));
@@ -1594,17 +1938,36 @@ mod autotest_generated {
 
         assert_eq!(c.kind, ChipKind::Warning);
         assert_eq!(c.label.as_str(), "t");
-        assert_eq!(c.container_style, style_before, "toggling must not restyle the pill");
-        assert!(c.chip_state.on_remove.is_none(), "toggling must not invent a callback");
-        assert!(c.chip_state.inner.visible, "toggling must not hide the chip");
+        assert_eq!(
+            c.container_style, style_before,
+            "toggling must not restyle the pill"
+        );
+        assert!(
+            c.chip_state.on_remove.is_none(),
+            "toggling must not invent a callback"
+        );
+        assert!(
+            c.chip_state.inner.visible,
+            "toggling must not hide the chip"
+        );
     }
 
     #[test]
     fn with_removable_toggle_sequence_ends_on_the_last_value() {
         assert!(Chip::default().with_removable(true).removable);
         assert!(!Chip::default().with_removable(false).removable);
-        assert!(!Chip::default().with_removable(true).with_removable(false).removable);
-        assert!(Chip::default().with_removable(false).with_removable(true).removable);
+        assert!(
+            !Chip::default()
+                .with_removable(true)
+                .with_removable(false)
+                .removable
+        );
+        assert!(
+            Chip::default()
+                .with_removable(false)
+                .with_removable(true)
+                .removable
+        );
 
         // builder == setter
         let mut mutated = Chip::default();
@@ -1618,7 +1981,10 @@ mod autotest_generated {
         let style = plain.container_style.clone();
         let removable = plain.clone().with_removable(true);
 
-        assert_eq!(removable.container_style, style, "the x must not restyle the container");
+        assert_eq!(
+            removable.container_style, style,
+            "the x must not restyle the container"
+        );
         assert_eq!(plain.dom().children.as_ref().len(), 1);
         assert_eq!(removable.dom().children.as_ref().len(), 2);
     }
@@ -1636,9 +2002,19 @@ mod autotest_generated {
 
         assert!(c.removable, "a remove callback must render an x");
         assert!(c.chip_state.on_remove.is_some());
-        assert!(c.chip_state.on_click.is_none(), "wiring on_remove must not invent an on_click");
-        assert!(c.chip_state.inner.visible, "wiring a callback must not hide the chip");
-        assert_eq!(c.dom().children.as_ref().len(), 2, "the x must actually be rendered");
+        assert!(
+            c.chip_state.on_click.is_none(),
+            "wiring on_remove must not invent an on_click"
+        );
+        assert!(
+            c.chip_state.inner.visible,
+            "wiring a callback must not hide the chip"
+        );
+        assert_eq!(
+            c.dom().children.as_ref().len(),
+            2,
+            "the x must actually be rendered"
+        );
     }
 
     #[test]
@@ -1646,7 +2022,13 @@ mod autotest_generated {
         let mut c = Chip::create(AzString::from("t"));
 
         c.set_on_remove(RefAny::new(1u8), remove_cb(remove_do_nothing));
-        let first = c.chip_state.on_remove.as_ref().expect("first callback").refany.get_type_id();
+        let first = c
+            .chip_state
+            .on_remove
+            .as_ref()
+            .expect("first callback")
+            .refany
+            .get_type_id();
         assert_eq!(first, RefAny::new(1u8).get_type_id());
 
         // a second call must *replace* the payload + function, not stack another one
@@ -1681,7 +2063,10 @@ mod autotest_generated {
         c.set_on_remove(RefAny::new(0u8), remove_cb(record_remove));
         c.set_removable(false);
 
-        assert!(c.chip_state.on_remove.is_some(), "the callback is still stored");
+        assert!(
+            c.chip_state.on_remove.is_some(),
+            "the callback is still stored"
+        );
         let dom = c.dom();
         assert_eq!(
             dom.children.as_ref().len(),
@@ -1721,7 +2106,10 @@ mod autotest_generated {
 
         // exactly one handler reaches the label
         let dom = c.dom();
-        assert_eq!(dom.children.as_ref()[0].root.get_callbacks().as_ref().len(), 1);
+        assert_eq!(
+            dom.children.as_ref()[0].root.get_callbacks().as_ref().len(),
+            1
+        );
     }
 
     #[test]
@@ -1741,11 +2129,23 @@ mod autotest_generated {
             .with_on_click(RefAny::new(1u8), click_cb(record_click))
             .with_on_remove(RefAny::new(2u8), remove_cb(record_remove));
 
-        assert!(c.removable, "on_remove still implies removable when on_click is set");
-        assert!(c.chip_state.on_click.is_some(), "on_remove must not clobber on_click");
+        assert!(
+            c.removable,
+            "on_remove still implies removable when on_click is set"
+        );
+        assert!(
+            c.chip_state.on_click.is_some(),
+            "on_remove must not clobber on_click"
+        );
         assert!(c.chip_state.on_remove.is_some());
-        assert_eq!(c.chip_state.on_click.as_ref().expect("on_click").callback, click_cb(record_click));
-        assert_eq!(c.chip_state.on_remove.as_ref().expect("on_remove").callback, remove_cb(record_remove));
+        assert_eq!(
+            c.chip_state.on_click.as_ref().expect("on_click").callback,
+            click_cb(record_click)
+        );
+        assert_eq!(
+            c.chip_state.on_remove.as_ref().expect("on_remove").callback,
+            remove_cb(record_remove)
+        );
 
         // Setting them in the opposite order must produce the same wiring.
         let reversed = Chip::create(AzString::from("t"))
@@ -1762,15 +2162,18 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_returns_the_original_and_leaves_a_default_behind() {
-        let mut c = Chip::with_kind(AzString::from_const_str("tag"), ChipKind::Danger)
-            .with_removable(true);
+        let mut c =
+            Chip::with_kind(AzString::from_const_str("tag"), ChipKind::Danger).with_removable(true);
         let taken = c.swap_with_default();
 
         // The returned value is the *original*, intact.
         assert_eq!(taken.label.as_str(), "tag");
         assert_eq!(taken.kind, ChipKind::Danger);
         assert!(taken.removable);
-        assert_eq!(properties(&taken.container_style), properties(&build_chip_style(ChipKind::Danger)));
+        assert_eq!(
+            properties(&taken.container_style),
+            properties(&build_chip_style(ChipKind::Danger))
+        );
 
         // What is left behind is a *default* chip — in particular its style must
         // be the neutral one and not a stale Danger red.
@@ -1803,8 +2206,14 @@ mod autotest_generated {
 
         let taken = c.swap_with_default();
 
-        assert!(taken.chip_state.on_remove.is_some(), "the remove callback moves out");
-        assert!(taken.chip_state.on_click.is_some(), "the click callback moves out");
+        assert!(
+            taken.chip_state.on_remove.is_some(),
+            "the remove callback moves out"
+        );
+        assert!(
+            taken.chip_state.on_click.is_some(),
+            "the click callback moves out"
+        );
         assert!(
             c.chip_state.on_remove.is_none(),
             "the reset chip must not keep a reference to the old callback"
@@ -1820,12 +2229,24 @@ mod autotest_generated {
         for round in 0..10 {
             let taken = c.swap_with_default();
             if round == 0 {
-                assert_eq!(taken.label.len(), long.len(), "the long label was truncated");
+                assert_eq!(
+                    taken.label.len(),
+                    long.len(),
+                    "the long label was truncated"
+                );
                 assert_eq!(taken.kind, ChipKind::Success);
             } else {
-                assert_eq!(taken, Chip::default(), "round {round}: the emptied chip is not a default");
+                assert_eq!(
+                    taken,
+                    Chip::default(),
+                    "round {round}: the emptied chip is not a default"
+                );
             }
-            assert_eq!(c, Chip::default(), "round {round}: what was left behind is not a default");
+            assert_eq!(
+                c,
+                Chip::default(),
+                "round {round}: what was left behind is not a default"
+            );
         }
     }
 
@@ -1835,8 +2256,14 @@ mod autotest_generated {
         c.chip_state.inner.visible = false;
 
         let taken = c.swap_with_default();
-        assert!(!taken.chip_state.inner.visible, "the removed state travels with the original");
-        assert!(c.chip_state.inner.visible, "the fresh chip left behind must be visible");
+        assert!(
+            !taken.chip_state.inner.visible,
+            "the removed state travels with the original"
+        );
+        assert!(
+            c.chip_state.inner.visible,
+            "the fresh chip left behind must be visible"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1850,18 +2277,29 @@ mod autotest_generated {
             let expected = properties(&chip.container_style);
             let dom = chip.dom();
 
-            assert!(dom.root.has_class("__azul-native-chip"), "{kind:?}: missing the widget class");
+            assert!(
+                dom.root.has_class("__azul-native-chip"),
+                "{kind:?}: missing the widget class"
+            );
             assert!(
                 dom.root.get_callbacks().as_ref().is_empty(),
                 "{kind:?}: a stateless chip must carry no container callback"
             );
-            assert_eq!(inline_properties(&dom), expected, "{kind:?}: the pill lost its computed style");
+            assert_eq!(
+                inline_properties(&dom),
+                expected,
+                "{kind:?}: the pill lost its computed style"
+            );
 
             let children = dom.children.as_ref();
             assert_eq!(children.len(), 1, "{kind:?}: no x without `removable`");
             let label = &children[0];
             assert!(label.root.has_class("__azul-native-chip-label"));
-            assert_eq!(text_of(label), Some("tag"), "{kind:?}: the label was mangled");
+            assert_eq!(
+                text_of(label),
+                Some("tag"),
+                "{kind:?}: the label was mangled"
+            );
             assert!(
                 label.root.get_callbacks().as_ref().is_empty(),
                 "{kind:?}: no on_click means no handler on the label"
@@ -1880,7 +2318,9 @@ mod autotest_generated {
 
     #[test]
     fn dom_of_a_removable_chip_appends_a_focusable_x() {
-        let dom = Chip::create(AzString::from("tag")).with_removable(true).dom();
+        let dom = Chip::create(AzString::from("tag"))
+            .with_removable(true)
+            .dom();
 
         let children = dom.children.as_ref();
         assert_eq!(children.len(), 2, "[label, remove]");
@@ -1900,7 +2340,10 @@ mod autotest_generated {
         let callbacks = remove.root.get_callbacks();
         assert_eq!(callbacks.as_ref().len(), 1, "exactly one remove handler");
         let cb = &callbacks.as_ref()[0];
-        assert!(matches!(&cb.event, EventFilter::Hover(HoverEventFilter::MouseUp)));
+        assert!(matches!(
+            &cb.event,
+            EventFilter::Hover(HoverEventFilter::MouseUp)
+        ));
         assert_eq!(cb.callback.cb, default_on_chip_remove as usize);
         assert!(matches!(&cb.callback.ctx, OptionRefAny::None));
 
@@ -1930,7 +2373,10 @@ mod autotest_generated {
         let callbacks = label.root.get_callbacks();
         assert_eq!(callbacks.as_ref().len(), 1, "exactly one click handler");
         let cb = &callbacks.as_ref()[0];
-        assert!(matches!(&cb.event, EventFilter::Hover(HoverEventFilter::MouseUp)));
+        assert!(matches!(
+            &cb.event,
+            EventFilter::Hover(HoverEventFilter::MouseUp)
+        ));
         assert_eq!(cb.callback.cb, default_on_chip_click as usize);
         assert!(matches!(&cb.callback.ctx, OptionRefAny::None));
     }
@@ -1948,7 +2394,10 @@ mod autotest_generated {
         let mut label_state = children[0].root.get_callbacks().as_ref()[0].refany.clone();
         let mut remove_state = children[1].root.get_callbacks().as_ref()[0].refany.clone();
 
-        assert_eq!(label_state, remove_state, "the two handlers must share one state RefAny");
+        assert_eq!(
+            label_state, remove_state,
+            "the two handlers must share one state RefAny"
+        );
 
         // ...and prove it is genuinely shared, not merely equal.
         {
@@ -1965,7 +2414,9 @@ mod autotest_generated {
 
     #[test]
     fn dom_of_a_removable_chip_without_on_click_leaves_the_label_inert() {
-        let dom = Chip::create(AzString::from("tag")).with_removable(true).dom();
+        let dom = Chip::create(AzString::from("tag"))
+            .with_removable(true)
+            .dom();
         let label = &dom.children.as_ref()[0];
         assert!(
             label.root.get_callbacks().as_ref().is_empty(),
@@ -1977,7 +2428,9 @@ mod autotest_generated {
     #[test]
     fn dom_preserves_adversarial_labels_verbatim() {
         for s in adversarial_strings() {
-            let dom = Chip::create(AzString::from(s.clone())).with_removable(true).dom();
+            let dom = Chip::create(AzString::from(s.clone()))
+                .with_removable(true)
+                .dom();
             let label = &dom.children.as_ref()[0];
             let t = text_of(label).expect("the label must be a text node");
             assert_eq!(t, s.as_str(), "the label changed on its way into the DOM");
@@ -1999,7 +2452,9 @@ mod autotest_generated {
         // the DOM — the container only carries the generic container class, and
         // the kind travels as inline style instead.
         for kind in ALL_KINDS {
-            let dom = Chip::with_kind(AzString::from("t"), kind).with_removable(true).dom();
+            let dom = Chip::with_kind(AzString::from("t"), kind)
+                .with_removable(true)
+                .dom();
             assert!(dom.root.has_class("__azul-native-chip"));
             assert!(
                 !dom.root.has_class(kind.class_name()),
@@ -2041,7 +2496,10 @@ mod autotest_generated {
                 via_dom.root.get_node_type(),
                 "{kind:?}: `From` built a different node"
             );
-            assert_eq!(via_into.children.as_ref().len(), via_dom.children.as_ref().len());
+            assert_eq!(
+                via_into.children.as_ref().len(),
+                via_dom.children.as_ref().len()
+            );
         }
     }
 
@@ -2051,7 +2509,11 @@ mod autotest_generated {
         // container". That only holds while the x is a *direct* child.
         let styled = removable_styled_dom();
         let hierarchy = styled.node_hierarchy.as_ref();
-        assert_eq!(hierarchy.len(), 5, "container(0), label <p>(1)+text(2), remove <p>(3)+text(4)");
+        assert_eq!(
+            hierarchy.len(),
+            5,
+            "container(0), label <p>(1)+text(2), remove <p>(3)+text(4)"
+        );
         assert_eq!(
             hierarchy[REMOVE_NODE].parent_id(),
             Some(NodeId::new(0)),
@@ -2087,7 +2549,11 @@ mod autotest_generated {
 
         let (update, changes) = run_remove(Some(removable_styled_dom()), REMOVE_NODE, data.clone());
 
-        assert_eq!(update, Update::RefreshDom, "the user callback's Update is returned");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user callback's Update is returned"
+        );
         assert_eq!(
             log_calls(&mut log),
             alloc::vec![false],
@@ -2106,12 +2572,19 @@ mod autotest_generated {
         let (mut data, mut log) = state_with_remove_log();
 
         for _ in 0..2 {
-            let (update, changes) = run_remove(Some(removable_styled_dom()), REMOVE_NODE, data.clone());
+            let (update, changes) =
+                run_remove(Some(removable_styled_dom()), REMOVE_NODE, data.clone());
             assert_eq!(update, Update::RefreshDom);
-            assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
+            assert_eq!(
+                display_writes(&changes),
+                alloc::vec![(0usize, LayoutDisplay::None)]
+            );
         }
 
-        assert!(!wrapper_visible(&mut data), "a second remove must not un-hide");
+        assert!(
+            !wrapper_visible(&mut data),
+            "a second remove must not un-hide"
+        );
         assert_eq!(
             log_calls(&mut log),
             alloc::vec![false, false],
@@ -2128,7 +2601,10 @@ mod autotest_generated {
         let (update, changes) = run_remove(Some(removable_styled_dom()), 0, data.clone());
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "nothing may be restyled without a parent");
+        assert!(
+            changes.is_empty(),
+            "nothing may be restyled without a parent"
+        );
         assert!(wrapper_visible(&mut data), "state must not flip");
     }
 
@@ -2163,7 +2639,10 @@ mod autotest_generated {
         let (update, changes) = run_remove(Some(removable_styled_dom()), REMOVE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a foreign payload must not hide the container");
+        assert!(
+            changes.is_empty(),
+            "a foreign payload must not hide the container"
+        );
     }
 
     #[test]
@@ -2177,7 +2656,10 @@ mod autotest_generated {
         let (update, changes) = run_remove(Some(removable_styled_dom()), LABEL_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
+        assert_eq!(
+            display_writes(&changes),
+            alloc::vec![(0usize, LayoutDisplay::None)]
+        );
         assert!(!wrapper_visible(&mut data));
     }
 
@@ -2205,16 +2687,24 @@ mod autotest_generated {
             on_click: OptionChipOnClick::None,
         });
         {
-            let mut p = probe.downcast_mut::<ReentrantProbe>().expect("ReentrantProbe");
+            let mut p = probe
+                .downcast_mut::<ReentrantProbe>()
+                .expect("ReentrantProbe");
             p.state = state.clone();
         }
 
-        let (update, changes) = run_remove(Some(removable_styled_dom()), REMOVE_NODE, state.clone());
+        let (update, changes) =
+            run_remove(Some(removable_styled_dom()), REMOVE_NODE, state.clone());
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
+        assert_eq!(
+            display_writes(&changes),
+            alloc::vec![(0usize, LayoutDisplay::None)]
+        );
 
-        let p = probe.downcast_ref::<ReentrantProbe>().expect("ReentrantProbe");
+        let p = probe
+            .downcast_ref::<ReentrantProbe>()
+            .expect("ReentrantProbe");
         assert_eq!(p.calls, 1, "the user callback must have run exactly once");
         assert_eq!(
             p.saw_state, None,
@@ -2237,7 +2727,10 @@ mod autotest_generated {
         let (update, changes) = run_remove(Some(styled), REMOVE_NODE, payload.clone());
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
+        assert_eq!(
+            display_writes(&changes),
+            alloc::vec![(0usize, LayoutDisplay::None)]
+        );
         assert!(
             !wrapper_visible(&mut payload),
             "the state living in the DOM must be flipped to hidden"
@@ -2265,14 +2758,24 @@ mod autotest_generated {
 
         let (update, changes) = run_click(Some(removable_styled_dom()), LABEL_NODE, data.clone());
 
-        assert_eq!(update, Update::RefreshDom, "the user callback's Update is returned");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user callback's Update is returned"
+        );
         assert_eq!(
             log_calls(&mut log),
             alloc::vec![true, true],
             "the callback must see the *unmodified* state (still visible)"
         );
-        assert!(wrapper_visible(&mut data), "on_click must not flip `visible`");
-        assert!(changes.is_empty(), "on_click must not write any CSS property");
+        assert!(
+            wrapper_visible(&mut data),
+            "on_click must not flip `visible`"
+        );
+        assert!(
+            changes.is_empty(),
+            "on_click must not write any CSS property"
+        );
     }
 
     #[test]
@@ -2295,7 +2798,11 @@ mod autotest_generated {
 
         let (update, changes) = run_click(None, 0, data);
 
-        assert_eq!(update, Update::RefreshDom, "a missing layout result must not suppress on_click");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "a missing layout result must not suppress on_click"
+        );
         assert!(changes.is_empty());
         assert_eq!(log_calls(&mut log), alloc::vec![true, true]);
     }
@@ -2315,13 +2822,21 @@ mod autotest_generated {
         let (mut data, mut log) = state_with_click_log(true);
 
         for _ in 0..3 {
-            let (update, changes) = run_click(Some(removable_styled_dom()), LABEL_NODE, data.clone());
+            let (update, changes) =
+                run_click(Some(removable_styled_dom()), LABEL_NODE, data.clone());
             assert_eq!(update, Update::RefreshDom);
             assert!(changes.is_empty());
         }
 
-        assert!(wrapper_visible(&mut data), "repeated clicks must not hide the chip");
-        assert_eq!(log_calls(&mut log).len(), 6, "each click fires the callback exactly once");
+        assert!(
+            wrapper_visible(&mut data),
+            "repeated clicks must not hide the chip"
+        );
+        assert_eq!(
+            log_calls(&mut log).len(),
+            6,
+            "each click fires the callback exactly once"
+        );
     }
 
     #[test]
@@ -2344,7 +2859,10 @@ mod autotest_generated {
         assert_eq!(update, Update::RefreshDom);
         assert!(changes.is_empty());
         assert_eq!(log_calls(&mut log_handle), alloc::vec![true, true]);
-        assert!(wrapper_visible(&mut payload), "the shared state must be untouched by a click");
+        assert!(
+            wrapper_visible(&mut payload),
+            "the shared state must be untouched by a click"
+        );
     }
 
     #[test]
@@ -2358,12 +2876,19 @@ mod autotest_generated {
             .with_on_click(log, click_cb(record_click));
         let dom = chip.dom();
 
-        let click_payload = dom.children.as_ref()[0].root.get_callbacks().as_ref()[0].refany.clone();
-        let remove_payload = dom.children.as_ref()[1].root.get_callbacks().as_ref()[0].refany.clone();
+        let click_payload = dom.children.as_ref()[0].root.get_callbacks().as_ref()[0]
+            .refany
+            .clone();
+        let remove_payload = dom.children.as_ref()[1].root.get_callbacks().as_ref()[0]
+            .refany
+            .clone();
 
         let styled = StyledDom::create_from_dom(dom);
         let (_, changes) = run_remove(Some(styled), REMOVE_NODE, remove_payload);
-        assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
+        assert_eq!(
+            display_writes(&changes),
+            alloc::vec![(0usize, LayoutDisplay::None)]
+        );
 
         let (update, _) = run_click(Some(removable_styled_dom()), LABEL_NODE, click_payload);
         assert_eq!(update, Update::RefreshDom);

@@ -1,8 +1,8 @@
 //! Final positioning of layout nodes (relative, absolute, and fixed schemes)
 // +spec:positioning:79d47e - Implements relative, absolute, and fixed positioning schemes
 
-use crate::solver3::layout_tree::LayoutNodeId;
 use crate::debug_log;
+use crate::solver3::layout_tree::LayoutNodeId;
 use std::collections::BTreeMap;
 
 use azul_core::{
@@ -27,9 +27,9 @@ use crate::{
     solver3::{
         fc::{layout_formatting_context, FloatingContext, LayoutConstraints, TextAlign},
         getters::{
-            get_aspect_ratio_property, get_direction_property, get_display_property, get_writing_mode, get_position, MultiValue,
-            get_css_top, get_css_bottom, get_css_left, get_css_right,
-            get_css_height, get_css_width,
+            get_aspect_ratio_property, get_css_bottom, get_css_height, get_css_left, get_css_right,
+            get_css_top, get_css_width, get_direction_property, get_display_property, get_position,
+            get_writing_mode, MultiValue,
         },
         layout_tree::LayoutTree,
         LayoutContext, LayoutError, Result,
@@ -47,7 +47,8 @@ pub(crate) struct PositionOffsets {
 // +spec:positioning:94ef0f - position property: static|relative|absolute|sticky|fixed, initial static, applies to all elements except table-column-group/table-column
 /// Looks up the `position` property using the compact-cache-aware getter.
 // +spec:positioning:ba937d - positioned elements have position != static
-#[must_use] pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
+#[must_use]
+pub fn get_position_type(styled_dom: &StyledDom, dom_id: Option<NodeId>) -> LayoutPosition {
     let Some(id) = dom_id else {
         return LayoutPosition::Static;
     };
@@ -102,23 +103,31 @@ pub(crate) fn resolve_position_offsets(
     // Resolve offsets using compact-cache-aware getters
     // top/bottom use Height context (% refers to containing block height)
     offsets.top = match get_css_top(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height)),
+        MultiValue::Exact(pv) => {
+            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height))
+        }
         _ => None,
     };
 
     offsets.bottom = match get_css_bottom(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height)),
+        MultiValue::Exact(pv) => {
+            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Height))
+        }
         _ => None,
     };
 
     // left/right use Width context (% refers to containing block width)
     offsets.left = match get_css_left(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => Some(pv.resolve_with_context(&resolution_context, PropertyContext::Width)),
+        MultiValue::Exact(pv) => {
+            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Width))
+        }
         _ => None,
     };
 
     offsets.right = match get_css_right(styled_dom, id, node_state) {
-        MultiValue::Exact(pv) => Some(pv.resolve_with_context(&resolution_context, PropertyContext::Width)),
+        MultiValue::Exact(pv) => {
+            Some(pv.resolve_with_context(&resolution_context, PropertyContext::Width))
+        }
         _ => None,
     };
 
@@ -169,9 +178,15 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // Same applies to flex containers (Flexbox §4.1).
             {
                 use azul_core::dom::FormattingContext;
-                let parent_is_flex_or_grid = node.parent.and_then(|p| tree.get(LayoutNodeId::new(p))).is_some_and(|pn| {
-                    matches!(pn.formatting_context, FormattingContext::Flex | FormattingContext::Grid)
-                });
+                let parent_is_flex_or_grid = node
+                    .parent
+                    .and_then(|p| tree.get(LayoutNodeId::new(p)))
+                    .is_some_and(|pn| {
+                        matches!(
+                            pn.formatting_context,
+                            FormattingContext::Flex | FormattingContext::Grid
+                        )
+                    });
                 if parent_is_flex_or_grid {
                     continue;
                 }
@@ -249,7 +264,10 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // its children disappear. §10.3.7: their used size never depends
             // on in-flow layout, so recomputing is deterministic.
             let element_size = {
-                let intrinsic = tree.warm(LayoutNodeId::new(node_index)).and_then(|w| w.intrinsic_sizes).unwrap_or_default();
+                let intrinsic = tree
+                    .warm(LayoutNodeId::new(node_index))
+                    .and_then(|w| w.intrinsic_sizes)
+                    .unwrap_or_default();
                 let Ok(size) = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),
@@ -272,8 +290,12 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // +spec:positioning:dc23fa - sizing/positioning into inset-modified containing block (§4)
             // +spec:positioning:623e45 - inset properties reduce the containing block into the inset-modified containing block
             // Resolve offsets using the now-known containing block size.
-            let offsets =
-                resolve_position_offsets(ctx.styled_dom, Some(dom_id), containing_block_rect.size, viewport.size);
+            let offsets = resolve_position_offsets(
+                ctx.styled_dom,
+                Some(dom_id),
+                containing_block_rect.size,
+                viewport.size,
+            );
 
             // +spec:box-model:ae3899 - static position is the margin-edge position from normal flow
             // +spec:positioning:9a90a3 - static position: the position the element would have had in normal flow
@@ -311,14 +333,26 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             let node_state = &ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
             // Extract all box_props values upfront to avoid borrow conflicts with tree.get_mut()
-            let (margin_top_val, margin_bottom_val, margin_auto,
-                 margin_left_val, margin_right_val, margin_left_auto_flag, margin_right_auto_flag) = {
+            let (
+                margin_top_val,
+                margin_bottom_val,
+                margin_auto,
+                margin_left_val,
+                margin_right_val,
+                margin_left_auto_flag,
+                margin_right_auto_flag,
+            ) = {
                 let node = &tree.nodes[node_index];
                 let nbp = node.box_props.unpack();
-                (nbp.margin.top, nbp.margin.bottom,
-                 nbp.margin_auto,
-                 nbp.margin.left, nbp.margin.right,
-                 nbp.margin_auto.left, nbp.margin_auto.right)
+                (
+                    nbp.margin.top,
+                    nbp.margin.bottom,
+                    nbp.margin_auto,
+                    nbp.margin.left,
+                    nbp.margin.right,
+                    nbp.margin_auto.left,
+                    nbp.margin_auto.right,
+                )
             };
             // +spec:positioning:d730e5 - CB height is independent of the abspos element, so percentage heights always resolve
             let cb_height = containing_block_rect.size.height;
@@ -344,7 +378,11 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
             // +spec:height-calculation:44939a - set auto values for margin-top/margin-bottom to 0
             // +spec:height-calculation:2f6e10 - if bottom is auto, replace auto margin-top/margin-bottom with 0
             let mut used_margin_top = if margin_auto.top { 0.0 } else { margin_top_val };
-            let mut used_margin_bottom = if margin_auto.bottom { 0.0 } else { margin_bottom_val };
+            let mut used_margin_bottom = if margin_auto.bottom {
+                0.0
+            } else {
+                margin_bottom_val
+            };
 
             // +spec:box-model:3a9c2a - resolving auto insets: static position fallback when insets are auto
             // +spec:box-model:bd442c - weaker inset resolves to align margin box with inset-modified CB edge
@@ -375,9 +413,11 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     used_margin_top = each;
                     used_margin_bottom = each;
                 } else if margin_auto.top {
-                    used_margin_top = cb_height - top_val - used_height - used_margin_bottom - bottom_val;
+                    used_margin_top =
+                        cb_height - top_val - used_height - used_margin_bottom - bottom_val;
                 } else if margin_auto.bottom {
-                    used_margin_bottom = cb_height - top_val - used_height - used_margin_top - bottom_val;
+                    used_margin_bottom =
+                        cb_height - top_val - used_height - used_margin_top - bottom_val;
                 }
                 // else: over-constrained, ignore bottom
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
@@ -385,7 +425,8 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 // +spec:height-calculation:909b50 - top and height auto, bottom not auto: height from BFC auto heights, solve for top
                 // Rule 1: height from content, auto margins to 0, solve for top
                 let bottom_val = offsets.bottom.unwrap();
-                let top_val = cb_height - used_margin_top - used_height - used_margin_bottom - bottom_val;
+                let top_val =
+                    cb_height - used_margin_top - used_height - used_margin_bottom - bottom_val;
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
             } else if top_is_auto && bottom_is_auto && !height_is_auto {
                 // +spec:positioning:64e1ba - top+bottom auto, height not auto: set top to static position, solve for bottom
@@ -398,7 +439,8 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 // +spec:height-calculation:33dce8 - top auto, height and bottom not auto: solve for top
                 // Rule 4: auto margins to 0, solve for top
                 let bottom_val = offsets.bottom.unwrap();
-                let top_val = cb_height - used_margin_top - used_height - used_margin_bottom - bottom_val;
+                let top_val =
+                    cb_height - used_margin_top - used_height - used_margin_bottom - bottom_val;
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
             } else if height_is_auto && !top_is_auto && !bottom_is_auto {
                 // +spec:intrinsic-sizing:566a43 - abspos auto height with non-auto insets: stretch-fit size
@@ -413,7 +455,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     // solve for height from constraint equation (stretch-fit):
                     // height = cb_height - top - margin_top - margin_bottom - bottom
                     // +spec:containing-block:b3f0dd - clamp effective CB size to zero when insets exceed it (weaker inset reduced)
-                    used_height = (cb_height - top_val - used_margin_top - used_margin_bottom - bottom_val).max(0.0);
+                    used_height =
+                        (cb_height - top_val - used_margin_top - used_margin_bottom - bottom_val)
+                            .max(0.0);
                 }
                 // else: keep content-based height (max-content) per aspect-ratio exception
                 final_pos.y = containing_block_rect.origin.y + top_val + used_margin_top;
@@ -461,7 +505,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         let mut found = None;
                         while let Some(pidx) = parent {
                             if let Some(pnode) = tree.get(LayoutNodeId::new(pidx)) {
-                                if get_position_type(ctx.styled_dom, pnode.dom_node_id).is_positioned() {
+                                if get_position_type(ctx.styled_dom, pnode.dom_node_id)
+                                    .is_positioned()
+                                {
                                     found = pnode.dom_node_id;
                                     break;
                                 }
@@ -474,7 +520,8 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     };
                     match cb_dom_id {
                         Some(cb_id) => {
-                            let cb_ns = &ctx.styled_dom.styled_nodes.as_container()[cb_id].styled_node_state;
+                            let cb_ns = &ctx.styled_dom.styled_nodes.as_container()[cb_id]
+                                .styled_node_state;
                             match get_direction_property(ctx.styled_dom, cb_id, cb_ns) {
                                 MultiValue::Exact(v) => v,
                                 _ => StyleDirection::Ltr,
@@ -486,7 +533,8 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 
                 // +spec:replaced-elements:7d8ba8 - §10.3.8: for absolutely positioned replaced elements, width is determined
                 // first (as for inline replaced), so treat as "not auto" in the constraint.
-                let width_is_auto = get_css_width(ctx.styled_dom, dom_id, node_state).is_auto() && !is_replaced;
+                let width_is_auto =
+                    get_css_width(ctx.styled_dom, dom_id, node_state).is_auto() && !is_replaced;
 
                 if !left_is_auto && !width_is_auto && !right_is_auto {
                     // +spec:positioning:88f760 - auto margins of absolutely-positioned boxes (horizontal)
@@ -526,8 +574,13 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                                 final_pos.x = containing_block_rect.origin.x + left + margin_left;
                             }
                             StyleDirection::Rtl => {
-                                let solved_left = cb_width - margin_left - border_box_width - margin_right - right;
-                                final_pos.x = containing_block_rect.origin.x + solved_left + margin_left;
+                                let solved_left = cb_width
+                                    - margin_left
+                                    - border_box_width
+                                    - margin_right
+                                    - right;
+                                final_pos.x =
+                                    containing_block_rect.origin.x + solved_left + margin_left;
                             }
                         }
                     }
@@ -552,8 +605,10 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                             StyleDirection::Rtl => {
                                 // Set right to static position, apply rule 1 (width from content, solve for left)
                                 let static_offset = static_pos.x - containing_block_rect.origin.x;
-                                let right_static = (cb_width - static_offset - border_box_width).max(0.0);
-                                let solved_left = cb_width - m_left - border_box_width - m_right - right_static;
+                                let right_static =
+                                    (cb_width - static_offset - border_box_width).max(0.0);
+                                let solved_left =
+                                    cb_width - m_left - border_box_width - m_right - right_static;
                                 final_pos.x = containing_block_rect.origin.x + solved_left + m_left;
                             }
                         }
@@ -579,7 +634,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         // +spec:intrinsic-sizing:c7227f - except: if box has aspect-ratio, ratio-dependent axis uses max-content
                         let has_aspect_ratio = matches!(
                             get_aspect_ratio_property(ctx.styled_dom, dom_id, node_state),
-                            MultiValue::Exact(azul_css::props::style::effects::StyleAspectRatio::Ratio(_))
+                            MultiValue::Exact(
+                                azul_css::props::style::effects::StyleAspectRatio::Ratio(_)
+                            )
                         );
                         let left = left_val.unwrap();
                         let right = right_val.unwrap();
@@ -632,8 +689,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     bfc_state: None,
                     text_align: TextAlign::Start,
                     containing_block_size: inner,
-                    available_width_type:
-                        crate::text3::cache::AvailableSpace::Definite(inner.width),
+                    available_width_type: crate::text3::cache::AvailableSpace::Definite(
+                        inner.width,
+                    ),
                     fragmentainer: None,
                 };
                 let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
@@ -771,23 +829,31 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
 
         // Determine the containing block size for resolving percentages.
         // For `position: relative`, this is the parent's content box size.
-        let containing_block_size = node.parent
+        let containing_block_size = node
+            .parent
             .and_then(|parent_idx| tree.get(LayoutNodeId::new(parent_idx)))
             .map_or(viewport.size, |parent_node| {
                 // Get parent's writing mode to correctly calculate its inner (content) size.
-                let parent_wm = parent_node.dom_node_id
+                let parent_wm = parent_node
+                    .dom_node_id
                     .map(|pid| {
                         let ps = &ctx.styled_dom.styled_nodes.as_container()[pid].styled_node_state;
                         get_writing_mode(ctx.styled_dom, pid, ps).unwrap_or_default()
                     })
                     .unwrap_or_default();
                 let parent_used_size = parent_node.used_size.unwrap_or_default();
-                parent_node.box_props.inner_size(parent_used_size, parent_wm)
+                parent_node
+                    .box_props
+                    .inner_size(parent_used_size, parent_wm)
             });
 
         // +spec:positioning:418c74 - inset percentages resolve against containing block size per axis; auto is unconstrained
-        let offsets =
-            resolve_position_offsets(ctx.styled_dom, node.dom_node_id, containing_block_size, viewport.size);
+        let offsets = resolve_position_offsets(
+            ctx.styled_dom,
+            node.dom_node_id,
+            containing_block_size,
+            viewport.size,
+        );
 
         // Get a mutable reference to the position and apply the offsets.
         let Some(current_pos) = calculated_positions.get_mut(node_index) else {
@@ -828,7 +894,8 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
         // +spec:positioning:1732e8 - left/right for relatively positioned elements determined by 9.4.3 rules
         // Spec: "If the 'direction' property of the containing block is 'ltr', the value of 'left' wins"
         // Get the direction of the containing block (parent), not the element itself
-        let cb_direction = node.parent
+        let cb_direction = node
+            .parent
             .and_then(|parent_idx| tree.get(LayoutNodeId::new(parent_idx)))
             .and_then(|parent_node| {
                 let parent_dom_id = parent_node.dom_node_id?;
@@ -865,8 +932,15 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
             current_pos.x += delta_x;
             current_pos.y += delta_y;
 
-            debug_log!(ctx, "Adjusted relative element #{} from {:?} to {:?} (delta: {}, {})",
-                node_index, initial_pos, *current_pos, delta_x, delta_y);
+            debug_log!(
+                ctx,
+                "Adjusted relative element #{} from {:?} to {:?} (delta: {}, {})",
+                node_index,
+                initial_pos,
+                *current_pos,
+                delta_x,
+                delta_y
+            );
 
             // +spec:table-layout:ec2600 - For table-row-group, table-header-group, table-footer-group, or table-row,
             // the relative shift affects all contents of the box including table cells.
@@ -878,9 +952,9 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
                     display,
                     MultiValue::Exact(
                         LayoutDisplay::TableRowGroup
-                        | LayoutDisplay::TableHeaderGroup
-                        | LayoutDisplay::TableFooterGroup
-                        | LayoutDisplay::TableRow
+                            | LayoutDisplay::TableHeaderGroup
+                            | LayoutDisplay::TableFooterGroup
+                            | LayoutDisplay::TableRow
                     )
                 );
                 if is_table_row_like {
@@ -913,7 +987,9 @@ fn find_nearest_scrollport(
     use crate::solver3::getters::{get_overflow_x, get_overflow_y};
     use azul_css::props::layout::LayoutOverflow;
 
-    let mut current_parent_idx = tree.get(LayoutNodeId::new(node_index)).and_then(|n| n.parent);
+    let mut current_parent_idx = tree
+        .get(LayoutNodeId::new(node_index))
+        .and_then(|n| n.parent);
 
     while let Some(parent_index) = current_parent_idx {
         let Some(parent_node) = tree.get(LayoutNodeId::new(parent_index)) else {
@@ -946,12 +1022,8 @@ fn find_nearest_scrollport(
             // Content-box = margin-box pos + border + padding, size - border - padding
             let pbp = parent_node.box_props.unpack();
             let content_pos = LogicalPosition::new(
-                margin_box_pos.x
-                    + pbp.border.left
-                    + pbp.padding.left,
-                margin_box_pos.y
-                    + pbp.border.top
-                    + pbp.padding.top,
+                margin_box_pos.x + pbp.border.left + pbp.padding.left,
+                margin_box_pos.y + pbp.border.top + pbp.padding.top,
             );
             let content_size = LogicalSize::new(
                 (border_box_size.width
@@ -990,7 +1062,9 @@ fn find_nearest_scroll_offset(
     node_index: usize,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
 ) -> LogicalPosition {
-    let mut parent = tree.get(LayoutNodeId::new(node_index)).and_then(|n| n.parent);
+    let mut parent = tree
+        .get(LayoutNodeId::new(node_index))
+        .and_then(|n| n.parent);
     while let Some(pidx) = parent {
         if let Some(pnode) = tree.get(LayoutNodeId::new(pidx)) {
             if let Some(dom_id) = pnode.dom_node_id {
@@ -1049,12 +1123,17 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
         );
 
         // The containing block for percentage resolution is the parent's content box
-        let containing_block = node.parent
+        let containing_block = node
+            .parent
             .and_then(|parent_idx| {
                 let parent_node = tree.get(LayoutNodeId::new(parent_idx))?;
-                let parent_pos = calculated_positions.get(parent_idx).copied().unwrap_or_default();
+                let parent_pos = calculated_positions
+                    .get(parent_idx)
+                    .copied()
+                    .unwrap_or_default();
                 let parent_size = parent_node.used_size.unwrap_or_default();
-                let parent_wm = parent_node.dom_node_id
+                let parent_wm = parent_node
+                    .dom_node_id
                     .map(|pid| {
                         let ps = &ctx.styled_dom.styled_nodes.as_container()[pid].styled_node_state;
                         get_writing_mode(ctx.styled_dom, pid, ps).unwrap_or_default()
@@ -1071,7 +1150,8 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
             .unwrap_or(viewport);
 
         // Resolve inset properties (top, right, bottom, left)
-        let offsets = resolve_position_offsets(ctx.styled_dom, Some(dom_id), scrollport.size, viewport.size);
+        let offsets =
+            resolve_position_offsets(ctx.styled_dom, Some(dom_id), scrollport.size, viewport.size);
 
         // Get the scroll offset from the nearest scroll container
         let scroll_offset = find_nearest_scroll_offset(tree, node_index, scroll_offsets);
@@ -1100,7 +1180,8 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
         }
 
         if let Some(bottom_inset) = offsets.bottom {
-            let sticky_edge = scrollport.origin.y + scroll_offset.y + scrollport.size.height - bottom_inset;
+            let sticky_edge =
+                scrollport.origin.y + scroll_offset.y + scrollport.size.height - bottom_inset;
             let border_bottom = current_pos.y + element_size.height;
             if border_bottom > sticky_edge {
                 shift_y = shift_y.min(sticky_edge - border_bottom);
@@ -1116,7 +1197,8 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
         }
 
         if let Some(right_inset) = offsets.right {
-            let sticky_edge = scrollport.origin.x + scroll_offset.x + scrollport.size.width - right_inset;
+            let sticky_edge =
+                scrollport.origin.x + scroll_offset.x + scrollport.size.width - right_inset;
             let border_right = current_pos.x + element_size.width;
             if border_right > sticky_edge {
                 shift_x = shift_x.min(sticky_edge - border_right);
@@ -1152,8 +1234,13 @@ pub fn adjust_sticky_positions<T: ParsedFontTrait>(
             current_pos.x += shift_x;
             current_pos.y += shift_y;
 
-            debug_log!(ctx, "Adjusted sticky element #{} from {:?} to {:?}",
-                node_index, static_pos, *current_pos);
+            debug_log!(
+                ctx,
+                "Adjusted sticky element #{} from {:?} to {:?}",
+                node_index,
+                static_pos,
+                *current_pos
+            );
         }
     }
 }
@@ -1202,11 +1289,15 @@ pub(crate) fn find_absolute_containing_block_rect(
     viewport: LogicalRect,
 ) -> Result<LogicalRect> {
     // +spec:positioning:748d87 - walk up to nearest positioned ancestor for CB
-    let mut current_parent_idx = tree.get(LayoutNodeId::new(node_index)).and_then(|n| n.parent);
+    let mut current_parent_idx = tree
+        .get(LayoutNodeId::new(node_index))
+        .and_then(|n| n.parent);
 
     // +spec:positioning:aa361e - values other than static make a box positioned and establish an abspos containing block
     while let Some(parent_index) = current_parent_idx {
-        let parent_node = tree.get(LayoutNodeId::new(parent_index)).ok_or(LayoutError::InvalidTree)?;
+        let parent_node = tree
+            .get(LayoutNodeId::new(parent_index))
+            .ok_or(LayoutError::InvalidTree)?;
 
         if get_position_type(styled_dom, parent_node.dom_node_id).is_positioned() {
             // calculated_positions stores margin-box positions
@@ -1228,14 +1319,8 @@ pub(crate) fn find_absolute_containing_block_rect(
 
             // Calculate padding-box size (border-box - borders)
             let padding_box_size = LogicalSize::new(
-                (border_box_size.width
-                    - pbp.border.left
-                    - pbp.border.right)
-                    .max(0.0),
-                (border_box_size.height
-                    - pbp.border.top
-                    - pbp.border.bottom)
-                    .max(0.0),
+                (border_box_size.width - pbp.border.left - pbp.border.right).max(0.0),
+                (border_box_size.height - pbp.border.top - pbp.border.bottom).max(0.0),
             );
 
             return Ok(LogicalRect::new(padding_box_pos, padding_box_size));
@@ -1530,8 +1615,7 @@ mod autotest_generated {
 
     #[test]
     fn resolve_position_offsets_px_values_round_trip() {
-        let (sd, _tree) =
-            two_level(".child { top: 11px; right: 22px; bottom: 33px; left: 44px; }");
+        let (sd, _tree) = two_level(".child { top: 11px; right: 22px; bottom: 33px; left: 44px; }");
         let child = node_by_class(&sd, "child");
         let o = resolve_position_offsets(
             &sd,
@@ -1549,8 +1633,7 @@ mod autotest_generated {
     fn resolve_position_offsets_percent_uses_the_correct_axis() {
         // +spec:containing-block:d4b3b9 — top/bottom resolve against CB height,
         // left/right against CB width. Swapping the axes is the classic bug here.
-        let (sd, _tree) =
-            two_level(".child { top: 50%; bottom: 25%; left: 50%; right: 10%; }");
+        let (sd, _tree) = two_level(".child { top: 50%; bottom: 25%; left: 50%; right: 10%; }");
         let child = node_by_class(&sd, "child");
         let o = resolve_position_offsets(
             &sd,
@@ -1795,13 +1878,18 @@ mod autotest_generated {
 
     #[test]
     fn find_absolute_cb_rect_picks_the_nearest_positioned_ancestor() {
-        let (sd, mut tree) = three_level(".root { position: relative; } .mid { position: absolute; }");
+        let (sd, mut tree) =
+            three_level(".root { position: relative; } .mid { position: absolute; }");
         tree.nodes[0].used_size = Some(LogicalSize::new(400.0, 300.0));
         tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
         let pos = positions(&[(0.0, 0.0), (50.0, 60.0), (0.0, 0.0)]);
         let got = find_absolute_containing_block_rect(&tree, 2, &sd, &pos, viewport())
             .expect("nearest positioned ancestor");
-        assert_eq!(got.origin, LogicalPosition::new(50.0, 60.0), "mid, not root");
+        assert_eq!(
+            got.origin,
+            LogicalPosition::new(50.0, 60.0),
+            "mid, not root"
+        );
         assert_eq!(got.size, LogicalSize::new(200.0, 100.0));
     }
 
@@ -1910,7 +1998,11 @@ mod autotest_generated {
         tree.nodes[1].used_size = Some(LogicalSize::new(200.0, 100.0));
         let pos = positions(&[(0.0, 0.0), (11.0, 12.0), (0.0, 0.0)]);
         let got = find_nearest_scrollport(&tree, 2, &sd, &pos, viewport());
-        assert_eq!(got.origin, LogicalPosition::new(11.0, 12.0), "mid, not root");
+        assert_eq!(
+            got.origin,
+            LogicalPosition::new(11.0, 12.0),
+            "mid, not root"
+        );
         assert_eq!(got.size, LogicalSize::new(200.0, 100.0));
     }
 
@@ -1982,7 +2074,10 @@ mod autotest_generated {
     fn find_nearest_scroll_offset_out_of_range_index_is_zero_not_a_panic() {
         let (sd, tree) = two_level("");
         let mut offsets = BTreeMap::new();
-        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 120.0), (0.0, 50.0)));
+        offsets.insert(
+            node_by_class(&sd, "root"),
+            scroll_at((0.0, 120.0), (0.0, 50.0)),
+        );
         assert_eq!(
             find_nearest_scroll_offset(&tree, 9_999, &offsets),
             LogicalPosition::zero()
@@ -2039,8 +2134,14 @@ mod autotest_generated {
     fn find_nearest_scroll_offset_picks_the_nearest_ancestor() {
         let (sd, tree) = three_level("");
         let mut offsets = BTreeMap::new();
-        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 40.0), (0.0, 999.0)));
-        offsets.insert(node_by_class(&sd, "mid"), scroll_at((0.0, 120.0), (0.0, 7.0)));
+        offsets.insert(
+            node_by_class(&sd, "root"),
+            scroll_at((0.0, 40.0), (0.0, 999.0)),
+        );
+        offsets.insert(
+            node_by_class(&sd, "mid"),
+            scroll_at((0.0, 120.0), (0.0, 7.0)),
+        );
         assert_eq!(
             find_nearest_scroll_offset(&tree, 2, &offsets),
             LogicalPosition::new(0.0, 7.0),
@@ -2053,7 +2154,10 @@ mod autotest_generated {
         let (sd, mut tree) = three_level("");
         tree.nodes[1].dom_node_id = None;
         let mut offsets = BTreeMap::new();
-        offsets.insert(node_by_class(&sd, "root"), scroll_at((0.0, 120.0), (0.0, 30.0)));
+        offsets.insert(
+            node_by_class(&sd, "root"),
+            scroll_at((0.0, 120.0), (0.0, 30.0)),
+        );
         assert_eq!(
             find_nearest_scroll_offset(&tree, 2, &offsets),
             LogicalPosition::new(0.0, 30.0)
@@ -2118,7 +2222,7 @@ mod autotest_generated {
 
             fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
                 LayoutContext {
-            reflowed_ifcs: std::collections::BTreeSet::new(),
+                    reflowed_ifcs: std::collections::BTreeSet::new(),
                     style_cache: Default::default(),
                     scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
                     styled_dom: &self.styled_dom,
@@ -2312,8 +2416,8 @@ mod autotest_generated {
         }
 
         #[test]
-        fn out_of_flow_nan_viewport_clamps_the_stretch_height_to_zero_and_keeps_the_position_finite()
-        {
+        fn out_of_flow_nan_viewport_clamps_the_stretch_height_to_zero_and_keeps_the_position_finite(
+        ) {
             // f32::max(NaN, 0.0) == 0.0, so the stretch-fit height degrades to 0
             // rather than propagating NaN into the display list.
             let (mut env, mut tree, mut pos) = abs_fixture(
@@ -2521,8 +2625,7 @@ mod autotest_generated {
         #[test]
         fn relative_leaves_static_absolute_and_fixed_nodes_untouched() {
             for keyword in ["static", "absolute", "fixed"] {
-                let css =
-                    format!(".child {{ position: {keyword}; top: 10px; left: 5px; }}");
+                let css = format!(".child {{ position: {keyword}; top: 10px; left: 5px; }}");
                 let (mut env, tree, mut pos) = rel_fixture(&css);
                 run_rel(&mut env, &tree, &mut pos);
                 assert_eq!(pos[1], LogicalPosition::new(100.0, 100.0), "{keyword}");
@@ -2534,13 +2637,11 @@ mod autotest_generated {
             // Sticky deliberately shares the relative path (the pre-scroll offset);
             // adjust_sticky_positions then clamps it. Pinning this so the two passes
             // can't silently start disagreeing.
-            let (mut env, tree, mut pos) =
-                rel_fixture(".child { position: relative; top: 10px; }");
+            let (mut env, tree, mut pos) = rel_fixture(".child { position: relative; top: 10px; }");
             run_rel(&mut env, &tree, &mut pos);
             let relative_y = pos[1].y;
 
-            let (mut env, tree, mut pos) =
-                rel_fixture(".child { position: sticky; top: 10px; }");
+            let (mut env, tree, mut pos) = rel_fixture(".child { position: sticky; top: 10px; }");
             run_rel(&mut env, &tree, &mut pos);
             assert_eq!(pos[1].y, relative_y);
         }

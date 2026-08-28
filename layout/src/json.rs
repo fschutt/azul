@@ -89,9 +89,7 @@ pub fn serialize_refany_to_json(refany: &RefAny) -> Option<Json> {
 
     // Safety: `serialize_fn` is a valid `extern "C" fn(RefAny) -> Json` pointer,
     // set via `RefAny::set_serialize_fn`. The `!= 0` check above guards against null.
-    let func: RefAnySerializeFnType = unsafe {
-        core::mem::transmute(serialize_fn)
-    };
+    let func: RefAnySerializeFnType = unsafe { core::mem::transmute(serialize_fn) };
     let json = func(refany.clone());
 
     if json.is_null() {
@@ -104,19 +102,14 @@ pub fn serialize_refany_to_json(refany: &RefAny) -> Option<Json> {
 /// Deserialize JSON into a RefAny using the provided deserialize function.
 #[cfg(feature = "json")]
 #[must_use]
-pub fn deserialize_refany_from_json(
-    json: Json,
-    deserialize_fn: usize
-) -> Result<RefAny, String> {
+pub fn deserialize_refany_from_json(json: Json, deserialize_fn: usize) -> Result<RefAny, String> {
     if deserialize_fn == 0 {
         return Err("Type does not support JSON deserialization".to_string());
     }
 
     // Safety: `deserialize_fn` is a valid `extern "C" fn(Json) -> ResultRefAnyString` pointer,
     // set via `RefAny::set_deserialize_fn`. The `== 0` check above guards against null.
-    let func: RefAnyDeserializeFnType = unsafe {
-        core::mem::transmute(deserialize_fn)
-    };
+    let func: RefAnyDeserializeFnType = unsafe { core::mem::transmute(deserialize_fn) };
 
     match func(json) {
         ResultRefAnyString::Ok(refany) => Ok(refany),
@@ -217,7 +210,11 @@ mod jsondiff {
                 let child = format!("{}/{}", path, esc(k));
                 match n.get(k) {
                     Some(nv) => diff_rec(ov, nv, child, out),
-                    None => out.push(Change { path: child, old: Some(ov.clone()), new: None }),
+                    None => out.push(Change {
+                        path: child,
+                        old: Some(ov.clone()),
+                        new: None,
+                    }),
                 }
             }
             for (k, nv) in n {
@@ -230,7 +227,11 @@ mod jsondiff {
                 }
             }
         } else {
-            out.push(Change { path, old: Some(old.clone()), new: Some(new.clone()) });
+            out.push(Change {
+                path,
+                old: Some(old.clone()),
+                new: Some(new.clone()),
+            });
         }
     }
 
@@ -448,7 +449,10 @@ mod tests {
     #[cfg(feature = "json")]
     fn test_parse_string() {
         let json = Json::parse("\"hello world\"").unwrap();
-        assert_eq!(json.as_string().into_option().unwrap().as_str(), "hello world");
+        assert_eq!(
+            json.as_string().into_option().unwrap().as_str(),
+            "hello world"
+        );
     }
 
     #[test]
@@ -727,7 +731,13 @@ mod autotest_generated {
         assert_eq!(ok.len(), 1);
 
         // ... trailing non-whitespace is not.
-        for src in ["{\"a\":1};garbage", "[1,2,3]extra", "null null", "1 2", "\"a\"\"b\""] {
+        for src in [
+            "{\"a\":1};garbage",
+            "[1,2,3]extra",
+            "null null",
+            "1 2",
+            "\"a\"\"b\"",
+        ] {
             assert!(json_parse(src).is_err(), "{src:?} must be rejected");
         }
     }
@@ -737,14 +747,16 @@ mod autotest_generated {
         // serde_json's default recursion limit (128) must turn this into an
         // `Err` rather than blowing the stack.
         let deep_arrays = format!("{}{}", "[".repeat(10_000), "]".repeat(10_000));
-        assert!(json_parse(&deep_arrays).is_err(), "10k-deep arrays must be rejected");
-
-        let deep_objects = format!(
-            "{}1{}",
-            "{\"a\":".repeat(10_000),
-            "}".repeat(10_000)
+        assert!(
+            json_parse(&deep_arrays).is_err(),
+            "10k-deep arrays must be rejected"
         );
-        assert!(json_parse(&deep_objects).is_err(), "10k-deep objects must be rejected");
+
+        let deep_objects = format!("{}1{}", "{\"a\":".repeat(10_000), "}".repeat(10_000));
+        assert!(
+            json_parse(&deep_objects).is_err(),
+            "10k-deep objects must be rejected"
+        );
 
         // Unbalanced garbage of the same shape: still an error, still no crash.
         assert!(json_parse(&"[".repeat(1_000_000)).is_err());
@@ -769,9 +781,18 @@ mod autotest_generated {
         let arr = json_parse(&arr_src).expect("50k-element array parses");
         assert!(arr.is_array());
         assert_eq!(arr.len(), 50_000);
-        assert_eq!(arr.get_index(49_999).expect("last").as_i64().into_option(), Some(0));
-        assert!(arr.get_index(50_000).is_none(), "out-of-range index must be None");
-        assert!(arr.get_index(usize::MAX).is_none(), "usize::MAX index must be None");
+        assert_eq!(
+            arr.get_index(49_999).expect("last").as_i64().into_option(),
+            Some(0)
+        );
+        assert!(
+            arr.get_index(50_000).is_none(),
+            "out-of-range index must be None"
+        );
+        assert!(
+            arr.get_index(usize::MAX).is_none(),
+            "usize::MAX index must be None"
+        );
     }
 
     #[test]
@@ -814,8 +835,20 @@ mod autotest_generated {
     #[test]
     fn json_parse_rejects_non_json_number_literals() {
         for src in [
-            "NaN", "nan", "Infinity", "-Infinity", "inf", "-inf", "+1", ".5", "5.", "1e",
-            "1e+", "0x10", "1_000", "1,0",
+            "NaN",
+            "nan",
+            "Infinity",
+            "-Infinity",
+            "inf",
+            "-inf",
+            "+1",
+            ".5",
+            "5.",
+            "1e",
+            "1e+",
+            "0x10",
+            "1_000",
+            "1,0",
         ] {
             assert!(json_parse(src).is_err(), "{src:?} is not valid JSON");
         }
@@ -858,8 +891,14 @@ mod autotest_generated {
 
         // Escaped NUL survives the round trip.
         let nul = json_parse("\"\\u0000\"").expect("escaped NUL");
-        assert_eq!(nul.as_string().into_option().expect("string").as_str(), "\0");
-        assert_eq!(json_parse(json_stringify(&nul).as_str()).expect("re-parse"), nul);
+        assert_eq!(
+            nul.as_string().into_option().expect("string").as_str(),
+            "\0"
+        );
+        assert_eq!(
+            json_parse(json_stringify(&nul).as_str()).expect("re-parse"),
+            nul
+        );
 
         // Broken escapes / lone surrogates are rejected, not silently replaced.
         for src in ["\"\\ud800\"", "\"\\udfff\"", "\"\\x\"", "\"\\u00\""] {
@@ -933,10 +972,14 @@ mod autotest_generated {
             Json::string("\u{1F600}e\u{301}\u{0}"),
         ] {
             let encoded = json_stringify(&v);
-            let back = json_parse(encoded.as_str()).unwrap_or_else(|e| {
-                panic!("{:?} did not re-parse: {e}", encoded.as_str())
-            });
-            assert_eq!(v, back, "{:?} did not survive the round trip", encoded.as_str());
+            let back = json_parse(encoded.as_str())
+                .unwrap_or_else(|e| panic!("{:?} did not re-parse: {e}", encoded.as_str()));
+            assert_eq!(
+                v,
+                back,
+                "{:?} did not survive the round trip",
+                encoded.as_str()
+            );
         }
     }
 
@@ -952,7 +995,10 @@ mod autotest_generated {
             let encoded = json_stringify(&j);
             assert!(!encoded.as_str().is_empty());
             let _ = json_parse(encoded.as_str()); // allowed to fail, must not panic
-            assert!(j.to_serde_value().is_null(), "serde bridge must null out {v}");
+            assert!(
+                j.to_serde_value().is_null(),
+                "serde bridge must null out {v}"
+            );
         }
     }
 
@@ -1105,8 +1151,8 @@ mod autotest_generated {
         assert_eq!(read_i64(&mut neg), -1);
 
         // i64::MIN is exactly -2^63 in f64 and survives.
-        let mut min = deserialize_refany_from_json(Json::integer(i64::MIN), fnptr)
-            .expect("i64::MIN");
+        let mut min =
+            deserialize_refany_from_json(Json::integer(i64::MIN), fnptr).expect("i64::MIN");
         assert_eq!(read_i64(&mut min), i64::MIN);
 
         // i64::MAX rounds up to 2^63 in the f64 store, which is out of range —
@@ -1164,7 +1210,10 @@ mod autotest_generated {
 
         // ... and the restored value is itself serializable again.
         assert_eq!(
-            serialize_refany_to_json(&s).expect("still serializable").as_i64().into_option(),
+            serialize_refany_to_json(&s)
+                .expect("still serializable")
+                .as_i64()
+                .into_option(),
             Some(2)
         );
     }
@@ -1184,7 +1233,10 @@ mod autotest_generated {
         let guard = sibling.downcast_ref::<i64>().expect("shared borrow");
 
         let e = restore_refany_from_json(&mut s, Json::integer(9)).unwrap_err();
-        assert!(e.contains("replace_contents failed"), "unexpected message: {e}");
+        assert!(
+            e.contains("replace_contents failed"),
+            "unexpected message: {e}"
+        );
         assert_eq!(*guard, 4, "the live borrow must still see the old value");
         drop(guard);
 
@@ -1269,7 +1321,11 @@ mod autotest_generated {
             write_i64(&mut s, v);
             assert!(m.commit(&s));
         }
-        assert_eq!(m.undo_diffs.len(), 2, "capacity must evict the oldest diffs");
+        assert_eq!(
+            m.undo_diffs.len(),
+            2,
+            "capacity must evict the oldest diffs"
+        );
 
         // Only the two most recent steps are reachable: 5 -> 4 -> 3.
         assert!(m.undo(&mut s));
@@ -1277,7 +1333,10 @@ mod autotest_generated {
         assert!(m.undo(&mut s));
         assert_eq!(read_i64(&mut s), 3);
         assert!(!m.can_undo());
-        assert!(!m.undo(&mut s), "an exhausted history returns false, not a panic");
+        assert!(
+            !m.undo(&mut s),
+            "an exhausted history returns false, not a panic"
+        );
         assert_eq!(read_i64(&mut s), 3);
     }
 
@@ -1349,7 +1408,10 @@ mod autotest_generated {
     fn undo_manager_round_trips_an_object_state_with_pointer_hostile_keys() {
         // The JSON key contains both '/' and '~', so the diff path only works if
         // esc()/unesc() are exact inverses (RFC 6901: ~1 then ~0, in that order).
-        let mut s = RefAny::new(Doc { text: "hello".to_string(), cursor: 0 });
+        let mut s = RefAny::new(Doc {
+            text: "hello".to_string(),
+            cursor: 0,
+        });
         s.set_serialize_fn(ser_doc as usize);
         s.set_deserialize_fn(deser_doc as usize);
 
@@ -1398,21 +1460,29 @@ mod autotest_generated {
     fn diff_apply_is_reversible_for_every_change_shape() {
         use serde_json::json;
         let cases = [
-            (json!(1), json!(2)),                                      // scalar at the root
-            (json!(null), json!({"a": 1})),                            // type change at the root
-            (json!({"a": 1}), json!({"a": 1, "b": 2})),                // key added
-            (json!({"a": 1, "b": 2}), json!({"a": 1})),                // key removed
+            (json!(1), json!(2)),                       // scalar at the root
+            (json!(null), json!({"a": 1})),             // type change at the root
+            (json!({"a": 1}), json!({"a": 1, "b": 2})), // key added
+            (json!({"a": 1, "b": 2}), json!({"a": 1})), // key removed
             (json!({"a": {"b": {"c": 1}}}), json!({"a": {"b": {"c": 2}}})), // nested leaf
-            (json!({"a": [1, 2]}), json!({"a": [2, 1]})),              // arrays are leaves
-            (json!({"a": 1}), json!({"a": "1"})),                      // leaf type change
-            (json!({"a": 1}), json!([1])),                             // object -> array
-            (json!({}), json!({})),                                    // no-op
-            (json!({"": 1}), json!({"": 2})),                          // empty key
+            (json!({"a": [1, 2]}), json!({"a": [2, 1]})), // arrays are leaves
+            (json!({"a": 1}), json!({"a": "1"})),       // leaf type change
+            (json!({"a": 1}), json!([1])),              // object -> array
+            (json!({}), json!({})),                     // no-op
+            (json!({"": 1}), json!({"": 2})),           // empty key
         ];
         for (a, b) in &cases {
             let d = super::jsondiff::diff(a, b);
-            assert_eq!(&super::jsondiff::apply(a, &d, true), b, "forward {a} -> {b}");
-            assert_eq!(&super::jsondiff::apply(b, &d, false), a, "backward {b} -> {a}");
+            assert_eq!(
+                &super::jsondiff::apply(a, &d, true),
+                b,
+                "forward {a} -> {b}"
+            );
+            assert_eq!(
+                &super::jsondiff::apply(b, &d, false),
+                a,
+                "backward {b} -> {a}"
+            );
         }
     }
 
@@ -1437,7 +1507,11 @@ mod autotest_generated {
 
         let d = super::jsondiff::diff(&a, &b);
         assert_eq!(d.len(), 7, "each key must yield exactly one change");
-        assert_eq!(super::jsondiff::apply(&a, &d, true), b, "escaping is not round-tripping");
+        assert_eq!(
+            super::jsondiff::apply(&a, &d, true),
+            b,
+            "escaping is not round-tripping"
+        );
         assert_eq!(super::jsondiff::apply(&b, &d, false), a);
     }
 
@@ -1459,7 +1533,11 @@ mod autotest_generated {
                 new: Some(json!(2)),
             },
             // root "removal" is a documented no-op
-            super::jsondiff::Change { path: String::new(), old: None, new: None },
+            super::jsondiff::Change {
+                path: String::new(),
+                old: None,
+                new: None,
+            },
         ];
         assert_eq!(super::jsondiff::apply(&base, &changes, true), base);
         assert_eq!(super::jsondiff::apply(&base, &changes, false), base);

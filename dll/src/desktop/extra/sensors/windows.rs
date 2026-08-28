@@ -76,8 +76,7 @@ pub fn poll() {
 
     if let Some(a) = &s.accel {
         if let Ok(r) = a.GetCurrentReading() {
-            if let (Ok(x), Ok(y), Ok(z)) =
-                (r.AccelerationX(), r.AccelerationY(), r.AccelerationZ())
+            if let (Ok(x), Ok(y), Ok(z)) = (r.AccelerationX(), r.AccelerationY(), r.AccelerationZ())
             {
                 push_sensor_reading(SensorReading {
                     kind: SensorKind::Accelerometer,
@@ -91,9 +90,11 @@ pub fn poll() {
     }
     if let Some(g) = &s.gyro {
         if let Ok(r) = g.GetCurrentReading() {
-            if let (Ok(x), Ok(y), Ok(z)) =
-                (r.AngularVelocityX(), r.AngularVelocityY(), r.AngularVelocityZ())
-            {
+            if let (Ok(x), Ok(y), Ok(z)) = (
+                r.AngularVelocityX(),
+                r.AngularVelocityY(),
+                r.AngularVelocityZ(),
+            ) {
                 push_sensor_reading(SensorReading {
                     kind: SensorKind::Gyroscope,
                     x: x as f32 * DEG_TO_RAD,

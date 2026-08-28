@@ -20,7 +20,10 @@ mod native {
     use azul_layout::widgets::capture_common::{CaptureRead, CaptureRequest};
     use nokhwa::{
         pixel_format::RgbAFormat,
-        utils::{CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution},
+        utils::{
+            CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
+            Resolution,
+        },
         Camera,
     };
 
@@ -104,7 +107,10 @@ mod stub {
         0
     }
     /// Stub: no frames.
-    pub fn read(_handle: u64, _out: &mut Vec<u8>) -> azul_layout::widgets::capture_common::CaptureRead {
+    pub fn read(
+        _handle: u64,
+        _out: &mut Vec<u8>,
+    ) -> azul_layout::widgets::capture_common::CaptureRead {
         azul_layout::widgets::capture_common::CaptureRead::Ended
     }
     /// Stub: nothing to free.

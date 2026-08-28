@@ -138,7 +138,9 @@ pub fn emit_host_invoker_class(builder: &mut CodeBuilder, ir: &CodegenIR) {
     // Storage
     builder.line("private static readonly System.Collections.Generic.Dictionary<ulong, object> _handles = new();");
     builder.line("private static ulong _nextHandleId = 0;");
-    builder.line("private static readonly System.Collections.Generic.List<Delegate> _livePins = new();");
+    builder.line(
+        "private static readonly System.Collections.Generic.List<Delegate> _livePins = new();",
+    );
     builder.line("private static readonly object _initLock = new();");
     builder.line("private static bool _initialized = false;");
     builder.blank();
@@ -363,13 +365,16 @@ fn emit_per_kind_invoker_init(
         builder.line("else if (ret is uint u32)");
         builder.line("{");
         builder.indent();
-        builder.line("System.Runtime.InteropServices.Marshal.WriteInt32(outPtr, unchecked((int)u32));");
+        builder.line(
+            "System.Runtime.InteropServices.Marshal.WriteInt32(outPtr, unchecked((int)u32));",
+        );
         builder.dedent();
         builder.line("}");
         builder.line("else if (ret is Enum e)");
         builder.line("{");
         builder.indent();
-        builder.line("System.Runtime.InteropServices.Marshal.WriteInt32(outPtr, Convert.ToInt32(e));");
+        builder
+            .line("System.Runtime.InteropServices.Marshal.WriteInt32(outPtr, Convert.ToInt32(e));");
         builder.dedent();
         builder.line("}");
         builder.line("else if (ret is ValueType vt)");
@@ -393,7 +398,8 @@ fn emit_per_kind_invoker_init(
         builder.line("if (__rawValue is ValueType __rvt)");
         builder.line("{");
         builder.indent();
-        builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(__rvt, outPtr, false);");
+        builder
+            .line("System.Runtime.InteropServices.Marshal.StructureToPtr(__rvt, outPtr, false);");
         // Ownership of the struct bytes moved to native via outPtr;
         // neuter the wrapper (internal __Consume, reached via the same
         // reflection handle) so its GC finalizer can't Az<X>_delete the
@@ -472,7 +478,10 @@ fn emit_cs_data_typed_delegate(
 
     // Probe #1: first arg = RefAny.
     let first = cb.args.first();
-    if first.map(|a| a.type_name.trim() != "RefAny").unwrap_or(true) {
+    if first
+        .map(|a| a.type_name.trim() != "RefAny")
+        .unwrap_or(true)
+    {
         return;
     }
 
@@ -620,27 +629,21 @@ fn emit_cs_data_typed_delegate(
         RetShape::Enum => {
             // `(int)Result` casts the enum to its int representation,
             // which the C-ABI writes back through outPtr as int32.
-            builder.line(&format!(
-                "var __result = typed({});",
-                call_args.join(", ")
-            ));
-            builder.line("System.Runtime.InteropServices.Marshal.WriteInt32(outPtr, (int)__result);");
+            builder.line(&format!("var __result = typed({});", call_args.join(", ")));
+            builder
+                .line("System.Runtime.InteropServices.Marshal.WriteInt32(outPtr, (int)__result);");
         }
         RetShape::WrapperStruct => {
             let ffi_ret = super::ffi_type_name(&return_decl);
-            builder.line(&format!(
-                "var __result = typed({});",
-                call_args.join(", ")
-            ));
+            builder.line(&format!("var __result = typed({});", call_args.join(", ")));
             builder.line("if (__result == null) return;");
             // `Raw` is the public FFI-struct accessor (see
             // `Dom.Raw`). StructureToPtr writes its bytes into outPtr
             // so the C-ABI thunk reads the constructed Dom directly.
-            builder.line(&format!(
-                "var __raw = ({}) __result.Raw;",
-                ffi_ret
-            ));
-            builder.line("System.Runtime.InteropServices.Marshal.StructureToPtr(__raw, outPtr, false);");
+            builder.line(&format!("var __raw = ({}) __result.Raw;", ffi_ret));
+            builder.line(
+                "System.Runtime.InteropServices.Marshal.StructureToPtr(__raw, outPtr, false);",
+            );
             // libazul takes ownership of the struct bytes via outPtr.
             // __Consume() marks the wrapper consumed WITHOUT calling
             // Az<X>_delete (internal, same assembly). Dispose() would
@@ -650,10 +653,7 @@ fn emit_cs_data_typed_delegate(
     }
     builder.dedent();
     builder.line("};");
-    builder.line(&format!(
-        "return Register{}((Delegate) raw);",
-        wrapper
-    ));
+    builder.line(&format!("return Register{}((Delegate) raw);", wrapper));
     builder.dedent();
     builder.line("}");
     builder.blank();
@@ -661,10 +661,7 @@ fn emit_cs_data_typed_delegate(
 
 /// Mirror of the wrapper-class predicate from `lang_csharp/wrappers.rs`.
 /// Kept local to managed.rs so we don't have to publish the helper.
-fn cs_managed_has_wrapper_class(
-    type_name: &str,
-    ir: &CodegenIR,
-) -> bool {
+fn cs_managed_has_wrapper_class(type_name: &str, ir: &CodegenIR) -> bool {
     use super::super::ir::{FunctionKind, TypeCategory};
     let Some(s) = ir.find_struct(type_name) else {
         return false;

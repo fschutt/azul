@@ -515,8 +515,16 @@ fn diff_source(hinted: &GrayBitmap, ct: &GrayBitmap, region: (u32, u32, u32, u32
     for cy in 0..ch {
         for cx in 0..cw {
             let (x, y) = (x0 + cx, y0 + cy);
-            let gh = if x < hinted.w && y < hinted.h { hinted.at(x, y) } else { 255 };
-            let gc = if x < ct.w && y < ct.h { ct.at(x, y) } else { 255 };
+            let gh = if x < hinted.w && y < hinted.h {
+                hinted.at(x, y)
+            } else {
+                255
+            };
+            let gc = if x < ct.w && y < ct.h {
+                ct.at(x, y)
+            } else {
+                255
+            };
             let cov_h = 255i32 - i32::from(gh);
             let cov_c = 255i32 - i32::from(gc);
             let d = cov_h - cov_c;
@@ -665,7 +673,10 @@ fn resolve_font() -> Option<PathBuf> {
         "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
         "/System/Library/Fonts/Supplemental/Verdana.ttf",
     ];
-    CANDS.iter().find(|p| Path::new(p).exists()).map(PathBuf::from)
+    CANDS
+        .iter()
+        .find(|p| Path::new(p).exists())
+        .map(PathBuf::from)
 }
 
 // ── The test ────────────────────────────────────────────────────────
@@ -791,15 +802,48 @@ fn coretext_autoregression() {
                     continue;
                 }
             };
-            let (hinted, _adv, all_hinted) =
-                render_ours(&font, &mut cache, &[gid], ppem, upem, true, w, h, baseline, origin_x);
-            let (unhinted, _, _) =
-                render_ours(&font, &mut cache, &[gid], ppem, upem, false, w, h, baseline, origin_x);
+            let (hinted, _adv, all_hinted) = render_ours(
+                &font,
+                &mut cache,
+                &[gid],
+                ppem,
+                upem,
+                true,
+                w,
+                h,
+                baseline,
+                origin_x,
+            );
+            let (unhinted, _, _) = render_ours(
+                &font,
+                &mut cache,
+                &[gid],
+                ppem,
+                upem,
+                false,
+                w,
+                h,
+                baseline,
+                origin_x,
+            );
 
             let id = format!("char-{:04x}", c as u32); // hex codepoint: case-safe on APFS
             emit_case(
-                &out_dir, &mut jsonl, &mut results, ppem, &id, &c.to_string(), "char",
-                &hinted, &ct, &unhinted, all_hinted, &[], &[], 1, 1,
+                &out_dir,
+                &mut jsonl,
+                &mut results,
+                ppem,
+                &id,
+                &c.to_string(),
+                "char",
+                &hinted,
+                &ct,
+                &unhinted,
+                all_hinted,
+                &[],
+                &[],
+                1,
+                1,
             );
         }
 
@@ -826,15 +870,30 @@ fn coretext_autoregression() {
                         continue;
                     }
                 };
-            let (hinted, our_adv, all_hinted) =
-                render_ours(&font, &mut cache, &gids, ppem, upem, true, w, h, baseline, origin_x);
-            let (unhinted, _, _) =
-                render_ours(&font, &mut cache, &gids, ppem, upem, false, w, h, baseline, origin_x);
+            let (hinted, our_adv, all_hinted) = render_ours(
+                &font, &mut cache, &gids, ppem, upem, true, w, h, baseline, origin_x,
+            );
+            let (unhinted, _, _) = render_ours(
+                &font, &mut cache, &gids, ppem, upem, false, w, h, baseline, origin_x,
+            );
 
             let id = format!("word-{}", sanitize(word));
             emit_case(
-                &out_dir, &mut jsonl, &mut results, ppem, &id, word, "word",
-                &hinted, &ct, &unhinted, all_hinted, &our_adv, &ct_adv, gids.len(), ct_glyphs,
+                &out_dir,
+                &mut jsonl,
+                &mut results,
+                ppem,
+                &id,
+                word,
+                "word",
+                &hinted,
+                &ct,
+                &unhinted,
+                all_hinted,
+                &our_adv,
+                &ct_adv,
+                gids.len(),
+                ct_glyphs,
             );
         }
     }
@@ -850,8 +909,7 @@ fn coretext_autoregression() {
 
     // Optional regression gate.
     if let Some(max) = max_rms {
-        let offenders: Vec<&CaseResult> =
-            results.iter().filter(|r| r.rms_raw > max).collect();
+        let offenders: Vec<&CaseResult> = results.iter().filter(|r| r.rms_raw > max).collect();
         if !offenders.is_empty() {
             let mut msg = format!(
                 "AZ_CT_MAX_RMS={max:.2} exceeded by {} case(s):\n",
@@ -1008,7 +1066,9 @@ fn write_summary(out_dir: &Path, font_path: &Path, ppems: &[u16], results: &[Cas
     md.push_str("\nPanels per PNG: `[ours-hinted (green) | coretext (blue) | diff-heatmap (magenta) | ours-unhinted (gray)]`. Diff: red=over-ink (ours>ct), blue=under-ink (ct>ours).\n");
 
     md.push_str("\n## Ranked (rms_raw desc)\n\n");
-    md.push_str("| case | ppem | rms_raw | rms_aln | bboxΔ(dx0,dy0,dw,dh) | bucket | hinted | file |\n");
+    md.push_str(
+        "| case | ppem | rms_raw | rms_aln | bboxΔ(dx0,dy0,dw,dh) | bucket | hinted | file |\n",
+    );
     md.push_str("|---|---:|---:|---:|---|---|:---:|---|\n");
     for r in &sorted {
         md.push_str(&format!(

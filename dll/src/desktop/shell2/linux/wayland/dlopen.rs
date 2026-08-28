@@ -76,8 +76,7 @@ pub struct Wayland {
     // then MOVED to a heap Box by the run loop — leaving every listener pointing at a dead
     // stack frame. We rebind to the stable boxed `self` on the first poll. (Verified:
     // registration addr 0x7ffe… vs live boxed addr 0x5bcb….)
-    pub wl_proxy_set_user_data:
-        unsafe extern "C" fn(proxy: *mut wl_proxy, user_data: *mut c_void),
+    pub wl_proxy_set_user_data: unsafe extern "C" fn(proxy: *mut wl_proxy, user_data: *mut c_void),
 
     // Protocol interfaces (needed for wl_registry_bind)
     // F3: wl_registry_interface is the return-interface for wl_display.get_registry,
@@ -144,8 +143,7 @@ pub struct Wayland {
     pub xdg_toplevel_set_minimized: unsafe extern "C" fn(*mut xdg_toplevel),
     pub xdg_toplevel_set_maximized: unsafe extern "C" fn(*mut xdg_toplevel),
     pub xdg_toplevel_unset_maximized: unsafe extern "C" fn(*mut xdg_toplevel),
-    pub xdg_toplevel_set_fullscreen:
-        unsafe extern "C" fn(*mut xdg_toplevel, *mut wl_output),
+    pub xdg_toplevel_set_fullscreen: unsafe extern "C" fn(*mut xdg_toplevel, *mut wl_output),
     pub xdg_toplevel_unset_fullscreen: unsafe extern "C" fn(*mut xdg_toplevel),
     pub xdg_toplevel_set_min_size: unsafe extern "C" fn(*mut xdg_toplevel, i32, i32),
     pub xdg_toplevel_set_max_size: unsafe extern "C" fn(*mut xdg_toplevel, i32, i32),
@@ -192,11 +190,8 @@ pub struct Wayland {
         *const wl_data_device_listener,
         *mut c_void,
     ) -> i32,
-    pub wl_data_offer_add_listener: unsafe extern "C" fn(
-        *mut wl_data_offer,
-        *const wl_data_offer_listener,
-        *mut c_void,
-    ) -> i32,
+    pub wl_data_offer_add_listener:
+        unsafe extern "C" fn(*mut wl_data_offer, *const wl_data_offer_listener, *mut c_void) -> i32,
 
     pub wl_seat_get_pointer: unsafe extern "C" fn(*mut wl_seat) -> *mut wl_pointer,
     pub wl_seat_get_keyboard: unsafe extern "C" fn(*mut wl_seat) -> *mut wl_keyboard,
@@ -319,20 +314,14 @@ impl Wayland {
         // and then cast function pointers to the specific signatures we need.
         // Note: These are variadic C functions. Rust doesn't support variadic fn pointers,
         // so we load them as raw pointers and transmute when calling.
-        let wl_proxy_marshal_constructor_ptr = unsafe {
-            lib_client
-                .get_symbol::<*const c_void>("wl_proxy_marshal_constructor")?
-        };
+        let wl_proxy_marshal_constructor_ptr =
+            unsafe { lib_client.get_symbol::<*const c_void>("wl_proxy_marshal_constructor")? };
 
         // Load wl_proxy_marshal and wl_proxy_add_listener once
-        let wl_proxy_marshal_ptr = unsafe {
-            lib_client
-                .get_symbol::<*const c_void>("wl_proxy_marshal")?
-        };
-        let wl_proxy_add_listener_ptr = unsafe {
-            lib_client
-                .get_symbol::<*const c_void>("wl_proxy_add_listener")?
-        };
+        let wl_proxy_marshal_ptr =
+            unsafe { lib_client.get_symbol::<*const c_void>("wl_proxy_marshal")? };
+        let wl_proxy_add_listener_ptr =
+            unsafe { lib_client.get_symbol::<*const c_void>("wl_proxy_add_listener")? };
         // marshal_flags is libwayland >=1.20; null -> impl fns fall back to the constructor fns.
         let wl_proxy_marshal_flags_ptr = unsafe {
             lib_client
@@ -377,11 +366,7 @@ impl Wayland {
                 _,
                 "wl_display_dispatch_queue_pending"
             ),
-            wl_display_create_queue: load_symbol!(
-                lib_client,
-                _,
-                "wl_display_create_queue"
-            ),
+            wl_display_create_queue: load_symbol!(lib_client, _, "wl_display_create_queue"),
             wl_event_queue_destroy: load_symbol!(lib_client, _, "wl_event_queue_destroy"),
             wl_display_flush: load_symbol!(lib_client, _, "wl_display_flush"),
             wl_display_get_fd: load_symbol!(lib_client, _, "wl_display_get_fd"),
@@ -432,7 +417,11 @@ impl Wayland {
                 *load_symbol!(lib_client, *const wl_interface, "wl_output_interface")
             },
             wl_data_device_manager_interface: unsafe {
-                *load_symbol!(lib_client, *const wl_interface, "wl_data_device_manager_interface")
+                *load_symbol!(
+                    lib_client,
+                    *const wl_interface,
+                    "wl_data_device_manager_interface"
+                )
             },
             wl_data_device_interface: unsafe {
                 *load_symbol!(lib_client, *const wl_interface, "wl_data_device_interface")
@@ -443,15 +432,33 @@ impl Wayland {
             // xdg-shell interfaces are NOT exported by libwayland-client (they are
             // wayland-scanner-generated); use our hand-built descriptors instead.
             xdg_wm_base_interface: *get_xdg_wm_base_interface(),
-            wl_surface_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_surface_interface") },
-            wl_pointer_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_pointer_interface") },
-            wl_keyboard_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_keyboard_interface") },
-            wl_touch_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_touch_interface") },
-            wl_callback_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_callback_interface") },
-            wl_region_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_region_interface") },
-            wl_shm_pool_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_shm_pool_interface") },
-            wl_buffer_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_buffer_interface") },
-            wl_subsurface_interface: unsafe { *load_symbol!(lib_client, *const wl_interface, "wl_subsurface_interface") },
+            wl_surface_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_surface_interface")
+            },
+            wl_pointer_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_pointer_interface")
+            },
+            wl_keyboard_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_keyboard_interface")
+            },
+            wl_touch_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_touch_interface")
+            },
+            wl_callback_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_callback_interface")
+            },
+            wl_region_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_region_interface")
+            },
+            wl_shm_pool_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_shm_pool_interface")
+            },
+            wl_buffer_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_buffer_interface")
+            },
+            wl_subsurface_interface: unsafe {
+                *load_symbol!(lib_client, *const wl_interface, "wl_subsurface_interface")
+            },
             xdg_surface_interface: *get_xdg_surface_interface(),
             xdg_toplevel_interface: *get_xdg_toplevel_interface(),
             xdg_popup_interface: *get_xdg_popup_interface(),
@@ -564,18 +571,18 @@ impl Wayland {
             wl_pointer_set_cursor: Some(wl_pointer_set_cursor_impl),
 
             // Try to load wayland-cursor library once (optional)
-            wl_cursor_theme_load: lib_cursor.as_ref().and_then(|lc| unsafe {
-                lc.get_symbol("wl_cursor_theme_load").ok()
-            }),
-            wl_cursor_theme_destroy: lib_cursor.as_ref().and_then(|lc| unsafe {
-                lc.get_symbol("wl_cursor_theme_destroy").ok()
-            }),
-            wl_cursor_theme_get_cursor: lib_cursor.as_ref().and_then(|lc| unsafe {
-                lc.get_symbol("wl_cursor_theme_get_cursor").ok()
-            }),
-            wl_cursor_image_get_buffer: lib_cursor.as_ref().and_then(|lc| unsafe {
-                lc.get_symbol("wl_cursor_image_get_buffer").ok()
-            }),
+            wl_cursor_theme_load: lib_cursor
+                .as_ref()
+                .and_then(|lc| unsafe { lc.get_symbol("wl_cursor_theme_load").ok() }),
+            wl_cursor_theme_destroy: lib_cursor
+                .as_ref()
+                .and_then(|lc| unsafe { lc.get_symbol("wl_cursor_theme_destroy").ok() }),
+            wl_cursor_theme_get_cursor: lib_cursor
+                .as_ref()
+                .and_then(|lc| unsafe { lc.get_symbol("wl_cursor_theme_get_cursor").ok() }),
+            wl_cursor_image_get_buffer: lib_cursor
+                .as_ref()
+                .and_then(|lc| unsafe { lc.get_symbol("wl_cursor_image_get_buffer").ok() }),
 
             _lib_cursor: lib_cursor,
             _lib_client: lib_client,
@@ -660,7 +667,12 @@ unsafe extern "C" fn wl_display_get_registry_impl(display: *mut wl_display) -> *
         *const wl_interface,
         *mut c_void,
     ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
-    f(display as *mut wl_proxy, 1, c.wl_registry, std::ptr::null_mut()) as *mut wl_registry
+    f(
+        display as *mut wl_proxy,
+        1,
+        c.wl_registry,
+        std::ptr::null_mut(),
+    ) as *mut wl_registry
 }
 // Constructor requests: marshal_constructor(proxy, opcode, ret_interface, NULL new_id, ...args).
 unsafe extern "C" fn wl_registry_bind_impl(
@@ -730,7 +742,12 @@ unsafe extern "C" fn wl_compositor_create_surface_impl(
         *const wl_interface,
         *mut c_void,
     ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
-    f(compositor as *mut wl_proxy, 0, c.wl_surface, std::ptr::null_mut()) as *mut wl_surface
+    f(
+        compositor as *mut wl_proxy,
+        0,
+        c.wl_surface,
+        std::ptr::null_mut(),
+    ) as *mut wl_surface
 }
 unsafe extern "C" fn wl_seat_get_pointer_impl(seat: *mut wl_seat) -> *mut wl_pointer {
     let c = ctx();
@@ -752,8 +769,12 @@ unsafe extern "C" fn wl_surface_commit_impl(surface: *mut wl_surface) {
 // --- remaining constructor requests (marshal_constructor: op, ret-interface, NULL new_id, args) ---
 unsafe extern "C" fn wl_compositor_create_region_impl(comp: *mut wl_compositor) -> *mut wl_region {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
     f(comp as *mut wl_proxy, 1, c.wl_region, std::ptr::null_mut()) as *mut wl_region
 }
 unsafe extern "C" fn wl_subcompositor_get_subsurface_impl(
@@ -762,14 +783,31 @@ unsafe extern "C" fn wl_subcompositor_get_subsurface_impl(
     parent: *mut wl_surface,
 ) -> *mut wl_subsurface {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut wl_surface, *mut wl_surface) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
-    f(sc as *mut wl_proxy, 1, c.wl_subsurface, std::ptr::null_mut(), surface, parent) as *mut wl_subsurface
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+        *mut wl_surface,
+        *mut wl_surface,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        sc as *mut wl_proxy,
+        1,
+        c.wl_subsurface,
+        std::ptr::null_mut(),
+        surface,
+        parent,
+    ) as *mut wl_subsurface
 }
 unsafe extern "C" fn wl_surface_frame_impl(s: *mut wl_surface) -> *mut wl_callback {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
     f(s as *mut wl_proxy, 3, c.wl_callback, std::ptr::null_mut()) as *mut wl_callback
 }
 unsafe extern "C" fn xdg_wm_base_get_xdg_surface_impl(
@@ -777,20 +815,46 @@ unsafe extern "C" fn xdg_wm_base_get_xdg_surface_impl(
     surface: *mut wl_surface,
 ) -> *mut xdg_surface {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut wl_surface) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
-    f(wm as *mut wl_proxy, 2, c.xdg_surface, std::ptr::null_mut(), surface) as *mut xdg_surface
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+        *mut wl_surface,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        wm as *mut wl_proxy,
+        2,
+        c.xdg_surface,
+        std::ptr::null_mut(),
+        surface,
+    ) as *mut xdg_surface
 }
-unsafe extern "C" fn xdg_wm_base_create_positioner_impl(wm: *mut xdg_wm_base) -> *mut xdg_positioner {
+unsafe extern "C" fn xdg_wm_base_create_positioner_impl(
+    wm: *mut xdg_wm_base,
+) -> *mut xdg_positioner {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
-    f(wm as *mut wl_proxy, 1, c.xdg_positioner, std::ptr::null_mut()) as *mut xdg_positioner
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        wm as *mut wl_proxy,
+        1,
+        c.xdg_positioner,
+        std::ptr::null_mut(),
+    ) as *mut xdg_positioner
 }
 unsafe extern "C" fn xdg_surface_get_toplevel_impl(xs: *mut xdg_surface) -> *mut xdg_toplevel {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
     f(xs as *mut wl_proxy, 1, c.xdg_toplevel, std::ptr::null_mut()) as *mut xdg_toplevel
 }
 unsafe extern "C" fn xdg_surface_get_popup_impl(
@@ -799,20 +863,46 @@ unsafe extern "C" fn xdg_surface_get_popup_impl(
     positioner: *mut xdg_positioner,
 ) -> *mut xdg_popup {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut xdg_surface, *mut xdg_positioner) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
-    f(xs as *mut wl_proxy, 2, c.xdg_popup, std::ptr::null_mut(), parent, positioner) as *mut xdg_popup
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+        *mut xdg_surface,
+        *mut xdg_positioner,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        xs as *mut wl_proxy,
+        2,
+        c.xdg_popup,
+        std::ptr::null_mut(),
+        parent,
+        positioner,
+    ) as *mut xdg_popup
 }
 unsafe extern "C" fn wl_seat_get_keyboard_impl(seat: *mut wl_seat) -> *mut wl_keyboard {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
-    f(seat as *mut wl_proxy, 1, c.wl_keyboard, std::ptr::null_mut()) as *mut wl_keyboard
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        seat as *mut wl_proxy,
+        1,
+        c.wl_keyboard,
+        std::ptr::null_mut(),
+    ) as *mut wl_keyboard
 }
 unsafe extern "C" fn wl_seat_get_touch_impl(seat: *mut wl_seat) -> *mut wl_touch {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
     f(seat as *mut wl_proxy, 2, c.wl_touch, std::ptr::null_mut()) as *mut wl_touch
 }
 unsafe extern "C" fn zwp_tablet_manager_v2_get_tablet_seat_impl(
@@ -821,10 +911,20 @@ unsafe extern "C" fn zwp_tablet_manager_v2_get_tablet_seat_impl(
 ) -> *mut zwp_tablet_seat_v2 {
     let c = ctx();
     // get_tablet_seat op0; the seat interface is the hand-rolled descriptor.
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut wl_seat) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
-    f(mgr as *mut wl_proxy, 0, get_tablet_seat_v2_interface() as *const _, std::ptr::null_mut(), seat)
-        as *mut zwp_tablet_seat_v2
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+        *mut wl_seat,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        mgr as *mut wl_proxy,
+        0,
+        get_tablet_seat_v2_interface() as *const _,
+        std::ptr::null_mut(),
+        seat,
+    ) as *mut zwp_tablet_seat_v2
 }
 // wl_data_device_manager.get_data_device: opcode 1 (opcode 0 = create_data_source),
 // signature "no" (new_id<wl_data_device>, object<wl_seat>).
@@ -833,15 +933,43 @@ unsafe extern "C" fn wl_data_device_manager_get_data_device_impl(
     seat: *mut wl_seat,
 ) -> *mut wl_data_device {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, *mut wl_seat) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
-    f(mgr as *mut wl_proxy, 1, c.wl_data_device, std::ptr::null_mut(), seat) as *mut wl_data_device
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+        *mut wl_seat,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        mgr as *mut wl_proxy,
+        1,
+        c.wl_data_device,
+        std::ptr::null_mut(),
+        seat,
+    ) as *mut wl_data_device
 }
-unsafe extern "C" fn wl_shm_create_pool_impl(shm: *mut wl_shm, fd: i32, size: i32) -> *mut wl_shm_pool {
+unsafe extern "C" fn wl_shm_create_pool_impl(
+    shm: *mut wl_shm,
+    fd: i32,
+    size: i32,
+) -> *mut wl_shm_pool {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, i32, i32) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
-    f(shm as *mut wl_proxy, 0, c.wl_shm_pool, std::ptr::null_mut(), fd, size) as *mut wl_shm_pool
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+        i32,
+        i32,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        shm as *mut wl_proxy,
+        0,
+        c.wl_shm_pool,
+        std::ptr::null_mut(),
+        fd,
+        size,
+    ) as *mut wl_shm_pool
 }
 unsafe extern "C" fn wl_shm_pool_create_buffer_impl(
     pool: *mut wl_shm_pool,
@@ -852,9 +980,28 @@ unsafe extern "C" fn wl_shm_pool_create_buffer_impl(
     format: u32,
 ) -> *mut wl_buffer {
     let c = ctx();
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *const wl_interface, *mut c_void, i32, i32, i32, i32, u32) -> *mut wl_proxy =
-        std::mem::transmute(c.marshal_constructor);
-    f(pool as *mut wl_proxy, 0, c.wl_buffer, std::ptr::null_mut(), offset, w, h, stride, format) as *mut wl_buffer
+    let f: unsafe extern "C" fn(
+        *mut wl_proxy,
+        u32,
+        *const wl_interface,
+        *mut c_void,
+        i32,
+        i32,
+        i32,
+        i32,
+        u32,
+    ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+    f(
+        pool as *mut wl_proxy,
+        0,
+        c.wl_buffer,
+        std::ptr::null_mut(),
+        offset,
+        w,
+        h,
+        stride,
+        format,
+    ) as *mut wl_buffer
 }
 
 // --- plain requests (marshal: op, args) ---
@@ -901,12 +1048,19 @@ unsafe extern "C" fn wl_surface_destroy_impl(s: *mut wl_surface) {
     f(s as *mut wl_proxy, 0);
     destroy_proxy_after_request(s as *mut wl_proxy);
 }
-unsafe extern "C" fn wl_surface_attach_impl(s: *mut wl_surface, buffer: *mut wl_buffer, x: i32, y: i32) {
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_buffer, i32, i32) = std::mem::transmute(ctx().marshal);
+unsafe extern "C" fn wl_surface_attach_impl(
+    s: *mut wl_surface,
+    buffer: *mut wl_buffer,
+    x: i32,
+    y: i32,
+) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_buffer, i32, i32) =
+        std::mem::transmute(ctx().marshal);
     f(s as *mut wl_proxy, 1, buffer, x, y);
 }
 unsafe extern "C" fn wl_surface_damage_impl(s: *mut wl_surface, x: i32, y: i32, w: i32, h: i32) {
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) = std::mem::transmute(ctx().marshal);
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) =
+        std::mem::transmute(ctx().marshal);
     f(s as *mut wl_proxy, 2, x, y, w, h);
 }
 unsafe extern "C" fn wl_surface_set_buffer_scale_impl(s: *mut wl_surface, scale: i32) {
@@ -924,16 +1078,19 @@ unsafe extern "C" fn wl_surface_damage_buffer_impl(
 ) {
     // wl_surface request opcode 9 (since version 4). Callers must guard on
     // wl_proxy_get_version(surface) >= 4.
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) = std::mem::transmute(ctx().marshal);
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) =
+        std::mem::transmute(ctx().marshal);
     f(s as *mut wl_proxy, 9, x, y, w, h);
 }
 unsafe extern "C" fn wl_surface_set_opaque_region_impl(s: *mut wl_surface, region: *mut wl_region) {
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_region) = std::mem::transmute(ctx().marshal);
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_region) =
+        std::mem::transmute(ctx().marshal);
     f(s as *mut wl_proxy, 4, region);
 }
 unsafe extern "C" fn wl_surface_set_input_region_impl(s: *mut wl_surface, region: *mut wl_region) {
     // wl_surface.set_input_region: opcode 5 (set_opaque_region is 4).
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_region) = std::mem::transmute(ctx().marshal);
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_region) =
+        std::mem::transmute(ctx().marshal);
     f(s as *mut wl_proxy, 5, region);
 }
 unsafe extern "C" fn xdg_wm_base_pong_impl(wm: *mut xdg_wm_base, serial: u32) {
@@ -961,8 +1118,12 @@ unsafe extern "C" fn xdg_toplevel_unset_maximized_impl(t: *mut xdg_toplevel) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32) = std::mem::transmute(ctx().marshal);
     f(t as *mut wl_proxy, 10);
 }
-unsafe extern "C" fn xdg_toplevel_set_fullscreen_impl(t: *mut xdg_toplevel, output: *mut wl_output) {
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_output) = std::mem::transmute(ctx().marshal);
+unsafe extern "C" fn xdg_toplevel_set_fullscreen_impl(
+    t: *mut xdg_toplevel,
+    output: *mut wl_output,
+) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_output) =
+        std::mem::transmute(ctx().marshal);
     f(t as *mut wl_proxy, 11, output);
 }
 unsafe extern "C" fn xdg_toplevel_unset_fullscreen_impl(t: *mut xdg_toplevel) {
@@ -978,7 +1139,8 @@ unsafe extern "C" fn xdg_toplevel_set_max_size_impl(t: *mut xdg_toplevel, w: i32
     f(t as *mut wl_proxy, 7, w, h);
 }
 unsafe extern "C" fn xdg_toplevel_move_impl(t: *mut xdg_toplevel, seat: *mut wl_seat, serial: u32) {
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_seat, u32) = std::mem::transmute(ctx().marshal);
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_seat, u32) =
+        std::mem::transmute(ctx().marshal);
     f(t as *mut wl_proxy, 5, seat, serial);
 }
 unsafe extern "C" fn xdg_toplevel_resize_impl(
@@ -996,8 +1158,15 @@ unsafe extern "C" fn xdg_positioner_set_size_impl(p: *mut xdg_positioner, w: i32
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32) = std::mem::transmute(ctx().marshal);
     f(p as *mut wl_proxy, 1, w, h);
 }
-unsafe extern "C" fn xdg_positioner_set_anchor_rect_impl(p: *mut xdg_positioner, x: i32, y: i32, w: i32, h: i32) {
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) = std::mem::transmute(ctx().marshal);
+unsafe extern "C" fn xdg_positioner_set_anchor_rect_impl(
+    p: *mut xdg_positioner,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+) {
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) =
+        std::mem::transmute(ctx().marshal);
     f(p as *mut wl_proxy, 2, x, y, w, h);
 }
 unsafe extern "C" fn xdg_positioner_set_anchor_impl(p: *mut xdg_positioner, anchor: u32) {
@@ -1008,7 +1177,10 @@ unsafe extern "C" fn xdg_positioner_set_gravity_impl(p: *mut xdg_positioner, gra
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
     f(p as *mut wl_proxy, 4, gravity);
 }
-unsafe extern "C" fn xdg_positioner_set_constraint_adjustment_impl(p: *mut xdg_positioner, adj: u32) {
+unsafe extern "C" fn xdg_positioner_set_constraint_adjustment_impl(
+    p: *mut xdg_positioner,
+    adj: u32,
+) {
     let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32) = std::mem::transmute(ctx().marshal);
     f(p as *mut wl_proxy, 5, adj);
 }
@@ -1018,7 +1190,8 @@ unsafe extern "C" fn xdg_positioner_destroy_impl(p: *mut xdg_positioner) {
     destroy_proxy_after_request(p as *mut wl_proxy);
 }
 unsafe extern "C" fn xdg_popup_grab_impl(popup: *mut xdg_popup, seat: *mut wl_seat, serial: u32) {
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_seat, u32) = std::mem::transmute(ctx().marshal);
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, *mut wl_seat, u32) =
+        std::mem::transmute(ctx().marshal);
     f(popup as *mut wl_proxy, 1, seat, serial);
 }
 unsafe extern "C" fn xdg_popup_destroy_impl(popup: *mut xdg_popup) {
@@ -1042,7 +1215,8 @@ unsafe extern "C" fn wl_region_destroy_impl(r: *mut wl_region) {
     destroy_proxy_after_request(r as *mut wl_proxy);
 }
 unsafe extern "C" fn wl_region_add_impl(r: *mut wl_region, x: i32, y: i32, w: i32, h: i32) {
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) = std::mem::transmute(ctx().marshal);
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, i32, i32, i32, i32) =
+        std::mem::transmute(ctx().marshal);
     f(r as *mut wl_proxy, 1, x, y, w, h);
 }
 unsafe extern "C" fn wl_pointer_set_cursor_impl(
@@ -1052,7 +1226,8 @@ unsafe extern "C" fn wl_pointer_set_cursor_impl(
     hx: i32,
     hy: i32,
 ) {
-    let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32, *mut wl_surface, i32, i32) = std::mem::transmute(ctx().marshal);
+    let f: unsafe extern "C" fn(*mut wl_proxy, u32, u32, *mut wl_surface, i32, i32) =
+        std::mem::transmute(ctx().marshal);
     f(pointer as *mut wl_proxy, 0, serial, surface, hx, hy);
 }
 

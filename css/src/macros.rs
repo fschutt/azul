@@ -22,7 +22,8 @@ macro_rules! impl_vec {
         impl $slice_name {
             /// Creates an empty slice.
             #[inline]
-            #[must_use] pub const fn empty() -> Self {
+            #[must_use]
+            pub const fn empty() -> Self {
                 Self {
                     ptr: core::ptr::null(),
                     len: 0,
@@ -31,25 +32,29 @@ macro_rules! impl_vec {
 
             /// Returns the number of elements in the slice.
             #[inline]
-            #[must_use] pub const fn len(&self) -> usize {
+            #[must_use]
+            pub const fn len(&self) -> usize {
                 self.len
             }
 
             /// Returns true if the slice is empty.
             #[inline]
-            #[must_use] pub const fn is_empty(&self) -> bool {
+            #[must_use]
+            pub const fn is_empty(&self) -> bool {
                 self.len == 0
             }
 
             /// Returns a pointer to the slice's data.
             #[inline]
-            #[must_use] pub const fn as_ptr(&self) -> *const $struct_type {
+            #[must_use]
+            pub const fn as_ptr(&self) -> *const $struct_type {
                 self.ptr
             }
 
             /// Converts the C-slice to a Rust slice.
             #[inline]
-            #[must_use] pub const fn as_slice(&self) -> &[$struct_type] {
+            #[must_use]
+            pub const fn as_slice(&self) -> &[$struct_type] {
                 if self.ptr.is_null() || self.len == 0 {
                     &[]
                 } else {
@@ -59,7 +64,8 @@ macro_rules! impl_vec {
 
             /// Returns a reference to the element at the given index, or None if out of bounds.
             #[inline]
-            #[must_use] pub fn get(&self, index: usize) -> Option<&$struct_type> {
+            #[must_use]
+            pub fn get(&self, index: usize) -> Option<&$struct_type> {
                 self.as_slice().get(index)
             }
 
@@ -115,18 +121,21 @@ macro_rules! impl_vec {
 
         impl $struct_name {
             #[inline]
-            #[must_use] pub const fn new() -> $struct_name {
+            #[must_use]
+            pub const fn new() -> $struct_name {
                 // lets hope the optimizer catches this
                 Self::from_vec(alloc::vec::Vec::new())
             }
 
             #[inline]
-            #[must_use] pub fn with_capacity(cap: usize) -> Self {
+            #[must_use]
+            pub fn with_capacity(cap: usize) -> Self {
                 Self::from_vec(alloc::vec::Vec::<$struct_type>::with_capacity(cap))
             }
 
             #[inline]
-            #[must_use] pub const fn from_const_slice(input: &'static [$struct_type]) -> Self {
+            #[must_use]
+            pub const fn from_const_slice(input: &'static [$struct_type]) -> Self {
                 Self {
                     ptr: input.as_ptr(),
                     len: input.len(),
@@ -155,7 +164,8 @@ macro_rules! impl_vec {
             }
 
             #[inline]
-            #[must_use] pub const fn from_vec(input: alloc::vec::Vec<$struct_type>) -> Self {
+            #[must_use]
+            pub const fn from_vec(input: alloc::vec::Vec<$struct_type>) -> Self {
                 let ptr = input.as_ptr();
                 let len = input.len();
                 let cap = input.capacity();
@@ -176,30 +186,35 @@ macro_rules! impl_vec {
             }
 
             #[inline]
-            #[must_use] pub const fn len(&self) -> usize {
+            #[must_use]
+            pub const fn len(&self) -> usize {
                 self.len
             }
 
             #[inline]
-            #[must_use] pub const fn capacity(&self) -> usize {
+            #[must_use]
+            pub const fn capacity(&self) -> usize {
                 self.cap
             }
 
             #[inline]
-            #[must_use] pub const fn is_empty(&self) -> bool {
+            #[must_use]
+            pub const fn is_empty(&self) -> bool {
                 self.len == 0
             }
 
             /// Returns a reference to the element at the given index (Rust-only, inline).
             #[inline]
-            #[must_use] pub fn get(&self, index: usize) -> Option<&$struct_type> {
+            #[must_use]
+            pub fn get(&self, index: usize) -> Option<&$struct_type> {
                 self.as_ref().get(index)
             }
 
             /// C-API compatible get function. Returns a copy of the element at the given index.
             /// Returns None if the index is out of bounds.
             #[inline]
-            #[must_use] pub fn c_get(&self, index: usize) -> $option_type
+            #[must_use]
+            pub fn c_get(&self, index: usize) -> $option_type
             where
                 $struct_type: Clone,
             {
@@ -208,19 +223,21 @@ macro_rules! impl_vec {
 
             #[allow(dead_code)]
             #[inline]
-            unsafe fn get_unchecked(&self, index: usize) -> &$struct_type { unsafe {
-                self.as_ref().get_unchecked(index)
-            }}
+            unsafe fn get_unchecked(&self, index: usize) -> &$struct_type {
+                unsafe { self.as_ref().get_unchecked(index) }
+            }
 
             /// Returns the vec as a Rust slice (Rust-only, not C-API compatible).
             #[inline]
-            #[must_use] pub fn as_slice(&self) -> &[$struct_type] {
+            #[must_use]
+            pub fn as_slice(&self) -> &[$struct_type] {
                 self.as_ref()
             }
 
             /// Returns a C-compatible slice of the entire Vec.
             #[inline]
-            #[must_use] pub const fn as_c_slice(&self) -> $slice_name {
+            #[must_use]
+            pub const fn as_c_slice(&self) -> $slice_name {
                 $slice_name {
                     ptr: self.ptr,
                     len: self.len,
@@ -230,7 +247,8 @@ macro_rules! impl_vec {
             /// Returns a C-compatible slice of a range within the Vec.
             /// If the range is out of bounds, it is clamped to the valid range.
             #[inline]
-            #[must_use] pub fn as_c_slice_range(&self, start: usize, end: usize) -> $slice_name {
+            #[must_use]
+            pub fn as_c_slice_range(&self, start: usize, end: usize) -> $slice_name {
                 let start = start.min(self.len);
                 let end = end.min(self.len).max(start);
                 let len = end - start;
@@ -247,7 +265,8 @@ macro_rules! impl_vec {
             /// Returns a pointer to the Vec's data.
             /// Use `len()` to get the number of elements.
             #[inline]
-            #[must_use] pub const fn as_ptr(&self) -> *const $struct_type {
+            #[must_use]
+            pub const fn as_ptr(&self) -> *const $struct_type {
                 self.ptr
             }
         }
@@ -592,7 +611,8 @@ macro_rules! impl_vec_mut {
             }
 
             #[inline]
-            #[must_use] pub fn into_iter(self) -> alloc::vec::IntoIter<$struct_type> {
+            #[must_use]
+            pub fn into_iter(self) -> alloc::vec::IntoIter<$struct_type> {
                 let v1: alloc::vec::Vec<$struct_type> = self.into();
                 v1.into_iter()
             }
@@ -674,9 +694,11 @@ macro_rules! impl_vec_mut {
 
                 let res = unsafe {
                     match self.current_layout() {
-                        Some(layout) if owns_buffer => {
-                            alloc::alloc::realloc(self.ptr.cast::<u8>().cast_mut(), layout, new_layout.size())
-                        }
+                        Some(layout) if owns_buffer => alloc::alloc::realloc(
+                            self.ptr.cast::<u8>().cast_mut(),
+                            layout,
+                            new_layout.size(),
+                        ),
                         _ => {
                             let fresh = alloc::alloc::alloc(new_layout);
                             // NOTE: for `External`, the original buffer is left for its
@@ -742,17 +764,19 @@ macro_rules! impl_vec_mut {
 
             /// Appends elements to `Self` from other buffer.
             #[inline]
-            unsafe fn append_elements(&mut self, other: *const [$struct_type]) { unsafe {
-                let count = (&(*other)).len();
-                self.reserve(count);
-                let len = self.len();
-                core::ptr::copy_nonoverlapping(
-                    other as *const $struct_type,
-                    self.as_mut_ptr().add(len),
-                    count,
-                );
-                self.len += count;
-            }}
+            unsafe fn append_elements(&mut self, other: *const [$struct_type]) {
+                unsafe {
+                    let count = (&(*other)).len();
+                    self.reserve(count);
+                    let len = self.len();
+                    core::ptr::copy_nonoverlapping(
+                        other as *const $struct_type,
+                        self.as_mut_ptr().add(len),
+                        count,
+                    );
+                    self.len += count;
+                }
+            }
 
             pub fn truncate(&mut self, len: usize) {
                 // This is safe because:
@@ -841,7 +865,8 @@ macro_rules! impl_vec_clone {
             // Creates a `Vec` from a `Cow<'static, [T]>` - useful to avoid allocating in the case
             // of &'static memory
             #[inline]
-            #[must_use] pub fn from_copy_on_write(
+            #[must_use]
+            pub fn from_copy_on_write(
                 input: alloc::borrow::Cow<'static, [$struct_type]>,
             ) -> $struct_name {
                 match input {
@@ -854,29 +879,34 @@ macro_rules! impl_vec_clone {
 
             /// Creates a Vec containing a single element
             #[inline]
-            #[must_use] pub fn from_item(item: $struct_type) -> Self {
+            #[must_use]
+            pub fn from_item(item: $struct_type) -> Self {
                 Self::from_vec(alloc::vec![item])
             }
 
             /// Copies elements from a C array pointer into a new Vec.
-            /// 
+            ///
             /// # Safety
             /// - `ptr` must be valid for reading `len` elements
             /// - The memory must be properly aligned for `$struct_type`
             /// - The elements are cloned, so `$struct_type` must implement `Clone`
             #[inline]
-            #[must_use] pub unsafe fn copy_from_ptr(ptr: *const $struct_type, len: usize) -> Self { unsafe {
-                if ptr.is_null() || len == 0 {
-                    return Self::new();
+            #[must_use]
+            pub unsafe fn copy_from_ptr(ptr: *const $struct_type, len: usize) -> Self {
+                unsafe {
+                    if ptr.is_null() || len == 0 {
+                        return Self::new();
+                    }
+                    let slice = core::slice::from_raw_parts(ptr, len);
+                    Self::from_vec(slice.to_vec())
                 }
-                let slice = core::slice::from_raw_parts(ptr, len);
-                Self::from_vec(slice.to_vec())
-            }}
+            }
 
             /// NOTE: CLONES the memory if the memory is external or &'static
             /// Moves the memory out if the memory is library-allocated
             #[inline]
-            #[must_use] pub fn clone_self(&self) -> Self {
+            #[must_use]
+            pub fn clone_self(&self) -> Self {
                 match self.destructor {
                     $destructor_name::NoDestructor | $destructor_name::AlreadyDestroyed => Self {
                         ptr: self.ptr,
@@ -893,18 +923,15 @@ macro_rules! impl_vec_clone {
             /// NOTE: CLONES the memory if the memory is external or &'static
             /// Moves the memory out if the memory is library-allocated
             #[inline]
-            #[must_use] pub fn into_library_owned_vec(self) -> alloc::vec::Vec<$struct_type> {
+            #[must_use]
+            pub fn into_library_owned_vec(self) -> alloc::vec::Vec<$struct_type> {
                 match self.destructor {
-                    $destructor_name::NoDestructor | $destructor_name::External(_) | $destructor_name::AlreadyDestroyed => {
-                        self.as_ref().to_vec()
-                    }
+                    $destructor_name::NoDestructor
+                    | $destructor_name::External(_)
+                    | $destructor_name::AlreadyDestroyed => self.as_ref().to_vec(),
                     $destructor_name::DefaultRust => {
                         let v = unsafe {
-                            alloc::vec::Vec::from_raw_parts(
-                                self.ptr.cast_mut(),
-                                self.len,
-                                self.cap,
-                            )
+                            alloc::vec::Vec::from_raw_parts(self.ptr.cast_mut(), self.len, self.cap)
                         };
                         core::mem::forget(self);
                         v
@@ -980,7 +1007,8 @@ macro_rules! impl_option_inner {
         }
 
         impl $struct_name {
-            #[must_use] pub const fn as_option(&self) -> Option<&$struct_type> {
+            #[must_use]
+            pub const fn as_option(&self) -> Option<&$struct_type> {
                 match self {
                     $struct_name::None => None,
                     $struct_name::Some(t) => Some(t),
@@ -992,16 +1020,19 @@ macro_rules! impl_option_inner {
             pub const fn replace(&mut self, value: $struct_type) -> $struct_name {
                 ::core::mem::replace(self, $struct_name::Some(value))
             }
-            #[must_use] pub const fn is_some(&self) -> bool {
+            #[must_use]
+            pub const fn is_some(&self) -> bool {
                 match self {
                     $struct_name::None => false,
                     $struct_name::Some(_) => true,
                 }
             }
-            #[must_use] pub const fn is_none(&self) -> bool {
+            #[must_use]
+            pub const fn is_none(&self) -> bool {
                 !self.is_some()
             }
-            #[must_use] pub const fn as_ref(&self) -> Option<&$struct_type> {
+            #[must_use]
+            pub const fn as_ref(&self) -> Option<&$struct_type> {
                 match *self {
                     $struct_name::Some(ref x) => Some(x),
                     $struct_name::None => None,

@@ -34,16 +34,27 @@ fn repo_root() -> PathBuf {
 
 /// (backend file, marker identifying its blur handler)
 const BLUR_HANDLERS: &[(&str, &str)] = &[
-    ("dll/src/desktop/shell2/macos/mod.rs", "window_did_resign_key"),
-    ("dll/src/desktop/shell2/windows/mod.rs", "Drop every held key"),
-    ("dll/src/desktop/shell2/linux/x11/mod.rs", "window_focused = false"),
-    ("dll/src/desktop/shell2/linux/wayland/mod.rs", "window_focused = false"),
+    (
+        "dll/src/desktop/shell2/macos/mod.rs",
+        "window_did_resign_key",
+    ),
+    (
+        "dll/src/desktop/shell2/windows/mod.rs",
+        "Drop every held key",
+    ),
+    (
+        "dll/src/desktop/shell2/linux/x11/mod.rs",
+        "window_focused = false",
+    ),
+    (
+        "dll/src/desktop/shell2/linux/wayland/mod.rs",
+        "window_focused = false",
+    ),
 ];
 
 /// Text of the ~80 lines following the blur marker — the handler's body.
 fn handler_body(root: &Path, file: &str, marker: &str) -> String {
-    let src = std::fs::read_to_string(root.join(file))
-        .unwrap_or_else(|e| panic!("{file}: {e}"));
+    let src = std::fs::read_to_string(root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
     let at = src
         .find(marker)
         .unwrap_or_else(|| panic!("{file}: no blur handler marker {marker:?} — did it move?"));

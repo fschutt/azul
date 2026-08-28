@@ -28,7 +28,11 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 
-use crate::solver3::{getters::{get_overflow_x, get_overflow_y}, layout_tree::LayoutNodeHot, PositionVec};
+use crate::solver3::{
+    getters::{get_overflow_x, get_overflow_y},
+    layout_tree::LayoutNodeHot,
+    PositionVec,
+};
 use crate::window::DomLayoutResult;
 
 /// Large finite half-extent used in place of `f32::INFINITY` for clip axes that
@@ -149,7 +153,8 @@ impl ScreenMapAffine {
     /// The 2D-affine slice of a `ComputedTransform3D`, exactly the elements
     /// the CPU raster feeds `TransAffine::new_custom`
     /// (`m[0][0], m[0][1], m[1][0], m[1][1], m[3][0], m[3][1]`).
-    #[must_use] pub const fn from_transform_3d(t: &azul_core::transform::ComputedTransform3D) -> Self {
+    #[must_use]
+    pub const fn from_transform_3d(t: &azul_core::transform::ComputedTransform3D) -> Self {
         Self {
             sx: t.m[0][0],
             shy: t.m[0][1],
@@ -196,15 +201,18 @@ impl ScreenMapAffine {
         self.tx = t4;
     }
 
-    #[must_use] pub fn apply(&self, p: LogicalPosition) -> LogicalPosition {
+    #[must_use]
+    pub fn apply(&self, p: LogicalPosition) -> LogicalPosition {
         LogicalPosition {
             x: p.x.mul_add(self.sx, p.y * self.shx) + self.tx,
             y: p.x.mul_add(self.shy, p.y * self.sy) + self.ty,
         }
     }
 
-    #[allow(clippy::float_cmp)] // exact equality is correct here: identity is a fast-path gate; a near-identity matrix must still be applied
-    #[must_use] pub fn is_identity(&self) -> bool {
+    #[allow(clippy::float_cmp)]
+    // exact equality is correct here: identity is a fast-path gate; a near-identity matrix must still be applied
+    #[must_use]
+    pub fn is_identity(&self) -> bool {
         self.sx == 1.0
             && self.shy == 0.0
             && self.shx == 0.0
@@ -329,7 +337,9 @@ pub fn node_rect_to_screen(
         .layout_tree
         .ancestor_chain(LayoutNodeId::new(layout_idx), Inclusivity::AncestorsOnly)
     {
-        let Some(anc_node) = nodes.get(anc.index()) else { break };
+        let Some(anc_node) = nodes.get(anc.index()) else {
+            break;
+        };
         if let Some(anid) = anc_node.dom_node_id {
             if layout_result.scroll_ids.contains_key(&anc) {
                 links_rev.push(HitChainLink::Scroll(dom_id, anid));
@@ -650,7 +660,8 @@ fn resolve_virtual_view_placements(
 
 impl CpuHitTester {
     /// Create a new empty hit tester.
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             node_rects: BTreeMap::new(),
             chains: vec![Vec::new()],
@@ -678,7 +689,8 @@ impl CpuHitTester {
     }
 
     /// Sum of `HitTestEntry` counts across all `DomIds` (for leak probes).
-    #[must_use] pub fn node_rects_total(&self) -> usize {
+    #[must_use]
+    pub fn node_rects_total(&self) -> usize {
         self.node_rects.values().map(Vec::len).sum()
     }
 
@@ -687,10 +699,7 @@ impl CpuHitTester {
     /// Called after each layout pass. Extracts positioned rectangles from
     /// `LayoutWindow::layout_results` and builds a flat list for fast
     /// point-in-rect testing.
-    pub fn rebuild_from_layout(
-        &mut self,
-        layout_results: &BTreeMap<DomId, DomLayoutResult>,
-    ) {
+    pub fn rebuild_from_layout(&mut self, layout_results: &BTreeMap<DomId, DomLayoutResult>) {
         self.rebuild_from_layout_with_gpu(layout_results, None);
     }
 
@@ -771,9 +780,14 @@ impl CpuHitTester {
             // them), but css-overflow-3 disables their user-triggered
             // scrolling, so the hit-tester must not route the wheel there.
             for (&layout_idx, &scroll_id) in scroll_ids {
-                let Some(n) = nodes.get(layout_idx.index()) else { continue };
-                let Some(node_id) = n.dom_node_id else { continue };
-                let (Some(pos), Some(size)) = (positions.get(layout_idx.index()), n.used_size) else {
+                let Some(n) = nodes.get(layout_idx.index()) else {
+                    continue;
+                };
+                let Some(node_id) = n.dom_node_id else {
+                    continue;
+                };
+                let (Some(pos), Some(size)) = (positions.get(layout_idx.index()), n.used_size)
+                else {
                     continue;
                 };
                 let user_scrollable = styled_dom
@@ -782,10 +796,8 @@ impl CpuHitTester {
                     .get(node_id)
                     .is_some_and(|sn| {
                         let st = &sn.styled_node_state;
-                        get_overflow_x(styled_dom, node_id, st)
-                            .allows_user_scrolling()
-                            || get_overflow_y(styled_dom, node_id, st)
-                                .allows_user_scrolling()
+                        get_overflow_x(styled_dom, node_id, st).allows_user_scrolling()
+                            || get_overflow_y(styled_dom, node_id, st).allows_user_scrolling()
                     });
                 if !user_scrollable {
                     continue;
@@ -837,13 +849,7 @@ impl CpuHitTester {
                 // auto` ancestor's box — otherwise a node that is scrolled or
                 // clipped out of its ancestor would still claim pointer events.
                 let clips = compute_node_clips(
-                    styled_dom,
-                    nodes,
-                    positions,
-                    idx,
-                    offset,
-                    &dom_clips,
-                    &chain_of,
+                    styled_dom, nodes, positions, idx, offset, &dom_clips, &chain_of,
                 );
 
                 entries.push(HitTestEntry {
@@ -869,10 +875,8 @@ impl CpuHitTester {
     /// this wrapper tests the STATIC layout geometry, which is exactly the
     /// "clicks land on pre-scroll targets" bug for anything inside a scroll
     /// frame.
-    #[must_use] pub fn hit_test(
-        &self,
-        position: LogicalPosition,
-    ) -> Vec<(DomId, NodeId)> {
+    #[must_use]
+    pub fn hit_test(&self, position: LogicalPosition) -> Vec<(DomId, NodeId)> {
         self.hit_test_scrolled(position, &|_, _| None, &|_, _| None)
             .into_iter()
             .map(|(d, n, _)| (d, n))
@@ -897,7 +901,8 @@ impl CpuHitTester {
     /// (topmost first), where `local_point` is the query point mapped into
     /// that node's STATIC layout space — callers use it directly for
     /// node-relative points (caret placement, `point_relative_to_item`).
-    #[must_use] pub fn hit_test_scrolled(
+    #[must_use]
+    pub fn hit_test_scrolled(
         &self,
         position: LogicalPosition,
         resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
@@ -1122,9 +1127,9 @@ pub fn convert_cpu_hit_test_to_full(
                         // (static box shifted by the container's ancestors) —
                         // BORDER-box-local, unlike the regular hit item above:
                         // scroll geometry is measured against the border box.
-                        point_relative_to_item: StaticLayoutPoint::new(
-                            LogicalPosition::new(adj_x, adj_y),
-                        )
+                        point_relative_to_item: StaticLayoutPoint::new(LogicalPosition::new(
+                            adj_x, adj_y,
+                        ))
                         .to_border_box_local(node_pos),
                         scroll_node,
                     },
@@ -1153,7 +1158,9 @@ pub fn compute_scroll_child_rect(
     layout_idx: usize,
     parent_rect: LogicalRect,
 ) -> LogicalRect {
-    let content_size = layout_result.layout_tree.get_content_size(LayoutNodeId::new(layout_idx));
+    let content_size = layout_result
+        .layout_tree
+        .get_content_size(LayoutNodeId::new(layout_idx));
     LogicalRect::new(
         parent_rect.origin,
         LogicalSize::new(
@@ -1190,10 +1197,26 @@ fn compute_node_clips(
     // stored: `point_in_rect` against a NaN rect is always false, which would
     // make every node under a corrupt clip silently unhittable.
     fn sanitize_clip_rect(r: LogicalRect) -> LogicalRect {
-        let min_x = if r.min_x().is_finite() { r.min_x() } else { -CLIP_UNBOUNDED };
-        let min_y = if r.min_y().is_finite() { r.min_y() } else { -CLIP_UNBOUNDED };
-        let max_x = if r.max_x().is_finite() { r.max_x() } else { CLIP_UNBOUNDED };
-        let max_y = if r.max_y().is_finite() { r.max_y() } else { CLIP_UNBOUNDED };
+        let min_x = if r.min_x().is_finite() {
+            r.min_x()
+        } else {
+            -CLIP_UNBOUNDED
+        };
+        let min_y = if r.min_y().is_finite() {
+            r.min_y()
+        } else {
+            -CLIP_UNBOUNDED
+        };
+        let max_x = if r.max_x().is_finite() {
+            r.max_x()
+        } else {
+            CLIP_UNBOUNDED
+        };
+        let max_y = if r.max_y().is_finite() {
+            r.max_y()
+        } else {
+            CLIP_UNBOUNDED
+        };
         LogicalRect {
             origin: LogicalPosition { x: min_x, y: min_y },
             size: LogicalSize {
@@ -1219,7 +1242,9 @@ fn compute_node_clips(
         if guard > nodes.len() {
             break;
         }
-        let Some(anc_node) = nodes.get(anc) else { break };
+        let Some(anc_node) = nodes.get(anc) else {
+            break;
+        };
         cur = anc_node.parent;
 
         let Some(anc_dom_id) = anc_node.dom_node_id else {
@@ -2389,11 +2414,23 @@ mod autotest_generated {
     fn convert_cpu_hit_test_emits_content_box_relative_points() {
         use crate::solver3::geometry::{EdgeSizes, PackedBoxProps, ResolvedBoxProps};
 
-        let inset = |left: f32, top: f32| PackedBoxProps::pack(&ResolvedBoxProps {
-            padding: EdgeSizes { top, right: 0.0, bottom: 0.0, left },
-            border: EdgeSizes { top: 1.0, right: 0.0, bottom: 0.0, left: 1.0 },
-            ..Default::default()
-        });
+        let inset = |left: f32, top: f32| {
+            PackedBoxProps::pack(&ResolvedBoxProps {
+                padding: EdgeSizes {
+                    top,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left,
+                },
+                border: EdgeSizes {
+                    top: 1.0,
+                    right: 0.0,
+                    bottom: 0.0,
+                    left: 1.0,
+                },
+                ..Default::default()
+            })
+        };
 
         let styled_dom = styled("");
         let mut node = hot(Some(0), Some((100.0, 40.0)), None);

@@ -31,7 +31,15 @@ pub mod pixel;
 pub mod time;
 
 pub use self::{
-    angle::*, animation::*, color::*, direction::*, error::*, font::*, geometry::*,
-    length::*, pixel::*, time::*,
-    parse::{CssImageParseError, CssImageParseErrorOwned, parse_image},
+    angle::*,
+    animation::*,
+    color::*,
+    direction::*,
+    error::*,
+    font::*,
+    geometry::*,
+    length::*,
+    parse::{parse_image, CssImageParseError, CssImageParseErrorOwned},
+    pixel::*,
+    time::*,
 };

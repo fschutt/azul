@@ -105,7 +105,9 @@ fn heading(line: &str) -> Option<(usize, &str)> {
 /// `- item` / `* item` → `item`; None otherwise.
 fn bullet(line: &str) -> Option<&str> {
     let t = line.trim_start();
-    t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).map(str::trim)
+    t.strip_prefix("- ")
+        .or_else(|| t.strip_prefix("* "))
+        .map(str::trim)
 }
 
 /// Strips `**`, `*`, `` ` `` markers and rewrites `[text](url)` as
@@ -189,7 +191,10 @@ mod tests {
 
     #[test]
     fn inline_markers_strip_but_text_and_links_survive() {
-        assert_eq!(strip_inline("**bold** and *em* and `code`"), "bold and em and code");
+        assert_eq!(
+            strip_inline("**bold** and *em* and `code`"),
+            "bold and em and code"
+        );
         assert_eq!(
             strip_inline("see [the docs](https://x.test/d)"),
             "see the docs (https://x.test/d)"

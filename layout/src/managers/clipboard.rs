@@ -45,7 +45,8 @@ pub struct ClipboardManager {
 
 impl ClipboardManager {
     /// Create a new empty clipboard manager
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             pending_paste_content: None,
             pending_copy_content: None,
@@ -60,7 +61,8 @@ impl ClipboardManager {
     }
 
     /// Returns the pending paste content, if any.
-    #[must_use] pub const fn get_paste_content(&self) -> Option<&ClipboardContent> {
+    #[must_use]
+    pub const fn get_paste_content(&self) -> Option<&ClipboardContent> {
         self.pending_paste_content.as_ref()
     }
 
@@ -72,7 +74,8 @@ impl ClipboardManager {
     }
 
     /// Returns the pending copy content, if any.
-    #[must_use] pub const fn get_copy_content(&self) -> Option<&ClipboardContent> {
+    #[must_use]
+    pub const fn get_copy_content(&self) -> Option<&ClipboardContent> {
         self.pending_copy_content.as_ref()
     }
 
@@ -100,12 +103,14 @@ impl ClipboardManager {
     }
 
     /// Returns `true` if there's pending paste content.
-    #[must_use] pub const fn has_paste_content(&self) -> bool {
+    #[must_use]
+    pub const fn has_paste_content(&self) -> bool {
         self.pending_paste_content.is_some()
     }
 
     /// Returns `true` if there's pending copy content.
-    #[must_use] pub const fn has_copy_content(&self) -> bool {
+    #[must_use]
+    pub const fn has_copy_content(&self) -> bool {
         self.pending_copy_content.is_some()
     }
 }
@@ -171,20 +176,20 @@ mod autotest_generated {
     /// Strings that have historically broken UTF-8 / FFI string handling.
     fn hostile_strings() -> Vec<String> {
         vec![
-            String::new(),                                  // empty
-            "\0".to_string(),                               // lone NUL
-            "a\0b\0\0c".to_string(),                        // interior NULs
-            "\r\n\t\x0b\x0c\x1b[0m".to_string(),            // control chars + ANSI
-            "👨‍👩‍👧‍👦".to_string(),                            // ZWJ emoji family
-            "e\u{0301}\u{0301}\u{0301}".to_string(),        // stacked combining marks
-            "مرحبا بالعالم".to_string(),                    // RTL
-            "\u{202e}reversed\u{202c}".to_string(),         // bidi override
-            "\u{feff}bom".to_string(),                      // BOM
-            "𝕬𝖟𝖚𝖑".to_string(),                            // 4-byte codepoints
-            "\u{10ffff}".to_string(),                       // max scalar value
-            "line1\nline2\r\nline3".to_string(),            // mixed newlines
-            "x".repeat(1024 * 1024),                        // 1 MiB
-            "🦀".repeat(100_000),                           // 400 KiB of 4-byte chars
+            String::new(),                           // empty
+            "\0".to_string(),                        // lone NUL
+            "a\0b\0\0c".to_string(),                 // interior NULs
+            "\r\n\t\x0b\x0c\x1b[0m".to_string(),     // control chars + ANSI
+            "👨‍👩‍👧‍👦".to_string(),                        // ZWJ emoji family
+            "e\u{0301}\u{0301}\u{0301}".to_string(), // stacked combining marks
+            "مرحبا بالعالم".to_string(),             // RTL
+            "\u{202e}reversed\u{202c}".to_string(),  // bidi override
+            "\u{feff}bom".to_string(),               // BOM
+            "𝕬𝖟𝖚𝖑".to_string(),                      // 4-byte codepoints
+            "\u{10ffff}".to_string(),                // max scalar value
+            "line1\nline2\r\nline3".to_string(),     // mixed newlines
+            "x".repeat(1024 * 1024),                 // 1 MiB
+            "🦀".repeat(100_000),                    // 400 KiB of 4-byte chars
         ]
     }
 
@@ -256,7 +261,11 @@ mod autotest_generated {
                 "paste payload mutated (len {})",
                 s.len()
             );
-            assert_eq!(got.plain_text.as_str().len(), s.len(), "byte length changed");
+            assert_eq!(
+                got.plain_text.as_str().len(),
+                s.len(),
+                "byte length changed"
+            );
             assert!(m.has_paste_content());
             // The copy slot must stay untouched by a paste write.
             assert!(!m.has_copy_content());
@@ -305,7 +314,9 @@ mod autotest_generated {
         let mut m = ClipboardManager::new();
         m.set_copy_content(plain(&big));
 
-        let taken = m.take_copy_content().expect("1 MiB payload must round-trip");
+        let taken = m
+            .take_copy_content()
+            .expect("1 MiB payload must round-trip");
         assert_eq!(taken.plain_text.as_str().len(), 1024 * 1024);
         assert_eq!(taken.plain_text.as_str(), big.as_str());
         assert!(!m.has_copy_content());
@@ -391,7 +402,9 @@ mod autotest_generated {
         let mut m = ClipboardManager::new();
         m.set_paste_content(content.clone());
 
-        let got = m.get_paste_content().expect("NaN payload must still be stored");
+        let got = m
+            .get_paste_content()
+            .expect("NaN payload must still be stored");
         assert!(
             got.styled_runs.as_slice()[0].font_size_px.is_nan(),
             "NaN font size must be stored as-is, not normalized"
@@ -473,7 +486,10 @@ mod autotest_generated {
             m.set_paste_content(plain(&format!("paste-{i}")));
             m.set_copy_content(plain(&format!("copy-{i}")));
         }
-        assert_eq!(m.get_paste_content().unwrap().plain_text.as_str(), "paste-49");
+        assert_eq!(
+            m.get_paste_content().unwrap().plain_text.as_str(),
+            "paste-49"
+        );
         assert_eq!(m.get_copy_content().unwrap().plain_text.as_str(), "copy-49");
 
         // And the last write wins for take() too.
@@ -505,13 +521,19 @@ mod autotest_generated {
 
         m.clear_paste();
         assert!(!m.has_paste_content());
-        assert!(m.has_copy_content(), "clear_paste must not touch the copy slot");
+        assert!(
+            m.has_copy_content(),
+            "clear_paste must not touch the copy slot"
+        );
         assert_eq!(m.get_copy_content().unwrap().plain_text.as_str(), "c");
 
         m.set_paste_content(plain("p2"));
         m.clear_copy();
         assert!(!m.has_copy_content());
-        assert!(m.has_paste_content(), "clear_copy must not touch the paste slot");
+        assert!(
+            m.has_paste_content(),
+            "clear_copy must not touch the paste slot"
+        );
         assert_eq!(m.get_paste_content().unwrap().plain_text.as_str(), "p2");
     }
 
@@ -741,12 +763,14 @@ mod autotest_generated {
             }
 
             assert_eq!(
-                m.get_paste_content().map(|c| c.plain_text.as_str().to_string()),
+                m.get_paste_content()
+                    .map(|c| c.plain_text.as_str().to_string()),
                 model.0,
                 "paste slot diverged at step {step}"
             );
             assert_eq!(
-                m.get_copy_content().map(|c| c.plain_text.as_str().to_string()),
+                m.get_copy_content()
+                    .map(|c| c.plain_text.as_str().to_string()),
                 model.1,
                 "copy slot diverged at step {step}"
             );

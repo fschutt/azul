@@ -26,14 +26,14 @@
 
 use azul_core::biometric::{BiometricKind, BiometricPrompt};
 
-#[cfg(any(target_os = "ios", target_os = "macos"))]
-pub mod apple;
 #[cfg(target_os = "android")]
 pub mod android;
-#[cfg(target_os = "windows")]
-pub mod windows;
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub mod apple;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 /// Dispatch one biometric-auth request to the native prompt. Called from
 /// `regenerate_layout` for each prompt the layout pass drained from the

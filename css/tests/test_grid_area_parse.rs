@@ -32,9 +32,9 @@ fn test_grid_template_areas_parsing() {
         eprintln!("  WARNING: {w}");
     }
 
-    let has_grid_area_warning = warning_strs.iter().any(|w| {
-        w.contains("grid-area") || w.contains("grid-template-areas")
-    });
+    let has_grid_area_warning = warning_strs
+        .iter()
+        .any(|w| w.contains("grid-area") || w.contains("grid-template-areas"));
     assert!(
         !has_grid_area_warning,
         "grid-area or grid-template-areas should parse without warnings! Warnings: {warning_strs:?}"
@@ -51,7 +51,8 @@ fn test_grid_template_areas_parsing() {
     }
 
     // Check the .container rule has grid-template-areas
-    let container_decls: Vec<_> = rules.iter()
+    let container_decls: Vec<_> = rules
+        .iter()
         .filter(|r| r.path.to_string().contains("container"))
         .flat_map(|r| r.declarations.as_ref().iter())
         .collect();
@@ -62,10 +63,14 @@ fn test_grid_template_areas_parsing() {
             false
         }
     });
-    assert!(has_grid_template_areas, "Container should have GridTemplateAreas property!");
+    assert!(
+        has_grid_template_areas,
+        "Container should have GridTemplateAreas property!"
+    );
 
     // Check the .header rule has grid-row and grid-column (from grid-area shorthand)
-    let header_decls: Vec<_> = rules.iter()
+    let header_decls: Vec<_> = rules
+        .iter()
         .filter(|r| r.path.to_string().contains("header"))
         .flat_map(|r| r.declarations.as_ref().iter())
         .collect();
@@ -77,7 +82,10 @@ fn test_grid_template_areas_parsing() {
             false
         }
     });
-    assert!(has_grid_row, "Header should have GridRow property (from grid-area shorthand)!");
+    assert!(
+        has_grid_row,
+        "Header should have GridRow property (from grid-area shorthand)!"
+    );
 }
 
 #[test]
@@ -85,10 +93,18 @@ fn test_grid_area_key_lookup() {
     // Test the exact key lookup for grid-template-areas
     let map = azul_css::props::property::get_css_key_map();
     let found = azul_css::props::property::CssPropertyType::from_str("grid-template-areas", &map);
-    assert_eq!(found, Some(CssPropertyType::GridTemplateAreas), "grid-template-areas should be found in CSS key map");
+    assert_eq!(
+        found,
+        Some(CssPropertyType::GridTemplateAreas),
+        "grid-template-areas should be found in CSS key map"
+    );
 
-    let found_combined = azul_css::props::property::CombinedCssPropertyType::from_str("grid-area", &map);
-    assert!(found_combined.is_some(), "grid-area should be found as combined CSS property");
+    let found_combined =
+        azul_css::props::property::CombinedCssPropertyType::from_str("grid-area", &map);
+    assert!(
+        found_combined.is_some(),
+        "grid-area should be found as combined CSS property"
+    );
 }
 
 /// Test that exact CSS from the XHTML file parses correctly
@@ -149,9 +165,9 @@ fn test_exact_xhtml_style_content() {
         eprintln!("  WARNING: {w}");
     }
 
-    let has_grid_warning = warning_strs.iter().any(|w| {
-        w.contains("grid-area") || w.contains("grid-template-areas")
-    });
+    let has_grid_warning = warning_strs
+        .iter()
+        .any(|w| w.contains("grid-area") || w.contains("grid-template-areas"));
     assert!(
         !has_grid_warning,
         "Should parse without grid warnings! Got: {warning_strs:?}"

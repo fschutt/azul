@@ -55,7 +55,12 @@ fn text_items_of(dom: Dom) -> usize {
         .display_list
         .items
         .iter()
-        .filter(|i| matches!(i, azul_layout::solver3::display_list::DisplayListItem::Text { .. }))
+        .filter(|i| {
+            matches!(
+                i,
+                azul_layout::solver3::display_list::DisplayListItem::Text { .. }
+            )
+        })
         .count()
 }
 
@@ -63,8 +68,12 @@ fn text_items_of(dom: Dom) -> usize {
 fn xml_built_content_renders_inside_an_app_dom() {
     // Control: hand-built equivalent MUST produce text items.
     let control = Dom::create_div()
-        .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Title")))
-        .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello world paragraph")));
+        .with_child(Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Title"),
+        ))
+        .with_child(Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Hello world paragraph"),
+        ));
     let control_texts = text_items_of(control);
     assert!(
         control_texts >= 2,
@@ -72,9 +81,7 @@ fn xml_built_content_renders_inside_an_app_dom() {
     );
 
     // XML-built content of the same shape must render TOO.
-    let xml_texts = text_items_of(xml_content(
-        "<h1>Title</h1><p>Hello world paragraph</p>",
-    ));
+    let xml_texts = text_items_of(xml_content("<h1>Title</h1><p>Hello world paragraph</p>"));
     assert!(
         xml_texts >= 2,
         "xml-built content must render like the control, got {xml_texts} text items \
@@ -91,7 +98,9 @@ fn xml_built_content_renders_inside_the_word_shell_shape() {
 
     let canary = Dom::create_div()
         .with_css("background: #ff0000; height: 30px; width: 300px;")
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("CANARY"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "CANARY",
+        ));
 
     let sheet = Dom::create_div()
         .with_css(

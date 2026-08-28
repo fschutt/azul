@@ -114,10 +114,9 @@ fn emit_function_constant(builder: &mut CodeBuilder, func: &FunctionDef, ir: &Co
             let nm = sanitize_cobol_identifier(&to_cobol_case(&a.name));
             let usage = match a.ref_kind {
                 ArgRefKind::Owned => pic_for_type(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => "USAGE POINTER".to_string(),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    "USAGE POINTER".to_string()
+                }
             };
             let pass = match a.ref_kind {
                 ArgRefKind::Owned => "BY VALUE",

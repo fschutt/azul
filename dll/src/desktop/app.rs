@@ -6,14 +6,10 @@
 
 use alloc::sync::Arc;
 
-use azul_core::{
-    refany::RefAny,
-    resources::AppConfig,
-    window::MonitorVec,
-};
+use azul_core::{refany::RefAny, resources::AppConfig, window::MonitorVec};
 use azul_layout::window_state::{WindowCreateOptions, WindowCreateOptionsVec};
-use rust_fontconfig::FcFontCache;
 use rust_fontconfig::registry::FcFontRegistry;
+use rust_fontconfig::FcFontCache;
 
 use crate::desktop::shell2::common::debug_server;
 
@@ -148,12 +144,12 @@ impl App {
         {
             app_config.system_style.scroll_physics = p;
         }
-        azul_layout::window::set_global_system_animations(
-            app_config.system_animations.clone(),
-        );
+        azul_layout::window::set_global_system_animations(app_config.system_animations.clone());
 
         // Set the icon resolver from the layout crate (the default resolver in core is a no-op)
-        app_config.icon_provider.set_resolver(azul_layout::icon::default_icon_resolver);
+        app_config
+            .icon_provider
+            .set_resolver(azul_layout::icon::default_icon_resolver);
 
         // Register embedded Material Icons if the feature is enabled. The
         // font bytes are embedded in the dll (downstream of codegen), not
@@ -167,7 +163,7 @@ impl App {
 
         let app_internal = AppInternal::create(initial_data, app_config);
         let boxed = Box::new(app_internal);
-        
+
         Self {
             ptr: boxed,
             run_destructor: true,
@@ -223,7 +219,6 @@ impl App {
         self.ptr.app_icon = Some(spec);
     }
 
-
     /// Run with a tray and NO window.
     ///
     /// For a menu-bar / system-tray utility that has no main window at all.
@@ -276,7 +271,10 @@ impl App {
             "Starting App::run",
             None,
         );
-        crate::plog_info!("[azul] App::run starting (AZ_BACKEND={:?})", std::env::var("AZ_BACKEND").ok());
+        crate::plog_info!(
+            "[azul] App::run starting (AZ_BACKEND={:?})",
+            std::env::var("AZ_BACKEND").ok()
+        );
         let data = self.ptr.data.clone();
         let config = self.ptr.config.clone();
         let fc_cache = (*self.ptr.fc_cache).clone();
@@ -335,8 +333,8 @@ impl App {
         // it.
         #[cfg(feature = "telemetry")]
         {
-            let channel = std::env::var("AZ_TELEMETRY_CHANNEL")
-                .unwrap_or_else(|_| "default".to_owned());
+            let channel =
+                std::env::var("AZ_TELEMETRY_CHANNEL").unwrap_or_else(|_| "default".to_owned());
             let _telemetry_config = azul_layout::telemetry::init(
                 config.updates.app_name.as_str(),
                 azul_layout::telemetry::AppMeta::new(
@@ -378,7 +376,17 @@ impl App {
         }
 
         // Use shell2 for the actual run loop
-        let err = crate::desktop::shell2::run(data, undo_manager, config, fc_cache, font_registry, root_window, self.ptr.tray.clone(), self.ptr.font_manager.clone(), self.ptr.app_icon.clone());
+        let err = crate::desktop::shell2::run(
+            data,
+            undo_manager,
+            config,
+            fc_cache,
+            font_registry,
+            root_window,
+            self.ptr.tray.clone(),
+            self.ptr.font_manager.clone(),
+            self.ptr.app_icon.clone(),
+        );
 
         // Telemetry: persist + upload whatever the interval uploader has not
         // sent yet. Without this a SHORT run (an e2e drive, a screenshot
@@ -451,7 +459,8 @@ pub struct AppInternal {
     /// `Option` because building it can fail; the app still runs, callers fall
     /// back to constructing their own as before. `Arc` so this stays a thin
     /// pointer across the C ABI, exactly like `fc_cache` and `font_registry`.
-    pub font_manager: Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
+    pub font_manager:
+        Option<Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>>,
     /// App-global undo/redo manager. Owned by the App; a shared clone is threaded
     /// to every window so a callback's `undo_app_state` / `redo_app_state` /
     /// `commit_undo_snapshot` operates on one shared history.
@@ -471,7 +480,6 @@ impl AppInternal {
     ///
     /// Does not open any windows  -  call `App::run` to enter the event loop.
     pub fn create(initial_data: RefAny, app_config: AppConfig) -> Self {
-
         debug_server::log(
             debug_server::LogLevel::Info,
             debug_server::LogCategory::General,
@@ -613,13 +621,26 @@ pub(crate) fn discover_system_style() -> azul_css::system::SystemStyle {
     // ("can't call foreign function ..."). Fall back to the pure-Rust default
     // so `App::create` — and every test that builds an App — works under Miri.
     #[cfg(miri)]
-    { azul_css::system::SystemStyle::detect() }
+    {
+        azul_css::system::SystemStyle::detect()
+    }
     #[cfg(all(not(miri), target_os = "macos"))]
-    { crate::desktop::shell2::macos::system_style::discover() }
+    {
+        crate::desktop::shell2::macos::system_style::discover()
+    }
     #[cfg(all(not(miri), target_os = "windows"))]
-    { crate::desktop::shell2::windows::system_style::discover() }
+    {
+        crate::desktop::shell2::windows::system_style::discover()
+    }
     #[cfg(all(not(miri), target_os = "linux"))]
-    { crate::desktop::shell2::linux::system_style::discover() }
-    #[cfg(all(not(miri), not(any(target_os = "macos", target_os = "windows", target_os = "linux"))))]
-    { azul_css::system::SystemStyle::detect() }
+    {
+        crate::desktop::shell2::linux::system_style::discover()
+    }
+    #[cfg(all(
+        not(miri),
+        not(any(target_os = "macos", target_os = "windows", target_os = "linux"))
+    ))]
+    {
+        azul_css::system::SystemStyle::detect()
+    }
 }

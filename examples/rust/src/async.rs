@@ -50,8 +50,14 @@ fn lattice(x: i32, y: i32) -> f32 {
 fn value_noise(x: f32, y: f32) -> f32 {
     let x0 = x.floor();
     let y0 = y.floor();
-    let fx = { let t = x - x0; t * t * (3.0 - 2.0 * t) };
-    let fy = { let t = y - y0; t * t * (3.0 - 2.0 * t) };
+    let fx = {
+        let t = x - x0;
+        t * t * (3.0 - 2.0 * t)
+    };
+    let fy = {
+        let t = y - y0;
+        t * t * (3.0 - 2.0 * t)
+    };
     let (xi, yi) = (x0 as i32, y0 as i32);
     let a = lattice(xi, yi);
     let b = lattice(xi + 1, yi);
@@ -91,7 +97,11 @@ fn cell_terrain(zoom: u32, tile_x: u32, tile_y: u32, i: usize, j: usize) -> u8 {
     }
     let gx = tile_x as usize * CELLS + i;
     let gy = tile_y as usize * CELLS + j;
-    if gx % 9 == 4 || gy % 11 == 6 { 7 } else { t }
+    if gx % 9 == 4 || gy % 11 == 6 {
+        7
+    } else {
+        t
+    }
 }
 
 fn world_tiles(zoom: u32) -> i64 {
@@ -150,8 +160,14 @@ fn request_visible_tiles(data: &mut RefAny, info: &mut CallbackInfo, view_w: f32
     };
 
     for key in wanted {
-        let init = RefAny::new(TileRequest { key, tiles: tiles.clone() });
-        info.add_thread(ThreadId::unique(), Thread::create(init, data.clone(), tile_worker));
+        let init = RefAny::new(TileRequest {
+            key,
+            tiles: tiles.clone(),
+        });
+        info.add_thread(
+            ThreadId::unique(),
+            Thread::create(init, data.clone(), tile_worker),
+        );
     }
 }
 
@@ -163,7 +179,10 @@ extern "C" fn tile_worker(mut init: RefAny, mut sender: ThreadSender, mut recv: 
 
     std::thread::sleep(std::time::Duration::from_millis(FETCH_MS));
 
-    if matches!(recv.recv().into_option(), Some(ThreadSendMsg::TerminateThread)) {
+    if matches!(
+        recv.recv().into_option(),
+        Some(ThreadSendMsg::TerminateThread)
+    ) {
         return;
     }
 
@@ -181,7 +200,10 @@ extern "C" fn tile_worker(mut init: RefAny, mut sender: ThreadSender, mut recv: 
 
     sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg {
         refany: RefAny::new(TileReady),
-        callback: WriteBackCallback { cb: tile_writeback, ctx: OptionRefAny::None },
+        callback: WriteBackCallback {
+            cb: tile_writeback,
+            ctx: OptionRefAny::None,
+        },
     }));
 }
 
@@ -191,7 +213,10 @@ extern "C" fn tile_writeback(_: RefAny, _: RefAny, _: CallbackInfo) -> Update {
 
 fn view_size(info: &CallbackInfo) -> (f32, f32) {
     let dims = info.get_current_window_state().size.dimensions;
-    (dims.width, (dims.height - HEADER_PX - FOOTER_PX).max(TILE_PX))
+    (
+        dims.width,
+        (dims.height - HEADER_PX - FOOTER_PX).max(TILE_PX),
+    )
 }
 
 extern "C" fn on_window_created(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -310,7 +335,11 @@ fn tile_dom(
     tile
 }
 
-fn zoom_button(glyph: &str, data: RefAny, cb: extern "C" fn(RefAny, CallbackInfo) -> Update) -> Dom {
+fn zoom_button(
+    glyph: &str,
+    data: RefAny,
+    cb: extern "C" fn(RefAny, CallbackInfo) -> Update,
+) -> Dom {
     Dom::create_div_with_text(glyph)
         .with_css(
             "width: 28px; height: 28px; line-height: 28px; text-align: center; background: white; \
@@ -326,7 +355,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             Some(s) => s,
             None => return Dom::create_body(),
         };
-        (state.centre_x, state.centre_y, state.zoom, state.tiles.clone())
+        (
+            state.centre_x,
+            state.centre_y,
+            state.zoom,
+            state.tiles.clone(),
+        )
     };
 
     let view_w = info.get_window_width();
@@ -335,10 +369,14 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         visible_range(centre_x, centre_y, zoom, view_w, view_h);
 
     let cache = tiles.lock().unwrap();
-    let loaded = cache.values().filter(|(s, _)| *s == TileState::Ready).count();
+    let loaded = cache
+        .values()
+        .filter(|(s, _)| *s == TileState::Ready)
+        .count();
     let pending = cache.len() - loaded;
 
-    let mut canvas = Dom::create_div().with_css("position: absolute; left: 0; top: 0; right: 0; bottom: 0;");
+    let mut canvas =
+        Dom::create_div().with_css("position: absolute; left: 0; top: 0; right: 0; bottom: 0;");
     let count = world_tiles(zoom);
     for cy in 0..rows {
         let ty = first_y + cy;
@@ -375,9 +413,21 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             "position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; \
              background: #dfe6ec; cursor: grab;",
         )
-        .with_callback(EventFilter::Hover(HoverEventFilter::MouseDown), data.clone(), on_pointer_down)
-        .with_callback(EventFilter::Hover(HoverEventFilter::MouseOver), data.clone(), on_pointer_move)
-        .with_callback(EventFilter::Hover(HoverEventFilter::MouseUp), data.clone(), on_pointer_up)
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseDown),
+            data.clone(),
+            on_pointer_down,
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseOver),
+            data.clone(),
+            on_pointer_move,
+        )
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            data.clone(),
+            on_pointer_up,
+        )
         .with_child(canvas)
         .with_child(marker)
         .with_child(controls);
@@ -398,11 +448,12 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             .with_css("font-size: 12px; color: #9fb0c4;"),
         );
 
-    let footer = Dom::create_div_with_text("drag to pan   -   tiles are generated on worker threads")
-        .with_css(
-            "height: 22px; line-height: 22px; padding-left: 14px; background: #f3f5f7; \
+    let footer =
+        Dom::create_div_with_text("drag to pan   -   tiles are generated on worker threads")
+            .with_css(
+                "height: 22px; line-height: 22px; padding-left: 14px; background: #f3f5f7; \
              color: #5b6875; font-size: 11px; border-top: 1px solid #d3d9df;",
-        );
+            );
 
     let stage = Dom::create_div()
         .with_css("position: relative; flex-grow: 1;")

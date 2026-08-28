@@ -40,13 +40,31 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, PixelValue, StyleFontSize},
-        layout::{LayoutDisplay, LayoutPosition, LayoutTop, LayoutLeft, LayoutWidth, LayoutHeight, LayoutFlexDirection, LayoutJustifyContent, LayoutAlignItems, LayoutFlexGrow, LayoutMinWidth, LayoutMaxWidth, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutRight},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            PixelValue, StyleFontSize,
+        },
+        layout::{
+            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow, LayoutHeight,
+            LayoutJustifyContent, LayoutLeft, LayoutMaxWidth, LayoutMinWidth, LayoutPaddingBottom,
+            LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutRight,
+            LayoutTop, LayoutWidth,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContentVec, StyleBackgroundContent, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleTextAlign, StyleUserSelect, StyleCursor},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
@@ -59,8 +77,9 @@ static MODAL_TITLE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-modal-title"))];
 static MODAL_CLOSE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-modal-close"))];
-static MODAL_CONTENT_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-modal-content"))];
+static MODAL_CONTENT_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-modal-content",
+))];
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
 const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
@@ -74,11 +93,36 @@ const PANEL_RADIUS: isize = 8;
 
 // ---- colours ----
 /// Semi-transparent black backdrop (rgba(0,0,0,0.5)).
-const BACKDROP_COLOR: ColorU = ColorU { r: 0, g: 0, b: 0, a: 128 };
-const PANEL_BG_COLOR: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-const PANEL_BORDER_COLOR: ColorU = ColorU { r: 204, g: 204, b: 204, a: 255 }; // #cccccc
-const TITLE_COLOR: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 }; // #212529
-const CLOSE_COLOR: ColorU = ColorU { r: 108, g: 117, b: 125, a: 255 }; // #6c757d
+const BACKDROP_COLOR: ColorU = ColorU {
+    r: 0,
+    g: 0,
+    b: 0,
+    a: 128,
+};
+const PANEL_BG_COLOR: ColorU = ColorU {
+    r: 255,
+    g: 255,
+    b: 255,
+    a: 255,
+};
+const PANEL_BORDER_COLOR: ColorU = ColorU {
+    r: 204,
+    g: 204,
+    b: 204,
+    a: 255,
+}; // #cccccc
+const TITLE_COLOR: ColorU = ColorU {
+    r: 33,
+    g: 37,
+    b: 41,
+    a: 255,
+}; // #212529
+const CLOSE_COLOR: ColorU = ColorU {
+    r: 108,
+    g: 117,
+    b: 125,
+    a: 255,
+}; // #6c757d
 
 /// Callback invoked when the modal's "x" close button is clicked. The
 /// [`ModalState`] carries the *new* (`false`) open value.
@@ -170,7 +214,9 @@ fn build_backdrop_style(open: bool) -> CssPropertyWithConditionsVec {
             LayoutJustifyContent::Center,
         )),
         CssPropertyWithConditions::simple(CssProperty::const_align_items(LayoutAlignItems::Center)),
-        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
+        CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(
+            0
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_background_content(bg_vec)),
     ])
 }
@@ -182,7 +228,9 @@ fn build_backdrop_style(open: bool) -> CssPropertyWithConditionsVec {
 static MODAL_PANEL_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(LayoutFlexDirection::Column)),
+    CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
+        LayoutFlexDirection::Column,
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_min_width(LayoutMinWidth::const_px(
         PANEL_MIN_WIDTH,
@@ -191,13 +239,15 @@ static MODAL_PANEL_STYLE: &[CssPropertyWithConditions] = &[
         PANEL_MAX_WIDTH,
     ))),
     // padding: 20px
-    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(20))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
+        20,
+    ))),
     CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
         LayoutPaddingBottom::const_px(20),
     )),
-    CssPropertyWithConditions::simple(CssProperty::const_padding_left(LayoutPaddingLeft::const_px(
-        20,
-    ))),
+    CssPropertyWithConditions::simple(CssProperty::const_padding_left(
+        LayoutPaddingLeft::const_px(20),
+    )),
     CssPropertyWithConditions::simple(CssProperty::const_padding_right(
         LayoutPaddingRight::const_px(20),
     )),
@@ -309,7 +359,8 @@ static MODAL_CONTENT_STYLE: &[CssPropertyWithConditions] = &[
 impl Modal {
     /// Creates a new (closed) modal holding `content`, with a "x" close button and
     /// no title.
-    #[must_use] pub fn create(content: Dom) -> Self {
+    #[must_use]
+    pub fn create(content: Dom) -> Self {
         Self {
             modal_state: ModalStateWrapper::default(),
             title: AzString::from_const_str(""),
@@ -327,7 +378,8 @@ impl Modal {
 
     /// Builder-style setter for the title.
     #[inline]
-    #[must_use] pub fn with_title(mut self, title: AzString) -> Self {
+    #[must_use]
+    pub fn with_title(mut self, title: AzString) -> Self {
         self.set_title(title);
         self
     }
@@ -340,7 +392,8 @@ impl Modal {
 
     /// Builder-style setter for the content.
     #[inline]
-    #[must_use] pub fn with_content(mut self, content: Dom) -> Self {
+    #[must_use]
+    pub fn with_content(mut self, content: Dom) -> Self {
         self.set_content(content);
         self
     }
@@ -354,7 +407,8 @@ impl Modal {
 
     /// Builder-style setter for the initial open state.
     #[inline]
-    #[must_use] pub fn with_open(mut self, open: bool) -> Self {
+    #[must_use]
+    pub fn with_open(mut self, open: bool) -> Self {
         self.set_open(open);
         self
     }
@@ -367,7 +421,8 @@ impl Modal {
 
     /// Builder-style setter for the close-button flag.
     #[inline]
-    #[must_use] pub const fn with_close_button(mut self, show: bool) -> Self {
+    #[must_use]
+    pub const fn with_close_button(mut self, show: bool) -> Self {
         self.set_close_button(show);
         self
     }
@@ -384,7 +439,8 @@ impl Modal {
 
     /// Builder-style setter for the close callback.
     #[inline]
-    #[must_use] pub fn with_on_close<C: Into<ModalOnCloseCallback>>(
+    #[must_use]
+    pub fn with_on_close<C: Into<ModalOnCloseCallback>>(
         mut self,
         data: RefAny,
         on_close: C,
@@ -395,7 +451,8 @@ impl Modal {
 
     /// Replaces `self` with a default (empty, closed) modal and returns the original.
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(Dom::default());
         core::mem::swap(&mut s, self);
         s
@@ -403,7 +460,8 @@ impl Modal {
 
     /// Renders the modal into a [`Dom`] subtree with the `__azul-native-modal`
     /// class (the backdrop).
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         // Panel children: [close?, title?, content]. The close button is
         // absolutely positioned (top-right), so its document order does not affect
         // the title/content stacking.
@@ -445,19 +503,25 @@ impl Modal {
         if !self.title.as_str().is_empty() {
             let title = crate::widgets::widget_p_with_text(self.title)
                 .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_TITLE_CLASS))
-                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(MODAL_TITLE_STYLE));
+                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                    MODAL_TITLE_STYLE,
+                ));
             panel_children.push(title);
         }
 
         let content = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_CONTENT_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(MODAL_CONTENT_STYLE))
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                MODAL_CONTENT_STYLE,
+            ))
             .with_children(DomVec::from_vec(alloc::vec![self.content]));
         panel_children.push(content);
 
         let panel = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_const_slice(MODAL_PANEL_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(MODAL_PANEL_STYLE))
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                MODAL_PANEL_STYLE,
+            ))
             .with_children(DomVec::from_vec(panel_children));
 
         Dom::create_div()
@@ -671,12 +735,7 @@ mod autotest_generated {
 
     /// Total number of nodes in a `Dom` tree.
     fn node_count(dom: &Dom) -> usize {
-        1 + dom
-            .children
-            .as_ref()
-            .iter()
-            .map(node_count)
-            .sum::<usize>()
+        1 + dom.children.as_ref().iter().map(node_count).sum::<usize>()
     }
 
     /// Total number of callbacks registered anywhere in a `Dom` tree.
@@ -855,7 +914,9 @@ mod autotest_generated {
         let mut out = Vec::new();
         for change in changes {
             if let CallbackChange::ChangeNodeCssProperties {
-                node_id, properties, ..
+                node_id,
+                properties,
+                ..
             } = change
             {
                 for p in properties.as_ref() {
@@ -896,10 +957,20 @@ mod autotest_generated {
 
         assert_eq!(open.len(), closed.len());
         let diffs: Vec<usize> = (0..open.len()).filter(|i| open[*i] != closed[*i]).collect();
-        assert_eq!(diffs, alloc::vec![0usize], "only entry 0 (display) may differ");
+        assert_eq!(
+            diffs,
+            alloc::vec![0usize],
+            "only entry 0 (display) may differ"
+        );
 
-        assert_eq!(display_of(&build_backdrop_style(true)), Some(LayoutDisplay::Flex));
-        assert_eq!(display_of(&build_backdrop_style(false)), Some(LayoutDisplay::None));
+        assert_eq!(
+            display_of(&build_backdrop_style(true)),
+            Some(LayoutDisplay::Flex)
+        );
+        assert_eq!(
+            display_of(&build_backdrop_style(false)),
+            Some(LayoutDisplay::None)
+        );
     }
 
     #[test]
@@ -910,7 +981,10 @@ mod autotest_generated {
             let types = property_types(&build_backdrop_style(open));
             for (i, a) in types.iter().enumerate() {
                 for b in &types[i + 1..] {
-                    assert_ne!(a, b, "open={open}: the backdrop declares the same property twice");
+                    assert_ne!(
+                        a, b,
+                        "open={open}: the backdrop declares the same property twice"
+                    );
                 }
             }
         }
@@ -945,13 +1019,21 @@ mod autotest_generated {
             let style = build_backdrop_style(open);
             assert_eq!(
                 background_color(&style),
-                Some(ColorU { r: 0, g: 0, b: 0, a: 128 }),
+                Some(ColorU {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 128
+                }),
                 "the backdrop must stay rgba(0,0,0,0.5) in both states"
             );
         }
         // a fully opaque or fully transparent backdrop would be a regression
         let alpha = BACKDROP_COLOR.a;
-        assert!(alpha > 0 && alpha < 255, "backdrop alpha {alpha} must dim, not erase");
+        assert!(
+            alpha > 0 && alpha < 255,
+            "backdrop alpha {alpha} must dim, not erase"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -960,7 +1042,9 @@ mod autotest_generated {
 
     #[test]
     fn create_is_a_closed_modal_with_a_close_button_and_no_title() {
-        let content = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hi"));
+        let content = Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("hi"),
+        );
         let m = Modal::create(content.clone());
 
         assert!(!m.modal_state.inner.open, "a fresh modal must start closed");
@@ -1011,7 +1095,11 @@ mod autotest_generated {
             let mut m = Modal::create(Dom::create_div());
             m.set_title(AzString::from(s));
             assert_eq!(m.title.as_str(), s, "title {s:?} must round-trip unchanged");
-            assert_eq!(m.title.as_str().len(), s.len(), "no normalisation may happen");
+            assert_eq!(
+                m.title.as_str().len(),
+                s.len(),
+                "no normalisation may happen"
+            );
         }
     }
 
@@ -1043,19 +1131,31 @@ mod autotest_generated {
             .with_title(AzString::from("first"))
             .with_title(AzString::from("second"))
             .with_title(AzString::from(""));
-        assert_eq!(m.title.as_str(), "", "the last write must win, even an empty one");
+        assert_eq!(
+            m.title.as_str(),
+            "",
+            "the last write must win, even an empty one"
+        );
     }
 
     #[test]
     fn set_title_touches_nothing_else() {
-        let content = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("body"));
+        let content = Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("body"),
+        );
         let mut m = Modal::create(content.clone()).with_open(true);
         let before = m.backdrop_style.clone();
 
         m.set_title(AzString::from("Title"));
 
-        assert!(m.modal_state.inner.open, "the title must not close the dialog");
-        assert_eq!(m.backdrop_style, before, "the title must not rebuild the backdrop");
+        assert!(
+            m.modal_state.inner.open,
+            "the title must not close the dialog"
+        );
+        assert_eq!(
+            m.backdrop_style, before,
+            "the title must not rebuild the backdrop"
+        );
         assert_eq!(m.content, content);
         assert!(m.show_close_button);
     }
@@ -1085,7 +1185,11 @@ mod autotest_generated {
             .with_title(AzString::from("\u{200B}"))
             .dom();
         assert!(find_class(&zwsp, "__azul-native-modal-title").is_some());
-        assert_eq!(panel_kids(&zwsp).len(), 3, "close + (invisible) title + content");
+        assert_eq!(
+            panel_kids(&zwsp).len(),
+            3,
+            "close + (invisible) title + content"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1094,7 +1198,8 @@ mod autotest_generated {
 
     #[test]
     fn set_content_replaces_and_last_write_wins() {
-        let a = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a"));
+        let a = Dom::create_div()
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a"));
         let b = Dom::create_text_do_not_use_without_block_level_wrapper("b");
 
         let mut m = Modal::create(a.clone());
@@ -1136,7 +1241,10 @@ mod autotest_generated {
             .expect("the content wrapper must exist");
         let kids = wrapper.children.as_ref();
         assert_eq!(kids.len(), 1, "the wrapper holds exactly the user content");
-        assert_eq!(kids[0], content, "the content must be handed through untouched");
+        assert_eq!(
+            kids[0], content,
+            "the content must be handed through untouched"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1211,7 +1319,11 @@ mod autotest_generated {
             let dom = Modal::create(Dom::create_div()).with_open(open).dom();
             assert_eq!(
                 inline_display(&dom),
-                Some(if open { LayoutDisplay::Flex } else { LayoutDisplay::None }),
+                Some(if open {
+                    LayoutDisplay::Flex
+                } else {
+                    LayoutDisplay::None
+                }),
                 "open={open}: the backdrop's inline display must match"
             );
             assert!(has_class(&dom, "__azul-native-modal"));
@@ -1283,7 +1395,11 @@ mod autotest_generated {
         let second = RefAny::new(2u32);
         m.set_on_close(second.clone(), close_cb(close_do_nothing));
         let stored = m.modal_state.on_close.as_ref().expect("still set");
-        assert_eq!(stored.callback, close_cb(close_do_nothing), "last write wins");
+        assert_eq!(
+            stored.callback,
+            close_cb(close_do_nothing),
+            "last write wins"
+        );
         assert_eq!(stored.refany, second, "the payload is replaced too");
         assert_ne!(stored.refany, first);
     }
@@ -1320,7 +1436,11 @@ mod autotest_generated {
 
         assert!(m.modal_state.on_close.is_some(), "the callback is stored");
         assert!(!m.show_close_button, "but the button stays off");
-        assert_eq!(count_callbacks(&m.dom()), 0, "so nothing is wired into the DOM");
+        assert_eq!(
+            count_callbacks(&m.dom()),
+            0,
+            "so nothing is wired into the DOM"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1329,7 +1449,9 @@ mod autotest_generated {
 
     #[test]
     fn swap_with_default_returns_the_original_and_resets_self() {
-        let content = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("body"));
+        let content = Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("body"),
+        );
         let mut m = Modal::create(content.clone())
             .with_title(AzString::from("Title"))
             .with_open(true)
@@ -1361,8 +1483,8 @@ mod autotest_generated {
     #[test]
     fn swap_with_default_moves_the_callback_out_of_self() {
         let data = RefAny::new(0u8);
-        let mut m = Modal::create(Dom::create_div())
-            .with_on_close(data.clone(), close_cb(record_close));
+        let mut m =
+            Modal::create(Dom::create_div()).with_on_close(data.clone(), close_cb(record_close));
 
         let old = m.swap_with_default();
 
@@ -1512,7 +1634,10 @@ mod autotest_generated {
             assert!(props.contains(&want), "panel style is missing {want:?}");
         }
         let (min, max) = (PANEL_MIN_WIDTH, PANEL_MAX_WIDTH);
-        assert!(min <= max, "min-width {min} must not exceed max-width {max}");
+        assert!(
+            min <= max,
+            "min-width {min} must not exceed max-width {max}"
+        );
     }
 
     #[test]
@@ -1617,7 +1742,11 @@ mod autotest_generated {
 
         let (update, changes) = run_close(Some(modal_styled_dom()), 2, data.clone());
 
-        assert_eq!(update, Update::RefreshDom, "the user callback's Update is returned");
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user callback's Update is returned"
+        );
         assert_eq!(
             log_calls(&mut log),
             alloc::vec![false],
@@ -1645,7 +1774,10 @@ mod autotest_generated {
         let (update, changes) = run_close(Some(modal_styled_dom()), 2, data);
 
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
+        assert_eq!(
+            display_writes(&changes),
+            alloc::vec![(0usize, LayoutDisplay::None)]
+        );
     }
 
     #[test]
@@ -1663,7 +1795,10 @@ mod autotest_generated {
         for _ in 0..2 {
             let (update, changes) = run_close(Some(modal_styled_dom()), 2, data.clone());
             assert_eq!(update, Update::RefreshDom);
-            assert_eq!(display_writes(&changes), alloc::vec![(0usize, LayoutDisplay::None)]);
+            assert_eq!(
+                display_writes(&changes),
+                alloc::vec![(0usize, LayoutDisplay::None)]
+            );
         }
 
         assert!(!wrapper_open(&mut data), "a second close must not re-open");
@@ -1686,7 +1821,10 @@ mod autotest_generated {
         let (update, changes) = run_close(Some(modal_styled_dom()), 1, data.clone());
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "nothing may be restyled without a grandparent");
+        assert!(
+            changes.is_empty(),
+            "nothing may be restyled without a grandparent"
+        );
         assert!(wrapper_open(&mut data), "state must not flip");
     }
 
@@ -1742,7 +1880,10 @@ mod autotest_generated {
         let (update, changes) = run_close(Some(modal_styled_dom()), 2, data);
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a foreign payload must not hide the backdrop");
+        assert!(
+            changes.is_empty(),
+            "a foreign payload must not hide the backdrop"
+        );
     }
 
     #[test]
@@ -1783,9 +1924,11 @@ mod autotest_generated {
     fn close_end_to_end_through_the_real_dom_payload() {
         // Take the *actual* RefAny the widget wired into its close button and
         // drive the *actual* handler the widget registered against it.
-        let modal = Modal::create(Dom::create_text_do_not_use_without_block_level_wrapper("body"))
-            .with_title(AzString::from("Title"))
-            .with_open(true);
+        let modal = Modal::create(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "body",
+        ))
+        .with_title(AzString::from("Title"))
+        .with_open(true);
         let dom = modal.dom();
 
         let close = find_class(&dom, "__azul-native-modal-close").expect("close node");

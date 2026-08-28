@@ -46,19 +46,18 @@ fn node(n: usize) -> DomNodeId {
 /// body(0) > canvas(1, relative flex-grow overflow:hidden 1280x676)
 /// > abs(2) > sheet(3, 794x100)
 fn shell(abs_css: &str) -> (Dom, String) {
-    let dom = Dom::create_body()
-        .with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("canvas".into())].into())
-                .with_child(
-                    Dom::create_div()
-                        .with_ids_and_classes(vec![IdOrClass::Class("abs".into())].into())
-                        .with_child(
-                            Dom::create_div()
-                                .with_ids_and_classes(vec![IdOrClass::Class("sheet".into())].into()),
-                        ),
-                ),
-        );
+    let dom = Dom::create_body().with_child(
+        Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class("canvas".into())].into())
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(vec![IdOrClass::Class("abs".into())].into())
+                    .with_child(
+                        Dom::create_div()
+                            .with_ids_and_classes(vec![IdOrClass::Class("sheet".into())].into()),
+                    ),
+            ),
+    );
     let css = format!(
         r#"
         * {{ margin: 0; padding: 0; }}

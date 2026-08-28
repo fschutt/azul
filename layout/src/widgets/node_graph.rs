@@ -25,7 +25,9 @@ use azul_core::{
     svg::{SvgPath, SvgPathElement, SvgStrokeStyle, TessellatedGPUSvgNode},
     window::CursorPosition::InWindow,
 };
-#[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+use azul_css::css::BoxOrStatic;
+#[allow(clippy::wildcard_imports)]
+// widget/render module pulls in the css property/value types it builds with
 use azul_css::{
     dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
     props::{
@@ -36,7 +38,6 @@ use azul_css::{
     },
     *,
 };
-use azul_css::css::BoxOrStatic;
 
 use crate::{
     callbacks::{Callback, CallbackInfo},
@@ -82,7 +83,8 @@ impl Default for NodeGraph {
 
 impl NodeGraph {
     /// Generates a new `NodeId` that is unique in the graph
-    #[must_use] pub fn generate_unique_node_id(&self) -> NodeGraphNodeId {
+    #[must_use]
+    pub fn generate_unique_node_id(&self) -> NodeGraphNodeId {
         NodeGraphNodeId {
             inner: self
                 .nodes
@@ -103,8 +105,20 @@ pub struct NodeTypeIdInfoMap {
     pub node_type_info: NodeTypeInfo,
 }
 
-impl_option!(NodeTypeIdInfoMap, OptionNodeTypeIdInfoMap, copy = false, [Debug, Clone]);
-impl_vec!(NodeTypeIdInfoMap, NodeTypeIdInfoMapVec, NodeTypeIdInfoMapVecDestructor, NodeTypeIdInfoMapVecDestructorType, NodeTypeIdInfoMapVecSlice, OptionNodeTypeIdInfoMap);
+impl_option!(
+    NodeTypeIdInfoMap,
+    OptionNodeTypeIdInfoMap,
+    copy = false,
+    [Debug, Clone]
+);
+impl_vec!(
+    NodeTypeIdInfoMap,
+    NodeTypeIdInfoMapVec,
+    NodeTypeIdInfoMapVecDestructor,
+    NodeTypeIdInfoMapVecDestructorType,
+    NodeTypeIdInfoMapVecSlice,
+    OptionNodeTypeIdInfoMap
+);
 impl_vec_clone!(
     NodeTypeIdInfoMap,
     NodeTypeIdInfoMapVec,
@@ -121,8 +135,20 @@ pub struct InputOutputTypeIdInfoMap {
     pub io_info: InputOutputInfo,
 }
 
-impl_option!(InputOutputTypeIdInfoMap, OptionInputOutputTypeIdInfoMap, copy = false, [Debug, Clone]);
-impl_vec!(InputOutputTypeIdInfoMap, InputOutputTypeIdInfoMapVec, InputOutputTypeIdInfoMapVecDestructor, InputOutputTypeIdInfoMapVecDestructorType, InputOutputTypeIdInfoMapVecSlice, OptionInputOutputTypeIdInfoMap);
+impl_option!(
+    InputOutputTypeIdInfoMap,
+    OptionInputOutputTypeIdInfoMap,
+    copy = false,
+    [Debug, Clone]
+);
+impl_vec!(
+    InputOutputTypeIdInfoMap,
+    InputOutputTypeIdInfoMapVec,
+    InputOutputTypeIdInfoMapVecDestructor,
+    InputOutputTypeIdInfoMapVecDestructorType,
+    InputOutputTypeIdInfoMapVecSlice,
+    OptionInputOutputTypeIdInfoMap
+);
 impl_vec_clone!(
     InputOutputTypeIdInfoMap,
     InputOutputTypeIdInfoMapVec,
@@ -139,8 +165,20 @@ pub struct NodeIdNodeMap {
     pub node: Node,
 }
 
-impl_option!(NodeIdNodeMap, OptionNodeIdNodeMap, copy = false, [Debug, Clone]);
-impl_vec!(NodeIdNodeMap, NodeIdNodeMapVec, NodeIdNodeMapVecDestructor, NodeIdNodeMapVecDestructorType, NodeIdNodeMapVecSlice, OptionNodeIdNodeMap);
+impl_option!(
+    NodeIdNodeMap,
+    OptionNodeIdNodeMap,
+    copy = false,
+    [Debug, Clone]
+);
+impl_vec!(
+    NodeIdNodeMap,
+    NodeIdNodeMapVec,
+    NodeIdNodeMapVecDestructor,
+    NodeIdNodeMapVecDestructorType,
+    NodeIdNodeMapVecSlice,
+    OptionNodeIdNodeMap
+);
 impl_vec_clone!(NodeIdNodeMap, NodeIdNodeMapVec, NodeIdNodeMapVecDestructor);
 impl_vec_mut!(NodeIdNodeMap, NodeIdNodeMapVec);
 impl_vec_debug!(NodeIdNodeMap, NodeIdNodeMapVec);
@@ -274,8 +312,20 @@ pub struct InputOutputTypeId {
     pub inner: u64,
 }
 
-impl_option!(InputOutputTypeId, OptionInputOutputTypeId, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_vec!(InputOutputTypeId, InputOutputTypeIdVec, InputOutputTypeIdVecDestructor, InputOutputTypeIdVecDestructorType, InputOutputTypeIdVecSlice, OptionInputOutputTypeId);
+impl_option!(
+    InputOutputTypeId,
+    OptionInputOutputTypeId,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_vec!(
+    InputOutputTypeId,
+    InputOutputTypeIdVec,
+    InputOutputTypeIdVecDestructor,
+    InputOutputTypeIdVecDestructorType,
+    InputOutputTypeIdVecSlice,
+    OptionInputOutputTypeId
+);
 impl_vec_clone!(
     InputOutputTypeId,
     InputOutputTypeIdVec,
@@ -317,8 +367,20 @@ pub struct NodeTypeField {
     pub value: NodeTypeFieldValue,
 }
 
-impl_option!(NodeTypeField, OptionNodeTypeField, copy = false, [Debug, Clone]);
-impl_vec!(NodeTypeField, NodeTypeFieldVec, NodeTypeFieldVecDestructor, NodeTypeFieldVecDestructorType, NodeTypeFieldVecSlice, OptionNodeTypeField);
+impl_option!(
+    NodeTypeField,
+    OptionNodeTypeField,
+    copy = false,
+    [Debug, Clone]
+);
+impl_vec!(
+    NodeTypeField,
+    NodeTypeFieldVec,
+    NodeTypeFieldVecDestructor,
+    NodeTypeFieldVecDestructorType,
+    NodeTypeFieldVecSlice,
+    OptionNodeTypeField
+);
 impl_vec_clone!(NodeTypeField, NodeTypeFieldVec, NodeTypeFieldVecDestructor);
 impl_vec_debug!(NodeTypeField, NodeTypeFieldVec);
 impl_vec_mut!(NodeTypeField, NodeTypeFieldVec);
@@ -342,8 +404,20 @@ pub struct InputConnection {
     pub connects_to: OutputNodeAndIndexVec,
 }
 
-impl_option!(InputConnection, OptionInputConnection, copy = false, [Debug, Clone]);
-impl_vec!(InputConnection, InputConnectionVec, InputConnectionVecDestructor, InputConnectionVecDestructorType, InputConnectionVecSlice, OptionInputConnection);
+impl_option!(
+    InputConnection,
+    OptionInputConnection,
+    copy = false,
+    [Debug, Clone]
+);
+impl_vec!(
+    InputConnection,
+    InputConnectionVec,
+    InputConnectionVecDestructor,
+    InputConnectionVecDestructorType,
+    InputConnectionVecSlice,
+    OptionInputConnection
+);
 impl_vec_clone!(
     InputConnection,
     InputConnectionVec,
@@ -360,8 +434,20 @@ pub struct OutputNodeAndIndex {
     pub output_index: usize,
 }
 
-impl_option!(OutputNodeAndIndex, OptionOutputNodeAndIndex, copy = false, [Debug, Clone]);
-impl_vec!(OutputNodeAndIndex, OutputNodeAndIndexVec, OutputNodeAndIndexVecDestructor, OutputNodeAndIndexVecDestructorType, OutputNodeAndIndexVecSlice, OptionOutputNodeAndIndex);
+impl_option!(
+    OutputNodeAndIndex,
+    OptionOutputNodeAndIndex,
+    copy = false,
+    [Debug, Clone]
+);
+impl_vec!(
+    OutputNodeAndIndex,
+    OutputNodeAndIndexVec,
+    OutputNodeAndIndexVecDestructor,
+    OutputNodeAndIndexVecDestructorType,
+    OutputNodeAndIndexVecSlice,
+    OptionOutputNodeAndIndex
+);
 impl_vec_clone!(
     OutputNodeAndIndex,
     OutputNodeAndIndexVec,
@@ -378,8 +464,20 @@ pub struct OutputConnection {
     pub connects_to: InputNodeAndIndexVec,
 }
 
-impl_option!(OutputConnection, OptionOutputConnection, copy = false, [Debug, Clone]);
-impl_vec!(OutputConnection, OutputConnectionVec, OutputConnectionVecDestructor, OutputConnectionVecDestructorType, OutputConnectionVecSlice, OptionOutputConnection);
+impl_option!(
+    OutputConnection,
+    OptionOutputConnection,
+    copy = false,
+    [Debug, Clone]
+);
+impl_vec!(
+    OutputConnection,
+    OutputConnectionVec,
+    OutputConnectionVecDestructor,
+    OutputConnectionVecDestructorType,
+    OutputConnectionVecSlice,
+    OptionOutputConnection
+);
 impl_vec_clone!(
     OutputConnection,
     OutputConnectionVec,
@@ -396,8 +494,20 @@ pub struct InputNodeAndIndex {
     pub input_index: usize,
 }
 
-impl_option!(InputNodeAndIndex, OptionInputNodeAndIndex, copy = false, [Debug, Clone]);
-impl_vec!(InputNodeAndIndex, InputNodeAndIndexVec, InputNodeAndIndexVecDestructor, InputNodeAndIndexVecDestructorType, InputNodeAndIndexVecSlice, OptionInputNodeAndIndex);
+impl_option!(
+    InputNodeAndIndex,
+    OptionInputNodeAndIndex,
+    copy = false,
+    [Debug, Clone]
+);
+impl_vec!(
+    InputNodeAndIndex,
+    InputNodeAndIndexVec,
+    InputNodeAndIndexVecDestructor,
+    InputNodeAndIndexVecDestructorType,
+    InputNodeAndIndexVecSlice,
+    OptionInputNodeAndIndex
+);
 impl_vec_clone!(
     InputNodeAndIndex,
     InputNodeAndIndexVec,
@@ -457,7 +567,9 @@ pub enum NodeGraphError {
 
 impl fmt::Display for NodeGraphError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::NodeGraphError::{NodeMimeTypeMismatch, NodeInvalidIndex, NodeInvalidNode, NoRootNode};
+        use self::NodeGraphError::{
+            NoRootNode, NodeInvalidIndex, NodeInvalidNode, NodeMimeTypeMismatch,
+        };
         match self {
             NodeMimeTypeMismatch => write!(f, "MIME type mismatch"),
             NodeInvalidIndex => write!(f, "Invalid node index"),
@@ -640,12 +752,7 @@ impl NodeGraph {
             let output_index = *output_index;
 
             // verify that the node type of the connection matches
-            self.verify_nodetype_match(
-                output_node_id,
-                output_index,
-                input_node_id,
-                input_index,
-            )?;
+            self.verify_nodetype_match(output_node_id, output_index, input_node_id, input_index)?;
 
             // disconnect input -> output
 
@@ -736,12 +843,7 @@ impl NodeGraph {
             let input_index = *input_index;
 
             // verify that the node type of the connection matches
-            self.verify_nodetype_match(
-                output_node_id,
-                output_index,
-                input_node_id,
-                input_index,
-            )?;
+            self.verify_nodetype_match(output_node_id, output_index, input_node_id, input_index)?;
 
             if let Some(output_node) = self
                 .nodes
@@ -840,7 +942,8 @@ impl NodeGraph {
     }
 
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         static NODEGRAPH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("nodegraph"))];
 
         static NODEGRAPH_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Image(
@@ -909,13 +1012,11 @@ impl NodeGraph {
                                     });
 
                                 MenuItem::String(
-                                    StringMenuItem::create(
-                                        node_type_info.node_type_name.clone(),
-                                    )
-                                    .with_callback(
-                                        context_menu_local_dataset,
-                                        nodegraph_context_menu_click as usize,
-                                    ),
+                                    StringMenuItem::create(node_type_info.node_type_name.clone())
+                                        .with_callback(
+                                            context_menu_local_dataset,
+                                            nodegraph_context_menu_click as usize,
+                                        ),
                                 )
                             },
                         )
@@ -1058,7 +1159,8 @@ fn render_node(
         CssPropertyWithConditions, CssPropertyWithConditionsVec, Dom, DomVec, IdOrClass,
         IdOrClass::Class, IdOrClassVec,
     };
-    #[allow(clippy::wildcard_imports)] // widget/render module pulls in the css property/value types it builds with
+    #[allow(clippy::wildcard_imports)]
+    // widget/render module pulls in the css property/value types it builds with
     use azul_css::*;
 
     const STRING_9416190750059025162: AzString = AzString::from_const_str("Material Icons");
@@ -1763,8 +1865,8 @@ fn render_node(
                 inner: PixelValue::const_px(1),
             }),
         )),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-            StyleBoxShadow {
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+            BoxOrStatic::Static(&StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
                 },
@@ -1784,10 +1886,10 @@ fn render_node(
                     inner: PixelValue::const_px(0),
                 },
                 clip_mode: BoxShadowClipMode::Outset,
-            },
-        )))),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-            StyleBoxShadow {
+            }),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+            BoxOrStatic::Static(&StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
                 },
@@ -1807,10 +1909,10 @@ fn render_node(
                     inner: PixelValue::const_px(0),
                 },
                 clip_mode: BoxShadowClipMode::Outset,
-            },
-        )))),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-            StyleBoxShadow {
+            }),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+            BoxOrStatic::Static(&StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
                 },
@@ -1830,8 +1932,8 @@ fn render_node(
                     inner: PixelValue::const_px(0),
                 },
                 clip_mode: BoxShadowClipMode::Outset,
-            },
-        )))),
+            }),
+        ))),
         CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
             StyleBoxShadowValue::Exact(BoxOrStatic::Static(&StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
@@ -1887,8 +1989,8 @@ fn render_node(
                 STYLE_BACKGROUND_CONTENT_15813232491335471489_ITEMS,
             )),
         )),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-            StyleBoxShadow {
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(
+            BoxOrStatic::Static(&StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
                 },
@@ -1908,10 +2010,10 @@ fn render_node(
                     inner: PixelValue::const_px(0),
                 },
                 clip_mode: BoxShadowClipMode::Inset,
-            },
-        )))),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-            StyleBoxShadow {
+            }),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(
+            BoxOrStatic::Static(&StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
                 },
@@ -1931,10 +2033,10 @@ fn render_node(
                     inner: PixelValue::const_px(0),
                 },
                 clip_mode: BoxShadowClipMode::Inset,
-            },
-        )))),
-        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
-            StyleBoxShadow {
+            }),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(
+            BoxOrStatic::Static(&StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
                     inner: PixelValue::const_px(0),
                 },
@@ -1954,8 +2056,8 @@ fn render_node(
                     inner: PixelValue::const_px(0),
                 },
                 clip_mode: BoxShadowClipMode::Inset,
-            },
-        )))),
+            }),
+        ))),
         CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
             StyleBoxShadowValue::Exact(BoxOrStatic::Static(&StyleBoxShadow {
                 offset_x: PixelValueNoPercent {
@@ -2025,10 +2127,7 @@ fn render_node(
                 .input_output_types
                 .iter()
                 .find(|i| i.io_type_id == *io_id)?;
-            Some((
-                io_info.io_info.data_type.clone(),
-                io_info.io_info.color,
-            ))
+            Some((io_info.io_info.data_type.clone(), io_info.io_info.color))
         })
         .collect::<Vec<_>>();
 
@@ -2044,10 +2143,7 @@ fn render_node(
                 .input_output_types
                 .iter()
                 .find(|i| i.io_type_id == *io_id)?;
-            Some((
-                io_info.io_info.data_type.clone(),
-                io_info.io_info.color,
-            ))
+            Some((io_info.io_info.data_type.clone(), io_info.io_info.color))
         })
         .collect::<Vec<_>>();
 
@@ -2761,9 +2857,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
 
                         children.push(
                             Dom::create_div()
-                                .with_css(
-                                    "flex-grow: 1; position: absolute; overflow: hidden;",
-                                )
+                                .with_css("flex-grow: 1; position: absolute; overflow: hidden;")
                                 .with_children(vec![connection_div].into()),
                         );
                     }
@@ -2782,7 +2876,6 @@ extern "C" fn draw_connection(mut refany: RefAny, _info: ()) -> ImageRef {
         width: 100.0,
         height: 100.0,
     };
-    
 
     // Cannot call draw_connection_inner without RenderImageCallbackInfo
     ImageRef::null_image(
@@ -3033,11 +3126,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
         // drag graph
         None => {
             let result = match refany.callbacks.on_node_graph_dragged.as_ref() {
-                Some(OnNodeGraphDragged { callback, refany }) => (callback.cb)(
-                    refany.clone(),
-                    info,
-                    GraphDragAmount { x: dx, y: dy },
-                ),
+                Some(OnNodeGraphDragged { callback, refany }) => {
+                    (callback.cb)(refany.clone(), info, GraphDragAmount { x: dx, y: dy })
+                }
                 None => Update::DoNothing,
             };
 
@@ -3818,7 +3909,11 @@ mod autotest_generated {
 
     /// The full wiring of the graph, as a comparable value — the "encoding" that the
     /// connect/disconnect round-trip tests compare before and after.
-    type Wiring = Vec<(u64, Vec<(usize, Vec<(u64, usize)>)>, Vec<(usize, Vec<(u64, usize)>)>)>;
+    type Wiring = Vec<(
+        u64,
+        Vec<(usize, Vec<(u64, usize)>)>,
+        Vec<(usize, Vec<(u64, usize)>)>,
+    )>;
     fn wiring(g: &NodeGraph) -> Wiring {
         g.nodes
             .iter()
@@ -4393,7 +4488,8 @@ mod autotest_generated {
     #[test]
     fn swap_with_default_moves_the_connections_not_just_the_node_list() {
         let mut g = graph();
-        g.connect_input_output(N3, 0, N1, 0).expect("legal A->A wire");
+        g.connect_input_output(N3, 0, N1, 0)
+            .expect("legal A->A wire");
         let before = wiring(&g);
 
         let taken = g.swap_with_default();
@@ -4596,8 +4692,14 @@ mod autotest_generated {
         g.connect_input_output(N3, 0, N1, 0).expect("first");
         g.connect_input_output(N3, 0, N1, 0).expect("second");
 
-        assert_eq!(inputs_of(&g, N3), vec![(0, vec![(N1.inner, 0), (N1.inner, 0)])]);
-        assert_eq!(outputs_of(&g, N1), vec![(0, vec![(N3.inner, 0), (N3.inner, 0)])]);
+        assert_eq!(
+            inputs_of(&g, N3),
+            vec![(0, vec![(N1.inner, 0), (N1.inner, 0)])]
+        );
+        assert_eq!(
+            outputs_of(&g, N1),
+            vec![(0, vec![(N3.inner, 0), (N3.inner, 0)])]
+        );
     }
 
     #[test]
@@ -4764,8 +4866,12 @@ mod autotest_generated {
     // 8. get_rect
     // ==================================================================
 
-    fn connection(out: NodeGraphNodeId, out_idx: usize, inn: NodeGraphNodeId, in_idx: usize)
-        -> ConnectionLocalDataset {
+    fn connection(
+        out: NodeGraphNodeId,
+        out_idx: usize,
+        inn: NodeGraphNodeId,
+        in_idx: usize,
+    ) -> ConnectionLocalDataset {
         ConnectionLocalDataset {
             out_node_id: out,
             out_idx,
@@ -4853,8 +4959,8 @@ mod autotest_generated {
         // `usize::MAX as f32` is ~1.8e19 — large, but multiplying by the 25px pitch
         // still lands well inside f32 range, so nothing may become inf or NaN.
         let g = graph();
-        let (rect, _, _) = get_rect(&g, connection(N1, usize::MAX, N3, usize::MAX))
-            .expect("both nodes exist");
+        let (rect, _, _) =
+            get_rect(&g, connection(N1, usize::MAX, N3, usize::MAX)).expect("both nodes exist");
         assert!(rect.origin.y.is_finite(), "y = {}", rect.origin.y);
         assert!(rect.size.height.is_finite(), "h = {}", rect.size.height);
         assert!(rect.size.width.is_finite());
@@ -5144,9 +5250,9 @@ mod autotest_generated {
             },
             NodeTypeField {
                 key: AzString::from_const_str("path"),
-                value: NodeTypeFieldValue::FileInput(OptionString::Some(
-                    AzString::from_const_str("/tmp/日本語/🎉.txt"),
-                )),
+                value: NodeTypeFieldValue::FileInput(OptionString::Some(AzString::from_const_str(
+                    "/tmp/日本語/🎉.txt",
+                ))),
             },
         ]
         .into();
@@ -5306,7 +5412,11 @@ mod autotest_generated {
             "the 'add node' context menu is the only way to create nodes",
         );
         assert!(dom.root.get_dataset().is_some());
-        assert_eq!(dom.children.len(), 1, "wrapper holds exactly the .nodegraph");
+        assert_eq!(
+            dom.children.len(),
+            1,
+            "wrapper holds exactly the .nodegraph"
+        );
 
         let nodegraph = &dom.children.as_slice()[0];
         assert_eq!(
@@ -5848,7 +5958,10 @@ mod autotest_generated {
 
         assert_eq!(
             fire(|info| {
-                nodegraph_input_output_disconnect(io_dataset(&gd, N3, InputOrOutput::Input(4)), info)
+                nodegraph_input_output_disconnect(
+                    io_dataset(&gd, N3, InputOrOutput::Input(4)),
+                    info,
+                )
             }),
             Update::RefreshDom,
         );
@@ -5900,7 +6013,10 @@ mod autotest_generated {
         let gd = graph_dataset(&g);
         assert_eq!(
             fire(|info| {
-                nodegraph_input_output_disconnect(io_dataset(&gd, N1, InputOrOutput::Input(0)), info)
+                nodegraph_input_output_disconnect(
+                    io_dataset(&gd, N1, InputOrOutput::Input(0)),
+                    info,
+                )
             }),
             Update::DoNothing,
         );
@@ -6135,12 +6251,31 @@ mod autotest_generated {
         // {1,2,3,4} catches a channel swap that greys would hide; 0 and 255 alpha are
         // the two extremes.
         for c in [
-            ColorU { r: 1, g: 2, b: 3, a: 4 },
-            ColorU { r: 0, g: 0, b: 0, a: 0 },
-            ColorU { r: 255, g: 255, b: 255, a: 255 },
+            ColorU {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 4,
+            },
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+            ColorU {
+                r: 255,
+                g: 255,
+                b: 255,
+                a: 255,
+            },
         ] {
             let _ = fire(|info| {
-                nodegraph_on_colorinput_value_changed(fd.clone(), info, ColorInputState { color: c })
+                nodegraph_on_colorinput_value_changed(
+                    fd.clone(),
+                    info,
+                    ColorInputState { color: c },
+                )
             });
         }
         log_of(&log, |l| {

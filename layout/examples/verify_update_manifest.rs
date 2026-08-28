@@ -111,7 +111,10 @@ fn check(release: &ReleaseInfo, artifact: &Path, root_key: &str) -> Result<Strin
     );
 
     if root_key.trim().is_empty() {
-        let _ = writeln!(out, "signature       (no root key given - chain not checked)");
+        let _ = writeln!(
+            out,
+            "signature       (no root key given - chain not checked)"
+        );
         return Ok(out);
     }
 
@@ -206,7 +209,10 @@ fn selftest() -> ExitCode {
 
     println!("root public key : {}", root.pk.to_base64());
     println!("statement       : {statement}");
-    println!("manifest        : {}\n", dir.join("manifest.json").display());
+    println!(
+        "manifest        : {}\n",
+        dir.join("manifest.json").display()
+    );
     drop(std::fs::write(dir.join("manifest.json"), &manifest));
 
     let (release, _) = match parse_manifest_v1(&manifest) {
@@ -243,8 +249,8 @@ fn selftest() -> ExitCode {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
     use sha2::Digest as _;
+    use std::fmt::Write as _;
     sha2::Sha256::digest(bytes)
         .iter()
         .fold(String::with_capacity(64), |mut out, b| {

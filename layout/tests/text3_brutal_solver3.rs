@@ -12,7 +12,6 @@
 //! 5px, line-height:normal = (800+200)*0.02 = 20px. So "aaaa" = 48px, the
 //! inter-word space = 5px, and "aaaa aaaa" max-content = 101px, min-content 48px.
 
-
 use azul_core::dom::{Dom, DomId};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::resources::RendererResources;
@@ -148,7 +147,10 @@ fn run_layout(html: &str) -> Solver3LayoutCache {
 fn intrinsics(cache: &Solver3LayoutCache) -> Vec<(f32, f32)> {
     let tree = cache.tree.as_ref().expect("layout tree");
     (0..64)
-        .filter_map(|i| tree.warm(azul_layout::solver3::LayoutNodeId::new(i)).and_then(|w| w.intrinsic_sizes))
+        .filter_map(|i| {
+            tree.warm(azul_layout::solver3::LayoutNodeId::new(i))
+                .and_then(|w| w.intrinsic_sizes)
+        })
         .map(|s| (s.min_content_width, s.max_content_width))
         .collect()
 }
@@ -157,7 +159,10 @@ fn intrinsics(cache: &Solver3LayoutCache) -> Vec<(f32, f32)> {
 fn used_sizes(cache: &Solver3LayoutCache) -> Vec<(f32, f32)> {
     let tree = cache.tree.as_ref().expect("layout tree");
     (0..64)
-        .filter_map(|i| tree.get(azul_layout::solver3::LayoutNodeId::new(i)).and_then(|n| n.used_size))
+        .filter_map(|i| {
+            tree.get(azul_layout::solver3::LayoutNodeId::new(i))
+                .and_then(|n| n.used_size)
+        })
         .map(|s| (s.width, s.height))
         .collect()
 }

@@ -17,13 +17,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use azul_css::props::basic::FontRef;
 use azul_layout::font::parsed::ParsedFont;
 use azul_layout::parsed_font_to_font_ref;
 use azul_layout::text3::cache::{
     create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection, FontStack,
     InlineContent, LoadedFonts, ShapedItem, StyleProperties, StyledRun, UnicodeBidi,
 };
-use azul_css::props::basic::FontRef;
 use rust_fontconfig::{FcFontCache, FontBytes, FontFallbackChain, FontId};
 
 use crate::fakefont;
@@ -105,7 +105,10 @@ fn assert_ids_monotonic_and_unique(input: &str, dir: BidiDirection) {
     let mut in_logical_order: Vec<(u32, u32)> = Vec::new();
     for it in &shaped {
         if let ShapedItem::Cluster(c) = it {
-            let key = (c.source_cluster_id.source_run, c.source_cluster_id.start_byte_in_run);
+            let key = (
+                c.source_cluster_id.source_run,
+                c.source_cluster_id.start_byte_in_run,
+            );
             assert!(
                 seen.insert(key),
                 "duplicate source_cluster_id {key:?} (input {input:?})"
@@ -129,7 +132,10 @@ fn ids_unique_and_monotonic_across_corpus() {
     for (text, dir) in [
         ("hello world", BidiDirection::Ltr),
         ("abc \u{05d0}\u{05d1}\u{05d2} def", BidiDirection::Ltr),
-        ("\u{05e9}\u{05dc}\u{05d5}\u{05dd} shalom", BidiDirection::Rtl),
+        (
+            "\u{05e9}\u{05dc}\u{05d5}\u{05dd} shalom",
+            BidiDirection::Rtl,
+        ),
         ("waffle office ffi", BidiDirection::Ltr),
         ("co\u{00ad}op\tend", BidiDirection::Ltr),
     ] {
@@ -144,12 +150,18 @@ fn ascii_reproduces() {
 
 #[test]
 fn accents_and_combining_marks_reproduce() {
-    assert_source_roundtrip("re\u{0301}sume\u{0301} \u{00e4}\u{00f6}\u{00fc}", BidiDirection::Ltr);
+    assert_source_roundtrip(
+        "re\u{0301}sume\u{0301} \u{00e4}\u{00f6}\u{00fc}",
+        BidiDirection::Ltr,
+    );
 }
 
 #[test]
 fn hebrew_rtl_reproduces_in_logical_order() {
-    assert_source_roundtrip("\u{05e9}\u{05dc}\u{05d5}\u{05dd} shalom", BidiDirection::Rtl);
+    assert_source_roundtrip(
+        "\u{05e9}\u{05dc}\u{05d5}\u{05dd} shalom",
+        BidiDirection::Rtl,
+    );
 }
 
 #[test]

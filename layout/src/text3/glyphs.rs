@@ -78,8 +78,9 @@ impl CompactGlyphs {
     /// choosing the shared y/size — NaNs become exceptions, never a match).
     #[must_use]
     pub fn from_instances(v: &[GlyphInstance]) -> Self {
-        let (y, size) =
-            v.first().map_or_else(|| (0.0, LogicalSize::default()), |g| (g.point.y, g.size));
+        let (y, size) = v
+            .first()
+            .map_or_else(|| (0.0, LogicalSize::default()), |g| (g.point.y, g.size));
         let mut xs = Vec::with_capacity(v.len());
         let mut exceptions = Vec::new();
         for (i, g) in v.iter().enumerate() {
@@ -246,7 +247,8 @@ pub fn simple_runs_bit_equal(a: &SimpleGlyphRun, b: &SimpleGlyphRun) -> bool {
 /// Use this when you only need glyph positions and don't need font references.
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-#[must_use] pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
+#[must_use]
+pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
     let mut runs: Vec<SimpleGlyphRun> = Vec::new();
     let mut current_run: Option<SimpleGlyphRun> = None;
     // Baseline the open run sits on. Runs merge across layout items when
@@ -342,7 +344,13 @@ pub fn simple_runs_bit_equal(a: &SimpleGlyphRun, b: &SimpleGlyphRun) -> bool {
         match &item.item {
             ShapedItem::Cluster(cluster) => {
                 let writing_mode = cluster.style.writing_mode;
-                process_glyphs(&cluster.glyphs, item.position.x, writing_mode, cluster.source_node_id, &cluster.style);
+                process_glyphs(
+                    &cluster.glyphs,
+                    item.position.x,
+                    writing_mode,
+                    cluster.source_node_id,
+                    &cluster.style,
+                );
             }
             ShapedItem::CombinedBlock { glyphs, style, .. } => {
                 // CombinedBlock (tate-chu-yoko) carries raw per-glyph advances/GPOS
@@ -479,7 +487,8 @@ pub struct PdfPositionedGlyph {
 /// - Preserves absolute positioning for each glyph (critical for RTL and complex scripts)
 /// - Includes cluster text for proper CID/Unicode mapping
 #[allow(clippy::float_cmp)] // intentional exact compare: change-detection / identity fast-path / cache-key match
-#[must_use] pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
+#[must_use]
+pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
     layout: &UnifiedLayout,
     fonts: &LoadedFonts<T>,
 ) -> Vec<PdfGlyphRun<T>> {
@@ -546,7 +555,8 @@ pub struct PdfPositionedGlyph {
                     // Get the character at this byte offset
                     cluster_text[byte_offset..]
                         .chars()
-                        .next().map_or_else(|| cluster_text.to_string(), |c| c.to_string())
+                        .next()
+                        .map_or_else(|| cluster_text.to_string(), |c| c.to_string())
                 } else {
                     // Fallback: if offset is out of range, use the whole cluster for first glyph
                     // or empty for subsequent glyphs (they share the same codepoint)
@@ -568,13 +578,16 @@ pub struct PdfPositionedGlyph {
             // Font hash change = font change (shaping must break per spec).
             // Border/background change = margin/border/padding non-zero (shaping must break).
             // Text-decoration change = rendering-only break (shaping unaffected per spec).
-            let should_break = current_run.as_ref().is_some_and(|run| run.font_hash != font_hash
+            let should_break = current_run.as_ref().is_some_and(|run| {
+                run.font_hash != font_hash
                     || run.color != glyph_color
                     || run.background_color != glyph_background
                     || run.font_size_px != font_size_px
                     || run.text_decoration != text_decoration
                     || run.line_index != line_index
-                    || run.direction != direction || run.writing_mode != writing_mode);
+                    || run.direction != direction
+                    || run.writing_mode != writing_mode
+            });
 
             if should_break {
                 // Finalize the current run and start a new one
@@ -638,7 +651,8 @@ pub struct PdfPositionedGlyph {
 ///
 /// A `Vec<PositionedGlyph>` containing all glyphs from the layout with their
 /// absolute baseline positions.
-#[must_use] pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
+#[must_use]
+pub fn get_glyph_positions(layout: &UnifiedLayout) -> Vec<PositionedGlyph> {
     let mut final_glyphs = Vec::new();
 
     for item in &layout.items {
@@ -721,10 +735,10 @@ mod autotest_generated {
     use super::*;
     use crate::text3::{
         cache::{
-            BidiDirection, BreakType, ClearType, ContentIndex, Glyph, GlyphKind,
-            GraphemeClusterId, InlineBreak, InlineContent, InlineSpace, LayoutError,
-            LayoutFontMetrics, OverflowInfo, PositionedItem, Rect, ShallowClone, ShapedCluster,
-            StyleProperties, TextDecoration, VerticalMetrics, WritingMode,
+            BidiDirection, BreakType, ClearType, ContentIndex, Glyph, GlyphKind, GraphemeClusterId,
+            InlineBreak, InlineContent, InlineSpace, LayoutError, LayoutFontMetrics, OverflowInfo,
+            PositionedItem, Rect, ShallowClone, ShapedCluster, StyleProperties, TextDecoration,
+            VerticalMetrics, WritingMode,
         },
         script::{Language, Script},
     };
@@ -785,7 +799,8 @@ mod autotest_generated {
     fn cluster(text: &str, glyphs: Vec<ShapedGlyph>, st: &Arc<StyleProperties>) -> ShapedCluster {
         ShapedCluster {
             flags: crate::text3::cache::ClusterFlags::classify(text),
-            source_text: Arc::from(text), source_byte_len: text.len() as u16,
+            source_text: Arc::from(text),
+            source_byte_len: text.len() as u16,
             source_cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
@@ -1080,11 +1095,24 @@ mod autotest_generated {
         let st = style();
         let mut g = glyph(u16::MAX, f32::MIN_POSITIVE, &st);
         g.advance = f32::MIN_POSITIVE;
-        let l = layout(vec![at(item(cluster("\u{10FFFF}", vec![g], &st)), 0.0, 0.0, 0)]);
+        let l = layout(vec![at(
+            item(cluster("\u{10FFFF}", vec![g], &st)),
+            0.0,
+            0.0,
+            0,
+        )]);
         let out = get_glyph_positions(&l);
 
-        assert_eq!(out[0].glyph_id, u16::MAX, "glyph id is copied, not truncated");
-        assert_eq!(out[0].advance, f32::MIN_POSITIVE, "advance is copied verbatim");
+        assert_eq!(
+            out[0].glyph_id,
+            u16::MAX,
+            "glyph id is copied, not truncated"
+        );
+        assert_eq!(
+            out[0].advance,
+            f32::MIN_POSITIVE,
+            "advance is copied verbatim"
+        );
     }
 
     #[test]
@@ -1103,7 +1131,10 @@ mod autotest_generated {
         let out = get_glyph_positions(&l);
 
         assert_eq!(out.len(), 2);
-        assert_eq!(out[0].position.x, 0.0, "first glyph is placed before the NaN advance");
+        assert_eq!(
+            out[0].position.x, 0.0,
+            "first glyph is placed before the NaN advance"
+        );
         assert!(
             out[1].position.x.is_nan(),
             "NaN advance propagates into the pen — pinned, not fixed"
@@ -1147,19 +1178,35 @@ mod autotest_generated {
         let out = get_glyph_positions(&l);
 
         assert_eq!(out.len(), 10_000);
-        assert_eq!(out[9_999].position.x, 9_999.0, "integral f32 accumulation is exact here");
+        assert_eq!(
+            out[9_999].position.x, 9_999.0,
+            "integral f32 accumulation is exact here"
+        );
     }
 
     #[test]
     fn positions_pen_resets_at_each_item_origin() {
         let st = style();
         let l = layout(vec![
-            at(item(cluster("a", vec![glyph(1, 10.0, &st)], &st)), 0.0, 0.0, 0),
-            at(item(cluster("b", vec![glyph(2, 10.0, &st)], &st)), 200.0, 30.0, 1),
+            at(
+                item(cluster("a", vec![glyph(1, 10.0, &st)], &st)),
+                0.0,
+                0.0,
+                0,
+            ),
+            at(
+                item(cluster("b", vec![glyph(2, 10.0, &st)], &st)),
+                200.0,
+                30.0,
+                1,
+            ),
         ]);
         let out = get_glyph_positions(&l);
 
-        assert_eq!(out[1].position.x, 200.0, "pen restarts from the item origin");
+        assert_eq!(
+            out[1].position.x, 200.0,
+            "pen restarts from the item origin"
+        );
         assert_eq!(out[1].position.y, 30.0);
     }
 
@@ -1188,13 +1235,21 @@ mod autotest_generated {
         let st = style();
         let l = layout(vec![
             at(
-                item(cluster("ab", vec![glyph(1, 10.0, &st), glyph(2, 10.0, &st)], &st)),
+                item(cluster(
+                    "ab",
+                    vec![glyph(1, 10.0, &st), glyph(2, 10.0, &st)],
+                    &st,
+                )),
                 0.0,
                 0.0,
                 0,
             ),
             at(
-                item(cluster("cd", vec![glyph(3, 10.0, &st), glyph(4, 10.0, &st)], &st)),
+                item(cluster(
+                    "cd",
+                    vec![glyph(3, 10.0, &st), glyph(4, 10.0, &st)],
+                    &st,
+                )),
                 50.0,
                 0.0,
                 1,
@@ -1202,9 +1257,16 @@ mod autotest_generated {
         ]);
         let runs = get_glyph_runs_simple(&l);
 
-        assert_eq!(runs.len(), 1, "identical style => one run, even across lines");
+        assert_eq!(
+            runs.len(),
+            1,
+            "identical style => one run, even across lines"
+        );
         assert_eq!(runs[0].glyphs.len(), 4);
-        assert_eq!(runs[0].glyphs[2].point.x, 50.0, "pen still restarts per item");
+        assert_eq!(
+            runs[0].glyphs[2].point.x, 50.0,
+            "pen still restarts per item"
+        );
     }
 
     #[test]
@@ -1212,12 +1274,22 @@ mod autotest_generated {
         let a = styled(|s| s.color = rgba(255, 0, 0, 255));
         let b = styled(|s| s.color = rgba(0, 0, 255, 255));
         let l = layout(vec![
-        // (2026-08-10, per-glyph style removed: a style change can only
-        // occur at a CLUSTER boundary — the pipeline splits runs by style
-        // BEFORE shaping — so this fixture uses one cluster per style,
-        // the only shape the engine can actually produce.)
-            at(item(cluster("a", vec![glyph(1, 10.0, &a)], &a)), 0.0, 0.0, 0),
-            at(item(cluster("b", vec![glyph(2, 10.0, &b)], &b)), 10.0, 0.0, 0),
+            // (2026-08-10, per-glyph style removed: a style change can only
+            // occur at a CLUSTER boundary — the pipeline splits runs by style
+            // BEFORE shaping — so this fixture uses one cluster per style,
+            // the only shape the engine can actually produce.)
+            at(
+                item(cluster("a", vec![glyph(1, 10.0, &a)], &a)),
+                0.0,
+                0.0,
+                0,
+            ),
+            at(
+                item(cluster("b", vec![glyph(2, 10.0, &b)], &b)),
+                10.0,
+                0.0,
+                0,
+            ),
         ]);
         let runs = get_glyph_runs_simple(&l);
 
@@ -1257,17 +1329,36 @@ mod autotest_generated {
             };
         });
         let l = layout(vec![
-        // (2026-08-10, per-glyph style removed: a style change can only
-        // occur at a CLUSTER boundary — the pipeline splits runs by style
-        // BEFORE shaping — so this fixture uses one cluster per style,
-        // the only shape the engine can actually produce.)
-            at(item(cluster("a", vec![glyph(1, 10.0, &a)], &a)), 0.0, 0.0, 0),
-            at(item(cluster("b", vec![glyph(2, 10.0, &b)], &b)), 10.0, 0.0, 0),
-            at(item(cluster("c", vec![glyph(3, 10.0, &c)], &c)), 20.0, 0.0, 0),
+            // (2026-08-10, per-glyph style removed: a style change can only
+            // occur at a CLUSTER boundary — the pipeline splits runs by style
+            // BEFORE shaping — so this fixture uses one cluster per style,
+            // the only shape the engine can actually produce.)
+            at(
+                item(cluster("a", vec![glyph(1, 10.0, &a)], &a)),
+                0.0,
+                0.0,
+                0,
+            ),
+            at(
+                item(cluster("b", vec![glyph(2, 10.0, &b)], &b)),
+                10.0,
+                0.0,
+                0,
+            ),
+            at(
+                item(cluster("c", vec![glyph(3, 10.0, &c)], &c)),
+                20.0,
+                0.0,
+                0,
+            ),
         ]);
         let runs = get_glyph_runs_simple(&l);
 
-        assert_eq!(runs.len(), 3, "size change and decoration change both break");
+        assert_eq!(
+            runs.len(),
+            3,
+            "size change and decoration change both break"
+        );
         assert_eq!(runs[0].font_size_px, 16.0);
         assert_eq!(runs[1].font_size_px, 24.0);
         assert!(runs[2].text_decoration.underline);
@@ -1280,12 +1371,22 @@ mod autotest_generated {
             s.background_content = vec![StyleBackgroundContent::Color(rgba(1, 2, 3, 4))];
         });
         let l = layout(vec![
-        // (2026-08-10, per-glyph style removed: a style change can only
-        // occur at a CLUSTER boundary — the pipeline splits runs by style
-        // BEFORE shaping — so this fixture uses one cluster per style,
-        // the only shape the engine can actually produce.)
-            at(item(cluster("a", vec![glyph(1, 10.0, &a)], &a)), 0.0, 0.0, 0),
-            at(item(cluster("b", vec![glyph(2, 10.0, &b)], &b)), 10.0, 0.0, 0),
+            // (2026-08-10, per-glyph style removed: a style change can only
+            // occur at a CLUSTER boundary — the pipeline splits runs by style
+            // BEFORE shaping — so this fixture uses one cluster per style,
+            // the only shape the engine can actually produce.)
+            at(
+                item(cluster("a", vec![glyph(1, 10.0, &a)], &a)),
+                0.0,
+                0.0,
+                0,
+            ),
+            at(
+                item(cluster("b", vec![glyph(2, 10.0, &b)], &b)),
+                10.0,
+                0.0,
+                0,
+            ),
         ]);
         let runs = get_glyph_runs_simple(&l);
 
@@ -1302,13 +1403,14 @@ mod autotest_generated {
         let mut c1 = cluster("b", vec![glyph(2, 10.0, &st)], &st);
         c1.source_node_id = Some(NodeId::new(4));
 
-        let l = layout(vec![
-            at(item(c0), 0.0, 0.0, 0),
-            at(item(c1), 10.0, 0.0, 0),
-        ]);
+        let l = layout(vec![at(item(c0), 0.0, 0.0, 0), at(item(c1), 10.0, 0.0, 0)]);
         let runs = get_glyph_runs_simple(&l);
 
-        assert_eq!(runs.len(), 2, "hit-testing identity must not be merged away");
+        assert_eq!(
+            runs.len(),
+            2,
+            "hit-testing identity must not be merged away"
+        );
         assert_eq!(runs[0].source_node_id, Some(NodeId::new(3)));
         assert_eq!(runs[1].source_node_id, Some(NodeId::new(4)));
     }
@@ -1349,7 +1451,12 @@ mod autotest_generated {
     #[test]
     fn simple_never_marks_runs_as_ime_preview() {
         let st = style();
-        let l = layout(vec![at(item(cluster("a", vec![glyph(1, 10.0, &st)], &st)), 0.0, 0.0, 0)]);
+        let l = layout(vec![at(
+            item(cluster("a", vec![glyph(1, 10.0, &st)], &st)),
+            0.0,
+            0.0,
+            0,
+        )]);
         let runs = get_glyph_runs_simple(&l);
         assert!(!runs[0].is_ime_preview, "this path never sets the IME flag");
     }
@@ -1361,7 +1468,11 @@ mod autotest_generated {
         let st = style();
         let l = layout(vec![
             at(
-                item(cluster("ab", vec![glyph(1, 10.0, &st), glyph(2, 7.5, &st)], &st)),
+                item(cluster(
+                    "ab",
+                    vec![glyph(1, 10.0, &st), glyph(2, 7.5, &st)],
+                    &st,
+                )),
                 12.0,
                 40.0,
                 0,
@@ -1461,12 +1572,22 @@ mod autotest_generated {
             s.color = rgba(0, 255, 0, 255);
         });
         let l = layout(vec![
-        // (2026-08-10, per-glyph style removed: a style change can only
-        // occur at a CLUSTER boundary — the pipeline splits runs by style
-        // BEFORE shaping — so this fixture uses one cluster per style,
-        // the only shape the engine can actually produce.)
-            at(item(cluster("a", vec![glyph(1, 10.0, &a)], &a)), 0.0, 0.0, 0),
-            at(item(cluster("b", vec![glyph(2, 10.0, &b)], &b)), 10.0, 0.0, 0),
+            // (2026-08-10, per-glyph style removed: a style change can only
+            // occur at a CLUSTER boundary — the pipeline splits runs by style
+            // BEFORE shaping — so this fixture uses one cluster per style,
+            // the only shape the engine can actually produce.)
+            at(
+                item(cluster("a", vec![glyph(1, 10.0, &a)], &a)),
+                0.0,
+                0.0,
+                0,
+            ),
+            at(
+                item(cluster("b", vec![glyph(2, 10.0, &b)], &b)),
+                10.0,
+                0.0,
+                0,
+            ),
         ]);
         let runs = get_glyph_runs_simple(&l);
 
@@ -1502,7 +1623,11 @@ mod autotest_generated {
     fn pdf_glyphs_with_unknown_fonts_are_dropped() {
         let st = style();
         let l = layout(vec![at(
-            item(cluster("ab", vec![glyph(1, 10.0, &st), glyph(2, 10.0, &st)], &st)),
+            item(cluster(
+                "ab",
+                vec![glyph(1, 10.0, &st), glyph(2, 10.0, &st)],
+                &st,
+            )),
             0.0,
             0.0,
             0,
@@ -1539,7 +1664,12 @@ mod autotest_generated {
             at(tab(), 0.0, 0.0, 0),
             at(hard_break(), 0.0, 0.0, 0),
             at(object(), 0.0, 0.0, 0),
-            at(item(cluster("a", vec![glyph(1, 10.0, &st)], &st)), 5.0, 0.0, 0),
+            at(
+                item(cluster("a", vec![glyph(1, 10.0, &st)], &st)),
+                5.0,
+                0.0,
+                0,
+            ),
         ]);
         let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
 
@@ -1572,7 +1702,12 @@ mod autotest_generated {
         g0.cluster_offset = 99;
         let mut g1 = glyph(2, 10.0, &st);
         g1.cluster_offset = 99;
-        let l = layout(vec![at(item(cluster("ab", vec![g0, g1], &st)), 0.0, 0.0, 0)]);
+        let l = layout(vec![at(
+            item(cluster("ab", vec![g0, g1], &st)),
+            0.0,
+            0.0,
+            0,
+        )]);
         let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
 
         assert_eq!(runs[0].glyphs[0].unicode_codepoint, "ab");
@@ -1586,7 +1721,12 @@ mod autotest_generated {
         g0.cluster_offset = u32::MAX;
         let mut g1 = glyph(2, 10.0, &st);
         g1.cluster_offset = u32::MAX;
-        let l = layout(vec![at(item(cluster("ab", vec![g0, g1], &st)), 0.0, 0.0, 0)]);
+        let l = layout(vec![at(
+            item(cluster("ab", vec![g0, g1], &st)),
+            0.0,
+            0.0,
+            0,
+        )]);
         let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
 
         // `u32::MAX as usize` is not < 2, so both take the out-of-range fallback.
@@ -1598,7 +1738,11 @@ mod autotest_generated {
     fn pdf_empty_cluster_text_with_several_glyphs_yields_empty_codepoints() {
         let st = style();
         let l = layout(vec![at(
-            item(cluster("", vec![glyph(1, 10.0, &st), glyph(2, 10.0, &st)], &st)),
+            item(cluster(
+                "",
+                vec![glyph(1, 10.0, &st), glyph(2, 10.0, &st)],
+                &st,
+            )),
             0.0,
             0.0,
             0,
@@ -1641,7 +1785,12 @@ mod autotest_generated {
         g0.font_hash = FONT_B; // not in LoadedFonts
         let g1 = glyph(2, 10.0, &st); // FONT_A
 
-        let l = layout(vec![at(item(cluster("ab", vec![g0, g1], &st)), 100.0, 0.0, 0)]);
+        let l = layout(vec![at(
+            item(cluster("ab", vec![g0, g1], &st)),
+            100.0,
+            0.0,
+            0,
+        )]);
         let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
 
         assert_eq!(runs.len(), 1);
@@ -1657,8 +1806,18 @@ mod autotest_generated {
     fn pdf_line_index_change_breaks_the_run() {
         let st = style();
         let l = layout(vec![
-            at(item(cluster("a", vec![glyph(1, 10.0, &st)], &st)), 0.0, 0.0, 0),
-            at(item(cluster("b", vec![glyph(2, 10.0, &st)], &st)), 0.0, 20.0, 1),
+            at(
+                item(cluster("a", vec![glyph(1, 10.0, &st)], &st)),
+                0.0,
+                0.0,
+                0,
+            ),
+            at(
+                item(cluster("b", vec![glyph(2, 10.0, &st)], &st)),
+                0.0,
+                20.0,
+                1,
+            ),
         ]);
         let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
 
@@ -1712,16 +1871,34 @@ mod autotest_generated {
         let plain = style();
         let highlighted = styled(|s| s.background_color = Some(rgba(255, 255, 0, 255)));
         let l = layout(vec![
-        // (2026-08-10, per-glyph style removed: a style change can only
-        // occur at a CLUSTER boundary — the pipeline splits runs by style
-        // BEFORE shaping — so this fixture uses one cluster per style,
-        // the only shape the engine can actually produce.)
-            at(item(cluster("a", vec![glyph(1, 10.0, &plain)], &plain)), 0.0, 0.0, 0),
-            at(item(cluster("b", vec![glyph(2, 10.0, &highlighted)], &highlighted)), 10.0, 0.0, 0),
+            // (2026-08-10, per-glyph style removed: a style change can only
+            // occur at a CLUSTER boundary — the pipeline splits runs by style
+            // BEFORE shaping — so this fixture uses one cluster per style,
+            // the only shape the engine can actually produce.)
+            at(
+                item(cluster("a", vec![glyph(1, 10.0, &plain)], &plain)),
+                0.0,
+                0.0,
+                0,
+            ),
+            at(
+                item(cluster(
+                    "b",
+                    vec![glyph(2, 10.0, &highlighted)],
+                    &highlighted,
+                )),
+                10.0,
+                0.0,
+                0,
+            ),
         ]);
         let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
 
-        assert_eq!(runs.len(), 2, "inline <span> background must get its own run");
+        assert_eq!(
+            runs.len(),
+            2,
+            "inline <span> background must get its own run"
+        );
         assert_eq!(runs[0].background_color, None);
         assert_eq!(runs[1].background_color, Some(rgba(255, 255, 0, 255)));
     }
@@ -1756,12 +1933,21 @@ mod autotest_generated {
         let st = style();
         let l = layout(vec![
             at(
-                item(cluster("ab", vec![glyph(1, 10.0, &st), glyph(2, 10.0, &st)], &st)),
+                item(cluster(
+                    "ab",
+                    vec![glyph(1, 10.0, &st), glyph(2, 10.0, &st)],
+                    &st,
+                )),
                 0.0,
                 0.0,
                 0,
             ),
-            at(item(cluster("c", vec![glyph(3, 10.0, &st)], &st)), 20.0, 0.0, 0),
+            at(
+                item(cluster("c", vec![glyph(3, 10.0, &st)], &st)),
+                20.0,
+                0.0,
+                0,
+            ),
         ]);
         let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
 
@@ -1782,10 +1968,22 @@ mod autotest_generated {
         let l = layout(vec![at(item(cluster("a", vec![g], &st)), 100.0, 20.0, 0)]);
         let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
 
-        assert_eq!(runs[0].baseline_start.x, 100.0, "text matrix origin excludes GPOS x");
-        assert_eq!(runs[0].baseline_start.y, 20.0, "baseline == item y (ascent 0)");
-        assert_eq!(runs[0].glyphs[0].position.x, 105.0, "the glyph itself carries GPOS x");
-        assert_eq!(runs[0].glyphs[0].position.y, 18.0, "GPOS y is subtracted (Y-down)");
+        assert_eq!(
+            runs[0].baseline_start.x, 100.0,
+            "text matrix origin excludes GPOS x"
+        );
+        assert_eq!(
+            runs[0].baseline_start.y, 20.0,
+            "baseline == item y (ascent 0)"
+        );
+        assert_eq!(
+            runs[0].glyphs[0].position.x, 105.0,
+            "the glyph itself carries GPOS x"
+        );
+        assert_eq!(
+            runs[0].glyphs[0].position.y, 18.0,
+            "GPOS y is subtracted (Y-down)"
+        );
     }
 
     #[test]
@@ -1794,7 +1992,12 @@ mod autotest_generated {
         let mut g0 = glyph(1, 10.0, &st);
         g0.kerning = -3.0;
         let g1 = glyph(2, 10.0, &st);
-        let l = layout(vec![at(item(cluster("ab", vec![g0, g1], &st)), 0.0, 0.0, 0)]);
+        let l = layout(vec![at(
+            item(cluster("ab", vec![g0, g1], &st)),
+            0.0,
+            0.0,
+            0,
+        )]);
         let runs = get_glyph_runs_pdf(&l, &fonts_with(&[FONT_A]));
 
         assert_eq!(runs[0].glyphs[0].position.x, 0.0);
@@ -1818,7 +2021,10 @@ mod autotest_generated {
 
         assert_eq!(runs[0].glyphs.len(), 2);
         assert!(runs[0].glyphs[1].position.x.is_infinite());
-        assert!(runs[0].glyphs[0].advance.is_infinite(), "advance is copied verbatim");
+        assert!(
+            runs[0].glyphs[0].advance.is_infinite(),
+            "advance is copied verbatim"
+        );
     }
 
     // ==================================================================
@@ -1956,7 +2162,11 @@ mod autotest_generated {
             s.color = rgba(10, 20, 30, 255);
         });
         let l = layout(vec![at(
-            item(cluster("ab", vec![glyph(4, 6.0, &style), glyph(7, 6.0, &style)], &style)),
+            item(cluster(
+                "ab",
+                vec![glyph(4, 6.0, &style), glyph(7, 6.0, &style)],
+                &style,
+            )),
             0.0,
             0.0,
             0,

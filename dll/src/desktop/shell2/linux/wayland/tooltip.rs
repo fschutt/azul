@@ -36,9 +36,19 @@ const TOOLTIP_FALLBACK_CHAR_WIDTH_PX: f32 = 7.0;
 /// Fallback line height (logical px) for the no-font path.
 const TOOLTIP_FALLBACK_LINE_HEIGHT_PX: f32 = 14.0;
 /// Tooltip background colour (light yellow), matching the X11 backend.
-const TOOLTIP_BG_COLOR: ColorU = ColorU { r: 0xFF, g: 0xFF, b: 0xF0, a: 0xFF };
+const TOOLTIP_BG_COLOR: ColorU = ColorU {
+    r: 0xFF,
+    g: 0xFF,
+    b: 0xF0,
+    a: 0xFF,
+};
 /// Tooltip text colour (black), matching the X11 backend.
-const TOOLTIP_TEXT_COLOR: ColorU = ColorU { r: 0x00, g: 0x00, b: 0x00, a: 0xFF };
+const TOOLTIP_TEXT_COLOR: ColorU = ColorU {
+    r: 0x00,
+    g: 0x00,
+    b: 0x00,
+    a: 0xFF,
+};
 
 /// Tooltip window using Wayland wl_subsurface
 ///
@@ -182,9 +192,8 @@ impl TooltipWindow {
         let (width, height) = match &pixmap {
             Some(p) => (p.width() as i32, p.height() as i32),
             None => {
-                let logical_w =
-                    text.chars().count() as f32 * TOOLTIP_FALLBACK_CHAR_WIDTH_PX
-                        + TOOLTIP_PADDING_PX * 2.0;
+                let logical_w = text.chars().count() as f32 * TOOLTIP_FALLBACK_CHAR_WIDTH_PX
+                    + TOOLTIP_PADDING_PX * 2.0;
                 let logical_h = TOOLTIP_FALLBACK_LINE_HEIGHT_PX + TOOLTIP_PADDING_PX * 2.0;
                 (
                     ((logical_w * dpi).ceil() as i32).max(1),
@@ -277,10 +286,8 @@ impl TooltipWindow {
                 if result != -1 {
                     result as libc::c_int
                 } else {
-                    let name = CString::new(format!(
-                        "/azul-tooltip-{}",
-                        std::process::id()
-                    )).unwrap();
+                    let name =
+                        CString::new(format!("/azul-tooltip-{}", std::process::id())).unwrap();
                     let fd = libc::shm_open(
                         name.as_ptr(),
                         libc::O_CREAT | libc::O_RDWR | libc::O_EXCL,

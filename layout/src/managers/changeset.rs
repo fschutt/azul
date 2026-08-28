@@ -495,7 +495,8 @@ impl TextChangeset {
     }
 
     /// Check if this changeset actually mutates text (vs just selection/cursor)
-    #[must_use] pub const fn mutates_text(&self) -> bool {
+    #[must_use]
+    pub const fn mutates_text(&self) -> bool {
         matches!(
             self.operation,
             TextOperation::InsertText { .. }
@@ -507,7 +508,8 @@ impl TextChangeset {
     }
 
     /// Check if this changeset changes selection (including cursor moves)
-    #[must_use] pub const fn changes_selection(&self) -> bool {
+    #[must_use]
+    pub const fn changes_selection(&self) -> bool {
         matches!(
             self.operation,
             TextOperation::SetSelection { .. }
@@ -519,7 +521,8 @@ impl TextChangeset {
     }
 
     /// Check if this changeset involves clipboard
-    #[must_use] pub const fn uses_clipboard(&self) -> bool {
+    #[must_use]
+    pub const fn uses_clipboard(&self) -> bool {
         matches!(
             self.operation,
             TextOperation::Copy { .. } | TextOperation::Cut { .. } | TextOperation::Paste { .. }
@@ -527,7 +530,8 @@ impl TextChangeset {
     }
 
     /// Get the target cursor position after this changeset is applied
-    #[must_use] pub const fn resulting_cursor_position(&self) -> Option<CursorPosition> {
+    #[must_use]
+    pub const fn resulting_cursor_position(&self) -> Option<CursorPosition> {
         match &self.operation {
             TextOperation::InsertText(op) => Some(op.new_cursor),
             TextOperation::DeleteText(op) => Some(op.new_cursor),
@@ -540,7 +544,8 @@ impl TextChangeset {
     }
 
     /// Get the target selection range after this changeset is applied
-    #[must_use] pub const fn resulting_selection_range(&self) -> Option<SelectionRange> {
+    #[must_use]
+    pub const fn resulting_selection_range(&self) -> Option<SelectionRange> {
         match &self.operation {
             TextOperation::SetSelection(op) => Some(op.new_range),
             TextOperation::ExtendSelection(op) => Some(op.new_range),

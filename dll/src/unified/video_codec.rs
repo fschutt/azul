@@ -7,9 +7,7 @@ pub use crate::desktop::extra::video_codec::*;
 /// render the placeholder DOM directly (the desktop `video_widget_dom`, which
 /// wires the streaming worker, is glob-re-exported above on non-wasm targets).
 #[cfg(target_arch = "wasm32")]
-pub fn video_widget_dom(
-    widget: azul_layout::widgets::video::VideoWidget,
-) -> azul_core::dom::Dom {
+pub fn video_widget_dom(widget: azul_layout::widgets::video::VideoWidget) -> azul_core::dom::Dom {
     widget.dom()
 }
 
@@ -46,7 +44,12 @@ pub mod pipeline {
         pub access_units_fed: usize,
     }
 
-    impl_option!(DecodedVideo, OptionDecodedVideo, copy = false, [Clone, Debug]);
+    impl_option!(
+        DecodedVideo,
+        OptionDecodedVideo,
+        copy = false,
+        [Clone, Debug]
+    );
 
     /// No video-decode backend in this build: always returns `None`.
     ///

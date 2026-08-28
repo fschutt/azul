@@ -330,9 +330,7 @@ pub fn svg_page_to_dom(svg: &str) -> Option<Dom> {
 #[cfg(feature = "pdf")]
 mod engine {
     use super::{DisplayListItem, Dom, Json, U8Vec};
-    use printpdf::{
-        Mm, Op, PdfDocument, PdfPage, PdfParseOptions, PdfSaveOptions, PdfWarnMsg,
-    };
+    use printpdf::{Mm, Op, PdfDocument, PdfPage, PdfParseOptions, PdfSaveOptions, PdfWarnMsg};
 
     /// JSON document model -> PDF bytes (printpdf `PdfDocument` via serde).
     pub fn write_json(json: &Json) -> U8Vec {
@@ -378,14 +376,16 @@ mod engine {
 
         for dl in display_lists.iter_mut() {
             for item in dl.items.iter_mut() {
-                let DisplayListItem::Image { image, .. } = item else { continue };
-                let Some(raw) = image.get_rawimage() else { continue };
+                let DisplayListItem::Image { image, .. } = item else {
+                    continue;
+                };
+                let Some(raw) = image.get_rawimage() else {
+                    continue;
+                };
                 let key = alloc::format!("rawimg-{:016x}", image.get_hash().inner);
                 if !images.contains_key(&key) {
                     let pixels = match raw.pixels {
-                        RawImageData::U8(v) => {
-                            printpdf::RawImageData::U8(v.as_ref().to_vec())
-                        }
+                        RawImageData::U8(v) => printpdf::RawImageData::U8(v.as_ref().to_vec()),
                         _ => continue, // U16/F32 raws: not produced by the Dom API today
                     };
                     let pp_raw = printpdf::RawImage {
@@ -400,20 +400,14 @@ mod engine {
                         (printpdf::html::bridge::image_xobject_id(&key), pp_raw),
                     );
                 }
-                *image = ImageRef::null_image(
-                    raw.width,
-                    raw.height,
-                    raw.data_format,
-                    key.into_bytes(),
-                );
+                *image =
+                    ImageRef::null_image(raw.width, raw.height, raw.data_format, key.into_bytes());
             }
         }
     }
 
     /// azul -> printpdf pixel format (same variant vocabulary).
-    fn convert_image_format(
-        f: azul_core::resources::RawImageFormat,
-    ) -> printpdf::RawImageFormat {
+    fn convert_image_format(f: azul_core::resources::RawImageFormat) -> printpdf::RawImageFormat {
         use azul_core::resources::RawImageFormat as A;
         use printpdf::RawImageFormat as P;
         match f {
@@ -439,8 +433,7 @@ mod engine {
     /// path the map tiles use) — see `Pdf::svg_page_to_dom`.
     pub fn pdf_to_svg_pages(bytes: &[u8]) -> Vec<String> {
         let mut warnings: Vec<PdfWarnMsg> = Vec::new();
-        let Ok(doc) = PdfDocument::parse(bytes, &PdfParseOptions::default(), &mut warnings)
-        else {
+        let Ok(doc) = PdfDocument::parse(bytes, &PdfParseOptions::default(), &mut warnings) else {
             return Vec::new();
         };
         let opts = printpdf::PdfToSvgOptions::default();
@@ -506,12 +499,13 @@ mod engine {
                 {
                     if p.sparse.items.is_empty() && !p.dense.clusters.is_empty() {
                         for run in &p.dense.runs {
-                            let key = FontHash { font_hash: run.font_hash };
+                            let key = FontHash {
+                                font_hash: run.font_hash,
+                            };
                             if font_data.contains_key(&key) {
                                 continue;
                             }
-                            if let Some(font_ref) =
-                                font_manager.resolve_font_by_hash(run.font_hash)
+                            if let Some(font_ref) = font_manager.resolve_font_by_hash(run.font_hash)
                             {
                                 let parsed =
                                     azul_layout::font_ref_to_parsed_font(&font_ref).clone();
@@ -524,13 +518,15 @@ mod engine {
                 let unified_from_payload = layout
                     .downcast_ref::<azul_layout::solver3::layout_tree::TextPayload>()
                     .map(|p| p.sparse.as_ref());
-                if let Some(unified) = unified_from_payload
-                    .or_else(|| layout.downcast_ref::<UnifiedLayout>())
+                if let Some(unified) =
+                    unified_from_payload.or_else(|| layout.downcast_ref::<UnifiedLayout>())
                 {
                     for positioned in &unified.items {
                         if let ShapedItem::Cluster(cluster) = &positioned.item {
                             for glyph in &cluster.glyphs {
-                                let key = FontHash { font_hash: glyph.font_hash };
+                                let key = FontHash {
+                                    font_hash: glyph.font_hash,
+                                };
                                 if font_data.contains_key(&key) {
                                     continue;
                                 }
@@ -704,8 +700,7 @@ mod engine {
         // to `return Ok(..)`/`return Err(..)` from a `-> Vec<u8>` function,
         // which broke every `pdf`-feature build including CI's `build-dll`
         // check; the token path had simply never been compiled.)
-        let tokens_requested =
-            std::env::var("AZ_PAGINATION_ENGINE").as_deref() == Ok("tokens");
+        let tokens_requested = std::env::var("AZ_PAGINATION_ENGINE").as_deref() == Ok("tokens");
         let tokenized: Option<Vec<azul_layout::solver3::display_list::DisplayList>> =
             if tokens_requested {
                 let mut dbg2 = None;
@@ -737,24 +732,24 @@ mod engine {
         let display_lists = match tokenized {
             Some(dls) => dls,
             None => match layout_document_paged_with_config(
-            &mut layout_cache,
-            &mut text_cache,
-            fragmentation_context,
-            &styled_dom,
-            viewport,
-            font_manager,
-            &BTreeMap::new(),
-            &mut debug_messages,
-            None,
-            &renderer_resources,
-            IdNamespace(0),
-            DomId::ROOT_ID,
-            font_loader,
-            page_config,
-            image_cache,
-            azul_core::task::GetSystemTimeCallback {
-                cb: azul_core::task::get_system_time_libstd,
-            },
+                &mut layout_cache,
+                &mut text_cache,
+                fragmentation_context,
+                &styled_dom,
+                viewport,
+                font_manager,
+                &BTreeMap::new(),
+                &mut debug_messages,
+                None,
+                &renderer_resources,
+                IdNamespace(0),
+                DomId::ROOT_ID,
+                font_loader,
+                page_config,
+                image_cache,
+                azul_core::task::GetSystemTimeCallback {
+                    cb: azul_core::task::get_system_time_libstd,
+                },
                 false,
             ) {
                 Ok(d) => d,
@@ -828,10 +823,15 @@ mod tests {
     /// produced rectangle-only PDFs (azul-writer exported textless documents).
     #[test]
     fn dom_to_pdf_embeds_text_fonts() {
-        let dom = Dom::create_body()
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello PDF text — glyphs must embed"));
+        let dom =
+            Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "Hello PDF text — glyphs must embed",
+            ));
         let bytes = dom_to_pdf(dom, 595.0, 842.0);
-        assert!(!bytes.as_ref().is_empty(), "PDF generation produced no bytes");
+        assert!(
+            !bytes.as_ref().is_empty(),
+            "PDF generation produced no bytes"
+        );
 
         let mut warnings = Vec::new();
         let doc = printpdf::PdfDocument::parse(
@@ -890,8 +890,10 @@ mod tests {
     /// REVERSE path: PDF bytes -> per-page SVG -> Dom.
     #[test]
     fn pdf_roundtrips_to_svg_pages_and_dom() {
-        let dom = Dom::create_body()
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Reverse-path text for SVG extraction"));
+        let dom =
+            Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "Reverse-path text for SVG extraction",
+            ));
         let bytes = dom_to_pdf(dom, 595.0, 842.0);
         let pages = pdf_to_svg_pages(bytes.as_ref());
         assert_eq!(pages.len(), 1, "expected exactly one SVG page");

@@ -32,7 +32,8 @@ use std::collections::BTreeSet;
 use super::super::config::CodegenConfig;
 use super::super::generator::CodeBuilder;
 use super::super::ir::{
-    ArgRefKind, CodegenIR, EnumVariantKind, FieldRefKind, FunctionDef, FunctionKind, StructDef, TypeCategory,
+    ArgRefKind, CodegenIR, EnumVariantKind, FieldRefKind, FunctionDef, FunctionKind, StructDef,
+    TypeCategory,
 };
 use super::super::managed_host_invoker::{
     host_invoker_kinds, layout_callback_factory_info, wrapper_name,
@@ -40,8 +41,8 @@ use super::super::managed_host_invoker::{
 use super::functions::ocaml_binding_name;
 use super::{
     inner_pointer_form, inner_pointer_form_type, map_type_to_ocaml, map_type_to_ocaml_typ,
-    ocaml_ffi_type_name, ocaml_module_name,
-    ocaml_wrapper_type_name, sanitize_doc, sanitize_identifier, to_snake_case,
+    ocaml_ffi_type_name, ocaml_module_name, ocaml_wrapper_type_name, sanitize_doc,
+    sanitize_identifier, to_snake_case,
 };
 
 // ============================================================================
@@ -53,9 +54,12 @@ pub fn emit_wrapper_interface(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("(* -------------------------------------------------------------------------- *)");
-    builder.line("(* Wrapper records (interface).                                                *)");
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* Wrapper records (interface).                                                *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
     let delete_set = collect_delete_targets(ir);
@@ -81,13 +85,18 @@ pub fn emit_idiomatic_module_interface(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("(* -------------------------------------------------------------------------- *)");
-    builder.line("(* Idiomatic per-class submodules (interface).                                *)");
-    builder.line("(*                                                                            *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* Idiomatic per-class submodules (interface).                                *)");
+    builder
+        .line("(*                                                                            *)");
     builder.line("(* The Dune library name `azul` causes this file to be reachable as the      *)");
     builder.line("(* `Azul` module from the outside; the per-class submodules below appear as  *)");
-    builder.line("(* `Azul.App`, `Azul.Window_create_options`, etc.                             *)");
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* `Azul.App`, `Azul.Window_create_options`, etc.                             *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
     let delete_set = collect_delete_targets(ir);
@@ -127,9 +136,12 @@ pub fn emit_layout_dom_sugar_interface(
         refany_ffi, dom_t
     );
 
-    builder.line("(* -------------------------------------------------------------------------- *)");
-    builder.line("(* Idiomatic layout registration sugar (Dom.t-returning).                     *)");
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* Idiomatic layout registration sugar (Dom.t-returning).                     *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
     for s in &ir.structs {
         let Some(info) = layout_callback_factory_info(s, ir) else {
@@ -159,9 +171,12 @@ pub fn emit_wrapper_records(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("(* -------------------------------------------------------------------------- *)");
-    builder.line("(* Wrapper records + Gc.finalise finalisers.                                  *)");
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* Wrapper records + Gc.finalise finalisers.                                  *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
     let delete_set = collect_delete_targets(ir);
@@ -182,9 +197,12 @@ pub fn emit_idiomatic_module_implementation(
     ir: &CodegenIR,
     config: &CodegenConfig,
 ) -> Result<()> {
-    builder.line("(* -------------------------------------------------------------------------- *)");
-    builder.line("(* Idiomatic per-class submodules (implementation).                           *)");
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* Idiomatic per-class submodules (implementation).                           *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
 
     // Polymorphic-variant views — must be defined identically to the
@@ -248,9 +266,12 @@ pub fn emit_layout_dom_sugar_implementation(
         builder.line("     r)");
     };
 
-    builder.line("(* -------------------------------------------------------------------------- *)");
-    builder.line("(* Idiomatic layout registration sugar (Dom.t-returning).                     *)");
-    builder.line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
+    builder
+        .line("(* Idiomatic layout registration sugar (Dom.t-returning).                     *)");
+    builder
+        .line("(* -------------------------------------------------------------------------- *)");
     builder.blank();
     for s in &ir.structs {
         let Some(info) = layout_callback_factory_info(s, ir) else {
@@ -265,10 +286,7 @@ pub fn emit_layout_dom_sugar_implementation(
         builder.line("(* wrapper `dom`. The wrapper is consumed once its raw struct is handed *)");
         builder.line("(* to libazul (ownership moves), so the Gc finaliser cannot double-free *)");
         builder.line("(* the returned DOM tree. *)");
-        builder.line(&format!(
-            "let azul_{}_with_layout_dom",
-            class_snake
-        ));
+        builder.line(&format!("let azul_{}_with_layout_dom", class_snake));
         builder.indent();
         builder.line(&arg_line);
         builder.line(&format!(
@@ -355,10 +373,7 @@ fn emit_wrapper_signature(builder: &mut CodeBuilder, s: &StructDef) {
         "val make_{} : {} Ctypes.structure -> {}",
         wrapper, ffi, wrapper
     ));
-    builder.line(&format!(
-        "val dispose_{} : {} -> unit",
-        wrapper, wrapper
-    ));
+    builder.line(&format!("val dispose_{} : {} -> unit", wrapper, wrapper));
     builder.line(&format!(
         "val raw_{} : {} -> {} Ctypes.structure",
         wrapper, wrapper, ffi
@@ -523,9 +538,12 @@ fn emit_module_impl_for_class(
         builder.line("let raw = self.raw in");
         builder.line("let vec = Ctypes.getf raw az_string_field_vec in");
         builder.line("let vec_ptr = Ctypes.getf vec az_u8_vec_field_ptr in");
-        builder.line("let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in");
+        builder
+            .line("let vec_len = Unsigned.Size_t.to_int (Ctypes.getf vec az_u8_vec_field_len) in");
         builder.line("if Ctypes.is_null vec_ptr || vec_len = 0 then \"\"");
-        builder.line("else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len");
+        builder.line(
+            "else Ctypes.string_from_ptr (Ctypes.from_voidp Ctypes.char vec_ptr) ~length:vec_len",
+        );
         builder.dedent();
         builder.blank();
     }
@@ -574,7 +592,10 @@ fn emit_ocaml_vec_to_list_signature_if_vec(
     let Some(spec) = detect_vec_to_list_shape(s, ir) else {
         return;
     };
-    builder.line(&format!("(* Yield a Lua-style {} list cloned out of the Vec — each element is *)", spec.return_doc));
+    builder.line(&format!(
+        "(* Yield a Lua-style {} list cloned out of the Vec — each element is *)",
+        spec.return_doc
+    ));
     builder.line("(* an independent heap allocation that survives the Vec being closed. *)");
     builder.line(&format!("val to_list : t -> {}", spec.return_type));
 }
@@ -595,7 +616,10 @@ fn emit_ocaml_vec_to_list_if_vec(
     let vec_snake = ocaml_ffi_type_name(&s.name);
     let self_t = if has_wrapper { "self.raw" } else { "self" };
 
-    builder.line(&format!("(* Clone each element into an OCaml {} list. *)", spec.return_doc));
+    builder.line(&format!(
+        "(* Clone each element into an OCaml {} list. *)",
+        spec.return_doc
+    ));
     builder.line(&format!("let to_list (self : t) : {} =", spec.return_type));
     builder.indent();
     builder.line(&format!(
@@ -653,9 +677,7 @@ fn detect_vec_to_list_shape(s: &StructDef, ir: &CodegenIR) -> Option<VecToListSp
     // are uniformly `{ ptr: *const T, len: usize, cap: usize, destructor }`.
     let first = s.fields.first()?;
     let second = s.fields.get(1)?;
-    if first.name != "ptr"
-        || !matches!(first.ref_kind, FieldRefKind::Ptr | FieldRefKind::PtrMut)
-    {
+    if first.name != "ptr" || !matches!(first.ref_kind, FieldRefKind::Ptr | FieldRefKind::PtrMut) {
         return None;
     }
     if second.name != "len" || second.type_name.trim() != "usize" {
@@ -680,9 +702,10 @@ fn detect_vec_to_list_shape(s: &StructDef, ir: &CodegenIR) -> Option<VecToListSp
     // element owns independent heap allocations. Without `_clone` we
     // skip — handing the user a `Ctypes.structure` over the Vec's
     // internal buffer would dangle as soon as the Vec is closed.
-    let has_clone = ir.functions.iter().any(|f| {
-        f.class_name == elem_rust && matches!(f.kind, FunctionKind::DeepCopy)
-    });
+    let has_clone = ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == elem_rust && matches!(f.kind, FunctionKind::DeepCopy));
     if !has_clone {
         return None;
     }
@@ -738,9 +761,7 @@ fn detect_primitive_vec_array_shape(s: &StructDef) -> Option<PrimVecArraySpec> {
     // InstantPtr, …).
     let first = s.fields.first()?;
     let second = s.fields.get(1)?;
-    if first.name != "ptr"
-        || !matches!(first.ref_kind, FieldRefKind::Ptr | FieldRefKind::PtrMut)
-    {
+    if first.name != "ptr" || !matches!(first.ref_kind, FieldRefKind::Ptr | FieldRefKind::PtrMut) {
         return None;
     }
     if second.name != "len" || second.type_name.trim() != "usize" {
@@ -819,14 +840,14 @@ fn detect_primitive_vec_array_shape(s: &StructDef) -> Option<PrimVecArraySpec> {
 /// V7.2 (OCaml) — `.mli` signature for `to_array` on primitive-element
 /// Vecs. u8 surfaces as `bytes`; all other integer Vecs as `int array`
 /// (lossy-narrowed for u64 — see the spec); float Vecs as `float array`.
-fn emit_ocaml_vec_to_array_signature_if_primitive(
-    builder: &mut CodeBuilder,
-    s: &StructDef,
-) {
+fn emit_ocaml_vec_to_array_signature_if_primitive(builder: &mut CodeBuilder, s: &StructDef) {
     let Some(spec) = detect_primitive_vec_array_shape(s) else {
         return;
     };
-    builder.line(&format!("(* Bulk-copy the Vec's elements into an OCaml-native {}. *)", spec.return_doc));
+    builder.line(&format!(
+        "(* Bulk-copy the Vec's elements into an OCaml-native {}. *)",
+        spec.return_doc
+    ));
     builder.line(&format!("val to_array : t -> {}", spec.return_type));
 }
 
@@ -845,7 +866,10 @@ fn emit_ocaml_vec_to_array_if_primitive(
     let self_t = if has_wrapper { "self.raw" } else { "self" };
     let is_u8 = spec.ctypes_view == "Ctypes.uint8_t";
 
-    builder.line(&format!("(* Bulk-copy the Vec's elements into an OCaml-native {}. *)", spec.return_doc));
+    builder.line(&format!(
+        "(* Bulk-copy the Vec's elements into an OCaml-native {}. *)",
+        spec.return_doc
+    ));
     builder.line(&format!("let to_array (self : t) : {} =", spec.return_type));
     builder.indent();
     builder.line(&format!(
@@ -896,18 +920,18 @@ fn emit_ocaml_to_string_if_supported(
         return;
     }
     let dbg_sym = format!("Az{}_toDbgString", s.name);
-    let has_dbg = s.traits.is_debug
-        && ir.functions.iter().any(|f| f.c_name == dbg_sym);
+    let has_dbg = s.traits.is_debug && ir.functions.iter().any(|f| f.c_name == dbg_sym);
     if !has_dbg {
         return;
     }
     // Skip when the user-facing surface already defines `to_string`
     // (e.g. `AzUrl_toString` maps to `Url.to_string : t -> az_string`).
     // We can't override without breaking the .mli signature.
-    if ir.functions.iter().any(|f| {
-        f.class_name == s.name
-            && idiomatic_method_name(&f.method_name) == "to_string"
-    }) {
+    if ir
+        .functions
+        .iter()
+        .any(|f| f.class_name == s.name && idiomatic_method_name(&f.method_name) == "to_string")
+    {
         return;
     }
     let self_t = if has_wrapper { "t.raw" } else { "t" };
@@ -942,11 +966,9 @@ fn emit_ocaml_eq_hash_if_supported(
     has_wrapper: bool,
 ) {
     let eq_sym = format!("Az{}_partialEq", s.name);
-    let has_eq = s.traits.is_partial_eq
-        && ir.functions.iter().any(|f| f.c_name == eq_sym);
+    let has_eq = s.traits.is_partial_eq && ir.functions.iter().any(|f| f.c_name == eq_sym);
     let hash_sym = format!("Az{}_hash", s.name);
-    let has_hash = s.traits.is_hash
-        && ir.functions.iter().any(|f| f.c_name == hash_sym);
+    let has_hash = s.traits.is_hash && ir.functions.iter().any(|f| f.c_name == hash_sym);
 
     let self_a = if has_wrapper { "a.raw" } else { "a" };
     let self_b = if has_wrapper { "b.raw" } else { "b" };
@@ -955,10 +977,7 @@ fn emit_ocaml_eq_hash_if_supported(
     let raw_hash = ocaml_binding_name(&hash_sym);
 
     if has_eq {
-        builder.line(&format!(
-            "(* Equality routed through {}. *)",
-            eq_sym
-        ));
+        builder.line(&format!("(* Equality routed through {}. *)", eq_sym));
         builder.line("let equal (a : t) (b : t) : bool =");
         builder.indent();
         builder.line(&format!(
@@ -1005,13 +1024,12 @@ fn build_method_signature(
     // Mirror format-call-args: when takes_self, args[0] IS the
     // implicit self; skip it. Without this the val signature would
     // re-declare a `t` parameter for the snake-cased class name arg.
-    let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> = if takes_self
-        && !func.args.is_empty()
-    {
-        Box::new(func.args.iter().skip(1))
-    } else {
-        Box::new(func.args.iter())
-    };
+    let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> =
+        if takes_self && !func.args.is_empty() {
+            Box::new(func.args.iter().skip(1))
+        } else {
+            Box::new(func.args.iter())
+        };
     for a in iter {
         if is_self_arg(&a.name) {
             continue;
@@ -1019,9 +1037,7 @@ fn build_method_signature(
         // Auto-string-conversion (type-driven, no method-name allow-
         // list): Owned `String` args surface as plain OCaml `string`
         // at the wrapper signature; impl wraps with `azul_az_string`.
-        if a.type_name.trim() == "String"
-            && matches!(a.ref_kind, ArgRefKind::Owned)
-        {
+        if a.type_name.trim() == "String" && matches!(a.ref_kind, ArgRefKind::Owned) {
             atoms.push("string".to_string());
             continue;
         }
@@ -1031,10 +1047,9 @@ fn build_method_signature(
         // (e.g. `Unsigned.UInt8.t` not `uint8_t`).
         let view = match a.ref_kind {
             ArgRefKind::Owned => map_type_to_ocaml_typ(&a.type_name, ir),
-            ArgRefKind::Ref
-            | ArgRefKind::RefMut
-            | ArgRefKind::Ptr
-            | ArgRefKind::PtrMut => inner_pointer_form_type(a.type_name.trim(), ir),
+            ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                inner_pointer_form_type(a.type_name.trim(), ir)
+            }
         };
         atoms.push(view);
     }
@@ -1067,7 +1082,12 @@ fn build_method_signature(
     if atoms.is_empty() {
         format!("val {} : unit -> {}", method_name, return_view)
     } else {
-        format!("val {} : {} -> {}", method_name, atoms.join(" -> "), return_view)
+        format!(
+            "val {} : {} -> {}",
+            method_name,
+            atoms.join(" -> "),
+            return_view
+        )
     }
 }
 
@@ -1106,13 +1126,12 @@ fn emit_method_impl(
     // skip it regardless of how api.json named it. Same fix the
     // JVM/.NET/Go/Zig/Ruby wrappers landed in earlier phases.
     let mut user_args: Vec<&super::super::ir::FunctionArg> = Vec::new();
-    let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> = if takes_self
-        && !func.args.is_empty()
-    {
-        Box::new(func.args.iter().skip(1))
-    } else {
-        Box::new(func.args.iter())
-    };
+    let iter: Box<dyn Iterator<Item = &super::super::ir::FunctionArg>> =
+        if takes_self && !func.args.is_empty() {
+            Box::new(func.args.iter().skip(1))
+        } else {
+            Box::new(func.args.iter())
+        };
     for a in iter {
         if is_self_arg(&a.name) {
             continue;
@@ -1212,7 +1231,11 @@ fn emit_method_impl(
         };
         inner
     } else if returns_self && has_wrapper {
-        format!("make_{} ({})", ocaml_wrapper_type_name(class_name), call_str)
+        format!(
+            "make_{} ({})",
+            ocaml_wrapper_type_name(class_name),
+            call_str
+        )
     } else {
         call_str
     };
@@ -1224,11 +1247,7 @@ fn emit_method_impl(
 // Polymorphic-variant signature for tagged unions
 // ============================================================================
 
-fn emit_union_variant_interface(
-    builder: &mut CodeBuilder,
-    ir: &CodegenIR,
-    config: &CodegenConfig,
-) {
+fn emit_union_variant_interface(builder: &mut CodeBuilder, ir: &CodegenIR, config: &CodegenConfig) {
     let mut emitted_header = false;
     for e in &ir.enums {
         if !config.should_include_type(&e.name) {
@@ -1249,12 +1268,8 @@ fn emit_union_variant_interface(
             continue;
         }
         if !emitted_header {
-            builder.line(
-                "(* Polymorphic-variant views for tagged-union enums. The actual *)",
-            );
-            builder.line(
-                "(* payload conversion lives in the implementation; here we expose *)",
-            );
+            builder.line("(* Polymorphic-variant views for tagged-union enums. The actual *)");
+            builder.line("(* payload conversion lives in the implementation; here we expose *)");
             builder.line("(* the variant signature for pattern-matching. *)");
             emitted_header = true;
         }

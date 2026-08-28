@@ -7,7 +7,7 @@ use azul_core::{
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     task::{Duration, Instant},
 };
-use azul_layout::managers::{virtual_view::VirtualViewManager, scroll_state::ScrollManager};
+use azul_layout::managers::{scroll_state::ScrollManager, virtual_view::VirtualViewManager};
 
 fn test_instant() -> Instant {
     #[cfg(feature = "std")]
@@ -53,7 +53,11 @@ fn test_virtual_view_manager_initial_render() {
     assert_eq!(reason, Some(VirtualViewCallbackReason::InitialRender));
 
     // Mark as invoked
-    virtual_view_mgr.mark_invoked(parent_dom, node_id, VirtualViewCallbackReason::InitialRender);
+    virtual_view_mgr.mark_invoked(
+        parent_dom,
+        node_id,
+        VirtualViewCallbackReason::InitialRender,
+    );
 
     // Now it should return None (no re-invocation needed)
     let reason = virtual_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
@@ -78,7 +82,11 @@ fn test_virtual_view_manager_bounds_expanded() {
     let reason = virtual_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, small_bounds);
     assert_eq!(reason, Some(VirtualViewCallbackReason::InitialRender));
 
-    virtual_view_mgr.mark_invoked(parent_dom, node_id, VirtualViewCallbackReason::InitialRender);
+    virtual_view_mgr.mark_invoked(
+        parent_dom,
+        node_id,
+        VirtualViewCallbackReason::InitialRender,
+    );
 
     // Update with scroll sizes from the callback
     virtual_view_mgr.update_virtual_view_info(
@@ -99,7 +107,11 @@ fn test_virtual_view_manager_bounds_expanded() {
     assert_eq!(reason, Some(VirtualViewCallbackReason::BoundsExpanded));
 
     // Mark as invoked for expansion
-    virtual_view_mgr.mark_invoked(parent_dom, node_id, VirtualViewCallbackReason::BoundsExpanded);
+    virtual_view_mgr.mark_invoked(
+        parent_dom,
+        node_id,
+        VirtualViewCallbackReason::BoundsExpanded,
+    );
 
     // Same bounds again should return None
     let reason = virtual_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, expanded_bounds);
@@ -111,7 +123,8 @@ fn test_virtual_view_manager_bounds_expanded() {
         LogicalSize::new(800.0, 600.0),
     );
 
-    let reason = virtual_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, more_expanded_bounds);
+    let reason =
+        virtual_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, more_expanded_bounds);
     assert_eq!(reason, Some(VirtualViewCallbackReason::BoundsExpanded));
 }
 
@@ -131,7 +144,11 @@ fn test_virtual_view_manager_edge_scrolled_bottom() {
     // Initial render
     let reason = virtual_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
     assert_eq!(reason, Some(VirtualViewCallbackReason::InitialRender));
-    virtual_view_mgr.mark_invoked(parent_dom, node_id, VirtualViewCallbackReason::InitialRender);
+    virtual_view_mgr.mark_invoked(
+        parent_dom,
+        node_id,
+        VirtualViewCallbackReason::InitialRender,
+    );
 
     // The callback materialized the first 2000px of a 10000px document. The
     // edge is the edge of that WINDOW, not of the document: re-invoking is how
@@ -205,7 +222,11 @@ fn test_virtual_view_manager_edge_scrolled_right() {
     // Initial render
     let reason = virtual_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
     assert_eq!(reason, Some(VirtualViewCallbackReason::InitialRender));
-    virtual_view_mgr.mark_invoked(parent_dom, node_id, VirtualViewCallbackReason::InitialRender);
+    virtual_view_mgr.mark_invoked(
+        parent_dom,
+        node_id,
+        VirtualViewCallbackReason::InitialRender,
+    );
 
     // The callback materialized the leftmost 3000px of a 10000px-wide document
     virtual_view_mgr.update_virtual_view_info(
@@ -287,7 +308,10 @@ fn test_virtual_view_manager_nested_dom_ids() {
 
     // Non-existent should return None
     let nonexistent = NodeId::new(999);
-    assert_eq!(virtual_view_mgr.get_nested_dom_id(parent_dom, nonexistent), None);
+    assert_eq!(
+        virtual_view_mgr.get_nested_dom_id(parent_dom, nonexistent),
+        None
+    );
 }
 
 #[test]
@@ -312,7 +336,11 @@ fn test_virtual_view_manager_was_invoked_tracking() {
     assert!(!virtual_view_mgr.was_virtual_view_invoked(parent_dom, node_id));
 
     // Mark as invoked
-    virtual_view_mgr.mark_invoked(parent_dom, node_id, VirtualViewCallbackReason::InitialRender);
+    virtual_view_mgr.mark_invoked(
+        parent_dom,
+        node_id,
+        VirtualViewCallbackReason::InitialRender,
+    );
 
     // Now it should be invoked
     assert!(virtual_view_mgr.was_virtual_view_invoked(parent_dom, node_id));
@@ -365,7 +393,10 @@ fn placement_follows_the_materialized_window_not_the_document_estimate() {
         LogicalPosition::new(0.0, 300.0),
         now.clone(),
     );
-    assert_eq!(placement(&virtual_view_mgr, &scroll_mgr), LogicalPosition::zero());
+    assert_eq!(
+        placement(&virtual_view_mgr, &scroll_mgr),
+        LogicalPosition::zero()
+    );
 
     // Scrolling 50px further down shifts the same content 50px up. Before the
     // offset reached the display list this was always zero, which is precisely
@@ -421,7 +452,11 @@ fn a_fully_materialized_document_never_reports_an_edge() {
     let document = LogicalSize::new(800.0, 2000.0);
 
     virtual_view_mgr.check_reinvoke(parent_dom, node_id, &scroll_mgr, bounds);
-    virtual_view_mgr.mark_invoked(parent_dom, node_id, VirtualViewCallbackReason::InitialRender);
+    virtual_view_mgr.mark_invoked(
+        parent_dom,
+        node_id,
+        VirtualViewCallbackReason::InitialRender,
+    );
 
     // materialized == document: the app rendered everything there is
     virtual_view_mgr.update_virtual_view_info(

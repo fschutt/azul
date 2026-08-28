@@ -2,8 +2,8 @@
 //!
 //! These types are C-compatible (repr(C)) for use across FFI boundaries.
 
-use alloc::string::String;
 use crate::corety::{AzString, OptionF32};
+use alloc::string::String;
 
 /// Compares two f32 values for ordering, treating NaN as equal.
 fn cmp_f32(a: f32, b: f32) -> core::cmp::Ordering {
@@ -25,11 +25,13 @@ impl_option!(
 );
 
 impl ShapePoint {
-    #[must_use] pub const fn new(x: f32, y: f32) -> Self {
+    #[must_use]
+    pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
 
-    #[must_use] pub const fn zero() -> Self {
+    #[must_use]
+    pub const fn zero() -> Self {
         Self { x: 0.0, y: 0.0 }
     }
 }
@@ -62,7 +64,14 @@ impl core::hash::Hash for ShapePoint {
     }
 }
 
-impl_vec!(ShapePoint, ShapePointVec, ShapePointVecDestructor, ShapePointVecDestructorType, ShapePointVecSlice, OptionShapePoint);
+impl_vec!(
+    ShapePoint,
+    ShapePointVec,
+    ShapePointVecDestructor,
+    ShapePointVecDestructorType,
+    ShapePointVecSlice,
+    OptionShapePoint
+);
 impl_vec_debug!(ShapePoint, ShapePointVec);
 impl_vec_partialord!(ShapePoint, ShapePointVec);
 impl_vec_ord!(ShapePoint, ShapePointVec);
@@ -278,12 +287,14 @@ impl Ord for CssShape {
 
 impl CssShape {
     /// Creates a circle shape at the given position with the given radius
-    #[must_use] pub const fn circle(center: ShapePoint, radius: f32) -> Self {
+    #[must_use]
+    pub const fn circle(center: ShapePoint, radius: f32) -> Self {
         Self::Circle(ShapeCircle { center, radius })
     }
 
     /// Creates an ellipse shape
-    #[must_use] pub const fn ellipse(center: ShapePoint, radius_x: f32, radius_y: f32) -> Self {
+    #[must_use]
+    pub const fn ellipse(center: ShapePoint, radius_x: f32, radius_y: f32) -> Self {
         Self::Ellipse(ShapeEllipse {
             center,
             radius_x,
@@ -292,12 +303,14 @@ impl CssShape {
     }
 
     /// Creates a polygon from a list of points
-    #[must_use] pub const fn polygon(points: ShapePointVec) -> Self {
+    #[must_use]
+    pub const fn polygon(points: ShapePointVec) -> Self {
         Self::Polygon(ShapePolygon { points })
     }
 
     /// Creates an inset rectangle
-    #[must_use] pub const fn inset(top: f32, right: f32, bottom: f32, left: f32) -> Self {
+    #[must_use]
+    pub const fn inset(top: f32, right: f32, bottom: f32, left: f32) -> Self {
         Self::Inset(ShapeInset {
             inset_top: top,
             inset_right: right,
@@ -308,7 +321,8 @@ impl CssShape {
     }
 
     /// Creates an inset rectangle with rounded corners
-    #[must_use] pub const fn inset_rounded(top: f32, right: f32, bottom: f32, left: f32, radius: f32) -> Self {
+    #[must_use]
+    pub const fn inset_rounded(top: f32, right: f32, bottom: f32, left: f32, radius: f32) -> Self {
         Self::Inset(ShapeInset {
             inset_top: top,
             inset_right: right,
@@ -318,23 +332,40 @@ impl CssShape {
         })
     }
 
-    #[must_use] pub fn print_as_css_value(&self) -> String {
+    #[must_use]
+    pub fn print_as_css_value(&self) -> String {
         use alloc::format;
         match self {
             Self::Circle(ShapeCircle { center, radius }) => {
                 format!("circle({}px at {}px {}px)", radius, center.x, center.y)
             }
-            Self::Ellipse(ShapeEllipse { center, radius_x, radius_y }) => {
-                format!("ellipse({}px {}px at {}px {}px)", radius_x, radius_y, center.x, center.y)
+            Self::Ellipse(ShapeEllipse {
+                center,
+                radius_x,
+                radius_y,
+            }) => {
+                format!(
+                    "ellipse({}px {}px at {}px {}px)",
+                    radius_x, radius_y, center.x, center.y
+                )
             }
             Self::Polygon(ShapePolygon { points }) => {
-                let pts: Vec<String> = points.as_ref().iter()
+                let pts: Vec<String> = points
+                    .as_ref()
+                    .iter()
                     .map(|p| format!("{}px {}px", p.x, p.y))
                     .collect();
                 format!("polygon({})", pts.join(", "))
             }
-            Self::Inset(ShapeInset { inset_top, inset_right, inset_bottom, inset_left, border_radius }) => {
-                let base = format!("inset({inset_top}px {inset_right}px {inset_bottom}px {inset_left}px");
+            Self::Inset(ShapeInset {
+                inset_top,
+                inset_right,
+                inset_bottom,
+                inset_left,
+                border_radius,
+            }) => {
+                let base =
+                    format!("inset({inset_top}px {inset_right}px {inset_bottom}px {inset_left}px");
                 match border_radius {
                     OptionF32::Some(r) => format!("{base} round {r}px)"),
                     OptionF32::None => format!("{base})"),
@@ -346,7 +377,8 @@ impl CssShape {
         }
     }
 
-    #[must_use] pub fn format_as_rust_code(&self) -> String {
+    #[must_use]
+    pub fn format_as_rust_code(&self) -> String {
         use alloc::format;
         match self {
             Self::Circle(ShapeCircle { center, radius }) => {
@@ -355,19 +387,34 @@ impl CssShape {
                     center.x, center.y, radius
                 )
             }
-            Self::Ellipse(ShapeEllipse { center, radius_x, radius_y }) => {
+            Self::Ellipse(ShapeEllipse {
+                center,
+                radius_x,
+                radius_y,
+            }) => {
                 format!(
                     "CssShape::Ellipse(ShapeEllipse {{ center: ShapePoint::new({}_f32, {}_f32), radius_x: {}_f32, radius_y: {}_f32 }})",
                     center.x, center.y, radius_x, radius_y
                 )
             }
             Self::Polygon(ShapePolygon { points }) => {
-                let pts: Vec<String> = points.as_ref().iter()
+                let pts: Vec<String> = points
+                    .as_ref()
+                    .iter()
                     .map(|p| format!("ShapePoint::new({}_f32, {}_f32)", p.x, p.y))
                     .collect();
-                format!("CssShape::Polygon(ShapePolygon {{ points: vec![{}].into() }})", pts.join(", "))
+                format!(
+                    "CssShape::Polygon(ShapePolygon {{ points: vec![{}].into() }})",
+                    pts.join(", ")
+                )
             }
-            Self::Inset(ShapeInset { inset_top, inset_right, inset_bottom, inset_left, border_radius }) => {
+            Self::Inset(ShapeInset {
+                inset_top,
+                inset_right,
+                inset_bottom,
+                inset_left,
+                border_radius,
+            }) => {
                 let br = match border_radius {
                     OptionF32::Some(r) => format!("OptionF32::Some({r}_f32)"),
                     OptionF32::None => String::from("OptionF32::None"),
@@ -377,7 +424,10 @@ impl CssShape {
                 )
             }
             Self::Path(ShapePath { data }) => {
-                format!("CssShape::Path(ShapePath {{ data: AzString::from_const_str(\"{}\") }})", data.as_str())
+                format!(
+                    "CssShape::Path(ShapePath {{ data: AzString::from_const_str(\"{}\") }})",
+                    data.as_str()
+                )
             }
         }
     }
@@ -439,7 +489,10 @@ mod autotest_generated {
     }
 
     fn poly(coords: &[(f32, f32)]) -> CssShape {
-        let pts: Vec<ShapePoint> = coords.iter().map(|(x, y)| ShapePoint::new(*x, *y)).collect();
+        let pts: Vec<ShapePoint> = coords
+            .iter()
+            .map(|(x, y)| ShapePoint::new(*x, *y))
+            .collect();
         CssShape::polygon(ShapePointVec::from_vec(pts))
     }
 
@@ -482,10 +535,7 @@ mod autotest_generated {
         assert_eq!(cmp_f32(f32::INFINITY, f32::MAX), Ordering::Greater);
         assert_eq!(cmp_f32(f32::NEG_INFINITY, f32::MIN), Ordering::Less);
         assert_eq!(cmp_f32(f32::INFINITY, f32::INFINITY), Ordering::Equal);
-        assert_eq!(
-            cmp_f32(f32::NEG_INFINITY, f32::INFINITY),
-            Ordering::Less
-        );
+        assert_eq!(cmp_f32(f32::NEG_INFINITY, f32::INFINITY), Ordering::Less);
         assert_eq!(cmp_f32(f32::MIN_POSITIVE, 0.0), Ordering::Greater);
         // Smallest subnormal still sorts above zero.
         assert_eq!(cmp_f32(f32::from_bits(1), 0.0), Ordering::Greater);
@@ -903,11 +953,8 @@ mod autotest_generated {
     fn print_as_css_value_emits_non_css_tokens_for_nan_and_inf() {
         // Characterization: `NaNpx` / `infpx` are NOT valid CSS lengths. The
         // printer does not guard against non-finite inputs; see the report.
-        let s = CssShape::circle(
-            ShapePoint::new(f32::INFINITY, f32::NEG_INFINITY),
-            f32::NAN,
-        )
-        .print_as_css_value();
+        let s = CssShape::circle(ShapePoint::new(f32::INFINITY, f32::NEG_INFINITY), f32::NAN)
+            .print_as_css_value();
         assert_eq!(s, "circle(NaNpx at infpx -infpx)");
     }
 
@@ -1129,7 +1176,11 @@ mod autotest_generated {
             "\u{0}",
         ] {
             let shape = path(data);
-            assert_eq!(roundtrip(&shape), shape, "path data {data:?} did not survive");
+            assert_eq!(
+                roundtrip(&shape),
+                shape,
+                "path data {data:?} did not survive"
+            );
         }
     }
 
@@ -1140,4 +1191,3 @@ mod autotest_generated {
         assert_eq!(roundtrip(&shape), shape);
     }
 }
-

@@ -38,7 +38,9 @@ pub fn emit_managed_spec(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.blank();
 
     // Access types for the releaser + per-kind invokers.
-    builder.line("type Azul_Releaser_Proc is access procedure (Id : Interfaces.C.unsigned_long_long);");
+    builder.line(
+        "type Azul_Releaser_Proc is access procedure (Id : Interfaces.C.unsigned_long_long);",
+    );
     builder.line("pragma Convention (C, Azul_Releaser_Proc);");
     builder.blank();
 
@@ -69,7 +71,9 @@ pub fn emit_managed_spec(builder: &mut CodeBuilder, ir: &CodegenIR) {
 
     // FFI imports.
     builder.line("procedure Az_App_Set_Host_Handle_Releaser (Releaser : Azul_Releaser_Proc);");
-    builder.line("pragma Import (C, Az_App_Set_Host_Handle_Releaser, \"AzApp_setHostHandleReleaser\");");
+    builder.line(
+        "pragma Import (C, Az_App_Set_Host_Handle_Releaser, \"AzApp_setHostHandleReleaser\");",
+    );
     builder.blank();
     builder.line("function Az_RefAny_New_Host_Handle (Id : Interfaces.C.unsigned_long_long) return Az_RefAny;");
     builder.line("pragma Import (C, Az_RefAny_New_Host_Handle, \"AzRefAny_newHostHandle\");");
@@ -228,11 +232,7 @@ pub fn emit_managed_body(builder: &mut CodeBuilder, ir: &CodegenIR) {
             params.push("Out_Ptr : System.Address".to_string());
         }
         let proc_name = format!("Azul_{}_Invoker_Stub", snake);
-        builder.line(&format!(
-            "procedure {} ({});",
-            proc_name,
-            params.join("; ")
-        ));
+        builder.line(&format!("procedure {} ({});", proc_name, params.join("; ")));
         builder.line(&format!("pragma Convention (C, {});", proc_name));
         builder.blank();
         builder.line(&format!(

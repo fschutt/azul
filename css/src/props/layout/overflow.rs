@@ -1,7 +1,7 @@
 //! CSS properties for managing content overflow.
 
-use alloc::string::{String, ToString};
 use crate::corety::{AzString, OptionF32};
+use alloc::string::{String, ToString};
 
 use crate::props::formatter::PrintAsCssValue;
 
@@ -37,7 +37,8 @@ impl LayoutOverflow {
     // +spec:overflow:2bf182 - overflow:scroll always shows scrollbar whether or not content is clipped
     // +spec:overflow:84cd40 - scroll value always displays scrollbar for accessing clipped content
     // +spec:overflow:8fcdd8 - auto causes scrolling mechanism for overflowing boxes (table exception is UA-level)
-    #[must_use] pub const fn needs_scrollbar(&self, currently_overflowing: bool) -> bool {
+    #[must_use]
+    pub const fn needs_scrollbar(&self, currently_overflowing: bool) -> bool {
         match self {
             Self::Scroll => true,
             Self::Auto => currently_overflowing,
@@ -50,19 +51,15 @@ impl LayoutOverflow {
     // +spec:overflow:81e306 - clipping region clips all aspects outside it; clipped content does not cause overflow
     // +spec:overflow:fd38ce - overflow properties specify whether a box's content is clipped / scroll container
     /// Returns `true` if this overflow value clips content (everything except `visible`).
-    #[must_use] pub const fn is_clipped(&self) -> bool {
+    #[must_use]
+    pub const fn is_clipped(&self) -> bool {
         // All overflow values except 'visible' clip their content
-        matches!(
-            self,
-            Self::Hidden
-                | Self::Clip
-                | Self::Auto
-                | Self::Scroll
-        )
+        matches!(self, Self::Hidden | Self::Clip | Self::Auto | Self::Scroll)
     }
 
     /// Returns `true` if the overflow type is `scroll`.
-    #[must_use] pub const fn is_scroll(&self) -> bool {
+    #[must_use]
+    pub const fn is_scroll(&self) -> bool {
         matches!(self, Self::Scroll)
     }
 
@@ -73,25 +70,29 @@ impl LayoutOverflow {
     /// programmatically scrollable (scrollIntoView, scroll offsets set from
     /// callbacks) even though its user-facing scrolling UI is disabled.
     /// `visible` and `clip` do not scroll at all.
-    #[must_use] pub const fn is_scroll_container(&self) -> bool {
+    #[must_use]
+    pub const fn is_scroll_container(&self) -> bool {
         matches!(self, Self::Hidden | Self::Scroll | Self::Auto)
     }
 
     /// Does this value allow scrolling DIRECTLY TRIGGERED BY THE USER
     /// (wheel, trackpad, scrollbar drag, keyboard)? `hidden` does not —
     /// only programmatic scrolling reaches it.
-    #[must_use] pub const fn allows_user_scrolling(&self) -> bool {
+    #[must_use]
+    pub const fn allows_user_scrolling(&self) -> bool {
         matches!(self, Self::Scroll | Self::Auto)
     }
 
     /// Returns `true` if the overflow type is `visible`, which is the only
     /// overflow type that doesn't clip its children.
-    #[must_use] pub fn is_overflow_visible(&self) -> bool {
+    #[must_use]
+    pub fn is_overflow_visible(&self) -> bool {
         *self == Self::Visible
     }
 
     /// Returns `true` if the overflow type is `hidden`.
-    #[must_use] pub fn is_overflow_hidden(&self) -> bool {
+    #[must_use]
+    pub fn is_overflow_hidden(&self) -> bool {
         *self == Self::Hidden
     }
 
@@ -99,7 +100,8 @@ impl LayoutOverflow {
     /// Resolves the computed value per CSS Overflow 3 § 3.1:
     /// visible/clip values compute to auto/hidden (respectively)
     /// if the other axis is neither visible nor clip.
-    #[must_use] pub const fn resolve_computed(self, other_axis: Self) -> Self {
+    #[must_use]
+    pub const fn resolve_computed(self, other_axis: Self) -> Self {
         let other_is_scrollable = !matches!(other_axis, Self::Visible | Self::Clip);
         if other_is_scrollable {
             match self {
@@ -150,7 +152,8 @@ pub enum LayoutOverflowParseErrorOwned {
 
 impl LayoutOverflowParseError<'_> {
     /// Converts the borrowed error into an owned error.
-    #[must_use] pub fn to_contained(&self) -> LayoutOverflowParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> LayoutOverflowParseErrorOwned {
         match self {
             LayoutOverflowParseError::InvalidValue(s) => {
                 LayoutOverflowParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -161,11 +164,10 @@ impl LayoutOverflowParseError<'_> {
 
 impl LayoutOverflowParseErrorOwned {
     /// Converts the owned error back into a borrowed error.
-    #[must_use] pub fn to_shared(&self) -> LayoutOverflowParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> LayoutOverflowParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                LayoutOverflowParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => LayoutOverflowParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -175,9 +177,7 @@ impl LayoutOverflowParseErrorOwned {
 /// # Errors
 ///
 /// Returns an error if `input` is not a valid CSS `overflow` value.
-pub fn parse_layout_overflow(
-    input: &str,
-) -> Result<LayoutOverflow, LayoutOverflowParseError<'_>> {
+pub fn parse_layout_overflow(input: &str) -> Result<LayoutOverflow, LayoutOverflowParseError<'_>> {
     let input_trimmed = input.trim();
     match input_trimmed {
         "scroll" => Ok(LayoutOverflow::Scroll),
@@ -244,7 +244,8 @@ pub enum StyleScrollbarGutterParseErrorOwned {
 
 impl StyleScrollbarGutterParseError<'_> {
     /// Converts the borrowed error into an owned error.
-    #[must_use] pub fn to_contained(&self) -> StyleScrollbarGutterParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleScrollbarGutterParseErrorOwned {
         match self {
             StyleScrollbarGutterParseError::InvalidValue(s) => {
                 StyleScrollbarGutterParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -255,11 +256,10 @@ impl StyleScrollbarGutterParseError<'_> {
 
 impl StyleScrollbarGutterParseErrorOwned {
     /// Converts the owned error back into a borrowed error.
-    #[must_use] pub fn to_shared(&self) -> StyleScrollbarGutterParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleScrollbarGutterParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                StyleScrollbarGutterParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => StyleScrollbarGutterParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -335,7 +335,8 @@ pub enum StyleTextOverflowParseErrorOwned {
 
 impl StyleTextOverflowParseError<'_> {
     /// Converts the borrowed error into an owned error.
-    #[must_use] pub fn to_contained(&self) -> StyleTextOverflowParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleTextOverflowParseErrorOwned {
         match self {
             StyleTextOverflowParseError::InvalidValue(s) => {
                 StyleTextOverflowParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -346,11 +347,10 @@ impl StyleTextOverflowParseError<'_> {
 
 impl StyleTextOverflowParseErrorOwned {
     /// Converts the owned error back into a borrowed error.
-    #[must_use] pub fn to_shared(&self) -> StyleTextOverflowParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleTextOverflowParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                StyleTextOverflowParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => StyleTextOverflowParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -452,7 +452,8 @@ pub enum StyleOverflowClipMarginParseErrorOwned {
 
 impl StyleOverflowClipMarginParseError<'_> {
     /// Converts the borrowed error into an owned error.
-    #[must_use] pub fn to_contained(&self) -> StyleOverflowClipMarginParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleOverflowClipMarginParseErrorOwned {
         match self {
             StyleOverflowClipMarginParseError::InvalidValue(s) => {
                 StyleOverflowClipMarginParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -463,11 +464,10 @@ impl StyleOverflowClipMarginParseError<'_> {
 
 impl StyleOverflowClipMarginParseErrorOwned {
     /// Converts the owned error back into a borrowed error.
-    #[must_use] pub fn to_shared(&self) -> StyleOverflowClipMarginParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleOverflowClipMarginParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                StyleOverflowClipMarginParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => StyleOverflowClipMarginParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -495,12 +495,10 @@ pub fn parse_style_overflow_clip_margin(
             "content-box" if clip_edge.is_none() => clip_edge = Some(VisualBox::ContentBox),
             "padding-box" if clip_edge.is_none() => clip_edge = Some(VisualBox::PaddingBox),
             "border-box" if clip_edge.is_none() => clip_edge = Some(VisualBox::BorderBox),
-            _ if length.is_none() => {
-                match parse_pixel_value(token) {
-                    Ok(pv) => length = Some(pv),
-                    Err(_) => return Err(StyleOverflowClipMarginParseError::InvalidValue(input)),
-                }
-            }
+            _ if length.is_none() => match parse_pixel_value(token) {
+                Ok(pv) => length = Some(pv),
+                Err(_) => return Err(StyleOverflowClipMarginParseError::InvalidValue(input)),
+            },
             _ => return Err(StyleOverflowClipMarginParseError::InvalidValue(input)),
         }
     }
@@ -545,7 +543,8 @@ impl StyleClipRect {
     /// used width/height and padding/border sizes.
     ///
     /// Returns `(top, right, bottom, left)` in pixels.
-    #[must_use] pub fn resolve(
+    #[must_use]
+    pub fn resolve(
         &self,
         used_width: f32,
         used_height: f32,
@@ -613,7 +612,8 @@ pub enum StyleClipRectParseErrorOwned {
 
 impl StyleClipRectParseError<'_> {
     /// Converts the borrowed error into an owned error.
-    #[must_use] pub fn to_contained(&self) -> StyleClipRectParseErrorOwned {
+    #[must_use]
+    pub fn to_contained(&self) -> StyleClipRectParseErrorOwned {
         match self {
             StyleClipRectParseError::InvalidValue(s) => {
                 StyleClipRectParseErrorOwned::InvalidValue((*s).to_string().into())
@@ -624,11 +624,10 @@ impl StyleClipRectParseError<'_> {
 
 impl StyleClipRectParseErrorOwned {
     /// Converts the owned error back into a borrowed error.
-    #[must_use] pub fn to_shared(&self) -> StyleClipRectParseError<'_> {
+    #[must_use]
+    pub fn to_shared(&self) -> StyleClipRectParseError<'_> {
         match self {
-            Self::InvalidValue(s) => {
-                StyleClipRectParseError::InvalidValue(s.as_str())
-            }
+            Self::InvalidValue(s) => StyleClipRectParseError::InvalidValue(s.as_str()),
         }
     }
 }
@@ -641,8 +640,7 @@ fn parse_clip_edge(token: &str) -> Result<OptionF32, StyleClipRectParseError<'_>
     if token.eq_ignore_ascii_case("auto") {
         return Ok(OptionF32::None);
     }
-    let pv = parse_pixel_value(token)
-        .map_err(|_| StyleClipRectParseError::InvalidValue(token))?;
+    let pv = parse_pixel_value(token).map_err(|_| StyleClipRectParseError::InvalidValue(token))?;
     Ok(OptionF32::Some(pv.number.get()))
 }
 
@@ -737,11 +735,11 @@ mod tests {
         assert!(parse_style_text_overflow("").is_err());
         assert!(parse_style_text_overflow("fade").is_err());
         // error message names the property and quotes the value
-        let msg = format!(
-            "{}",
-            StyleTextOverflowParseError::InvalidValue("fade")
+        let msg = format!("{}", StyleTextOverflowParseError::InvalidValue("fade"));
+        assert!(
+            msg.contains("text-overflow") && msg.contains("fade"),
+            "{msg}"
         );
-        assert!(msg.contains("text-overflow") && msg.contains("fade"), "{msg}");
         // owned <-> shared round-trips
         let e = parse_style_text_overflow("fade").unwrap_err();
         assert_eq!(e.to_contained().to_shared(), e);
@@ -843,8 +841,8 @@ mod tests {
 
 #[cfg(all(test, feature = "parser"))]
 mod autotest_generated {
-    use crate::props::basic::pixel::PixelValue;
     use crate::props::basic::length::SizeMetric;
+    use crate::props::basic::pixel::PixelValue;
 
     use super::*;
 
@@ -972,8 +970,10 @@ mod autotest_generated {
 
     #[test]
     fn is_scroll_and_is_overflow_hidden_match_exactly_one_variant_each() {
-        let scrolls: Vec<LayoutOverflow> =
-            ALL_OVERFLOW.into_iter().filter(LayoutOverflow::is_scroll).collect();
+        let scrolls: Vec<LayoutOverflow> = ALL_OVERFLOW
+            .into_iter()
+            .filter(LayoutOverflow::is_scroll)
+            .collect();
         assert_eq!(scrolls, vec![LayoutOverflow::Scroll]);
 
         let hiddens: Vec<LayoutOverflow> = ALL_OVERFLOW
@@ -1124,8 +1124,13 @@ mod autotest_generated {
     fn parse_layout_overflow_treats_overlay_as_a_one_way_alias_of_auto() {
         // "overlay" is a legacy alias that parses to Auto but is never printed,
         // so the round-trip is stable only after the first normalisation.
-        assert_eq!(parse_layout_overflow("overlay").unwrap(), LayoutOverflow::Auto);
-        let normalised = parse_layout_overflow("overlay").unwrap().print_as_css_value();
+        assert_eq!(
+            parse_layout_overflow("overlay").unwrap(),
+            LayoutOverflow::Auto
+        );
+        let normalised = parse_layout_overflow("overlay")
+            .unwrap()
+            .print_as_css_value();
         assert_eq!(normalised, "auto");
         assert_eq!(
             parse_layout_overflow(&normalised).unwrap(),
@@ -1153,7 +1158,10 @@ mod autotest_generated {
         assert_eq!(err, LayoutOverflowParseError::InvalidValue("  bogus  "));
         let msg = format!("{err}");
         assert!(msg.contains("bogus"), "{msg}");
-        assert!(msg.contains("scroll"), "error should list the valid keywords: {msg}");
+        assert!(
+            msg.contains("scroll"),
+            "error should list the valid keywords: {msg}"
+        );
     }
 
     #[test]
@@ -1162,13 +1170,18 @@ mod autotest_generated {
         // accepts the lowercase spelling (property *names* are lowercased
         // upstream, values are not). Characterised here so a future fix has to
         // update the test deliberately.
-        for input in ["SCROLL", "Scroll", "sCrOlL", "AUTO", "Hidden", "VISIBLE", "Clip"] {
+        for input in [
+            "SCROLL", "Scroll", "sCrOlL", "AUTO", "Hidden", "VISIBLE", "Clip",
+        ] {
             assert!(
                 parse_layout_overflow(input).is_err(),
                 "{input:?} unexpectedly parsed"
             );
         }
-        assert_eq!(parse_layout_overflow("scroll").unwrap(), LayoutOverflow::Scroll);
+        assert_eq!(
+            parse_layout_overflow("scroll").unwrap(),
+            LayoutOverflow::Scroll
+        );
     }
 
     #[test]
@@ -1238,7 +1251,10 @@ mod autotest_generated {
 
         // A valid keyword buried in megabytes of padding is still just padding.
         let padded = format!("{}scroll{}", " ".repeat(500_000), " ".repeat(500_000));
-        assert_eq!(parse_layout_overflow(&padded).unwrap(), LayoutOverflow::Scroll);
+        assert_eq!(
+            parse_layout_overflow(&padded).unwrap(),
+            LayoutOverflow::Scroll
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -1297,8 +1313,21 @@ mod autotest_generated {
     #[test]
     fn parse_style_scrollbar_gutter_rejects_empty_garbage_unicode_and_numbers() {
         for input in [
-            "", " ", "\t\n", "none", "auto stable", "auto;", "stable;", "0", "-0", "NaN", "inf",
-            "9223372036854775807", "\u{1F600}", "ｓｔａｂｌｅ", "stable\0",
+            "",
+            " ",
+            "\t\n",
+            "none",
+            "auto stable",
+            "auto;",
+            "stable;",
+            "0",
+            "-0",
+            "NaN",
+            "inf",
+            "9223372036854775807",
+            "\u{1F600}",
+            "ｓｔａｂｌｅ",
+            "stable\0",
         ] {
             assert!(
                 parse_style_scrollbar_gutter(input).is_err(),
@@ -1536,7 +1565,9 @@ mod autotest_generated {
         // BUG (characterised): the edge keeps only `PixelValue::number`, so the
         // metric is thrown away — `rect(5em, ...)` is treated as 5 *pixels*, and
         // percentages (invalid for `clip`) are accepted as raw numbers.
-        for input in ["5px", "5em", "5rem", "5pt", "5in", "5cm", "5mm", "5vw", "5vh", "5%"] {
+        for input in [
+            "5px", "5em", "5rem", "5pt", "5in", "5cm", "5mm", "5vw", "5vh", "5%",
+        ] {
             assert_eq!(
                 parse_clip_edge(input).unwrap(),
                 OptionF32::Some(5.0),
@@ -1605,7 +1636,10 @@ mod autotest_generated {
             "1px\u{0301}",
             "0x10",
         ] {
-            assert!(parse_clip_edge(input).is_err(), "{input:?} unexpectedly parsed");
+            assert!(
+                parse_clip_edge(input).is_err(),
+                "{input:?} unexpectedly parsed"
+            );
         }
         // The error carries the *trimmed token*, not the surrounding input.
         assert_eq!(
@@ -1704,8 +1738,8 @@ mod autotest_generated {
             "rect(1px 2px, 3px 4px)", // half comma-separated, half not
             "rect(1px 2px 3px)",
             "rect(1px 2px 3px 4px 5px)",
-            "rect(1px, 2px, 3px, 4px",  // no closing paren
-            "rect 1px, 2px, 3px, 4px)", // no opening paren
+            "rect(1px, 2px, 3px, 4px",   // no closing paren
+            "rect 1px, 2px, 3px, 4px)",  // no opening paren
             "rect (1px, 2px, 3px, 4px)", // space before the paren
             "rect(1px, 2px, 3px, 4px) trailing",
             "rect(1px, 2px, 3px, 4px);",
@@ -1717,7 +1751,10 @@ mod autotest_generated {
             "inherit",
             "0",
         ] {
-            assert!(parse_clip_rect(input).is_err(), "{input:?} unexpectedly parsed");
+            assert!(
+                parse_clip_rect(input).is_err(),
+                "{input:?} unexpectedly parsed"
+            );
         }
     }
 
@@ -1732,7 +1769,10 @@ mod autotest_generated {
             "rECT(auto, auto, auto, auto)",
             "ReCt(auto, auto, auto, auto)",
         ] {
-            assert!(parse_clip_rect(input).is_err(), "{input:?} unexpectedly parsed");
+            assert!(
+                parse_clip_rect(input).is_err(),
+                "{input:?} unexpectedly parsed"
+            );
         }
     }
 
@@ -1745,7 +1785,10 @@ mod autotest_generated {
         assert!(msg.contains("abc"), "{msg}");
         // (the message's own "Expected rect(...)" hint aside, none of the *input*
         // apart from the bad token is echoed back)
-        assert!(!msg.contains("1px"), "message leaked the whole input: {msg}");
+        assert!(
+            !msg.contains("1px"),
+            "message leaked the whole input: {msg}"
+        );
 
         // ...while a structural error reports the untrimmed input.
         let err = parse_clip_rect("  rect(1px)  ").unwrap_err();
@@ -1788,7 +1831,10 @@ mod autotest_generated {
             "автo",
             "rect(٣px, auto, auto, auto)", // arabic-indic digit
         ] {
-            assert!(parse_clip_rect(input).is_err(), "{input:?} unexpectedly parsed");
+            assert!(
+                parse_clip_rect(input).is_err(),
+                "{input:?} unexpectedly parsed"
+            );
         }
     }
 
@@ -1821,15 +1867,13 @@ mod autotest_generated {
 
     #[test]
     fn clip_rect_resolve_at_zero_and_with_negative_geometry() {
-        let all_zero = StyleClipRect::default().resolve(
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-        );
+        let all_zero =
+            StyleClipRect::default().resolve(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         assert_eq!(all_zero, (0.0, 0.0, 0.0, 0.0));
 
         // Negative geometry is summed as-is (no clamping): deterministic, finite.
-        let (top, right, bottom, left) = StyleClipRect::default().resolve(
-            -10.0, -20.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0,
-        );
+        let (top, right, bottom, left) = StyleClipRect::default()
+            .resolve(-10.0, -20.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0, -1.0);
         assert_eq!(top, 0.0);
         assert_eq!(left, 0.0);
         assert_eq!(right, -14.0);
@@ -1946,7 +1990,8 @@ mod autotest_generated {
                 let owned = borrowed.to_contained();
                 let back = owned.to_shared();
                 assert_eq!(
-                    back, borrowed,
+                    back,
+                    borrowed,
                     "{}::InvalidValue({payload:?}) lost data on to_contained/to_shared",
                     stringify!($borrowed)
                 );
@@ -1985,7 +2030,10 @@ mod autotest_generated {
         assert!(msg.contains("overflow") && msg.contains("zzz"), "{msg}");
 
         let msg = format!("{}", StyleScrollbarGutterParseError::InvalidValue("zzz"));
-        assert!(msg.contains("scrollbar-gutter") && msg.contains("zzz"), "{msg}");
+        assert!(
+            msg.contains("scrollbar-gutter") && msg.contains("zzz"),
+            "{msg}"
+        );
 
         let msg = format!("{}", StyleOverflowClipMarginParseError::InvalidValue("zzz"));
         assert!(

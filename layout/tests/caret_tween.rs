@@ -49,13 +49,13 @@ fn text_dom_node_id() -> DomNodeId {
 
 fn build_editor_window(animations: SystemAnimations) -> LayoutWindow {
     let mut editor = Dom::create_div();
-    editor = editor.with_ids_and_classes(
-        vec![azul_core::dom::IdOrClass::Class("editor".into())].into(),
-    );
+    editor =
+        editor.with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("editor".into())].into());
     editor.set_contenteditable(true);
     editor.set_tab_index(TabIndex::Auto);
-    let mut dom =
-        Dom::create_body().with_child(editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello world tween target")));
+    let mut dom = Dom::create_body().with_child(editor.with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("hello world tween target"),
+    ));
 
     let (css, _) = azul_css::parser2::new_from_str(CSS);
     let styled_dom = StyledDom::create(&mut dom, css);
@@ -90,13 +90,12 @@ fn build_editor_window(animations: SystemAnimations) -> LayoutWindow {
 }
 
 fn move_caret(lw: &mut LayoutWindow, byte: u32) {
-    lw.text_edit_manager.multi_cursor = Some(
-        azul_core::selection::MultiCursorState::new_with_cursor(
+    lw.text_edit_manager.multi_cursor =
+        Some(azul_core::selection::MultiCursorState::new_with_cursor(
             cursor(byte),
             text_dom_node_id(),
             0,
-        ),
-    );
+        ));
 }
 
 fn rebuild(lw: &mut LayoutWindow) {
@@ -118,7 +117,9 @@ fn caret_item(lw: &LayoutWindow) -> Option<(LogicalRect, u8)> {
 }
 
 fn caret_rect(lw: &LayoutWindow) -> LogicalRect {
-    caret_item(lw).expect("display list must carry a CursorRect item").0
+    caret_item(lw)
+        .expect("display list must carry a CursorRect item")
+        .0
 }
 
 /// A window with tweens configured; caret duration and selection duration in ms.
@@ -155,7 +156,10 @@ fn caret_move_arms_a_tween_and_renders_near_the_previous_rect() {
     let rendered = caret_rect(&lw);
     let b = true_caret_rect_at(14);
 
-    assert!(b.origin.x > a.origin.x + 10.0, "caret must move right: {a:?} -> {b:?}");
+    assert!(
+        b.origin.x > a.origin.x + 10.0,
+        "caret must move right: {a:?} -> {b:?}"
+    );
     assert!(
         lw.text_edit_manager.tween.caret.is_some(),
         "a caret move with a nonzero duration arms the tween"
@@ -188,7 +192,10 @@ fn tween_completes_exactly_on_the_target_and_retires() {
         rendered, b,
         "a finished tween renders EXACTLY the layout's caret rect"
     );
-    assert!(lw.text_edit_manager.tween.caret.is_none(), "finished tween retires");
+    assert!(
+        lw.text_edit_manager.tween.caret.is_none(),
+        "finished tween retires"
+    );
     assert!(!lw.text_edit_manager.tween.is_active());
 }
 
@@ -275,12 +282,7 @@ fn default_caret_tween_math_hits_both_endpoints_and_moves_between() {
         origin: LogicalPosition { x: 110.0, y: 60.0 },
         size: LogicalSize::new(2.0, 22.0),
     };
-    let at = |t: f32| {
-        default_caret_tween(
-            RefAny::new(()),
-            CaretTweenInfo { past, current, t },
-        )
-    };
+    let at = |t: f32| default_caret_tween(RefAny::new(()), CaretTweenInfo { past, current, t });
     assert_eq!(at(0.0), past, "t = 0 renders the past rect");
     assert_eq!(at(1.0), current, "t = 1 renders the current rect");
 
@@ -328,7 +330,11 @@ fn default_selection_tween_pairs_rects_by_line_not_by_index() {
     let at = |past: Vec<LogicalRect>, current: Vec<LogicalRect>, t: f32| -> Vec<LogicalRect> {
         default_selection_tween(
             RefAny::new(()),
-            SelectionTweenInfo { past: past.into(), current: current.into(), t },
+            SelectionTweenInfo {
+                past: past.into(),
+                current: current.into(),
+                t,
+            },
         )
         .into_library_owned_vec()
     };
@@ -337,19 +343,47 @@ fn default_selection_tween_pairs_rects_by_line_not_by_index() {
     // start the tween at its OWN old geometry, and the new first line (y = 0)
     // must pop at its final geometry — index pairing lerped y=0 from the old
     // y=20 rect and slid the whole band.
-    let out = at(vec![line(20.0, 0.0)], vec![line(0.0, 0.0), line(20.0, 100.0)], 0.0);
+    let out = at(
+        vec![line(20.0, 0.0)],
+        vec![line(0.0, 0.0), line(20.0, 100.0)],
+        0.0,
+    );
     assert_eq!(out.len(), 2, "one rect per CURRENT rect");
-    assert_eq!(out[0], line(0.0, 0.0), "the new first line pops, it does not slide");
-    assert_eq!(out[1], line(20.0, 0.0), "line y=20 tweens from its own past rect");
+    assert_eq!(
+        out[0],
+        line(0.0, 0.0),
+        "the new first line pops, it does not slide"
+    );
+    assert_eq!(
+        out[1],
+        line(20.0, 0.0),
+        "line y=20 tweens from its own past rect"
+    );
 
     // …and lands exactly on the current geometry.
-    let out = at(vec![line(20.0, 0.0)], vec![line(0.0, 0.0), line(20.0, 100.0)], 1.0);
+    let out = at(
+        vec![line(20.0, 0.0)],
+        vec![line(0.0, 0.0), line(20.0, 100.0)],
+        1.0,
+    );
     assert_eq!(out, vec![line(0.0, 0.0), line(20.0, 100.0)]);
 
     // Growing DOWNWARD keeps working (this is what the old test covered).
-    let out = at(vec![line(0.0, 0.0)], vec![line(0.0, 100.0), line(20.0, 300.0)], 0.0);
-    assert_eq!(out[0], line(0.0, 0.0), "paired rect starts at its past geometry");
-    assert_eq!(out[1], line(20.0, 300.0), "unpaired (new) rect pops at final geometry");
+    let out = at(
+        vec![line(0.0, 0.0)],
+        vec![line(0.0, 100.0), line(20.0, 300.0)],
+        0.0,
+    );
+    assert_eq!(
+        out[0],
+        line(0.0, 0.0),
+        "paired rect starts at its past geometry"
+    );
+    assert_eq!(
+        out[1],
+        line(20.0, 300.0),
+        "unpaired (new) rect pops at final geometry"
+    );
 
     // Two rects on ONE line (bidi splits a line) pair one-to-one, not both
     // against the same past rect.
@@ -379,17 +413,23 @@ fn build_three_paragraphs(animations: SystemAnimations) -> LayoutWindow {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("first paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "first paragraph",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("second paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "second paragraph",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("p"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("third paragraph")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "third paragraph",
+                )),
         );
     let (css, _) = azul_css::parser2::new_from_str(P_CSS);
     let styled_dom = StyledDom::create(&mut dom, css);
@@ -467,10 +507,7 @@ fn extending_a_selection_arms_the_band_tween() {
         "the tween patches geometry, never the item count"
     );
     assert!(
-        rendered
-            .iter()
-            .zip(true_bands.iter())
-            .any(|(r, t)| r != t),
+        rendered.iter().zip(true_bands.iter()).any(|(r, t)| r != t),
         "mid-flight (t ~ 0 of a 10s tween) at least one band must still \
          differ from the final geometry: {rendered:?} vs {true_bands:?}"
     );
@@ -524,8 +561,9 @@ fn tween_ticks_produce_caret_sized_damage_not_full_repaints() {
     let caret_tick2 = caret_rect(&lw);
 
     let offsets = ScrollOffsetMap::new();
-    let damage = compute_display_list_damage(&dl_tick1, &dl_tick2, &offsets, &offsets)
-        .expect("a tween tick only moves item BOUNDS - the differ must never bail to a full repaint");
+    let damage = compute_display_list_damage(&dl_tick1, &dl_tick2, &offsets, &offsets).expect(
+        "a tween tick only moves item BOUNDS - the differ must never bail to a full repaint",
+    );
 
     // Every damage rect stays within the caret's neighborhood (union of the
     // two tick positions, generously padded), and the total damaged area is

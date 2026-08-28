@@ -87,10 +87,9 @@ fn emit_external(builder: &mut CodeBuilder, func: &FunctionDef, ir: &CodegenIR) 
         .map(|a| {
             let fb_ty = match a.ref_kind {
                 ArgRefKind::Owned => map_type_to_fb(&a.type_name, ir),
-                ArgRefKind::Ref
-                | ArgRefKind::RefMut
-                | ArgRefKind::Ptr
-                | ArgRefKind::PtrMut => ptr_type_for_arg(&a.type_name, ir),
+                ArgRefKind::Ref | ArgRefKind::RefMut | ArgRefKind::Ptr | ArgRefKind::PtrMut => {
+                    ptr_type_for_arg(&a.type_name, ir)
+                }
             };
             // Always pass ByVal: even structs-by-value go ByVal in C ABI,
             // and pointer types are already explicit `... Ptr`.

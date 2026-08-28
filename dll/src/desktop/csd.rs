@@ -25,16 +25,10 @@ use azul_layout::widgets::titlebar::Titlebar;
 ///
 /// Builds a [`Titlebar`] in full-CSD mode (`dom_with_buttons`),
 /// then styles it with the CSD stylesheet from `SystemStyle`.
-pub(crate) fn create_titlebar_styled_dom(
-    title: &str,
-    system_style: &SystemStyle,
-) -> StyledDom {
+pub(crate) fn create_titlebar_styled_dom(title: &str, system_style: &SystemStyle) -> StyledDom {
     let tm = &system_style.metrics.titlebar;
 
-    let titlebar = Titlebar::from_system_style_csd(
-        title.into(),
-        system_style,
-    );
+    let titlebar = Titlebar::from_system_style_csd(title.into(), system_style);
 
     let mut dom = titlebar.dom_with_buttons(&tm.buttons, tm.button_side);
     let css = system_style.create_csd_stylesheet();

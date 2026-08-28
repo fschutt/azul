@@ -76,7 +76,9 @@ impl<'a> IRBuilder<'a> {
             if let Some(doc_lines) = &module_data.doc {
                 if let Some(first_line) = doc_lines.first() {
                     if !first_line.is_empty() {
-                        self.ir.module_docs.insert(module_name.clone(), first_line.clone());
+                        self.ir
+                            .module_docs
+                            .insert(module_name.clone(), first_line.clone());
                     }
                 }
             }
@@ -387,7 +389,8 @@ impl<'a> IRBuilder<'a> {
                             ));
                         }
                     } else if let Some(enum_fields) = &class_data.enum_fields {
-                        let has_data = enum_fields.iter()
+                        let has_data = enum_fields
+                            .iter()
                             .flat_map(|m| m.values())
                             .any(|v| v.r#type.is_some());
 
@@ -540,29 +543,30 @@ impl<'a> IRBuilder<'a> {
                 .iter()
                 .filter_map(|field| {
                     let base = self.extract_base_type(&field.type_name);
-                    
+
                     // Skip primitives and unknown types
                     if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
                         return None;
                     }
-                    
+
                     // Check if this is a pointer reference
-                    let is_pointer = self.is_pointer_type(&field.type_name) || matches!(
-                        field.ref_kind,
-                        FieldRefKind::Ptr
-                        | FieldRefKind::PtrMut
-                        | FieldRefKind::Ref
-                        | FieldRefKind::RefMut
-                        | FieldRefKind::Boxed
-                        | FieldRefKind::OptionBoxed
-                    );
-                    
+                    let is_pointer = self.is_pointer_type(&field.type_name)
+                        || matches!(
+                            field.ref_kind,
+                            FieldRefKind::Ptr
+                                | FieldRefKind::PtrMut
+                                | FieldRefKind::Ref
+                                | FieldRefKind::RefMut
+                                | FieldRefKind::Boxed
+                                | FieldRefKind::OptionBoxed
+                        );
+
                     // For pointer references to structs, forward decl is enough - skip
                     // BUT for pointer references to enums, we need the full type (C limitation)
                     if is_pointer && forward_declarable_types.contains(&base) {
                         return None;
                     }
-                    
+
                     Some(base)
                 })
                 .collect();
@@ -581,19 +585,21 @@ impl<'a> IRBuilder<'a> {
                                 .iter()
                                 .filter_map(|(t, _ref_kind)| {
                                     let base = self.extract_base_type(t);
-                                    
+
                                     // Skip primitives and unknown types
-                                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
+                                    if self.is_primitive_type(&base)
+                                        || !all_type_names.contains(&base)
+                                    {
                                         return None;
                                     }
-                                    
+
                                     // For pointer refs to structs, skip (forward decl is enough)
                                     // For pointer refs to enums, include (C limitation)
                                     let is_pointer = self.is_pointer_type(t);
                                     if is_pointer && forward_declarable_types.contains(&base) {
                                         return None;
                                     }
-                                    
+
                                     Some(base)
                                 })
                                 .collect::<Vec<_>>()
@@ -603,29 +609,32 @@ impl<'a> IRBuilder<'a> {
                                 .iter()
                                 .filter_map(|f| {
                                     let base = self.extract_base_type(&f.type_name);
-                                    
+
                                     // Skip primitives and unknown types
-                                    if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
+                                    if self.is_primitive_type(&base)
+                                        || !all_type_names.contains(&base)
+                                    {
                                         return None;
                                     }
-                                    
+
                                     // Check if this is a pointer reference
-                                    let is_pointer = self.is_pointer_type(&f.type_name) || matches!(
-                                        f.ref_kind,
-                                        FieldRefKind::Ptr
-                                        | FieldRefKind::PtrMut
-                                        | FieldRefKind::Ref
-                                        | FieldRefKind::RefMut
-                                        | FieldRefKind::Boxed
-                                        | FieldRefKind::OptionBoxed
-                                    );
-                                    
+                                    let is_pointer = self.is_pointer_type(&f.type_name)
+                                        || matches!(
+                                            f.ref_kind,
+                                            FieldRefKind::Ptr
+                                                | FieldRefKind::PtrMut
+                                                | FieldRefKind::Ref
+                                                | FieldRefKind::RefMut
+                                                | FieldRefKind::Boxed
+                                                | FieldRefKind::OptionBoxed
+                                        );
+
                                     // For pointer refs to structs, skip (forward decl is enough)
                                     // For pointer refs to enums, include (C limitation)
                                     if is_pointer && forward_declarable_types.contains(&base) {
                                         return None;
                                     }
-                                    
+
                                     Some(base)
                                 })
                                 .collect::<Vec<_>>()
@@ -655,19 +664,20 @@ impl<'a> IRBuilder<'a> {
                         for variant in variants {
                             if let Some(ref payload_type) = variant.payload_type {
                                 let base = self.extract_base_type(payload_type);
-                                
+
                                 // Skip primitives and unknown types
-                                if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
+                                if self.is_primitive_type(&base) || !all_type_names.contains(&base)
+                                {
                                     continue;
                                 }
-                                
+
                                 // For pointer refs to structs, skip (forward decl is enough)
                                 // For pointer refs to enums, include (C limitation)
                                 let is_pointer = self.is_pointer_type(payload_type);
                                 if is_pointer && forward_declarable_types.contains(&base) {
                                     continue;
                                 }
-                                
+
                                 deps.push(base);
                             }
                         }
@@ -675,29 +685,30 @@ impl<'a> IRBuilder<'a> {
                     MonomorphizedKind::Struct { fields } => {
                         for field in fields {
                             let base = self.extract_base_type(&field.type_name);
-                            
+
                             // Skip primitives and unknown types
                             if self.is_primitive_type(&base) || !all_type_names.contains(&base) {
                                 continue;
                             }
-                            
+
                             // Check if this is a pointer reference
-                            let is_pointer = self.is_pointer_type(&field.type_name) || matches!(
-                                field.ref_kind,
-                                FieldRefKind::Ptr
-                                | FieldRefKind::PtrMut
-                                | FieldRefKind::Ref
-                                | FieldRefKind::RefMut
-                                | FieldRefKind::Boxed
-                                | FieldRefKind::OptionBoxed
-                            );
-                            
+                            let is_pointer = self.is_pointer_type(&field.type_name)
+                                || matches!(
+                                    field.ref_kind,
+                                    FieldRefKind::Ptr
+                                        | FieldRefKind::PtrMut
+                                        | FieldRefKind::Ref
+                                        | FieldRefKind::RefMut
+                                        | FieldRefKind::Boxed
+                                        | FieldRefKind::OptionBoxed
+                                );
+
                             // For pointer refs to structs, skip (forward decl is enough)
                             // For pointer refs to enums, include (C limitation)
                             if is_pointer && forward_declarable_types.contains(&base) {
                                 continue;
                             }
-                            
+
                             deps.push(base);
                         }
                     }
@@ -863,7 +874,6 @@ impl<'a> IRBuilder<'a> {
     // ========================================================================
 
     fn build_type_lookups(&mut self) -> Result<()> {
-
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 self.ir
@@ -999,7 +1009,6 @@ impl<'a> IRBuilder<'a> {
     }
 
     fn build_struct_fields(&self, class_data: &ClassData) -> Result<Vec<FieldDef>> {
-
         let mut fields = Vec::new();
 
         if let Some(ref struct_fields) = class_data.struct_fields {
@@ -1090,7 +1099,6 @@ impl<'a> IRBuilder<'a> {
     }
 
     fn build_enum_variants(&self, class_data: &ClassData) -> Result<(Vec<EnumVariantDef>, bool)> {
-
         let mut variants = Vec::new();
         let mut is_union = false;
 
@@ -1458,7 +1466,6 @@ impl<'a> IRBuilder<'a> {
     // ========================================================================
 
     fn build_api_functions(&mut self) -> Result<()> {
-
         for (module_name, module_data) in &self.version_data.api {
             for (class_name, class_data) in &module_data.classes {
                 // Skip callback typedefs, type aliases
@@ -2032,7 +2039,10 @@ impl<'a> IRBuilder<'a> {
                 }],
                 return_type: Some("String".to_string()),
                 fn_body: None,
-                doc: vec![format!("Returns the debug string representation of `{}`.", type_name)],
+                doc: vec![format!(
+                    "Returns the debug string representation of `{}`.",
+                    type_name
+                )],
                 is_const: true,
                 is_unsafe: false,
             });

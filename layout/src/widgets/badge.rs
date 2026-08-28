@@ -11,9 +11,17 @@ use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithCondi
 use azul_css::{
     props::{
         basic::{color::ColorU, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutJustifyContent, LayoutAlignItems, LayoutAlignSelf, LayoutFlexGrow, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight},
+        layout::{
+            LayoutAlignItems, LayoutAlignSelf, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutJustifyContent, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight,
+            LayoutPaddingTop,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContentVec, StyleBackgroundContent, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextAlign, StyleTextColor},
+        style::{
+            StyleBackgroundContent, StyleBackgroundContentVec, StyleBorderBottomLeftRadius,
+            StyleBorderBottomRightRadius, StyleBorderTopLeftRadius, StyleBorderTopRightRadius,
+            StyleTextAlign, StyleTextColor,
+        },
     },
     AzString,
 };
@@ -41,20 +49,79 @@ impl BadgeKind {
     /// Returns the `(background, text)` colours for this badge kind.
     #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     const fn colors(&self) -> (ColorU, ColorU) {
-        const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-        const DARK: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
+        const WHITE: ColorU = ColorU {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
+        const DARK: ColorU = ColorU {
+            r: 33,
+            g: 37,
+            b: 41,
+            a: 255,
+        };
         match self {
-            Self::Default => (ColorU { r: 108, g: 117, b: 125, a: 255 }, WHITE),
-            Self::Primary => (ColorU { r: 13, g: 110, b: 253, a: 255 }, WHITE),
-            Self::Success => (ColorU { r: 25, g: 135, b: 84, a: 255 }, WHITE),
-            Self::Danger => (ColorU { r: 220, g: 53, b: 69, a: 255 }, WHITE),
-            Self::Warning => (ColorU { r: 255, g: 193, b: 7, a: 255 }, DARK),
-            Self::Info => (ColorU { r: 13, g: 202, b: 240, a: 255 }, DARK),
+            Self::Default => (
+                ColorU {
+                    r: 108,
+                    g: 117,
+                    b: 125,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            Self::Primary => (
+                ColorU {
+                    r: 13,
+                    g: 110,
+                    b: 253,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            Self::Success => (
+                ColorU {
+                    r: 25,
+                    g: 135,
+                    b: 84,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            Self::Danger => (
+                ColorU {
+                    r: 220,
+                    g: 53,
+                    b: 69,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            Self::Warning => (
+                ColorU {
+                    r: 255,
+                    g: 193,
+                    b: 7,
+                    a: 255,
+                },
+                DARK,
+            ),
+            Self::Info => (
+                ColorU {
+                    r: 13,
+                    g: 202,
+                    b: 240,
+                    a: 255,
+                },
+                DARK,
+            ),
         }
     }
 
     /// CSS class name for this badge kind (mirrors `ButtonType::class_name`).
-    #[must_use] pub const fn class_name(&self) -> &'static str {
+    #[must_use]
+    pub const fn class_name(&self) -> &'static str {
         match self {
             Self::Default => "__azul-badge-default",
             Self::Primary => "__azul-badge-primary",
@@ -101,9 +168,9 @@ fn build_badge_style(kind: BadgeKind) -> CssPropertyWithConditionsVec {
             0,
         ))),
         // padding: 2px 8px
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-            2,
-        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(2,)
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
             LayoutPaddingBottom::const_px(2),
         )),
@@ -126,7 +193,9 @@ fn build_badge_style(kind: BadgeKind) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
             StyleBorderBottomRightRadius::const_px(10),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(12))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            12
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_align(StyleTextAlign::Center)),
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: text,
@@ -138,13 +207,15 @@ fn build_badge_style(kind: BadgeKind) -> CssPropertyWithConditionsVec {
 impl Badge {
     /// Creates a new badge with the given text and the default (grey) kind.
     #[inline]
-    #[must_use] pub fn create(string: AzString) -> Self {
+    #[must_use]
+    pub fn create(string: AzString) -> Self {
         Self::with_kind(string, BadgeKind::Default)
     }
 
     /// Creates a new badge with the given text and colour variant.
     #[inline]
-    #[must_use] pub fn with_kind(string: AzString, kind: BadgeKind) -> Self {
+    #[must_use]
+    pub fn with_kind(string: AzString, kind: BadgeKind) -> Self {
         Self {
             string,
             kind,
@@ -161,14 +232,16 @@ impl Badge {
 
     /// Builder-style setter for the colour variant.
     #[inline]
-    #[must_use] pub fn with_badge_kind(mut self, kind: BadgeKind) -> Self {
+    #[must_use]
+    pub fn with_badge_kind(mut self, kind: BadgeKind) -> Self {
         self.set_kind(kind);
         self
     }
 
     /// Replaces `self` with an empty default badge and returns the original.
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
@@ -181,7 +254,8 @@ impl Badge {
     /// `NodeType::Text` node is always inline-level and owns no rect, so those
     /// properties would never paint on a raw text node.
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         static BADGE_CLASS: &[IdOrClass] =
             &[Class(AzString::from_const_str("__azul-native-badge"))];
 
@@ -227,8 +301,18 @@ mod autotest_generated {
         BadgeKind::Info,
     ];
 
-    const WHITE: ColorU = ColorU { r: 255, g: 255, b: 255, a: 255 };
-    const DARK: ColorU = ColorU { r: 33, g: 37, b: 41, a: 255 };
+    const WHITE: ColorU = ColorU {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    const DARK: ColorU = ColorU {
+        r: 33,
+        g: 37,
+        b: 41,
+        a: 255,
+    };
 
     /// The declared properties of a style vec, in declaration order.
     fn properties(v: &CssPropertyWithConditionsVec) -> Vec<CssProperty> {
@@ -239,13 +323,22 @@ mod autotest_generated {
     /// `em`/`%` slipping into the pill geometry would resolve against the parent
     /// font/box instead of the intended fixed padding or radius.
     fn px(pv: &PixelValue) -> f32 {
-        assert_eq!(pv.metric, SizeMetric::Px, "badge geometry must be absolute px, got {:?}", pv.metric);
+        assert_eq!(
+            pv.metric,
+            SizeMetric::Px,
+            "badge geometry must be absolute px, got {:?}",
+            pv.metric
+        );
         pv.number.get()
     }
 
     /// The four paddings in `(top, bottom, left, right)` order.
-    fn padding_px(v: &CssPropertyWithConditionsVec) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
-        let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| v.as_ref().iter().find_map(|p| f(&p.property));
+    fn padding_px(
+        v: &CssPropertyWithConditionsVec,
+    ) -> (Option<f32>, Option<f32>, Option<f32>, Option<f32>) {
+        let find = |f: &dyn Fn(&CssProperty) -> Option<f32>| {
+            v.as_ref().iter().find_map(|p| f(&p.property))
+        };
         (
             find(&|p| match p {
                 CssProperty::PaddingTop(x) => x.get_property().map(|x| px(&x.inner)),
@@ -301,7 +394,11 @@ mod autotest_generated {
             CssProperty::BackgroundContent(b) => b.get_property(),
             _ => None,
         })?;
-        assert_eq!(bg.as_ref().len(), 1, "a badge must declare exactly one background layer");
+        assert_eq!(
+            bg.as_ref().len(),
+            1,
+            "a badge must declare exactly one background layer"
+        );
         match &bg.as_ref()[0] {
             StyleBackgroundContent::Color(c) => Some(*c),
             other => panic!("badge background is not a flat colour: {other:?}"),
@@ -345,7 +442,11 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(node: &Dom) -> Vec<CssProperty> {
-        node.root.style.iter_inline_properties().map(|(p, _)| p.clone()).collect()
+        node.root
+            .style
+            .iter_inline_properties()
+            .map(|(p, _)| p.clone())
+            .collect()
     }
 
     /// The text carried by a text node, looking through the `<p>` block
@@ -395,22 +496,84 @@ mod autotest_generated {
     #[test]
     fn colors_returns_the_documented_constants_for_every_kind() {
         let expected = [
-            (BadgeKind::Default, ColorU { r: 108, g: 117, b: 125, a: 255 }, WHITE),
-            (BadgeKind::Primary, ColorU { r: 13, g: 110, b: 253, a: 255 }, WHITE),
-            (BadgeKind::Success, ColorU { r: 25, g: 135, b: 84, a: 255 }, WHITE),
-            (BadgeKind::Danger, ColorU { r: 220, g: 53, b: 69, a: 255 }, WHITE),
-            (BadgeKind::Warning, ColorU { r: 255, g: 193, b: 7, a: 255 }, DARK),
-            (BadgeKind::Info, ColorU { r: 13, g: 202, b: 240, a: 255 }, DARK),
+            (
+                BadgeKind::Default,
+                ColorU {
+                    r: 108,
+                    g: 117,
+                    b: 125,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            (
+                BadgeKind::Primary,
+                ColorU {
+                    r: 13,
+                    g: 110,
+                    b: 253,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            (
+                BadgeKind::Success,
+                ColorU {
+                    r: 25,
+                    g: 135,
+                    b: 84,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            (
+                BadgeKind::Danger,
+                ColorU {
+                    r: 220,
+                    g: 53,
+                    b: 69,
+                    a: 255,
+                },
+                WHITE,
+            ),
+            (
+                BadgeKind::Warning,
+                ColorU {
+                    r: 255,
+                    g: 193,
+                    b: 7,
+                    a: 255,
+                },
+                DARK,
+            ),
+            (
+                BadgeKind::Info,
+                ColorU {
+                    r: 13,
+                    g: 202,
+                    b: 240,
+                    a: 255,
+                },
+                DARK,
+            ),
         ];
         for (kind, bg, text) in expected {
-            assert_eq!(kind.colors(), (bg, text), "{kind:?}: wrong (background, text) pair");
+            assert_eq!(
+                kind.colors(),
+                (bg, text),
+                "{kind:?}: wrong (background, text) pair"
+            );
         }
         // The doc comments promise Warning/Info are the dark-text kinds and no
         // others: a fifth white-text kind sneaking in here is a regression.
         for kind in ALL_KINDS {
             let (_, text) = kind.colors();
             let dark_text = matches!(kind, BadgeKind::Warning | BadgeKind::Info);
-            assert_eq!(text == DARK, dark_text, "{kind:?}: text colour contradicts the documented variant");
+            assert_eq!(
+                text == DARK,
+                dark_text,
+                "{kind:?}: text colour contradicts the documented variant"
+            );
         }
     }
 
@@ -431,7 +594,10 @@ mod autotest_generated {
         let mut seen = HashSet::new();
         for kind in ALL_KINDS {
             let (bg, _) = kind.colors();
-            assert!(seen.insert((bg.r, bg.g, bg.b, bg.a)), "{kind:?}: duplicate background colour {bg:?}");
+            assert!(
+                seen.insert((bg.r, bg.g, bg.b, bg.a)),
+                "{kind:?}: duplicate background colour {bg:?}"
+            );
         }
         assert_eq!(seen.len(), ALL_KINDS.len());
     }
@@ -452,11 +618,19 @@ mod autotest_generated {
                 chosen > rejected,
                 "{kind:?}: text {text:?} (Δluma {chosen:.1}) is less readable on {bg:?} than {other:?} (Δluma {rejected:.1})"
             );
-            assert!(chosen >= 60.0, "{kind:?}: text/background brightness gap {chosen:.1} is too low to read");
+            assert!(
+                chosen >= 60.0,
+                "{kind:?}: text/background brightness gap {chosen:.1} is too low to read"
+            );
 
             // Mid-grey split: a light pill must not carry white text.
             let light_bg = luma(bg) >= 128.0;
-            assert_eq!(text == DARK, light_bg, "{kind:?}: bg luma {:.1} but text is {text:?}", luma(bg));
+            assert_eq!(
+                text == DARK,
+                light_bg,
+                "{kind:?}: bg luma {:.1} but text is {text:?}",
+                luma(bg)
+            );
         }
     }
 
@@ -468,8 +642,16 @@ mod autotest_generated {
         // through a copy, must be side-effect free and identical.
         for kind in ALL_KINDS {
             let copy = kind;
-            assert_eq!(kind.colors(), kind.colors(), "{kind:?}: colors() is not pure");
-            assert_eq!(kind.colors(), copy.colors(), "{kind:?}: a copy disagrees with the original");
+            assert_eq!(
+                kind.colors(),
+                kind.colors(),
+                "{kind:?}: colors() is not pure"
+            );
+            assert_eq!(
+                kind.colors(),
+                copy.colors(),
+                "{kind:?}: a copy disagrees with the original"
+            );
         }
     }
 
@@ -493,17 +675,28 @@ mod autotest_generated {
         let mut seen = HashSet::new();
         for kind in ALL_KINDS {
             let name = kind.class_name();
-            assert!(seen.insert(name), "{kind:?}: class name {name:?} collides with another kind");
+            assert!(
+                seen.insert(name),
+                "{kind:?}: class name {name:?} collides with another kind"
+            );
             assert!(!name.is_empty(), "{kind:?}: empty class name");
-            assert!(name.starts_with("__azul-badge-"), "{kind:?}: unnamespaced class {name:?}");
+            assert!(
+                name.starts_with("__azul-badge-"),
+                "{kind:?}: unnamespaced class {name:?}"
+            );
             assert!(name.is_ascii(), "{kind:?}: non-ASCII class name {name:?}");
             // A space, a dot or a `#` would silently split/re-target the selector.
             assert!(
-                name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
+                name.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
                 "{kind:?}: class name {name:?} contains a CSS-significant character"
             );
             // The returned `&'static str` must be stable across calls.
-            assert_eq!(name.as_ptr(), kind.class_name().as_ptr(), "{kind:?}: class_name() is not a stable constant");
+            assert_eq!(
+                name.as_ptr(),
+                kind.class_name().as_ptr(),
+                "{kind:?}: class_name() is not a stable constant"
+            );
         }
         assert_eq!(seen.len(), ALL_KINDS.len());
     }
@@ -516,9 +709,21 @@ mod autotest_generated {
     fn build_badge_style_emits_the_documented_pill_geometry() {
         for kind in ALL_KINDS {
             let style = build_badge_style(kind);
-            assert_eq!(padding_px(&style), (Some(2.0), Some(2.0), Some(8.0), Some(8.0)), "{kind:?}: padding is not 2px 8px");
-            assert_eq!(radii_px(&style), vec![10.0, 10.0, 10.0, 10.0], "{kind:?}: all four corners must carry a 10px radius");
-            assert_eq!(font_size_px(&style), Some(12.0), "{kind:?}: wrong font size");
+            assert_eq!(
+                padding_px(&style),
+                (Some(2.0), Some(2.0), Some(8.0), Some(8.0)),
+                "{kind:?}: padding is not 2px 8px"
+            );
+            assert_eq!(
+                radii_px(&style),
+                vec![10.0, 10.0, 10.0, 10.0],
+                "{kind:?}: all four corners must carry a 10px radius"
+            );
+            assert_eq!(
+                font_size_px(&style),
+                Some(12.0),
+                "{kind:?}: wrong font size"
+            );
         }
     }
 
@@ -534,7 +739,10 @@ mod autotest_generated {
                 + top.expect("padding-top")
                 + bottom.expect("padding-bottom");
             for r in radii_px(&style) {
-                assert!(r * 2.0 >= height, "{kind:?}: radius {r} does not reach half of the {height}px pill height");
+                assert!(
+                    r * 2.0 >= height,
+                    "{kind:?}: radius {r} does not reach half of the {height}px pill height"
+                );
             }
         }
     }
@@ -545,14 +753,34 @@ mod autotest_generated {
             let props = properties(&build_badge_style(kind));
             let has = |p: &CssProperty| props.contains(p);
 
-            assert!(has(&CssProperty::const_display(LayoutDisplay::Flex)), "{kind:?}: not a flex box");
-            assert!(has(&CssProperty::const_flex_direction(LayoutFlexDirection::Row)), "{kind:?}: wrong flex direction");
-            assert!(has(&CssProperty::const_justify_content(LayoutJustifyContent::Center)), "{kind:?}: text not centred");
-            assert!(has(&CssProperty::const_align_items(LayoutAlignItems::Center)), "{kind:?}: text not centred");
-            assert!(has(&CssProperty::const_text_align(StyleTextAlign::Center)), "{kind:?}: text not centred");
+            assert!(
+                has(&CssProperty::const_display(LayoutDisplay::Flex)),
+                "{kind:?}: not a flex box"
+            );
+            assert!(
+                has(&CssProperty::const_flex_direction(LayoutFlexDirection::Row)),
+                "{kind:?}: wrong flex direction"
+            );
+            assert!(
+                has(&CssProperty::const_justify_content(
+                    LayoutJustifyContent::Center
+                )),
+                "{kind:?}: text not centred"
+            );
+            assert!(
+                has(&CssProperty::const_align_items(LayoutAlignItems::Center)),
+                "{kind:?}: text not centred"
+            );
+            assert!(
+                has(&CssProperty::const_text_align(StyleTextAlign::Center)),
+                "{kind:?}: text not centred"
+            );
             // align-self: start + flex-grow: 0 — without both, the pill stretches
             // across a flex parent instead of hugging its label.
-            assert!(has(&CssProperty::align_self(LayoutAlignSelf::Start)), "{kind:?}: badge stretches on the cross axis");
+            assert!(
+                has(&CssProperty::align_self(LayoutAlignSelf::Start)),
+                "{kind:?}: badge stretches on the cross axis"
+            );
             assert!(
                 has(&CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
                 "{kind:?}: badge grows on the main axis"
@@ -565,8 +793,16 @@ mod autotest_generated {
         for kind in ALL_KINDS {
             let style = build_badge_style(kind);
             let (bg, text) = kind.colors();
-            assert_eq!(background_color(&style), Some(bg), "{kind:?}: emitted background != colors().0");
-            assert_eq!(text_color(&style), Some(text), "{kind:?}: emitted text colour != colors().1");
+            assert_eq!(
+                background_color(&style),
+                Some(bg),
+                "{kind:?}: emitted background != colors().0"
+            );
+            assert_eq!(
+                text_color(&style),
+                Some(text),
+                "{kind:?}: emitted text colour != colors().1"
+            );
         }
     }
 
@@ -578,7 +814,10 @@ mod autotest_generated {
             let props = properties(&build_badge_style(kind));
             let mut seen = HashSet::new();
             for p in &props {
-                assert!(seen.insert(core::mem::discriminant(p)), "{kind:?}: duplicate declaration of {p:?}");
+                assert!(
+                    seen.insert(core::mem::discriminant(p)),
+                    "{kind:?}: duplicate declaration of {p:?}"
+                );
             }
             assert_eq!(seen.len(), props.len());
         }
@@ -632,12 +871,19 @@ mod autotest_generated {
         // a NaN/inf/negative length must never reach the layout solver.
         for kind in ALL_KINDS {
             let values = all_pixel_values(&build_badge_style(kind));
-            assert_eq!(values.len(), 9, "{kind:?}: expected 4 paddings + 4 radii + 1 font size");
+            assert_eq!(
+                values.len(),
+                9,
+                "{kind:?}: expected 4 paddings + 4 radii + 1 font size"
+            );
             for pv in values {
                 let n = px(&pv); // also asserts SizeMetric::Px
                 assert!(n.is_finite(), "{kind:?}: non-finite length {n}");
                 assert!(n >= 0.0, "{kind:?}: negative length {n}");
-                assert!(n <= 128.0, "{kind:?}: implausibly large length {n} for a badge");
+                assert!(
+                    n <= 128.0,
+                    "{kind:?}: implausibly large length {n} for a badge"
+                );
             }
         }
     }
@@ -650,10 +896,25 @@ mod autotest_generated {
     fn create_defaults_to_grey_and_keeps_the_text_verbatim() {
         for s in adversarial_strings() {
             let b = Badge::create(AzString::from(s.clone()));
-            assert_eq!(b.string.as_str(), s.as_str(), "the label was not preserved verbatim");
-            assert_eq!(b.string.len(), s.len(), "byte length changed (NUL truncation?)");
-            assert_eq!(b.kind, BadgeKind::Default, "create() must use the grey default kind");
-            assert_eq!(properties(&b.badge_style), properties(&build_badge_style(BadgeKind::Default)));
+            assert_eq!(
+                b.string.as_str(),
+                s.as_str(),
+                "the label was not preserved verbatim"
+            );
+            assert_eq!(
+                b.string.len(),
+                s.len(),
+                "byte length changed (NUL truncation?)"
+            );
+            assert_eq!(
+                b.kind,
+                BadgeKind::Default,
+                "create() must use the grey default kind"
+            );
+            assert_eq!(
+                properties(&b.badge_style),
+                properties(&build_badge_style(BadgeKind::Default))
+            );
         }
     }
 
@@ -662,11 +923,21 @@ mod autotest_generated {
         for kind in ALL_KINDS {
             for s in adversarial_strings() {
                 let b = Badge::with_kind(AzString::from(s.clone()), kind);
-                assert_eq!(b.string.as_str(), s.as_str(), "{kind:?}: label not preserved");
+                assert_eq!(
+                    b.string.as_str(),
+                    s.as_str(),
+                    "{kind:?}: label not preserved"
+                );
                 assert_eq!(b.string.len(), s.len(), "{kind:?}: byte length changed");
-                assert_eq!(b.kind, kind, "{kind:?}: kind field does not match the argument");
+                assert_eq!(
+                    b.kind, kind,
+                    "{kind:?}: kind field does not match the argument"
+                );
                 // The invariant that makes `badge_style` a cache and not a lie.
-                assert_eq!(properties(&b.badge_style), properties(&build_badge_style(kind)));
+                assert_eq!(
+                    properties(&b.badge_style),
+                    properties(&build_badge_style(kind))
+                );
                 assert_eq!(background_color(&b.badge_style), Some(kind.colors().0));
             }
         }
@@ -690,7 +961,11 @@ mod autotest_generated {
         assert_eq!(d.kind, BadgeKind::Default);
         assert_eq!(d.clone(), d, "Clone must preserve equality");
 
-        assert_ne!(d, Badge::create(AzString::from_const_str("9")), "the label must affect equality");
+        assert_ne!(
+            d,
+            Badge::create(AzString::from_const_str("9")),
+            "the label must affect equality"
+        );
         assert_ne!(
             Badge::with_kind(AzString::from_const_str("9"), BadgeKind::Danger),
             Badge::with_kind(AzString::from_const_str("9"), BadgeKind::Success),
@@ -725,8 +1000,16 @@ mod autotest_generated {
                 properties(&build_badge_style(kind)),
                 "round {round}: style does not match a freshly built one"
             );
-            assert_eq!(background_color(&b.badge_style), Some(kind.colors().0), "round {round}: stale background");
-            assert_eq!(b.string.as_str(), "99+", "round {round}: set_kind ate the label");
+            assert_eq!(
+                background_color(&b.badge_style),
+                Some(kind.colors().0),
+                "round {round}: stale background"
+            );
+            assert_eq!(
+                b.string.as_str(),
+                "99+",
+                "round {round}: set_kind ate the label"
+            );
         }
     }
 
@@ -745,9 +1028,15 @@ mod autotest_generated {
         assert_eq!(chained, mutated, "the builder and the mutator must agree");
         assert_eq!(chained.kind, BadgeKind::Info);
         assert_eq!(chained.string.as_str(), "9");
-        assert_eq!(properties(&chained.badge_style), properties(&build_badge_style(BadgeKind::Info)));
+        assert_eq!(
+            properties(&chained.badge_style),
+            properties(&build_badge_style(BadgeKind::Info))
+        );
         // In particular the Danger red must be completely gone.
-        assert_eq!(background_color(&chained.badge_style), Some(BadgeKind::Info.colors().0));
+        assert_eq!(
+            background_color(&chained.badge_style),
+            Some(BadgeKind::Info.colors().0)
+        );
     }
 
     #[test]
@@ -755,7 +1044,10 @@ mod autotest_generated {
         for kind in ALL_KINDS {
             let once = Badge::with_kind(AzString::from_const_str("x"), kind);
             let twice = once.clone().with_badge_kind(kind);
-            assert_eq!(once, twice, "{kind:?}: re-setting the same kind changed the badge");
+            assert_eq!(
+                once, twice,
+                "{kind:?}: re-setting the same kind changed the badge"
+            );
         }
     }
 
@@ -771,14 +1063,21 @@ mod autotest_generated {
         // The returned value is the *original*, intact.
         assert_eq!(taken.string.as_str(), "99+");
         assert_eq!(taken.kind, BadgeKind::Danger);
-        assert_eq!(properties(&taken.badge_style), properties(&build_badge_style(BadgeKind::Danger)));
+        assert_eq!(
+            properties(&taken.badge_style),
+            properties(&build_badge_style(BadgeKind::Danger))
+        );
 
         // What is left behind is a *default* badge — in particular its style must
         // be the grey one and not a stale Danger red.
         assert_eq!(b, Badge::default());
         assert_eq!(b.string.as_str(), "");
         assert_eq!(b.kind, BadgeKind::Default);
-        assert_eq!(background_color(&b.badge_style), Some(BadgeKind::Default.colors().0), "the red survived the swap");
+        assert_eq!(
+            background_color(&b.badge_style),
+            Some(BadgeKind::Default.colors().0),
+            "the red survived the swap"
+        );
     }
 
     #[test]
@@ -798,12 +1097,24 @@ mod autotest_generated {
         for round in 0..10 {
             let taken = b.swap_with_default();
             if round == 0 {
-                assert_eq!(taken.string.len(), long.len(), "the long label was truncated");
+                assert_eq!(
+                    taken.string.len(),
+                    long.len(),
+                    "the long label was truncated"
+                );
                 assert_eq!(taken.kind, BadgeKind::Success);
             } else {
-                assert_eq!(taken, Badge::default(), "round {round}: the emptied badge is not a default");
+                assert_eq!(
+                    taken,
+                    Badge::default(),
+                    "round {round}: the emptied badge is not a default"
+                );
             }
-            assert_eq!(b, Badge::default(), "round {round}: what was left behind is not a default");
+            assert_eq!(
+                b,
+                Badge::default(),
+                "round {round}: what was left behind is not a default"
+            );
         }
     }
 
@@ -818,19 +1129,34 @@ mod autotest_generated {
             let expected = properties(&badge.badge_style);
             let dom = badge.dom();
 
-            assert!(has_class(&dom, "__azul-native-badge"), "{kind:?}: missing the widget class");
+            assert!(
+                has_class(&dom, "__azul-native-badge"),
+                "{kind:?}: missing the widget class"
+            );
             assert!(
                 matches!(dom.root.get_node_type(), NodeType::P),
                 "{kind:?}: the pill box must be the <p>, not a rect-less text node"
             );
-            assert_eq!(dom.children.as_ref().len(), 1, "{kind:?}: a badge is one <p> wrapping one text node");
-            assert_eq!(inline_properties(&dom), expected, "{kind:?}: the pill lost its computed style");
+            assert_eq!(
+                dom.children.as_ref().len(),
+                1,
+                "{kind:?}: a badge is one <p> wrapping one text node"
+            );
+            assert_eq!(
+                inline_properties(&dom),
+                expected,
+                "{kind:?}: the pill lost its computed style"
+            );
             assert!(
                 inline_properties(&dom.children.as_ref()[0]).is_empty(),
                 "{kind:?}: styling belongs on the <p>, not on the text node"
             );
 
-            assert_eq!(text_of(&dom), Some("99+"), "{kind:?}: the label was mangled");
+            assert_eq!(
+                text_of(&dom),
+                Some("99+"),
+                "{kind:?}: the label was mangled"
+            );
         }
     }
 
@@ -843,7 +1169,11 @@ mod autotest_generated {
             badge.set_kind(BadgeKind::Danger);
             badge.set_kind(kind);
             let expected = properties(&build_badge_style(kind));
-            assert_eq!(inline_properties(&badge.dom()), expected, "{kind:?}: the DOM does not show the current kind");
+            assert_eq!(
+                inline_properties(&badge.dom()),
+                expected,
+                "{kind:?}: the DOM does not show the current kind"
+            );
         }
     }
 
@@ -854,12 +1184,23 @@ mod autotest_generated {
             match dom.children.as_ref() {
                 [only] => match only.root.get_node_type() {
                     NodeType::Text(t) => {
-                        assert_eq!(t.as_ref().as_str(), s.as_str(), "the label changed on its way into the DOM");
-                        assert_eq!(t.as_ref().len(), s.len(), "byte length changed (NUL truncation?)");
+                        assert_eq!(
+                            t.as_ref().as_str(),
+                            s.as_str(),
+                            "the label changed on its way into the DOM"
+                        );
+                        assert_eq!(
+                            t.as_ref().len(),
+                            s.len(),
+                            "byte length changed (NUL truncation?)"
+                        );
                     }
                     other => panic!("expected a text node, got {other:?}"),
                 },
-                other => panic!("expected exactly one text child, got {} children", other.len()),
+                other => panic!(
+                    "expected exactly one text child, got {} children",
+                    other.len()
+                ),
             }
             assert!(has_class(&dom, "__azul-native-badge"));
         }
@@ -871,8 +1212,16 @@ mod autotest_generated {
             let badge = Badge::with_kind(AzString::from_const_str("ok"), kind);
             let via_into: Dom = badge.clone().into();
             let via_dom = badge.dom();
-            assert_eq!(inline_properties(&via_into), inline_properties(&via_dom), "{kind:?}: `From` diverges from `dom()`");
-            assert_eq!(via_into.root.get_node_type(), via_dom.root.get_node_type(), "{kind:?}: `From` built a different node");
+            assert_eq!(
+                inline_properties(&via_into),
+                inline_properties(&via_dom),
+                "{kind:?}: `From` diverges from `dom()`"
+            );
+            assert_eq!(
+                via_into.root.get_node_type(),
+                via_dom.root.get_node_type(),
+                "{kind:?}: `From` built a different node"
+            );
         }
     }
 }

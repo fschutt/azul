@@ -32,7 +32,9 @@ fn main() {
     // incident, where a new kernel lacked the boot disk's controller driver.)
     #[cfg(target_os = "linux")]
     if let Some(kver) = azul::desktop::extra::video_codec::provision::newest_installed_kernel() {
-        use azul::desktop::extra::video_codec::provision::{reboot_safety_check, repair_kernel_plan};
+        use azul::desktop::extra::video_codec::provision::{
+            reboot_safety_check, repair_kernel_plan,
+        };
         println!("\n=== Reboot-safety check (newest installed kernel) ===");
         let s = reboot_safety_check(&kver);
         println!("  kernel : {kver}");
@@ -51,9 +53,15 @@ fn main() {
                 if std::env::args().any(|a| a == "--repair") {
                     println!("  -> applying autofix (pkexec will prompt)…");
                     let r = repair.run();
-                    println!("     ok={} commands_run={} msg={}", r.ok, r.commands_run, r.message);
+                    println!(
+                        "     ok={} commands_run={} msg={}",
+                        r.ok, r.commands_run, r.message
+                    );
                     let after = reboot_safety_check(&kver);
-                    println!("     re-check after fix: safe={} — {}", after.safe, after.detail);
+                    println!(
+                        "     re-check after fix: safe={} — {}",
+                        after.safe, after.detail
+                    );
                 } else {
                     println!("     (pass --repair to apply it now)");
                 }
@@ -71,7 +79,10 @@ fn main() {
     println!("\n=== Remediation plan ===");
     let plan = ProvisionPlan::detect();
     if !plan.possible {
-        println!("  No driver-install plan for this machine: {}", plan.summary);
+        println!(
+            "  No driver-install plan for this machine: {}",
+            plan.summary
+        );
         return;
     }
     println!("  summary        : {}", plan.summary);
@@ -83,8 +94,8 @@ fn main() {
         println!("    {}. {}   (elevated={})", i + 1, c.display, c.elevated);
     }
 
-    let do_install = std::env::args().any(|a| a == "--install")
-        || std::env::var("AZ_PROVISION_INSTALL").is_ok();
+    let do_install =
+        std::env::args().any(|a| a == "--install") || std::env::var("AZ_PROVISION_INSTALL").is_ok();
     if !do_install {
         println!(
             "\n(dry run — pass --install to actually run the above; pkexec will \

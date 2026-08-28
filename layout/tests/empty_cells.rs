@@ -60,7 +60,10 @@ fn test_empty_cell_unicode_whitespace() {
 
     // Note: trim() may not catch all unicode whitespace
     // This is a limitation of the simple heuristic
-    assert!(is_whitespace_only, "U+00A0/U+2003/U+2009 are Unicode whitespace and should trim to empty");
+    assert!(
+        is_whitespace_only,
+        "U+00A0/U+2003/U+2009 are Unicode whitespace and should trim to empty"
+    );
 }
 
 #[test]
@@ -116,10 +119,14 @@ fn test_empty_cell_detection_logic() {
     }
 
     let cells = [
-        CellInfo { has_children: false }, // Empty
-        CellInfo { has_children: true },  // Has block content
-        CellInfo { has_children: true },  // Has inline content
-        CellInfo { has_children: false }, // Inline content only (no children)
+        CellInfo {
+            has_children: false,
+        }, // Empty
+        CellInfo { has_children: true }, // Has block content
+        CellInfo { has_children: true }, // Has inline content
+        CellInfo {
+            has_children: false,
+        }, // Inline content only (no children)
     ];
 
     for (idx, cell) in cells.iter().enumerate() {

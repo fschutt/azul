@@ -211,8 +211,7 @@ mod engine {
     }
 
     fn noop_waker() -> Waker {
-        const VTABLE: RawWakerVTable =
-            RawWakerVTable::new(|_| RAW, |_| {}, |_| {}, |_| {});
+        const VTABLE: RawWakerVTable = RawWakerVTable::new(|_| RAW, |_| {}, |_| {}, |_| {});
         const RAW: RawWaker = RawWaker::new(core::ptr::null(), &VTABLE);
         // SAFETY: the vtable's clone returns RAW and wake/drop are no-ops,
         // satisfying the Waker contract for a stateless waker.

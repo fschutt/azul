@@ -10,63 +10,72 @@ macro_rules! impl_pixel_value {
     ($struct:ident) => {
         impl $struct {
             #[inline]
-            #[must_use] pub const fn zero() -> Self {
+            #[must_use]
+            pub const fn zero() -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::zero(),
                 }
             }
 
             #[inline]
-            #[must_use] pub const fn const_px(value: isize) -> Self {
+            #[must_use]
+            pub const fn const_px(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_px(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub const fn const_em(value: isize) -> Self {
+            #[must_use]
+            pub const fn const_em(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_em(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub const fn const_pt(value: isize) -> Self {
+            #[must_use]
+            pub const fn const_pt(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_pt(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub const fn const_percent(value: isize) -> Self {
+            #[must_use]
+            pub const fn const_percent(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_percent(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub const fn const_in(value: isize) -> Self {
+            #[must_use]
+            pub const fn const_in(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_in(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub const fn const_cm(value: isize) -> Self {
+            #[must_use]
+            pub const fn const_cm(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_cm(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub const fn const_mm(value: isize) -> Self {
+            #[must_use]
+            pub const fn const_mm(value: isize) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::const_mm(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub const fn const_from_metric(
+            #[must_use]
+            pub const fn const_from_metric(
                 metric: crate::props::basic::length::SizeMetric,
                 value: isize,
             ) -> Self {
@@ -76,35 +85,40 @@ macro_rules! impl_pixel_value {
             }
 
             #[inline]
-            #[must_use] pub fn px(value: f32) -> Self {
+            #[must_use]
+            pub fn px(value: f32) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::px(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub fn em(value: f32) -> Self {
+            #[must_use]
+            pub fn em(value: f32) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::em(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub fn pt(value: f32) -> Self {
+            #[must_use]
+            pub fn pt(value: f32) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::pt(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub fn percent(value: f32) -> Self {
+            #[must_use]
+            pub fn percent(value: f32) -> Self {
                 Self {
                     inner: crate::props::basic::pixel::PixelValue::percent(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub fn from_metric(
+            #[must_use]
+            pub fn from_metric(
                 metric: crate::props::basic::length::SizeMetric,
                 value: f32,
             ) -> Self {
@@ -114,7 +128,8 @@ macro_rules! impl_pixel_value {
             }
 
             #[inline]
-            #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            #[must_use]
+            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
                 $struct {
                     inner: self.inner.interpolate(&other.inner, t),
                 }
@@ -141,21 +156,24 @@ macro_rules! impl_percentage_value {
             /// Same as `PercentageValue::new()`, but only accepts whole numbers
             /// in order to be usable in `const` context.
             #[inline]
-            #[must_use] pub const fn const_new(value: isize) -> Self {
+            #[must_use]
+            pub const fn const_new(value: isize) -> Self {
                 Self {
                     inner: PercentageValue::const_new(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub fn new(value: f32) -> Self {
+            #[must_use]
+            pub fn new(value: f32) -> Self {
                 Self {
                     inner: PercentageValue::new(value),
                 }
             }
 
             #[inline]
-            #[must_use] pub fn interpolate(&self, other: &Self, t: f32) -> Self {
+            #[must_use]
+            pub fn interpolate(&self, other: &Self, t: f32) -> Self {
                 $struct {
                     inner: self.inner.interpolate(&other.inner, t),
                 }
@@ -294,8 +312,12 @@ macro_rules! css_property_from_type {
             CssPropertyType::Clear => CssProperty::Clear(CssPropertyValue::$content_type),
             CssPropertyType::OverflowX => CssProperty::OverflowX(CssPropertyValue::$content_type),
             CssPropertyType::OverflowY => CssProperty::OverflowY(CssPropertyValue::$content_type),
-            CssPropertyType::OverflowBlock => CssProperty::OverflowBlock(CssPropertyValue::$content_type),
-            CssPropertyType::OverflowInline => CssProperty::OverflowInline(CssPropertyValue::$content_type),
+            CssPropertyType::OverflowBlock => {
+                CssProperty::OverflowBlock(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::OverflowInline => {
+                CssProperty::OverflowInline(CssPropertyValue::$content_type)
+            }
             CssPropertyType::PaddingTop => CssProperty::PaddingTop(CssPropertyValue::$content_type),
             CssPropertyType::PaddingLeft => {
                 CssProperty::PaddingLeft(CssPropertyValue::$content_type)
@@ -452,15 +474,29 @@ macro_rules! css_property_from_type {
             CssPropertyType::Direction => CssProperty::Direction(CssPropertyValue::$content_type),
             CssPropertyType::Hyphens => CssProperty::Hyphens(CssPropertyValue::$content_type),
             CssPropertyType::WordBreak => CssProperty::WordBreak(CssPropertyValue::$content_type),
-            CssPropertyType::OverflowWrap => CssProperty::OverflowWrap(CssPropertyValue::$content_type),
+            CssPropertyType::OverflowWrap => {
+                CssProperty::OverflowWrap(CssPropertyValue::$content_type)
+            }
             CssPropertyType::LineBreak => CssProperty::LineBreak(CssPropertyValue::$content_type),
-            CssPropertyType::TextOverflow => CssProperty::TextOverflow(CssPropertyValue::$content_type),
+            CssPropertyType::TextOverflow => {
+                CssProperty::TextOverflow(CssPropertyValue::$content_type)
+            }
             CssPropertyType::ObjectFit => CssProperty::ObjectFit(CssPropertyValue::$content_type),
-            CssPropertyType::ObjectPosition => CssProperty::ObjectPosition(CssPropertyValue::$content_type),
-            CssPropertyType::AspectRatio => CssProperty::AspectRatio(CssPropertyValue::$content_type),
-            CssPropertyType::TextOrientation => CssProperty::TextOrientation(CssPropertyValue::$content_type),
-            CssPropertyType::TextAlignLast => CssProperty::TextAlignLast(CssPropertyValue::$content_type),
-            CssPropertyType::TextTransform => CssProperty::TextTransform(CssPropertyValue::$content_type),
+            CssPropertyType::ObjectPosition => {
+                CssProperty::ObjectPosition(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::AspectRatio => {
+                CssProperty::AspectRatio(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::TextOrientation => {
+                CssProperty::TextOrientation(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::TextAlignLast => {
+                CssProperty::TextAlignLast(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::TextTransform => {
+                CssProperty::TextTransform(CssPropertyValue::$content_type)
+            }
             CssPropertyType::WhiteSpace => CssProperty::WhiteSpace(CssPropertyValue::$content_type),
             CssPropertyType::UserSelect => CssProperty::UserSelect(CssPropertyValue::$content_type),
             CssPropertyType::TextDecoration => {
@@ -543,17 +579,39 @@ macro_rules! css_property_from_type {
             CssPropertyType::EmptyCells => CssProperty::EmptyCells(CssPropertyValue::$content_type),
             CssPropertyType::FontWeight => CssProperty::FontWeight(CssPropertyValue::$content_type),
             CssPropertyType::FontStyle => CssProperty::FontStyle(CssPropertyValue::$content_type),
-            CssPropertyType::UnicodeBidi => CssProperty::UnicodeBidi(CssPropertyValue::$content_type),
-            CssPropertyType::TextBoxTrim => CssProperty::TextBoxTrim(CssPropertyValue::$content_type),
-            CssPropertyType::TextBoxEdge => CssProperty::TextBoxEdge(CssPropertyValue::$content_type),
-            CssPropertyType::DominantBaseline => CssProperty::DominantBaseline(CssPropertyValue::$content_type),
-            CssPropertyType::AlignmentBaseline => CssProperty::AlignmentBaseline(CssPropertyValue::$content_type),
-            CssPropertyType::BaselineSource => CssProperty::BaselineSource(CssPropertyValue::$content_type),
-            CssPropertyType::LineFitEdge => CssProperty::LineFitEdge(CssPropertyValue::$content_type),
-            CssPropertyType::InitialLetterAlign => CssProperty::InitialLetterAlign(CssPropertyValue::$content_type),
-            CssPropertyType::InitialLetterWrap => CssProperty::InitialLetterWrap(CssPropertyValue::$content_type),
-            CssPropertyType::ScrollbarGutter => CssProperty::ScrollbarGutter(CssPropertyValue::$content_type),
-            CssPropertyType::OverflowClipMargin => CssProperty::OverflowClipMargin(CssPropertyValue::$content_type),
+            CssPropertyType::UnicodeBidi => {
+                CssProperty::UnicodeBidi(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::TextBoxTrim => {
+                CssProperty::TextBoxTrim(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::TextBoxEdge => {
+                CssProperty::TextBoxEdge(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::DominantBaseline => {
+                CssProperty::DominantBaseline(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::AlignmentBaseline => {
+                CssProperty::AlignmentBaseline(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::BaselineSource => {
+                CssProperty::BaselineSource(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::LineFitEdge => {
+                CssProperty::LineFitEdge(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::InitialLetterAlign => {
+                CssProperty::InitialLetterAlign(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::InitialLetterWrap => {
+                CssProperty::InitialLetterWrap(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::ScrollbarGutter => {
+                CssProperty::ScrollbarGutter(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::OverflowClipMargin => {
+                CssProperty::OverflowClipMargin(CssPropertyValue::$content_type)
+            }
             CssPropertyType::Clip => CssProperty::Clip(CssPropertyValue::$content_type),
         }
     }};

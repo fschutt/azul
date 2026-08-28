@@ -93,7 +93,8 @@ pub struct NodeUndoRedoStack {
 }
 
 impl NodeUndoRedoStack {
-    #[must_use] pub fn new(node_id: NodeId) -> Self {
+    #[must_use]
+    pub fn new(node_id: NodeId) -> Self {
         Self {
             node_id,
             undo_stack: VecDeque::with_capacity(MAX_UNDO_HISTORY),
@@ -147,22 +148,26 @@ impl NodeUndoRedoStack {
     }
 
     /// Check if undo is available
-    #[must_use] pub fn can_undo(&self) -> bool {
+    #[must_use]
+    pub fn can_undo(&self) -> bool {
         !self.undo_stack.is_empty()
     }
 
     /// Check if redo is available
-    #[must_use] pub fn can_redo(&self) -> bool {
+    #[must_use]
+    pub fn can_redo(&self) -> bool {
         !self.redo_stack.is_empty()
     }
 
     /// Peek at the most recent undo operation without removing it
-    #[must_use] pub fn peek_undo(&self) -> Option<&UndoableOperation> {
+    #[must_use]
+    pub fn peek_undo(&self) -> Option<&UndoableOperation> {
         self.undo_stack.back()
     }
 
     /// Peek at the most recent redo operation without removing it
-    #[must_use] pub fn peek_redo(&self) -> Option<&UndoableOperation> {
+    #[must_use]
+    pub fn peek_redo(&self) -> Option<&UndoableOperation> {
         self.redo_stack.back()
     }
 }
@@ -268,7 +273,8 @@ impl UndoRedoManager {
     }
 
     /// Create a new empty undo/redo manager
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             node_stacks: Vec::new(),
             content_snapshots: Vec::new(),
@@ -284,15 +290,18 @@ impl UndoRedoManager {
         pre: Vec<crate::text3::cache::InlineContent>,
         post: Vec<crate::text3::cache::InlineContent>,
     ) {
-        self.content_snapshots.retain(|(existing, _)| *existing != id);
-        self.content_snapshots.push((id, ContentSnapshot { pre, post }));
+        self.content_snapshots
+            .retain(|(existing, _)| *existing != id);
+        self.content_snapshots
+            .push((id, ContentSnapshot { pre, post }));
         if self.content_snapshots.len() > MAX_CONTENT_SNAPSHOTS {
             self.content_snapshots.remove(0);
         }
     }
 
     /// Look up the styled snapshot for a changeset id.
-    #[must_use] pub fn get_content_snapshot(
+    #[must_use]
+    pub fn get_content_snapshot(
         &self,
         id: super::changeset::ChangesetId,
     ) -> Option<&ContentSnapshot> {
@@ -332,7 +341,8 @@ impl UndoRedoManager {
     }
 
     /// Get a stack for a specific node (immutable)
-    #[must_use] pub fn get_stack(&self, node_id: NodeId) -> Option<&NodeUndoRedoStack> {
+    #[must_use]
+    pub fn get_stack(&self, node_id: NodeId) -> Option<&NodeUndoRedoStack> {
         self.node_stacks.iter().find(|s| s.node_id == node_id)
     }
 
@@ -371,13 +381,15 @@ impl UndoRedoManager {
     }
 
     /// Check if undo is available for a node
-    #[must_use] pub fn can_undo(&self, node_id: NodeId) -> bool {
+    #[must_use]
+    pub fn can_undo(&self, node_id: NodeId) -> bool {
         self.get_stack(node_id)
             .is_some_and(NodeUndoRedoStack::can_undo)
     }
 
     /// Check if redo is available for a node
-    #[must_use] pub fn can_redo(&self, node_id: NodeId) -> bool {
+    #[must_use]
+    pub fn can_redo(&self, node_id: NodeId) -> bool {
         self.get_stack(node_id)
             .is_some_and(NodeUndoRedoStack::can_redo)
     }
@@ -385,14 +397,16 @@ impl UndoRedoManager {
     /// Peek at the next undo operation for a node (without removing it)
     ///
     /// This allows user callbacks to inspect what would be undone.
-    #[must_use] pub fn peek_undo(&self, node_id: NodeId) -> Option<&UndoableOperation> {
+    #[must_use]
+    pub fn peek_undo(&self, node_id: NodeId) -> Option<&UndoableOperation> {
         self.get_stack(node_id).and_then(|s| s.peek_undo())
     }
 
     /// Peek at the next redo operation for a node (without removing it)
     ///
     /// This allows user callbacks to inspect what would be redone.
-    #[must_use] pub fn peek_redo(&self, node_id: NodeId) -> Option<&UndoableOperation> {
+    #[must_use]
+    pub fn peek_redo(&self, node_id: NodeId) -> Option<&UndoableOperation> {
         self.get_stack(node_id).and_then(|s| s.peek_redo())
     }
 
@@ -453,7 +467,6 @@ impl UndoRedoManager {
         let stack = self.get_or_create_stack_mut(node_id);
         stack.push_undo(operation);
     }
-
 }
 
 impl crate::managers::NodeIdRemap for UndoRedoManager {
@@ -493,7 +506,11 @@ impl crate::managers::NodeIdRemap for UndoRedoManager {
             };
 
             stack.node_id = new_node_id;
-            for op in stack.undo_stack.iter_mut().chain(stack.redo_stack.iter_mut()) {
+            for op in stack
+                .undo_stack
+                .iter_mut()
+                .chain(stack.redo_stack.iter_mut())
+            {
                 remap_operation(op, dom, map, new_node_id);
             }
             self.node_stacks.push(stack);
@@ -529,7 +546,6 @@ fn remap_operation(
         op.pre_state.node_id = new_node_id;
     }
 }
-
 
 #[cfg(test)]
 mod undo_redo_tests {
@@ -604,7 +620,10 @@ mod undo_redo_tests {
             mgr.store_content_snapshot(id, Vec::new(), Vec::new());
         }
         assert!(mgr.content_snapshots.len() <= MAX_CONTENT_SNAPSHOTS);
-        assert!(mgr.get_content_snapshot(7).is_none(), "oldest entry evicted");
+        assert!(
+            mgr.get_content_snapshot(7).is_none(),
+            "oldest entry evicted"
+        );
         assert!(mgr
             .get_content_snapshot(100 + MAX_CONTENT_SNAPSHOTS - 1)
             .is_some());
@@ -672,7 +691,9 @@ mod structural_history_tests {
         assert_eq!(m.structural_undo.len(), 1);
 
         // A FRESH edit invalidates redo (the text rule):
-        if let Some(e) = m.pop_structural_undo() { m.push_structural_redo(e) }
+        if let Some(e) = m.pop_structural_undo() {
+            m.push_structural_redo(e)
+        }
         assert_eq!(m.structural_redo.len(), 1);
         m.push_structural(entry(2));
         assert!(m.structural_redo.is_empty(), "fresh edit clears redo");
@@ -844,7 +865,10 @@ mod autotest_generated {
         }
         assert_eq!(s.undo_stack.len(), MAX_UNDO_HISTORY, "history is bounded");
         // FIFO eviction: the surviving window is the LAST MAX_UNDO_HISTORY pushes.
-        assert_eq!(s.undo_stack.front().unwrap().changeset.id, total - MAX_UNDO_HISTORY);
+        assert_eq!(
+            s.undo_stack.front().unwrap().changeset.id,
+            total - MAX_UNDO_HISTORY
+        );
         assert_eq!(s.peek_undo().unwrap().changeset.id, total - 1);
     }
 
@@ -856,7 +880,10 @@ mod autotest_generated {
             s.push_redo(op(id, 1));
         }
         assert_eq!(s.redo_stack.len(), MAX_REDO_HISTORY);
-        assert_eq!(s.redo_stack.front().unwrap().changeset.id, total - MAX_REDO_HISTORY);
+        assert_eq!(
+            s.redo_stack.front().unwrap().changeset.id,
+            total - MAX_REDO_HISTORY
+        );
         assert_eq!(s.peek_redo().unwrap().changeset.id, total - 1);
     }
 
@@ -886,7 +913,10 @@ mod autotest_generated {
         }
         assert!(s.can_redo());
         s.push_undo(op(999, 1));
-        assert!(!s.can_redo(), "a fresh edit invalidates the whole redo branch");
+        assert!(
+            !s.can_redo(),
+            "a fresh edit invalidates the whole redo branch"
+        );
         assert!(s.redo_stack.is_empty());
         assert!(s.peek_redo().is_none());
         assert!(s.can_undo());
@@ -1080,9 +1110,11 @@ mod autotest_generated {
         let mut mgr = UndoRedoManager::new();
         let boundary = NodeId::new(usize::MAX - 1);
 
-        mgr.get_or_create_stack_mut(NodeId::new(3)).push_undo(op(1, 3));
+        mgr.get_or_create_stack_mut(NodeId::new(3))
+            .push_undo(op(1, 3));
         // Second call for the same node must reuse, not duplicate.
-        mgr.get_or_create_stack_mut(NodeId::new(3)).push_undo(op(2, 3));
+        mgr.get_or_create_stack_mut(NodeId::new(3))
+            .push_undo(op(2, 3));
         assert_eq!(mgr.node_stacks.len(), 1);
         assert_eq!(mgr.get_stack(NodeId::new(3)).unwrap().undo_stack.len(), 2);
 
@@ -1120,7 +1152,10 @@ mod autotest_generated {
         while mgr.pop_undo(NodeId::new(2)).is_some() {}
         assert!(!mgr.can_undo(NodeId::new(2)));
         assert!(mgr.can_undo(NodeId::new(1)));
-        assert_eq!(mgr.peek_undo(NodeId::new(1)).unwrap().changeset.id, MAX_UNDO_HISTORY * 2 + 4);
+        assert_eq!(
+            mgr.peek_undo(NodeId::new(1)).unwrap().changeset.id,
+            MAX_UNDO_HISTORY * 2 + 4
+        );
     }
 
     #[test]
@@ -1131,8 +1166,14 @@ mod autotest_generated {
         assert!(mgr.can_redo(NodeId::new(1)) && mgr.can_redo(NodeId::new(2)));
 
         mgr.push_undo(op(3, 1));
-        assert!(!mgr.can_redo(NodeId::new(1)), "fresh edit drops node 1's redo branch");
-        assert!(mgr.can_redo(NodeId::new(2)), "node 2 is an independent history");
+        assert!(
+            !mgr.can_redo(NodeId::new(1)),
+            "fresh edit drops node 1's redo branch"
+        );
+        assert!(
+            mgr.can_redo(NodeId::new(2)),
+            "node 2 is an independent history"
+        );
     }
 
     #[test]
@@ -1211,7 +1252,9 @@ mod autotest_generated {
     fn content_snapshot_does_not_swap_pre_and_post() {
         let mut mgr = UndoRedoManager::new();
         mgr.store_content_snapshot(3, one(space(1.0)), one(space(2.0)));
-        let snap = mgr.get_content_snapshot(3).expect("stored id must be found");
+        let snap = mgr
+            .get_content_snapshot(3)
+            .expect("stored id must be found");
         assert_eq!(space_width(&snap.pre[0]), 1.0, "pre must stay pre");
         assert_eq!(space_width(&snap.post[0]), 2.0, "post must stay post");
     }
@@ -1231,7 +1274,10 @@ mod autotest_generated {
         mgr.store_content_snapshot(0, Vec::new(), Vec::new());
         mgr.store_content_snapshot(usize::MAX, one(space(0.0)), Vec::new());
 
-        assert!(mgr.get_content_snapshot(0).is_some(), "id 0 is a real key, not a sentinel");
+        assert!(
+            mgr.get_content_snapshot(0).is_some(),
+            "id 0 is a real key, not a sentinel"
+        );
         assert!(mgr.get_content_snapshot(usize::MAX).is_some());
         assert!(mgr.get_content_snapshot(1).is_none());
         assert!(mgr.get_content_snapshot(usize::MAX - 1).is_none());
@@ -1249,14 +1295,31 @@ mod autotest_generated {
         // Re-store the OLDEST id with a new payload: it is replaced (no duplicate)
         // and moves to the back of the FIFO.
         mgr.store_content_snapshot(0, one(space(42.0)), Vec::new());
-        assert_eq!(mgr.content_snapshots.len(), MAX_CONTENT_SNAPSHOTS, "no duplicate key");
-        assert_eq!(space_width(&mgr.get_content_snapshot(0).unwrap().pre[0]), 42.0);
+        assert_eq!(
+            mgr.content_snapshots.len(),
+            MAX_CONTENT_SNAPSHOTS,
+            "no duplicate key"
+        );
+        assert_eq!(
+            space_width(&mgr.get_content_snapshot(0).unwrap().pre[0]),
+            42.0
+        );
 
         // One more insert evicts id 1 (now the oldest), NOT the refreshed id 0.
         mgr.store_content_snapshot(9_999, Vec::new(), Vec::new());
-        assert_eq!(mgr.content_snapshots.len(), MAX_CONTENT_SNAPSHOTS, "cap holds");
-        assert!(mgr.get_content_snapshot(0).is_some(), "refreshed entry survived");
-        assert!(mgr.get_content_snapshot(1).is_none(), "second-oldest evicted");
+        assert_eq!(
+            mgr.content_snapshots.len(),
+            MAX_CONTENT_SNAPSHOTS,
+            "cap holds"
+        );
+        assert!(
+            mgr.get_content_snapshot(0).is_some(),
+            "refreshed entry survived"
+        );
+        assert!(
+            mgr.get_content_snapshot(1).is_none(),
+            "second-oldest evicted"
+        );
         assert!(mgr.get_content_snapshot(9_999).is_some());
     }
 
@@ -1271,7 +1334,9 @@ mod autotest_generated {
         // The surviving window is the newest MAX_CONTENT_SNAPSHOTS ids.
         let newest = MAX_CONTENT_SNAPSHOTS * 10 - 1;
         assert!(mgr.get_content_snapshot(newest).is_some());
-        assert!(mgr.get_content_snapshot(newest - MAX_CONTENT_SNAPSHOTS).is_none());
+        assert!(mgr
+            .get_content_snapshot(newest - MAX_CONTENT_SNAPSHOTS)
+            .is_none());
     }
 
     // ---------------------------------------------------------------------
@@ -1290,15 +1355,32 @@ mod autotest_generated {
         let map = NodeIdMap::from_pairs([(NodeId::new(3), NodeId::new(2))]);
         mgr.remap_node_ids(DomId { inner: 0 }, &map);
 
-        assert!(mgr.get_stack(NodeId::new(3)).is_none(), "old key must be gone");
-        let stack = mgr.get_stack(NodeId::new(2)).expect("stack re-keyed to the new id");
+        assert!(
+            mgr.get_stack(NodeId::new(3)).is_none(),
+            "old key must be gone"
+        );
+        let stack = mgr
+            .get_stack(NodeId::new(2))
+            .expect("stack re-keyed to the new id");
         assert_eq!(stack.node_id, NodeId::new(2));
 
         let undo = stack.peek_undo().unwrap();
-        assert_eq!(target_node(undo), Some(NodeId::new(2)), "changeset target remapped");
-        assert_eq!(undo.pre_state.node_id, NodeId::new(2), "snapshot node remapped");
+        assert_eq!(
+            target_node(undo),
+            Some(NodeId::new(2)),
+            "changeset target remapped"
+        );
+        assert_eq!(
+            undo.pre_state.node_id,
+            NodeId::new(2),
+            "snapshot node remapped"
+        );
         let redo = stack.peek_redo().unwrap();
-        assert_eq!(target_node(redo), Some(NodeId::new(2)), "redo stack remapped too");
+        assert_eq!(
+            target_node(redo),
+            Some(NodeId::new(2)),
+            "redo stack remapped too"
+        );
         assert_eq!(redo.pre_state.node_id, NodeId::new(2));
 
         assert!(
@@ -1318,9 +1400,15 @@ mod autotest_generated {
         let map = NodeIdMap::from_pairs([(NodeId::new(0), NodeId::new(0))]);
         mgr.remap_node_ids(DomId { inner: 0 }, &map);
 
-        assert!(mgr.node_stacks.is_empty(), "history of an unmounted node is dropped");
+        assert!(
+            mgr.node_stacks.is_empty(),
+            "history of an unmounted node is dropped"
+        );
         assert!(!mgr.can_undo(NodeId::new(3)));
-        assert!(!mgr.can_undo(NodeId::new(2)), "history must NOT re-attach to a neighbour");
+        assert!(
+            !mgr.can_undo(NodeId::new(2)),
+            "history must NOT re-attach to a neighbour"
+        );
         assert!(
             mgr.content_snapshots.is_empty(),
             "snapshots of dropped changesets are GC'd"
@@ -1343,7 +1431,11 @@ mod autotest_generated {
             .expect("a foreign DOM's stack keeps its key");
         assert_eq!(stack.node_id, NodeId::new(3));
         let undo = stack.peek_undo().unwrap();
-        assert_eq!(target_node(undo), Some(NodeId::new(3)), "foreign target untouched");
+        assert_eq!(
+            target_node(undo),
+            Some(NodeId::new(3)),
+            "foreign target untouched"
+        );
         assert_eq!(undo.changeset.target.dom, DomId { inner: 1 });
         assert_eq!(undo.pre_state.node_id, NodeId::new(3));
         assert!(mgr.get_content_snapshot(1).is_some());
@@ -1394,8 +1486,15 @@ mod autotest_generated {
         }
         assert_eq!(mgr.node_stacks.len(), 1);
         let stack = mgr.get_stack(NodeId::new(3)).unwrap();
-        assert_eq!(stack.undo_stack.len(), 1, "repeated remaps must not duplicate ops");
-        assert_eq!(target_node(stack.peek_undo().unwrap()), Some(NodeId::new(3)));
+        assert_eq!(
+            stack.undo_stack.len(),
+            1,
+            "repeated remaps must not duplicate ops"
+        );
+        assert_eq!(
+            target_node(stack.peek_undo().unwrap()),
+            Some(NodeId::new(3))
+        );
     }
 
     #[test]
@@ -1465,7 +1564,11 @@ mod autotest_generated {
         let map = NodeIdMap::from_pairs([(NodeId::new(3), boundary)]);
         remap_operation(&mut o, DomId { inner: 0 }, &map, boundary);
 
-        assert_eq!(target_node(&o), Some(boundary), "encode/decode is lossless at the boundary");
+        assert_eq!(
+            target_node(&o),
+            Some(boundary),
+            "encode/decode is lossless at the boundary"
+        );
         assert_eq!(o.pre_state.node_id, boundary);
         assert_eq!(target_node(&o).unwrap().index(), usize::MAX - 1);
     }

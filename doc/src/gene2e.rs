@@ -684,7 +684,11 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
             if t.contains("default") {
                 pending_default = true;
             }
-            if let Some(r) = t.split("rename = \"").nth(1).and_then(|s| s.split('"').next()) {
+            if let Some(r) = t
+                .split("rename = \"")
+                .nth(1)
+                .and_then(|s| s.split('"').next())
+            {
                 pending_rename = Some(r.to_string());
             }
             continue;
@@ -702,7 +706,9 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
             continue;
         }
         if let Some((name, ty)) = t.split_once(':') {
-            let name = pending_rename.take().unwrap_or_else(|| name.trim().to_string());
+            let name = pending_rename
+                .take()
+                .unwrap_or_else(|| name.trim().to_string());
             let optional = pending_default || ty.trim_start().starts_with("Option<");
             pending_default = false;
             if let Some(c) = cur.as_mut() {
@@ -771,7 +777,9 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
         );
     }
     if handled.is_empty() {
-        bail!("gen-e2e: no `DebugEvent::` match arms found in full.rs — the dispatch shape changed");
+        bail!(
+            "gen-e2e: no `DebugEvent::` match arms found in full.rs — the dispatch shape changed"
+        );
     }
 
     // ---- 3. ops the E2E step loop handles itself (not DebugEvent variants) --
@@ -779,16 +787,20 @@ pub fn parse_schema(project_root: &Path) -> Result<Schema> {
     // step's response payload), not as a DebugEvent arm — so the schema scanner
     // never sees it. Without it here, any GENERATED test using the get_* / query
     // family (which pairs a query op with `assert_response`) fails validation.
-    let extra: Vec<OpDef> =
-        ["commit_undo_snapshot", "undo_app_state", "redo_app_state", "assert_response"]
-            .into_iter()
-            .filter(|o| src.contains(&format!("\"{o}\"")))
-            .map(|o| OpDef {
-                name: o.to_string(),
-                params: step_loop_op_params(&src, o),
-                doc: None,
-            })
-            .collect();
+    let extra: Vec<OpDef> = [
+        "commit_undo_snapshot",
+        "undo_app_state",
+        "redo_app_state",
+        "assert_response",
+    ]
+    .into_iter()
+    .filter(|o| src.contains(&format!("\"{o}\"")))
+    .map(|o| OpDef {
+        name: o.to_string(),
+        params: step_loop_op_params(&src, o),
+        doc: None,
+    })
+    .collect();
 
     // Blind-spot alarm. `schema_doc` renders "(no params)" for anything this
     // scanner came up empty on, and the prompt says params not listed do not
@@ -869,14 +881,18 @@ fn closure_relayed_keys(body: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for (i, _) in body.match_indices("let ") {
         let after = &body[i + 4..];
-        let Some(eq) = after.find(" = |") else { continue };
+        let Some(eq) = after.find(" = |") else {
+            continue;
+        };
         let name = after[..eq].trim();
         if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
             continue;
         }
         // First closure parameter name: `|key: &str, …|` → `key`.
         let params_start = eq + 4;
-        let Some(bar) = after[params_start..].find('|') else { continue };
+        let Some(bar) = after[params_start..].find('|') else {
+            continue;
+        };
         let arg = after[params_start..params_start + bar]
             .split(',')
             .next()
@@ -922,7 +938,9 @@ fn reject_guard_keys(body: &str) -> Vec<String> {
     while let Some(p) = rest.find("reject_unknown_params(") {
         rest = &rest[p + "reject_unknown_params(".len()..];
         let Some(open) = rest.find("&[") else { break };
-        let Some(close) = rest[open..].find(']') else { break };
+        let Some(close) = rest[open..].find(']') else {
+            break;
+        };
         let list = &rest[open..open + close];
         for key in list.split('"').skip(1).step_by(2) {
             if !out.iter().any(|n| n == key) {
@@ -1340,8 +1358,7 @@ fn extract_json(raw: &str) -> Option<&str> {
 /// The MECHANICAL GATE. Every failure here means: delete the artifact, count a
 /// FAIL, do not mark the line done.
 pub fn validate(schema: &Schema, json: &str) -> Result<()> {
-    let v: serde_json::Value =
-        serde_json::from_str(json).context("output is not valid JSON")?;
+    let v: serde_json::Value = serde_json::from_str(json).context("output is not valid JSON")?;
     let obj = v.as_object().context("top level is not a JSON object")?;
 
     if !obj.get("name").is_some_and(serde_json::Value::is_string) {
@@ -1423,12 +1440,15 @@ pub fn validate(schema: &Schema, json: &str) -> Result<()> {
                     continue;
                 }
                 if !def.params.iter().any(|(p, _)| p == key) {
-                    let known: Vec<&str> =
-                        def.params.iter().map(|(p, _)| p.as_str()).collect();
+                    let known: Vec<&str> = def.params.iter().map(|(p, _)| p.as_str()).collect();
                     bail!(
                         "step {i}: op `{op}` has no param `{key}` (known: {}). An unknown param \
                          is dropped by the runner, so the step would assert LESS than it says.",
-                        if known.is_empty() { "(none)".to_string() } else { known.join(", ") }
+                        if known.is_empty() {
+                            "(none)".to_string()
+                        } else {
+                            known.join(", ")
+                        }
                     );
                 }
             }
@@ -1813,8 +1833,10 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
     // human-friendly numbering tracks the corpus and the file is not mistaken
     // for a duplicate later.
     let mut artifacts = scan_artifacts(&schema, &out_dir);
-    let expected: BTreeMap<&str, &Path> =
-        all.iter().map(|w| (w.hash.as_str(), w.out.as_path())).collect();
+    let expected: BTreeMap<&str, &Path> = all
+        .iter()
+        .map(|w| (w.hash.as_str(), w.out.as_path()))
+        .collect();
     let mut renamed = 0usize;
     for a in &mut artifacts {
         let Some(h) = a.hash.clone() else { continue };
@@ -1860,8 +1882,13 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
         .all_op_names()
         .filter(|o| matches!(classify(o), OpClass::Denied(_)))
         .count();
-    println!("[gen-e2e] schema: {} ops + {} assertions + {} step-loop ops (parsed from {})",
-        schema.ops.len(), schema.asserts.len(), schema.extra.len(), FULL_RS);
+    println!(
+        "[gen-e2e] schema: {} ops + {} assertions + {} step-loop ops (parsed from {})",
+        schema.ops.len(),
+        schema.asserts.len(),
+        schema.extra.len(),
+        FULL_RS
+    );
     let zombies = schema.zombies();
     println!(
         "[gen-e2e] policy: {allowed} allowed / {denied} denied (gene2e.rs::OP_POLICY) / {} zombie \
@@ -1919,7 +1946,10 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
             let _ = fs::remove_file(o);
             println!("[prune] removed stale {}", o.display());
         } else {
-            println!("[stale] {} — no corpus line claims this (use --prune)", o.display());
+            println!(
+                "[stale] {} — no corpus line claims this (use --prune)",
+                o.display()
+            );
         }
     }
 
@@ -1928,14 +1958,24 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
         for w in &p.todo {
             *by_tag.entry(w.tag.as_str()).or_default() += 1;
             if p.todo.len() <= 50 {
-                println!("[dry] {:05} {} [{}] -> {}", w.index, w.hash, w.tag, w.out.display());
+                println!(
+                    "[dry] {:05} {} [{}] -> {}",
+                    w.index,
+                    w.hash,
+                    w.tag,
+                    w.out.display()
+                );
             }
         }
         if p.todo.len() > 50 {
             for (tag, n) in &by_tag {
                 println!("[dry] {n:6} x [{tag}]");
             }
-            println!("[dry] first: {:05} -> {}", p.todo[0].index, p.todo[0].out.display());
+            println!(
+                "[dry] first: {:05} -> {}",
+                p.todo[0].index,
+                p.todo[0].out.display()
+            );
             let last = &p.todo[p.todo.len() - 1];
             println!("[dry] last:  {:05} -> {}", last.index, last.out.display());
         }
@@ -2005,37 +2045,41 @@ pub fn run(project_root: &Path, opts: &GenE2eOptions) -> Result<()> {
     let outcomes: Vec<Option<String>> = pool.install(|| {
         use rayon::prelude::*;
         work.par_iter()
-            .map(
-                |w| match generate_one(&g, w) {
-                    Ok(()) => {
-                        // ONLY now is the line done: the artifact landed and
-                        // validated. The key is the CONTENT HASH, not the line
-                        // number, so the list survives a corpus regeneration.
-                        if let Ok(mut f) = done_out.lock() {
-                            let _ = writeln!(
-                                f,
-                                "{}\t{:05}\t{}",
-                                w.hash,
-                                w.index,
-                                w.out.file_name().unwrap_or_default().to_string_lossy()
-                            );
-                        }
-                        println!("[ok]   {:05} {}", w.index, w.out.display());
-                        None
+            .map(|w| match generate_one(&g, w) {
+                Ok(()) => {
+                    // ONLY now is the line done: the artifact landed and
+                    // validated. The key is the CONTENT HASH, not the line
+                    // number, so the list survives a corpus regeneration.
+                    if let Ok(mut f) = done_out.lock() {
+                        let _ = writeln!(
+                            f,
+                            "{}\t{:05}\t{}",
+                            w.hash,
+                            w.index,
+                            w.out.file_name().unwrap_or_default().to_string_lossy()
+                        );
                     }
-                    Err(e) => {
-                        let _ = fs::remove_file(&w.out); // never leave an invalid artifact
-                        println!("[fail] {:05} [{}] — {e:#}  (not marked done)", w.index, w.tag);
-                        Some(format!("{e:#}"))
-                    }
-                },
-            )
+                    println!("[ok]   {:05} {}", w.index, w.out.display());
+                    None
+                }
+                Err(e) => {
+                    let _ = fs::remove_file(&w.out); // never leave an invalid artifact
+                    println!(
+                        "[fail] {:05} [{}] — {e:#}  (not marked done)",
+                        w.index, w.tag
+                    );
+                    Some(format!("{e:#}"))
+                }
+            })
             .collect()
     });
 
     let fail = outcomes.iter().filter(|o| o.is_some()).count();
     let ok = outcomes.len() - fail;
-    println!("\n[gen-e2e] {ok} generated, {fail} failed -> {}", out_dir.display());
+    println!(
+        "\n[gen-e2e] {ok} generated, {fail} failed -> {}",
+        out_dir.display()
+    );
     if fail > 0 {
         println!("[gen-e2e] re-run the same command to retry the failures (resume is automatic).");
     }
@@ -2160,7 +2204,11 @@ impl ReviewEntry {
 
     /// `generated` / `gate-rejected`, and `pass` / `fail` / `not run`.
     fn status(&self) -> (&'static str, &'static str) {
-        let gen = if self.json.is_some() { "ok" } else { "REJECTED" };
+        let gen = if self.json.is_some() {
+            "ok"
+        } else {
+            "REJECTED"
+        };
         let run = match self.run.as_ref().map(|r| r.status.as_str()) {
             Some("pass") => "pass",
             Some(_) => "FAIL",
@@ -2192,7 +2240,11 @@ pub struct ReviewBatch {
 /// out-dir with near-duplicates.
 #[must_use]
 pub fn batch_id(work: &[Work]) -> String {
-    let joined = work.iter().map(|w| w.hash.as_str()).collect::<Vec<_>>().join(",");
+    let joined = work
+        .iter()
+        .map(|w| w.hash.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
         "{:05}-n{}-{}",
         work.first().map_or(0, |w| w.index),
@@ -2225,7 +2277,15 @@ fn strip_ansi(s: &str) -> String {
 fn cell(s: &str, max: usize) -> String {
     let flat: String = s
         .chars()
-        .map(|c| if c == '|' { '/' } else if c.is_control() { ' ' } else { c })
+        .map(|c| {
+            if c == '|' {
+                '/'
+            } else if c.is_control() {
+                ' '
+            } else {
+                c
+            }
+        })
         .collect();
     if flat.chars().count() <= max {
         return flat;
@@ -2253,7 +2313,11 @@ pub fn render_facts(b: &ReviewBatch) -> String {
         .iter()
         .filter(|e| e.run.as_ref().is_some_and(|r| r.status != "pass"))
         .count();
-    let with_png = b.entries.iter().filter(|e| !e.png_paths().is_empty()).count();
+    let with_png = b
+        .entries
+        .iter()
+        .filter(|e| !e.png_paths().is_empty())
+        .count();
 
     let mut s = String::new();
     s.push_str(&format!("# gen-e2e batch review — `{}`\n\n", b.id));
@@ -2278,7 +2342,11 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     for (i, e) in b.entries.iter().enumerate() {
         let (gen, run) = e.status();
         let asserts = e.json.as_deref().map_or(0, count_assertions);
-        let png = if e.png_paths().is_empty() { "**none**" } else { "yes" };
+        let png = if e.png_paths().is_empty() {
+            "**none**"
+        } else {
+            "yes"
+        };
         s.push_str(&format!(
             "| {} | {} | `{}` | {gen} | {run} | {asserts} | {png} |\n",
             i + 1,
@@ -2306,8 +2374,10 @@ pub fn render_facts(b: &ReviewBatch) -> String {
         .collect();
     s.push_str("\n### Failures, attributed\n\n");
     if failures.is_empty() {
-        s.push_str("None. (A batch with zero failures is not automatically a good batch — see the \
-                    review below: a test can pass because it asserts nothing.)\n");
+        s.push_str(
+            "None. (A batch with zero failures is not automatically a good batch — see the \
+                    review below: a test can pass because it asserts nothing.)\n",
+        );
     } else {
         for e in failures {
             let gaps = e.harness_gaps();
@@ -2341,10 +2411,16 @@ pub fn render_facts(b: &ReviewBatch) -> String {
     }
     let mut pngs: Vec<String> = b.entries.iter().flat_map(ReviewEntry::png_paths).collect();
     pngs.sort();
-    let dupes: Vec<&String> = pngs.windows(2).filter(|w| w[0] == w[1]).map(|w| &w[0]).collect();
+    let dupes: Vec<&String> = pngs
+        .windows(2)
+        .filter(|w| w[0] == w[1])
+        .map(|w| &w[0])
+        .collect();
     if !dupes.is_empty() {
-        s.push_str("\n**PNG PATH COLLISION** — scenarios run in parallel, so these race and the \
-                    surviving file is whichever finished last:\n");
+        s.push_str(
+            "\n**PNG PATH COLLISION** — scenarios run in parallel, so these race and the \
+                    surviving file is whichever finished last:\n",
+        );
         for d in dupes {
             s.push_str(&format!("- `{d}`\n"));
         }
@@ -2370,7 +2446,11 @@ pub fn render_facts(b: &ReviewBatch) -> String {
             *names.entry(r.name.as_str()).or_default() += 1;
         }
     }
-    let clashes: Vec<&&str> = names.iter().filter(|(_, c)| **c > 1).map(|(n, _)| n).collect();
+    let clashes: Vec<&&str> = names
+        .iter()
+        .filter(|(_, c)| **c > 1)
+        .map(|(n, _)| n)
+        .collect();
     if !clashes.is_empty() {
         s.push_str(
             "\n### Duplicate scenario names\n\nThe verdict report pairs results with fixtures BY \
@@ -2426,7 +2506,9 @@ fn policy_doc(schema: &Schema) -> String {
     }
     let unclassified = schema.unclassified();
     if !unclassified.is_empty() {
-        s.push_str("\n### UNCLASSIFIED (in DebugEvent, no OP_POLICY row — denied until classified)\n");
+        s.push_str(
+            "\n### UNCLASSIFIED (in DebugEvent, no OP_POLICY row — denied until classified)\n",
+        );
         for u in &unclassified {
             s.push_str(&format!("- {u}\n"));
         }
@@ -2971,7 +3053,11 @@ mod tests {
                 "{name} looks generated but was classified as hand-written",
             );
         }
-        assert!(checked > 0, "no hand-written scenarios found in {}", dir.display());
+        assert!(
+            checked > 0,
+            "no hand-written scenarios found in {}",
+            dir.display()
+        );
     }
 
     #[test]
@@ -3002,7 +3088,10 @@ mod tests {
         }
         assert!(!s.is_known("assert_nonexistent_thing"));
         let mount = s.known_op("mount").unwrap();
-        assert_eq!(mount.params, vec![("html".into(), true), ("css".into(), false)]);
+        assert_eq!(
+            mount.params,
+            vec![("html".into(), true), ("css".into(), false)]
+        );
     }
 
     #[test]
@@ -3149,18 +3238,64 @@ mod tests {
     #[test]
     fn the_drive_and_observe_surfaces_are_allowed() {
         for op in [
-            "click", "click_node", "double_click", "mouse_down", "mouse_move", "mouse_up",
-            "key_down", "key_up", "text_input", "scroll", "touch_start", "touch_move", "touch_end",
-            "pen_down", "pen_move", "pen_up", "pinch", "rotate", "swipe",
-            "long_press", "move", "resize", "dpi_changed", "hit_test", "focus", "blur",
-            "set_node_text", "set_node_css_override", "set_node_classes", "insert_node",
-            "delete_node", "set_app_state", "scroll_node_to", "scroll_node_by", "scroll_into_view",
-            "commit_undo_snapshot", "undo_app_state", "redo_app_state", "mount", "unmount",
-            "tick_ms", "wait", "wait_frame", "reset_frame_counters", "snapshot_frame",
-            "snapshot_resources", "snapshot_managers", "get_frame_report", "capture_damage_png",
+            "click",
+            "click_node",
+            "double_click",
+            "mouse_down",
+            "mouse_move",
+            "mouse_up",
+            "key_down",
+            "key_up",
+            "text_input",
+            "scroll",
+            "touch_start",
+            "touch_move",
+            "touch_end",
+            "pen_down",
+            "pen_move",
+            "pen_up",
+            "pinch",
+            "rotate",
+            "swipe",
+            "long_press",
+            "move",
+            "resize",
+            "dpi_changed",
+            "hit_test",
+            "focus",
+            "blur",
+            "set_node_text",
+            "set_node_css_override",
+            "set_node_classes",
+            "insert_node",
+            "delete_node",
+            "set_app_state",
+            "scroll_node_to",
+            "scroll_node_by",
+            "scroll_into_view",
+            "commit_undo_snapshot",
+            "undo_app_state",
+            "redo_app_state",
+            "mount",
+            "unmount",
+            "tick_ms",
+            "wait",
+            "wait_frame",
+            "reset_frame_counters",
+            "snapshot_frame",
+            "snapshot_resources",
+            "snapshot_managers",
+            "get_frame_report",
+            "capture_damage_png",
             "get_state",
-            "get_app_state", "get_dom", "get_focus_state", "get_scroll_states",
-            "get_selection_state", "get_cursor_state", "assert_changed", "assert_idle_stable",
+            "get_app_state",
+            "get_dom",
+            "get_focus_state",
+            "get_scroll_states",
+            "get_selection_state",
+            "get_cursor_state",
+            "assert_changed",
+            "assert_idle_stable",
         ] {
             assert_eq!(classify(op), OpClass::Allowed, "`{op}` must be allowed");
         }
@@ -3234,7 +3369,10 @@ mod tests {
         }
         // ...and an op that IS handled is not a zombie.
         for op in ["click", "mount", "set_node_text", "scroll", "key_down"] {
-            assert!(!s.is_zombie(op), "`{op}` has a match arm — must not be a zombie");
+            assert!(
+                !s.is_zombie(op),
+                "`{op}` has a match arm — must not be a zombie"
+            );
         }
     }
 
@@ -3325,12 +3463,18 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         assert!(!schema_doc(&s).contains("- focus :"));
         let t = r#"{"name":"x","steps":[{"op":"snapshot_frame","as":"b"},{"op":"focus"},
             {"op":"assert_changed","vs":"b"}]}"#;
-        assert!(validate(&s, t).unwrap_err().to_string().contains("no match arm"));
+        assert!(validate(&s, t)
+            .unwrap_err()
+            .to_string()
+            .contains("no match arm"));
 
         // 2. Somebody implements it in full.rs. NOTHING in gene2e.rs changes.
         let root = synthetic_root(&dir, "        DebugEvent::Focus => { do_focus(); }\n");
         let s = parse_schema(&root).unwrap();
-        assert!(!s.is_zombie("focus"), "an implemented op must stop being a zombie");
+        assert!(
+            !s.is_zombie("focus"),
+            "an implemented op must stop being a zombie"
+        );
         assert!(schema_doc(&s).contains("- focus :"), "and be offered again");
         validate(&s, t).expect("and be accepted by the gate again");
 
@@ -3341,12 +3485,25 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     fn the_prompt_shows_allowed_ops_only() {
         let s = parse_schema(&root()).unwrap();
         let doc = schema_doc(&s);
-        for good in ["- click :", "- set_node_text :", "- assert_changed :", "- undo_app_state :"] {
+        for good in [
+            "- click :",
+            "- set_node_text :",
+            "- assert_changed :",
+            "- undo_app_state :",
+        ] {
             assert!(doc.contains(good), "prompt is missing `{good}`");
         }
         for bad in [
-            "- redraw", "- relayout", "- create_component", "- export_code", "- get_node_layout",
-            "- get_display_list", "- assert_layout", "- assert_screenshot", "- close", "- open_file",
+            "- redraw",
+            "- relayout",
+            "- create_component",
+            "- export_code",
+            "- get_node_layout",
+            "- get_display_list",
+            "- assert_layout",
+            "- assert_screenshot",
+            "- close",
+            "- open_file",
             // NOTE: `focus`, `blur`, `move`, `dpi_changed` and `get_dom` used to
             // be listed here as ZOMBIES. They are not any more — they have real
             // match arms (see the `KNOWN_ZOMBIES = &[]` comment below), so the
@@ -3459,13 +3616,22 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
 
     #[test]
     fn hash_is_content_addressed_and_line_number_independent() {
-        assert_eq!(line_hash("[a/one] first test"), line_hash("  [a/one] first test  "));
-        assert_ne!(line_hash("[a/one] first test"), line_hash("[a/one] second test"));
+        assert_eq!(
+            line_hash("[a/one] first test"),
+            line_hash("  [a/one] first test  ")
+        );
+        assert_ne!(
+            line_hash("[a/one] first test"),
+            line_hash("[a/one] second test")
+        );
 
         // The SAME line, moved down by an insertion, keeps its hash — only the
         // cosmetic index/filename move.
         let before = parse_corpus(CORPUS, Path::new("/out"));
-        let after = parse_corpus(&format!("[z/new] inserted at the top\n{CORPUS}"), Path::new("/out"));
+        let after = parse_corpus(
+            &format!("[z/new] inserted at the top\n{CORPUS}"),
+            Path::new("/out"),
+        );
         assert_eq!(before[0].hash, after[1].hash);
         assert_eq!(before[0].index, 1);
         assert_eq!(after[1].index, 2);
@@ -3504,13 +3670,27 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     fn limit_means_generate_n_more() {
         let w = parse_corpus(CORPUS, Path::new("/out"));
         // nothing done: first 2
-        let p = plan(w.clone(), &hashes(&w), &[], &BTreeSet::new(), false, Some(2));
+        let p = plan(
+            w.clone(),
+            &hashes(&w),
+            &[],
+            &BTreeSet::new(),
+            false,
+            Some(2),
+        );
         assert_eq!(p.todo.len(), 2);
         assert_eq!(p.todo_total, 3);
         assert_eq!(p.todo[0].index, 1);
         // now those 2 landed: --limit 2 again picks up the REMAINING one
         let arts: Vec<Artifact> = p.todo.iter().map(|x| art(&x.hash, true)).collect();
-        let p = plan(w.clone(), &hashes(&w), &arts, &BTreeSet::new(), false, Some(2));
+        let p = plan(
+            w.clone(),
+            &hashes(&w),
+            &arts,
+            &BTreeSet::new(),
+            false,
+            Some(2),
+        );
         assert_eq!(p.already_done, 2);
         assert_eq!(p.todo.len(), 1);
         assert_eq!(p.todo[0].index, 3);
@@ -3520,12 +3700,23 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     fn limit_composes_with_filter_and_filter_does_not_create_orphans() {
         let all = parse_corpus(CORPUS, Path::new("/out"));
         let corpus_hashes = hashes(&all);
-        let filtered: Vec<Work> = all.iter().filter(|w| w.tag.contains("a/")).cloned().collect();
+        let filtered: Vec<Work> = all
+            .iter()
+            .filter(|w| w.tag.contains("a/"))
+            .cloned()
+            .collect();
         assert_eq!(filtered.len(), 2);
         // the [b/three] artifact exists but is filtered out of the work list —
         // it must NOT be reported as an orphan.
         let arts = [art(&all[2].hash, true)];
-        let p = plan(filtered, &corpus_hashes, &arts, &BTreeSet::new(), false, Some(1));
+        let p = plan(
+            filtered,
+            &corpus_hashes,
+            &arts,
+            &BTreeSet::new(),
+            false,
+            Some(1),
+        );
         assert_eq!(p.total, 2);
         assert_eq!(p.todo.len(), 1);
         assert_eq!(p.todo_total, 2);
@@ -3552,14 +3743,27 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "[z/new] brand new line\n[a/one] first test\n[a/two] second test\n",
             Path::new("/out"),
         );
-        let p = plan(drifted.clone(), &hashes(&drifted), &arts, &BTreeSet::new(), false, None);
+        let p = plan(
+            drifted.clone(),
+            &hashes(&drifted),
+            &arts,
+            &BTreeSet::new(),
+            false,
+            None,
+        );
         assert_eq!(p.total, 3);
-        assert_eq!(p.already_done, 2, "the two moved-but-unchanged lines stay done");
+        assert_eq!(
+            p.already_done, 2,
+            "the two moved-but-unchanged lines stay done"
+        );
         assert_eq!(p.todo.len(), 1);
         assert_eq!(p.todo[0].tag, "z/new");
         // Path must match `art()`'s naming, which mirrors the real
         // `<NNNNN>-<slug>.json` convention — only such files are prunable.
-        assert_eq!(p.orphans, vec![PathBuf::from(format!("/out/00001-{}.json", w[2].hash))]);
+        assert_eq!(
+            p.orphans,
+            vec![PathBuf::from(format!("/out/00001-{}.json", w[2].hash))]
+        );
     }
 
     #[test]
@@ -3583,7 +3787,14 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             hash: None,
             valid: true,
         };
-        let p = plan(w.clone(), &hashes(&w), &[ours, foreign], &BTreeSet::new(), false, None);
+        let p = plan(
+            w.clone(),
+            &hashes(&w),
+            &[ours, foreign],
+            &BTreeSet::new(),
+            false,
+            None,
+        );
         assert_eq!(p.todo.len(), 3);
         assert_eq!(
             p.orphans,
@@ -3669,7 +3880,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         // The op is still OFFERED by the schema listing (a line may legitimately
         // call for a capture) — but no instruction demands one.
         for demand in ["MANDATORY", "must write one", "step is REJECTED"] {
-            assert!(!p.contains(demand), "the prompt still taxes every test: {demand}");
+            assert!(
+                !p.contains(demand),
+                "the prompt still taxes every test: {demand}"
+            );
         }
         assert!(
             !p.contains("<your test name>.png"),
@@ -3685,7 +3899,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     fn an_op_that_always_fails_headlessly_is_not_offered() {
         let s = parse_schema(&root()).unwrap();
         assert!(s.is_known("take_native_screenshot"));
-        assert!(matches!(classify("take_native_screenshot"), OpClass::Denied(_)));
+        assert!(matches!(
+            classify("take_native_screenshot"),
+            OpClass::Denied(_)
+        ));
         assert!(!schema_doc(&s).contains("- take_native_screenshot"));
         assert!(validate(&s, &with_op(r#"{"op":"take_native_screenshot"}"#)).is_err());
         // ...while the CPU-render one, which needs no hook, stays available.
@@ -3698,10 +3915,20 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     fn the_triage_instruction_is_derived_from_the_schema() {
         let s = parse_schema(&root()).unwrap();
         let t = triage_doc(&s);
-        for want in [PNG_OP, TRIAGE_DIR, "path", "which?", "crop?", "byte-identical"] {
+        for want in [
+            PNG_OP,
+            TRIAGE_DIR,
+            "path",
+            "which?",
+            "crop?",
+            "byte-identical",
+        ] {
             assert!(t.contains(want), "the triage doc is missing `{want}`:\n{t}");
         }
-        assert!(t.contains("never `git add`"), "images must never be committed:\n{t}");
+        assert!(
+            t.contains("never `git add`"),
+            "images must never be committed:\n{t}"
+        );
         assert!(t.contains("Do NOT use `take_native_screenshot`"), "{t}");
 
         // An engine without the capture op gets an honest "you cannot look".
@@ -3726,12 +3953,19 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
     fn review_batch_is_the_batch_size_and_implies_the_limit() {
         let o = parse(&["corpus.txt", "out", "--review-batch", "10"]).unwrap();
         assert_eq!(o.review_batch, Some(10));
-        assert_eq!(o.limit, Some(10), "--review-batch N must generate N, not the whole corpus");
+        assert_eq!(
+            o.limit,
+            Some(10),
+            "--review-batch N must generate N, not the whole corpus"
+        );
         // Token cost is not the constraint here — quality is. A weak generator
         // writes a scenario that quietly tests the wrong thing, and a weak
         // reviewer rubber-stamps it; both defaults must be the good model.
         assert_eq!((o.model.as_str(), o.effort.as_str()), (MODEL, EFFORT));
-        assert_eq!((o.review_model.as_str(), o.review_effort.as_str()), (MODEL, EFFORT));
+        assert_eq!(
+            (o.review_model.as_str(), o.review_effort.as_str()),
+            (MODEL, EFFORT)
+        );
         assert_eq!(MODEL, "opus");
         assert!(
             matches!(EFFORT, "medium" | "high" | "xhigh" | "max"),
@@ -3740,11 +3974,20 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
 
         // Overridable.
         let o = parse(&[
-            "corpus.txt", "out", "--review-batch", "3", "--review-model", "sonnet",
-            "--review-effort", "medium",
+            "corpus.txt",
+            "out",
+            "--review-batch",
+            "3",
+            "--review-model",
+            "sonnet",
+            "--review-effort",
+            "medium",
         ])
         .unwrap();
-        assert_eq!((o.review_model.as_str(), o.review_effort.as_str()), ("sonnet", "medium"));
+        assert_eq!(
+            (o.review_model.as_str(), o.review_effort.as_str()),
+            ("sonnet", "medium")
+        );
 
         // Flag order must not matter.
         let o = parse(&["--review-batch", "4", "corpus.txt", "out"]).unwrap();
@@ -3772,11 +4015,20 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
 
     #[test]
     fn the_usage_string_documents_the_review_flag() {
-        for flag in ["--review-batch", "--review-model", "--review-effort", "--limit", "--prune"] {
+        for flag in [
+            "--review-batch",
+            "--review-model",
+            "--review-effort",
+            "--limit",
+            "--prune",
+        ] {
             assert!(USAGE.contains(flag), "usage does not mention {flag}");
         }
         let e = parse(&["only-one-positional"]).unwrap_err().to_string();
-        assert!(e.contains("--review-batch"), "the parse error must show the usage: {e}");
+        assert!(
+            e.contains("--review-batch"),
+            "the parse error must show the usage: {e}"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -3896,7 +4148,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "ctrl+c puts the selection on the clipboard",
             "the box is 60px wide",
         ] {
-            assert!(f.contains(line), "the report drops the corpus line {line:?}");
+            assert!(
+                f.contains(line),
+                "the report drops the corpus line {line:?}"
+            );
         }
 
         // ATTRIBUTION: mechanical where the runner confessed, honestly open
@@ -3912,7 +4167,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         // Images: a MISSING capture is not a defect any more, but the report
         // must still say where the reviewer's images went and that they are not
         // in git — otherwise the operator looks for them in the wrong place.
-        assert!(!f.contains("NO `capture_damage_png`"), "a missing image is not a defect: {f}");
+        assert!(
+            !f.contains("NO `capture_damage_png`"),
+            "a missing image is not a defect: {f}"
+        );
         assert!(f.contains(TRIAGE_DIR), "{f}");
         assert!(f.contains("`.gitignore` already excludes"), "{f}");
 
@@ -3922,7 +4180,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
 
         // The verdict block is the runner's own words, minus the ANSI.
         assert!(f.contains("test result: FAILED. 1 passed; 2 failed"), "{f}");
-        assert!(!f.contains('\u{1b}'), "ANSI escapes leaked into the markdown");
+        assert!(
+            !f.contains('\u{1b}'),
+            "ANSI escapes leaked into the markdown"
+        );
     }
 
     #[test]
@@ -3967,7 +4228,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         // The generator's own prompt, verbatim — a reviewer cannot propose a fix
         // to a paragraph it was only told about.
         assert!(p.contains("GENERATOR_PROMPT"), "{p}");
-        assert!(p.contains("A FAILING TEST IS A SUCCESS"), "the current prompt is missing");
+        assert!(
+            p.contains("A FAILING TEST IS A SUCCESS"),
+            "the current prompt is missing"
+        );
         // The batch: JSON, corpus line, and the run outcome including the error.
         assert!(p.contains("assert_damage_incremental"));
         assert!(p.contains("ctrl+c puts the selection on the clipboard"));
@@ -3985,7 +4249,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "Prompt defects",
             "Visual triage",
         ] {
-            assert!(p.contains(section), "the review prompt never asks for `{section}`");
+            assert!(
+                p.contains(section),
+                "the review prompt never asks for `{section}`"
+            );
         }
         assert!(
             p.contains("Nothing you write is applied automatically"),
@@ -4012,7 +4279,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
                      wide nothing could violate it. Fix the prompt and try again. The generator \
                      appears to have been overloaded with recipes and picked the safest one. \
                      Quota of one assertion per test is not enough.";
-        assert!(is_usable_review(harsh), "a harsh review was discarded as a limit message");
+        assert!(
+            is_usable_review(harsh),
+            "a harsh review was discarded as a limit message"
+        );
         assert_eq!(verdict_of(harsh), Some(true));
 
         // ...while the actual limit message is still caught.
@@ -4023,7 +4293,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
             "short",
             "",
         ] {
-            assert!(!is_usable_review(junk), "a non-review was accepted: {junk:?}");
+            assert!(
+                !is_usable_review(junk),
+                "a non-review was accepted: {junk:?}"
+            );
         }
 
         // A review that ignores the format is still a review — it just cannot
@@ -4048,7 +4321,10 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
 
         // A rate-limited reviewer must never leave a report that reads as clean.
         let without = assemble_report(facts, None);
-        assert!(without.starts_with(facts), "the facts survive a failed review");
+        assert!(
+            without.starts_with(facts),
+            "the facts survive a failed review"
+        );
         assert!(without.contains("PRODUCED NOTHING USABLE"), "{without}");
     }
 
@@ -4058,7 +4334,11 @@ fn eval_assert_changed(params: &Value) -> AssertionResult {{
         let id = batch_id(&w);
         assert_eq!(id, batch_id(&w), "the same batch must name the same report");
         assert!(id.starts_with("00001-n3-"), "{id}");
-        assert_ne!(batch_id(&w[..2]), id, "a different batch is a different report");
+        assert_ne!(
+            batch_id(&w[..2]),
+            id,
+            "a different batch is a different report"
+        );
         assert_eq!(batch_id(&[]), format!("00000-n0-{}", &line_hash("")[..8]));
     }
 

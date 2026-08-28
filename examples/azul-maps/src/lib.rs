@@ -17,12 +17,12 @@
 //! agnostic of location; the framework's permission-as-DOM plumbing
 //! routes the prompt automatically (per P3.1).
 
-use azul::prelude::*;
 use azul::dom::{GeolocationProbeConfig, MapPinTapCallback};
-use azul::widgets::MapViewportChangedCallback;
-use azul::sensor::SensorKind;
 use azul::option::OptionRefAny;
+use azul::prelude::*;
+use azul::sensor::SensorKind;
 use azul::task::TerminateTimer;
+use azul::widgets::MapViewportChangedCallback;
 use azul::widgets::{MapLatLon, MapTileLayer, MapViewport, MapWidget};
 
 struct MapState {
@@ -105,13 +105,11 @@ impl MapState {
     }
 
     fn zoom_in(&mut self) {
-        self.viewport.zoom =
-            (self.viewport.zoom + 1.0).min(self.layer.max_zoom as f32);
+        self.viewport.zoom = (self.viewport.zoom + 1.0).min(self.layer.max_zoom as f32);
     }
 
     fn zoom_out(&mut self) {
-        self.viewport.zoom =
-            (self.viewport.zoom - 1.0).max(self.layer.min_zoom as f32);
+        self.viewport.zoom = (self.viewport.zoom - 1.0).max(self.layer.min_zoom as f32);
     }
 
     /// Recentre the demo on its starting point.
@@ -157,7 +155,13 @@ impl MapState {
 /// both hemispheres — and the linear step overshot by ~2× near 60° because
 /// Mercator rows are not equal in latitude. Stepping in tile space and
 /// projecting back is exact and cannot have a sign convention of its own.
-fn pan_tiles(lon_deg: f64, lat_deg: f64, tile_count: f64, dx_tiles: f64, dy_tiles: f64) -> (f64, f64) {
+fn pan_tiles(
+    lon_deg: f64,
+    lat_deg: f64,
+    tile_count: f64,
+    dx_tiles: f64,
+    dy_tiles: f64,
+) -> (f64, f64) {
     use std::f64::consts::PI;
     // lon → tile-x → step → lon, wrapped into [-180, 180].
     let x = (lon_deg + 180.0) / 360.0 * tile_count + dx_tiles;
@@ -166,7 +170,10 @@ fn pan_tiles(lon_deg: f64, lat_deg: f64, tile_count: f64, dx_tiles: f64, dy_tile
     let lat_rad = lat_deg.to_radians();
     let y = (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / PI) / 2.0 * tile_count;
     let y = (y + dy_tiles).clamp(0.0, tile_count);
-    let lat = (PI * (1.0 - 2.0 * y / tile_count)).sinh().atan().to_degrees();
+    let lat = (PI * (1.0 - 2.0 * y / tile_count))
+        .sinh()
+        .atan()
+        .to_degrees();
     (lon, lat.clamp(-85.0, 85.0))
 }
 
@@ -481,9 +488,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         // draws). The fetch starts on mount and is freed when the widget unmounts.
         .dom();
 
-    let mut map_container = Dom::create_div()
-        .with_css(MAP_CONTAINER)
-        .with_child(map);
+    let mut map_container = Dom::create_div().with_css(MAP_CONTAINER).with_child(map);
 
     // When "Locate" is on, drop an invisible geolocation probe into the
     // map subtree. The framework treats the probe as a permission-as-DOM
@@ -533,8 +538,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                  transform: rotate(45deg); box-shadow: 0px 1px 2px rgba(0,0,0,0.4);",
                 px, py,
             );
-            map_container =
-                map_container.with_child(Dom::create_div().with_css(style.as_str()));
+            map_container = map_container.with_child(Dom::create_div().with_css(style.as_str()));
             // Callout: the pinned point's coordinates, beside the marker.
             let callout_style = format!(
                 "position: absolute; left: {:.1}px; top: {:.1}px; \
@@ -604,7 +608,11 @@ extern "C" fn on_zoom_in(mut data: RefAny, _info: CallbackInfo) -> Update {
 // Widget-internal pan/zoom (drag, wheel, pinch) → mirror into MapState so the
 // next RefreshDom rebuild passes the CURRENT viewport back to the widget (and
 // the header readout stays live).
-extern "C" fn on_viewport_changed(mut data: RefAny, _info: CallbackInfo, vp: MapViewport) -> Update {
+extern "C" fn on_viewport_changed(
+    mut data: RefAny,
+    _info: CallbackInfo,
+    vp: MapViewport,
+) -> Update {
     if let Some(mut s) = data.downcast_mut::<MapState>() {
         s.viewport = vp;
     }

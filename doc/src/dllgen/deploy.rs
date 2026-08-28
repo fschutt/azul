@@ -756,146 +756,534 @@ struct BindingFile {
 /// `release/{version}/`.
 const BINDING_FILES: &[BindingFile] = &[
     // --- ada ---
-    BindingFile { dst: "azul.ads", src: "azul.ads", source: BindingSource::Codegen },
-    BindingFile { dst: "azul.adb", src: "azul.adb", source: BindingSource::Codegen },
-    BindingFile { dst: "hello_world.gpr", src: "ada/hello_world.gpr", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul.ads",
+        src: "azul.ads",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "azul.adb",
+        src: "azul.adb",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello_world.gpr",
+        src: "ada/hello_world.gpr",
+        source: BindingSource::Examples,
+    },
     // --- algol68 ---
-    BindingFile { dst: "azul.a68", src: "azul.a68", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.a68", src: "algol68/hello-world.a68", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul.a68",
+        src: "azul.a68",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.a68",
+        src: "algol68/hello-world.a68",
+        source: BindingSource::Examples,
+    },
     // --- cobol ---
-    BindingFile { dst: "azul.cpy", src: "azul.cpy", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.cob", src: "cobol/hello-world.cob", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul.cpy",
+        src: "azul.cpy",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.cob",
+        src: "cobol/hello-world.cob",
+        source: BindingSource::Examples,
+    },
     // --- fortran (codegen emits Makefile.fortran; curl asks for `Makefile`) ---
-    BindingFile { dst: "azul.f90", src: "azul.f90", source: BindingSource::Codegen },
-    BindingFile { dst: "Makefile", src: "Makefile.fortran", source: BindingSource::Codegen },
+    BindingFile {
+        dst: "azul.f90",
+        src: "azul.f90",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "Makefile",
+        src: "Makefile.fortran",
+        source: BindingSource::Codegen,
+    },
     // --- freebasic ---
-    BindingFile { dst: "azul.bi", src: "azul.bi", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.bas", src: "freebasic/hello-world.bas", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul.bi",
+        src: "azul.bi",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.bas",
+        src: "freebasic/hello-world.bas",
+        source: BindingSource::Examples,
+    },
     // --- go ---
-    BindingFile { dst: "azul.go", src: "go/azul.go", source: BindingSource::Codegen },
-    BindingFile { dst: "types.go", src: "go/types.go", source: BindingSource::Codegen },
-    BindingFile { dst: "functions.go", src: "go/functions.go", source: BindingSource::Codegen },
-    BindingFile { dst: "wrappers.go", src: "go/wrappers.go", source: BindingSource::Codegen },
-    BindingFile { dst: "go.mod", src: "go/go.mod", source: BindingSource::Codegen },
+    BindingFile {
+        dst: "azul.go",
+        src: "go/azul.go",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "types.go",
+        src: "go/types.go",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "functions.go",
+        src: "go/functions.go",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "wrappers.go",
+        src: "go/wrappers.go",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "go.mod",
+        src: "go/go.mod",
+        source: BindingSource::Codegen,
+    },
     // --- haskell (nested paths match the `curl -o src/Azul/...` steps) ---
-    BindingFile { dst: "azul.cabal", src: "haskell/azul.cabal", source: BindingSource::Codegen },
-    BindingFile { dst: "Azul.hs", src: "haskell/src/Azul.hs", source: BindingSource::Codegen },
-    BindingFile { dst: "Azul/Types.hs", src: "haskell/src/Azul/Types.hs", source: BindingSource::Codegen },
-    BindingFile { dst: "Azul/Internal/FFI.hs", src: "haskell/src/Azul/Internal/FFI.hs", source: BindingSource::Codegen },
+    BindingFile {
+        dst: "azul.cabal",
+        src: "haskell/azul.cabal",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "Azul.hs",
+        src: "haskell/src/Azul.hs",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "Azul/Types.hs",
+        src: "haskell/src/Azul/Types.hs",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "Azul/Internal/FFI.hs",
+        src: "haskell/src/Azul/Internal/FFI.hs",
+        source: BindingSource::Codegen,
+    },
     // The cabal package's C shim (cbits/) — without it the downloaded
     // package cannot build (azul.h is published separately at top level).
-    BindingFile { dst: "azul_shims.c", src: "haskell/cbits/azul_shims.c", source: BindingSource::Codegen },
-    BindingFile { dst: "HelloWorld.hs", src: "haskell/HelloWorld.hs", source: BindingSource::Examples },
-    BindingFile { dst: "azul-example.cabal", src: "haskell/azul-example.cabal", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul_shims.c",
+        src: "haskell/cbits/azul_shims.c",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "HelloWorld.hs",
+        src: "haskell/HelloWorld.hs",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "azul-example.cabal",
+        src: "haskell/azul-example.cabal",
+        source: BindingSource::Examples,
+    },
     // --- lisp (ships the ASDF driver system + example so the quickload flow works) ---
-    BindingFile { dst: "azul.asd", src: "azul.asd", source: BindingSource::Codegen },
-    BindingFile { dst: "azul.lisp", src: "azul.lisp", source: BindingSource::Codegen },
-    BindingFile { dst: "azul-example.asd", src: "lisp/azul-example.asd", source: BindingSource::Examples },
-    BindingFile { dst: "hello-world.lisp", src: "lisp/hello-world.lisp", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul.asd",
+        src: "azul.asd",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "azul.lisp",
+        src: "azul.lisp",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "azul-example.asd",
+        src: "lisp/azul-example.asd",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world.lisp",
+        src: "lisp/hello-world.lisp",
+        source: BindingSource::Examples,
+    },
     // --- pascal ---
-    BindingFile { dst: "azul.pas", src: "azul.pas", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.pas", src: "pascal/hello-world.pas", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul.pas",
+        src: "azul.pas",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.pas",
+        src: "pascal/hello-world.pas",
+        source: BindingSource::Examples,
+    },
     // --- perl ---
-    BindingFile { dst: "Azul.pm", src: "Azul.pm", source: BindingSource::Codegen },
-    BindingFile { dst: "cpanfile", src: "cpanfile", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.pl", src: "perl/hello-world.pl", source: BindingSource::Examples },
+    BindingFile {
+        dst: "Azul.pm",
+        src: "Azul.pm",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "cpanfile",
+        src: "cpanfile",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.pl",
+        src: "perl/hello-world.pl",
+        source: BindingSource::Examples,
+    },
     // --- php (ships both the php-ffi driver and the native-extension driver) ---
-    BindingFile { dst: "Azul.php", src: "Azul.php", source: BindingSource::Codegen },
-    BindingFile { dst: "composer.json", src: "composer.json", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.php", src: "php/hello-world.php", source: BindingSource::Examples },
-    BindingFile { dst: "hello-world-ext.php", src: "php/hello-world-ext.php", source: BindingSource::Examples },
+    BindingFile {
+        dst: "Azul.php",
+        src: "Azul.php",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "composer.json",
+        src: "composer.json",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.php",
+        src: "php/hello-world.php",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world-ext.php",
+        src: "php/hello-world-ext.php",
+        source: BindingSource::Examples,
+    },
     // --- powershell ---
-    BindingFile { dst: "Azul.psd1", src: "Azul.psd1", source: BindingSource::Codegen },
-    BindingFile { dst: "Azul.psm1", src: "Azul.psm1", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.ps1", src: "powershell/hello-world.ps1", source: BindingSource::Examples },
+    BindingFile {
+        dst: "Azul.psd1",
+        src: "Azul.psd1",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "Azul.psm1",
+        src: "Azul.psm1",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.ps1",
+        src: "powershell/hello-world.ps1",
+        source: BindingSource::Examples,
+    },
     // --- smalltalk ---
-    BindingFile { dst: "Azul.st", src: "Azul.st", source: BindingSource::Codegen },
-    BindingFile { dst: "BaselineOfAzul.st", src: "BaselineOfAzul.st", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.st", src: "smalltalk/HelloWorld.st", source: BindingSource::Examples },
+    BindingFile {
+        dst: "Azul.st",
+        src: "Azul.st",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "BaselineOfAzul.st",
+        src: "BaselineOfAzul.st",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.st",
+        src: "smalltalk/HelloWorld.st",
+        source: BindingSource::Examples,
+    },
     // --- vb6 (Azul.bas is the generated binding module; HelloWorld.* are the example app) ---
-    BindingFile { dst: "Azul.bas", src: "vb6/Azul.bas", source: BindingSource::Codegen },
-    BindingFile { dst: "HelloWorld.bas", src: "vb6/HelloWorld.bas", source: BindingSource::Examples },
-    BindingFile { dst: "HelloWorld.vbp", src: "vb6/HelloWorld.vbp", source: BindingSource::Examples },
+    BindingFile {
+        dst: "Azul.bas",
+        src: "vb6/Azul.bas",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "HelloWorld.bas",
+        src: "vb6/HelloWorld.bas",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "HelloWorld.vbp",
+        src: "vb6/HelloWorld.vbp",
+        source: BindingSource::Examples,
+    },
     // --- zig ---
-    BindingFile { dst: "azul.zig", src: "azul.zig", source: BindingSource::Codegen },
-    BindingFile { dst: "build.zig", src: "build.zig", source: BindingSource::Codegen },
+    BindingFile {
+        dst: "azul.zig",
+        src: "azul.zig",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "build.zig",
+        src: "build.zig",
+        source: BindingSource::Codegen,
+    },
     // --- odin (azul.odin is imported as the `azul/` subpackage; hello-world.odin
     //     is the `package main` driver next to it) ---
-    BindingFile { dst: "azul/azul.odin", src: "azul.odin", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.odin", src: "odin/hello-world.odin", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul/azul.odin",
+        src: "azul.odin",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.odin",
+        src: "odin/hello-world.odin",
+        source: BindingSource::Examples,
+    },
     // --- candidate bindings (nim/racket/red): off-frontpage, CI-validated ---
-    BindingFile { dst: "azul.nim", src: "azul.nim", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.nim", src: "nim/hello-world.nim", source: BindingSource::Examples },
-    BindingFile { dst: "azul.rkt", src: "azul.rkt", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.rkt", src: "racket/hello-world.rkt", source: BindingSource::Examples },
-    BindingFile { dst: "azul.reds", src: "azul.reds", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.red", src: "red/hello-world.red", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul.nim",
+        src: "azul.nim",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.nim",
+        src: "nim/hello-world.nim",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "azul.rkt",
+        src: "azul.rkt",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.rkt",
+        src: "racket/hello-world.rkt",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "azul.reds",
+        src: "azul.reds",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.red",
+        src: "red/hello-world.red",
+        source: BindingSource::Examples,
+    },
     // --- more candidate archetype-A bindings (d/crystal/v/swift/julia) ---
     // d: `module azul`, compiled alongside the driver (top-level, no subdir).
-    BindingFile { dst: "azul.d", src: "azul.d", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.d", src: "d/hello-world.d", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul.d",
+        src: "azul.d",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.d",
+        src: "d/hello-world.d",
+        source: BindingSource::Examples,
+    },
     // crystal: single `lib LibAzul`, required as a sibling `./azul`.
-    BindingFile { dst: "azul.cr", src: "azul.cr", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.cr", src: "crystal/hello-world.cr", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul.cr",
+        src: "azul.cr",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.cr",
+        src: "crystal/hello-world.cr",
+        source: BindingSource::Examples,
+    },
     // v: `azul/` subpackage + `module main` driver.
-    BindingFile { dst: "azul/azul.v", src: "azul.v", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.v", src: "v/hello-world.v", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul/azul.v",
+        src: "azul.v",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.v",
+        src: "v/hello-world.v",
+        source: BindingSource::Examples,
+    },
     // swift: thin layer over azul.h via a Clang module map (needs azul.h + modulemap).
-    BindingFile { dst: "azul.swift", src: "azul.swift", source: BindingSource::Codegen },
-    BindingFile { dst: "module.modulemap", src: "module.modulemap", source: BindingSource::Codegen },
-    BindingFile { dst: "azul.h", src: "azul.h", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.swift", src: "swift/hello-world.swift", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul.swift",
+        src: "azul.swift",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "module.modulemap",
+        src: "module.modulemap",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "azul.h",
+        src: "azul.h",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.swift",
+        src: "swift/hello-world.swift",
+        source: BindingSource::Examples,
+    },
     // julia: `azul/` subdir the driver `include`s; libazul dlopen'd via AZUL_LIB.
-    BindingFile { dst: "azul/azul.jl", src: "azul.jl", source: BindingSource::Codegen },
-    BindingFile { dst: "hello-world.jl", src: "julia/hello-world.jl", source: BindingSource::Examples },
+    BindingFile {
+        dst: "azul/azul.jl",
+        src: "azul.jl",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "hello-world.jl",
+        src: "julia/hello-world.jl",
+        source: BindingSource::Examples,
+    },
     // --- csharp (the main-page FFI tabs below ship the generated binding so the
     //     install steps `curl` it from azul.rs instead of cloning + codegen) ---
-    BindingFile { dst: "Azul.cs", src: "Azul.cs", source: BindingSource::Codegen },
-    BindingFile { dst: "Azul.csproj", src: "Azul.csproj", source: BindingSource::Codegen },
+    BindingFile {
+        dst: "Azul.cs",
+        src: "Azul.cs",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "Azul.csproj",
+        src: "Azul.csproj",
+        source: BindingSource::Codegen,
+    },
     // --- ruby ---
-    BindingFile { dst: "azul.rb", src: "azul.rb", source: BindingSource::Codegen },
-    BindingFile { dst: "azul.gemspec", src: "azul.gemspec", source: BindingSource::Codegen },
+    BindingFile {
+        dst: "azul.rb",
+        src: "azul.rb",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "azul.gemspec",
+        src: "azul.gemspec",
+        source: BindingSource::Codegen,
+    },
     // --- lua ---
-    BindingFile { dst: "azul.lua", src: "azul.lua", source: BindingSource::Codegen },
+    BindingFile {
+        dst: "azul.lua",
+        src: "azul.lua",
+        source: BindingSource::Codegen,
+    },
     // NOTE: the LuaRocks rockspec is handled dynamically in
     // copy_language_bindings() — its filename embeds the release version
     // (`azul-<version>-1.rockspec`), which a const list cannot express.
     // --- node ---
-    BindingFile { dst: "azul.js", src: "node/azul.js", source: BindingSource::Codegen },
-    BindingFile { dst: "package.json", src: "node/package.json", source: BindingSource::Codegen },
+    BindingFile {
+        dst: "azul.js",
+        src: "node/azul.js",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "package.json",
+        src: "node/package.json",
+        source: BindingSource::Codegen,
+    },
     // --- ocaml ---
-    BindingFile { dst: "azul.ml", src: "azul.ml", source: BindingSource::Codegen },
-    BindingFile { dst: "azul.mli", src: "azul.mli", source: BindingSource::Codegen },
-    BindingFile { dst: "dune", src: "dune", source: BindingSource::Codegen },
-    BindingFile { dst: "dune-project", src: "dune-project", source: BindingSource::Codegen },
+    BindingFile {
+        dst: "azul.ml",
+        src: "azul.ml",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "azul.mli",
+        src: "azul.mli",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "dune",
+        src: "dune",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "dune-project",
+        src: "dune-project",
+        source: BindingSource::Codegen,
+    },
     // --- kotlin ---
-    BindingFile { dst: "Azul.kt", src: "kotlin/Azul.kt", source: BindingSource::Codegen },
-    BindingFile { dst: "build.gradle.kts", src: "kotlin/build.gradle.kts", source: BindingSource::Codegen },
-    BindingFile { dst: "settings.gradle.kts", src: "kotlin/settings.gradle.kts", source: BindingSource::Codegen },
+    BindingFile {
+        dst: "Azul.kt",
+        src: "kotlin/Azul.kt",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "build.gradle.kts",
+        src: "kotlin/build.gradle.kts",
+        source: BindingSource::Codegen,
+    },
+    BindingFile {
+        dst: "settings.gradle.kts",
+        src: "kotlin/settings.gradle.kts",
+        source: BindingSource::Codegen,
+    },
     // --- example drivers for the SHIPPED frontpage languages, so every file
     //     the install steps compile/run can be curl'd from release/<v>/
     //     (2026-07-04 review: several tabs referenced files no step obtains) ---
-    BindingFile { dst: "hello-world.c", src: "c/hello-world.c", source: BindingSource::Examples },
-    BindingFile { dst: "hello-world.cpp", src: "cpp/cpp20/hello-world.cpp", source: BindingSource::Examples },
+    BindingFile {
+        dst: "hello-world.c",
+        src: "c/hello-world.c",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world.cpp",
+        src: "cpp/cpp20/hello-world.cpp",
+        source: BindingSource::Examples,
+    },
     // python ships the wheel as a BinaryAsset; the driver was only in examples.zip
     // before, so its `curl .../hello-world.py` install step 404'd. Ship it too.
-    BindingFile { dst: "hello-world.py", src: "python/hello-world.py", source: BindingSource::Examples },
+    BindingFile {
+        dst: "hello-world.py",
+        src: "python/hello-world.py",
+        source: BindingSource::Examples,
+    },
     // Azul.csproj above is the LIBRARY project; Hello.csproj is the runnable
     // Exe scaffold `dotnet run` needs next to hello-world.cs.
-    BindingFile { dst: "hello-world.cs", src: "csharp/hello-world.cs", source: BindingSource::Examples },
-    BindingFile { dst: "Hello.csproj", src: "csharp/Hello.csproj", source: BindingSource::Examples },
-    BindingFile { dst: "HelloWorld.java", src: "java/HelloWorld.java", source: BindingSource::Examples },
-    BindingFile { dst: "pom.xml", src: "java/pom.xml", source: BindingSource::Examples },
-    BindingFile { dst: "HelloWorld.kt", src: "kotlin/HelloWorld.kt", source: BindingSource::Examples },
-    BindingFile { dst: "hello-world.js", src: "node/hello-world.js", source: BindingSource::Examples },
-    BindingFile { dst: "hello-world.rb", src: "ruby/hello-world.rb", source: BindingSource::Examples },
-    BindingFile { dst: "hello-world.lua", src: "lua/hello-world.lua", source: BindingSource::Examples },
-    BindingFile { dst: "hello_world.ml", src: "ocaml/hello_world.ml", source: BindingSource::Examples },
+    BindingFile {
+        dst: "hello-world.cs",
+        src: "csharp/hello-world.cs",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "Hello.csproj",
+        src: "csharp/Hello.csproj",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "HelloWorld.java",
+        src: "java/HelloWorld.java",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "pom.xml",
+        src: "java/pom.xml",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "HelloWorld.kt",
+        src: "kotlin/HelloWorld.kt",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world.js",
+        src: "node/hello-world.js",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world.rb",
+        src: "ruby/hello-world.rb",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello-world.lua",
+        src: "lua/hello-world.lua",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello_world.ml",
+        src: "ocaml/hello_world.ml",
+        source: BindingSource::Examples,
+    },
     // --- promotion candidates (zig/go/fortran/scala) ---
-    BindingFile { dst: "hello-world.zig", src: "zig/hello-world.zig", source: BindingSource::Examples },
-    BindingFile { dst: "main.go", src: "go/main.go", source: BindingSource::Examples },
-    BindingFile { dst: "hello_world.f90", src: "fortran/hello_world.f90", source: BindingSource::Examples },
-    BindingFile { dst: "HelloWorld.scala", src: "scala/HelloWorld.scala", source: BindingSource::Examples },
+    BindingFile {
+        dst: "hello-world.zig",
+        src: "zig/hello-world.zig",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "main.go",
+        src: "go/main.go",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "hello_world.f90",
+        src: "fortran/hello_world.f90",
+        source: BindingSource::Examples,
+    },
+    BindingFile {
+        dst: "HelloWorld.scala",
+        src: "scala/HelloWorld.scala",
+        source: BindingSource::Examples,
+    },
 ];
 
 /// Copy every non-whitelist per-language binding + scaffolding file that the
@@ -917,7 +1305,10 @@ pub fn copy_language_bindings(
     codegen_dir: &Path,
     examples_dir: &Path,
 ) -> Result<()> {
-    println!("  Copying per-language bindings into release/{}/...", version);
+    println!(
+        "  Copying per-language bindings into release/{}/...",
+        version
+    );
 
     let mut copied = 0usize;
     let mut missing: Vec<String> = Vec::new();
@@ -1297,14 +1688,21 @@ fn asset_url(version: &str, filename: &str) -> String {
 fn release_link_li(version: &str, filename: &str, description: &str) -> String {
     let url = asset_url(version, filename);
     // The description already names the artifact; don't repeat the filename.
-    format!("<li><a href='{url}'>{description}</a></li>", url = url, description = description)
+    format!(
+        "<li><a href='{url}'>{description}</a></li>",
+        url = url,
+        description = description
+    )
 }
 
 /// A generic `.docs-card` download/link tile (azul-docs.css): title + optional
 /// plain-prose subtitle line.
 fn card(url: &str, title: &str, sub: &str) -> String {
-    let sub_html =
-        if sub.is_empty() { String::new() } else { format!("<p>{sub}</p>", sub = sub) };
+    let sub_html = if sub.is_empty() {
+        String::new()
+    } else {
+        format!("<p>{sub}</p>", sub = sub)
+    };
     format!(
         "<a class='docs-card' href='{url}'><h4>{title}</h4>{sub_html}</a>",
         url = url,
@@ -1416,7 +1814,9 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     let cross_win = cross_group(version, |f| {
         f.starts_with("azul.i686.") || f.starts_with("azul.rust9x.")
     });
-    let cross_mac = cross_group(version, |f| f.contains("macos") || f.contains(".x86_64.dylib"));
+    let cross_mac = cross_group(version, |f| {
+        f.contains("macos") || f.contains(".x86_64.dylib")
+    });
     let cross_lin = cross_group(version, |f| f.contains("linux-"));
     let cross_arch_section = format!(
         "\n              <h3>Additional architectures</h3>\n              \
@@ -1461,11 +1861,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // ---- PDF guide -------------------------------------------------------
     // The docs_pdf job renders the guide+API PDF; the deploy lays it out at
     // release/{version}/guide.pdf.
-    let pdf_link = release_card(
-        version,
-        "guide.pdf",
-        "Full guide + API reference (PDF)",
-    );
+    let pdf_link = release_card(version, "guide.pdf", "Full guide + API reference (PDF)");
 
     // ---- Code coverage report -------------------------------------------
     // The `coverage` CI job runs scripts/coverage.sh (grcov + llvm-tools) over
@@ -1518,14 +1914,22 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
             "statistics/sanitizers.txt",
             "Sanitizers (ASan / UBSan / TSan on the C examples)",
         ));
-        for (os_label, os_slug) in [("Linux", "ubuntu"), ("macOS", "macos"), ("Windows", "windows")] {
+        for (os_label, os_slug) in [
+            ("Linux", "ubuntu"),
+            ("macOS", "macos"),
+            ("Windows", "windows"),
+        ] {
             v.push(release_link_li(
                 version,
                 &format!("statistics/language-bindings-{os_slug}.txt"),
                 &format!("Language binding status board ({os_label})"),
             ));
         }
-        for (os_label, os_slug) in [("Linux", "ubuntu"), ("macOS", "macos"), ("Windows", "windows")] {
+        for (os_label, os_slug) in [
+            ("Linux", "ubuntu"),
+            ("macOS", "macos"),
+            ("Windows", "windows"),
+        ] {
             v.push(release_link_li(
                 version,
                 &format!("statistics/dependency-tree-{os_slug}.txt"),
@@ -1539,11 +1943,26 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
     // generate_license_files writes the bundled third-party license text per
     // platform into release/{version}/. The project itself is MIT-licensed.
     const LICENSE_FILES: &[(&str, &str)] = &[
-        ("LICENSE-LINUX.txt", "Bundled third-party licenses (Linux build)"),
-        ("LICENSE-MACOS.txt", "Bundled third-party licenses (macOS build)"),
-        ("LICENSE-WINDOWS.txt", "Bundled third-party licenses (Windows build)"),
-        ("LICENSE-IOS.txt", "Bundled third-party licenses (iOS build)"),
-        ("LICENSE-ANDROID.txt", "Bundled third-party licenses (Android build)"),
+        (
+            "LICENSE-LINUX.txt",
+            "Bundled third-party licenses (Linux build)",
+        ),
+        (
+            "LICENSE-MACOS.txt",
+            "Bundled third-party licenses (macOS build)",
+        ),
+        (
+            "LICENSE-WINDOWS.txt",
+            "Bundled third-party licenses (Windows build)",
+        ),
+        (
+            "LICENSE-IOS.txt",
+            "Bundled third-party licenses (iOS build)",
+        ),
+        (
+            "LICENSE-ANDROID.txt",
+            "Bundled third-party licenses (Android build)",
+        ),
     ];
     let license_links: String = LICENSE_FILES
         .iter()
@@ -1598,15 +2017,27 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         // name, one string with nothing to drift. It used to be the old
         // package name while the display name was already AzXxx, which is
         // precisely how azul-writer's downloads 404'd for a whole release.
-        ("AzWidgets", "AzWidgets", "every built-in widget in one window"),
-        ("AzMaps", "AzMaps", "a slippy-map tile viewer - async work in the UI"),
+        (
+            "AzWidgets",
+            "AzWidgets",
+            "every built-in widget in one window",
+        ),
+        (
+            "AzMaps",
+            "AzMaps",
+            "a slippy-map tile viewer - async work in the UI",
+        ),
         ("AzPaint", "AzPaint", "a small paint app - canvas drawing"),
         (
             "AzMeet",
             "AzMeet",
             "screenshare, video and audio capture and playback",
         ),
-        ("AzWriter", "AzWriter", "a document editor - a full application"),
+        (
+            "AzWriter",
+            "AzWriter",
+            "a document editor - a full application",
+        ),
     ];
     // OS suffix → label + filename extension, matching the build_demos staging
     // names (AzMaps-linux, AzMaps-macos, AzMaps-windows.exe).
@@ -1625,11 +2056,26 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
         ("Linux", "demos/{c}-linux", |_| true),
         ("macOS", "demos/{c}-macos", |_| true),
         ("Windows", "demos/{c}-windows.exe", |_| true),
-        ("iOS device (.ipa, signed)", "mobile-apps/{c}-ios.ipa", |_| true),
-        ("iOS device (.app, sign-it-yourself)", "mobile-apps/{c}-ios.app.zip", |_| true),
-        ("iOS Simulator (.app, unsigned)", "mobile-apps/{c}-ios-sim.app.zip", |_| true),
-        ("Android (.apk, sideload)", "mobile-apps/{c}-android.apk",
-            |c| ANDROID_READY.contains(&c)),
+        (
+            "iOS device (.ipa, signed)",
+            "mobile-apps/{c}-ios.ipa",
+            |_| true,
+        ),
+        (
+            "iOS device (.app, sign-it-yourself)",
+            "mobile-apps/{c}-ios.app.zip",
+            |_| true,
+        ),
+        (
+            "iOS Simulator (.app, unsigned)",
+            "mobile-apps/{c}-ios-sim.app.zip",
+            |_| true,
+        ),
+        (
+            "Android (.apk, sideload)",
+            "mobile-apps/{c}-android.apk",
+            |c| ANDROID_READY.contains(&c),
+        ),
     ];
     let mut demo_links: String = os_groups
         .iter()
@@ -1640,11 +2086,7 @@ pub fn generate_release_html(version: &str, api_data: &ApiData, assets: &Release
                 .map(|(crate_name, friendly, _desc)| {
                     // Description intentionally dropped here: it's stated once under
                     // the "Demos" heading instead of repeated on every OS row.
-                    release_link_li(
-                        version,
-                        &path_tmpl.replace("{c}", crate_name),
-                        friendly,
-                    )
+                    release_link_li(version, &path_tmpl.replace("{c}", crate_name), friendly)
                 })
                 .collect::<Vec<_>>()
                 .join("\n                    ");
@@ -2145,10 +2587,7 @@ pub fn copy_static_assets(output_dir: &Path) -> Result<()> {
     let prism_dir = output_dir.join("prism");
     fs::create_dir_all(&prism_dir)?;
     for f in ["prism.min.js", "prism.min.css", "LICENSE"] {
-        fs::copy(
-            templates_dir.join("prism").join(f),
-            prism_dir.join(f),
-        )?;
+        fs::copy(templates_dir.join("prism").join(f), prism_dir.join(f))?;
     }
 
     // Copy the faces the site actually loads - all declared in ONE place, the

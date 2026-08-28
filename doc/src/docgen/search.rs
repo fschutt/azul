@@ -159,7 +159,10 @@ pub fn generate_search_index(version: &str, version_data: &VersionData) -> Strin
         }
     }
 
-    let index = Index { v: version, e: entries };
+    let index = Index {
+        v: version,
+        e: entries,
+    };
     serde_json::to_string(&index).unwrap_or_else(|_| String::from("{\"v\":\"\",\"e\":[]}"))
 }
 
@@ -168,7 +171,9 @@ pub fn generate_search_index(version: &str, version_data: &VersionData) -> Strin
 /// We keep it terse — no HTML, no escaping; the JS layer escapes when it
 /// renders.
 fn doc_to_text(lines: Option<&[String]>) -> String {
-    let Some(lines) = lines else { return String::new() };
+    let Some(lines) = lines else {
+        return String::new();
+    };
 
     let mut in_code = false;
     let mut out = String::new();
@@ -316,7 +321,11 @@ pub fn generate_guide_index(guides: &[crate::docgen::guide::Guide]) -> String {
         })
         .collect();
 
-    serde_json::to_string(&GuideIndex { v: "guide", e: entries }).unwrap_or_default()
+    serde_json::to_string(&GuideIndex {
+        v: "guide",
+        e: entries,
+    })
+    .unwrap_or_default()
 }
 
 /// Reduce markdown to the plain words a reader would search for.

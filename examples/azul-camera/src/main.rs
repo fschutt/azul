@@ -12,8 +12,8 @@
 //! Pure public `azul::` surface: `azul::widgets::CameraWidget` +
 //! `azul::camera::{CameraConfig, CameraFacing}`.
 
-use azul::prelude::*;
 use azul::camera::{CameraConfig, CameraFacing};
+use azul::prelude::*;
 use azul::widgets::CameraWidget;
 
 /// Which camera the preview requests. (A front/back switch button lands with

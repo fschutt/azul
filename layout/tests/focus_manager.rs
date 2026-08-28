@@ -5,9 +5,7 @@ use azul_core::{
     styled_dom::NodeHierarchyItemId,
 };
 use azul_layout::{
-    callbacks::FocusUpdateRequest,
-    managers::focus_cursor::FocusManager,
-    window::LayoutWindow,
+    callbacks::FocusUpdateRequest, managers::focus_cursor::FocusManager, window::LayoutWindow,
 };
 
 /// Helper to create a minimal FcFontCache for testing
@@ -102,9 +100,7 @@ fn test_focus_manager_with_layout_window() {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
     };
-    layout_window
-        .focus_manager
-        .set_focused_node(Some(node));
+    layout_window.focus_manager.set_focused_node(Some(node));
 
     // Verify focus was set
     assert_eq!(layout_window.focus_manager.get_focused_node(), Some(&node));
@@ -123,7 +119,8 @@ fn test_recursive_focus_change_detection() {
     let mut recursion_count = 0;
     const MAX_RECURSION: usize = 5;
 
-    let nodes = [DomNodeId {
+    let nodes = [
+        DomNodeId {
             dom: DomId::ROOT_ID,
             node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
         },
@@ -146,7 +143,8 @@ fn test_recursive_focus_change_detection() {
         DomNodeId {
             dom: DomId::ROOT_ID,
             node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(5))),
-        }];
+        },
+    ];
 
     // Simulate initial focus
     focus_manager.set_focused_node(Some(nodes[0]));
@@ -243,17 +241,13 @@ fn test_focus_manager_integration_with_all_managers() {
     };
 
     // Set initial focus
-    layout_window
-        .focus_manager
-        .set_focused_node(Some(node1));
+    layout_window.focus_manager.set_focused_node(Some(node1));
 
     assert_eq!(layout_window.focus_manager.get_focused_node(), Some(&node1));
 
     // Simulate focus change
     let old_focus = layout_window.focus_manager.get_focused_node().copied();
-    layout_window
-        .focus_manager
-        .set_focused_node(Some(node2));
+    layout_window.focus_manager.set_focused_node(Some(node2));
     let new_focus = layout_window.focus_manager.get_focused_node();
 
     // Verify focus changed

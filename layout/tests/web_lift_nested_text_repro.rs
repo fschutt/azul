@@ -52,7 +52,9 @@ fn node_id(n: usize) -> DomNodeId {
 /// web-text-min's WORKING case: body directly contains text (body FC = Inline).
 #[test]
 fn body_with_direct_text_lays_out() {
-    let dom = Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello"));
+    let dom = Dom::create_body().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("Hello"),
+    );
     let lw = layout_dom(dom, "", 800.0, 600.0);
     let body = lw.get_node_layout_rect(node_id(0)).expect("body rect");
     eprintln!("[direct] body rect = {body:?}");

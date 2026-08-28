@@ -27,7 +27,9 @@ fn build(animations: SystemAnimations) -> LayoutWindow {
         let mut b = Dom::create_div()
             .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("btn".into())].into());
         b.set_tab_index(TabIndex::Auto);
-        b.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(label))
+        b.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            label,
+        ))
     };
     let mut dom = Dom::create_body()
         .with_child(btn("one"))

@@ -243,8 +243,7 @@ fn main() {
         .map(|mp| mp.tessellate_fill(SvgFillStyle::default()))
         .collect();
 
-    let tessellated_fill_join =
-        TessellatedSvgNode::from_nodes(tessellated_fill.as_slice().into());
+    let tessellated_fill_join = TessellatedSvgNode::from_nodes(tessellated_fill.as_slice().into());
 
     let mut stroke_style = SvgStrokeStyle::default();
     stroke_style.line_width = 4.0;

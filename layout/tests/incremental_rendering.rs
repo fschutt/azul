@@ -64,10 +64,19 @@ impl RenderHarness {
         let dom_id = DomId { inner: 0 };
         let dl = &lw.layout_results.get(&dom_id).unwrap().display_list;
 
-        let opts = RenderOptions { width: w, height: h, dpi_factor: 1.0 };
+        let opts = RenderOptions {
+            width: w,
+            height: h,
+            dpi_factor: 1.0,
+        };
         let pixmap = cpurender::render_with_font_manager(
-            dl, &rr, &lw.font_manager, opts, &mut self.glyph_cache,
-        ).unwrap();
+            dl,
+            &rr,
+            &lw.font_manager,
+            opts,
+            &mut self.glyph_cache,
+        )
+        .unwrap();
 
         self.previous_pixmap = Some(pixmap.clone_pixmap());
         pixmap
@@ -87,8 +96,8 @@ fn pixel_diff_count(a: &AzulPixmap, b: &AzulPixmap, threshold: u8) -> usize {
     let mut count = 0;
     for i in (0..ad.len()).step_by(4) {
         let dr = (ad[i] as i16 - bd[i] as i16).unsigned_abs() as u8;
-        let dg = (ad[i+1] as i16 - bd[i+1] as i16).unsigned_abs() as u8;
-        let db = (ad[i+2] as i16 - bd[i+2] as i16).unsigned_abs() as u8;
+        let dg = (ad[i + 1] as i16 - bd[i + 1] as i16).unsigned_abs() as u8;
+        let db = (ad[i + 2] as i16 - bd[i + 2] as i16).unsigned_abs() as u8;
         if dr > threshold || dg > threshold || db > threshold {
             count += 1;
         }
@@ -110,12 +119,10 @@ fn identical_frames_produce_identical_pixmaps() {
         .box { width: 100px; height: 100px; background-color: #ff0000; }
     "#;
 
-    let dom1 = Dom::create_body().with_child(
-        Dom::create_div().with_ids_and_classes(cls("box").into()),
-    );
-    let dom2 = Dom::create_body().with_child(
-        Dom::create_div().with_ids_and_classes(cls("box").into()),
-    );
+    let dom1 =
+        Dom::create_body().with_child(Dom::create_div().with_ids_and_classes(cls("box").into()));
+    let dom2 =
+        Dom::create_body().with_child(Dom::create_div().with_ids_and_classes(cls("box").into()));
 
     let frame1 = h.render_frame(dom1, css, 200.0, 200.0);
     let frame2 = h.render_frame(dom2, css, 200.0, 200.0);
@@ -144,12 +151,16 @@ fn text_change_only_affects_text_region() {
     let dom1 = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(cls("box").into())
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello")),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "Hello",
+            )),
     );
     let dom2 = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(cls("box").into())
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("World")),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "World",
+            )),
     );
 
     let frame1 = h.render_frame(dom1, css, 200.0, 200.0);
@@ -158,10 +169,7 @@ fn text_change_only_affects_text_region() {
     let total_pixels = (frame1.width() * frame1.height()) as usize;
     let diff = pixel_diff_count(&frame1, &frame2, 0);
 
-    assert!(
-        diff > 0,
-        "Text changed, some pixels should differ"
-    );
+    assert!(diff > 0, "Text changed, some pixels should differ");
     assert!(
         diff < total_pixels / 5,
         "Only text region should differ (<20% of pixels), but {}% changed",
@@ -184,8 +192,12 @@ fn different_text_content_produces_different_output() {
         body { width: 200px; height: 100px; font-family: sans-serif; font-size: 16px; }
     "#;
 
-    let dom1 = Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("AAAA"));
-    let dom2 = Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("ZZZZ"));
+    let dom1 = Dom::create_body().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("AAAA"),
+    );
+    let dom2 = Dom::create_body().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("ZZZZ"),
+    );
 
     let frame1 = h.render_frame(dom1, css, 200.0, 100.0);
     let frame2 = h.render_frame(dom2, css, 200.0, 100.0);

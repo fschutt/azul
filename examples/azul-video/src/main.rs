@@ -8,9 +8,9 @@
 //! thrash), so the UI stays responsive.
 
 use azul::prelude::*;
-use azul::widgets::VideoWidget;
-use azul::video::{VideoConfig, VideoSource};
 use azul::url::Url;
+use azul::video::{VideoConfig, VideoSource};
+use azul::widgets::VideoWidget;
 // NOTE: no `azul::desktop::...` import here. This demo depends on azul with
 // `default-features = false, features = ["link-dynamic"]`, which does NOT
 // enable `cabi_internal` — and `pub mod desktop` is gated on exactly that. So
@@ -94,12 +94,10 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             "position: relative; height: 100%; margin: 0; box-sizing: border-box; \
              padding: 20px; background: #0e0e14;",
         )
-        .with_child(
-            VideoWidget::create(config).dom().with_css(
-                "width: 100%; height: 100%; border-radius: 16px; overflow: hidden; \
+        .with_child(VideoWidget::create(config).dom().with_css(
+            "width: 100%; height: 100%; border-radius: 16px; overflow: hidden; \
                  box-shadow: 0px 0px 40px #000000;",
-            ),
-        )
+        ))
         .with_child(
             Dom::create_div()
                 .with_css(

@@ -8,14 +8,14 @@
 use crate::solver3::layout_tree::LayoutNodeId;
 use alloc::collections::BTreeMap;
 
-#[cfg(feature = "std")]
-use std::collections::HashMap;
 #[cfg(not(feature = "std"))]
 use alloc::collections::BTreeMap as HashMap;
+#[cfg(feature = "std")]
+use std::collections::HashMap;
 
 use azul_core::{
-    dom::{DomId, NodeId},
     dom::ScrollbarOrientation,
+    dom::{DomId, NodeId},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
     gpu::{GpuEventChanges, GpuTransformKeyEvent, GpuValueCache},
     resources::TransformKey,
@@ -26,8 +26,7 @@ use azul_core::{
 use crate::{
     managers::scroll_state::ScrollManager,
     solver3::{
-        fc::DEFAULT_SCROLLBAR_WIDTH_PX,
-        layout_tree::LayoutTree,
+        fc::DEFAULT_SCROLLBAR_WIDTH_PX, layout_tree::LayoutTree,
         scrollbar::compute_scrollbar_geometry_with_button_size,
     },
 };
@@ -76,7 +75,8 @@ impl Default for GpuStateManager {
 
 impl GpuStateManager {
     /// Creates a new GPU state manager with specified fade timing.
-    #[must_use] pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
+    #[must_use]
+    pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
         Self {
             caches: BTreeMap::new(),
             fade_delay,
@@ -101,7 +101,8 @@ impl GpuStateManager {
     // render loop and has been removed.
 
     /// Gets or creates the GPU cache for a specific DOM.
-    #[must_use] pub fn get_cache(&self, dom_id: DomId) -> Option<&GpuValueCache> {
+    #[must_use]
+    pub fn get_cache(&self, dom_id: DomId) -> Option<&GpuValueCache> {
         self.caches.get(&dom_id)
     }
 
@@ -203,7 +204,13 @@ impl GpuStateManager {
                     crate::solver3::scrollbar::quantize_thumb_offset(v_geom.thumb_offset),
                     0.0,
                 );
-                update_scrollbar_transform_key(gpu_cache, &mut changes, node_id, transform, ScrollbarOrientation::Vertical);
+                update_scrollbar_transform_key(
+                    gpu_cache,
+                    &mut changes,
+                    node_id,
+                    transform,
+                    ScrollbarOrientation::Vertical,
+                );
             }
 
             if scrollbar_info.needs_horizontal {
@@ -232,7 +239,13 @@ impl GpuStateManager {
                     0.0,
                     0.0,
                 );
-                update_scrollbar_transform_key(gpu_cache, &mut changes, node_id, transform, ScrollbarOrientation::Horizontal);
+                update_scrollbar_transform_key(
+                    gpu_cache,
+                    &mut changes,
+                    node_id,
+                    transform,
+                    ScrollbarOrientation::Horizontal,
+                );
             }
         }
 
@@ -529,7 +542,9 @@ mod autotest_generated {
     #[test]
     fn new_accepts_tick_durations_not_just_system_durations() {
         // Duration is an enum; the constructor must not assume the System variant.
-        let tick = Duration::Tick(SystemTickDiff { tick_diff: u64::MAX });
+        let tick = Duration::Tick(SystemTickDiff {
+            tick_diff: u64::MAX,
+        });
         let m = GpuStateManager::new(tick, tick);
         assert_eq!(m.fade_delay, tick);
         assert_eq!(m.fade_duration, tick);
@@ -592,7 +607,9 @@ mod autotest_generated {
         let node = NodeId::new(7);
         let key = TransformKey::unique();
 
-        m.get_or_create_cache(dom(0)).transform_keys.insert(node, key);
+        m.get_or_create_cache(dom(0))
+            .transform_keys
+            .insert(node, key);
         assert_eq!(m.caches.len(), 1);
 
         // Second call must hand back the *same* cache, not a fresh default one —
@@ -617,7 +634,10 @@ mod autotest_generated {
 
         assert_eq!(m.caches.len(), 2);
         assert_eq!(
-            m.get_cache(dom(0)).unwrap().current_opacity_values.get(&node),
+            m.get_cache(dom(0))
+                .unwrap()
+                .current_opacity_values
+                .get(&node),
             Some(&0.25)
         );
         assert_eq!(
@@ -648,7 +668,11 @@ mod autotest_generated {
             ScrollbarOrientation::Vertical,
         );
 
-        let key = cache.transform_keys.get(&node).copied().expect("key stored");
+        let key = cache
+            .transform_keys
+            .get(&node)
+            .copied()
+            .expect("key stored");
         assert_eq!(cache.current_transform_values.get(&node), Some(&t));
         assert_eq!(
             changes.transform_key_changes,
@@ -780,7 +804,10 @@ mod autotest_generated {
             ScrollbarOrientation::Vertical,
         );
 
-        assert!(changes.is_empty(), "no event is emitted for a keyless value");
+        assert!(
+            changes.is_empty(),
+            "no event is emitted for a keyless value"
+        );
         assert_eq!(
             cache.current_transform_values.get(&node),
             Some(&stale),
@@ -1077,8 +1104,10 @@ mod autotest_generated {
             c.css_current_transform_values.insert(old, tx(3.0, 3.0));
             c.opacity_keys.insert(old, OpacityKey::unique());
             c.current_opacity_values.insert(old, 0.5);
-            c.scrollbar_v_opacity_keys.insert((d, old), OpacityKey::unique());
-            c.scrollbar_h_opacity_keys.insert((d, old), OpacityKey::unique());
+            c.scrollbar_v_opacity_keys
+                .insert((d, old), OpacityKey::unique());
+            c.scrollbar_h_opacity_keys
+                .insert((d, old), OpacityKey::unique());
             c.scrollbar_v_opacity_values.insert((d, old), 0.25);
             c.scrollbar_h_opacity_values.insert((d, old), 0.75);
         }
@@ -1091,7 +1120,10 @@ mod autotest_generated {
         assert!(c.h_transform_keys.contains_key(&new));
         assert_eq!(c.h_current_transform_values.get(&new), Some(&tx(2.0, 0.0)));
         assert!(c.css_transform_keys.contains_key(&new));
-        assert_eq!(c.css_current_transform_values.get(&new), Some(&tx(3.0, 3.0)));
+        assert_eq!(
+            c.css_current_transform_values.get(&new),
+            Some(&tx(3.0, 3.0))
+        );
         assert!(c.opacity_keys.contains_key(&new));
         assert_eq!(c.current_opacity_values.get(&new), Some(&0.5));
         assert!(c.scrollbar_v_opacity_keys.contains_key(&(d, new)));
@@ -1176,11 +1208,18 @@ mod autotest_generated {
                 hot(Some(NodeId::new(2)), Some(LogicalSize::new(100.0, 100.0))),
             ],
             // only one warm entry for two hot nodes
-            vec![warm_node(Some(v_scrollbar()), Some(LogicalSize::new(100.0, 1000.0)))],
+            vec![warm_node(
+                Some(v_scrollbar()),
+                Some(LogicalSize::new(100.0, 1000.0)),
+            )],
         );
 
         let changes = m.update_scrollbar_transforms(dom(0), &sm, &t);
-        assert_eq!(changes.transform_key_changes.len(), 1, "only node 0 is seen");
+        assert_eq!(
+            changes.transform_key_changes.len(),
+            1,
+            "only node 0 is seen"
+        );
     }
 
     #[test]
@@ -1291,7 +1330,9 @@ mod autotest_generated {
 
         // ...what display_list::paint_scrollbars computes for the same node.
         let states = sm.get_scroll_states_for_dom(dom(0));
-        let pos = states.get(&NODE).expect("the node must report a scroll state");
+        let pos = states
+            .get(&NODE)
+            .expect("the node must report a scroll state");
         assert_eq!(pos.children_rect.size, LogicalSize::new(100.0, 1000.0));
         let painted = compute_scrollbar_geometry_with_button_size(
             ScrollbarOrientation::Vertical,
@@ -1316,7 +1357,10 @@ mod autotest_generated {
         // max_scroll = 1000 - 100 = 900 -> half scroll = (68 - 32) * 0.5 = 18.
         // Sizing from the laid-out 100x100 instead gives max_scroll 0 and a
         // full-track thumb parked at 0.
-        assert!((y - 18.0).abs() < 0.01, "expected the half-track thumb at 18.0, got {y}");
+        assert!(
+            (y - 18.0).abs() < 0.01,
+            "expected the half-track thumb at 18.0, got {y}"
+        );
     }
 
     #[test]
@@ -1344,8 +1388,13 @@ mod autotest_generated {
         //    container_rect stayed zero and its clamp bound was the whole
         //    virtual size).
         let states = sm.get_scroll_states_for_dom(dom(0));
-        let pos = states.get(&NODE).expect("the callback created a scroll state");
-        let mut info = t.warm(LayoutNodeId::new(0)).and_then(|w| w.scrollbar_info).expect("layout stored one");
+        let pos = states
+            .get(&NODE)
+            .expect("the callback created a scroll state");
+        let mut info = t
+            .warm(LayoutNodeId::new(0))
+            .and_then(|w| w.scrollbar_info)
+            .expect("layout stored one");
         assert!(
             apply_virtual_scroll_necessity(
                 &styled_dom,
@@ -1356,14 +1405,22 @@ mod autotest_generated {
             ),
             "a 1000px document in a 100px auto viewport needs a bar"
         );
-        assert!(info.needs_vertical, "the amended flag is the one the GPU path gates on");
-        assert!(!info.needs_horizontal, "overflow-x: hidden must not gain a bar");
+        assert!(
+            info.needs_vertical,
+            "the amended flag is the one the GPU path gates on"
+        );
+        assert!(
+            !info.needs_horizontal,
+            "overflow-x: hidden must not gain a bar"
+        );
         assert_eq!(
             (info.scrollbar_width, info.scrollbar_height),
             (0.0, 0.0),
             "no layout gutter is reserved after the fact — the bar overlays"
         );
-        t.warm_mut(LayoutNodeId::new(0)).expect("the fixture has a warm node").scrollbar_info = Some(info);
+        t.warm_mut(LayoutNodeId::new(0))
+            .expect("the fixture has a warm node")
+            .scrollbar_info = Some(info);
         sm.register_or_update_scroll_node(
             dom(0),
             NODE,
@@ -1411,14 +1468,19 @@ mod autotest_generated {
         );
         // usable track = 100 (no buttons), thumb = max(100 * 100/1000, 2*16) = 32,
         // max_scroll = 900 -> half travel = (100 - 32) * 0.5 = 34.
-        assert!((y - 34.0).abs() < 0.01, "expected the half-track thumb at 34.0, got {y}");
+        assert!(
+            (y - 34.0).abs() < 0.01,
+            "expected the half-track thumb at 34.0, got {y}"
+        );
 
         // The pre-fix tree — layout's flags, unamended — emits nothing at all,
         // which is exactly the frozen thumb under a painted bar.
         let stale = one_node_tree(auto_no_scrollbar(), LogicalSize::new(100.0, 100.0));
         let mut fresh = GpuStateManager::default();
         assert!(
-            fresh.update_scrollbar_transforms(dom(0), &sm, &stale).is_empty(),
+            fresh
+                .update_scrollbar_transforms(dom(0), &sm, &stale)
+                .is_empty(),
             "without the amendment the GPU path never sees the bar"
         );
     }
@@ -1595,7 +1657,10 @@ mod autotest_generated {
         );
 
         let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
-        assert!(y.is_finite(), "a NaN must never reach the transform, got {y}");
+        assert!(
+            y.is_finite(),
+            "a NaN must never reach the transform, got {y}"
+        );
         assert_eq!(y, 0.0);
 
         // And it SETTLES: a second identical pass emits nothing.
@@ -1648,7 +1713,10 @@ mod autotest_generated {
         let t = one_node_tree(overlay, LogicalSize::new(100.0, 1000.0));
 
         let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
-        assert!((y - 68.0).abs() < 0.01, "expected the 16px default, got {y}");
+        assert!(
+            (y - 68.0).abs() < 0.01,
+            "expected the 16px default, got {y}"
+        );
         assert_eq!(DEFAULT_SCROLLBAR_WIDTH_PX, 16.0);
     }
 

@@ -37,21 +37,39 @@ use azul_core::{
 };
 use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
 use azul_css::{
+    impl_option_inner,
     props::{
-        basic::{color::ColorU, font::{StyleFontFamily, StyleFontFamilyVec}, StyleFontSize},
-        layout::{LayoutDisplay, LayoutFlexDirection, LayoutAlignItems, LayoutFlexGrow, LayoutPosition, LayoutInsetBottom, LayoutRight, LayoutMaxWidth, LayoutPaddingTop, LayoutPaddingBottom, LayoutPaddingLeft, LayoutPaddingRight, LayoutMarginLeft},
+        basic::{
+            color::ColorU,
+            font::{StyleFontFamily, StyleFontFamilyVec},
+            StyleFontSize,
+        },
+        layout::{
+            LayoutAlignItems, LayoutDisplay, LayoutFlexDirection, LayoutFlexGrow,
+            LayoutInsetBottom, LayoutMarginLeft, LayoutMaxWidth, LayoutPaddingBottom,
+            LayoutPaddingLeft, LayoutPaddingRight, LayoutPaddingTop, LayoutPosition, LayoutRight,
+        },
         property::{CssProperty, *},
-        style::{StyleBackgroundContentVec, StyleBackgroundContent, LayoutBorderTopWidth, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth, StyleBorderTopStyle, BorderStyle, StyleBorderBottomStyle, StyleBorderLeftStyle, StyleBorderRightStyle, StyleBorderTopColor, StyleBorderBottomColor, StyleBorderLeftColor, StyleBorderRightColor, StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius, StyleTextColor, StyleTextAlign, StyleCursor, StyleUserSelect},
+        style::{
+            BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth, LayoutBorderRightWidth,
+            LayoutBorderTopWidth, StyleBackgroundContent, StyleBackgroundContentVec,
+            StyleBorderBottomColor, StyleBorderBottomLeftRadius, StyleBorderBottomRightRadius,
+            StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+            StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+            StyleBorderTopLeftRadius, StyleBorderTopRightRadius, StyleBorderTopStyle, StyleCursor,
+            StyleTextAlign, StyleTextColor, StyleUserSelect,
+        },
     },
-    impl_option_inner, AzString,
+    AzString,
 };
 
 use crate::callbacks::{Callback, CallbackInfo};
 
 static TOAST_CONTAINER_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-toast"))];
-static TOAST_MESSAGE_CLASS: &[IdOrClass] =
-    &[Class(AzString::from_const_str("__azul-native-toast-message"))];
+static TOAST_MESSAGE_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str(
+    "__azul-native-toast-message",
+))];
 static TOAST_CLOSE_CLASS: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul-native-toast-close"))];
 
@@ -109,30 +127,91 @@ impl ToastKind {
     const fn colors(&self) -> (ColorU, ColorU, ColorU) {
         match self {
             Self::Info => (
-                ColorU { r: 207, g: 244, b: 252, a: 255 }, // #cff4fc
-                ColorU { r: 182, g: 239, b: 251, a: 255 }, // #b6effb
-                ColorU { r: 5, g: 81, b: 96, a: 255 },     // #055160
+                ColorU {
+                    r: 207,
+                    g: 244,
+                    b: 252,
+                    a: 255,
+                }, // #cff4fc
+                ColorU {
+                    r: 182,
+                    g: 239,
+                    b: 251,
+                    a: 255,
+                }, // #b6effb
+                ColorU {
+                    r: 5,
+                    g: 81,
+                    b: 96,
+                    a: 255,
+                }, // #055160
             ),
             Self::Success => (
-                ColorU { r: 209, g: 231, b: 221, a: 255 }, // #d1e7dd
-                ColorU { r: 186, g: 219, b: 204, a: 255 }, // #badbcc
-                ColorU { r: 15, g: 81, b: 50, a: 255 },    // #0f5132
+                ColorU {
+                    r: 209,
+                    g: 231,
+                    b: 221,
+                    a: 255,
+                }, // #d1e7dd
+                ColorU {
+                    r: 186,
+                    g: 219,
+                    b: 204,
+                    a: 255,
+                }, // #badbcc
+                ColorU {
+                    r: 15,
+                    g: 81,
+                    b: 50,
+                    a: 255,
+                }, // #0f5132
             ),
             Self::Warning => (
-                ColorU { r: 255, g: 243, b: 205, a: 255 }, // #fff3cd
-                ColorU { r: 255, g: 236, b: 181, a: 255 }, // #ffecb5
-                ColorU { r: 102, g: 77, b: 3, a: 255 },    // #664d03
+                ColorU {
+                    r: 255,
+                    g: 243,
+                    b: 205,
+                    a: 255,
+                }, // #fff3cd
+                ColorU {
+                    r: 255,
+                    g: 236,
+                    b: 181,
+                    a: 255,
+                }, // #ffecb5
+                ColorU {
+                    r: 102,
+                    g: 77,
+                    b: 3,
+                    a: 255,
+                }, // #664d03
             ),
             Self::Danger => (
-                ColorU { r: 248, g: 215, b: 218, a: 255 }, // #f8d7da
-                ColorU { r: 245, g: 194, b: 199, a: 255 }, // #f5c2c7
-                ColorU { r: 132, g: 32, b: 41, a: 255 },   // #842029
+                ColorU {
+                    r: 248,
+                    g: 215,
+                    b: 218,
+                    a: 255,
+                }, // #f8d7da
+                ColorU {
+                    r: 245,
+                    g: 194,
+                    b: 199,
+                    a: 255,
+                }, // #f5c2c7
+                ColorU {
+                    r: 132,
+                    g: 32,
+                    b: 41,
+                    a: 255,
+                }, // #842029
             ),
         }
     }
 
     /// CSS class name for this toast kind (mirrors `AlertKind::class_name`).
-    #[must_use] pub const fn class_name(&self) -> &'static str {
+    #[must_use]
+    pub const fn class_name(&self) -> &'static str {
         match self {
             Self::Info => "__azul-toast-info",
             Self::Success => "__azul-toast-success",
@@ -212,9 +291,9 @@ fn build_toast_style(kind: ToastKind) -> CssPropertyWithConditionsVec {
             TOAST_MAX_WIDTH,
         ))),
         // padding: 12px
-        CssPropertyWithConditions::simple(CssProperty::const_padding_top(LayoutPaddingTop::const_px(
-            12,
-        ))),
+        CssPropertyWithConditions::simple(CssProperty::const_padding_top(
+            LayoutPaddingTop::const_px(12,)
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_padding_bottom(
             LayoutPaddingBottom::const_px(12),
         )),
@@ -237,9 +316,11 @@ fn build_toast_style(kind: ToastKind) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_border_right_width(
             LayoutBorderRightWidth::const_px(1),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(StyleBorderTopStyle {
-            inner: BorderStyle::Solid,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_style(
+            StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_style(
             StyleBorderBottomStyle {
                 inner: BorderStyle::Solid,
@@ -255,9 +336,9 @@ fn build_toast_style(kind: ToastKind) -> CssPropertyWithConditionsVec {
                 inner: BorderStyle::Solid,
             },
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(StyleBorderTopColor {
-            inner: border,
-        })),
+        CssPropertyWithConditions::simple(CssProperty::const_border_top_color(
+            StyleBorderTopColor { inner: border }
+        )),
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_color(
             StyleBorderBottomColor { inner: border },
         )),
@@ -280,7 +361,9 @@ fn build_toast_style(kind: ToastKind) -> CssPropertyWithConditionsVec {
         CssPropertyWithConditions::simple(CssProperty::const_border_bottom_right_radius(
             StyleBorderBottomRightRadius::const_px(6),
         )),
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(14))),
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
+            14
+        ))),
         CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
         // Text colour is inherited by the message + close children.
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
@@ -311,13 +394,15 @@ impl Toast {
     /// Creates a new informational (blue) toast with the given message (visible,
     /// with a "x" close button).
     #[inline]
-    #[must_use] pub fn create(message: AzString) -> Self {
+    #[must_use]
+    pub fn create(message: AzString) -> Self {
         Self::with_kind(message, ToastKind::Info)
     }
 
     /// Creates a new toast with the given message and colour variant.
     #[inline]
-    #[must_use] pub fn with_kind(message: AzString, kind: ToastKind) -> Self {
+    #[must_use]
+    pub fn with_kind(message: AzString, kind: ToastKind) -> Self {
         Self {
             toast_state: ToastStateWrapper::default(),
             message,
@@ -336,7 +421,8 @@ impl Toast {
 
     /// Builder-style setter for the colour variant.
     #[inline]
-    #[must_use] pub fn with_toast_kind(mut self, kind: ToastKind) -> Self {
+    #[must_use]
+    pub fn with_toast_kind(mut self, kind: ToastKind) -> Self {
         self.set_kind(kind);
         self
     }
@@ -349,7 +435,8 @@ impl Toast {
 
     /// Builder-style setter for the dismissible flag.
     #[inline]
-    #[must_use] pub const fn with_dismissible(mut self, dismissible: bool) -> Self {
+    #[must_use]
+    pub const fn with_dismissible(mut self, dismissible: bool) -> Self {
         self.set_dismissible(dismissible);
         self
     }
@@ -368,7 +455,8 @@ impl Toast {
 
     /// Builder-style setter for the dismiss callback (implies dismissible).
     #[inline]
-    #[must_use] pub fn with_on_dismiss<C: Into<ToastOnDismissCallback>>(
+    #[must_use]
+    pub fn with_on_dismiss<C: Into<ToastOnDismissCallback>>(
         mut self,
         data: RefAny,
         on_dismiss: C,
@@ -379,7 +467,8 @@ impl Toast {
 
     /// Replaces `self` with a default (empty info) toast and returns the original.
     #[inline]
-    #[must_use] pub fn swap_with_default(&mut self) -> Self {
+    #[must_use]
+    pub fn swap_with_default(&mut self) -> Self {
         let mut s = Self::create(AzString::from_const_str(""));
         core::mem::swap(&mut s, self);
         s
@@ -387,7 +476,8 @@ impl Toast {
 
     /// Converts this toast into a DOM subtree with the `__azul-native-toast` class.
     #[inline]
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         use azul_core::{
             callbacks::CoreCallback,
             dom::{EventFilter, HoverEventFilter},
@@ -396,7 +486,9 @@ impl Toast {
 
         let message = crate::widgets::widget_p_with_text(self.message)
             .with_ids_and_classes(IdOrClassVec::from_const_slice(TOAST_MESSAGE_CLASS))
-            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(TOAST_MESSAGE_STYLE));
+            .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                TOAST_MESSAGE_STYLE,
+            ));
 
         let mut children = alloc::vec![message];
 
@@ -781,7 +873,9 @@ mod autotest_generated {
         let mut out = Vec::new();
         for change in changes {
             if let CallbackChange::ChangeNodeCssProperties {
-                node_id, properties, ..
+                node_id,
+                properties,
+                ..
             } = change
             {
                 for p in properties.as_ref() {
@@ -848,7 +942,10 @@ mod autotest_generated {
             // a floating card is only legible if bg != text
             assert_ne!(bg, text, "{kind:?}: background must differ from text");
             // ... and only visible against the page if bg != border
-            assert_ne!(bg, border, "{kind:?}: the border must be visible on the card");
+            assert_ne!(
+                bg, border,
+                "{kind:?}: the border must be visible on the card"
+            );
         }
 
         for (i, a) in ALL_KINDS.iter().enumerate() {
@@ -926,8 +1023,11 @@ mod autotest_generated {
     fn class_name_never_collides_with_the_structural_classes() {
         // the kind classes live in a different namespace than the three
         // `__azul-native-toast*` structural classes emitted by `dom()`
-        let structural = ["__azul-native-toast", "__azul-native-toast-message",
-                          "__azul-native-toast-close"];
+        let structural = [
+            "__azul-native-toast",
+            "__azul-native-toast-message",
+            "__azul-native-toast-close",
+        ];
         for kind in ALL_KINDS {
             for s in structural {
                 assert_ne!(kind.class_name(), s, "{kind:?} must not shadow {s:?}");
@@ -999,7 +1099,11 @@ mod autotest_generated {
             assert_eq!(text_color(&style), Some(text), "{kind:?}: text colour");
 
             let borders = border_colors(&style);
-            assert_eq!(borders.len(), 4, "{kind:?}: all four edges must be coloured");
+            assert_eq!(
+                borders.len(),
+                4,
+                "{kind:?}: all four edges must be coloured"
+            );
             assert!(
                 borders.iter().all(|c| *c == border),
                 "{kind:?}: every edge must use the kind's border colour, got {borders:?}"
@@ -1091,7 +1195,9 @@ mod autotest_generated {
             CssPropertyWithConditions::simple(CssProperty::const_align_items(
                 LayoutAlignItems::Start,
             )),
-            CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
+            CssPropertyWithConditions::simple(CssProperty::const_position(
+                LayoutPosition::Absolute,
+            )),
             CssPropertyWithConditions::simple(CssProperty::const_padding_top(
                 LayoutPaddingTop::const_px(12),
             )),
@@ -1204,13 +1310,13 @@ mod autotest_generated {
         let cases: Vec<AzString> = alloc::vec![
             AzString::from(""),
             AzString::from(" "),
-            AzString::from("a\0b"),                                  // interior NUL
-            AzString::from("line\nbreak\ttab"),                      // control chars
+            AzString::from("a\0b"),             // interior NUL
+            AzString::from("line\nbreak\ttab"), // control chars
             AzString::from("👨‍👩‍👧‍👦 e\u{0301}\u{0327} مرحبا שלום 🇩🇪"), // ZWJ + combining + RTL
-            AzString::from("\u{feff}\u{202e}rtl-override"),          // BOM + bidi override
-            AzString::from("×"),                                     // same glyph as the close button
-            AzString::from("\u{00D7}\u{00D7}\u{00D7}"),              // three close glyphs
-            AzString::from(long.as_str()),                           // 100k chars
+            AzString::from("\u{feff}\u{202e}rtl-override"), // BOM + bidi override
+            AzString::from("×"),                // same glyph as the close button
+            AzString::from("\u{00D7}\u{00D7}\u{00D7}"), // three close glyphs
+            AzString::from(long.as_str()),      // 100k chars
         ];
 
         for message in cases {
@@ -1315,7 +1421,10 @@ mod autotest_generated {
         toast.set_kind(ToastKind::Warning);
 
         assert_eq!(toast.message.as_str(), "keep me");
-        assert!(toast.dismissible, "set_kind must not clear the close button");
+        assert!(
+            toast.dismissible,
+            "set_kind must not clear the close button"
+        );
         assert!(
             toast.toast_state.on_dismiss.is_some(),
             "set_kind must not drop the callback"
@@ -1439,7 +1548,11 @@ mod autotest_generated {
 
         // a second call must *replace* the payload + function, not stack another one
         toast.set_on_dismiss(RefAny::new(9i64), dismiss_cb(record_dismiss));
-        let second = toast.toast_state.on_dismiss.as_ref().expect("second callback");
+        let second = toast
+            .toast_state
+            .on_dismiss
+            .as_ref()
+            .expect("second callback");
         assert_eq!(second.refany.get_type_id(), RefAny::new(9i64).get_type_id());
         assert_eq!(second.callback, dismiss_cb(record_dismiss));
         assert_ne!(second.callback, dismiss_cb(dismiss_do_nothing));
@@ -1501,7 +1614,11 @@ mod autotest_generated {
         let returned = toast.swap_with_default();
 
         assert_eq!(returned, snapshot, "the original must come back untouched");
-        assert_eq!(toast, Toast::default(), "self must be reset to a default toast");
+        assert_eq!(
+            toast,
+            Toast::default(),
+            "self must be reset to a default toast"
+        );
         assert_eq!(toast.message.as_str(), "");
         assert_eq!(toast.kind, ToastKind::Info);
         assert!(
@@ -1549,7 +1666,10 @@ mod autotest_generated {
         let returned = toast.swap_with_default();
 
         assert!(!returned.toast_state.inner.visible);
-        assert!(toast.toast_state.inner.visible, "the fresh toast is visible");
+        assert!(
+            toast.toast_state.inner.visible,
+            "the fresh toast is visible"
+        );
     }
 
     // ------------------------------------------------------------------
@@ -1661,7 +1781,9 @@ mod autotest_generated {
 
     #[test]
     fn dom_of_a_non_dismissible_toast_has_no_callbacks_at_all() {
-        let dom = Toast::create(AzString::from("m")).with_dismissible(false).dom();
+        let dom = Toast::create(AzString::from("m"))
+            .with_dismissible(false)
+            .dom();
 
         assert!(dom.root.has_class("__azul-native-toast"));
         let children = dom.children.as_ref();
@@ -1711,8 +1833,8 @@ mod autotest_generated {
     #[test]
     fn from_toast_for_dom_is_exactly_dom() {
         // non-dismissible, so no RefAny identity is involved in the comparison
-        let toast = Toast::with_kind(AzString::from("m"), ToastKind::Success)
-            .with_dismissible(false);
+        let toast =
+            Toast::with_kind(AzString::from("m"), ToastKind::Success).with_dismissible(false);
         let via_from = Dom::from(toast.clone());
         let via_method = toast.dom();
         assert!(
@@ -1730,7 +1852,8 @@ mod autotest_generated {
         let mut data = RefAny::new(ToastStateWrapper::default());
 
         // node 2 == the close button, its parent (node 0) is the container
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
+        let (update, changes) =
+            run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing, "no user callback -> DoNothing");
         assert_eq!(
@@ -1753,7 +1876,8 @@ mod autotest_generated {
             .into(),
         });
 
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
+        let (update, changes) =
+            run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(
             update,
@@ -1786,7 +1910,8 @@ mod autotest_generated {
         });
 
         for _ in 0..2 {
-            let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
+            let (update, changes) =
+                run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
             assert_eq!(update, Update::RefreshDom);
             assert_eq!(
                 display_writes(&changes),
@@ -1794,7 +1919,10 @@ mod autotest_generated {
             );
         }
 
-        assert!(!wrapper_visible(&mut data), "a second dismiss must not un-hide");
+        assert!(
+            !wrapper_visible(&mut data),
+            "a second dismiss must not un-hide"
+        );
         assert_eq!(
             log_calls(&mut log),
             alloc::vec![false, false],
@@ -1810,7 +1938,8 @@ mod autotest_generated {
         // must stay the only node carrying it (see the wiring test above).
         let mut data = RefAny::new(ToastStateWrapper::default());
 
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), MESSAGE_NODE, data.clone());
+        let (update, changes) =
+            run_dismiss(Some(dismissible_styled_dom()), MESSAGE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert_eq!(
@@ -1828,7 +1957,10 @@ mod autotest_generated {
         let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), 0, data.clone());
 
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "nothing may be restyled without a parent");
+        assert!(
+            changes.is_empty(),
+            "nothing may be restyled without a parent"
+        );
         assert!(wrapper_visible(&mut data), "state must not flip");
     }
 
@@ -1873,7 +2005,8 @@ mod autotest_generated {
         // the callback-bearing node carries a RefAny of the *wrong* type
         let data = RefAny::new(0xdead_beef_u64);
 
-        let (update, changes) = run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
+        let (update, changes) =
+            run_dismiss(Some(dismissible_styled_dom()), CLOSE_NODE, data.clone());
 
         assert_eq!(update, Update::DoNothing);
         assert!(
@@ -1913,10 +2046,7 @@ mod autotest_generated {
         let dom = Toast::with_kind(AzString::from("bye"), ToastKind::Danger)
             .with_on_dismiss(log.clone(), dismiss_cb(record_dismiss))
             .dom();
-        let payload = dom.children.as_ref()[1]
-            .root
-            .get_callbacks()
-            .as_ref()[0]
+        let payload = dom.children.as_ref()[1].root.get_callbacks().as_ref()[0]
             .refany
             .clone();
 

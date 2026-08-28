@@ -7,18 +7,24 @@
 //! is absent). macOS (AVFoundation) / Windows (Media Foundation) / mobile
 //! (Camera2) plug in the same way later.
 
+#[cfg(all(target_os = "android", feature = "ndk-sys"))]
+mod android;
+/// TCC authorization gate shared by the AVFoundation camera + mic backends
+/// and the macOS permission manager (`extra/permission/macos.rs`).
+#[cfg(all(
+    any(target_os = "macos", target_os = "ios"),
+    feature = "objc2-av-foundation"
+))]
+pub mod avf_auth;
+#[cfg(all(
+    any(target_os = "macos", target_os = "ios"),
+    feature = "objc2-av-foundation"
+))]
+mod avfoundation;
 #[cfg(target_os = "linux")]
 mod v4l2;
 #[cfg(target_os = "windows")]
 mod windows;
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "objc2-av-foundation"))]
-mod avfoundation;
-/// TCC authorization gate shared by the AVFoundation camera + mic backends
-/// and the macOS permission manager (`extra/permission/macos.rs`).
-#[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "objc2-av-foundation"))]
-pub mod avf_auth;
-#[cfg(all(target_os = "android", feature = "ndk-sys"))]
-mod android;
 
 /// Register the platform camera backend with the capture seam, once. Called
 /// from the per-frame layout pass (like [`super::audio::ensure_mic_backend`]),
@@ -44,7 +50,9 @@ pub fn ensure_camera_backend() {
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {
-            crate::plog_info!("[camera] registering Windows (nokhwa/Media Foundation) backend → RGBA");
+            crate::plog_info!(
+                "[camera] registering Windows (nokhwa/Media Foundation) backend → RGBA"
+            );
             azul_layout::widgets::capture_common::register_camera_backend(
                 azul_layout::widgets::capture_common::CaptureVTable {
                     open: windows::open,
@@ -55,7 +63,10 @@ pub fn ensure_camera_backend() {
             );
         });
     }
-    #[cfg(all(any(target_os = "macos", target_os = "ios"), feature = "objc2-av-foundation"))]
+    #[cfg(all(
+        any(target_os = "macos", target_os = "ios"),
+        feature = "objc2-av-foundation"
+    ))]
     {
         static DONE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
         DONE.get_or_init(|| {

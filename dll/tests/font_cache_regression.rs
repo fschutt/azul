@@ -24,8 +24,8 @@
 //! font test that silently passes by skipping is the exact failure mode being
 //! fixed.
 
-use std::sync::Arc;
 use std::cell::RefCell;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use azul_core::callbacks::{LayoutCallback, LayoutCallbackInfo};
@@ -34,11 +34,11 @@ use azul_core::icon::{IconProviderHandle, SharedIconProvider};
 use azul_core::refany::RefAny;
 use azul_core::resources::AppConfig;
 use azul_layout::window_state::WindowCreateOptions;
-use rust_fontconfig::{FcFont, FcFontCache, FcPattern, OperatingSystem};
 use rust_fontconfig::registry::FcFontRegistry;
+use rust_fontconfig::{FcFont, FcFontCache, FcPattern, OperatingSystem};
 
-use azul::desktop::shell2::common::PlatformWindow;
 use azul::desktop::shell2::common::layout::should_request_fonts;
+use azul::desktop::shell2::common::PlatformWindow;
 use azul::desktop::shell2::headless::HeadlessWindow;
 
 // ---------------------------------------------------------------------------
@@ -107,7 +107,11 @@ fn two_pattern_cache() -> FcFontCache {
                 family: Some("AzulMockA".to_string()),
                 ..Default::default()
             },
-            FcFont { bytes: bytes.clone(), font_index: 0, id: "azul-mock-a".to_string() },
+            FcFont {
+                bytes: bytes.clone(),
+                font_index: 0,
+                id: "azul-mock-a".to_string(),
+            },
         ),
         (
             FcPattern {
@@ -115,7 +119,11 @@ fn two_pattern_cache() -> FcFontCache {
                 family: Some("AzulMockB".to_string()),
                 ..Default::default()
             },
-            FcFont { bytes, font_index: 0, id: "azul-mock-b".to_string() },
+            FcFont {
+                bytes,
+                font_index: 0,
+                id: "azul-mock-b".to_string(),
+            },
         ),
     ]);
     cache
@@ -300,10 +308,7 @@ fn app_startup_persists_the_font_cache() {
 
     if std::env::var_os(CHILD_ENV).is_some() {
         // ---- child ----
-        let _app = azul::desktop::app::AppInternal::create(
-            RefAny::new(0u32),
-            AppConfig::default(),
-        );
+        let _app = azul::desktop::app::AppInternal::create(RefAny::new(0u32), AppConfig::default());
 
         let path = rust_fontconfig::disk_cache::get_font_cache_path()
             .expect("child: get_font_cache_path returned None");
@@ -331,8 +336,10 @@ fn app_startup_persists_the_font_cache() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir()
-        .join(format!("azul-font-cache-test-{}-{nanos}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "azul-font-cache-test-{}-{nanos}",
+        std::process::id()
+    ));
     let home = root.join("home");
     std::fs::create_dir_all(home.join("Library").join("Caches")).unwrap();
     let xdg = root.join("xdg-cache");
@@ -353,9 +360,16 @@ fn app_startup_persists_the_font_cache() {
     let ok = out.status.success();
 
     let candidates = [
-        home.join("Library").join("Caches").join("rfc").join("fonts").join("manifest.bin"),
+        home.join("Library")
+            .join("Caches")
+            .join("rfc")
+            .join("fonts")
+            .join("manifest.bin"),
         xdg.join("rfc").join("fonts").join("manifest.bin"),
-        home.join(".cache").join("rfc").join("fonts").join("manifest.bin"),
+        home.join(".cache")
+            .join("rfc")
+            .join("fonts")
+            .join("manifest.bin"),
     ];
     let found: Vec<_> = candidates.iter().filter(|p| p.exists()).cloned().collect();
     let _ = std::fs::remove_dir_all(&root);

@@ -40,7 +40,9 @@ use azul_css::{
 };
 #[cfg(feature = "text_layout_hyphenation")]
 use hyphenation::{Hyphenator, Language as HyphenationLanguage, Load, Standard};
-use rust_fontconfig::{FcFontCache, FcPattern, FcStretch, FcWeight, FontId, PatternMatch, UnicodeRange};
+use rust_fontconfig::{
+    FcFontCache, FcPattern, FcStretch, FcWeight, FontId, PatternMatch, UnicodeRange,
+};
 use smallvec::{smallvec, SmallVec};
 use unicode_bidi::{BidiInfo, Level, TextSource};
 use unicode_segmentation::UnicodeSegmentation;
@@ -113,8 +115,7 @@ pub type ShapedGlyphVec = SmallVec<[ShapedGlyph; 1]>;
 /// computing `(ascent + |descent| + lineGap) / upem * fontSize`.
 /// `Px` is an already-resolved pixel value from an explicit CSS declaration
 /// (e.g. `line-height: 1.5` → `Px(fontSize * 1.5)`).
-#[derive(Debug, Clone, Copy)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum LineHeight {
     /// `line-height: normal` — resolve from font metrics at layout time
     #[default]
@@ -123,13 +124,20 @@ pub enum LineHeight {
     Px(f32),
 }
 
-
 impl LineHeight {
     /// Resolve to a pixel value, using font metrics when `Normal`.
     ///
     /// `ascent`, `descent` (negative in OpenType convention), `line_gap` are in font units.
     /// `font_size_px` and `units_per_em` are used to scale.
-    #[must_use] pub fn resolve(&self, font_size_px: f32, ascent: f32, descent: f32, line_gap: f32, units_per_em: u16) -> f32 {
+    #[must_use]
+    pub fn resolve(
+        &self,
+        font_size_px: f32,
+        ascent: f32,
+        descent: f32,
+        line_gap: f32,
+        units_per_em: u16,
+    ) -> f32 {
         match self {
             Self::Px(px) => *px,
             Self::Normal => {
@@ -143,8 +151,15 @@ impl LineHeight {
     }
 
     /// Resolve using a `LayoutFontMetrics` struct for convenience.
-    #[must_use] pub fn resolve_with_metrics(&self, font_size_px: f32, metrics: &LayoutFontMetrics) -> f32 {
-        self.resolve(font_size_px, metrics.ascent, metrics.descent, metrics.line_gap, metrics.units_per_em)
+    #[must_use]
+    pub fn resolve_with_metrics(&self, font_size_px: f32, metrics: &LayoutFontMetrics) -> f32 {
+        self.resolve(
+            font_size_px,
+            metrics.ascent,
+            metrics.descent,
+            metrics.line_gap,
+            metrics.units_per_em,
+        )
     }
 }
 
@@ -223,17 +238,20 @@ impl Default for AvailableSpace {
 
 impl AvailableSpace {
     /// Returns true if this is a definite (finite, known) amount of space
-    #[must_use] pub const fn is_definite(&self) -> bool {
+    #[must_use]
+    pub const fn is_definite(&self) -> bool {
         matches!(self, Self::Definite(_))
     }
 
     /// Returns true if this is an indefinite (min-content or max-content) constraint
-    #[must_use] pub const fn is_indefinite(&self) -> bool {
+    #[must_use]
+    pub const fn is_indefinite(&self) -> bool {
         !self.is_definite()
     }
 
     /// Returns the definite value if available, or a fallback for indefinite constraints
-    #[must_use] pub const fn unwrap_or(self, fallback: f32) -> f32 {
+    #[must_use]
+    pub const fn unwrap_or(self, fallback: f32) -> f32 {
         match self {
             Self::Definite(v) => v,
             _ => fallback,
@@ -241,12 +259,14 @@ impl AvailableSpace {
     }
 
     /// Returns the definite value, or a large value for both min-content and max-content.
-    /// 
+    ///
     /// For intrinsic sizing, we use a large value to let text lay out fully,
     /// then measure the result. The distinction between min/max-content is handled
     /// by the line breaking algorithm, not by constraining the available width.
-    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-    #[must_use] pub fn to_f32_for_layout(self) -> f32 {
+    #[allow(clippy::match_same_arms)]
+    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[must_use]
+    pub fn to_f32_for_layout(self) -> f32 {
         match self {
             Self::Definite(v) => v,
             Self::MinContent => f32::MAX / 2.0,
@@ -263,7 +283,8 @@ impl AvailableSpace {
     ///
     /// Note: Using sentinel values like 0.0 for `MinContent` is fragile. Prefer using
     /// `AvailableSpace::MinContent` directly when possible.
-    #[must_use] pub fn from_f32(value: f32) -> Self {
+    #[must_use]
+    pub fn from_f32(value: f32) -> Self {
         if value.is_infinite() || value >= f32::MAX / 2.0 {
             // Treat very large values (including f32::MAX) as MaxContent
             Self::MaxContent
@@ -309,7 +330,7 @@ pub struct FontChainKey {
 }
 
 /// Either a `FontChainKey` (resolved via fontconfig) or a direct `FontRef` hash.
-/// 
+///
 /// This enum cleanly separates:
 /// - `Chain`: Fonts resolved through fontconfig with fallback support
 /// - `Ref`: Direct `FontRef` that bypasses fontconfig entirely (e.g., embedded icon fonts)
@@ -323,28 +344,32 @@ pub enum FontChainKeyOrRef {
 
 impl FontChainKeyOrRef {
     /// Create from a `FontStack` enum
-    #[must_use] pub fn from_font_stack(font_stack: &FontStack) -> Self {
+    #[must_use]
+    pub fn from_font_stack(font_stack: &FontStack) -> Self {
         match font_stack {
             FontStack::Stack(selectors) => Self::Chain(FontChainKey::from_selectors(selectors)),
             FontStack::Ref(font_ref) => Self::Ref(font_ref.parsed as usize),
         }
     }
-    
+
     /// Returns true if this is a direct `FontRef`
-    #[must_use] pub const fn is_ref(&self) -> bool {
+    #[must_use]
+    pub const fn is_ref(&self) -> bool {
         matches!(self, Self::Ref(_))
     }
-    
+
     /// Returns the `FontRef` pointer if this is a Ref variant
-    #[must_use] pub const fn as_ref_ptr(&self) -> Option<usize> {
+    #[must_use]
+    pub const fn as_ref_ptr(&self) -> Option<usize> {
         match self {
             Self::Ref(ptr) => Some(*ptr),
             Self::Chain(_) => None,
         }
     }
-    
+
     /// Returns the `FontChainKey` if this is a Chain variant
-    #[must_use] pub const fn as_chain(&self) -> Option<&FontChainKey> {
+    #[must_use]
+    pub const fn as_chain(&self) -> Option<&FontChainKey> {
         match self {
             Self::Chain(key) => Some(key),
             Self::Ref(_) => None,
@@ -354,7 +379,8 @@ impl FontChainKeyOrRef {
 
 impl FontChainKey {
     /// Create a `FontChainKey` from a slice of font selectors
-    #[must_use] pub fn from_selectors(font_stack: &[FontSelector]) -> Self {
+    #[must_use]
+    pub fn from_selectors(font_stack: &[FontSelector]) -> Self {
         // (2026-06-10) FIRST-WINS DEDUP: cascaded font stacks can carry duplicate
         // families (e.g. [serif, sans-serif, serif, monospace] when the UA fallback
         // list is appended to a stack already naming serif). The pre-resolve
@@ -376,9 +402,7 @@ impl FontChainKey {
             font_families
         };
 
-        let weight = font_stack
-            .first()
-            .map_or(FcWeight::Normal, |s| s.weight);
+        let weight = font_stack.first().map_or(FcWeight::Normal, |s| s.weight);
         let is_italic = font_stack
             .first()
             .is_some_and(|s| s.style == FontStyle::Italic);
@@ -430,7 +454,6 @@ fn resolve_chain_on_miss(
     )
 }
 
-
 /// A map of pre-loaded fonts, keyed by `FontId` (from rust-fontconfig)
 ///
 /// This is passed to the shaper - no font loading happens during shaping
@@ -446,7 +469,8 @@ pub struct LoadedFonts<T> {
 }
 
 impl<T: ParsedFontTrait> LoadedFonts<T> {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             fonts: HashMap::new(),
             hash_to_id: HashMap::new(),
@@ -461,27 +485,32 @@ impl<T: ParsedFontTrait> LoadedFonts<T> {
     }
 
     /// Get a font by `FontId`
-    #[must_use] pub fn get(&self, font_id: &FontId) -> Option<&T> {
+    #[must_use]
+    pub fn get(&self, font_id: &FontId) -> Option<&T> {
         self.fonts.get(font_id)
     }
 
     /// Get a font by its hash
-    #[must_use] pub fn get_by_hash(&self, hash: u64) -> Option<&T> {
+    #[must_use]
+    pub fn get_by_hash(&self, hash: u64) -> Option<&T> {
         self.hash_to_id.get(&hash).and_then(|id| self.fonts.get(id))
     }
 
     /// Get the `FontId` for a hash
-    #[must_use] pub fn get_font_id_by_hash(&self, hash: u64) -> Option<&FontId> {
+    #[must_use]
+    pub fn get_font_id_by_hash(&self, hash: u64) -> Option<&FontId> {
         self.hash_to_id.get(&hash)
     }
 
     /// Check if a `FontId` is present
-    #[must_use] pub fn contains_key(&self, font_id: &FontId) -> bool {
+    #[must_use]
+    pub fn contains_key(&self, font_id: &FontId) -> bool {
         self.fonts.contains_key(font_id)
     }
 
     /// Check if a hash is present
-    #[must_use] pub fn contains_hash(&self, hash: u64) -> bool {
+    #[must_use]
+    pub fn contains_hash(&self, hash: u64) -> bool {
         self.hash_to_id.contains_key(&hash)
     }
 
@@ -491,12 +520,14 @@ impl<T: ParsedFontTrait> LoadedFonts<T> {
     }
 
     /// Get the number of loaded fonts
-    #[must_use] pub fn len(&self) -> usize {
+    #[must_use]
+    pub fn len(&self) -> usize {
         self.fonts.len()
     }
 
     /// Check if empty
-    #[must_use] pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
         self.fonts.is_empty()
     }
 }
@@ -663,7 +694,8 @@ impl FontContext {
     /// the scout-on-demand path, use [`FontContext::from_registry`]
     /// instead, which keeps a handle to the registry so that chain
     /// resolution can lazy-parse families the DOM needs.
-    #[must_use] pub fn from_fc_cache(fc_cache: FcFontCache) -> Self {
+    #[must_use]
+    pub fn from_fc_cache(fc_cache: FcFontCache) -> Self {
         Self {
             fc_cache,
             parsed_fonts: Arc::new(Mutex::new(HashMap::new())),
@@ -685,9 +717,7 @@ impl FontContext {
     /// headless renderer can skip the eager common-stack parse and
     /// pay only the per-family cost on first use, dropping peak RSS
     /// by the common-stack metadata size (~15 MiB on macOS).
-    pub fn from_registry(
-        registry: Arc<rust_fontconfig::registry::FcFontRegistry>,
-    ) -> Self {
+    pub fn from_registry(registry: Arc<rust_fontconfig::registry::FcFontRegistry>) -> Self {
         let fc_cache = registry.shared_cache();
         Self {
             fc_cache,
@@ -730,7 +760,11 @@ impl FontContext {
         // shapes instead of measuring 0. (Done in azul-layout, NOT rust-fontconfig, so the
         // lift-fragile with_memory_fonts isn't re-codegen'd into a trapping shape.)
         for chain in chains.chains.values_mut() {
-            let total = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
+            let total = chain
+                .css_fallbacks
+                .iter()
+                .map(|g| g.fonts.len())
+                .sum::<usize>()
                 + chain.unicode_fallbacks.len();
             if total == 0 {
                 // `list()` deep-copies the ENTIRE font database to read one entry;
@@ -739,7 +773,9 @@ impl FontContext {
                 let __first = {
                     let mut f = None;
                     self.fc_cache.for_each_pattern(|p, id| {
-                        if f.is_none() { f = Some((p.clone(), *id)); }
+                        if f.is_none() {
+                            f = Some((p.clone(), *id));
+                        }
                     });
                     f
                 };
@@ -795,7 +831,8 @@ impl FontContext {
     /// Convert into a `FontManager` with all data populated.
     /// Carries the `registry` forward so the resulting manager also
     /// has the scout-on-demand path available.
-    #[must_use] pub fn to_font_manager(&self) -> FontManager<azul_css::props::basic::FontRef> {
+    #[must_use]
+    pub fn to_font_manager(&self) -> FontManager<azul_css::props::basic::FontRef> {
         let mut fm = FontManager {
             fc_cache: self.fc_cache.clone(),
             parsed_fonts: self.parsed_fonts.clone(),
@@ -1011,7 +1048,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// OUTSIDE the window pipeline (e.g. DOM→PDF from a callback) with
     /// exactly the fonts the window resolved on screen: same fallback
     /// chains, same embedded fonts, no re-parse from disk.
-    #[must_use] pub fn clone_shared(&self) -> Self {
+    #[must_use]
+    pub fn clone_shared(&self) -> Self {
         Self {
             fc_cache: self.fc_cache.clone(),
             parsed_fonts: Arc::clone(&self.parsed_fonts),
@@ -1111,8 +1149,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
         // static font. Falls through to the static path below if the font is not a
         // bakeable variable font (baking failed / no glyf variations).
         if let Some((min, def, max)) = crate::font::parsed::read_wght_axis(bytes, 0) {
-            if let Some(id) =
-                self.register_variable_instances(&norm, family, bytes, &coverage, min, def, max, tier)
+            if let Some(id) = self
+                .register_variable_instances(&norm, family, bytes, &coverage, min, def, max, tier)
             {
                 return id;
             }
@@ -1154,9 +1192,21 @@ impl<T: ParsedFontTrait> FontManager<T> {
             let pattern = rust_fontconfig::FcPattern {
                 name: Some(family.to_string()),
                 family: Some(family.to_string()),
-                italic: if style.italic { PatternMatch::True } else { PatternMatch::False },
-                oblique: if style.oblique { PatternMatch::True } else { PatternMatch::False },
-                bold: if style.weight >= FcWeight::Bold { PatternMatch::True } else { PatternMatch::False },
+                italic: if style.italic {
+                    PatternMatch::True
+                } else {
+                    PatternMatch::False
+                },
+                oblique: if style.oblique {
+                    PatternMatch::True
+                } else {
+                    PatternMatch::False
+                },
+                bold: if style.weight >= FcWeight::Bold {
+                    PatternMatch::True
+                } else {
+                    PatternMatch::False
+                },
                 weight: style.weight,
                 stretch: style.stretch,
                 unicode_ranges: coverage.clone(),
@@ -1259,7 +1309,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
             if w < lo || w > hi {
                 continue;
             }
-            let Some(inst_bytes) = crate::font::parsed::bake_weight_instance(bytes, 0, f32::from(w))
+            let Some(inst_bytes) =
+                crate::font::parsed::bake_weight_instance(bytes, 0, f32::from(w))
             else {
                 continue;
             };
@@ -1273,9 +1324,21 @@ impl<T: ParsedFontTrait> FontManager<T> {
             let pattern = rust_fontconfig::FcPattern {
                 name: Some(family.to_string()),
                 family: Some(family.to_string()),
-                italic: if style.italic { PatternMatch::True } else { PatternMatch::False },
-                oblique: if style.oblique { PatternMatch::True } else { PatternMatch::False },
-                bold: if style.weight >= FcWeight::Bold { PatternMatch::True } else { PatternMatch::False },
+                italic: if style.italic {
+                    PatternMatch::True
+                } else {
+                    PatternMatch::False
+                },
+                oblique: if style.oblique {
+                    PatternMatch::True
+                } else {
+                    PatternMatch::False
+                },
+                bold: if style.weight >= FcWeight::Bold {
+                    PatternMatch::True
+                } else {
+                    PatternMatch::False
+                },
                 weight: style.weight,
                 stretch: style.stretch,
                 unicode_ranges: coverage.to_vec(),
@@ -1315,11 +1378,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// path as production instead of a test-only bypass.
     pub fn register_builtin_mock_fonts(&mut self) {
         for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
-            self.register_named_font(
-                family,
-                bytes,
-                crate::text3::mock_fonts::mock_font_ranges(),
-            );
+            self.register_named_font(family, bytes, crate::text3::mock_fonts::mock_font_ranges());
         }
     }
 
@@ -1380,7 +1439,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
     ///
     /// Pass this to `from_arc_shared()` to create a new `FontManager` that
     /// reuses already-parsed fonts.
-    #[must_use] pub fn shared_parsed_fonts(&self) -> Arc<Mutex<HashMap<FontId, T>>> {
+    #[must_use]
+    pub fn shared_parsed_fonts(&self) -> Arc<Mutex<HashMap<FontId, T>>> {
         Arc::clone(&self.parsed_fonts)
     }
 
@@ -1424,7 +1484,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
     }
 
     /// Get a reference to the font chain cache
-    #[must_use] pub const fn get_font_chain_cache(
+    #[must_use]
+    pub const fn get_font_chain_cache(
         &self,
     ) -> &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain> {
         &self.font_chain_cache
@@ -1435,7 +1496,11 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
-    #[must_use] pub fn get_embedded_font_by_hash(&self, font_hash: u64) -> Option<azul_css::props::basic::FontRef> {
+    #[must_use]
+    pub fn get_embedded_font_by_hash(
+        &self,
+        font_hash: u64,
+    ) -> Option<azul_css::props::basic::FontRef> {
         let embedded = self.embedded_fonts.lock().unwrap();
         embedded.get(&font_hash).cloned()
     }
@@ -1445,7 +1510,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
-    #[must_use] pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
+    #[must_use]
+    pub fn get_font_by_hash(&self, font_hash: u64) -> Option<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         // Linear search through all cached fonts to find one with matching hash
         let found = parsed
@@ -1525,7 +1591,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
-    #[must_use] pub fn get_loaded_fonts(&self) -> LoadedFonts<T> {
+    #[must_use]
+    pub fn get_loaded_fonts(&self) -> LoadedFonts<T> {
         let parsed = self.parsed_fonts.lock().unwrap();
         parsed
             .iter()
@@ -1540,7 +1607,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
-    #[must_use] pub fn get_loaded_font_ids(&self) -> HashSet<FontId> {
+    #[must_use]
+    pub fn get_loaded_font_ids(&self) -> HashSet<FontId> {
         let parsed = self.parsed_fonts.lock().unwrap();
         // M12.7: skip hashbrown's RawIterRange on an empty map — its NEON
         // control-byte group-scan mis-lifts to wasm and iterates forever
@@ -1667,7 +1735,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// # Panics
     ///
     /// Panics if the internal font-cache mutex is poisoned.
-    #[must_use] pub fn remove_font(&self, font_id: &FontId) -> Option<T> {
+    #[must_use]
+    pub fn remove_font(&self, font_id: &FontId) -> Option<T> {
         let mut parsed = self.parsed_fonts.lock().unwrap();
         parsed.remove(font_id)
     }
@@ -1933,7 +2002,7 @@ impl Default for UnifiedConstraints {
             // MaxContent means "use intrinsic width" which is appropriate when
             // the containing block's width is not yet known.
             // Previously this was Definite(0.0) which caused each character to
-            // wrap to its own line. The actual width should be passed from the 
+            // wrap to its own line. The actual width should be passed from the
             // box layout solver (fc.rs) when creating UnifiedConstraints.
             available_width: AvailableSpace::MaxContent,
             available_height: None,
@@ -2067,7 +2136,8 @@ impl Eq for UnifiedConstraints {}
 impl UnifiedConstraints {
     /// Resolve `line_height` to a pixel value using the strut metrics as a font-size proxy.
     /// `strut_ascent + strut_descent` approximates `font_size` (the block container's font).
-    #[must_use] pub fn resolved_line_height(&self) -> f32 {
+    #[must_use]
+    pub fn resolved_line_height(&self) -> f32 {
         match self.line_height {
             // `line-height: normal` — the minimum line-box height is the block's
             // first-available-font metrics, approximated here by the strut's
@@ -2081,7 +2151,8 @@ impl UnifiedConstraints {
         }
     }
     fn direction(&self, fallback: BidiDirection) -> BidiDirection {
-        self.writing_mode.map_or(fallback, |s| s.get_direction().unwrap_or(fallback))
+        self.writing_mode
+            .map_or(fallback, |s| s.get_direction().unwrap_or(fallback))
     }
     const fn is_vertical(&self) -> bool {
         matches!(
@@ -2103,7 +2174,8 @@ pub struct LineConstraints {
 }
 
 impl WritingMode {
-    #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
     #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
     const fn get_direction(&self) -> Option<BidiDirection> {
         match self {
@@ -2197,12 +2269,14 @@ impl Default for FontStack {
 
 impl FontStack {
     /// Returns true if this is a direct `FontRef`
-    #[must_use] pub const fn is_ref(&self) -> bool {
+    #[must_use]
+    pub const fn is_ref(&self) -> bool {
         matches!(self, Self::Ref(_))
     }
 
     /// Returns the `FontRef` if this is a Ref variant
-    #[must_use] pub const fn as_ref(&self) -> Option<&azul_css::props::basic::font::FontRef> {
+    #[must_use]
+    pub const fn as_ref(&self) -> Option<&azul_css::props::basic::font::FontRef> {
         match self {
             Self::Ref(r) => Some(r),
             Self::Stack(_) => None,
@@ -2210,7 +2284,8 @@ impl FontStack {
     }
 
     /// Returns the font selectors if this is a Stack variant
-    #[must_use] pub fn as_stack(&self) -> Option<&[FontSelector]> {
+    #[must_use]
+    pub fn as_stack(&self) -> Option<&[FontSelector]> {
         match self {
             Self::Stack(s) => Some(s),
             Self::Ref(_) => None,
@@ -2218,7 +2293,8 @@ impl FontStack {
     }
 
     /// Returns the first `FontSelector` if this is a Stack variant, None if Ref
-    #[must_use] pub fn first_selector(&self) -> Option<&FontSelector> {
+    #[must_use]
+    pub fn first_selector(&self) -> Option<&FontSelector> {
         match self {
             Self::Stack(s) => s.first(),
             Self::Ref(_) => None,
@@ -2226,7 +2302,8 @@ impl FontStack {
     }
 
     /// Returns the first font family name (for Stack) or a placeholder (for Ref)
-    #[must_use] pub fn first_family(&self) -> &str {
+    #[must_use]
+    pub fn first_family(&self) -> &str {
         match self {
             Self::Stack(s) => s.first().map_or("serif", |f| f.family.as_str()),
             Self::Ref(_) => "<embedded-font>",
@@ -2266,11 +2343,13 @@ pub struct FontHash {
 }
 
 impl FontHash {
-    #[must_use] pub const fn invalid() -> Self {
+    #[must_use]
+    pub const fn invalid() -> Self {
         Self { font_hash: 0 }
     }
 
-    #[must_use] pub const fn from_hash(font_hash: u64) -> Self {
+    #[must_use]
+    pub const fn from_hash(font_hash: u64) -> Self {
         Self { font_hash }
     }
 }
@@ -2330,21 +2409,24 @@ impl LayoutFontMetrics {
     // +spec:font-metrics:006bd8 - baseline position from font design coordinates, scaled with font size
     // +spec:font-metrics:910c0a - dominant-baseline: auto resolves to alphabetic for horizontal text
     // +spec:writing-modes:098958 - baseline is along the inline axis, used to align glyphs
-    #[must_use] pub fn baseline_scaled(&self, font_size: f32) -> f32 {
+    #[must_use]
+    pub fn baseline_scaled(&self, font_size: f32) -> f32 {
         let scale = font_size / f32::from(self.units_per_em);
         self.ascent * scale
     }
 
     /// Returns the x-height scaled to the given font size in px.
     /// Falls back to 0.5em when the font doesn't provide sxHeight.
-    #[must_use] pub fn x_height_scaled(&self, font_size: f32) -> f32 {
+    #[must_use]
+    pub fn x_height_scaled(&self, font_size: f32) -> f32 {
         let scale = font_size / f32::from(self.units_per_em);
         self.x_height.map_or(font_size * 0.5, |xh| xh * scale)
     }
 
     /// Returns the cap height scaled to the given font size in px.
     /// Falls back to ascent when the font doesn't provide sCapHeight.
-    #[must_use] pub fn cap_height_scaled(&self, font_size: f32) -> f32 {
+    #[must_use]
+    pub fn cap_height_scaled(&self, font_size: f32) -> f32 {
         let scale = font_size / f32::from(self.units_per_em);
         self.cap_height.unwrap_or(self.ascent) * scale
     }
@@ -2368,25 +2450,25 @@ impl LayoutFontMetrics {
     // +spec:font-metrics:5346d2 - prefer OS/2 sTypoAscender/sTypoDescender, fall back to HHEA
     // +spec:font-metrics:e16941 - line gap metric floored at zero per spec
     // +spec:font-metrics:a55c05 - metrics taken from font, synthesized if missing (prefers OS/2, falls back to HHEA)
-    #[must_use] pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
-        let ascent = metrics.s_typo_ascender
+    #[must_use]
+    pub fn from_font_metrics(metrics: &azul_css::props::basic::FontMetrics) -> Self {
+        let ascent = metrics
+            .s_typo_ascender
             .as_option()
             .map_or_else(|| f32::from(metrics.ascender), |v| f32::from(*v));
-        let descent = metrics.s_typo_descender
+        let descent = metrics
+            .s_typo_descender
             .as_option()
             .map_or_else(|| f32::from(metrics.descender), |v| f32::from(*v));
         // UAs must floor the line gap metric at zero (css-inline-3 §3.2.2)
         // Spec: "UAs must floor the line gap metric at zero."
-        let line_gap = metrics.s_typo_line_gap
+        let line_gap = metrics
+            .s_typo_line_gap
             .as_option()
             .map_or_else(|| f32::from(metrics.line_gap), |v| f32::from(*v))
             .max(0.0);
-        let x_height = metrics.sx_height
-            .as_option()
-            .map(|v| f32::from(*v));
-        let cap_height = metrics.s_cap_height
-            .as_option()
-            .map(|v| f32::from(*v));
+        let x_height = metrics.sx_height.as_option().map(|v| f32::from(*v));
+        let cap_height = metrics.s_cap_height.as_option().map(|v| f32::from(*v));
         Self {
             ascent,
             descent,
@@ -2401,21 +2483,24 @@ impl LayoutFontMetrics {
     /// Synthesize em-over baseline offset (in font units).
     /// Per CSS Inline 3 Appendix A.1: em-over = central baseline + 0.5em.
     /// Central baseline is synthesized as midpoint of ascent and descent.
-    #[must_use] pub fn em_over(&self) -> f32 {
+    #[must_use]
+    pub fn em_over(&self) -> f32 {
         let central = self.central_baseline();
         central + (f32::from(self.units_per_em) / 2.0)
     }
 
     /// Synthesize em-under baseline offset (in font units).
     /// Per CSS Inline 3 Appendix A.1: em-under = central baseline - 0.5em.
-    #[must_use] pub fn em_under(&self) -> f32 {
+    #[must_use]
+    pub fn em_under(&self) -> f32 {
         let central = self.central_baseline();
         central - (f32::from(self.units_per_em) / 2.0)
     }
 
     /// Synthesize central baseline (in font units).
     /// Midpoint between ascent and descent when not provided by the font.
-    #[must_use] pub const fn central_baseline(&self) -> f32 {
+    #[must_use]
+    pub const fn central_baseline(&self) -> f32 {
         f32::midpoint(self.ascent, self.descent)
     }
 }
@@ -2817,7 +2902,10 @@ impl Glyph {
             x: 0.0,
             y: 0.0,
             width: self.advance,
-            height: self.style.line_height.resolve_with_metrics(self.style.font_size_px, &self.font_metrics),
+            height: self
+                .style
+                .line_height
+                .resolve_with_metrics(self.style.font_size_px, &self.font_metrics),
         }
     }
 
@@ -2945,10 +3033,8 @@ impl Ord for ImageSource {
             (Self::Svg(a), Self::Svg(b)) => {
                 (Arc::as_ptr(a).cast::<u8>() as usize).cmp(&(Arc::as_ptr(b).cast::<u8>() as usize))
             }
-            (Self::Placeholder(a), Self::Placeholder(b)) => {
-                (a.width.to_bits(), a.height.to_bits())
-                    .cmp(&(b.width.to_bits(), b.height.to_bits()))
-            }
+            (Self::Placeholder(a), Self::Placeholder(b)) => (a.width.to_bits(), a.height.to_bits())
+                .cmp(&(b.width.to_bits(), b.height.to_bits())),
             // Different variants: compare by variant index
             _ => variant_index(self).cmp(&variant_index(other)),
         }
@@ -3079,12 +3165,14 @@ impl Default for InlineBorderInfo {
 
 impl InlineBorderInfo {
     /// Returns true if any border has a non-zero width
-    #[must_use] pub fn has_border(&self) -> bool {
+    #[must_use]
+    pub fn has_border(&self) -> bool {
         self.top > 0.0 || self.right > 0.0 || self.bottom > 0.0 || self.left > 0.0
     }
 
     /// Returns true if any border or padding is present
-    #[must_use] pub fn has_chrome(&self) -> bool {
+    #[must_use]
+    pub fn has_chrome(&self) -> bool {
         self.has_border()
             || self.padding_top > 0.0
             || self.padding_right > 0.0
@@ -3100,20 +3188,44 @@ impl InlineBorderInfo {
     /// Total left inset (border + padding), suppressed at split points per §8.6.
     /// In LTR: left edge drawn on first fragment. In RTL: left edge drawn on last fragment.
     // +spec:box-model:bae97f - visual-order margin/border/padding assignment for bidi inline fragments
-    #[must_use] pub fn left_inset(&self) -> f32 {
-        let show = if self.is_rtl { self.is_last_fragment } else { self.is_first_fragment };
-        if show { self.left + self.padding_left } else { 0.0 }
+    #[must_use]
+    pub fn left_inset(&self) -> f32 {
+        let show = if self.is_rtl {
+            self.is_last_fragment
+        } else {
+            self.is_first_fragment
+        };
+        if show {
+            self.left + self.padding_left
+        } else {
+            0.0
+        }
     }
     /// Total right inset (border + padding), suppressed at split points per §8.6.
     /// In LTR: right edge drawn on last fragment. In RTL: right edge drawn on first fragment.
-    #[must_use] pub fn right_inset(&self) -> f32 {
-        let show = if self.is_rtl { self.is_first_fragment } else { self.is_last_fragment };
-        if show { self.right + self.padding_right } else { 0.0 }
+    #[must_use]
+    pub fn right_inset(&self) -> f32 {
+        let show = if self.is_rtl {
+            self.is_first_fragment
+        } else {
+            self.is_last_fragment
+        };
+        if show {
+            self.right + self.padding_right
+        } else {
+            0.0
+        }
     }
     /// Total top inset (border + padding)
-    #[must_use] pub fn top_inset(&self) -> f32 { self.top + self.padding_top }
+    #[must_use]
+    pub fn top_inset(&self) -> f32 {
+        self.top + self.padding_top
+    }
     /// Total bottom inset (border + padding)
-    #[must_use] pub fn bottom_inset(&self) -> f32 { self.bottom + self.padding_bottom }
+    #[must_use]
+    pub fn bottom_inset(&self) -> f32 {
+        self.bottom + self.padding_bottom
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -3313,10 +3425,12 @@ impl PartialEq for Size {
 impl Eq for Size {}
 
 impl Size {
-    #[must_use] pub const fn zero() -> Self {
+    #[must_use]
+    pub const fn zero() -> Self {
         Self::new(0.0, 0.0)
     }
-    #[must_use] pub const fn new(width: f32, height: f32) -> Self {
+    #[must_use]
+    pub const fn new(width: f32, height: f32) -> Self {
         Self { width, height }
     }
 }
@@ -3415,18 +3529,10 @@ impl PartialEq for ShapeDefinition {
                         _ => false,
                     }
             }
-            (Self::Circle { radius: r1 }, Self::Circle { radius: r2 }) => {
-                round_eq(*r1, *r2)
-            }
-            (Self::Ellipse { radii: r1 }, Self::Ellipse { radii: r2 }) => {
-                r1 == r2
-            }
-            (Self::Polygon { points: p1 }, Self::Polygon { points: p2 }) => {
-                p1 == p2
-            }
-            (Self::Path { segments: s1 }, Self::Path { segments: s2 }) => {
-                s1 == s2
-            }
+            (Self::Circle { radius: r1 }, Self::Circle { radius: r2 }) => round_eq(*r1, *r2),
+            (Self::Ellipse { radii: r1 }, Self::Ellipse { radii: r2 }) => r1 == r2,
+            (Self::Polygon { points: p1 }, Self::Polygon { points: p2 }) => p1 == p2,
+            (Self::Path { segments: s1 }, Self::Path { segments: s2 }) => s1 == s2,
             _ => false,
         }
     }
@@ -3435,7 +3541,8 @@ impl Eq for ShapeDefinition {}
 
 impl ShapeDefinition {
     /// Calculates the bounding box size for the shape.
-    #[must_use] pub fn get_size(&self) -> Size {
+    #[must_use]
+    pub fn get_size(&self) -> Size {
         match self {
             // The size is explicitly defined.
             Self::Rectangle { size, .. } => *size,
@@ -3507,7 +3614,8 @@ impl ShapeDefinition {
                             //    0-radian line.
                             // This ensures we can iterate forward from a start to an end angle.
                             let mut normalized_end = *end_angle;
-                            #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
+                            #[allow(clippy::while_float)]
+                            // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
                             while normalized_end < *start_angle {
                                 normalized_end += 2.0 * std::f32::consts::PI;
                             }
@@ -3521,7 +3629,8 @@ impl ShapeDefinition {
                             // 4. Iterate through all cardinal points that fall within the arc's
                             //    sweep and add them.
                             // These points define the maximum extent of the arc's bounding box.
-                            #[allow(clippy::while_float)] // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
+                            #[allow(clippy::while_float)]
+                            // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be artificial
                             while check_angle < normalized_end {
                                 points.push(Point {
                                     x: center.x + radius * check_angle.cos(),
@@ -3559,7 +3668,11 @@ pub(crate) fn resolve_effective_alignment(
 ) -> TextAlign {
     if is_last_or_forced {
         if text_align_last == TextAlign::default() {
-            if text_align == TextAlign::Justify { TextAlign::Start } else { text_align }
+            if text_align == TextAlign::Justify {
+                TextAlign::Start
+            } else {
+                text_align
+            }
         } else {
             text_align_last
         }
@@ -3656,7 +3769,8 @@ pub enum ShapeBoundary {
 
 impl ShapeBoundary {
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-    #[must_use] pub fn inflate(&self, margin: f32) -> Self {
+    #[must_use]
+    pub fn inflate(&self, margin: f32) -> Self {
         if margin == 0.0 {
             return self.clone();
         }
@@ -3722,12 +3836,8 @@ impl PartialEq for ShapeBoundary {
                     radii: r2,
                 },
             ) => c1 == c2 && r1 == r2,
-            (Self::Polygon { points: p1 }, Self::Polygon { points: p2 }) => {
-                p1 == p2
-            }
-            (Self::Path { segments: s1 }, Self::Path { segments: s2 }) => {
-                s1 == s2
-            }
+            (Self::Polygon { points: p1 }, Self::Polygon { points: p2 }) => p1 == p2,
+            (Self::Path { segments: s1 }, Self::Path { segments: s2 }) => s1 == s2,
             _ => false,
         }
     }
@@ -3854,9 +3964,10 @@ impl ShapeBoundary {
                 // segments) so the scanline code in `get_shape_horizontal_spans` can
                 // intersect it per line, exactly like `polygon`.
                 let segments = azul_core::path_parser::parse_svg_path_d(path.data.as_str())
-                    .map_or_else(|_| Vec::new(), |multipolygon| {
-                        flatten_svg_to_path_segments(&multipolygon, reference_box)
-                    });
+                    .map_or_else(
+                        |_| Vec::new(),
+                        |multipolygon| flatten_svg_to_path_segments(&multipolygon, reference_box),
+                    );
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
                         "[ShapeBoundary::from_css_shape] Path - parsed {} flattened segments",
@@ -3928,7 +4039,8 @@ pub enum WritingMode {
 
 impl WritingMode {
     /// Necessary to determine if the glyphs are advancing in a horizontal direction
-    #[must_use] pub const fn is_advance_horizontal(&self) -> bool {
+    #[must_use]
+    pub const fn is_advance_horizontal(&self) -> bool {
         matches!(
             self,
             Self::HorizontalTb | Self::SidewaysRl | Self::SidewaysLr
@@ -3969,22 +4081,21 @@ pub enum TextOrientation {
     Sideways, // All characters rotated 90 degrees
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct TextDecoration {
     pub underline: bool,
     pub strikethrough: bool,
     pub overline: bool,
 }
 
-
 impl TextDecoration {
     /// Convert from CSS `StyleTextDecoration` enum to our internal representation.
-    /// 
+    ///
     /// Note: CSS text-decoration can have multiple values (underline line-through),
     /// but the current azul-css parser only supports single values. This can be
     /// extended in the future if CSS parsing is updated.
-    #[must_use] pub fn from_css(css: azul_css::props::style::text::StyleTextDecoration) -> Self {
+    #[must_use]
+    pub fn from_css(css: azul_css::props::style::text::StyleTextDecoration) -> Self {
         use azul_css::props::style::text::StyleTextDecoration;
         match css {
             StyleTextDecoration::None => Self::default(),
@@ -4190,7 +4301,7 @@ impl Hash for StyleProperties {
 
 impl StyleProperties {
     /// Returns a hash that only includes properties that affect text layout.
-    /// 
+    ///
     /// Properties that DON'T affect layout (only rendering):
     /// - color, `background_color`, `background_content`
     /// - `text_decoration` (underline, etc.)
@@ -4208,7 +4319,8 @@ impl StyleProperties {
     // (family, weight, style) so that shaping runs break at element boundaries where font
     // properties differ, preventing impossible cross-boundary ligatures (e.g. "and" → "&").
     #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
-    #[must_use] pub fn layout_hash(&self) -> u64 {
+    #[must_use]
+    pub fn layout_hash(&self) -> u64 {
         use std::hash::Hasher;
         let mut hasher = DefaultHasher::new();
 
@@ -4224,30 +4336,30 @@ impl StyleProperties {
             tag.hash(&mut hasher);
             (value.round() as i32).hash(&mut hasher);
         }
-        
+
         // Spacing (affects glyph positions)
         self.letter_spacing.hash(&mut hasher);
         self.word_spacing.hash(&mut hasher);
         self.line_height.hash(&mut hasher);
         (self.tab_size.round() as isize).hash(&mut hasher);
-        
+
         // Writing mode (affects layout direction)
         self.writing_mode.hash(&mut hasher);
         self.text_orientation.hash(&mut hasher);
         self.text_combine_upright.hash(&mut hasher);
-        
+
         // Text transform (affects which characters are used)
         self.text_transform.hash(&mut hasher);
-        
+
         // Font variants (affect glyph selection)
         self.font_variant_caps.hash(&mut hasher);
         self.font_variant_numeric.hash(&mut hasher);
         self.font_variant_ligatures.hash(&mut hasher);
         self.font_variant_east_asian.hash(&mut hasher);
-        
+
         hasher.finish()
     }
-    
+
     /// Check if two `StyleProperties` have the same layout-affecting properties.
     ///
     /// Returns true if the layouts would be identical (only rendering differs).
@@ -4256,7 +4368,8 @@ impl StyleProperties {
     /// collisions are theoretically possible, which could cause the cache to
     /// serve a stale layout.  In practice the probability is negligible for
     /// the number of distinct `StyleProperties` values in a single document.
-    #[must_use] pub fn layout_eq(&self, other: &Self) -> bool {
+    #[must_use]
+    pub fn layout_eq(&self, other: &Self) -> bool {
         self.layout_hash() == other.layout_hash()
     }
 }
@@ -4302,7 +4415,8 @@ pub enum BidiDirection {
 }
 
 impl BidiDirection {
-    #[must_use] pub const fn is_rtl(&self) -> bool {
+    #[must_use]
+    pub const fn is_rtl(&self) -> bool {
         matches!(self, Self::Rtl)
     }
 }
@@ -4312,8 +4426,7 @@ impl BidiDirection {
 /// When `Plaintext`, the bidi algorithm uses P2/P3 heuristics to auto-detect
 /// paragraph direction from text content, instead of the HL1 override from
 /// the CSS `direction` property.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum UnicodeBidi {
     #[default]
     Normal,
@@ -4323,7 +4436,6 @@ pub enum UnicodeBidi {
     IsolateOverride,
     Plaintext,
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq, PartialOrd, Ord, Default)]
 pub enum FontVariantCaps {
@@ -4385,13 +4497,16 @@ pub enum FontVariantEastAsian {
 pub struct BidiLevel(u8);
 
 impl BidiLevel {
-    #[must_use] pub const fn new(level: u8) -> Self {
+    #[must_use]
+    pub const fn new(level: u8) -> Self {
         Self(level)
     }
-    #[must_use] pub const fn is_rtl(&self) -> bool {
+    #[must_use]
+    pub const fn is_rtl(&self) -> bool {
         self.0 % 2 == 1
     }
-    #[must_use] pub const fn level(&self) -> u8 {
+    #[must_use]
+    pub const fn level(&self) -> u8 {
         self.0
     }
 }
@@ -4732,7 +4847,8 @@ pub enum ShapedItem {
 }
 
 impl ShapedItem {
-    #[must_use] pub const fn as_cluster(&self) -> Option<&ShapedCluster> {
+    #[must_use]
+    pub const fn as_cluster(&self) -> Option<&ShapedCluster> {
         match self {
             Self::Cluster(c) => Some(c),
             _ => None,
@@ -4743,8 +4859,10 @@ impl ShapedItem {
     /// The origin of the returned `Rect` is `(0,0)`, representing the top-left corner
     /// of the item's layout space before final positioning. The size represents the
     /// item's total advance (width in horizontal mode) and its line height (ascent + descent).
-    #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-    #[must_use] pub fn bounds(&self) -> Rect {
+    #[allow(clippy::match_same_arms)]
+    // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+    #[must_use]
+    pub fn bounds(&self) -> Rect {
         match self {
             Self::Cluster(cluster) => {
                 // The width of a text cluster is its total advance.
@@ -4986,7 +5104,8 @@ pub struct ShapedGlyph {
 }
 
 impl ShapedGlyph {
-    #[must_use] pub fn into_glyph_instance<T: ParsedFontTrait>(
+    #[must_use]
+    pub fn into_glyph_instance<T: ParsedFontTrait>(
         &self,
         style: &StyleProperties,
         writing_mode: WritingMode,
@@ -5018,7 +5137,8 @@ impl ShapedGlyph {
 
     /// Convert this `ShapedGlyph` into a `GlyphInstance` with an absolute position.
     /// This is used for display list generation where glyphs need their final page coordinates.
-    #[must_use] pub fn into_glyph_instance_at<T: ParsedFontTrait>(
+    #[must_use]
+    pub fn into_glyph_instance_at<T: ParsedFontTrait>(
         &self,
         writing_mode: WritingMode,
         absolute_position: LogicalPosition,
@@ -5040,7 +5160,8 @@ impl ShapedGlyph {
     /// Convert this `ShapedGlyph` into a `GlyphInstance` with an absolute position.
     /// This version doesn't require fonts - it uses a default size.
     /// Use this when you don't need precise glyph bounds (e.g., display list generation).
-    #[must_use] pub fn into_glyph_instance_at_simple(
+    #[must_use]
+    pub fn into_glyph_instance_at_simple(
         &self,
         _writing_mode: WritingMode,
         absolute_position: LogicalPosition,
@@ -5098,7 +5219,8 @@ impl UnifiedLayout {
 
     /// Calculate the bounding box of all positioned items.
     /// This is computed on-demand rather than cached.
-    #[must_use] pub fn bounds(&self) -> Rect {
+    #[must_use]
+    pub fn bounds(&self) -> Rect {
         if self.items.is_empty() {
             return Rect::default();
         }
@@ -5131,16 +5253,19 @@ impl UnifiedLayout {
         }
     }
 
-    #[must_use] pub const fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
-    #[must_use] pub fn first_baseline(&self) -> Option<f32> {
+    #[must_use]
+    pub fn first_baseline(&self) -> Option<f32> {
         self.items
             .iter()
             .find_map(|item| get_baseline_for_item(&item.item))
     }
 
-    #[must_use] pub fn last_baseline(&self) -> Option<f32> {
+    #[must_use]
+    pub fn last_baseline(&self) -> Option<f32> {
         self.items
             .iter()
             .rev()
@@ -5177,7 +5302,8 @@ impl UnifiedLayout {
     /// This is the unified hit-testing implementation. The old `hit_test_to_cursor`
     /// method is deprecated in favor of this one.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-    #[must_use] pub fn hittest_cursor(&self, point: LogicalPosition) -> Option<TextCursor> {
+    #[must_use]
+    pub fn hittest_cursor(&self, point: LogicalPosition) -> Option<TextCursor> {
         if self.items.is_empty() {
             return None;
         }
@@ -5256,7 +5382,8 @@ impl UnifiedLayout {
     /// Given a logical selection range, returns a vector of visual rectangles
     /// that cover the selected text, in the layout's coordinate space.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    #[must_use] pub fn get_selection_rects(&self, range: &SelectionRange) -> Vec<LogicalRect> {
+    #[must_use]
+    pub fn get_selection_rects(&self, range: &SelectionRange) -> Vec<LogicalRect> {
         // 1. Build a map from the logical cluster ID to the visual PositionedItem for fast lookups.
         let mut cluster_map: HashMap<GraphemeClusterId, &PositionedItem> = HashMap::new();
         for item in &self.items {
@@ -5423,8 +5550,15 @@ impl UnifiedLayout {
                 let start_x = get_cursor_x(start_item, start_cursor.affinity);
                 let line_left = start_line_bounds.origin.x;
                 let line_right = start_line_bounds.origin.x + start_line_bounds.size.width;
-                let rtl = start_item.item.as_cluster().is_some_and(|c| c.direction.is_rtl());
-                let (lo, hi) = if rtl { (line_left, start_x) } else { (start_x, line_right) };
+                let rtl = start_item
+                    .item
+                    .as_cluster()
+                    .is_some_and(|c| c.direction.is_rtl());
+                let (lo, hi) = if rtl {
+                    (line_left, start_x)
+                } else {
+                    (start_x, line_right)
+                };
                 rects.push(LogicalRect {
                     origin: LogicalPosition {
                         x: lo,
@@ -5451,8 +5585,15 @@ impl UnifiedLayout {
                 let end_x = get_cursor_x(end_item, end_cursor.affinity);
                 let line_left = end_line_bounds.origin.x;
                 let line_right = end_line_bounds.origin.x + end_line_bounds.size.width;
-                let rtl = end_item.item.as_cluster().is_some_and(|c| c.direction.is_rtl());
-                let (lo, hi) = if rtl { (end_x, line_right) } else { (line_left, end_x) };
+                let rtl = end_item
+                    .item
+                    .as_cluster()
+                    .is_some_and(|c| c.direction.is_rtl());
+                let (lo, hi) = if rtl {
+                    (end_x, line_right)
+                } else {
+                    (line_left, end_x)
+                };
                 rects.push(LogicalRect {
                     origin: LogicalPosition {
                         x: lo,
@@ -5470,7 +5611,8 @@ impl UnifiedLayout {
     }
 
     /// Calculates the visual rectangle for a cursor at a given logical position.
-    #[must_use] pub fn get_cursor_rect(&self, cursor: &TextCursor) -> Option<LogicalRect> {
+    #[must_use]
+    pub fn get_cursor_rect(&self, cursor: &TextCursor) -> Option<LogicalRect> {
         // Find the item and glyph corresponding to the cursor's cluster ID.
         let mut last_cluster: Option<(&PositionedItem, &ShapedCluster)> = None;
         for item in &self.items {
@@ -5507,7 +5649,8 @@ impl UnifiedLayout {
         // Cursor past end of text: position after the last cluster
         if let Some((item, cluster)) = last_cluster {
             if cursor.cluster_id.source_run == cluster.source_cluster_id.source_run
-                && cursor.cluster_id.start_byte_in_run >= cluster.source_cluster_id.start_byte_in_run
+                && cursor.cluster_id.start_byte_in_run
+                    >= cluster.source_cluster_id.start_byte_in_run
             {
                 let line_height = item.item.bounds().height;
                 // Past the logical end of the run: the caret sits after the last cluster,
@@ -5533,7 +5676,8 @@ impl UnifiedLayout {
     }
 
     /// Get a cursor at the first cluster (leading edge) in the layout.
-    #[must_use] pub fn get_first_cluster_cursor(&self) -> Option<TextCursor> {
+    #[must_use]
+    pub fn get_first_cluster_cursor(&self) -> Option<TextCursor> {
         for item in &self.items {
             if let ShapedItem::Cluster(cluster) = &item.item {
                 return Some(TextCursor {
@@ -5546,7 +5690,8 @@ impl UnifiedLayout {
     }
 
     /// Get a cursor at the last cluster (trailing edge) in the layout.
-    #[must_use] pub fn get_last_cluster_cursor(&self) -> Option<TextCursor> {
+    #[must_use]
+    pub fn get_last_cluster_cursor(&self) -> Option<TextCursor> {
         for item in self.items.iter().rev() {
             if let ShapedItem::Cluster(cluster) = &item.item {
                 return Some(TextCursor {
@@ -5564,7 +5709,8 @@ impl UnifiedLayout {
     /// advances over THIS sequence so a base and its combining marks move as one
     /// unit, and so the document start/end are always reachable.
     #[doc(hidden)] // pub for the dense-equivalence gate only
-    #[must_use] pub fn grapheme_stops(&self) -> Vec<GraphemeClusterId> {
+    #[must_use]
+    pub fn grapheme_stops(&self) -> Vec<GraphemeClusterId> {
         let mut stops: Vec<(GraphemeClusterId, &str)> = self
             .items
             .iter()
@@ -5605,12 +5751,19 @@ impl UnifiedLayout {
     /// combining mark (or otherwise between stops) maps to the nearest preceding
     /// stop.
     #[doc(hidden)] // pub for the dense movement twins (stops-only logic)
-    #[must_use] pub fn grapheme_caret_offset(stops: &[GraphemeClusterId], cursor: &TextCursor) -> Option<usize> {
+    #[must_use]
+    pub fn grapheme_caret_offset(
+        stops: &[GraphemeClusterId],
+        cursor: &TextCursor,
+    ) -> Option<usize> {
         let trailing = usize::from(cursor.affinity == CursorAffinity::Trailing);
         if let Some(idx) = stops.iter().position(|id| *id == cursor.cluster_id) {
             return Some(idx + trailing);
         }
-        let key = (cursor.cluster_id.source_run, cursor.cluster_id.start_byte_in_run);
+        let key = (
+            cursor.cluster_id.source_run,
+            cursor.cluster_id.start_byte_in_run,
+        );
         let idx = stops
             .iter()
             .rposition(|id| (id.source_run, id.start_byte_in_run) <= key)?;
@@ -5621,12 +5774,19 @@ impl UnifiedLayout {
     /// offsets are the Leading edge of the stop that begins there; `len` is the
     /// Trailing edge of the last stop (the document end).
     #[doc(hidden)] // pub for the dense movement twins (stops-only logic)
-    #[must_use] pub fn cursor_from_grapheme_offset(stops: &[GraphemeClusterId], offset: usize) -> TextCursor {
+    #[must_use]
+    pub fn cursor_from_grapheme_offset(stops: &[GraphemeClusterId], offset: usize) -> TextCursor {
         let n = stops.len();
         if offset >= n {
-            TextCursor { cluster_id: stops[n - 1], affinity: CursorAffinity::Trailing }
+            TextCursor {
+                cluster_id: stops[n - 1],
+                affinity: CursorAffinity::Trailing,
+            }
         } else {
-            TextCursor { cluster_id: stops[offset], affinity: CursorAffinity::Leading }
+            TextCursor {
+                cluster_id: stops[offset],
+                affinity: CursorAffinity::Leading,
+            }
         }
     }
 
@@ -5744,7 +5904,9 @@ impl UnifiedLayout {
             .items
             .iter()
             .find(|i| i.line_index == target_line_idx)
-            .map_or(current_item.position.y, |i| i.position.y + (i.item.bounds().height / 2.0));
+            .map_or(current_item.position.y, |i| {
+                i.position.y + (i.item.bounds().height / 2.0)
+            });
 
         if let Some(d) = debug {
             d.push(format!(
@@ -5831,7 +5993,9 @@ impl UnifiedLayout {
             .items
             .iter()
             .find(|i| i.line_index == target_line_idx)
-            .map_or(current_item.position.y, |i| i.position.y + (i.item.bounds().height / 2.0));
+            .map_or(current_item.position.y, |i| {
+                i.position.y + (i.item.bounds().height / 2.0)
+            });
 
         if let Some(d) = debug {
             d.push(format!(
@@ -6165,11 +6329,11 @@ fn get_baseline_for_item(item: &ShapedItem) -> Option<f32> {
             baseline_offset, ..
         } => Some(*baseline_offset),
         // We have to get the clusters font from the last glyph
-        ShapedItem::Cluster(ref cluster) => {
-            cluster.glyphs.last().map(|last_glyph| last_glyph
-                        .font_metrics
-                        .baseline_scaled(cluster.style.font_size_px))
-        }
+        ShapedItem::Cluster(ref cluster) => cluster.glyphs.last().map(|last_glyph| {
+            last_glyph
+                .font_metrics
+                .baseline_scaled(cluster.style.font_size_px)
+        }),
         ShapedItem::Break { source, break_info } => {
             // Breaks do not contribute to baseline
             None
@@ -6199,7 +6363,8 @@ pub struct OverflowInfo {
 }
 
 impl OverflowInfo {
-    #[must_use] pub const fn has_overflow(&self) -> bool {
+    #[must_use]
+    pub const fn has_overflow(&self) -> bool {
         !self.overflow_items.is_empty()
     }
 }
@@ -6294,15 +6459,17 @@ pub enum IncrementalRelayoutResult {
 }
 
 /// Extract line break boundaries from a positioned items list.
-#[must_use] pub fn extract_line_breaks(
-    items: &[PositionedItem],
-    available_width: f32,
-) -> CachedLineBreaks {
+#[must_use]
+pub fn extract_line_breaks(items: &[PositionedItem], available_width: f32) -> CachedLineBreaks {
     let mut line_ranges = Vec::new();
     let mut line_widths = Vec::new();
 
     if items.is_empty() {
-        return CachedLineBreaks { line_ranges, line_widths, available_width };
+        return CachedLineBreaks {
+            line_ranges,
+            line_widths,
+            available_width,
+        };
     }
 
     let mut line_start = 0usize;
@@ -6324,7 +6491,11 @@ pub enum IncrementalRelayoutResult {
     line_ranges.push((line_start, items.len()));
     line_widths.push(line_width);
 
-    CachedLineBreaks { line_ranges, line_widths, available_width }
+    CachedLineBreaks {
+        line_ranges,
+        line_widths,
+        available_width,
+    }
 }
 
 /// Attempt incremental relayout given old metrics and new per-item advance widths.
@@ -6333,7 +6504,8 @@ pub enum IncrementalRelayoutResult {
 /// `old_advances`: per-item advance widths from the previous layout.
 /// `new_advances`: per-item advance widths after reshaping.
 /// `line_breaks`: cached line boundaries from previous layout.
-#[must_use] pub fn try_incremental_relayout(
+#[must_use]
+pub fn try_incremental_relayout(
     dirty_item_indices: &[usize],
     old_advances: &[f32],
     new_advances: &[f32],
@@ -6359,7 +6531,9 @@ pub enum IncrementalRelayoutResult {
         }
 
         // Width changed — find which line this item is on
-        let line_idx = line_breaks.line_ranges.iter()
+        let line_idx = line_breaks
+            .line_ranges
+            .iter()
             .position(|&(start, end)| dirty_idx >= start && dirty_idx < end);
 
         let Some(line_idx) = line_idx else {
@@ -6596,16 +6770,12 @@ impl CompactShapedEntry {
                     continue;
                 }
             }
-            while seg_cursor < self.segments.len()
-                && self.segments[seg_cursor].clusters.end <= ci
-            {
+            while seg_cursor < self.segments.len() && self.segments[seg_cursor].clusters.end <= ci {
                 seg_cursor += 1;
             }
             let seg = &self.segments[seg_cursor];
             let c = &self.clusters[ci as usize];
-            while detail_cursor < self.details.len()
-                && self.details[detail_cursor].cluster < ci
-            {
+            while detail_cursor < self.details.len() && self.details[detail_cursor].cluster < ci {
                 detail_cursor += 1;
             }
             let detail = self.details.get(detail_cursor).filter(|d| d.cluster == ci);
@@ -6619,7 +6789,10 @@ impl CompactShapedEntry {
                             cluster_offset: u32::from(dg.cluster_offset),
                             advance: dg.advance - dg.kerning,
                             kerning: dg.kerning,
-                            offset: Point { x: dg.offset_x, y: dg.offset_y },
+                            offset: Point {
+                                x: dg.offset_x,
+                                y: dg.offset_y,
+                            },
                             vertical_advance: dg.vertical_advance,
                             vertical_offset: Point {
                                 x: dg.vertical_offset_x,
@@ -6647,9 +6820,7 @@ impl CompactShapedEntry {
                 .collect(),
             };
             let byte_len = detail.map_or_else(
-                || {
-                    Self::grapheme_len_at(&seg.source_text, c.start_byte).unwrap_or(0) as u32
-                },
+                || Self::grapheme_len_at(&seg.source_text, c.start_byte).unwrap_or(0) as u32,
                 |d| d.byte_len,
             );
             out.push(ShapedItem::Cluster(ShapedCluster {
@@ -6800,7 +6971,8 @@ pub struct TextCacheMemoryReport {
 }
 
 impl TextCacheMemoryReport {
-    #[must_use] pub const fn total_bytes(&self) -> usize {
+    #[must_use]
+    pub const fn total_bytes(&self) -> usize {
         self.logical_items_bytes
             + self.visual_items_bytes
             + self.shaped_items_bytes
@@ -6825,7 +6997,8 @@ impl TextCacheMemoryReport {
 }
 
 impl TextShapingCache {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self {
             logical_items: HashMap::new(),
             visual_items: HashMap::new(),
@@ -6845,7 +7018,8 @@ impl TextShapingCache {
     /// and die with it — the window's cache is never polluted with
     /// query-constraint entries, which is why this takes `&self` and works
     /// from read-only callback contexts.
-    #[must_use] pub fn fork_shared(&self) -> Self {
+    #[must_use]
+    pub fn fork_shared(&self) -> Self {
         Self {
             logical_items: self.logical_items.clone(),
             visual_items: self.visual_items.clone(),
@@ -6858,21 +7032,27 @@ impl TextShapingCache {
 
     /// Test/pin hook (#28): whether `key` maps to the SAME allocation as in
     /// `other` — proves a fork shares (not copies) a shaped entry.
-    #[must_use] pub fn per_item_entry_ptr_eq(&self, other: &Self, key: u64) -> bool {
-        match (self.per_item_shaped.get(&key), other.per_item_shaped.get(&key)) {
+    #[must_use]
+    pub fn per_item_entry_ptr_eq(&self, other: &Self, key: u64) -> bool {
+        match (
+            self.per_item_shaped.get(&key),
+            other.per_item_shaped.get(&key),
+        ) {
             (Some(a), Some(b)) => Arc::ptr_eq(a, b),
             _ => false,
         }
     }
 
     /// Test/pin hook (#28): the per-item keys currently cached.
-    #[must_use] pub fn per_item_keys(&self) -> Vec<u64> {
+    #[must_use]
+    pub fn per_item_keys(&self) -> Vec<u64> {
         self.per_item_shaped.keys().copied().collect()
     }
 
     /// Approximate per-stage heap-byte breakdown.
     #[allow(clippy::field_reassign_with_default)] // struct built incrementally / test setup; a struct literal is not clearer here
-    #[must_use] pub fn memory_report(&self) -> TextCacheMemoryReport {
+    #[must_use]
+    pub fn memory_report(&self) -> TextCacheMemoryReport {
         let mut r = TextCacheMemoryReport::default();
 
         // COUNT EACH ALLOCATION ONCE, NOT EACH KEY.
@@ -6884,8 +7064,7 @@ impl TextShapingCache {
         // exist in the process. `shared_bytes_avoided` records what the naive
         // walk would have double-charged, so the correction is visible in the
         // output instead of appearing as an unexplained drop.
-        let mut counted: BTreeSet<usize> =
-            BTreeSet::new();
+        let mut counted: BTreeSet<usize> = BTreeSet::new();
 
         r.logical_items_entries = self.logical_items.len();
         for arc in self.logical_items.values() {
@@ -6905,10 +7084,8 @@ impl TextShapingCache {
                 r.shared_bytes_avoided += bytes;
             }
         }
-        let mut text_arcs: BTreeSet<usize> =
-            BTreeSet::new();
-        let mut style_arcs: BTreeSet<usize> =
-            BTreeSet::new();
+        let mut text_arcs: BTreeSet<usize> = BTreeSet::new();
+        let mut style_arcs: BTreeSet<usize> = BTreeSet::new();
 
         // ONE glyph lives INLINE in the cluster's `SmallVec<[ShapedGlyph; 1]>`
         // and is already inside the `size_of::<ShapedItem>()` charged above.
@@ -6979,14 +7156,14 @@ impl TextShapingCache {
         // AT; none measured the table holding the pointers or the `Arc` header
         // in front of each payload. That is why the itemised lines never summed
         // to the printed total — a ~3.4 MB gap on a 960-line document.
-        r.map_overhead_bytes = hashmap_bytes::<CacheId, Arc<Vec<LogicalItem>>>(
-            self.logical_items.len(),
-        ) + hashmap_bytes::<CacheId, Arc<Vec<VisualItem>>>(self.visual_items.len())
-            + hashmap_bytes::<u64, Arc<PerItemShapedEntry>>(self.per_item_shaped.len())
-            + ARC_HEADER
-                * (self.logical_items.len()
-                    + self.visual_items.len()
-                    + self.per_item_shaped.len());
+        r.map_overhead_bytes =
+            hashmap_bytes::<CacheId, Arc<Vec<LogicalItem>>>(self.logical_items.len())
+                + hashmap_bytes::<CacheId, Arc<Vec<VisualItem>>>(self.visual_items.len())
+                + hashmap_bytes::<u64, Arc<PerItemShapedEntry>>(self.per_item_shaped.len())
+                + ARC_HEADER
+                    * (self.logical_items.len()
+                        + self.visual_items.len()
+                        + self.per_item_shaped.len());
         r
     }
 
@@ -7030,20 +7207,21 @@ impl TextShapingCache {
     }
 
     /// Check if we can reuse an old layout based on layout-affecting parameters.
-    /// 
+    ///
     /// This function compares only the parameters that affect glyph positions,
     /// not rendering-only parameters like color or text-decoration.
-    /// 
+    ///
     /// # Parameters
     /// - `old_constraints`: The constraints used for the cached layout
     /// - `new_constraints`: The constraints for the new layout request
     /// - `old_content`: The content used for the cached layout
     /// - `new_content`: The new content to layout
-    /// 
+    ///
     /// # Returns
     /// - `true` if the old layout can be reused (only rendering changed)
     /// - `false` if a new layout is needed (layout-affecting params changed)
-    #[must_use] pub fn use_old_layout(
+    #[must_use]
+    pub fn use_old_layout(
         old_constraints: &UnifiedConstraints,
         new_constraints: &UnifiedConstraints,
         old_content: &[InlineContent],
@@ -7053,32 +7231,31 @@ impl TextShapingCache {
         if old_constraints != new_constraints {
             return false;
         }
-        
+
         // Second check: content length must match
         if old_content.len() != new_content.len() {
             return false;
         }
-        
+
         // Third check: each content item must have same layout properties
         for (old, new) in old_content.iter().zip(new_content.iter()) {
             if !Self::inline_content_layout_eq(old, new) {
                 return false;
             }
         }
-        
+
         true
     }
-    
+
     /// Compare two `InlineContent` items for layout equality.
-    /// 
+    ///
     /// Returns true if the layouts would be identical (only rendering differs).
     fn inline_content_layout_eq(old: &InlineContent, new: &InlineContent) -> bool {
-        use InlineContent::{Text, Image, Space, LineBreak, Tab, Marker, Shape, Ruby};
+        use InlineContent::{Image, LineBreak, Marker, Ruby, Shape, Space, Tab, Text};
         match (old, new) {
             (Text(old_run), Text(new_run)) => {
                 // Text must match exactly, but style only needs layout_eq
-                old_run.text == new_run.text 
-                    && old_run.style.layout_eq(&new_run.style)
+                old_run.text == new_run.text && old_run.style.layout_eq(&new_run.style)
             }
             (Image(old_img), Image(new_img)) => {
                 // Images: size affects layout, but not visual properties
@@ -7090,8 +7267,16 @@ impl TextShapingCache {
             (Space(old_sp), Space(new_sp)) => old_sp == new_sp,
             (LineBreak(old_br), LineBreak(new_br)) => old_br == new_br,
             (Tab { style: old_style }, Tab { style: new_style }) => old_style.layout_eq(new_style),
-            (Marker { run: old_run, position_outside: old_pos },
-             Marker { run: new_run, position_outside: new_pos }) => {
+            (
+                Marker {
+                    run: old_run,
+                    position_outside: old_pos,
+                },
+                Marker {
+                    run: new_run,
+                    position_outside: new_pos,
+                },
+            ) => {
                 old_pos == new_pos
                     && old_run.text == new_run.text
                     && old_run.style.layout_eq(&new_run.style)
@@ -7101,14 +7286,28 @@ impl TextShapingCache {
                 old_shape.shape_def == new_shape.shape_def
                     && old_shape.baseline_offset == new_shape.baseline_offset
             }
-            (Ruby { base: old_base, text: old_text, style: old_style },
-             Ruby { base: new_base, text: new_text, style: new_style }) => {
+            (
+                Ruby {
+                    base: old_base,
+                    text: old_text,
+                    style: old_style,
+                },
+                Ruby {
+                    base: new_base,
+                    text: new_text,
+                    style: new_style,
+                },
+            ) => {
                 old_style.layout_eq(new_style)
                     && old_base.len() == new_base.len()
                     && old_text.len() == new_text.len()
-                    && old_base.iter().zip(new_base.iter())
+                    && old_base
+                        .iter()
+                        .zip(new_base.iter())
                         .all(|(o, n)| Self::inline_content_layout_eq(o, n))
-                    && old_text.iter().zip(new_text.iter())
+                    && old_text
+                        .iter()
+                        .zip(new_text.iter())
                         .all(|(o, n)| Self::inline_content_layout_eq(o, n))
             }
             // Different variants cannot have same layout
@@ -7284,9 +7483,7 @@ impl TextShapingCache {
         // 4096 leaves several documents' worth resident before any sweep.
         const STAGE_CACHE_MAX: usize = 4096;
         let (l, v, sh) = self.stage_entry_counts();
-        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX
-            || l.max(v).max(sh) > STAGE_CACHE_MAX
-        {
+        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX || l.max(v).max(sh) > STAGE_CACHE_MAX {
             self.begin_generation();
         }
 
@@ -7305,7 +7502,11 @@ impl TextShapingCache {
             .logical_items
             .entry(logical_items_id)
             .or_insert_with(|| {
-                Arc::new(create_logical_items(content, style_overrides, debug_messages))
+                Arc::new(create_logical_items(
+                    content,
+                    style_overrides,
+                    debug_messages,
+                ))
             })
             .clone();
 
@@ -7332,8 +7533,10 @@ impl TextShapingCache {
             // Auto-detect from text content; fall back to containing block direction
             let has_strong = logical_items.iter().any(|item| {
                 if let LogicalItem::Text { text, .. } = item {
-                    matches!(unicode_bidi::get_base_direction(&**text),
-                        unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl)
+                    matches!(
+                        unicode_bidi::get_base_direction(&**text),
+                        unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl
+                    )
                 } else {
                     false
                 }
@@ -7361,7 +7564,13 @@ impl TextShapingCache {
             .entry(visual_items_id)
             .or_insert_with(|| {
                 Arc::new(
-                    reorder_logical_items(&logical_items, base_direction, unicode_bidi_val, debug_messages).unwrap(),
+                    reorder_logical_items(
+                        &logical_items,
+                        base_direction,
+                        unicode_bidi_val,
+                        debug_messages,
+                    )
+                    .unwrap(),
                 )
             })
             .clone();
@@ -7393,7 +7602,8 @@ impl TextShapingCache {
         let mut fragment_layouts = HashMap::new();
         // The cursor now manages the stream of items for the entire flow.
         // §5.2 word-break: pass word_break from constraints to cursor
-        let mut cursor = BreakCursor::with_word_break(&oriented_items, first_constraints.word_break);
+        let mut cursor =
+            BreakCursor::with_word_break(&oriented_items, first_constraints.word_break);
         cursor.hyphens = first_constraints.hyphenation;
         cursor.line_break = first_constraints.line_break;
 
@@ -7409,7 +7619,12 @@ impl TextShapingCache {
             #[cfg(feature = "web_lift")]
             {
                 _az_flow_iters += 1;
-                unsafe { crate::az_mark((0x60BC0) as u32, (_az_flow_iters as u32 | 0xC0DE0000) as u32); }
+                unsafe {
+                    crate::az_mark(
+                        (0x60BC0) as u32,
+                        (_az_flow_iters as u32 | 0xC0DE0000) as u32,
+                    );
+                }
                 if _az_flow_iters > 256 {
                     break;
                 }
@@ -7492,9 +7707,7 @@ impl TextShapingCache {
         // 4096 leaves several documents' worth resident before any sweep.
         const STAGE_CACHE_MAX: usize = 4096;
         let (l, v, sh) = self.stage_entry_counts();
-        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX
-            || l.max(v).max(sh) > STAGE_CACHE_MAX
-        {
+        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX || l.max(v).max(sh) > STAGE_CACHE_MAX {
             self.begin_generation();
         }
 
@@ -7507,7 +7720,11 @@ impl TextShapingCache {
             .logical_items
             .entry(logical_items_id)
             .or_insert_with(|| {
-                Arc::new(create_logical_items(content, style_overrides, debug_messages))
+                Arc::new(create_logical_items(
+                    content,
+                    style_overrides,
+                    debug_messages,
+                ))
             })
             .clone();
 
@@ -7516,8 +7733,10 @@ impl TextShapingCache {
         let base_direction = if unicode_bidi_val == UnicodeBidi::Plaintext {
             let has_strong = logical_items.iter().any(|item| {
                 if let LogicalItem::Text { text, .. } = item {
-                    matches!(unicode_bidi::get_base_direction(&**text),
-                        unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl)
+                    matches!(
+                        unicode_bidi::get_base_direction(&**text),
+                        unicode_bidi::Direction::Ltr | unicode_bidi::Direction::Rtl
+                    )
                 } else {
                     false
                 }
@@ -7541,7 +7760,13 @@ impl TextShapingCache {
             .entry(visual_items_id)
             .or_insert_with(|| {
                 Arc::new(
-                    reorder_logical_items(&logical_items, base_direction, unicode_bidi_val, debug_messages).unwrap(),
+                    reorder_logical_items(
+                        &logical_items,
+                        base_direction,
+                        unicode_bidi_val,
+                        debug_messages,
+                    )
+                    .unwrap(),
                 )
             })
             .clone();
@@ -7566,8 +7791,8 @@ impl TextShapingCache {
         let hyphens = constraints.hyphenation;
         let scan_is_vertical = constraints.is_vertical();
 
-        let mut total = 0.0f32;      // running width of the current line
-        let mut max_line = 0.0f32;   // widest line between forced breaks = max-content
+        let mut total = 0.0f32; // running width of the current line
+        let mut max_line = 0.0f32; // widest line between forced breaks = max-content
         let mut max_word = 0.0f32;
         let mut cur_word = 0.0f32;
         let mut max_line_height = 0.0f32;
@@ -7579,8 +7804,12 @@ impl TextShapingCache {
             // content) over-measures its max-content as the concatenation of all
             // lines. Reset the line accumulators here.
             if let ShapedItem::Break { .. } = item {
-                if total > max_line { max_line = total; }
-                if cur_word > max_word { max_word = cur_word; }
+                if total > max_line {
+                    max_line = total;
+                }
+                if cur_word > max_word {
+                    max_word = cur_word;
+                }
                 total = 0.0;
                 cur_word = 0.0;
                 continue;
@@ -7722,221 +7951,233 @@ pub fn create_logical_items(
         // as a Vec len → ×8 → ~789 MB alloc → BumpAlloc memset OOB. A standalone if-let lowers to a
         // single cmp/beq the lift handles correctly, so Text reaches its real body. Native unaffected.
         if let InlineContent::Text(run) | InlineContent::Marker { run, .. } = inline_item {
-                let text = &run.text;
-                if text.is_empty() {
-                    if let Some(msgs) = debug_messages {
-                        msgs.push(LayoutDebugMessage::info(
-                            "  Run is empty, skipping.".to_string(),
-                        ));
-                    }
-                    continue;
-                }
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!("  Run text: '{text}'")));
-                }
-
-                let current_run_overrides = run_overrides.get(&(run_idx as u32));
-                let mut boundaries = BTreeSet::new();
-                boundaries.insert(0);
-                boundaries.insert(text.len());
-
-                // --- Stateful Boundary Generation ---
-                // web-lift FIX + perf: this scan_cursor walk ONLY inserts boundaries for
-                // per-char style overrides (Rule 2) or text-combine-upright digit runs (Rule 1).
-                // For plain text (no overrides AND no combine-upright) it inserts NOTHING and just
-                // walks char-by-char via `scan_cursor += current_char.len_utf8()` — which the web
-                // lift mis-advances (overshoot → slice_start_index_len_fail OOB; stall → infinite
-                // loop). Skip the whole walk in that common case so `boundaries` stays {0, len}.
-                let needs_scan = current_run_overrides.is_some()
-                    || run.style.text_combine_upright.is_some();
-                let mut scan_cursor = 0;
-                while needs_scan && scan_cursor < text.len() {
-                    let style_at_cursor = current_run_overrides.and_then(|o| o.get(&(scan_cursor as u32))).map_or_else(|| (*run.style).clone(), |partial| run.style.apply_override(partial));
-
-                    let current_char = text[scan_cursor..].chars().next().unwrap();
-
-                    // +spec:containing-block:e4d9de - text-combine-upright digit run rules: digits sharing an ancestor with same value form one sequence across box boundaries
-                    // +spec:inline-formatting-context:f65029 - text-combine-upright text run rules: combine consecutive digits not interrupted by box boundary
-                    // Rule 1: Multi-character features take precedence.
-                    // +spec:containing-block:9a26bd - text-combine-upright digit runs scoped by ancestor style boundaries
-                    if let Some(TextCombineUpright::Digits(max_digits)) =
-                        style_at_cursor.text_combine_upright
-                    {
-                        if max_digits > 0 && current_char.is_ascii_digit() {
-                            let digit_chunk: String = text[scan_cursor..]
-                                .chars()
-                                .take(max_digits as usize)
-                                .take_while(char::is_ascii_digit)
-                                .collect();
-
-                            let end_of_chunk = scan_cursor + digit_chunk.len();
-                            boundaries.insert(scan_cursor);
-                            boundaries.insert(end_of_chunk);
-                            scan_cursor = end_of_chunk; // Jump past the entire sequence
-                            continue;
-                        }
-                    }
-
-                    // Rule 2: If no multi-char feature, check for a normal single-grapheme
-                    // override.
-                    if current_run_overrides
-                        .and_then(|o| o.get(&(scan_cursor as u32)))
-                        .is_some()
-                    {
-                        let grapheme_len = text[scan_cursor..]
-                            .graphemes(true)
-                            .next()
-                            .unwrap_or("")
-                            .len();
-                        boundaries.insert(scan_cursor);
-                        boundaries.insert(scan_cursor + grapheme_len);
-                        scan_cursor += grapheme_len;
-                        continue;
-                    }
-
-                    // Rule 3: No special features or overrides at this point, just advance one
-                    // char.
-                    scan_cursor += current_char.len_utf8();
-                }
-
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "  Boundaries: {boundaries:?}"
-                    )));
-                }
-
-                // --- Chunk Processing ---
-                for (start, end) in boundaries.iter().zip(boundaries.iter().skip(1)) {
-                    let (start, end) = (*start, *end);
-                    if start >= end {
-                        continue;
-                    }
-
-                    let text_slice = &text[start..end];
-                    if let Some(msgs) = debug_messages {
-                        msgs.push(LayoutDebugMessage::info(format!(
-                            "  Processing chunk from {start} to {end}: '{text_slice}'"
-                        )));
-                    }
-
-                    let style_to_use = current_run_overrides.and_then(|o| o.get(&(start as u32))).map_or_else(|| run.style.clone(), |partial_style| {
-                        if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::info(format!(
-                                "  -> Applying override at byte {start}"
-                            )));
-                        }
-                        let mut hasher = DefaultHasher::new();
-                        Arc::as_ptr(&run.style).hash(&mut hasher);
-                        partial_style.hash(&mut hasher);
-                        style_cache
-                            .entry(hasher.finish())
-                            .or_insert_with(|| Arc::new(run.style.apply_override(partial_style)))
-                            .clone()
-                    });
-
-                    // +spec:block-formatting-context:9e7c79 - text-combine-upright combines multiple characters into 1em in vertical writing
-                    // +spec:containing-block:2b399b - text-combine-upright digits: combine ASCII digit sequences within max_digits limit; box boundaries implicitly prevent cross-box combination
-                    // +spec:display-contents:644c78 - text-combine-upright run boundary check:
-                    // if a combinable run boundary is due only to inline box boundaries,
-                    // and adjacent chars would form a longer combinable sequence, do not combine
-                    // +spec:white-space-processing:409d90 - text-combine-upright combined text: white space at start/end processed as in inline-block
-                    let is_combinable_chunk = match &style_to_use.text_combine_upright {
-                        Some(TextCombineUpright::All) => !text_slice.is_empty(),
-                        Some(TextCombineUpright::Digits(max_digits)) => {
-                            *max_digits > 0
-                                && !text_slice.is_empty()
-                                && text_slice.chars().all(|c| c.is_ascii_digit())
-                                && text_slice.chars().count() <= *max_digits as usize
-                        }
-                        _ => false,
-                    };
-
-                    if is_combinable_chunk {
-                        // Trim leading/trailing white space like an inline-block
-                        let trimmed = text_slice.trim();
-                        let combined_text = if trimmed.is_empty() {
-                            text_slice.to_string()
-                        } else {
-                            trimmed.to_string()
-                        };
-                        items.push(LogicalItem::CombinedText {
-                            source: ContentIndex {
-                                run_index: run_idx as u32,
-                                item_index: start as u32,
-                            },
-                            text: combined_text,
-                            style: style_to_use,
-                        });
-                    } else {
-                        items.push(LogicalItem::Text {
-                            source: ContentIndex {
-                                run_index: run_idx as u32,
-                                item_index: start as u32,
-                            },
-                            // §3.2 3c: the item text is an Arc so shaped
-                            // clusters can SHARE it. The whole-run chunk
-                            // (the overwhelmingly common case — overrides
-                            // and combine-upright are the only splitters)
-                            // aliases the StyledRun's own Arc: zero new
-                            // allocations; override segments mint one Arc
-                            // per segment, same cost as the old String.
-                            text: if start == 0 && end == text.len() {
-                                run.text.clone()
-                            } else {
-                                Arc::from(text_slice)
-                            },
-                            style: style_to_use,
-                            marker_position_outside,
-                            source_node_id: run.source_node_id,
-                        });
-                    }
-                }
-        } else {
-            match inline_item {
-            // line breaking class characters must be treated as forced line breaks
-            InlineContent::LineBreak(break_info) => {
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info(format!(
-                        "  LineBreak: {break_info:?}"
-                    )));
-                }
-                items.push(LogicalItem::Break {
-                    source: ContentIndex {
-                        run_index: run_idx as u32,
-                        item_index: 0,
-                    },
-                    break_info: *break_info,
-                });
-            }
-            // Handle tab characters
-            InlineContent::Tab { style } => {
-                if let Some(msgs) = debug_messages {
-                    msgs.push(LayoutDebugMessage::info("  Tab character".to_string()));
-                }
-                items.push(LogicalItem::Tab {
-                    source: ContentIndex {
-                        run_index: run_idx as u32,
-                        item_index: 0,
-                    },
-                    style: style.clone(),
-                });
-            }
-            // Other cases (Image, Shape, Space, Ruby). Text/Marker are handled by the `if let`
-            // above (so they never reach here at runtime); `_` keeps this inner match exhaustive.
-            _ => {
+            let text = &run.text;
+            if text.is_empty() {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(
-                        "  Run is not text, creating generic LogicalItem.".to_string(),
+                        "  Run is empty, skipping.".to_string(),
                     ));
                 }
-                items.push(LogicalItem::Object {
-                    source: ContentIndex {
-                        run_index: run_idx as u32,
-                        item_index: 0,
-                    },
-                    content: inline_item.clone(),
-                });
+                continue;
             }
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::info(format!("  Run text: '{text}'")));
+            }
+
+            let current_run_overrides = run_overrides.get(&(run_idx as u32));
+            let mut boundaries = BTreeSet::new();
+            boundaries.insert(0);
+            boundaries.insert(text.len());
+
+            // --- Stateful Boundary Generation ---
+            // web-lift FIX + perf: this scan_cursor walk ONLY inserts boundaries for
+            // per-char style overrides (Rule 2) or text-combine-upright digit runs (Rule 1).
+            // For plain text (no overrides AND no combine-upright) it inserts NOTHING and just
+            // walks char-by-char via `scan_cursor += current_char.len_utf8()` — which the web
+            // lift mis-advances (overshoot → slice_start_index_len_fail OOB; stall → infinite
+            // loop). Skip the whole walk in that common case so `boundaries` stays {0, len}.
+            let needs_scan =
+                current_run_overrides.is_some() || run.style.text_combine_upright.is_some();
+            let mut scan_cursor = 0;
+            while needs_scan && scan_cursor < text.len() {
+                let style_at_cursor = current_run_overrides
+                    .and_then(|o| o.get(&(scan_cursor as u32)))
+                    .map_or_else(
+                        || (*run.style).clone(),
+                        |partial| run.style.apply_override(partial),
+                    );
+
+                let current_char = text[scan_cursor..].chars().next().unwrap();
+
+                // +spec:containing-block:e4d9de - text-combine-upright digit run rules: digits sharing an ancestor with same value form one sequence across box boundaries
+                // +spec:inline-formatting-context:f65029 - text-combine-upright text run rules: combine consecutive digits not interrupted by box boundary
+                // Rule 1: Multi-character features take precedence.
+                // +spec:containing-block:9a26bd - text-combine-upright digit runs scoped by ancestor style boundaries
+                if let Some(TextCombineUpright::Digits(max_digits)) =
+                    style_at_cursor.text_combine_upright
+                {
+                    if max_digits > 0 && current_char.is_ascii_digit() {
+                        let digit_chunk: String = text[scan_cursor..]
+                            .chars()
+                            .take(max_digits as usize)
+                            .take_while(char::is_ascii_digit)
+                            .collect();
+
+                        let end_of_chunk = scan_cursor + digit_chunk.len();
+                        boundaries.insert(scan_cursor);
+                        boundaries.insert(end_of_chunk);
+                        scan_cursor = end_of_chunk; // Jump past the entire sequence
+                        continue;
+                    }
+                }
+
+                // Rule 2: If no multi-char feature, check for a normal single-grapheme
+                // override.
+                if current_run_overrides
+                    .and_then(|o| o.get(&(scan_cursor as u32)))
+                    .is_some()
+                {
+                    let grapheme_len = text[scan_cursor..]
+                        .graphemes(true)
+                        .next()
+                        .unwrap_or("")
+                        .len();
+                    boundaries.insert(scan_cursor);
+                    boundaries.insert(scan_cursor + grapheme_len);
+                    scan_cursor += grapheme_len;
+                    continue;
+                }
+
+                // Rule 3: No special features or overrides at this point, just advance one
+                // char.
+                scan_cursor += current_char.len_utf8();
+            }
+
+            if let Some(msgs) = debug_messages {
+                msgs.push(LayoutDebugMessage::info(format!(
+                    "  Boundaries: {boundaries:?}"
+                )));
+            }
+
+            // --- Chunk Processing ---
+            for (start, end) in boundaries.iter().zip(boundaries.iter().skip(1)) {
+                let (start, end) = (*start, *end);
+                if start >= end {
+                    continue;
+                }
+
+                let text_slice = &text[start..end];
+                if let Some(msgs) = debug_messages {
+                    msgs.push(LayoutDebugMessage::info(format!(
+                        "  Processing chunk from {start} to {end}: '{text_slice}'"
+                    )));
+                }
+
+                let style_to_use = current_run_overrides
+                    .and_then(|o| o.get(&(start as u32)))
+                    .map_or_else(
+                        || run.style.clone(),
+                        |partial_style| {
+                            if let Some(msgs) = debug_messages {
+                                msgs.push(LayoutDebugMessage::info(format!(
+                                    "  -> Applying override at byte {start}"
+                                )));
+                            }
+                            let mut hasher = DefaultHasher::new();
+                            Arc::as_ptr(&run.style).hash(&mut hasher);
+                            partial_style.hash(&mut hasher);
+                            style_cache
+                                .entry(hasher.finish())
+                                .or_insert_with(|| {
+                                    Arc::new(run.style.apply_override(partial_style))
+                                })
+                                .clone()
+                        },
+                    );
+
+                // +spec:block-formatting-context:9e7c79 - text-combine-upright combines multiple characters into 1em in vertical writing
+                // +spec:containing-block:2b399b - text-combine-upright digits: combine ASCII digit sequences within max_digits limit; box boundaries implicitly prevent cross-box combination
+                // +spec:display-contents:644c78 - text-combine-upright run boundary check:
+                // if a combinable run boundary is due only to inline box boundaries,
+                // and adjacent chars would form a longer combinable sequence, do not combine
+                // +spec:white-space-processing:409d90 - text-combine-upright combined text: white space at start/end processed as in inline-block
+                let is_combinable_chunk = match &style_to_use.text_combine_upright {
+                    Some(TextCombineUpright::All) => !text_slice.is_empty(),
+                    Some(TextCombineUpright::Digits(max_digits)) => {
+                        *max_digits > 0
+                            && !text_slice.is_empty()
+                            && text_slice.chars().all(|c| c.is_ascii_digit())
+                            && text_slice.chars().count() <= *max_digits as usize
+                    }
+                    _ => false,
+                };
+
+                if is_combinable_chunk {
+                    // Trim leading/trailing white space like an inline-block
+                    let trimmed = text_slice.trim();
+                    let combined_text = if trimmed.is_empty() {
+                        text_slice.to_string()
+                    } else {
+                        trimmed.to_string()
+                    };
+                    items.push(LogicalItem::CombinedText {
+                        source: ContentIndex {
+                            run_index: run_idx as u32,
+                            item_index: start as u32,
+                        },
+                        text: combined_text,
+                        style: style_to_use,
+                    });
+                } else {
+                    items.push(LogicalItem::Text {
+                        source: ContentIndex {
+                            run_index: run_idx as u32,
+                            item_index: start as u32,
+                        },
+                        // §3.2 3c: the item text is an Arc so shaped
+                        // clusters can SHARE it. The whole-run chunk
+                        // (the overwhelmingly common case — overrides
+                        // and combine-upright are the only splitters)
+                        // aliases the StyledRun's own Arc: zero new
+                        // allocations; override segments mint one Arc
+                        // per segment, same cost as the old String.
+                        text: if start == 0 && end == text.len() {
+                            run.text.clone()
+                        } else {
+                            Arc::from(text_slice)
+                        },
+                        style: style_to_use,
+                        marker_position_outside,
+                        source_node_id: run.source_node_id,
+                    });
+                }
+            }
+        } else {
+            match inline_item {
+                // line breaking class characters must be treated as forced line breaks
+                InlineContent::LineBreak(break_info) => {
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::info(format!(
+                            "  LineBreak: {break_info:?}"
+                        )));
+                    }
+                    items.push(LogicalItem::Break {
+                        source: ContentIndex {
+                            run_index: run_idx as u32,
+                            item_index: 0,
+                        },
+                        break_info: *break_info,
+                    });
+                }
+                // Handle tab characters
+                InlineContent::Tab { style } => {
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::info("  Tab character".to_string()));
+                    }
+                    items.push(LogicalItem::Tab {
+                        source: ContentIndex {
+                            run_index: run_idx as u32,
+                            item_index: 0,
+                        },
+                        style: style.clone(),
+                    });
+                }
+                // Other cases (Image, Shape, Space, Ruby). Text/Marker are handled by the `if let`
+                // above (so they never reach here at runtime); `_` keeps this inner match exhaustive.
+                _ => {
+                    if let Some(msgs) = debug_messages {
+                        msgs.push(LayoutDebugMessage::info(
+                            "  Run is not text, creating generic LogicalItem.".to_string(),
+                        ));
+                    }
+                    items.push(LogicalItem::Object {
+                        source: ContentIndex {
+                            run_index: run_idx as u32,
+                            item_index: 0,
+                        },
+                        content: inline_item.clone(),
+                    });
+                }
             }
         }
     }
@@ -7954,7 +8195,8 @@ pub fn create_logical_items(
 // +spec:inline-block:d47971 - unicode-bidi:plaintext uses P2/P3 heuristic for base direction (implemented via get_base_direction)
 // +spec:writing-modes:287491 - BiDi reordering and base direction detection (Appendix A text processing order)
 // when determining base direction, consistent with their neutral bidi treatment
-#[must_use] pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDirection {
+#[must_use]
+pub fn get_base_direction_from_logical(logical_items: &[LogicalItem]) -> BidiDirection {
     let first_strong = logical_items.iter().find_map(|item| {
         if let LogicalItem::Text { text, .. } = item {
             Some(unicode_bidi::get_base_direction(&**text))
@@ -7980,7 +8222,8 @@ pub fn create_logical_items(
 // +spec:writing-modes:330b8f - text ordered according to Unicode bidi algorithm after white-space processing
 // +spec:writing-modes:7a9e7d - bidi control translation: text passed to unicode_bidi for reordering
 // +spec:writing-modes:8e7281 - unicode-bidi property: bidi control codes inserted via BidiInfo
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Errors
 ///
@@ -8213,7 +8456,10 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                 // Non-text items: shape individually (no coalescing)
                 let single = shape_visual_items(
                     &visual_items[idx..=idx],
-                    font_chain_cache, fc_cache, loaded_fonts, debug_messages,
+                    font_chain_cache,
+                    fc_cache,
+                    loaded_fonts,
+                    debug_messages,
                 )?;
                 shaped.extend(single);
                 idx += 1;
@@ -8231,10 +8477,7 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
                 _ => None,
             };
             if let Some(nlh) = next_layout_hash {
-                if nlh == layout_hash
-                    && next.bidi_level == bidi_level
-                    && next.script == script
-                {
+                if nlh == layout_hash && next.bidi_level == bidi_level && next.script == script {
                     coalesce_end += 1;
                 } else {
                     break;
@@ -8326,18 +8569,25 @@ pub fn shape_visual_items_with_per_item_cache<T: ParsedFontTrait>(
             // Cache miss — shape this group
             let group_items = shape_visual_items(
                 &visual_items[idx..coalesce_end],
-                font_chain_cache, fc_cache, loaded_fonts, debug_messages,
+                font_chain_cache,
+                fc_cache,
+                loaded_fonts,
+                debug_messages,
             )?;
-            let total_advance: f32 = group_items.iter().map(|item| {
-                match item {
+            let total_advance: f32 = group_items
+                .iter()
+                .map(|item| match item {
                     ShapedItem::Cluster(c) => c.advance,
                     _ => 0.0,
-                }
-            }).sum();
-            per_item_cache.insert(group_key, Arc::new(PerItemShapedEntry {
-                compact: CompactShapedEntry::build(&group_items),
-                total_advance,
-            }));
+                })
+                .sum();
+            per_item_cache.insert(
+                group_key,
+                Arc::new(PerItemShapedEntry {
+                    compact: CompactShapedEntry::build(&group_items),
+                    total_advance,
+                }),
+            );
             shaped.extend(group_items);
         }
 
@@ -8467,8 +8717,16 @@ fn measure_run_advance<T: ParsedFontTrait>(
             let cache_key = FontChainKey::from_selectors(selectors);
             let font_chain = font_chain_cache.get(&cache_key)?;
             let clusters = shape_with_font_fallback(
-                text, script, language, BidiDirection::Ltr, style, source, None, font_chain,
-                fc_cache, loaded_fonts,
+                text,
+                script,
+                language,
+                BidiDirection::Ltr,
+                style,
+                source,
+                None,
+                font_chain,
+                fc_cache,
+                loaded_fonts,
             )
             .ok()?;
             Some(clusters.iter().map(|c| c.advance).sum())
@@ -8502,9 +8760,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
     // and allocates the formatted string. Both are invisible in
     // release unless `AZ_FONT_FALLBACK_DEBUG=1` is set.
     static FONT_FB_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let dbg = *FONT_FB_DEBUG.get_or_init(|| {
-        std::env::var_os("AZ_FONT_FALLBACK_DEBUG").is_some()
-    });
+    let dbg = *FONT_FB_DEBUG.get_or_init(|| std::env::var_os("AZ_FONT_FALLBACK_DEBUG").is_some());
 
     let segments = split_text_by_font_coverage(text, font_chain, fc_cache, loaded_fonts);
 
@@ -8513,38 +8769,76 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
             "[FONT FALLBACK] text needs {} font segments for '{}' ({}..{} bytes)",
             segments.len(),
             text.chars().take(40).collect::<String>(),
-            0, text.len()
+            0,
+            text.len()
         );
     }
 
-    unsafe { crate::az_mark(0x60850_u32, segments.len() as u32); } // [g123] segments count (split_text_by_font_coverage)
+    unsafe {
+        crate::az_mark(0x60850_u32, segments.len() as u32);
+    } // [g123] segments count (split_text_by_font_coverage)
     if segments.len() <= 1 {
         // Fast path: all characters use the same font (common case)
-        let (seg_start, seg_end, font_id) = if let Some(s) = segments.first() { unsafe { crate::az_mark(0x60854_u32, 0x0000_0001_u32); } s } else {
-            unsafe { crate::az_mark(0x60854_u32, 0x0000_00EE_u32); } // [g123] split→0 segments (resolve_char failed all)
+        let (seg_start, seg_end, font_id) = if let Some(s) = segments.first() {
+            unsafe {
+                crate::az_mark(0x60854_u32, 0x0000_0001_u32);
+            }
+            s
+        } else {
+            unsafe {
+                crate::az_mark(0x60854_u32, 0x0000_00EE_u32);
+            } // [g123] split→0 segments (resolve_char failed all)
             if dbg {
-                eprintln!("[FONT FALLBACK] no font could render any char in '{}'", text.chars().take(20).collect::<String>());
+                eprintln!(
+                    "[FONT FALLBACK] no font could render any char in '{}'",
+                    text.chars().take(20).collect::<String>()
+                );
             }
             return Ok(Vec::new());
         };
-        let font = if let Some(f) = loaded_fonts.get(font_id) { unsafe { crate::az_mark(0x60858_u32, 0x0000_0001_u32); } f } else {
-            unsafe { crate::az_mark(0x60858_u32, 0x0000_00EE_u32); } // [g123] loaded_fonts.get MISS
+        let font = if let Some(f) = loaded_fonts.get(font_id) {
+            unsafe {
+                crate::az_mark(0x60858_u32, 0x0000_0001_u32);
+            }
+            f
+        } else {
+            unsafe {
+                crate::az_mark(0x60858_u32, 0x0000_00EE_u32);
+            } // [g123] loaded_fonts.get MISS
             if dbg {
-                eprintln!("[FONT FALLBACK] font {:?} not in loaded_fonts for '{}'", font_id, text.chars().take(20).collect::<String>());
+                eprintln!(
+                    "[FONT FALLBACK] font {:?} not in loaded_fonts for '{}'",
+                    font_id,
+                    text.chars().take(20).collect::<String>()
+                );
             }
             return Ok(Vec::new());
         };
         // If segment covers the full text (overwhelmingly common), skip substr+fixup
         if *seg_start == 0 && *seg_end == text.len() {
-            unsafe { crate::az_mark(0x60860_u32, 0xC0DE_0860_u32); } // [g123] reached shape_text_correctly (full-text)
+            unsafe {
+                crate::az_mark(0x60860_u32, 0xC0DE_0860_u32);
+            } // [g123] reached shape_text_correctly (full-text)
             return shape_text_correctly(
-                text, script, language, direction,
-                font, style, source_index, source_node_id,
+                text,
+                script,
+                language,
+                direction,
+                font,
+                style,
+                source_index,
+                source_node_id,
             );
         }
         let mut clusters = shape_text_correctly(
-            &text[*seg_start..*seg_end], script, language, direction,
-            font, style, source_index, source_node_id,
+            &text[*seg_start..*seg_end],
+            script,
+            language,
+            direction,
+            font,
+            style,
+            source_index,
+            source_node_id,
         )?;
         if *seg_start > 0 {
             for cluster in &mut clusters {
@@ -8570,8 +8864,14 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
             );
         }
         let mut seg_clusters = shape_text_correctly(
-            segment_text, script, language, direction,
-            font, style, source_index, source_node_id,
+            segment_text,
+            script,
+            language,
+            direction,
+            font,
+            style,
+            source_index,
+            source_node_id,
         )?;
         // Fix byte offsets: shape_text_correctly produces offsets relative to
         // segment_text, but callers expect offsets relative to the full text.
@@ -8587,7 +8887,8 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 /// # Errors
 ///
@@ -8629,7 +8930,10 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 let mut coalesce_end = idx + 1;
                 while coalesce_end < visual_items.len() {
                     let next = &visual_items[coalesce_end];
-                    if let LogicalItem::Text { style: next_style, .. } = &next.logical_source {
+                    if let LogicalItem::Text {
+                        style: next_style, ..
+                    } = &next.logical_source
+                    {
                         if next_style.layout_hash() == layout_hash
                             && next.bidi_level == bidi_level
                             && next.script == script
@@ -8662,7 +8966,8 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     //  run_byte_offset, item_text — the logical item's shared Arc,
                     //  stamped onto each re-attributed cluster as `source_text`)
                     let mut byte_ranges: Vec<(
-                        usize, usize,
+                        usize,
+                        usize,
                         Arc<StyleProperties>,
                         ContentIndex,
                         Option<NodeId>,
@@ -8676,10 +8981,24 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         merged_text.push_str(&item.text);
                         let end = merged_text.len();
                         if let LogicalItem::Text {
-                            style: s, source: src, source_node_id: nid,
-                            marker_position_outside: mpo, text: itext, ..
-                        } = &item.logical_source {
-                            byte_ranges.push((start, end, s.clone(), *src, *nid, *mpo, item.run_byte_offset, itext.clone()));
+                            style: s,
+                            source: src,
+                            source_node_id: nid,
+                            marker_position_outside: mpo,
+                            text: itext,
+                            ..
+                        } = &item.logical_source
+                        {
+                            byte_ranges.push((
+                                start,
+                                end,
+                                s.clone(),
+                                *src,
+                                *nid,
+                                *mpo,
+                                item.run_byte_offset,
+                                itext.clone(),
+                            ));
                         }
                     }
 
@@ -8699,28 +9018,42 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
                     // Shape the merged text using the first item's font (layout is identical
                     // for all coalesced items since layout_hash matches).
-                    let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> = match &style.font_stack {
-                        FontStack::Ref(font_ref) => {
-                            shape_text_correctly(
-                                &merged_text, script, language, direction,
-                                font_ref, style, *source, *source_node_id,
-                            )
-                        }
-                        FontStack::Stack(selectors) => {
-                            let cache_key = FontChainKey::from_selectors(selectors);
-                            let resolved_on_miss;
-                            let font_chain = if let Some(c) = font_chain_cache.get(&cache_key) { c } else {
-                                resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
-                                &resolved_on_miss
-                            };
-                            // Per-character font fallback: split text by font coverage
-                            shape_with_font_fallback(
-                                &merged_text, script, language, direction,
-                                style, *source, *source_node_id,
-                                font_chain, fc_cache, loaded_fonts,
-                            )
-                        }
-                    };
+                    let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> =
+                        match &style.font_stack {
+                            FontStack::Ref(font_ref) => shape_text_correctly(
+                                &merged_text,
+                                script,
+                                language,
+                                direction,
+                                font_ref,
+                                style,
+                                *source,
+                                *source_node_id,
+                            ),
+                            FontStack::Stack(selectors) => {
+                                let cache_key = FontChainKey::from_selectors(selectors);
+                                let resolved_on_miss;
+                                let font_chain = if let Some(c) = font_chain_cache.get(&cache_key) {
+                                    c
+                                } else {
+                                    resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
+                                    &resolved_on_miss
+                                };
+                                // Per-character font fallback: split text by font coverage
+                                shape_with_font_fallback(
+                                    &merged_text,
+                                    script,
+                                    language,
+                                    direction,
+                                    style,
+                                    *source,
+                                    *source_node_id,
+                                    font_chain,
+                                    fc_cache,
+                                    loaded_fonts,
+                                )
+                            }
+                        };
 
                     let shaped_clusters = shaped_clusters_result?;
 
@@ -8731,11 +9064,21 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     for cluster in shaped_clusters {
                         let byte_pos = cluster.source_cluster_id.start_byte_in_run as usize;
                         // Find the original run this cluster's first byte falls into
-                        let orig = byte_ranges.iter().find(|(start, end, ..)| {
-                            byte_pos >= *start && byte_pos < *end
-                        });
+                        let orig = byte_ranges
+                            .iter()
+                            .find(|(start, end, ..)| byte_pos >= *start && byte_pos < *end);
                         let mut cluster = cluster;
-                        if let Some((range_start, _, orig_style, orig_source, orig_nid, orig_mpo, orig_run_offset, orig_text)) = orig {
+                        if let Some((
+                            range_start,
+                            _,
+                            orig_style,
+                            orig_source,
+                            orig_nid,
+                            orig_mpo,
+                            orig_run_offset,
+                            orig_text,
+                        )) = orig
+                        {
                             // Reassign rendering-affecting style (color, background, etc.)
                             cluster.style = orig_style.clone();
                             cluster.source_content_index = *orig_source;
@@ -8744,7 +9087,8 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                             // (position within the merged text - this run's start in the merge)
                             // + this visual run's offset within its logical run (bidi split).
                             cluster.source_cluster_id.source_run = orig_source.run_index;
-                            cluster.source_cluster_id.start_byte_in_run = (byte_pos - range_start + *orig_run_offset) as u32;
+                            cluster.source_cluster_id.start_byte_in_run =
+                                (byte_pos - range_start + *orig_run_offset) as u32;
                             cluster.style = orig_style.clone();
                             // §3.2 3c: the finalized offset is item-relative, so
                             // stamp the item's shared text Arc it slices into.
@@ -8772,59 +9116,75 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 let language = script_to_language(item.script, &item.text);
 
                 // Shape text using either FontRef directly or fontconfig-resolved font
-                let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> = match &style.font_stack {
-                    FontStack::Ref(font_ref) => {
-                        unsafe { crate::az_mark(0x60820_u32, 0x0000_0001_u32); } // [g121] Ref arm
-                        // For FontRef, use the font directly without fontconfig
-                        if let Some(msgs) = debug_messages {
-                            msgs.push(LayoutDebugMessage::info(format!(
-                                "[TextLayout] Using direct FontRef for text: '{}'",
-                                item.text.chars().take(30).collect::<String>()
-                            )));
-                        }
-                        shape_text_correctly(
-                            &item.text,
-                            item.script,
-                            language,
-                            direction,
-                            font_ref,
-                            style,
-                            *source,
-                            *source_node_id,
-                        )
-                    }
-                    FontStack::Stack(selectors) => {
-                        unsafe { crate::az_mark(0x60820_u32, 0x0000_0002_u32); } // [g121] Stack arm
-                        // Build FontChainKey and resolve through fontconfig
-                        let cache_key = FontChainKey::from_selectors(selectors);
-                        unsafe { crate::az_mark(0x60824_u32, font_chain_cache.len() as u32); } // [g121] chain map len
-
-                        // Look up the pre-resolved font chain. (2026-06-10: the g122
-                        // by_find/by_only fallback chain is GONE — the historic miss was a
-                        // KEY-CONSTRUCTION divergence (duplicated families on the query side,
-                        // deduped on the store side), fixed by routing every key build through
-                        // FontChainKey::from_selectors. Verified lifted: lookup path = get.)
-                        let resolved_on_miss;
-                        let font_chain = if let Some(c) = font_chain_cache.get(&cache_key) { c } else {
+                let shaped_clusters_result: Result<Vec<ShapedCluster>, LayoutError> =
+                    match &style.font_stack {
+                        FontStack::Ref(font_ref) => {
+                            unsafe {
+                                crate::az_mark(0x60820_u32, 0x0000_0001_u32);
+                            } // [g121] Ref arm
+                              // For FontRef, use the font directly without fontconfig
                             if let Some(msgs) = debug_messages {
                                 msgs.push(LayoutDebugMessage::info(format!(
-                                    "[TextLayout] Font chain not pre-resolved for {:?} - \
-                                     resolving on demand",
-                                    cache_key.font_families
+                                    "[TextLayout] Using direct FontRef for text: '{}'",
+                                    item.text.chars().take(30).collect::<String>()
                                 )));
                             }
-                            resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
-                            &resolved_on_miss
-                        };
+                            shape_text_correctly(
+                                &item.text,
+                                item.script,
+                                language,
+                                direction,
+                                font_ref,
+                                style,
+                                *source,
+                                *source_node_id,
+                            )
+                        }
+                        FontStack::Stack(selectors) => {
+                            unsafe {
+                                crate::az_mark(0x60820_u32, 0x0000_0002_u32);
+                            } // [g121] Stack arm
+                              // Build FontChainKey and resolve through fontconfig
+                            let cache_key = FontChainKey::from_selectors(selectors);
+                            unsafe {
+                                crate::az_mark(0x60824_u32, font_chain_cache.len() as u32);
+                            } // [g121] chain map len
 
-                        // Per-character font fallback: split text by font coverage
-                        shape_with_font_fallback(
-                            &item.text, item.script, language, direction,
-                            style, *source, *source_node_id,
-                            font_chain, fc_cache, loaded_fonts,
-                        )
-                    }
-                };
+                            // Look up the pre-resolved font chain. (2026-06-10: the g122
+                            // by_find/by_only fallback chain is GONE — the historic miss was a
+                            // KEY-CONSTRUCTION divergence (duplicated families on the query side,
+                            // deduped on the store side), fixed by routing every key build through
+                            // FontChainKey::from_selectors. Verified lifted: lookup path = get.)
+                            let resolved_on_miss;
+                            let font_chain = if let Some(c) = font_chain_cache.get(&cache_key) {
+                                c
+                            } else {
+                                if let Some(msgs) = debug_messages {
+                                    msgs.push(LayoutDebugMessage::info(format!(
+                                        "[TextLayout] Font chain not pre-resolved for {:?} - \
+                                     resolving on demand",
+                                        cache_key.font_families
+                                    )));
+                                }
+                                resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
+                                &resolved_on_miss
+                            };
+
+                            // Per-character font fallback: split text by font coverage
+                            shape_with_font_fallback(
+                                &item.text,
+                                item.script,
+                                language,
+                                direction,
+                                style,
+                                *source,
+                                *source_node_id,
+                                font_chain,
+                                fc_cache,
+                                loaded_fonts,
+                            )
+                        }
+                    };
 
                 let mut shaped_clusters = shaped_clusters_result?;
 
@@ -8844,7 +9204,10 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 
                 // §3.2 3c: offsets are item-relative from here on — stamp
                 // the logical item's shared text Arc that `text()` slices.
-                if let LogicalItem::Text { text: item_text, .. } = &item.logical_source {
+                if let LogicalItem::Text {
+                    text: item_text, ..
+                } = &item.logical_source
+                {
                     for cluster in &mut shaped_clusters {
                         cluster.source_text = item_text.clone();
                     }
@@ -8888,16 +9251,18 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                     // Tab stop interval: tab_size * (space advance + letter-spacing + word-spacing)
                     let tab_interval = style.tab_size * (space_advance_approx + ls + ws);
                     // Calculate current advance to find next tab stop
-                    let current_advance: f32 = shaped.iter().map(|item| {
-                        match item {
+                    let current_advance: f32 = shaped
+                        .iter()
+                        .map(|item| match item {
                             ShapedItem::Cluster(c) => c.advance,
                             ShapedItem::Tab { bounds, .. } => bounds.width,
                             ShapedItem::Object { bounds, .. } => bounds.width,
                             _ => 0.0,
-                        }
-                    }).sum();
+                        })
+                        .sum();
                     // Next tab stop = next multiple of tab_interval from content edge
-                    let next_tab_stop = ((current_advance / tab_interval).floor() + 1.0) * tab_interval;
+                    let next_tab_stop =
+                        ((current_advance / tab_interval).floor() + 1.0) * tab_interval;
                     let mut tab_width = next_tab_stop - current_advance;
                     // "If this distance is less than 0.5ch, then the subsequent tab stop is used instead."
                     let half_ch = space_advance_approx * 0.5;
@@ -8939,21 +9304,31 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 // Fallback estimate (only when shaping fails / no font chain): 1em per char
                 // is a closer CJK approximation than the old 0.6 ratio.
                 let base_width = measure_run_advance(
-                    base_text, style, item.script, *source, font_chain_cache, fc_cache,
+                    base_text,
+                    style,
+                    item.script,
+                    *source,
+                    font_chain_cache,
+                    fc_cache,
                     loaded_fonts,
                 )
                 .unwrap_or_else(|| base_text.chars().count() as f32 * base_font_size);
                 let annotation_width = measure_run_advance(
-                    ruby_text, &annotation_style, item.script, *source, font_chain_cache,
-                    fc_cache, loaded_fonts,
+                    ruby_text,
+                    &annotation_style,
+                    item.script,
+                    *source,
+                    font_chain_cache,
+                    fc_cache,
+                    loaded_fonts,
                 )
                 .unwrap_or_else(|| ruby_text.chars().count() as f32 * annotation_font_size);
 
-                let base_line_height =
-                    style.line_height.resolve(base_font_size, 0.0, 0.0, 0.0, 0);
-                let annotation_line_height = annotation_style.line_height.resolve(
-                    annotation_font_size, 0.0, 0.0, 0.0, 0,
-                );
+                let base_line_height = style.line_height.resolve(base_font_size, 0.0, 0.0, 0.0, 0);
+                let annotation_line_height =
+                    annotation_style
+                        .line_height
+                        .resolve(annotation_font_size, 0.0, 0.0, 0.0, 0);
                 // The ruby box reserves the wider inline-size, and stacks the annotation
                 // line (at its smaller font-size) above the base line.
                 let (reserved_width, reserved_height) = ruby_reserved_box(
@@ -8998,15 +9373,18 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                 // full-width characters (U+FF01..U+FF5E) are converted to their
                 // ASCII equivalents (U+0021..U+007E) before compression.
                 let text = if text.chars().count() > 1 {
-                    let converted: String = text.chars().map(|c| {
-                        let cp = c as u32;
-                        if (0xFF01..=0xFF5E).contains(&cp) {
-                            // Reverse of text-transform: full-width
-                            char::from_u32(cp - 0xFF01 + 0x0021).unwrap_or(c)
-                        } else {
-                            c
-                        }
-                    }).collect();
+                    let converted: String = text
+                        .chars()
+                        .map(|c| {
+                            let cp = c as u32;
+                            if (0xFF01..=0xFF5E).contains(&cp) {
+                                // Reverse of text-transform: full-width
+                                char::from_u32(cp - 0xFF01 + 0x0021).unwrap_or(c)
+                            } else {
+                                c
+                            }
+                        })
+                        .collect();
                     converted
                 } else {
                     text.clone()
@@ -9038,16 +9416,21 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
                         let cache_key = FontChainKey::from_selectors(selectors);
 
                         let resolved_on_miss;
-                        let font_chain = if let Some(c) = font_chain_cache.get(&cache_key) { c } else {
+                        let font_chain = if let Some(c) = font_chain_cache.get(&cache_key) {
+                            c
+                        } else {
                             resolved_on_miss = resolve_chain_on_miss(&cache_key, fc_cache);
                             &resolved_on_miss
                         };
 
                         // Per-character font fallback for CombinedText
-                        let segments = split_text_by_font_coverage(&text, font_chain, fc_cache, loaded_fonts);
+                        let segments =
+                            split_text_by_font_coverage(&text, font_chain, fc_cache, loaded_fonts);
                         let mut all_glyphs = Vec::new();
                         for (seg_start, seg_end, font_id) in &segments {
-                            let Some(font) = loaded_fonts.get(font_id) else { continue; };
+                            let Some(font) = loaded_fonts.get(font_id) else {
+                                continue;
+                            };
                             let segment_text = &text[*seg_start..*seg_end];
                             let mut seg_glyphs = font.shape_text(
                                 segment_text,
@@ -9140,7 +9523,8 @@ pub fn shape_visual_items<T: ParsedFontTrait>(
 /// Returns true if `c` is a hanging punctuation stop or comma per CSS Text 3 §8.2.1.
 // +spec:hanging-punctuation - full stop/comma character list per CSS Text 3 §8.2.1
 const fn is_hanging_punctuation_char(c: char) -> bool {
-    matches!(c,
+    matches!(
+        c,
         ','      | // U+002C COMMA
         '.'      | // U+002E FULL STOP
         '\u{060C}' | // ARABIC COMMA
@@ -9153,7 +9537,7 @@ const fn is_hanging_punctuation_char(c: char) -> bool {
         '\u{FE51}' | // SMALL IDEOGRAPHIC COMMA
         '\u{FE52}' | // SMALL FULL STOP
         '\u{FF61}' | // HALFWIDTH IDEOGRAPHIC FULL STOP
-        '\u{FF64}'   // HALFWIDTH IDEOGRAPHIC COMMA
+        '\u{FF64}' // HALFWIDTH IDEOGRAPHIC COMMA
     )
 }
 
@@ -9164,7 +9548,10 @@ const fn is_hanging_punctuation_char(c: char) -> bool {
 fn is_hanging_punctuation(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         if c.glyphs.len() == 1 {
-            c.text().chars().next().is_some_and(is_hanging_punctuation_char)
+            c.text()
+                .chars()
+                .next()
+                .is_some_and(is_hanging_punctuation_char)
         } else {
             false
         }
@@ -9185,9 +9572,13 @@ fn shape_text_correctly<T: ParsedFontTrait>(
     source_index: ContentIndex,
     source_node_id: Option<NodeId>,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
-    unsafe { crate::az_mark(0x60864_u32, 0xC0DE_0864_u32); } // [g123] shape_text_correctly ENTERED
+    unsafe {
+        crate::az_mark(0x60864_u32, 0xC0DE_0864_u32);
+    } // [g123] shape_text_correctly ENTERED
     let glyphs = font.shape_text(text, script, language, direction, style.as_ref())?;
-    unsafe { crate::az_mark(0x60868_u32, (glyphs.len() as u32) | 0x8000_0000_u32); } // [g123] font.shape_text returned (high bit set); low bits = glyph count
+    unsafe {
+        crate::az_mark(0x60868_u32, (glyphs.len() as u32) | 0x8000_0000_u32);
+    } // [g123] font.shape_text returned (high bit set); low bits = glyph count
 
     if glyphs.is_empty() {
         return Ok(Vec::new());
@@ -9404,7 +9795,10 @@ fn apply_text_orientation(
                         total_vertical_advance += glyph.vertical_advance;
                     } else {
                         // Fallback: use line height for vertical advance
-                        let fallback_advance = cluster.style.line_height.resolve_with_metrics(cluster.style.font_size_px, &glyph.font_metrics);
+                        let fallback_advance = cluster
+                            .style
+                            .line_height
+                            .resolve_with_metrics(cluster.style.font_size_px, &glyph.font_metrics);
                         glyph.vertical_advance = fallback_advance;
                         // Center the glyph horizontally as a fallback
                         glyph.vertical_offset = Point {
@@ -9470,43 +9864,57 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
 
 /// Approximate version of `get_item_vertical_metrics` for use without constraints (e.g. `bounds()`).
 /// Uses 80/20 ascent/descent ratio as fallback for empty-glyph strut case.
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
-#[must_use] pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[must_use]
+pub fn get_item_vertical_metrics_approx(item: &ShapedItem) -> (f32, f32) {
     // For non-empty clusters, delegate to the font-metrics-based calculation
     if let ShapedItem::Cluster(c) = item {
         if !c.glyphs.is_empty() {
             // Reuse the glyph-based calculation (same as get_item_vertical_metrics)
-            let (asc, desc) = c.glyphs
-                .iter()
-                .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
-                    let metrics = &glyph.font_metrics;
-                    if metrics.units_per_em == 0 {
-                        return (max_asc, max_desc);
-                    }
-                    let scale = c.style.font_size_px / f32::from(metrics.units_per_em);
-                    let font_ascent = metrics.ascent * scale;
-                    let font_descent = (-metrics.descent * scale).max(0.0);
-                    let ad = font_ascent + font_descent;
-                    let resolved_lh = c.style.line_height.resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
-                    let half_leading = (resolved_lh - ad) / 2.0;
-                    (max_asc.max(font_ascent + half_leading), max_desc.max(font_descent + half_leading))
-                });
+            let (asc, desc) =
+                c.glyphs
+                    .iter()
+                    .fold((0.0f32, 0.0f32), |(max_asc, max_desc), glyph| {
+                        let metrics = &glyph.font_metrics;
+                        if metrics.units_per_em == 0 {
+                            return (max_asc, max_desc);
+                        }
+                        let scale = c.style.font_size_px / f32::from(metrics.units_per_em);
+                        let font_ascent = metrics.ascent * scale;
+                        let font_descent = (-metrics.descent * scale).max(0.0);
+                        let ad = font_ascent + font_descent;
+                        let resolved_lh = c
+                            .style
+                            .line_height
+                            .resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
+                        let half_leading = (resolved_lh - ad) / 2.0;
+                        (
+                            max_asc.max(font_ascent + half_leading),
+                            max_desc.max(font_descent + half_leading),
+                        )
+                    });
             return (asc, desc);
         }
     }
     // Fallback for empty glyphs or non-cluster items
     match item {
         ShapedItem::Cluster(c) => {
-            let lh = c.style.line_height.resolve(c.style.font_size_px, 0.0, 0.0, 0.0, 0);
+            let lh = c
+                .style
+                .line_height
+                .resolve(c.style.font_size_px, 0.0, 0.0, 0.0, 0);
             (lh * FALLBACK_ASCENT_RATIO, lh * FALLBACK_DESCENT_RATIO)
         }
-        ShapedItem::CombinedBlock { bounds, .. } => {
-            (bounds.height * FALLBACK_ASCENT_RATIO, bounds.height * FALLBACK_DESCENT_RATIO)
-        }
+        ShapedItem::CombinedBlock { bounds, .. } => (
+            bounds.height * FALLBACK_ASCENT_RATIO,
+            bounds.height * FALLBACK_DESCENT_RATIO,
+        ),
         ShapedItem::Object { bounds, .. } => (bounds.height, 0.0),
-        ShapedItem::Tab { bounds, .. } => {
-            (bounds.height * FALLBACK_ASCENT_RATIO, bounds.height * FALLBACK_DESCENT_RATIO)
-        }
+        ShapedItem::Tab { bounds, .. } => (
+            bounds.height * FALLBACK_ASCENT_RATIO,
+            bounds.height * FALLBACK_DESCENT_RATIO,
+        ),
         ShapedItem::Break { .. } => (0.0, 0.0),
     }
 }
@@ -9524,7 +9932,11 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
 // +spec:font-metrics:773029 - ascent/descent font metrics used for baseline calculations (visual centering depends on these)
 // +spec:font-metrics:f42870 - half-leading model: leading = line-height - (ascent + descent), distributed equally above/below
 // +spec:writing-modes:531c2e - UAs should use vertical baseline tables in vertical typographic modes
-#[must_use] pub fn get_item_vertical_metrics(item: &ShapedItem, constraints: &UnifiedConstraints) -> (f32, f32) {
+#[must_use]
+pub fn get_item_vertical_metrics(
+    item: &ShapedItem,
+    constraints: &UnifiedConstraints,
+) -> (f32, f32) {
     // (ascent, descent)
     match item {
         ShapedItem::Cluster(c) => {
@@ -9535,9 +9947,15 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
                 // contain a strut with A and D of the element's first available font.
                 // Half-leading: L = line-height - (A + D), A' = A + L/2, D' = D + L/2
                 let ad = constraints.strut_ascent + constraints.strut_descent;
-                let resolved_lh = c.style.line_height.resolve(c.style.font_size_px, 0.0, 0.0, 0.0, 0);
+                let resolved_lh =
+                    c.style
+                        .line_height
+                        .resolve(c.style.font_size_px, 0.0, 0.0, 0.0, 0);
                 let half_leading = (resolved_lh - ad) / 2.0;
-                return (constraints.strut_ascent + half_leading, constraints.strut_descent + half_leading);
+                return (
+                    constraints.strut_ascent + half_leading,
+                    constraints.strut_descent + half_leading,
+                );
             }
             // +spec:box-model:0b3e1f - inline non-replaced box height uses only line-height, not vertical padding/border/margin
             // +spec:display-property:80b900 - fallback glyphs affect line box size via per-glyph metrics
@@ -9564,7 +9982,10 @@ fn get_item_vertical_align(item: &ShapedItem) -> Option<VerticalAlign> {
                     // distance.
                     let d = (-metrics.descent * scale).max(0.0);
                     let ad = a + d;
-                    let resolved_lh = c.style.line_height.resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
+                    let resolved_lh = c
+                        .style
+                        .line_height
+                        .resolve_with_metrics(c.style.font_size_px, &glyph.font_metrics);
                     let leading = resolved_lh - ad;
                     let half_leading = leading / 2.0;
                     let item_asc = a + half_leading;
@@ -9618,30 +10039,30 @@ fn calculate_line_metrics(
     // +spec:font-metrics:95152b - baseline alignment: items with different font sizes aligned by matching alphabetic baselines
     // Pass 1: Compute ascent/descent from baseline-aligned items only
     // (i.e., items that are NOT vertical-align: top or bottom).
-    let (mut max_asc, mut max_desc) = items
-        .iter()
-        .fold((0.0f32, 0.0f32), |(max_asc, max_desc), item| {
-            let effective_align = get_item_vertical_align(item)
-                .unwrap_or(default_vertical_align);
-            match effective_align {
-                VerticalAlign::Top | VerticalAlign::Bottom => {
-                    // Skip top/bottom items in first pass
-                    (max_asc, max_desc)
+    let (mut max_asc, mut max_desc) =
+        items
+            .iter()
+            .fold((0.0f32, 0.0f32), |(max_asc, max_desc), item| {
+                let effective_align =
+                    get_item_vertical_align(item).unwrap_or(default_vertical_align);
+                match effective_align {
+                    VerticalAlign::Top | VerticalAlign::Bottom => {
+                        // Skip top/bottom items in first pass
+                        (max_asc, max_desc)
+                    }
+                    _ => {
+                        let (item_asc, item_desc) = get_item_vertical_metrics(item, constraints);
+                        (max_asc.max(item_asc), max_desc.max(item_desc))
+                    }
                 }
-                _ => {
-                    let (item_asc, item_desc) = get_item_vertical_metrics(item, constraints);
-                    (max_asc.max(item_asc), max_desc.max(item_desc))
-                }
-            }
-        });
+            });
 
     let baseline_line_height = max_asc + max_desc;
 
     // Pass 2: Check top/bottom aligned items. If any of them is taller
     // than the current line box, expand the line box to fit.
     for item in items {
-        let effective_align = get_item_vertical_align(item)
-            .unwrap_or(default_vertical_align);
+        let effective_align = get_item_vertical_align(item).unwrap_or(default_vertical_align);
         match effective_align {
             VerticalAlign::Top | VerticalAlign::Bottom => {
                 let (item_asc, item_desc) = get_item_vertical_metrics(item, constraints);
@@ -9819,9 +10240,15 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     // Instead, we use a large width but track the is_min_content flag to force word-level
     // line breaks in the line breaker. The actual min-content width is the width of the
     // widest resulting line (typically the widest word).
-    let is_min_content = matches!(fragment_constraints.available_width, AvailableSpace::MinContent);
-    let is_max_content = matches!(fragment_constraints.available_width, AvailableSpace::MaxContent);
-    
+    let is_min_content = matches!(
+        fragment_constraints.available_width,
+        AvailableSpace::MinContent
+    );
+    let is_max_content = matches!(
+        fragment_constraints.available_width,
+        AvailableSpace::MaxContent
+    );
+
     let column_width = match fragment_constraints.available_width {
         AvailableSpace::Definite(width) => (width - total_column_gap) / num_columns as f32,
         AvailableSpace::MinContent | AvailableSpace::MaxContent => {
@@ -9845,7 +10272,8 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
     let base_direction = if fragment_constraints.unicode_bidi == UnicodeBidi::Plaintext {
         // Auto-detect from remaining shaped items' text content
         let remaining = &cursor.items[cursor.next_item_index..];
-        let text: String = remaining.iter()
+        let text: String = remaining
+            .iter()
             .filter_map(|i| i.as_cluster())
             .map(ShapedCluster::text)
             .collect();
@@ -9853,7 +10281,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             unicode_bidi::Direction::Ltr => BidiDirection::Ltr,
             unicode_bidi::Direction::Rtl => BidiDirection::Rtl,
             // No strong character: fall back to containing block direction
-            unicode_bidi::Direction::Mixed => fragment_constraints.direction.unwrap_or(BidiDirection::Ltr),
+            unicode_bidi::Direction::Mixed => {
+                fragment_constraints.direction.unwrap_or(BidiDirection::Ltr)
+            }
         }
     } else {
         fragment_constraints.direction.unwrap_or(BidiDirection::Ltr)
@@ -9893,7 +10323,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
         let mut probe_guard = 0usize;
         while !probe.is_done() && probe_guard < iter_cap {
             probe_guard += 1;
-            let lc = get_line_constraints(probe_y, probe_line_height, &probe_col_constraints, &mut None);
+            let lc = get_line_constraints(
+                probe_y,
+                probe_line_height,
+                &probe_col_constraints,
+                &mut None,
+            );
             if lc.segments.is_empty() {
                 break;
             }
@@ -9949,7 +10384,12 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             #[cfg(feature = "web_lift")]
             {
                 _az_line_iters += 1;
-                unsafe { crate::az_mark((0x60BC4) as u32, (_az_line_iters as u32 | 0xC0DE0000) as u32); }
+                unsafe {
+                    crate::az_mark(
+                        (0x60BC4) as u32,
+                        (_az_line_iters as u32 | 0xC0DE0000) as u32,
+                    );
+                }
                 if _az_line_iters > 4096 {
                     break;
                 }
@@ -10033,27 +10473,25 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
                     let max_shape_y: f32 = fragment_constraints
                         .shape_boundaries
                         .iter()
-                        .map(|shape| {
-                            match shape {
-                                ShapeBoundary::Circle { center, radius } => center.y + radius,
-                                ShapeBoundary::Ellipse { center, radii } => center.y + radii.height,
-                                ShapeBoundary::Polygon { points } => {
-                                    points.iter().map(|p| p.y).fold(0.0, f32::max)
-                                }
-                                ShapeBoundary::Rectangle(rect) => rect.y + rect.height,
-                                ShapeBoundary::Path { segments } => segments
-                                    .iter()
-                                    .filter_map(|s| match s {
-                                        PathSegment::MoveTo(p) | PathSegment::LineTo(p) => Some(p.y),
-                                        PathSegment::CurveTo { end, .. }
-                                        | PathSegment::QuadTo { end, .. } => Some(end.y),
-                                        PathSegment::Arc { center, radius, .. } => {
-                                            Some(center.y + radius)
-                                        }
-                                        PathSegment::Close => None,
-                                    })
-                                    .fold(0.0, f32::max),
+                        .map(|shape| match shape {
+                            ShapeBoundary::Circle { center, radius } => center.y + radius,
+                            ShapeBoundary::Ellipse { center, radii } => center.y + radii.height,
+                            ShapeBoundary::Polygon { points } => {
+                                points.iter().map(|p| p.y).fold(0.0, f32::max)
                             }
+                            ShapeBoundary::Rectangle(rect) => rect.y + rect.height,
+                            ShapeBoundary::Path { segments } => segments
+                                .iter()
+                                .filter_map(|s| match s {
+                                    PathSegment::MoveTo(p) | PathSegment::LineTo(p) => Some(p.y),
+                                    PathSegment::CurveTo { end, .. }
+                                    | PathSegment::QuadTo { end, .. } => Some(end.y),
+                                    PathSegment::Arc { center, radius, .. } => {
+                                        Some(center.y + radius)
+                                    }
+                                    PathSegment::Close => None,
+                                })
+                                .fold(0.0, f32::max),
                         })
                         .fold(0.0, f32::max);
 
@@ -10084,13 +10522,16 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // +spec:overflow:b932c4 - overflow-wrap/word-wrap (normal/break-word/anywhere) and hyphens interaction
             // `anywhere` introduces soft wrap opportunities (min-content = widest cluster),
             // but `break-word` does NOT (min-content = widest unbreakable word).
-            let effective_overflow_wrap = if is_min_content && fragment_constraints.overflow_wrap == OverflowWrap::Anywhere {
-                OverflowWrap::Anywhere
-            } else if is_min_content && fragment_constraints.overflow_wrap == OverflowWrap::BreakWord {
-                OverflowWrap::Normal
-            } else {
-                fragment_constraints.overflow_wrap
-            };
+            let effective_overflow_wrap =
+                if is_min_content && fragment_constraints.overflow_wrap == OverflowWrap::Anywhere {
+                    OverflowWrap::Anywhere
+                } else if is_min_content
+                    && fragment_constraints.overflow_wrap == OverflowWrap::BreakWord
+                {
+                    OverflowWrap::Normal
+                } else {
+                    fragment_constraints.overflow_wrap
+                };
 
             // CSS Text Module Level 3 § 5 Line Breaking and Word Boundaries
             // https://www.w3.org/TR/css-text-3/#line-breaking
@@ -10098,8 +10539,16 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             // +spec:display-property:ea615c - inline boxes split and distributed across line boxes
             // "When an inline box exceeds the logical width of a line box, it is split
             // into several fragments, which are partitioned across multiple line boxes."
-            let (mut line_items, was_hyphenated) =
-                break_one_line(cursor, &line_constraints, false, hyphenator.as_ref(), fonts, fragment_constraints.line_break, fragment_constraints.white_space_mode, effective_overflow_wrap);
+            let (mut line_items, was_hyphenated) = break_one_line(
+                cursor,
+                &line_constraints,
+                false,
+                hyphenator.as_ref(),
+                fonts,
+                fragment_constraints.line_break,
+                fragment_constraints.white_space_mode,
+                effective_overflow_wrap,
+            );
             if line_items.is_empty() {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(
@@ -10141,7 +10590,9 @@ pub fn perform_fragment_layout<T: ParsedFontTrait>(
             }
 
             // +spec:line-breaking:c59944 - forced line breaks detected for bidi-aware alignment
-            let line_ends_with_forced_break = line_items.iter().any(|item| matches!(item, ShapedItem::Break { .. }));
+            let line_ends_with_forced_break = line_items
+                .iter()
+                .any(|item| matches!(item, ShapedItem::Break { .. }));
 
             // uses text-align-last (last line of block, or line right before forced break)
             let is_last_line = cursor.is_done() && !was_hyphenated;
@@ -10338,7 +10789,10 @@ pub fn break_one_line<T: ParsedFontTrait>(
     // +spec:line-breaking:35817b - white-space: nowrap/pre prevent soft wrap opportunities
     // CSS Text Level 3 § 3: For nowrap and pre, wrapping is suppressed. All content
     // stays on a single line, overflowing if necessary.
-    let no_wrap = matches!(white_space_mode, WhiteSpaceMode::Nowrap | WhiteSpaceMode::Pre);
+    let no_wrap = matches!(
+        white_space_mode,
+        WhiteSpaceMode::Nowrap | WhiteSpaceMode::Pre
+    );
 
     if no_wrap {
         // No soft wrapping — consume everything onto one line.
@@ -10357,132 +10811,135 @@ pub fn break_one_line<T: ParsedFontTrait>(
             cursor.consume(next_unit.len());
         }
     } else {
-
-    loop {
-        // typographic character unit as a soft wrap opportunity; hyphenation is not applied
-        let next_unit = if line_break == LineBreakStrictness::Anywhere {
-            cursor.peek_next_single_item()
-        } else {
-            cursor.peek_next_unit()
-        };
-        if next_unit.is_empty() {
-            break; // End of content
-        }
-
-        if let Some(ShapedItem::Break { .. }) = next_unit.first() {
-            line_items.push(next_unit[0].clone());
-            cursor.consume(1);
-            return (line_items, false);
-        }
-
-        // Min-content: break at EVERY soft-wrap opportunity so each word forms its
-        // own line (min-content = widest unbreakable unit). `total_available` is a
-        // sentinel (f32::MAX/2) during intrinsic sizing and never overflows, so
-        // without this the run would collapse onto one line and min-content would
-        // wrongly equal max-content. Once the line holds content and the next unit
-        // is a break opportunity (a space, CJK ideograph, hyphen, …), finish here;
-        // a leading space is stripped at the next line's start (collapsing modes).
-        if line_constraints.is_min_content
-            && !line_items.is_empty()
-            && next_unit.len() == 1
-            && is_break_opportunity_with_word_break(&next_unit[0], cursor.word_break, cursor.hyphens)
-        {
-            break;
-        }
-
-        // Fold the unit onto the line item-by-item in document order - the
-        // exact fold the intrinsic max-content scan uses - and compare on the
-        // ADDITION side. A per-unit subtotal or a subtract-based test
-        // (`unit <= available - current`) re-associates the f32 sum and can
-        // wrap a line that fits its own measured max-content by 1 ULP; this
-        // form is bit-identical to the measurement, so a box sized to its
-        // measurement never wraps. See fold_line_width.
-        let width_with_unit = next_unit
-            .iter()
-            .fold(current_width, |w, item| fold_line_width(w, item, is_vertical));
-
-        // 2. Can the whole unit fit on the current line?
-        if width_with_unit <= line_constraints.total_available {
-            line_items.extend_from_slice(&next_unit);
-            current_width = width_with_unit;
-            cursor.consume(next_unit.len());
-        } else {
-
-            let available_width = line_constraints.total_available - current_width;
-            // 3. The unit overflows. Can we hyphenate it?
-            if line_break != LineBreakStrictness::Anywhere {
-                if let Some(hyphenator) = hyphenator {
-                    if !is_break_opportunity(next_unit.last().unwrap()) {
-                        if let Some(hyphenation_result) = try_hyphenate_word_cluster(
-                            &next_unit,
-                            available_width,
-                            is_vertical,
-                            hyphenator,
-                            fonts,
-                        ) {
-                            line_items.extend(hyphenation_result.line_part);
-                            cursor.consume(next_unit.len());
-                            cursor.partial_remainder = hyphenation_result.remainder_part;
-                            return (line_items, true);
-                        }
-                    }
-                }
+        loop {
+            // typographic character unit as a soft wrap opportunity; hyphenation is not applied
+            let next_unit = if line_break == LineBreakStrictness::Anywhere {
+                cursor.peek_next_single_item()
+            } else {
+                cursor.peek_next_unit()
+            };
+            if next_unit.is_empty() {
+                break; // End of content
             }
 
-            // an otherwise unbreakable sequence at an arbitrary point when no other
-            // break points exist. Grapheme clusters stay together; no hyphen inserted.
-            // 4. Cannot hyphenate or fit. The line is finished.
-            // If the line is empty, we must force at least one item to avoid an infinite loop.
-            // With overflow-wrap: anywhere or break-word, we break the unbreakable
-            // unit at an arbitrary cluster boundary. With normal, we only force one
-            // item to prevent infinite loops (content will overflow).
-            if line_items.is_empty() {
-                match overflow_wrap {
-                    OverflowWrap::Anywhere | OverflowWrap::BreakWord => {
-                        // Emergency break: fit as many clusters as possible on
-                        // this line.  Grapheme clusters stay together.
-                        //
-                        // Per CSS Text 3 §5.5: "an otherwise unbreakable sequence
-                        // of characters may be broken at an arbitrary point" when
-                        // overflow-wrap is anywhere/break-word.
-                        let avail = line_constraints.total_available;
-                        for item in &next_unit {
-                            // Same fold as the fit test and the intrinsic scan.
-                            let width_with_item = fold_line_width(current_width, item, is_vertical);
-                            // Break BEFORE this item if adding it would overflow,
-                            // but only if we already have at least one item on the
-                            // line (must always make progress).
-                            if !line_items.is_empty() && avail > 0.0 && width_with_item > avail {
-                                break;
+            if let Some(ShapedItem::Break { .. }) = next_unit.first() {
+                line_items.push(next_unit[0].clone());
+                cursor.consume(1);
+                return (line_items, false);
+            }
+
+            // Min-content: break at EVERY soft-wrap opportunity so each word forms its
+            // own line (min-content = widest unbreakable unit). `total_available` is a
+            // sentinel (f32::MAX/2) during intrinsic sizing and never overflows, so
+            // without this the run would collapse onto one line and min-content would
+            // wrongly equal max-content. Once the line holds content and the next unit
+            // is a break opportunity (a space, CJK ideograph, hyphen, …), finish here;
+            // a leading space is stripped at the next line's start (collapsing modes).
+            if line_constraints.is_min_content
+                && !line_items.is_empty()
+                && next_unit.len() == 1
+                && is_break_opportunity_with_word_break(
+                    &next_unit[0],
+                    cursor.word_break,
+                    cursor.hyphens,
+                )
+            {
+                break;
+            }
+
+            // Fold the unit onto the line item-by-item in document order - the
+            // exact fold the intrinsic max-content scan uses - and compare on the
+            // ADDITION side. A per-unit subtotal or a subtract-based test
+            // (`unit <= available - current`) re-associates the f32 sum and can
+            // wrap a line that fits its own measured max-content by 1 ULP; this
+            // form is bit-identical to the measurement, so a box sized to its
+            // measurement never wraps. See fold_line_width.
+            let width_with_unit = next_unit.iter().fold(current_width, |w, item| {
+                fold_line_width(w, item, is_vertical)
+            });
+
+            // 2. Can the whole unit fit on the current line?
+            if width_with_unit <= line_constraints.total_available {
+                line_items.extend_from_slice(&next_unit);
+                current_width = width_with_unit;
+                cursor.consume(next_unit.len());
+            } else {
+                let available_width = line_constraints.total_available - current_width;
+                // 3. The unit overflows. Can we hyphenate it?
+                if line_break != LineBreakStrictness::Anywhere {
+                    if let Some(hyphenator) = hyphenator {
+                        if !is_break_opportunity(next_unit.last().unwrap()) {
+                            if let Some(hyphenation_result) = try_hyphenate_word_cluster(
+                                &next_unit,
+                                available_width,
+                                is_vertical,
+                                hyphenator,
+                                fonts,
+                            ) {
+                                line_items.extend(hyphenation_result.line_part);
+                                cursor.consume(next_unit.len());
+                                cursor.partial_remainder = hyphenation_result.remainder_part;
+                                return (line_items, true);
                             }
-                            line_items.push(item.clone());
-                            current_width = width_with_item;
-                            // When the container is zero-width (avail <= 0), the
-                            // break-before check above is skipped (it requires
-                            // avail > 0), so every item lands on this one line —
-                            // there's nowhere to break TO, content just overflows.
-                            // This matches browser behavior for `width: 0`
-                            // containers.
                         }
-                        let consumed = line_items.len().max(1);
-                        if line_items.is_empty() {
-                            line_items.push(next_unit[0].clone());
-                        }
-                        cursor.consume(consumed);
-                    }
-                    OverflowWrap::Normal => {
-                        // overflow-wrap:normal keeps an unbreakable word intact and
-                        // lets it overflow the line box — it must NOT be shredded one
-                        // grapheme per line. Place the whole unit on this (empty) line.
-                        line_items.extend_from_slice(&next_unit);
-                        cursor.consume(next_unit.len());
                     }
                 }
-            }
-            break;
-        }
-    }
 
+                // an otherwise unbreakable sequence at an arbitrary point when no other
+                // break points exist. Grapheme clusters stay together; no hyphen inserted.
+                // 4. Cannot hyphenate or fit. The line is finished.
+                // If the line is empty, we must force at least one item to avoid an infinite loop.
+                // With overflow-wrap: anywhere or break-word, we break the unbreakable
+                // unit at an arbitrary cluster boundary. With normal, we only force one
+                // item to prevent infinite loops (content will overflow).
+                if line_items.is_empty() {
+                    match overflow_wrap {
+                        OverflowWrap::Anywhere | OverflowWrap::BreakWord => {
+                            // Emergency break: fit as many clusters as possible on
+                            // this line.  Grapheme clusters stay together.
+                            //
+                            // Per CSS Text 3 §5.5: "an otherwise unbreakable sequence
+                            // of characters may be broken at an arbitrary point" when
+                            // overflow-wrap is anywhere/break-word.
+                            let avail = line_constraints.total_available;
+                            for item in &next_unit {
+                                // Same fold as the fit test and the intrinsic scan.
+                                let width_with_item =
+                                    fold_line_width(current_width, item, is_vertical);
+                                // Break BEFORE this item if adding it would overflow,
+                                // but only if we already have at least one item on the
+                                // line (must always make progress).
+                                if !line_items.is_empty() && avail > 0.0 && width_with_item > avail
+                                {
+                                    break;
+                                }
+                                line_items.push(item.clone());
+                                current_width = width_with_item;
+                                // When the container is zero-width (avail <= 0), the
+                                // break-before check above is skipped (it requires
+                                // avail > 0), so every item lands on this one line —
+                                // there's nowhere to break TO, content just overflows.
+                                // This matches browser behavior for `width: 0`
+                                // containers.
+                            }
+                            let consumed = line_items.len().max(1);
+                            if line_items.is_empty() {
+                                line_items.push(next_unit[0].clone());
+                            }
+                            cursor.consume(consumed);
+                        }
+                        OverflowWrap::Normal => {
+                            // overflow-wrap:normal keeps an unbreakable word intact and
+                            // lets it overflow the line box — it must NOT be shredded one
+                            // grapheme per line. Place the whole unit on this (empty) line.
+                            line_items.extend_from_slice(&next_unit);
+                            cursor.consume(next_unit.len());
+                        }
+                    }
+                }
+                break;
+            }
+        }
     } // end !no_wrap
 
     // +spec:white-space-processing:fef250 - Phase II: trailing collapsible spaces and U+1680 removed at line end
@@ -10530,7 +10987,8 @@ pub struct HyphenationBreak {
 /// # Panics
 ///
 /// Panics if a word's cluster or glyph list is unexpectedly empty (an internal invariant).
-#[must_use] pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
+#[must_use]
+pub fn find_all_hyphenation_breaks<T: ParsedFontTrait>(
     word_clusters: &[ShapedCluster],
     hyphenator: &Standard,
     is_vertical: bool, // Pass this in to use correct metrics
@@ -10765,7 +11223,8 @@ fn try_hyphenate_word_cluster<T: ParsedFontTrait>(
 // +spec:text-alignment-spacing:c8a926 - order of operations: shaping → letter/word-spacing → justification → alignment
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
-#[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
+#[allow(clippy::match_same_arms)]
+// enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't merge)
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 pub fn position_one_line<T: ParsedFontTrait>(
     line_items: &[ShapedItem],
@@ -10820,7 +11279,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
     // The line box is calculated once for all items on the line, regardless of segment.
     // Per CSS 2.2 §10.8, top/bottom aligned items are handled in a second pass to
     // minimize line box height; baseline-aligned items determine the initial height.
-    let (content_ascent, content_descent) = calculate_line_metrics(line_items, constraints.vertical_align, constraints);
+    let (content_ascent, content_descent) =
+        calculate_line_metrics(line_items, constraints.vertical_align, constraints);
 
     // +spec:box-model:e99f7d - strut: each line box starts with zero-width inline box with block container's font/line-height
     // +spec:line-height:29c478 - strut: zero-width inline box with block container's font/line-height
@@ -10911,7 +11371,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // CSS Text 3 §6: text-justify controls HOW to justify, but only applies
         // when text-align is justify/justify-all. Without this check, ALL text
         // gets justified because text-justify defaults to auto (→ InterWord).
-        let (extra_word_spacing, extra_char_spacing) = if (constraints.text_align == TextAlign::Justify
+        let (extra_word_spacing, extra_char_spacing) = if (constraints.text_align
+            == TextAlign::Justify
             || constraints.text_align == TextAlign::JustifyAll)
             && constraints.text_justify != JustifyContent::None
             && (!is_last_line || constraints.text_align == TextAlign::JustifyAll)
@@ -10976,7 +11437,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
             }
             // +spec:line-breaking:8aa426 - space before forced break does not hang if it doesn't overflow
             WhiteSpaceMode::PreWrap => {
-                let has_forced_break = justified_segment_items.last()
+                let has_forced_break = justified_segment_items
+                    .last()
                     .is_some_and(|item| matches!(item, ShapedItem::Break { .. }));
                 let ws_width = measure_trailing_whitespace(&justified_segment_items, is_vertical);
                 if has_forced_break {
@@ -11104,31 +11566,45 @@ pub fn position_one_line<T: ParsedFontTrait>(
         // Arc<StyleProperties> pointers between consecutive clusters.
         let inline_offsets: Vec<(f32, f32)> = {
             let items_slice: &[ShapedItem] = &justified_segment_items;
-            items_slice.iter().enumerate().map(|(idx, item)| {
-                if let ShapedItem::Cluster(c) = item {
-                    if let Some(border) = c.style.border.as_ref() {
-                        if border.has_chrome() {
-                            let style_ptr = Arc::as_ptr(&c.style);
-                            let prev_same_span = idx > 0 && items_slice[idx - 1]
-                                .as_cluster()
-                                .is_some_and(|pc| Arc::as_ptr(&pc.style) == style_ptr);
-                            let next_same_span = idx + 1 < items_slice.len() && items_slice[idx + 1]
-                                .as_cluster()
-                                .is_some_and(|nc| Arc::as_ptr(&nc.style) == style_ptr);
-                            let left = if prev_same_span { 0.0 } else { border.left_inset() };
-                            let right = if next_same_span { 0.0 } else { border.right_inset() };
-                            return (left, right);
+            items_slice
+                .iter()
+                .enumerate()
+                .map(|(idx, item)| {
+                    if let ShapedItem::Cluster(c) = item {
+                        if let Some(border) = c.style.border.as_ref() {
+                            if border.has_chrome() {
+                                let style_ptr = Arc::as_ptr(&c.style);
+                                let prev_same_span = idx > 0
+                                    && items_slice[idx - 1]
+                                        .as_cluster()
+                                        .is_some_and(|pc| Arc::as_ptr(&pc.style) == style_ptr);
+                                let next_same_span = idx + 1 < items_slice.len()
+                                    && items_slice[idx + 1]
+                                        .as_cluster()
+                                        .is_some_and(|nc| Arc::as_ptr(&nc.style) == style_ptr);
+                                let left = if prev_same_span {
+                                    0.0
+                                } else {
+                                    border.left_inset()
+                                };
+                                let right = if next_same_span {
+                                    0.0
+                                } else {
+                                    border.right_inset()
+                                };
+                                return (left, right);
+                            }
                         }
                     }
-                }
-                (0.0, 0.0)
-            }).collect()
+                    (0.0, 0.0)
+                })
+                .collect()
         };
         for (inline_offset_idx, item) in justified_segment_items.into_iter().enumerate() {
             let (item_ascent, item_descent) = get_item_vertical_metrics(&item, constraints);
             // Use per-item alignment if available, otherwise fall back to global
-            let effective_align = get_item_vertical_align(&item)
-                .unwrap_or(constraints.vertical_align);
+            let effective_align =
+                get_item_vertical_align(&item).unwrap_or(constraints.vertical_align);
             // +spec:display-property:328cfc - baseline-shift / aligned subtree vertical alignment (sub, super, top, bottom, center)
             // §10.8.1 vertical-align positioning
             // +spec:line-height:0fcfab - vertical-align property values (baseline, top, middle, bottom, sub, super, text-top, text-bottom, percentage, length)
@@ -11140,7 +11616,8 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 // +spec:font-metrics:70000d - align vertical midpoint of box with baseline + half x-height of parent
                 VerticalAlign::Middle => {
                     let half_x_height = constraints.strut_x_height / 2.0;
-                    line_baseline_y + half_x_height - f32::midpoint(item_ascent, item_descent) + item_ascent
+                    line_baseline_y + half_x_height - f32::midpoint(item_ascent, item_descent)
+                        + item_ascent
                 }
                 // bottom: align bottom of aligned subtree with bottom of line box
                 VerticalAlign::Bottom => line_top_y + line_box_height - item_descent,
@@ -11151,10 +11628,14 @@ pub fn position_one_line<T: ParsedFontTrait>(
                 VerticalAlign::Super => line_baseline_y - line_ascent * SUPERSCRIPT_OFFSET_RATIO,
                 // text-top: align top of box with top of parent's content area (§10.6.1)
                 // Parent's content area top = baseline - strut_ascent
-                VerticalAlign::TextTop => (line_baseline_y - constraints.strut_ascent) + item_ascent,
+                VerticalAlign::TextTop => {
+                    (line_baseline_y - constraints.strut_ascent) + item_ascent
+                }
                 // text-bottom: align bottom of box with bottom of parent's content area (§10.6.1)
                 // Parent's content area bottom = baseline + strut_descent
-                VerticalAlign::TextBottom => (line_baseline_y + constraints.strut_descent) - item_descent,
+                VerticalAlign::TextBottom => {
+                    (line_baseline_y + constraints.strut_descent) - item_descent
+                }
                 // <length>/<percentage>: raise (positive) or lower (negative); 0 = baseline
                 VerticalAlign::Offset(offset) => line_baseline_y - offset,
                 // +spec:display-property:8bf37e - dominant-baseline defaults to alphabetic; baseline alignment matches parent
@@ -11215,9 +11696,7 @@ pub fn position_one_line<T: ParsedFontTrait>(
             };
 
             // item_measure is calculated above for marker positioning
-            let item_text = item
-                .as_cluster()
-                .map_or("[OBJ]", |c| c.text());
+            let item_text = item.as_cluster().map_or("[OBJ]", |c| c.text());
             if let Some(msgs) = debug_messages {
                 msgs.push(LayoutDebugMessage::info(format!(
                     "[Pos1Line] Positioning item '{item_text}' at pen_x={main_axis_pen}"
@@ -11244,8 +11723,16 @@ pub fn position_one_line<T: ParsedFontTrait>(
 
             // +spec:text-alignment-spacing:e09bd1 - justification space added on top of letter-spacing/word-spacing
             // +spec:text-alignment-spacing:456643 - cursive scripts don't admit inter-character gaps
-            let is_cursive = if let ShapedItem::Cluster(c) = &item { is_cursive_script_cluster(c) } else { false };
-            if !is_outside_marker && extra_char_spacing > 0.0 && can_justify_after(&item) && !is_cursive {
+            let is_cursive = if let ShapedItem::Cluster(c) = &item {
+                is_cursive_script_cluster(c)
+            } else {
+                false
+            };
+            if !is_outside_marker
+                && extra_char_spacing > 0.0
+                && can_justify_after(&item)
+                && !is_cursive
+            {
                 main_axis_pen += extra_char_spacing;
             }
             // +spec:display-property:3a833c - consecutive atomic inlines treated as single unit for letter-spacing
@@ -11262,8 +11749,9 @@ pub fn position_one_line<T: ParsedFontTrait>(
                     // +spec:text-alignment-spacing:8dbb78 - zero letter-spacing behaves as normal (Px(0) adds no spacing)
                     // +spec:text-alignment-spacing:456643 - skip letter-spacing for cursive scripts
                     if !is_cursive_script_cluster(c) {
-                    let letter_spacing_px = c.style.letter_spacing.resolve_px(c.style.font_size_px);
-                    main_axis_pen += letter_spacing_px;
+                        let letter_spacing_px =
+                            c.style.letter_spacing.resolve_px(c.style.font_size_px);
+                        main_axis_pen += letter_spacing_px;
                     }
                     // +spec:width-calculation:9447d1 - word-spacing only applied to word separators; zero-width chars like U+200B are excluded
                     if is_word_separator(&item) {
@@ -11627,11 +12115,15 @@ fn measure_trailing_whitespace(items: &[ShapedItem], is_vertical: bool) -> f32 {
 ///
 /// This is used for stripping leading/trailing whitespace at line edges —
 /// distinct from `is_word_separator` which is for word-spacing per §7.1.
-#[must_use] pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
+#[must_use]
+pub fn is_collapsible_whitespace(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
-        c.text().chars().all(|ch| matches!(ch,
-            ' ' | '\t' | '\u{1680}' // Ogham space mark (collapsible per spec)
-        ))
+        c.text().chars().all(|ch| {
+            matches!(
+                ch,
+                ' ' | '\t' | '\u{1680}' // Ogham space mark (collapsible per spec)
+            )
+        })
     } else {
         false
     }
@@ -11650,23 +12142,45 @@ pub fn is_cursive_script_cluster(c: &ShapedCluster) -> bool {
 fn is_cursive_script_char(ch: char) -> bool {
     let cp = ch as u32;
     // Arabic (U+0600–U+06FF, U+0750–U+077F, U+08A0–U+08FF, U+FB50–U+FDFF, U+FE70–U+FEFF)
-    if (0x0600..=0x06FF).contains(&cp) { return true; }
-    if (0x0750..=0x077F).contains(&cp) { return true; }
-    if (0x08A0..=0x08FF).contains(&cp) { return true; }
-    if (0xFB50..=0xFDFF).contains(&cp) { return true; }
-    if (0xFE70..=0xFEFF).contains(&cp) { return true; }
+    if (0x0600..=0x06FF).contains(&cp) {
+        return true;
+    }
+    if (0x0750..=0x077F).contains(&cp) {
+        return true;
+    }
+    if (0x08A0..=0x08FF).contains(&cp) {
+        return true;
+    }
+    if (0xFB50..=0xFDFF).contains(&cp) {
+        return true;
+    }
+    if (0xFE70..=0xFEFF).contains(&cp) {
+        return true;
+    }
     // Syriac (U+0700–U+074F)
-    if (0x0700..=0x074F).contains(&cp) { return true; }
+    if (0x0700..=0x074F).contains(&cp) {
+        return true;
+    }
     // Mongolian (U+1800–U+18AF)
-    if (0x1800..=0x18AF).contains(&cp) { return true; }
+    if (0x1800..=0x18AF).contains(&cp) {
+        return true;
+    }
     // N'Ko (U+07C0–U+07FF)
-    if (0x07C0..=0x07FF).contains(&cp) { return true; }
+    if (0x07C0..=0x07FF).contains(&cp) {
+        return true;
+    }
     // Mandaic (U+0840–U+085F)
-    if (0x0840..=0x085F).contains(&cp) { return true; }
+    if (0x0840..=0x085F).contains(&cp) {
+        return true;
+    }
     // Phags Pa (U+A840–U+A87F)
-    if (0xA840..=0xA87F).contains(&cp) { return true; }
+    if (0xA840..=0xA87F).contains(&cp) {
+        return true;
+    }
     // Hanifi Rohingya (U+10D00–U+10D3F)
-    if (0x10D00..=0x10D3F).contains(&cp) { return true; }
+    if (0x10D00..=0x10D3F).contains(&cp) {
+        return true;
+    }
     false
 }
 
@@ -11704,7 +12218,8 @@ pub const fn is_word_separator(item: &ShapedItem) -> bool {
 ///
 /// (UAX#14 class GL/WJ): NBSP, NARROW NO-BREAK SPACE, WORD JOINER, ZWNBSP. These are a
 /// subset of `is_word_separator` — they still contribute Glue, but no break Penalty.
-#[must_use] pub const fn is_no_break_space(item: &ShapedItem) -> bool {
+#[must_use]
+pub const fn is_no_break_space(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         c.flags.has(ClusterFlags::NO_BREAK_SPACE)
     } else {
@@ -11754,7 +12269,8 @@ const fn is_word_separator_char(c: char) -> bool {
 ///
 /// Used in scripts like Thai, Lao, and Khmer that don't use spaces between words.
 // +spec:line-breaking:fd3164 - U+200B as explicit word delimiter for scripts without space-separated words
-#[must_use] pub const fn is_zero_width_space(item: &ShapedItem) -> bool {
+#[must_use]
+pub const fn is_zero_width_space(item: &ShapedItem) -> bool {
     if let ShapedItem::Cluster(c) = item {
         c.flags.has(ClusterFlags::ZERO_WIDTH_SPACE)
     } else {
@@ -11795,7 +12311,8 @@ const fn classify_character(codepoint: u32) -> CharacterClass {
 }
 
 /// Helper to get the primary measure (width or height) of a shaped item.
-#[must_use] pub fn get_item_measure(item: &ShapedItem, is_vertical: bool) -> f32 {
+#[must_use]
+pub fn get_item_measure(item: &ShapedItem, is_vertical: bool) -> f32 {
     match item {
         ShapedItem::Cluster(c) => {
             // Total width = base advance + kerning adjustments
@@ -11885,8 +12402,8 @@ fn get_line_constraints(
         // CSS Text Level 3: For 'white-space: pre/nowrap', text overflows horizontally
         // if it doesn't fit, rather than expanding the container.
         //
-        // For MinContent/MaxContent intrinsic sizing: use a large value to let text 
-        // lay out fully. The line breaker handles min-content by breaking at word 
+        // For MinContent/MaxContent intrinsic sizing: use a large value to let text
+        // lay out fully. The line breaker handles min-content by breaking at word
         // boundaries. The actual content width is measured from the laid-out lines.
         let segment_width = match constraints.available_width {
             AvailableSpace::Definite(w) => w, // Respect definite width from CSS
@@ -11916,8 +12433,7 @@ fn get_line_constraints(
                 "Applying exclusion #{idx}: {exclusion:?}"
             )));
         }
-        let exclusion_spans =
-            get_shape_horizontal_spans(exclusion, line_y, line_height);
+        let exclusion_spans = get_shape_horizontal_spans(exclusion, line_y, line_height);
         if let Some(msgs) = debug_messages {
             msgs.push(LayoutDebugMessage::info(format!(
                 "  Exclusion spans at y={line_y}: {exclusion_spans:?}"
@@ -11989,7 +12505,11 @@ fn get_line_constraints(
 /// segments (~one segment per 4px of arc length, capped) so the scanline intersection can
 /// treat each subpath as a polygon.
 // bounded curve-sampling geometry casts (step count / arc-length parameter / coords)
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 fn flatten_svg_to_path_segments(
     multipolygon: &azul_core::svg::SvgMultiPolygon,
     reference_box: Rect,
@@ -12102,11 +12622,7 @@ fn path_segments_line_intersection(
 /// Helper function to get the horizontal spans of any shape at a given y-coordinate.
 /// Returns a list of (`start_x`, `end_x`) tuples.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-fn get_shape_horizontal_spans(
-    shape: &ShapeBoundary,
-    y: f32,
-    line_height: f32,
-) -> Vec<(f32, f32)> {
+fn get_shape_horizontal_spans(shape: &ShapeBoundary, y: f32, line_height: f32) -> Vec<(f32, f32)> {
     match shape {
         ShapeBoundary::Rectangle(rect) => {
             // Check for any overlap between the line box [y, y + line_height]
@@ -12187,11 +12703,7 @@ fn merge_segments(mut segments: Vec<LineSegment>) -> Vec<LineSegment> {
 
 /// Computes horizontal line segments where a polygon intersects a scanline at the given y range.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-fn polygon_line_intersection(
-    points: &[Point],
-    y: f32,
-    line_height: f32,
-) -> Vec<LineSegment> {
+fn polygon_line_intersection(points: &[Point], y: f32, line_height: f32) -> Vec<LineSegment> {
     if points.len() < 3 {
         return vec![];
     }
@@ -12252,24 +12764,28 @@ fn get_hyphenator(language: HyphenationLanguage) -> Result<Standard, LayoutError
 /// Stub when hyphenation is disabled - always returns an error
 #[cfg(not(feature = "text_layout_hyphenation"))]
 fn get_hyphenator(_language: Language) -> Result<Standard, LayoutError> {
-    Err(LayoutError::HyphenationError("Hyphenation feature not enabled".to_string()))
+    Err(LayoutError::HyphenationError(
+        "Hyphenation feature not enabled".to_string(),
+    ))
 }
 
 // +spec:inline-block:6e7dd9 - Non-tailorable Unicode line breaking controls take precedence over atomic inline rules (CSS-TEXT-3 recent changes, issue 8972)
 
 const fn is_break_suppressing_control(ch: char) -> bool {
-    matches!(ch,
+    matches!(
+        ch,
         '\u{200D}' | // ZERO WIDTH JOINER
         '\u{2060}' | // WORD JOINER
-        '\u{FEFF}'   // ZERO WIDTH NO-BREAK SPACE
+        '\u{FEFF}' // ZERO WIDTH NO-BREAK SPACE
     )
 }
 
 const fn is_break_forcing_control(ch: char) -> bool {
-    matches!(ch,
+    matches!(
+        ch,
         '\u{200B}' | // ZERO WIDTH SPACE (already handled but included for completeness)
         '\u{2028}' | // LINE SEPARATOR
-        '\u{2029}'   // PARAGRAPH SEPARATOR
+        '\u{2029}' // PARAGRAPH SEPARATOR
     )
 }
 
@@ -12318,7 +12834,11 @@ const fn is_cjk_cluster(cluster: &ShapedCluster) -> bool {
 // +spec:line-breaking:a75147 - word-break property: normal (CJK breaks), break-all (every cluster), keep-all (suppress CJK breaks)
 // +spec:line-breaking:65ab41 - word-break: normal/break-all/keep-all break opportunity rules
 // +spec:line-breaking:7eca16 - U+200B ZERO WIDTH SPACE is always a break opportunity, even with keep-all
-pub(crate) fn is_break_opportunity_with_word_break(item: &ShapedItem, word_break: WordBreak, hyphens: Hyphens) -> bool {
+pub(crate) fn is_break_opportunity_with_word_break(
+    item: &ShapedItem,
+    word_break: WordBreak,
+    hyphens: Hyphens,
+) -> bool {
     // No-break spaces (UAX#14 class GL/WJ) are word separators for word-spacing
     // purposes but must NOT offer a soft-wrap opportunity. This is the segmentation
     // path used by BreakCursor::peek_next_unit, so it must suppress them the same way
@@ -12428,7 +12948,7 @@ const fn is_cjk_break_allowed_by_strictness(
             // - Hyphens: ‐ U+2010, – U+2013
             match ch {
                 '\u{301C}' | '\u{30A0}' => false, // CJK hyphen-like
-                '\u{2010}' | '\u{2013}' => false,  // hyphens
+                '\u{2010}' | '\u{2013}' => false, // hyphens
                 c if is_small_kana(c) => false,
                 _ => true,
             }
@@ -12439,7 +12959,8 @@ const fn is_cjk_break_allowed_by_strictness(
 /// Returns true if the character is a Japanese small kana or Katakana-Hiragana prolonged sound mark
 /// (Unicode line break class CJ). These are forbidden break points in strict line breaking.
 const fn is_small_kana(ch: char) -> bool {
-    matches!(ch,
+    matches!(
+        ch,
         '\u{3041}' | // ぁ HIRAGANA LETTER SMALL A
         '\u{3043}' | // ぃ HIRAGANA LETTER SMALL I
         '\u{3045}' | // ぅ HIRAGANA LETTER SMALL U
@@ -12464,7 +12985,7 @@ const fn is_small_kana(ch: char) -> bool {
         '\u{30EE}' | // ヮ KATAKANA LETTER SMALL WA
         '\u{30F5}' | // ヵ KATAKANA LETTER SMALL KA
         '\u{30F6}' | // ヶ KATAKANA LETTER SMALL KE
-        '\u{30FC}'   // ー KATAKANA-HIRAGANA PROLONGED SOUND MARK
+        '\u{30FC}' // ー KATAKANA-HIRAGANA PROLONGED SOUND MARK
     )
 }
 
@@ -12473,7 +12994,10 @@ const fn is_small_kana(ch: char) -> bool {
 fn is_break_opportunity(item: &ShapedItem) -> bool {
     // Per CSS Text 3 §5.1: "there is a soft wrap opportunity before and
     // after each replaced element or other atomic inline"
-    if matches!(item, ShapedItem::Object { .. } | ShapedItem::CombinedBlock { .. }) {
+    if matches!(
+        item,
+        ShapedItem::Object { .. } | ShapedItem::CombinedBlock { .. }
+    ) {
         return true;
     }
     // over atomic inline rules: break-forcing controls (ZWSP, LS, PS) create break opportunities
@@ -12489,7 +13013,10 @@ fn is_break_opportunity(item: &ShapedItem) -> bool {
             return true;
         }
         // WJ (word joiner U+2060), ZWJ (U+200D), and GL (NBSP U+00A0) suppress breaks
-        if c.text().chars().any(|ch| matches!(ch, '\u{2060}' | '\u{200D}' | '\u{00A0}')) {
+        if c.text()
+            .chars()
+            .any(|ch| matches!(ch, '\u{2060}' | '\u{200D}' | '\u{00A0}'))
+        {
             return false;
         }
         // +spec:line-breaking:05e09a - U+002D/U+2010 always create soft wrap opportunities regardless of hyphens property
@@ -12522,7 +13049,8 @@ pub struct BreakCursor<'a> {
 }
 
 impl<'a> BreakCursor<'a> {
-    #[must_use] pub fn new(items: &'a [ShapedItem]) -> Self {
+    #[must_use]
+    pub fn new(items: &'a [ShapedItem]) -> Self {
         Self {
             items,
             next_item_index: 0,
@@ -12533,7 +13061,8 @@ impl<'a> BreakCursor<'a> {
         }
     }
 
-    #[must_use] pub fn with_word_break(items: &'a [ShapedItem], word_break: WordBreak) -> Self {
+    #[must_use]
+    pub fn with_word_break(items: &'a [ShapedItem], word_break: WordBreak) -> Self {
         Self {
             items,
             next_item_index: 0,
@@ -12545,7 +13074,8 @@ impl<'a> BreakCursor<'a> {
     }
 
     /// Checks if the cursor is at the very beginning of the content stream.
-    #[must_use] pub const fn is_at_start(&self) -> bool {
+    #[must_use]
+    pub const fn is_at_start(&self) -> bool {
         self.next_item_index == 0 && self.partial_remainder.is_empty()
     }
 
@@ -12560,7 +13090,8 @@ impl<'a> BreakCursor<'a> {
     }
 
     /// Checks if all content, including any partial remainders, has been processed.
-    #[must_use] pub const fn is_done(&self) -> bool {
+    #[must_use]
+    pub const fn is_done(&self) -> bool {
         self.next_item_index >= self.items.len() && self.partial_remainder.is_empty()
     }
 
@@ -12625,7 +13156,10 @@ impl<'a> BreakCursor<'a> {
             // Also suppress break if this item starts with a break-suppressing control
             // (WJ/ZWJ/ZWNBSP suppress breaks on both sides per Unicode line breaking)
             let starts_with_suppress = if let ShapedItem::Cluster(c) = item {
-                c.text().chars().next().is_some_and(is_break_suppressing_control)
+                c.text()
+                    .chars()
+                    .next()
+                    .is_some_and(is_break_suppressing_control)
             } else {
                 false
             };
@@ -12637,7 +13171,12 @@ impl<'a> BreakCursor<'a> {
             } else {
                 false
             };
-            if i > 0 && !suppress_next_break && !starts_with_suppress && !cjk_strictness_suppressed && is_break_opportunity_with_word_break(item, self.word_break, self.hyphens) {
+            if i > 0
+                && !suppress_next_break
+                && !starts_with_suppress
+                && !cjk_strictness_suppressed
+                && is_break_opportunity_with_word_break(item, self.word_break, self.hyphens)
+            {
                 break;
             }
             suppress_next_break = false;
@@ -12662,7 +13201,8 @@ impl<'a> BreakCursor<'a> {
         unit
     }
 
-    #[must_use] pub fn peek_next_single_item(&self) -> Vec<ShapedItem> {
+    #[must_use]
+    pub fn peek_next_single_item(&self) -> Vec<ShapedItem> {
         if !self.partial_remainder.is_empty() {
             return vec![self.partial_remainder[0].clone()];
         }
@@ -12728,10 +13268,7 @@ fn perform_bidi_analysis<'a>(
                     logical_start_byte: sub_run_start,
                     bidi_level: BidiLevel::new(bidi_level.number()),
                     language: force_lang.unwrap_or_else(|| {
-                        script_to_language(
-                            script,
-                            &full_text[sub_run_start..i],
-                        )
+                        script_to_language(script, &full_text[sub_run_start..i])
                     }),
                     script,
                 });
@@ -12752,10 +13289,7 @@ fn perform_bidi_analysis<'a>(
             bidi_level: BidiLevel::new(bidi_level.number()),
             script,
             language: force_lang.unwrap_or_else(|| {
-                script_to_language(
-                    script,
-                    &full_text[sub_run_start..range.end],
-                )
+                script_to_language(script, &full_text[sub_run_start..range.end])
             }),
         });
     }
@@ -12780,9 +13314,7 @@ mod shape_outside_and_ruby_tests {
     use azul_css::shape::{CssShape, ShapePath};
 
     fn path_shape(d: &str) -> CssShape {
-        CssShape::Path(ShapePath {
-            data: d.into(),
-        })
+        CssShape::Path(ShapePath { data: d.into() })
     }
 
     // --- shape-outside: path() ----------------------------------------------
@@ -12791,7 +13323,12 @@ mod shape_outside_and_ruby_tests {
     fn css_path_shape_builds_path_boundary_not_rect_fallback() {
         // A right triangle (0,0)-(100,0)-(0,100).
         let shape = path_shape("M 0 0 L 100 0 L 0 100 Z");
-        let rbox = Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 };
+        let rbox = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        };
         let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
         match boundary {
             ShapeBoundary::Path { segments } => {
@@ -12805,10 +13342,17 @@ mod shape_outside_and_ruby_tests {
 
     #[test]
     fn empty_or_garbage_path_falls_back_to_rectangle() {
-        let rbox = Rect { x: 0.0, y: 0.0, width: 50.0, height: 50.0 };
+        let rbox = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 50.0,
+            height: 50.0,
+        };
         let boundary = ShapeBoundary::from_css_shape(&path_shape("   "), rbox, &mut None);
-        assert!(matches!(boundary, ShapeBoundary::Rectangle(_)),
-            "unparseable path() should fall back to the reference rectangle");
+        assert!(
+            matches!(boundary, ShapeBoundary::Rectangle(_)),
+            "unparseable path() should fall back to the reference rectangle"
+        );
     }
 
     #[test]
@@ -12818,7 +13362,12 @@ mod shape_outside_and_ruby_tests {
         // must NARROW as y increases — the proof that real path geometry (not a
         // full-width rect) drives the per-line exclusion.
         let shape = path_shape("M 0 0 L 100 0 L 0 100 Z");
-        let rbox = Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 };
+        let rbox = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        };
         let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
 
         let spans_top = get_shape_horizontal_spans(&boundary, 10.0, 1.0);
@@ -12831,10 +13380,18 @@ mod shape_outside_and_ruby_tests {
         let width_bot = spans_bot[0].1 - spans_bot[0].0;
 
         // Geometry check: width ~= 100 - y (line center is y + 0.5).
-        assert!((width_top - 89.5).abs() < 1.5, "top width {width_top} != ~89.5");
-        assert!((width_bot - 19.5).abs() < 1.5, "bottom width {width_bot} != ~19.5");
-        assert!(width_top > width_bot,
-            "path() exclusion band must narrow with y ({width_top} !> {width_bot})");
+        assert!(
+            (width_top - 89.5).abs() < 1.5,
+            "top width {width_top} != ~89.5"
+        );
+        assert!(
+            (width_bot - 19.5).abs() < 1.5,
+            "bottom width {width_bot} != ~19.5"
+        );
+        assert!(
+            width_top > width_bot,
+            "path() exclusion band must narrow with y ({width_top} !> {width_bot})"
+        );
 
         // And it must differ from a plain full-width rectangle (which would be 0..100
         // at every scanline) — i.e. this is not the old rect/empty stub.
@@ -12849,10 +13406,19 @@ mod shape_outside_and_ruby_tests {
             "M 0 0 L 100 0 L 100 100 L 0 100 Z \
              M 30 30 L 30 70 L 70 70 L 70 30 Z",
         );
-        let rbox = Rect { x: 0.0, y: 0.0, width: 100.0, height: 100.0 };
+        let rbox = Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 100.0,
+        };
         let boundary = ShapeBoundary::from_css_shape(&shape, rbox, &mut None);
         let spans = get_shape_horizontal_spans(&boundary, 50.0, 1.0);
-        assert_eq!(spans.len(), 2, "hole should split the band into two spans: {spans:?}");
+        assert_eq!(
+            spans.len(),
+            2,
+            "hole should split the band into two spans: {spans:?}"
+        );
     }
 
     // --- ruby ----------------------------------------------------------------
@@ -12865,8 +13431,10 @@ mod shape_outside_and_ruby_tests {
         let base_font_size = 20.0_f32;
         let annotation_font_size = base_font_size * RUBY_ANNOTATION_FONT_SCALE;
         assert_eq!(annotation_font_size, 10.0);
-        assert!((RUBY_ANNOTATION_FONT_SCALE - 0.6).abs() > f32::EPSILON,
-            "annotation scale must not be the old 0.6 magic ratio");
+        assert!(
+            (RUBY_ANNOTATION_FONT_SCALE - 0.6).abs() > f32::EPSILON,
+            "annotation scale must not be the old 0.6 magic ratio"
+        );
     }
 
     #[test]
@@ -12878,7 +13446,10 @@ mod shape_outside_and_ruby_tests {
         // Block-size stacks the annotation line above the base line => base reserves
         // vertical space for the annotation.
         assert_eq!(h, 36.0, "block-size = base line + annotation line");
-        assert!(h > 24.0, "ruby box must reserve extra vertical space for the annotation");
+        assert!(
+            h > 24.0,
+            "ruby box must reserve extra vertical space for the annotation"
+        );
 
         // Narrower base, wider annotation: reserved inline-size = annotation width.
         let (w2, _) = ruby_reserved_box(20.0, 50.0, 24.0, 12.0);
@@ -12933,10 +13504,8 @@ mod font_cache_swap_tests {
             FontManager::new(FcFontCache::default()).expect("FontManager::new must not fail");
         let child = parent.clone_shared();
 
-        let from_parent =
-            FontRef::new(core::ptr::addr_of!(A).cast::<core::ffi::c_void>(), noop);
-        let from_child =
-            FontRef::new(core::ptr::addr_of!(B).cast::<core::ffi::c_void>(), noop);
+        let from_parent = FontRef::new(core::ptr::addr_of!(A).cast::<core::ffi::c_void>(), noop);
+        let from_child = FontRef::new(core::ptr::addr_of!(B).cast::<core::ffi::c_void>(), noop);
 
         parent.register_embedded_font(&from_parent);
         child.register_embedded_font(&from_child);
@@ -13089,7 +13658,9 @@ mod autotest_generated {
                 // yields exactly `text` (production stamps a shared Arc
                 // whose offsets are real; tests mint ids freely).
                 let mut s = String::new();
-                for _ in 0..id.start_byte_in_run { s.push(' '); }
+                for _ in 0..id.start_byte_in_run {
+                    s.push(' ');
+                }
                 s.push_str(text);
                 Arc::from(s.as_str())
             },
@@ -13327,7 +13898,10 @@ mod autotest_generated {
     #[test]
     fn line_height_normal_scales_ascent_minus_descent_plus_gap() {
         // (800 - (-200) + 0) / 1000 * 16 == 16.0
-        approx(LineHeight::Normal.resolve(16.0, 800.0, -200.0, 0.0, 1000), 16.0);
+        approx(
+            LineHeight::Normal.resolve(16.0, 800.0, -200.0, 0.0, 1000),
+            16.0,
+        );
         // line_gap widens the line box.
         approx(
             LineHeight::Normal.resolve(16.0, 800.0, -200.0, 250.0, 1000),
@@ -13335,14 +13909,20 @@ mod autotest_generated {
         );
         // A descent given with the WRONG (positive) sign shrinks the line box —
         // the formula subtracts it unconditionally.
-        approx(LineHeight::Normal.resolve(16.0, 800.0, 200.0, 0.0, 1000), 9.6);
+        approx(
+            LineHeight::Normal.resolve(16.0, 800.0, 200.0, 0.0, 1000),
+            9.6,
+        );
     }
 
     #[test]
     fn line_height_normal_at_u16_max_upem_does_not_panic() {
         let v = LineHeight::Normal.resolve(16.0, 800.0, -200.0, 0.0, u16::MAX);
         assert!(v.is_finite() && v > 0.0, "got {v}");
-        assert!(v < 1.0, "a 65535-upem font must produce a tiny scale, got {v}");
+        assert!(
+            v < 1.0,
+            "a 65535-upem font must produce a tiny scale, got {v}"
+        );
     }
 
     #[test]
@@ -13419,8 +13999,14 @@ mod autotest_generated {
 
     #[test]
     fn available_space_to_f32_for_layout_uses_half_max_for_both_intrinsic_modes() {
-        assert_eq!(AvailableSpace::MinContent.to_f32_for_layout(), f32::MAX / 2.0);
-        assert_eq!(AvailableSpace::MaxContent.to_f32_for_layout(), f32::MAX / 2.0);
+        assert_eq!(
+            AvailableSpace::MinContent.to_f32_for_layout(),
+            f32::MAX / 2.0
+        );
+        assert_eq!(
+            AvailableSpace::MaxContent.to_f32_for_layout(),
+            f32::MAX / 2.0
+        );
         assert_eq!(AvailableSpace::Definite(12.5).to_f32_for_layout(), 12.5);
         assert!(AvailableSpace::Definite(f32::NAN)
             .to_f32_for_layout()
@@ -13429,8 +14015,14 @@ mod autotest_generated {
 
     #[test]
     fn available_space_from_f32_sentinels() {
-        assert_eq!(AvailableSpace::from_f32(f32::INFINITY), AvailableSpace::MaxContent);
-        assert_eq!(AvailableSpace::from_f32(f32::MAX), AvailableSpace::MaxContent);
+        assert_eq!(
+            AvailableSpace::from_f32(f32::INFINITY),
+            AvailableSpace::MaxContent
+        );
+        assert_eq!(
+            AvailableSpace::from_f32(f32::MAX),
+            AvailableSpace::MaxContent
+        );
         // The documented cut-over point is exactly MAX/2 (inclusive).
         assert_eq!(
             AvailableSpace::from_f32(f32::MAX / 2.0),
@@ -13439,7 +14031,10 @@ mod autotest_generated {
         assert_eq!(AvailableSpace::from_f32(0.0), AvailableSpace::MinContent);
         assert_eq!(AvailableSpace::from_f32(-0.0), AvailableSpace::MinContent);
         assert_eq!(AvailableSpace::from_f32(-1.0), AvailableSpace::MinContent);
-        assert_eq!(AvailableSpace::from_f32(100.0), AvailableSpace::Definite(100.0));
+        assert_eq!(
+            AvailableSpace::from_f32(100.0),
+            AvailableSpace::Definite(100.0)
+        );
     }
 
     #[test]
@@ -13589,7 +14184,10 @@ mod autotest_generated {
         assert!(!fs.is_ref());
         assert!(fs.as_ref().is_none());
         assert_eq!(fs.as_stack().map(<[FontSelector]>::len), Some(1));
-        assert_eq!(fs.first_selector().map(|s| s.family.as_str()), Some("serif"));
+        assert_eq!(
+            fs.first_selector().map(|s| s.family.as_str()),
+            Some("serif")
+        );
         assert_eq!(fs.first_family(), "serif");
     }
 
@@ -13956,7 +14554,10 @@ mod autotest_generated {
         match c.inflate(-50.0) {
             ShapeBoundary::Circle { center, radius } => {
                 assert_eq!(center, Point { x: 1.0, y: 2.0 });
-                assert_eq!(radius, -45.0, "circle radius is NOT clamped at 0 (unlike Rect)");
+                assert_eq!(
+                    radius, -45.0,
+                    "circle radius is NOT clamped at 0 (unlike Rect)"
+                );
             }
             other => panic!("expected Circle, got {other:?}"),
         }
@@ -13975,7 +14576,11 @@ mod autotest_generated {
         let path = ShapeBoundary::Path {
             segments: vec![PathSegment::MoveTo(Point { x: 0.0, y: 0.0 })],
         };
-        assert_eq!(path.inflate(10.0), path, "path inflation is not implemented");
+        assert_eq!(
+            path.inflate(10.0),
+            path,
+            "path inflation is not implemented"
+        );
     }
 
     // =====================================================================
@@ -14059,7 +14664,11 @@ mod autotest_generated {
         assert_eq!(Spacing::Em(2.0).resolve_px(16.0), 32.0);
         assert_eq!(Spacing::Em(2.0).resolve_px(0.0), 0.0);
         assert_eq!(Spacing::Em(-0.5).resolve_px(16.0), -8.0);
-        assert_eq!(Spacing::PxF(0.4).resolve_px(999.0), 0.4, "PxF ignores font size");
+        assert_eq!(
+            Spacing::PxF(0.4).resolve_px(999.0),
+            0.4,
+            "PxF ignores font size"
+        );
     }
 
     #[test]
@@ -14076,7 +14685,10 @@ mod autotest_generated {
     fn spacing_px_and_pxf_of_the_same_value_are_distinct_cache_keys() {
         assert_ne!(Spacing::Px(1), Spacing::PxF(1.0));
         assert_ne!(hash_of(&Spacing::Px(1)), hash_of(&Spacing::PxF(1.0)));
-        assert_eq!(Spacing::Px(1).resolve_px(16.0), Spacing::PxF(1.0).resolve_px(16.0));
+        assert_eq!(
+            Spacing::Px(1).resolve_px(16.0),
+            Spacing::PxF(1.0).resolve_px(16.0)
+        );
     }
 
     // =====================================================================
@@ -14111,10 +14723,22 @@ mod autotest_generated {
     #[test]
     fn writing_mode_get_direction_only_horizontal_defers_to_content() {
         assert_eq!(WritingMode::HorizontalTb.get_direction(), None);
-        assert_eq!(WritingMode::VerticalRl.get_direction(), Some(BidiDirection::Rtl));
-        assert_eq!(WritingMode::VerticalLr.get_direction(), Some(BidiDirection::Ltr));
-        assert_eq!(WritingMode::SidewaysRl.get_direction(), Some(BidiDirection::Rtl));
-        assert_eq!(WritingMode::SidewaysLr.get_direction(), Some(BidiDirection::Ltr));
+        assert_eq!(
+            WritingMode::VerticalRl.get_direction(),
+            Some(BidiDirection::Rtl)
+        );
+        assert_eq!(
+            WritingMode::VerticalLr.get_direction(),
+            Some(BidiDirection::Ltr)
+        );
+        assert_eq!(
+            WritingMode::SidewaysRl.get_direction(),
+            Some(BidiDirection::Rtl)
+        );
+        assert_eq!(
+            WritingMode::SidewaysLr.get_direction(),
+            Some(BidiDirection::Ltr)
+        );
     }
 
     // =====================================================================
@@ -14265,7 +14889,10 @@ mod autotest_generated {
             ..InlineBorderInfo::default()
         };
         assert!(!b.has_border(), "NaN > 0.0 is false");
-        assert!(b.top_inset().is_nan(), "but the inset still carries the NaN");
+        assert!(
+            b.top_inset().is_nan(),
+            "but the inset still carries the NaN"
+        );
     }
 
     #[test]
@@ -14539,7 +15166,10 @@ mod autotest_generated {
     #[test]
     fn is_word_separator_char_excludes_tabs_and_fixed_width_spaces() {
         assert!(is_word_separator_char(' '));
-        assert!(is_word_separator_char('\u{00A0}'), "NBSP IS a word separator");
+        assert!(
+            is_word_separator_char('\u{00A0}'),
+            "NBSP IS a word separator"
+        );
         assert!(is_word_separator_char('\u{1680}'));
         assert!(is_word_separator_char('\u{202F}'));
         assert!(is_word_separator_char('\u{10100}'));
@@ -14547,7 +15177,10 @@ mod autotest_generated {
         // Per CSS Text §7.1 these are NOT word separators, despite looking like spaces.
         assert!(!is_word_separator_char('\u{2000}'));
         assert!(!is_word_separator_char('\u{200A}'));
-        assert!(!is_word_separator_char('\u{3000}'), "ideographic space excluded");
+        assert!(
+            !is_word_separator_char('\u{3000}'),
+            "ideographic space excluded"
+        );
         // Nor are tab/newline (they are handled by white-space processing instead).
         assert!(!is_word_separator_char('\t'));
         assert!(!is_word_separator_char('\n'));
@@ -14562,7 +15195,10 @@ mod autotest_generated {
         assert!(is_cursive_script_char('\u{06FF}'), "Arabic block end");
         assert!(is_cursive_script_char('\u{0700}'), "Syriac");
         assert!(is_cursive_script_char('\u{1800}'), "Mongolian");
-        assert!(is_cursive_script_char('\u{10D00}'), "Hanifi Rohingya (astral)");
+        assert!(
+            is_cursive_script_char('\u{10D00}'),
+            "Hanifi Rohingya (astral)"
+        );
         assert!(!is_cursive_script_char('a'));
         assert!(!is_cursive_script_char('中'));
         assert!(!is_cursive_script_char('\0'));
@@ -14578,7 +15214,10 @@ mod autotest_generated {
         assert!(is_cjk_character('\u{30FF}'), "katakana block");
         assert!(is_cjk_character('\u{AC00}'), "hangul syllables");
         assert!(is_cjk_character('\u{FF01}'), "fullwidth forms");
-        assert!(!is_cjk_character('\u{4DFF}'), "one below the ideograph block");
+        assert!(
+            !is_cjk_character('\u{4DFF}'),
+            "one below the ideograph block"
+        );
         assert!(!is_cjk_character('a'));
         assert!(!is_cjk_character('\0'));
         assert!(!is_cjk_character(char::MAX));
@@ -14624,8 +15263,14 @@ mod autotest_generated {
 
         // Anywhere / Loose: everything is breakable.
         for ch in ['っ', '\u{301C}', '\u{2010}', '中'] {
-            assert!(is_cjk_break_allowed_by_strictness(ch, None, Anywhere), "{ch:?}");
-            assert!(is_cjk_break_allowed_by_strictness(ch, None, Loose), "{ch:?}");
+            assert!(
+                is_cjk_break_allowed_by_strictness(ch, None, Anywhere),
+                "{ch:?}"
+            );
+            assert!(
+                is_cjk_break_allowed_by_strictness(ch, None, Loose),
+                "{ch:?}"
+            );
         }
 
         // Normal/Auto: hyphens forbidden, small kana allowed.
@@ -14639,8 +15284,12 @@ mod autotest_generated {
         // Strict: small kana and CJK hyphen-likes are forbidden too.
         assert!(!is_cjk_break_allowed_by_strictness('っ', None, Strict));
         assert!(!is_cjk_break_allowed_by_strictness('ー', None, Strict));
-        assert!(!is_cjk_break_allowed_by_strictness('\u{301C}', None, Strict));
-        assert!(!is_cjk_break_allowed_by_strictness('\u{30A0}', None, Strict));
+        assert!(!is_cjk_break_allowed_by_strictness(
+            '\u{301C}', None, Strict
+        ));
+        assert!(!is_cjk_break_allowed_by_strictness(
+            '\u{30A0}', None, Strict
+        ));
         assert!(is_cjk_break_allowed_by_strictness('中', None, Strict));
 
         // prev_ch is currently ignored — pin that so a future use is a deliberate change.
@@ -14714,17 +15363,35 @@ mod autotest_generated {
 
         let combining = plain_glyph('\u{0301}', 0.0);
         assert!(!combining.is_whitespace());
-        assert!(!combining.can_justify(), "combining marks are never justified");
+        assert!(
+            !combining.can_justify(),
+            "combining marks are never justified"
+        );
         assert_eq!(combining.justification_priority(), 255);
     }
 
     #[test]
     fn glyph_break_opportunity_after_covers_every_hyphen_form() {
-        assert!(plain_glyph('\u{00AD}', 0.0).break_opportunity_after(), "soft hyphen");
-        assert!(plain_glyph('\u{002D}', 4.0).break_opportunity_after(), "hyphen-minus");
-        assert!(plain_glyph('\u{2010}', 4.0).break_opportunity_after(), "U+2010");
-        assert!(plain_glyph('\t', 8.0).break_opportunity_after(), "tab is whitespace");
-        assert!(!plain_glyph('\u{2011}', 4.0).break_opportunity_after(), "NON-BREAKING hyphen");
+        assert!(
+            plain_glyph('\u{00AD}', 0.0).break_opportunity_after(),
+            "soft hyphen"
+        );
+        assert!(
+            plain_glyph('\u{002D}', 4.0).break_opportunity_after(),
+            "hyphen-minus"
+        );
+        assert!(
+            plain_glyph('\u{2010}', 4.0).break_opportunity_after(),
+            "U+2010"
+        );
+        assert!(
+            plain_glyph('\t', 8.0).break_opportunity_after(),
+            "tab is whitespace"
+        );
+        assert!(
+            !plain_glyph('\u{2011}', 4.0).break_opportunity_after(),
+            "NON-BREAKING hyphen"
+        );
         assert!(!plain_glyph('/', 4.0).break_opportunity_after());
     }
 
@@ -14819,9 +15486,15 @@ mod autotest_generated {
         assert!(is_collapsible_whitespace(&cl("\t", 8.0)));
         assert!(is_collapsible_whitespace(&cl("\u{1680}", 4.0)));
         assert!(is_collapsible_whitespace(&cl("  \t ", 16.0)));
-        assert!(!is_collapsible_whitespace(&cl("\n", 0.0)), "newline is NOT collapsible here");
+        assert!(
+            !is_collapsible_whitespace(&cl("\n", 0.0)),
+            "newline is NOT collapsible here"
+        );
         assert!(!is_collapsible_whitespace(&cl("a", 8.0)));
-        assert!(!is_collapsible_whitespace(&cl("a ", 12.0)), "all() — mixed is false");
+        assert!(
+            !is_collapsible_whitespace(&cl("a ", 12.0)),
+            "all() — mixed is false"
+        );
         assert!(!is_collapsible_whitespace(&obj(1.0, 1.0, 0.0)));
         // QUIRK: `chars().all(..)` on an empty string is vacuously TRUE, so a
         // zero-text cluster is treated as strippable whitespace at line edges.
@@ -14834,14 +15507,20 @@ mod autotest_generated {
     #[test]
     fn is_word_separator_and_zero_width_space_on_items() {
         assert!(is_word_separator(&cl(" ", 4.0)));
-        assert!(is_word_separator(&cl("a b", 20.0)), "any() — one space suffices");
+        assert!(
+            is_word_separator(&cl("a b", 20.0)),
+            "any() — one space suffices"
+        );
         assert!(!is_word_separator(&cl("", 0.0)), "any() on empty is false");
         assert!(!is_word_separator(&cl("\u{3000}", 16.0)));
         assert!(!is_word_separator(&brk()));
         assert!(!is_word_separator(&obj(1.0, 1.0, 0.0)));
 
         assert!(is_zero_width_space(&cl("\u{200B}", 0.0)));
-        assert!(is_zero_width_space(&cl("a\u{200B}", 8.0)), "contains(), not equals()");
+        assert!(
+            is_zero_width_space(&cl("a\u{200B}", 8.0)),
+            "contains(), not equals()"
+        );
         assert!(!is_zero_width_space(&cl(" ", 4.0)));
         assert!(!is_zero_width_space(&obj(1.0, 1.0, 0.0)));
     }
@@ -14850,7 +15529,10 @@ mod autotest_generated {
     fn can_justify_after_rejects_objects_empty_clusters_and_combining_marks() {
         assert!(can_justify_after(&cl("a", 8.0)));
         assert!(!can_justify_after(&cl(" ", 4.0)));
-        assert!(!can_justify_after(&cl("a\u{0301}", 8.0)), "trailing combining mark");
+        assert!(
+            !can_justify_after(&cl("a\u{0301}", 8.0)),
+            "trailing combining mark"
+        );
         assert!(!can_justify_after(&cl("", 0.0)), "no last char → false");
         assert!(
             !can_justify_after(&obj(10.0, 10.0, 0.0)),
@@ -14907,9 +15589,16 @@ mod autotest_generated {
     fn cluster_is_word_boundary_for_punctuation_and_whitespace() {
         assert!(cluster_is_word_boundary(cl(" ", 4.0).as_cluster().unwrap()));
         assert!(cluster_is_word_boundary(cl(".", 4.0).as_cluster().unwrap()));
-        assert!(cluster_is_word_boundary(cl("", 0.0).as_cluster().unwrap()), "vacuous");
-        assert!(!cluster_is_word_boundary(cl("a", 8.0).as_cluster().unwrap()));
-        assert!(!cluster_is_word_boundary(cl("_", 8.0).as_cluster().unwrap()));
+        assert!(
+            cluster_is_word_boundary(cl("", 0.0).as_cluster().unwrap()),
+            "vacuous"
+        );
+        assert!(!cluster_is_word_boundary(
+            cl("a", 8.0).as_cluster().unwrap()
+        ));
+        assert!(!cluster_is_word_boundary(
+            cl("_", 8.0).as_cluster().unwrap()
+        ));
     }
 
     #[test]
@@ -14942,7 +15631,10 @@ mod autotest_generated {
         approx(d, 19.2 * FALLBACK_DESCENT_RATIO);
 
         // Object → all ascent, no descent.
-        assert_eq!(get_item_vertical_metrics_approx(&obj(10.0, 20.0, 5.0)), (20.0, 0.0));
+        assert_eq!(
+            get_item_vertical_metrics_approx(&obj(10.0, 20.0, 5.0)),
+            (20.0, 0.0)
+        );
         // Break → nothing.
         assert_eq!(get_item_vertical_metrics_approx(&brk()), (0.0, 0.0));
         // Tab → 80/20 of its box height.
@@ -14974,7 +15666,10 @@ mod autotest_generated {
         assert_eq!(get_item_vertical_metrics(&brk(), &c), (0.0, 0.0));
         // Objects clamp negative ascent/descent at 0.
         let (a, d) = get_item_vertical_metrics(&obj(10.0, 10.0, 30.0), &c);
-        assert_eq!(a, 0.0, "baseline_offset > height must clamp the ascent at 0");
+        assert_eq!(
+            a, 0.0,
+            "baseline_offset > height must clamp the ascent at 0"
+        );
         assert_eq!(d, 30.0);
     }
 
@@ -15008,7 +15703,10 @@ mod autotest_generated {
     #[test]
     fn no_break_space_is_a_word_separator_but_never_a_break_opportunity() {
         let nbsp = cl("\u{00A0}", 4.0);
-        assert!(is_word_separator(&nbsp), "NBSP participates in word-spacing");
+        assert!(
+            is_word_separator(&nbsp),
+            "NBSP participates in word-spacing"
+        );
         assert!(
             !is_break_opportunity(&nbsp),
             "...but must NOT offer a soft wrap (10\\u{{00A0}}km must not wrap)"
@@ -15043,20 +15741,36 @@ mod autotest_generated {
     #[test]
     fn word_break_modes_change_cjk_break_opportunities() {
         let cjk = cl("中", 16.0);
-        assert!(is_break_opportunity_with_word_break(&cjk, WordBreak::Normal, Hyphens::Manual));
-        assert!(is_break_opportunity_with_word_break(&cjk, WordBreak::BreakAll, Hyphens::Manual));
+        assert!(is_break_opportunity_with_word_break(
+            &cjk,
+            WordBreak::Normal,
+            Hyphens::Manual
+        ));
+        assert!(is_break_opportunity_with_word_break(
+            &cjk,
+            WordBreak::BreakAll,
+            Hyphens::Manual
+        ));
         assert!(
             !is_break_opportunity_with_word_break(&cjk, WordBreak::KeepAll, Hyphens::Manual),
             "keep-all suppresses inter-ideograph breaks"
         );
 
         let latin = cl("a", 8.0);
-        assert!(!is_break_opportunity_with_word_break(&latin, WordBreak::Normal, Hyphens::Manual));
+        assert!(!is_break_opportunity_with_word_break(
+            &latin,
+            WordBreak::Normal,
+            Hyphens::Manual
+        ));
         assert!(
             is_break_opportunity_with_word_break(&latin, WordBreak::BreakAll, Hyphens::Manual),
             "break-all makes every cluster breakable"
         );
-        assert!(!is_break_opportunity_with_word_break(&latin, WordBreak::KeepAll, Hyphens::Manual));
+        assert!(!is_break_opportunity_with_word_break(
+            &latin,
+            WordBreak::KeepAll,
+            Hyphens::Manual
+        ));
     }
 
     #[test]
@@ -15098,9 +15812,15 @@ mod autotest_generated {
 
     #[test]
     fn atomic_inlines_are_break_opportunities_but_breaks_and_tabs_differ() {
-        assert!(is_break_opportunity(&obj(10.0, 10.0, 0.0)), "CSS Text 3 §5.1");
+        assert!(
+            is_break_opportunity(&obj(10.0, 10.0, 0.0)),
+            "CSS Text 3 §5.1"
+        );
         assert!(is_break_opportunity(&brk()));
-        assert!(!is_break_opportunity(&tab(8.0, 16.0)), "a Tab is not itself a wrap point");
+        assert!(
+            !is_break_opportunity(&tab(8.0, 16.0)),
+            "a Tab is not itself a wrap point"
+        );
         assert!(is_break_opportunity(&cl(" ", 4.0)));
         assert!(!is_break_opportunity(&cl("a", 8.0)));
     }
@@ -15273,10 +15993,7 @@ mod autotest_generated {
         let sq = vec![
             PathSegment::MoveTo(Point { x: 0.0, y: 0.0 }),
             PathSegment::LineTo(Point { x: 100.0, y: 0.0 }),
-            PathSegment::LineTo(Point {
-                x: 100.0,
-                y: 100.0,
-            }),
+            PathSegment::LineTo(Point { x: 100.0, y: 100.0 }),
             PathSegment::LineTo(Point { x: 0.0, y: 100.0 }),
             PathSegment::Close,
         ];
@@ -15296,9 +16013,18 @@ mod autotest_generated {
             width: 30.0,
             height: 40.0,
         });
-        assert_eq!(get_shape_horizontal_spans(&r, 30.0, 10.0), vec![(10.0, 40.0)]);
-        assert!(get_shape_horizontal_spans(&r, 0.0, 10.0).is_empty(), "above");
-        assert!(get_shape_horizontal_spans(&r, 100.0, 10.0).is_empty(), "below");
+        assert_eq!(
+            get_shape_horizontal_spans(&r, 30.0, 10.0),
+            vec![(10.0, 40.0)]
+        );
+        assert!(
+            get_shape_horizontal_spans(&r, 0.0, 10.0).is_empty(),
+            "above"
+        );
+        assert!(
+            get_shape_horizontal_spans(&r, 100.0, 10.0).is_empty(),
+            "below"
+        );
         // Exactly touching the top edge: line [10,20) vs rect [20,60) → no overlap.
         assert!(get_shape_horizontal_spans(&r, 10.0, 10.0).is_empty());
         // A zero-height rect can never overlap.
@@ -15601,7 +16327,11 @@ mod autotest_generated {
             None,
             "no clusters cached => no per-cluster figure, not a division by zero"
         );
-        assert_eq!(full.bytes_per_cluster(), Some(0), "511 / 1_000_000 truncates to 0");
+        assert_eq!(
+            full.bytes_per_cluster(),
+            Some(0),
+            "511 / 1_000_000 truncates to 0"
+        );
     }
 
     #[test]
@@ -15729,7 +16459,10 @@ mod autotest_generated {
         items.push(frag);
         // Non-cluster atom.
         items.push(ShapedItem::Break {
-            source: ContentIndex { run_index: 0, item_index: 0 },
+            source: ContentIndex {
+                run_index: 0,
+                item_index: 0,
+            },
             break_info: InlineBreak {
                 break_type: BreakType::Hard,
                 clear: ClearType::None,
@@ -15777,7 +16510,11 @@ mod autotest_generated {
         }
         let two = vec![a1.clone(), a2.clone()];
         let compact2 = CompactShapedEntry::build(&two);
-        assert_eq!(compact2.atom_count(), 0, "distinct text Arcs must SEGMENT, not atomize");
+        assert_eq!(
+            compact2.atom_count(),
+            0,
+            "distinct text Arcs must SEGMENT, not atomize"
+        );
         assert_eq!(compact2.segment_count(), 2);
         let exp2 = compact2.expand();
         assert_eq!(exp2.len(), 2);
@@ -15934,7 +16671,10 @@ mod autotest_generated {
         let same = ShapedItemsKey::new(1, &[vi(style())]);
         let other = ShapedItemsKey::new(1, &[vi(styled(|s| s.font_size_px = 32.0))]);
         assert_eq!(base, same);
-        assert_ne!(base.style_hash, other.style_hash, "font size must change the key");
+        assert_ne!(
+            base.style_hash, other.style_hash,
+            "font size must change the key"
+        );
     }
 
     // =====================================================================
@@ -16063,7 +16803,10 @@ mod autotest_generated {
     #[test]
     fn unified_layout_cluster_is_grapheme_continuation() {
         assert!(UnifiedLayout::cluster_is_grapheme_continuation("\u{0301}"));
-        assert!(UnifiedLayout::cluster_is_grapheme_continuation("\u{FE0F}"), "VS-16");
+        assert!(
+            UnifiedLayout::cluster_is_grapheme_continuation("\u{FE0F}"),
+            "VS-16"
+        );
         assert!(!UnifiedLayout::cluster_is_grapheme_continuation("a"));
         assert!(!UnifiedLayout::cluster_is_grapheme_continuation("中"));
         assert!(
@@ -16230,7 +16973,11 @@ mod autotest_generated {
         let hit = |x: f32| l.hittest_cursor(LogicalPosition { x, y: 5.0 }).unwrap();
         assert_eq!(hit(1.0).cluster_id, gid(0, 0));
         assert_eq!(hit(1.0).affinity, CursorAffinity::Leading);
-        assert_eq!(hit(9.0).affinity, CursorAffinity::Trailing, "right half of 'a'");
+        assert_eq!(
+            hit(9.0).affinity,
+            CursorAffinity::Trailing,
+            "right half of 'a'"
+        );
         assert_eq!(hit(11.0).cluster_id, gid(0, 1));
         // Far outside the layout still resolves to the nearest cluster, not None.
         assert_eq!(hit(-1000.0).cluster_id, gid(0, 0));
@@ -16264,10 +17011,13 @@ mod autotest_generated {
         let own = ScrollOffset::new(12.0, 0.0);
         // No scrolling ancestors here, so window space == static layout space.
         let at = |window_x: f32| {
-            StaticLayoutPoint::new(LogicalPosition { x: window_x, y: 58.0 })
-                .to_border_box_local(node_origin)
-                .to_content_box_local(inset)
-                .scrolled_by(own)
+            StaticLayoutPoint::new(LogicalPosition {
+                x: window_x,
+                y: 58.0,
+            })
+            .to_border_box_local(node_origin)
+            .to_content_box_local(inset)
+            .scrolled_by(own)
         };
 
         // "a" is painted at 94..104 — its left half, then its right half.
@@ -16425,7 +17175,10 @@ mod autotest_generated {
         let items = vec![cl("a", 8.0)];
         let mut c = BreakCursor::new(&items);
         c.consume(usize::MAX);
-        assert!(c.is_done(), "an over-consume must not wrap around to not-done");
+        assert!(
+            c.is_done(),
+            "an over-consume must not wrap around to not-done"
+        );
         assert!(
             c.drain_remaining().is_empty(),
             "drain_remaining is bounds-guarded"
@@ -16450,7 +17203,10 @@ mod autotest_generated {
         let items = vec![cl("a", 8.0), cl("b", 8.0)];
         let mut c = BreakCursor::new(&items);
         c.partial_remainder = vec![cl("R", 8.0)];
-        assert!(!c.is_at_start(), "a pending remainder means we are mid-stream");
+        assert!(
+            !c.is_at_start(),
+            "a pending remainder means we are mid-stream"
+        );
         assert!(!c.is_done());
 
         assert_eq!(
@@ -16470,7 +17226,10 @@ mod autotest_generated {
         let items: Vec<ShapedItem> = Vec::new();
         let mut c = BreakCursor::new(&items);
         c.partial_remainder = vec![cl("x", 8.0)];
-        assert!(!c.is_done(), "the main list is exhausted but the remainder is not");
+        assert!(
+            !c.is_done(),
+            "the main list is exhausted but the remainder is not"
+        );
         c.consume(1);
         assert!(c.is_done());
     }
@@ -16484,7 +17243,10 @@ mod autotest_generated {
         c.consume(3);
         assert!(c.partial_remainder.is_empty());
         assert_eq!(c.next_item_index, 1);
-        assert_eq!(c.peek_next_single_item()[0].as_cluster().unwrap().text(), "b");
+        assert_eq!(
+            c.peek_next_single_item()[0].as_cluster().unwrap().text(),
+            "b"
+        );
     }
 
     #[test]
@@ -16503,7 +17265,11 @@ mod autotest_generated {
 
         c.consume(word.len());
         let space = c.peek_next_unit();
-        assert_eq!(space.len(), 1, "a leading break opportunity is a unit on its own");
+        assert_eq!(
+            space.len(),
+            1,
+            "a leading break opportunity is a unit on its own"
+        );
         assert_eq!(space[0].as_cluster().unwrap().text(), " ");
 
         c.consume(1);
@@ -16522,7 +17288,11 @@ mod autotest_generated {
         );
 
         let all = BreakCursor::with_word_break(&items, WordBreak::BreakAll);
-        assert_eq!(all.peek_next_unit().len(), 1, "break-all — one cluster per unit");
+        assert_eq!(
+            all.peek_next_unit().len(),
+            1,
+            "break-all — one cluster per unit"
+        );
 
         let keep = BreakCursor::with_word_break(&items, WordBreak::KeepAll);
         assert_eq!(
@@ -16533,7 +17303,11 @@ mod autotest_generated {
 
         let latin = vec![cl("a", 8.0), cl("b", 8.0)];
         let latin_all = BreakCursor::with_word_break(&latin, WordBreak::BreakAll);
-        assert_eq!(latin_all.peek_next_unit().len(), 1, "break-all splits Latin too");
+        assert_eq!(
+            latin_all.peek_next_unit().len(),
+            1,
+            "break-all splits Latin too"
+        );
     }
 
     #[test]
@@ -16568,9 +17342,15 @@ mod autotest_generated {
     fn break_cursor_peek_next_single_item_prefers_the_remainder() {
         let items = vec![cl("a", 8.0)];
         let mut c = BreakCursor::new(&items);
-        assert_eq!(c.peek_next_single_item()[0].as_cluster().unwrap().text(), "a");
+        assert_eq!(
+            c.peek_next_single_item()[0].as_cluster().unwrap().text(),
+            "a"
+        );
         c.partial_remainder = vec![cl("R", 8.0)];
-        assert_eq!(c.peek_next_single_item()[0].as_cluster().unwrap().text(), "R");
+        assert_eq!(
+            c.peek_next_single_item()[0].as_cluster().unwrap().text(),
+            "R"
+        );
         assert_eq!(
             c.peek_next_single_item().len(),
             1,
@@ -16665,8 +17445,9 @@ mod autotest_generated {
 
     #[test]
     fn loaded_fonts_from_iterator_matches_repeated_inserts() {
-        let lf: LoadedFonts<TestFont> =
-            vec![(FontId(1), tf(10)), (FontId(2), tf(20))].into_iter().collect();
+        let lf: LoadedFonts<TestFont> = vec![(FontId(1), tf(10)), (FontId(2), tf(20))]
+            .into_iter()
+            .collect();
         assert_eq!(lf.len(), 2);
         assert!(lf.contains_hash(10) && lf.contains_hash(20));
         assert_eq!(lf.iter().count(), 2);
@@ -16707,7 +17488,10 @@ mod autotest_generated {
         let a = FontManager::from_arc_shared(FcFontCache::default(), pool.clone()).unwrap();
         let b = FontManager::from_arc_shared(FcFontCache::default(), pool).unwrap();
 
-        assert!(a.insert_font(FontId(1), tf(5)).is_none(), "no previous font");
+        assert!(
+            a.insert_font(FontId(1), tf(5)).is_none(),
+            "no previous font"
+        );
         assert_eq!(
             b.get_loaded_fonts().len(),
             1,
@@ -16716,14 +17500,19 @@ mod autotest_generated {
         assert_eq!(b.get_font_by_hash(5).map(|f| f.get_hash()), Some(5));
 
         // shared_parsed_fonts hands back the same Arc.
-        assert!(Arc::ptr_eq(&a.shared_parsed_fonts(), &b.shared_parsed_fonts()));
+        assert!(Arc::ptr_eq(
+            &a.shared_parsed_fonts(),
+            &b.shared_parsed_fonts()
+        ));
     }
 
     #[test]
     fn font_manager_insert_font_returns_the_replaced_font() {
         let m = manager();
         assert!(m.insert_font(FontId(1), tf(1)).is_none());
-        let old = m.insert_font(FontId(1), tf(2)).expect("must return the old font");
+        let old = m
+            .insert_font(FontId(1), tf(2))
+            .expect("must return the old font");
         assert_eq!(old.get_hash(), 1);
         assert_eq!(m.get_loaded_fonts().len(), 1);
     }
@@ -16735,7 +17524,10 @@ mod autotest_generated {
         assert_eq!(m.get_loaded_font_ids().len(), 2);
 
         assert_eq!(m.remove_font(&FontId(1)).map(|f| f.get_hash()), Some(1));
-        assert!(m.remove_font(&FontId(1)).is_none(), "double-remove is a no-op");
+        assert!(
+            m.remove_font(&FontId(1)).is_none(),
+            "double-remove is a no-op"
+        );
         assert!(
             m.remove_font(&FontId(u128::MAX)).is_none(),
             "removing an unknown id must not panic"
@@ -16811,12 +17603,10 @@ mod autotest_generated {
             chains: HashMap::new(),
             ..Default::default()
         };
-        let failed = m.load_missing_for_chains(
-            &empty,
-            |_bytes, _idx| -> Result<TestFont, LayoutError> {
+        let failed =
+            m.load_missing_for_chains(&empty, |_bytes, _idx| -> Result<TestFont, LayoutError> {
                 panic!("the loader must never be invoked when there is nothing to load")
-            },
-        );
+            });
         assert!(failed.is_empty());
         assert!(m.get_loaded_fonts().is_empty());
     }
@@ -16917,13 +17707,9 @@ mod autotest_generated {
     fn reorder_logical_items_preserves_content_for_pure_ltr_text() {
         let mut dbg = None;
         let logical = create_logical_items(&[text_content("abc", style())], &[], &mut dbg);
-        let visual = reorder_logical_items(
-            &logical,
-            BidiDirection::Ltr,
-            UnicodeBidi::Normal,
-            &mut dbg,
-        )
-        .expect("LTR reordering must succeed");
+        let visual =
+            reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut dbg)
+                .expect("LTR reordering must succeed");
         let joined: String = visual.iter().map(|v| v.text.as_str()).collect();
         assert_eq!(joined, "abc", "pure LTR text must survive bidi unchanged");
         assert!(visual.iter().all(|v| !v.bidi_level.is_rtl()));
@@ -16955,8 +17741,8 @@ mod autotest_generated {
     #[cfg(feature = "text_layout_hyphenation")]
     #[test]
     fn get_hyphenator_loads_an_embedded_language_and_hyphenates() {
-        let h =
-            get_hyphenator(HyphenationLanguage::EnglishUS).expect("en-US dictionaries are embedded");
+        let h = get_hyphenator(HyphenationLanguage::EnglishUS)
+            .expect("en-US dictionaries are embedded");
 
         // Empty / single-char words have no interior break points.
         let empty = h.hyphenate("");
@@ -17011,11 +17797,11 @@ mod autotest_generated {
 
         // Resurrection is real: the face is back in the live pool, so a
         // SECOND resolution does not depend on the condemned window.
-        let _ = m.garbage_collect_fonts(
-            &[id].into_iter().collect(),
-            &keep_hashes,
+        let _ = m.garbage_collect_fonts(&[id].into_iter().collect(), &keep_hashes);
+        assert!(
+            m.get_font_by_hash(0xF00D).is_some(),
+            "resurrected face is live again"
         );
-        assert!(m.get_font_by_hash(0xF00D).is_some(), "resurrected face is live again");
     }
 
     /// The NEGATIVE CONTROL guarding the leak fix the GC exists for: a face
@@ -17041,4 +17827,3 @@ mod autotest_generated {
         );
     }
 }
-

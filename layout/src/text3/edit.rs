@@ -112,7 +112,8 @@ fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
 /// The primary entry point for text modification. Takes the current content and selections,
 /// applies an edit, and returns the new content and the resulting cursor positions.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
-#[must_use] pub fn edit_text(
+#[must_use]
+pub fn edit_text(
     content: &[InlineContent],
     selections: &[Selection],
     edit: &TextEdit,
@@ -138,8 +139,7 @@ fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
         // hardcoded -1 for any delete, which mis-tracked multi-byte graphemes.
         let old_run_len = run_text_len(&new_content, edit_run);
         let old_run_count = new_content.len();
-        let (temp_content, new_cursor) =
-            apply_edit_to_selection(&new_content, &selection, edit);
+        let (temp_content, new_cursor) = apply_edit_to_selection(&new_content, &selection, edit);
         let new_run_len = run_text_len(&temp_content, edit_run);
         let byte_offset_change = new_run_len as i32 - old_run_len as i32;
         let run_count_change = temp_content.len() as i32 - old_run_count as i32;
@@ -167,7 +167,8 @@ fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
 /// - `DeleteBackward`/`DeleteForward`: deletes the range ONLY (the range
 ///   deletion replaces the character-level delete — pressing Backspace with
 ///   a selection should remove the selection, not the selection + 1 char)
-#[must_use] pub fn apply_edit_to_selection(
+#[must_use]
+pub fn apply_edit_to_selection(
     content: &[InlineContent],
     selection: &Selection,
     edit: &TextEdit,
@@ -190,15 +191,11 @@ fn run_text_len(content: &[InlineContent], run_idx: u32) -> usize {
                 }
             }
         }
-        Selection::Cursor(cursor) => {
-            match edit {
-                TextEdit::Insert(text_to_insert) => {
-                    insert_text(&new_content, cursor, text_to_insert)
-                }
-                TextEdit::DeleteBackward => delete_backward(&new_content, cursor),
-                TextEdit::DeleteForward => delete_forward(&new_content, cursor),
-            }
-        }
+        Selection::Cursor(cursor) => match edit {
+            TextEdit::Insert(text_to_insert) => insert_text(&new_content, cursor, text_to_insert),
+            TextEdit::DeleteBackward => delete_backward(&new_content, cursor),
+            TextEdit::DeleteForward => delete_forward(&new_content, cursor),
+        },
     }
 }
 
@@ -238,7 +235,8 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
 /// offset resolves to 0), while intermediate non-text items are dropped along
 /// with the rest of the spanned content.
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-#[must_use] pub fn delete_range(
+#[must_use]
+pub fn delete_range(
     content: &[InlineContent],
     range: &SelectionRange,
 ) -> (Vec<InlineContent>, TextCursor) {
@@ -374,7 +372,7 @@ pub(crate) fn cursor_byte_offset_in_run(text: &str, cursor: &TextCursor) -> usiz
 }
 
 /// Inserts text at a cursor position.
-/// 
+///
 /// The cursor's affinity determines the exact insertion point:
 /// - `Leading`: Insert at the start of the referenced cluster (`start_byte_in_run`)
 /// - `Trailing`: Insert at the end of the referenced cluster (after the grapheme)
@@ -411,7 +409,7 @@ pub fn insert_text(
             CursorAffinity::Leading => {
                 // Insert at the start of the cluster
                 cluster_start_byte
-            },
+            }
             CursorAffinity::Trailing => {
                 // Insert at the end of the cluster - find the next grapheme boundary
                 // We need to find where this grapheme cluster ends
@@ -423,11 +421,13 @@ pub fn insert_text(
                     run.text[cluster_start_byte..]
                         .grapheme_indices(true)
                         .next()
-                        .map_or(run.text.len(), |(_, grapheme)| cluster_start_byte + grapheme.len())
+                        .map_or(run.text.len(), |(_, grapheme)| {
+                            cluster_start_byte + grapheme.len()
+                        })
                 }
-            },
+            }
         };
-        
+
         if byte_offset <= run.text.len() {
             let mut t = String::from(&*run.text);
             t.insert_str(byte_offset, text_to_insert);
@@ -553,7 +553,7 @@ fn insert_text_with_line_breaks(
 }
 
 /// Deletes one grapheme cluster backward from the cursor.
-/// 
+///
 /// The cursor's affinity determines the actual cursor position:
 /// - `Leading`: Cursor is at start of cluster, delete the previous grapheme
 /// - `Trailing`: Cursor is at end of cluster, delete the current grapheme
@@ -622,9 +622,11 @@ pub fn delete_backward(
                     run.text[cluster_start_byte..]
                         .grapheme_indices(true)
                         .next()
-                        .map_or(run.text.len(), |(_, grapheme)| cluster_start_byte + grapheme.len())
+                        .map_or(run.text.len(), |(_, grapheme)| {
+                            cluster_start_byte + grapheme.len()
+                        })
                 }
-            },
+            }
         };
 
         if byte_offset > 0 {
@@ -691,7 +693,7 @@ pub fn delete_backward(
 }
 
 /// Deletes one grapheme cluster forward from the cursor.
-/// 
+///
 /// The cursor's affinity determines the actual cursor position:
 /// - `Leading`: Cursor is at start of cluster, delete the current grapheme
 /// - `Trailing`: Cursor is at end of cluster, delete the next grapheme
@@ -752,9 +754,11 @@ pub fn delete_forward(
                     run.text[cluster_start_byte..]
                         .grapheme_indices(true)
                         .next()
-                        .map_or(run.text.len(), |(_, grapheme)| cluster_start_byte + grapheme.len())
+                        .map_or(run.text.len(), |(_, grapheme)| {
+                            cluster_start_byte + grapheme.len()
+                        })
                 }
-            },
+            }
         };
 
         if byte_offset < run.text.len() {
@@ -815,7 +819,8 @@ pub fn delete_forward(
 ///
 /// Panics if `texts.len() != selections.len()`.
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded layout/render numeric cast
-#[must_use] pub fn edit_text_multi(
+#[must_use]
+pub fn edit_text_multi(
     content: &[InlineContent],
     selections: &[Selection],
     texts: &[&str],
@@ -859,8 +864,7 @@ pub fn delete_forward(
 
         let old_run_len = run_text_len(&new_content, edit_run);
         let old_run_count = new_content.len();
-        let (temp_content, new_cursor) =
-            apply_edit_to_selection(&new_content, selection, &edit);
+        let (temp_content, new_cursor) = apply_edit_to_selection(&new_content, selection, &edit);
         let new_run_len = run_text_len(&temp_content, edit_run);
         let byte_offset_change = new_run_len as i32 - old_run_len as i32;
         let run_count_change = temp_content.len() as i32 - old_run_count as i32;
@@ -881,7 +885,8 @@ pub fn delete_forward(
 ///
 /// Useful for callbacks that need to inspect
 /// pending deletes. Returns `None` if nothing would be deleted.
-#[must_use] pub fn inspect_delete(
+#[must_use]
+pub fn inspect_delete(
     content: &[InlineContent],
     selection: &Selection,
     forward: bool,
@@ -1303,10 +1308,10 @@ mod autotest_generated {
     #[test]
     fn adjust_cursors_only_shifts_at_or_after_edit_byte_in_the_edit_run() {
         let mut sels = vec![
-            Selection::Cursor(lead(0, 2)),  // before edit_byte -> untouched
-            Selection::Cursor(lead(0, 5)),  // AT edit_byte     -> shifted
-            Selection::Cursor(lead(0, 9)),  // after edit_byte  -> shifted
-            Selection::Cursor(lead(1, 0)),  // other run        -> untouched
+            Selection::Cursor(lead(0, 2)), // before edit_byte -> untouched
+            Selection::Cursor(lead(0, 5)), // AT edit_byte     -> shifted
+            Selection::Cursor(lead(0, 9)), // after edit_byte  -> shifted
+            Selection::Cursor(lead(1, 0)), // other run        -> untouched
         ];
         adjust_cursors(&mut sels, 0, 5, 3);
         assert_eq!(byte_at(&sels, 0), 2);
@@ -1368,7 +1373,11 @@ mod autotest_generated {
     fn adjust_cursor_runs_zero_change_returns_early() {
         let mut sels = vec![Selection::Cursor(lead(u32::MAX, 0))];
         adjust_cursor_runs(&mut sels, 0, 0);
-        assert_eq!(run_at(&sels, 0), u32::MAX, "zero change must not touch runs");
+        assert_eq!(
+            run_at(&sels, 0),
+            u32::MAX,
+            "zero change must not touch runs"
+        );
     }
 
     #[test]
@@ -1415,10 +1424,7 @@ mod autotest_generated {
     #[test]
     fn adjust_cursor_runs_i32_max_is_inert_when_no_cursor_qualifies() {
         // Every cursor is at/below the boundary, so the huge delta is never applied.
-        let mut sels = vec![
-            Selection::Cursor(lead(0, 0)),
-            Selection::Cursor(lead(5, 0)),
-        ];
+        let mut sels = vec![Selection::Cursor(lead(0, 0)), Selection::Cursor(lead(5, 0))];
         adjust_cursor_runs(&mut sels, 5, i32::MAX);
         assert_eq!(run_at(&sels, 0), 0);
         assert_eq!(run_at(&sels, 1), 5);
@@ -1502,10 +1508,7 @@ mod autotest_generated {
         // Two cursors in the same run: the earlier edit must shift the later cursor
         // by the ACTUAL byte delta (this is what adjust_cursors exists for).
         let content = vec![text("hello")];
-        let sels = [
-            Selection::Cursor(lead(0, 0)),
-            Selection::Cursor(lead(0, 3)),
-        ];
+        let sels = [Selection::Cursor(lead(0, 0)), Selection::Cursor(lead(0, 3))];
         let (new_content, new_sels) = edit_text(&content, &sels, &TextEdit::Insert("X".into()));
         assert_eq!(dump(&new_content), vec!["XhelXlo"]);
         assert_eq!(cursor_of(&new_sels[0]), lead(0, 1));
@@ -1516,10 +1519,7 @@ mod autotest_generated {
     fn edit_text_multi_cursor_insert_shifts_by_multibyte_length_not_one() {
         // Inserting a 4-byte emoji must move the trailing cursor by 4 bytes.
         let content = vec![text("ab")];
-        let sels = [
-            Selection::Cursor(lead(0, 0)),
-            Selection::Cursor(lead(0, 2)),
-        ];
+        let sels = [Selection::Cursor(lead(0, 0)), Selection::Cursor(lead(0, 2))];
         let (new_content, new_sels) = edit_text(&content, &sels, &TextEdit::Insert("👍".into()));
         assert_eq!(dump(&new_content), vec!["👍ab👍"]);
         assert_eq!(cursor_of(&new_sels[0]), lead(0, 4));
@@ -1675,7 +1675,11 @@ mod autotest_generated {
             end: lead(1, 2),
         };
         let (new_content, cursor) = delete_range(&content, &r);
-        assert_eq!(dump(&new_content), vec!["a", "f"], "styles differ -> no merge");
+        assert_eq!(
+            dump(&new_content),
+            vec!["a", "f"],
+            "styles differ -> no merge"
+        );
         assert_eq!(cursor, lead(0, 1));
     }
 
@@ -1687,7 +1691,11 @@ mod autotest_generated {
             end: lead(3, 2),
         };
         let (new_content, _) = delete_range(&content, &r);
-        assert_eq!(dump(&new_content), vec!["af"], "middle text AND obj dropped");
+        assert_eq!(
+            dump(&new_content),
+            vec!["af"],
+            "middle text AND obj dropped"
+        );
     }
 
     #[test]
@@ -2041,10 +2049,7 @@ mod autotest_generated {
     #[test]
     fn edit_text_multi_gives_each_cursor_its_own_text() {
         let content = vec![text("ab")];
-        let sels = [
-            Selection::Cursor(lead(0, 0)),
-            Selection::Cursor(lead(0, 2)),
-        ];
+        let sels = [Selection::Cursor(lead(0, 0)), Selection::Cursor(lead(0, 2))];
         let (new_content, new_sels) = edit_text_multi(&content, &sels, &["X", "Y"]);
         assert_eq!(dump(&new_content), vec!["XabY"]);
         assert_eq!(cursor_of(&new_sels[0]), lead(0, 1));
@@ -2054,10 +2059,7 @@ mod autotest_generated {
     #[test]
     fn edit_text_multi_with_empty_texts_only_moves_the_carets() {
         let content = vec![text("ab")];
-        let sels = [
-            Selection::Cursor(lead(0, 0)),
-            Selection::Cursor(lead(0, 1)),
-        ];
+        let sels = [Selection::Cursor(lead(0, 0)), Selection::Cursor(lead(0, 1))];
         let (new_content, new_sels) = edit_text_multi(&content, &sels, &["", ""]);
         assert_eq!(dump(&new_content), vec!["ab"]);
         assert_eq!(new_sels.len(), 2);
@@ -2237,9 +2239,17 @@ mod autotest_generated {
             start: lead(0, 0),
             end: trail(0, 4),
         };
-        assert_eq!(extract_text_in_range(&content, &r), "hell", "the 'o' is missing");
+        assert_eq!(
+            extract_text_in_range(&content, &r),
+            "hell",
+            "the 'o' is missing"
+        );
 
         let (after, _) = delete_range(&content, &r);
-        assert_eq!(dump(&after), vec![""], "...yet delete_range removes all of it");
+        assert_eq!(
+            dump(&after),
+            vec![""],
+            "...yet delete_range removes all of it"
+        );
     }
 }

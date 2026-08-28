@@ -73,7 +73,8 @@ fn btn_row(label: &str) -> Dom {
         .with_ids_and_classes(class("btn"))
         .with_child(Dom::create_div().with_ids_and_classes(class("ico")))
         .with_child(
-            Dom::create_text_do_not_use_without_block_level_wrapper(label).with_ids_and_classes(class("lbl")),
+            Dom::create_text_do_not_use_without_block_level_wrapper(label)
+                .with_ids_and_classes(class("lbl")),
         )
 }
 
@@ -111,8 +112,12 @@ const BTN_REPLACE: usize = 13;
 fn auto_width_flex_rows_size_to_one_line_text() {
     let lw = layout_dom(ribbon_like_dom(), CSS, 800.0, 200.0);
 
-    let fp_btn = lw.get_node_layout_rect(node_id(BTN_FP)).expect("FP row rect");
-    let fp_lbl = lw.get_node_layout_rect(node_id(LBL_FP)).expect("FP label rect");
+    let fp_btn = lw
+        .get_node_layout_rect(node_id(BTN_FP))
+        .expect("FP row rect");
+    let fp_lbl = lw
+        .get_node_layout_rect(node_id(LBL_FP))
+        .expect("FP label rect");
     let col = lw.get_node_layout_rect(node_id(COL)).expect("col rect");
     println!("col = {col:?}\nfp_btn = {fp_btn:?}\nfp_lbl = {fp_lbl:?}");
 
@@ -174,8 +179,14 @@ fn ribbon_widget_rows_size_to_one_line_text() {
     let styles = RibbonGroup::new("Styles".into())
         .with_item(RibbonItem::Gallery(RibbonGallery::new(
             vec![
-                RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), "Normal".into()),
-                RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), "No Spacing".into()),
+                RibbonGalleryCell::new(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"),
+                    "Normal".into(),
+                ),
+                RibbonGalleryCell::new(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"),
+                    "No Spacing".into(),
+                ),
             ]
             .into(),
         )))
@@ -197,8 +208,7 @@ fn ribbon_widget_rows_size_to_one_line_text() {
         .with_group(clipboard)
         .with_group(styles)
         .with_group(editing);
-    let dom = Dom::create_body()
-        .with_child(Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom());
+    let dom = Dom::create_body().with_child(Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom());
 
     let lw = layout_dom(dom, "", 1000.0, 200.0);
     let result = lw
@@ -231,10 +241,18 @@ fn ribbon_widget_rows_size_to_one_line_text() {
     let (fp_lbl, fp_btn) = find_label("Format Painter");
     let (rp_lbl, rp_btn) = find_label("Replace");
 
-    let fp_lbl_rect = lw.get_node_layout_rect(node_id(fp_lbl)).expect("fp label rect");
-    let fp_btn_rect = lw.get_node_layout_rect(node_id(fp_btn)).expect("fp button rect");
-    let rp_lbl_rect = lw.get_node_layout_rect(node_id(rp_lbl)).expect("replace label rect");
-    let rp_btn_rect = lw.get_node_layout_rect(node_id(rp_btn)).expect("replace button rect");
+    let fp_lbl_rect = lw
+        .get_node_layout_rect(node_id(fp_lbl))
+        .expect("fp label rect");
+    let fp_btn_rect = lw
+        .get_node_layout_rect(node_id(fp_btn))
+        .expect("fp button rect");
+    let rp_lbl_rect = lw
+        .get_node_layout_rect(node_id(rp_lbl))
+        .expect("replace label rect");
+    let rp_btn_rect = lw
+        .get_node_layout_rect(node_id(rp_btn))
+        .expect("replace button rect");
     println!("FP  label = {fp_lbl_rect:?}\nFP  btn   = {fp_btn_rect:?}");
     println!("RPL label = {rp_lbl_rect:?}\nRPL btn   = {rp_btn_rect:?}");
 
@@ -277,40 +295,42 @@ fn ribbon_overflow_shrinks_only_the_gallery() {
     };
 
     let wide_col = |labels: [&str; 3]| {
-        RibbonItem::Column(
-            labels
-                .into_iter()
-                .fold(RibbonColumn::new(), |c, l| {
-                    c.with_item(RibbonItem::SmallButton(RibbonButton::new(
-                        "content_cut".into(),
-                        l.into(),
-                    )))
-                }),
-        )
+        RibbonItem::Column(labels.into_iter().fold(RibbonColumn::new(), |c, l| {
+            c.with_item(RibbonItem::SmallButton(RibbonButton::new(
+                "content_cut".into(),
+                l.into(),
+            )))
+        }))
     };
 
     // Three wide fixed groups + a gallery whose 8 cells (8 × 120px) push the
     // natural content width far beyond the 1000px window.
-    let g1 = RibbonGroup::new("Clipboard".into())
-        .with_item(wide_col(["Cut", "Copy", "Format Painter"]));
-    let g2 = RibbonGroup::new("Font".into())
-        .with_item(wide_col(["Grow Font", "Shrink Font", "Clear Formatting"]));
+    let g1 =
+        RibbonGroup::new("Clipboard".into()).with_item(wide_col(["Cut", "Copy", "Format Painter"]));
+    let g2 = RibbonGroup::new("Font".into()).with_item(wide_col([
+        "Grow Font",
+        "Shrink Font",
+        "Clear Formatting",
+    ]));
     let cells: Vec<RibbonGalleryCell> = (0..8)
-        .map(|i| RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), format!("Style {i}").into()))
+        .map(|i| {
+            RibbonGalleryCell::new(
+                Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"),
+                format!("Style {i}").into(),
+            )
+        })
         .collect();
     let g3 = RibbonGroup::new("Styles".into())
         .with_item(RibbonItem::Gallery(RibbonGallery::new(cells.into())))
         .with_fills_space(true);
-    let g4 = RibbonGroup::new("Editing".into())
-        .with_item(wide_col(["Find", "Replace", "Select"]));
+    let g4 = RibbonGroup::new("Editing".into()).with_item(wide_col(["Find", "Replace", "Select"]));
 
     let tab = RibbonTab::new("HOME".into())
         .with_group(g1)
         .with_group(g2)
         .with_group(g3)
         .with_group(g4);
-    let dom = Dom::create_body()
-        .with_child(Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom());
+    let dom = Dom::create_body().with_child(Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom());
 
     let lw = layout_dom(dom, "", 1000.0, 200.0);
     let result = lw
@@ -352,7 +372,9 @@ fn ribbon_overflow_shrinks_only_the_gallery() {
 
     // The trailing Editing group stays fully on-screen...
     let (_, replace_btn) = find_label("Replace");
-    let r = lw.get_node_layout_rect(node_id(replace_btn)).expect("replace rect");
+    let r = lw
+        .get_node_layout_rect(node_id(replace_btn))
+        .expect("replace rect");
     assert!(
         r.origin.x + r.size.width <= 1000.5,
         "Editing group pushed off-screen: x={} w={}",
@@ -387,8 +409,12 @@ fn flex_grow_sibling_does_not_squeeze_a_later_auto_column() {
     let lw = layout_dom(ribbon_like_dom(), CSS, 800.0, 200.0);
 
     let grow = lw.get_node_layout_rect(node_id(GROW)).expect("grow rect");
-    let editing = lw.get_node_layout_rect(node_id(COL_EDITING)).expect("editing rect");
-    let replace = lw.get_node_layout_rect(node_id(BTN_REPLACE)).expect("replace rect");
+    let editing = lw
+        .get_node_layout_rect(node_id(COL_EDITING))
+        .expect("editing rect");
+    let replace = lw
+        .get_node_layout_rect(node_id(BTN_REPLACE))
+        .expect("replace rect");
     println!("grow = {grow:?}\nediting = {editing:?}\nreplace = {replace:?}");
 
     // The Editing column keeps its content width ("Replace" ≈ 50px + icon);
@@ -518,8 +544,14 @@ fn two_text_children_in_a_flex_row_stay_on_one_line() {
 
     let btn = Dom::create_div()
         .with_ids_and_classes(class("btn"))
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("X").with_ids_and_classes(class("glyph")))
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Format Painter").with_ids_and_classes(class("lbl")));
+        .with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("X")
+                .with_ids_and_classes(class("glyph")),
+        )
+        .with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Format Painter")
+                .with_ids_and_classes(class("lbl")),
+        );
     let dom = Dom::create_body().with_child(btn);
 
     let lw = layout_dom(dom, PROBE_CSS, 800.0, 100.0);
@@ -552,9 +584,8 @@ fn label_beside_a_resolved_fontref_icon_stays_on_one_line() {
     use azul_css::system::SystemStyle;
 
     const KOHO_LIGHT: &[u8] = include_bytes!("../../examples/assets/fonts/KoHo-Light.ttf");
-    let parsed =
-        azul_layout::font::parsed::ParsedFont::from_bytes(KOHO_LIGHT, 0, &mut Vec::new())
-            .expect("bundled face parses");
+    let parsed = azul_layout::font::parsed::ParsedFont::from_bytes(KOHO_LIGHT, 0, &mut Vec::new())
+        .expect("bundled face parses");
     let font = azul_layout::parsed_font_to_font_ref(parsed);
 
     let mut provider = IconProviderHandle::new();
@@ -573,7 +604,10 @@ fn label_beside_a_resolved_fontref_icon_stays_on_one_line() {
     let btn = Dom::create_div()
         .with_ids_and_classes(class("btn"))
         .with_child(Dom::create_icon("content_cut").with_ids_and_classes(class("glyph")))
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Format Painter").with_ids_and_classes(class("lbl")));
+        .with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Format Painter")
+                .with_ids_and_classes(class("lbl")),
+        );
     let mut dom = Dom::create_body().with_child(btn);
 
     // Icons resolve on the Dom, BEFORE the cascade.
@@ -599,8 +633,12 @@ fn label_beside_a_resolved_fontref_icon_stays_on_one_line() {
         .unwrap();
 
     // 0 body, 1 btn, 2 glyph (icon -> span), 3 its text leaf, 4 lbl
-    let btn_rect = layout_window.get_node_layout_rect(node_id(1)).expect("btn rect");
-    let lbl_rect = layout_window.get_node_layout_rect(node_id(4)).expect("lbl rect");
+    let btn_rect = layout_window
+        .get_node_layout_rect(node_id(1))
+        .expect("btn rect");
+    let lbl_rect = layout_window
+        .get_node_layout_rect(node_id(4))
+        .expect("lbl rect");
     println!("btn = {btn_rect:?}\nlbl = {lbl_rect:?}");
 
     assert!(
@@ -640,7 +678,8 @@ fn runtime_display_patch_relayouts_a_hidden_node() {
     let mut lw = layout_dom(dom, PROBE_CSS, 400.0, 300.0);
     // 0 body, 1 panel, 2 child
     assert!(
-        lw.get_node_layout_rect(node_id(1)).is_none_or(|r| r.size.height == 0.0),
+        lw.get_node_layout_rect(node_id(1))
+            .is_none_or(|r| r.size.height == 0.0),
         "a display:none panel must not occupy space before the patch"
     );
 
@@ -698,7 +737,12 @@ fn fixed_height_children_survive_an_auto_height_flex_root() {
     };
 
     // Direct child of a flex-column body (the regressing case).
-    let lw = layout_dom(Dom::create_body().with_child(mk()), CSS_ROOT_FLEX, 400.0, 300.0);
+    let lw = layout_dom(
+        Dom::create_body().with_child(mk()),
+        CSS_ROOT_FLEX,
+        400.0,
+        300.0,
+    );
     let panel = lw.get_node_layout_rect(node_id(1)).expect("panel rect");
     let body = lw.get_node_layout_rect(node_id(0)).expect("body rect");
     assert_eq!(
@@ -711,28 +755,40 @@ fn fixed_height_children_survive_an_auto_height_flex_root() {
     );
 
     // Controls: the same item under a block root, and one level deeper.
-    let lw = layout_dom(Dom::create_body().with_child(mk()), CSS_ROOT_BLOCK, 400.0, 300.0);
+    let lw = layout_dom(
+        Dom::create_body().with_child(mk()),
+        CSS_ROOT_BLOCK,
+        400.0,
+        300.0,
+    );
     assert_eq!(
-        lw.get_node_layout_rect(node_id(1)).expect("panel").size.height,
+        lw.get_node_layout_rect(node_id(1))
+            .expect("panel")
+            .size
+            .height,
         60.0,
         "block-root control regressed"
     );
 
     let lw = layout_dom(
         Dom::create_body().with_child(
-            Dom::create_div().with_ids_and_classes(class("wrap")).with_child(mk()),
+            Dom::create_div()
+                .with_ids_and_classes(class("wrap"))
+                .with_child(mk()),
         ),
         CSS_NESTED,
         400.0,
         300.0,
     );
     assert_eq!(
-        lw.get_node_layout_rect(node_id(2)).expect("panel").size.height,
+        lw.get_node_layout_rect(node_id(2))
+            .expect("panel")
+            .size
+            .height,
         60.0,
         "nested-container control regressed"
     );
 }
-
 
 /// A synthetic click aimed at a node's own centre must HIT that node.
 ///
@@ -746,20 +802,23 @@ fn hit_testing_a_nodes_own_centre_returns_that_node() {
     use azul_core::dom::DomId as CoreDomId;
     use azul_layout::headless::CpuHitTester;
     use azul_layout::widgets::ribbon::{
-        Ribbon, RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonTab,
-        RibbonTabVec,
+        Ribbon, RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonTab, RibbonTabVec,
     };
 
     let cells: Vec<RibbonGalleryCell> = (0..8)
-        .map(|i| RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), format!("Style {i}").into()))
+        .map(|i| {
+            RibbonGalleryCell::new(
+                Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"),
+                format!("Style {i}").into(),
+            )
+        })
         .collect();
     let tab = RibbonTab::new("HOME".into()).with_group(
         RibbonGroup::new("Styles".into())
             .with_item(RibbonItem::Gallery(RibbonGallery::new(cells.into())))
             .with_fills_space(true),
     );
-    let dom = Dom::create_body()
-        .with_child(Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom());
+    let dom = Dom::create_body().with_child(Ribbon::new(RibbonTabVec::from_vec(vec![tab])).dom());
 
     // NARROW window: 8 cells x 120px overflow the `overflow: hidden`
     // gallery frame, so the frame is a real scroll container with content
@@ -775,8 +834,10 @@ fn hit_testing_a_nodes_own_centre_returns_that_node() {
             .get_ids_and_classes()
             .as_ref()
             .iter()
-            .any(|c| matches!(c, IdOrClass::Class(s)
-                if s.as_str() == "__azul-native-ribbon-gallery-more"));
+            .any(|c| {
+                matches!(c, IdOrClass::Class(s)
+                if s.as_str() == "__azul-native-ribbon-gallery-more")
+            });
         if is_more {
             more_idx = Some(i);
             break;
@@ -958,29 +1019,55 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
 
     let col = |labels: [&str; 3]| {
         RibbonItem::Column(labels.into_iter().fold(RibbonColumn::new(), |c, l| {
-            c.with_item(RibbonItem::SmallButton(RibbonButton::new("content_cut".into(), l.into())))
+            c.with_item(RibbonItem::SmallButton(RibbonButton::new(
+                "content_cut".into(),
+                l.into(),
+            )))
         }))
     };
     let cells: Vec<RibbonGalleryCell> = (0..8)
-        .map(|i| RibbonGalleryCell::new(Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"), format!("Style {i}").into()))
+        .map(|i| {
+            RibbonGalleryCell::new(
+                Dom::create_text_do_not_use_without_block_level_wrapper("AaBbCcDc"),
+                format!("Style {i}").into(),
+            )
+        })
         .collect();
 
     let tab = RibbonTab::new("HOME".into())
-        .with_group(RibbonGroup::new("Clipboard".into()).with_item(col(["Cut", "Copy", "Format Painter"])))
+        .with_group(RibbonGroup::new("Clipboard".into()).with_item(col([
+            "Cut",
+            "Copy",
+            "Format Painter",
+        ])))
         .with_group(RibbonGroup::new("Font".into()).with_item(col(["Grow", "Shrink", "Clear"])))
-        .with_group(RibbonGroup::new("Paragraph".into()).with_item(col(["Bullets", "Numbering", "Sort"])))
+        .with_group(RibbonGroup::new("Paragraph".into()).with_item(col([
+            "Bullets",
+            "Numbering",
+            "Sort",
+        ])))
         .with_group(
             RibbonGroup::new("Styles".into())
                 .with_item(RibbonItem::Gallery(RibbonGallery::new(cells.into())))
                 .with_fills_space(true),
         )
-        .with_group(RibbonGroup::new("Editing".into()).with_item(col(["Find", "Replace", "Select"])));
+        .with_group(
+            RibbonGroup::new("Editing".into()).with_item(col(["Find", "Replace", "Select"])),
+        );
 
     // Match the live example: a mock title bar plus NINE tabs (each tab
     // carries chrome callbacks, so each mints its own hit-test tag).
     let mut tabs = vec![tab];
-    for label in ["INSERT", "DESIGN", "PAGE LAYOUT", "REFERENCES", "MAILINGS", "REVIEW",
-                  "VIEW", "ADD-INS"] {
+    for label in [
+        "INSERT",
+        "DESIGN",
+        "PAGE LAYOUT",
+        "REFERENCES",
+        "MAILINGS",
+        "REVIEW",
+        "VIEW",
+        "ADD-INS",
+    ] {
         tabs.push(RibbonTab::new(label.into()).with_group(
             RibbonGroup::new("Preview".into()).with_item(RibbonItem::LargeButton(
                 RibbonButton::new("layers".into(), label.into()),
@@ -991,15 +1078,17 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
         .with_css("display: flex; flex-direction: row; align-items: center; height: 30px;")
         .with_child(Dom::create_icon("save"))
         .with_child(Dom::create_icon("undo"))
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Document1 - AzWriter"))
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "Document1 - AzWriter",
+        ))
         .with_child(Dom::create_icon("close"));
-    let dom = Dom::create_body()
-        .with_child(title_bar)
-        .with_child(
-            Ribbon::new(RibbonTabVec::from_vec(tabs))
-                .with_app_button(azul_layout::widgets::ribbon::RibbonAppButton::new("FILE".into()))
-                .dom(),
-        );
+    let dom = Dom::create_body().with_child(title_bar).with_child(
+        Ribbon::new(RibbonTabVec::from_vec(tabs))
+            .with_app_button(azul_layout::widgets::ribbon::RibbonAppButton::new(
+                "FILE".into(),
+            ))
+            .dom(),
+    );
     let lw = layout_dom(dom, "", 1388.0, 260.0);
     let result = lw.layout_results.get(&CoreDomId::ROOT_ID).expect("root");
 
@@ -1017,9 +1106,15 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
     let more = find_class("__azul-native-ribbon-gallery-more").expect("More button");
     let cell0 = find_class("__azul-native-ribbon-gallery-cell").expect("a gallery cell");
 
-    let layout_rect = lw.get_node_layout_rect(node_id(more)).expect("More layout rect");
-    let hit_bounds = lw.get_node_hit_test_bounds(node_id(more)).expect("More hit bounds");
-    let cell_rect = lw.get_node_layout_rect(node_id(cell0)).expect("cell layout rect");
+    let layout_rect = lw
+        .get_node_layout_rect(node_id(more))
+        .expect("More layout rect");
+    let hit_bounds = lw
+        .get_node_hit_test_bounds(node_id(more))
+        .expect("More hit bounds");
+    let cell_rect = lw
+        .get_node_layout_rect(node_id(cell0))
+        .expect("cell layout rect");
     println!("More(node {more}) layout = {layout_rect:?}");
     println!("More(node {more}) hit    = {hit_bounds:?}");
     println!("cell0(node {cell0}) layout = {cell_rect:?}");
@@ -1077,7 +1172,10 @@ fn hit_test_bounds_match_the_layout_rect_in_a_full_ribbon() {
             );
         }
         println!("checked {checked} hit-testable nodes, {collisions} tag collisions present");
-        assert!(checked > 20, "fixture got smaller: only {checked} nodes checked");
+        assert!(
+            checked > 20,
+            "fixture got smaller: only {checked} nodes checked"
+        );
         assert!(
             collisions > 0,
             "this fixture no longer contains a DOM-node/cursor tag collision, so it \
@@ -1190,7 +1288,9 @@ fn inline_viewport_conditions_are_applied() {
         ),
     ]);
 
-    let mut panel = Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("touch"));
+    let mut panel = Dom::create_div().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("touch"),
+    );
     panel.root.set_css_props(mobile_only);
     let dom = Dom::create_body().with_child(panel);
 
@@ -1275,7 +1375,10 @@ fn overflow_hidden_is_a_programmatic_scroll_container_but_not_a_wheel_target() {
     let lw = layout_dom(dom, CSS, 800.0, 600.0);
 
     // 0 body, 1 hidden-clip, 2 tall, 3 plain, 4 tall
-    let lr = lw.layout_results.get(&DomId { inner: 0 }).expect("root layout");
+    let lr = lw
+        .layout_results
+        .get(&DomId { inner: 0 })
+        .expect("root layout");
     let scroll_nodes: Vec<_> = lr.scroll_id_to_node_id.values().copied().collect();
     assert!(
         scroll_nodes.contains(&node_id(1).node.into_crate_internal().unwrap()),
@@ -1309,7 +1412,9 @@ fn logical_overflow_properties_map_onto_physical_axes() {
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(class("h"))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("wide wide wide wide wide")),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "wide wide wide wide wide",
+            )),
     );
     let lw = layout_dom(dom, CSS, 800.0, 600.0);
     let lr = lw.layout_results.get(&DomId { inner: 0 }).expect("layout");
@@ -1347,7 +1452,9 @@ fn text_box_edge_cap_alphabetic_trims_to_the_metrics() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("t"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Hello")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Hello",
+                )),
         )
     };
     let h_text = layout_dom(build(), CSS_TEXT, 400.0, 300.0)
@@ -1426,7 +1533,9 @@ fn absolute_line_heights_above_32px_survive_the_compact_cache() {
     let dom = Dom::create_body().with_child(
         Dom::create_div()
             .with_ids_and_classes(class("t"))
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("one line")),
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "one line",
+            )),
     );
     let lw = layout_dom(dom, CSS, 800.0, 600.0);
     let h = lw
@@ -1458,21 +1567,31 @@ fn shrink_to_fit_labels_do_not_wrap_with_the_system_sans_font() {
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("btn"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Format Painter")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Format Painter",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("btn"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Decrease Indent")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Decrease Indent",
+                )),
         )
         .with_child(
             Dom::create_div()
                 .with_ids_and_classes(class("btn"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("No Spacing")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "No Spacing",
+                )),
         );
     let lw = layout_dom(dom, CSS, 800.0, 400.0);
     // 0 body, 1 btn, 2 text, 3 btn, 4 text, 5 btn, 6 text
-    for (btn, label) in [(1_usize, "Format Painter"), (3, "Decrease Indent"), (5, "No Spacing")] {
+    for (btn, label) in [
+        (1_usize, "Format Painter"),
+        (3, "Decrease Indent"),
+        (5, "No Spacing"),
+    ] {
         let r = lw.get_node_layout_rect(node_id(btn)).expect("btn rect");
         assert!(
             r.size.height < 30.0,
@@ -1495,12 +1614,14 @@ fn border_collapse_collapse_suppresses_border_spacing() {
         .c { display: table-cell; width: 50px; height: 20px; }
     "#;
     let dom = Dom::create_body().with_child(
-        Dom::create_div().with_ids_and_classes(class("tbl")).with_child(
-            Dom::create_div()
-                .with_ids_and_classes(class("row"))
-                .with_child(Dom::create_div().with_ids_and_classes(class("c")))
-                .with_child(Dom::create_div().with_ids_and_classes(class("c"))),
-        ),
+        Dom::create_div()
+            .with_ids_and_classes(class("tbl"))
+            .with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(class("row"))
+                    .with_child(Dom::create_div().with_ids_and_classes(class("c")))
+                    .with_child(Dom::create_div().with_ids_and_classes(class("c"))),
+            ),
     );
     let lw = layout_dom(dom, CSS, 800.0, 600.0);
     let c1 = lw.get_node_layout_rect(node_id(3)).expect("cell 1");
@@ -1531,13 +1652,19 @@ fn table_cell_padding_offsets_text_from_the_cell_top() {
         .c { display: table-cell; padding: 8px; }
     "#;
     let dom = Dom::create_body().with_child(
-        Dom::create_div().with_ids_and_classes(class("tbl")).with_child(
-            Dom::create_div().with_ids_and_classes(class("row")).with_child(
+        Dom::create_div()
+            .with_ids_and_classes(class("tbl"))
+            .with_child(
                 Dom::create_div()
-                    .with_ids_and_classes(class("c"))
-                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Red 1")),
+                    .with_ids_and_classes(class("row"))
+                    .with_child(
+                        Dom::create_div()
+                            .with_ids_and_classes(class("c"))
+                            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                                "Red 1",
+                            )),
+                    ),
             ),
-        ),
     );
     let lw = layout_dom(dom, CSS, 800.0, 600.0);
     let cell = lw.get_node_layout_rect(node_id(3)).expect("cell");
@@ -1567,20 +1694,27 @@ fn collapsed_borders_paint_across_header_rows() {
         .td { display: table-cell; width: 50px; height: 20px; border: 1px solid #999999; background: #ffcccc; }
     "#;
     let dom = Dom::create_body().with_child(
-        Dom::create_div().with_ids_and_classes(class("tbl"))
+        Dom::create_div()
+            .with_ids_and_classes(class("tbl"))
             .with_child(
-                Dom::create_div().with_ids_and_classes(class("hgrp")).with_child(
-                    Dom::create_div().with_ids_and_classes(class("row"))
-                        .with_child(Dom::create_div().with_ids_and_classes(class("th")))
-                        .with_child(Dom::create_div().with_ids_and_classes(class("th"))),
-                ),
+                Dom::create_div()
+                    .with_ids_and_classes(class("hgrp"))
+                    .with_child(
+                        Dom::create_div()
+                            .with_ids_and_classes(class("row"))
+                            .with_child(Dom::create_div().with_ids_and_classes(class("th")))
+                            .with_child(Dom::create_div().with_ids_and_classes(class("th"))),
+                    ),
             )
             .with_child(
-                Dom::create_div().with_ids_and_classes(class("bgrp")).with_child(
-                    Dom::create_div().with_ids_and_classes(class("row"))
-                        .with_child(Dom::create_div().with_ids_and_classes(class("td")))
-                        .with_child(Dom::create_div().with_ids_and_classes(class("td"))),
-                ),
+                Dom::create_div()
+                    .with_ids_and_classes(class("bgrp"))
+                    .with_child(
+                        Dom::create_div()
+                            .with_ids_and_classes(class("row"))
+                            .with_child(Dom::create_div().with_ids_and_classes(class("td")))
+                            .with_child(Dom::create_div().with_ids_and_classes(class("td"))),
+                    ),
             ),
     );
     let lw = layout_dom(dom, CSS, 800.0, 600.0);
@@ -1589,7 +1723,9 @@ fn collapsed_borders_paint_across_header_rows() {
     let th1 = lw.get_node_layout_rect(node_id(4)).expect("first th");
     let th_boundary = th1.origin.x + th1.size.width;
     let th_bottom = th1.origin.y + th1.size.height;
-    let result = lw.get_layout_result(&DomId::ROOT_ID).expect("layout result");
+    let result = lw
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("layout result");
     let mut black_vertical_between_ths = false;
     let mut black_horizontal_under_header = false;
     // Paint-order guard: cell BACKGROUNDS must never be emitted after the
@@ -1659,8 +1795,12 @@ fn real_table_cells_center_their_text_vertically() {
         Dom::create_table_no_a11y().with_child(
             Dom::create_thead().with_child(
                 Dom::create_tr()
-                    .with_child(Dom::create_th().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Header A")))
-                    .with_child(Dom::create_th().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Header B"))),
+                    .with_child(Dom::create_th().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("Header A"),
+                    ))
+                    .with_child(Dom::create_th().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("Header B"),
+                    )),
             ),
         ),
     );
@@ -1751,19 +1891,32 @@ fn glyph_advances_stay_linear_and_unquantized() {
     // rounding), and both must be within 1px of the FT linear sum ratio.
     let w10 = {
         let dom = Dom::create_body().with_child(
-            Dom::create_div().with_ids_and_classes(class("m"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("llllllllll")),
+            Dom::create_div()
+                .with_ids_and_classes(class("m"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "llllllllll",
+                )),
         );
         layout_dom(dom, CSS, 800.0, 600.0)
-            .get_node_layout_rect(node_id(1)).expect("10-run").size.width
+            .get_node_layout_rect(node_id(1))
+            .expect("10-run")
+            .size
+            .width
     };
     let (w40, expected) = {
         let dom = Dom::create_body().with_child(
-            Dom::create_div().with_ids_and_classes(class("m"))
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("llllllllllllllllllllllllllllllllllllllll")),
+            Dom::create_div()
+                .with_ids_and_classes(class("m"))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "llllllllllllllllllllllllllllllllllllllll",
+                )),
         );
         let lw = layout_dom(dom, CSS, 800.0, 600.0);
-        let w = lw.get_node_layout_rect(node_id(1)).expect("40-run").size.width;
+        let w = lw
+            .get_node_layout_rect(node_id(1))
+            .expect("40-run")
+            .size
+            .width;
         // Hermetic expectation: take the font THE LAYOUT ACTUALLY USED,
         // straight from its own display list, and read the linear design
         // advance from that font's tables. Re-resolving "Noto Sans" through
@@ -1771,7 +1924,10 @@ fn glyph_advances_stay_linear_and_unquantized() {
         // engine's resolution — the law is "layout == its own font's linear
         // advance", so the font must come from the layout itself.
         use azul_layout::solver3::display_list::DisplayListItem;
-        let result = lw.layout_results.get(&DomId::ROOT_ID).expect("layout result");
+        let result = lw
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .expect("layout result");
         let font_hash = result
             .display_list
             .items
@@ -1786,10 +1942,11 @@ fn glyph_advances_stay_linear_and_unquantized() {
             .get_font_by_hash(font_hash)
             .expect("the display list's font hash must resolve in the font manager");
         let font = azul_layout::font_ref_to_parsed_font(&font_ref);
-        let gid = font.lookup_glyph_index('l' as u32).expect("'l' maps to a glyph");
-        let expected = font.get_horizontal_advance(gid) as f32
-            / font.font_metrics.units_per_em as f32
-            * 14.0;
+        let gid = font
+            .lookup_glyph_index('l' as u32)
+            .expect("'l' maps to a glyph");
+        let expected =
+            font.get_horizontal_advance(gid) as f32 / font.font_metrics.units_per_em as f32 * 14.0;
         (w, expected)
     };
     let per_glyph_10 = w10 / 10.0;
@@ -1834,7 +1991,8 @@ fn grid_template_areas_place_items_in_their_named_cells() {
         .footer { grid-area: footer; }
     "#;
     let dom = Dom::create_body().with_child(
-        Dom::create_div().with_ids_and_classes(class("container"))
+        Dom::create_div()
+            .with_ids_and_classes(class("container"))
             .with_child(Dom::create_div().with_ids_and_classes(class("header")))
             .with_child(Dom::create_div().with_ids_and_classes(class("sidebar")))
             .with_child(Dom::create_div().with_ids_and_classes(class("main")))
@@ -1846,17 +2004,21 @@ fn grid_template_areas_place_items_in_their_named_cells() {
     let (header, sidebar, main, aside, footer) = (r(2), r(3), r(4), r(5), r(6));
 
     assert!(
-        (header.size.width - 600.0).abs() < 1.0 && (header.size.height - 50.0).abs() < 1.0
+        (header.size.width - 600.0).abs() < 1.0
+            && (header.size.height - 50.0).abs() < 1.0
             && header.origin.y.abs() < 1.0,
         "header must span all columns in row 1: got {header:?}"
     );
     assert!(
-        sidebar.origin.x.abs() < 1.0 && (sidebar.origin.y - 50.0).abs() < 1.0
-            && (sidebar.size.width - 100.0).abs() < 1.0 && (sidebar.size.height - 320.0).abs() < 1.0,
+        sidebar.origin.x.abs() < 1.0
+            && (sidebar.origin.y - 50.0).abs() < 1.0
+            && (sidebar.size.width - 100.0).abs() < 1.0
+            && (sidebar.size.height - 320.0).abs() < 1.0,
         "sidebar must fill column 1 of row 2: got {sidebar:?}"
     );
     assert!(
-        (main.origin.x - 100.0).abs() < 1.0 && (main.size.width - 400.0).abs() < 1.0
+        (main.origin.x - 100.0).abs() < 1.0
+            && (main.size.width - 400.0).abs() < 1.0
             && (main.size.height - 320.0).abs() < 1.0,
         "main must fill the 1fr center: got {main:?}"
     );
@@ -1865,7 +2027,8 @@ fn grid_template_areas_place_items_in_their_named_cells() {
         "aside must fill column 3 of row 2: got {aside:?}"
     );
     assert!(
-        (footer.origin.y - 370.0).abs() < 1.0 && (footer.size.width - 600.0).abs() < 1.0
+        (footer.origin.y - 370.0).abs() < 1.0
+            && (footer.size.width - 600.0).abs() < 1.0
             && (footer.size.height - 30.0).abs() < 1.0,
         "footer must span all columns in row 3: got {footer:?}"
     );
@@ -1890,10 +2053,11 @@ fn grid_minmax_fr_tracks_resolve_and_items_stretch() {
         .i { }
     "#;
     let dom = Dom::create_body().with_child(
-        Dom::create_div().with_ids_and_classes(class("g"))
+        Dom::create_div()
+            .with_ids_and_classes(class("g"))
             .with_child(Dom::create_div().with_ids_and_classes(class("i")))
             .with_child(Dom::create_div().with_ids_and_classes(class("i")))
-            .with_child(Dom::create_div().with_ids_and_classes(class("i")))
+            .with_child(Dom::create_div().with_ids_and_classes(class("i"))),
     );
     let lw = layout_dom(dom, CSS, 1000.0, 700.0);
     let r = |n: usize| lw.get_node_layout_rect(node_id(n)).expect("rect");
@@ -1940,8 +2104,8 @@ fn grid_items_from_xml_markup_fill_consecutive_cells() {
             <div class="i"></div>
         </div>
     </body></html>"#;
-    use azul_layout::xml::domxml_from_str;
     use azul_core::xml::ComponentMap;
+    use azul_layout::xml::domxml_from_str;
     let component_map = ComponentMap::default();
     let dom_xml = domxml_from_str(XML, &component_map);
     // The XML path styles internally (the page's <style> is applied).
@@ -1964,7 +2128,9 @@ fn grid_items_from_xml_markup_fill_consecutive_cells() {
         .unwrap();
     // Find the three item rects: nodes are parser-defined, so scan for
     // 3 sibling rects of equal height inside an 800px-wide parent.
-    let result = layout_window.get_layout_result(&DomId::ROOT_ID).expect("result");
+    let result = layout_window
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("result");
     let mut rects: Vec<(usize, azul_core::geom::LogicalRect)> = Vec::new();
     for n in 0..result.styled_dom.node_data.len() {
         if let Some(r) = layout_window.get_node_layout_rect(node_id(n)) {
@@ -2007,9 +2173,11 @@ fn padded_last_child_bottom_margin_collapses_into_the_parents() {
         .after { margin-top: 30px; height: 20px; }
     "#;
     let dom = Dom::create_body().with_child(
-        Dom::create_div().with_ids_and_classes(class("wrap"))
+        Dom::create_div()
+            .with_ids_and_classes(class("wrap"))
             .with_child(
-                Dom::create_div().with_ids_and_classes(class("parent"))
+                Dom::create_div()
+                    .with_ids_and_classes(class("parent"))
                     .with_child(Dom::create_div().with_ids_and_classes(class("child"))),
             )
             .with_child(Dom::create_div().with_ids_and_classes(class("after"))),
