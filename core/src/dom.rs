@@ -16,8 +16,8 @@ use core::{
 };
 
 use azul_css::{
-    css::{BoxOrStatic, Css, NodeTypeTag},
     codegen::format::GetHash,
+    css::{BoxOrStatic, Css, NodeTypeTag},
     props::{
         basic::{FloatValue, FontRef},
         layout::{LayoutDisplay, LayoutFloat, LayoutPosition},
@@ -110,7 +110,8 @@ pub enum InputType {
 
 impl InputType {
     /// Returns the HTML attribute value for this input type
-    #[must_use] pub const fn as_str(&self) -> &'static str {
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Text => "text",
             Self::Button => "button",
@@ -158,10 +159,12 @@ impl_option!(
 );
 
 impl TagId {
-    #[must_use] pub const fn into_crate_internal(&self) -> Self {
+    #[must_use]
+    pub const fn into_crate_internal(&self) -> Self {
         Self { inner: self.inner }
     }
-    #[must_use] pub const fn from_crate_internal(t: Self) -> Self {
+    #[must_use]
+    pub const fn from_crate_internal(t: Self) -> Self {
         t
     }
 
@@ -178,9 +181,18 @@ impl TagId {
     pub fn unique() -> Self {
         loop {
             let current = TAG_ID.load(Ordering::SeqCst);
-            let next = if current == usize::MAX { 1 } else { current + 1 };
-            if TAG_ID.compare_exchange(current, next, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-                return Self { inner: current as u64 };
+            let next = if current == usize::MAX {
+                1
+            } else {
+                current + 1
+            };
+            if TAG_ID
+                .compare_exchange(current, next, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                return Self {
+                    inner: current as u64,
+                };
             }
         }
     }
@@ -211,7 +223,8 @@ impl ::core::fmt::Debug for ScrollTagId {
 impl ScrollTagId {
     /// Creates a new, unique scroll tag ID. Note that this should not
     /// be used for identifying nodes, use the `DomNodeHash` instead.
-    #[must_use] pub fn unique() -> Self {
+    #[must_use]
+    pub fn unique() -> Self {
         Self {
             inner: TagId::unique(),
         }
@@ -663,12 +676,38 @@ pub enum NodeType {
 /// Type alias: `BoxOrStatic<ImageRef>` — used by `NodeType::Image` for FFI monomorphization.
 pub type BoxOrStaticImageRef = BoxOrStatic<ImageRef>;
 
-impl_option!(NodeType, OptionNodeType, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    NodeType,
+    OptionNodeType,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 impl NodeType {
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn to_library_owned_nodetype(&self) -> Self {
-        use self::NodeType::{Html, Head, Body, Div, P, Article, Section, Nav, Aside, Header, Footer, Main, Figure, FigCaption, H1, H2, H3, H4, H5, H6, Br, Hr, Pre, BlockQuote, Address, Details, Summary, Dialog, Ul, Ol, Li, Dl, Dt, Dd, Menu, MenuItem, Dir, Table, Caption, THead, TBody, TFoot, Tr, Th, Td, ColGroup, Col, Form, FieldSet, Legend, Label, Input, Button, Select, OptGroup, SelectOption, TextArea, Output, Progress, Meter, DataList, Span, A, Em, Strong, B, I, U, S, Mark, Del, Ins, Code, Samp, Kbd, Var, Cite, Dfn, Abbr, Acronym, Q, Time, Sub, Sup, Small, Big, Bdo, Bdi, Wbr, Ruby, Rt, Rtc, Rp, Data, Canvas, Object, Param, Embed, Audio, Video, Source, Track, Map, Area, Svg, SvgG, SvgDefs, SvgSymbol, SvgUse, SvgSwitch, SvgPath, SvgCircle, SvgRect, SvgEllipse, SvgLine, SvgPolygon, SvgPolyline, SvgText, SvgTspan, SvgTextPath, SvgLinearGradient, SvgRadialGradient, SvgStop, SvgPattern, SvgClipPathElement, SvgMask, SvgFilter, SvgFeBlend, SvgFeColorMatrix, SvgFeComponentTransfer, SvgFeComposite, SvgFeConvolveMatrix, SvgFeDiffuseLighting, SvgFeDisplacementMap, SvgFeDistantLight, SvgFeDropShadow, SvgFeFlood, SvgFeFuncR, SvgFeFuncG, SvgFeFuncB, SvgFeFuncA, SvgFeGaussianBlur, SvgFeImage, SvgFeMerge, SvgFeMergeNode, SvgFeMorphology, SvgFeOffset, SvgFePointLight, SvgFeSpecularLighting, SvgFeSpotLight, SvgFeTile, SvgFeTurbulence, SvgMarker, SvgImage, SvgForeignObject, SvgTitle, SvgDesc, SvgMetadata, SvgA, SvgView, SvgStyle, SvgScript, SvgAnimate, SvgAnimateMotion, SvgAnimateTransform, SvgSet, SvgMpath, Title, Meta, Link, Script, Style, Base, Before, After, Marker, Placeholder, Text, Image, VirtualView, Icon, GeolocationProbe};
+        use self::NodeType::{
+            Abbr, Acronym, Address, After, Area, Article, Aside, Audio, Base, Bdi, Bdo, Before,
+            Big, BlockQuote, Body, Br, Button, Canvas, Caption, Cite, Code, Col, ColGroup, Data,
+            DataList, Dd, Del, Details, Dfn, Dialog, Dir, Div, Dl, Dt, Em, Embed, FieldSet,
+            FigCaption, Figure, Footer, Form, GeolocationProbe, Head, Header, Hr, Html, Icon,
+            Image, Input, Ins, Kbd, Label, Legend, Li, Link, Main, Map, Mark, Marker, Menu,
+            MenuItem, Meta, Meter, Nav, Object, Ol, OptGroup, Output, Param, Placeholder, Pre,
+            Progress, Rp, Rt, Rtc, Ruby, Samp, Script, Section, Select, SelectOption, Small,
+            Source, Span, Strong, Style, Sub, Summary, Sup, Svg, SvgA, SvgAnimate,
+            SvgAnimateMotion, SvgAnimateTransform, SvgCircle, SvgClipPathElement, SvgDefs, SvgDesc,
+            SvgEllipse, SvgFeBlend, SvgFeColorMatrix, SvgFeComponentTransfer, SvgFeComposite,
+            SvgFeConvolveMatrix, SvgFeDiffuseLighting, SvgFeDisplacementMap, SvgFeDistantLight,
+            SvgFeDropShadow, SvgFeFlood, SvgFeFuncA, SvgFeFuncB, SvgFeFuncG, SvgFeFuncR,
+            SvgFeGaussianBlur, SvgFeImage, SvgFeMerge, SvgFeMergeNode, SvgFeMorphology,
+            SvgFeOffset, SvgFePointLight, SvgFeSpecularLighting, SvgFeSpotLight, SvgFeTile,
+            SvgFeTurbulence, SvgFilter, SvgForeignObject, SvgG, SvgImage, SvgLine,
+            SvgLinearGradient, SvgMarker, SvgMask, SvgMetadata, SvgMpath, SvgPath, SvgPattern,
+            SvgPolygon, SvgPolyline, SvgRadialGradient, SvgRect, SvgScript, SvgSet, SvgStop,
+            SvgStyle, SvgSwitch, SvgSymbol, SvgText, SvgTextPath, SvgTitle, SvgTspan, SvgUse,
+            SvgView, TBody, TFoot, THead, Table, Td, Text, TextArea, Th, Time, Title, Tr, Track,
+            Ul, Var, Video, VirtualView, Wbr, A, B, H1, H2, H3, H4, H5, H6, I, P, Q, S, U,
+        };
         match self {
             Html => Html,
             Head => Head,
@@ -775,50 +814,77 @@ impl NodeType {
             Map => Map,
             Area => Area,
             // SVG container
-            Svg => Svg, SvgG => SvgG, SvgDefs => SvgDefs, SvgSymbol => SvgSymbol,
-            SvgUse => SvgUse, SvgSwitch => SvgSwitch,
+            Svg => Svg,
+            SvgG => SvgG,
+            SvgDefs => SvgDefs,
+            SvgSymbol => SvgSymbol,
+            SvgUse => SvgUse,
+            SvgSwitch => SvgSwitch,
             // SVG shape
-            SvgPath => SvgPath, SvgCircle => SvgCircle, SvgRect => SvgRect,
-            SvgEllipse => SvgEllipse, SvgLine => SvgLine,
-            SvgPolygon => SvgPolygon, SvgPolyline => SvgPolyline,
+            SvgPath => SvgPath,
+            SvgCircle => SvgCircle,
+            SvgRect => SvgRect,
+            SvgEllipse => SvgEllipse,
+            SvgLine => SvgLine,
+            SvgPolygon => SvgPolygon,
+            SvgPolyline => SvgPolyline,
             // SVG text
             SvgText(s) => SvgText(s.clone_self()),
-            SvgTspan => SvgTspan, SvgTextPath => SvgTextPath,
+            SvgTspan => SvgTspan,
+            SvgTextPath => SvgTextPath,
             // SVG paint
-            SvgLinearGradient => SvgLinearGradient, SvgRadialGradient => SvgRadialGradient,
-            SvgStop => SvgStop, SvgPattern => SvgPattern,
+            SvgLinearGradient => SvgLinearGradient,
+            SvgRadialGradient => SvgRadialGradient,
+            SvgStop => SvgStop,
+            SvgPattern => SvgPattern,
             // SVG clip/mask
-            SvgClipPathElement => SvgClipPathElement, SvgMask => SvgMask,
+            SvgClipPathElement => SvgClipPathElement,
+            SvgMask => SvgMask,
             // SVG filter
-            SvgFilter => SvgFilter, SvgFeBlend => SvgFeBlend,
+            SvgFilter => SvgFilter,
+            SvgFeBlend => SvgFeBlend,
             SvgFeColorMatrix => SvgFeColorMatrix,
             SvgFeComponentTransfer => SvgFeComponentTransfer,
-            SvgFeComposite => SvgFeComposite, SvgFeConvolveMatrix => SvgFeConvolveMatrix,
+            SvgFeComposite => SvgFeComposite,
+            SvgFeConvolveMatrix => SvgFeConvolveMatrix,
             SvgFeDiffuseLighting => SvgFeDiffuseLighting,
             SvgFeDisplacementMap => SvgFeDisplacementMap,
-            SvgFeDistantLight => SvgFeDistantLight, SvgFeDropShadow => SvgFeDropShadow,
+            SvgFeDistantLight => SvgFeDistantLight,
+            SvgFeDropShadow => SvgFeDropShadow,
             SvgFeFlood => SvgFeFlood,
-            SvgFeFuncR => SvgFeFuncR, SvgFeFuncG => SvgFeFuncG,
-            SvgFeFuncB => SvgFeFuncB, SvgFeFuncA => SvgFeFuncA,
-            SvgFeGaussianBlur => SvgFeGaussianBlur, SvgFeImage => SvgFeImage,
-            SvgFeMerge => SvgFeMerge, SvgFeMergeNode => SvgFeMergeNode,
-            SvgFeMorphology => SvgFeMorphology, SvgFeOffset => SvgFeOffset,
+            SvgFeFuncR => SvgFeFuncR,
+            SvgFeFuncG => SvgFeFuncG,
+            SvgFeFuncB => SvgFeFuncB,
+            SvgFeFuncA => SvgFeFuncA,
+            SvgFeGaussianBlur => SvgFeGaussianBlur,
+            SvgFeImage => SvgFeImage,
+            SvgFeMerge => SvgFeMerge,
+            SvgFeMergeNode => SvgFeMergeNode,
+            SvgFeMorphology => SvgFeMorphology,
+            SvgFeOffset => SvgFeOffset,
             SvgFePointLight => SvgFePointLight,
             SvgFeSpecularLighting => SvgFeSpecularLighting,
             SvgFeSpotLight => SvgFeSpotLight,
-            SvgFeTile => SvgFeTile, SvgFeTurbulence => SvgFeTurbulence,
+            SvgFeTile => SvgFeTile,
+            SvgFeTurbulence => SvgFeTurbulence,
             // SVG marker/image/foreign
             SvgMarker => SvgMarker,
             SvgImage(i) => SvgImage(i.clone()),
             SvgForeignObject => SvgForeignObject,
             // SVG descriptive/structural
-            SvgTitle => SvgTitle, SvgDesc => SvgDesc, SvgMetadata => SvgMetadata,
-            SvgA => SvgA, SvgView => SvgView,
-            SvgStyle => SvgStyle, SvgScript => SvgScript,
+            SvgTitle => SvgTitle,
+            SvgDesc => SvgDesc,
+            SvgMetadata => SvgMetadata,
+            SvgA => SvgA,
+            SvgView => SvgView,
+            SvgStyle => SvgStyle,
+            SvgScript => SvgScript,
             // SVG animation
-            SvgAnimate => SvgAnimate, SvgAnimateMotion => SvgAnimateMotion,
+            SvgAnimate => SvgAnimate,
+            SvgAnimateMotion => SvgAnimateMotion,
             SvgAnimateTransform => SvgAnimateTransform,
-            SvgSet => SvgSet, SvgMpath => SvgMpath,
+            SvgSet => SvgSet,
+            SvgMpath => SvgMpath,
             // HTML metadata
             Title => Title,
             Meta => Meta,
@@ -841,8 +907,9 @@ impl NodeType {
         }
     }
 
-    #[must_use] pub fn format(&self) -> Option<String> {
-        use self::NodeType::{Text, Image, VirtualView, TransientWindow, Icon, GeolocationProbe};
+    #[must_use]
+    pub fn format(&self) -> Option<String> {
+        use self::NodeType::{GeolocationProbe, Icon, Image, Text, TransientWindow, VirtualView};
         match self {
             Text(s) => Some(format!("{s}")),
             Image(id) => Some(format!("image({id:?})")),
@@ -859,7 +926,8 @@ impl NodeType {
 
     /// Returns the `NodeTypeTag` for CSS selector matching.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
-    #[must_use] pub const fn get_path(&self) -> NodeTypeTag {
+    #[must_use]
+    pub const fn get_path(&self) -> NodeTypeTag {
         match self {
             Self::Html => NodeTypeTag::Html,
             Self::Head => NodeTypeTag::Head,
@@ -1055,7 +1123,8 @@ impl NodeType {
     ///
     /// These are elements with inherent semantic meaning that assistive
     /// technologies should be aware of, even without explicit ARIA attributes.
-    #[must_use] pub const fn is_semantic_for_accessibility(&self) -> bool {
+    #[must_use]
+    pub const fn is_semantic_for_accessibility(&self) -> bool {
         matches!(
             self,
             Self::Button
@@ -1266,7 +1335,14 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord]
 );
 
-impl_vec!(IdOrClass, IdOrClassVec, IdOrClassVecDestructor, IdOrClassVecDestructorType, IdOrClassVecSlice, OptionIdOrClass);
+impl_vec!(
+    IdOrClass,
+    IdOrClassVec,
+    IdOrClassVecDestructor,
+    IdOrClassVecDestructorType,
+    IdOrClassVecSlice,
+    OptionIdOrClass
+);
 impl_vec_debug!(IdOrClass, IdOrClassVec);
 impl_vec_partialord!(IdOrClass, IdOrClassVec);
 impl_vec_ord!(IdOrClass, IdOrClassVec);
@@ -1276,13 +1352,15 @@ impl_vec_eq!(IdOrClass, IdOrClassVec);
 impl_vec_hash!(IdOrClass, IdOrClassVec);
 
 impl IdOrClass {
-    #[must_use] pub fn as_id(&self) -> Option<&str> {
+    #[must_use]
+    pub fn as_id(&self) -> Option<&str> {
         match self {
             Self::Id(s) => Some(s.as_str()),
             Self::Class(_) => None,
         }
     }
-    #[must_use] pub fn as_class(&self) -> Option<&str> {
+    #[must_use]
+    pub fn as_class(&self) -> Option<&str> {
         match self {
             Self::Class(s) => Some(s.as_str()),
             Self::Id(_) => None,
@@ -1409,7 +1487,14 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(AttributeType, AttributeTypeVec, AttributeTypeVecDestructor, AttributeTypeVecDestructorType, AttributeTypeVecSlice, OptionAttributeType);
+impl_vec!(
+    AttributeType,
+    AttributeTypeVec,
+    AttributeTypeVecDestructor,
+    AttributeTypeVecDestructorType,
+    AttributeTypeVecSlice,
+    OptionAttributeType
+);
 impl_vec_debug!(AttributeType, AttributeTypeVec);
 impl_vec_partialord!(AttributeType, AttributeTypeVec);
 impl_vec_ord!(AttributeType, AttributeTypeVec);
@@ -1420,21 +1505,24 @@ impl_vec_hash!(AttributeType, AttributeTypeVec);
 
 impl AttributeType {
     /// Returns the id string if this is an `Id` attribute, `None` otherwise.
-    #[must_use] pub fn as_id(&self) -> Option<&str> {
+    #[must_use]
+    pub fn as_id(&self) -> Option<&str> {
         match self {
             Self::Id(s) => Some(s.as_str()),
             _ => None,
         }
     }
     /// Returns the class string if this is a `Class` attribute, `None` otherwise.
-    #[must_use] pub fn as_class(&self) -> Option<&str> {
+    #[must_use]
+    pub fn as_class(&self) -> Option<&str> {
         match self {
             Self::Class(s) => Some(s.as_str()),
             _ => None,
         }
     }
     /// Get the attribute name (e.g., "href", "aria-label", "data-foo")
-    #[must_use] pub fn name(&self) -> &str {
+    #[must_use]
+    pub fn name(&self) -> &str {
         match self {
             Self::Id(_) => "id",
             Self::Class(_) => "class",
@@ -1442,10 +1530,9 @@ impl AttributeType {
             Self::AriaLabelledBy(_) => "aria-labelledby",
             Self::AriaDescribedBy(_) => "aria-describedby",
             Self::AriaRole(_) => "role",
-            Self::AriaState(nv)
-            | Self::AriaProperty(nv)
-            | Self::Data(nv)
-            | Self::Custom(nv) => nv.attr_name.as_str(),
+            Self::AriaState(nv) | Self::AriaProperty(nv) | Self::Data(nv) | Self::Custom(nv) => {
+                nv.attr_name.as_str()
+            }
             Self::Href(_) => "href",
             Self::Rel(_) => "rel",
             Self::Target(_) => "target",
@@ -1481,7 +1568,8 @@ impl AttributeType {
     }
 
     /// Get the attribute value as a string
-    #[must_use] pub fn value(&self) -> AzString {
+    #[must_use]
+    pub fn value(&self) -> AzString {
         match self {
             Self::Id(v)
             | Self::Class(v)
@@ -1508,10 +1596,9 @@ impl AttributeType {
             | Self::Lang(v)
             | Self::Dir(v) => v.clone(),
 
-            Self::AriaState(nv)
-            | Self::AriaProperty(nv)
-            | Self::Data(nv)
-            | Self::Custom(nv) => nv.value.clone(),
+            Self::AriaState(nv) | Self::AriaProperty(nv) | Self::Data(nv) | Self::Custom(nv) => {
+                nv.value.clone()
+            }
 
             Self::MinLength(n)
             | Self::MaxLength(n)
@@ -1532,14 +1619,15 @@ impl AttributeType {
             | Self::Disabled
             | Self::Readonly
             | Self::CheckedTrue
-                | Self::CheckedFalse
+            | Self::CheckedFalse
             | Self::Selected
             | Self::Hidden => "".into(), // Boolean attributes
         }
     }
 
     /// Check if this is a boolean attribute (present = true, absent = false)
-    #[must_use] pub const fn is_boolean(&self) -> bool {
+    #[must_use]
+    pub const fn is_boolean(&self) -> bool {
         matches!(
             self,
             Self::Required
@@ -1659,12 +1747,11 @@ impl PartialOrd for ComponentOrigin {
 
 impl Ord for ComponentOrigin {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.component_id.cmp(&other.component_id)
-            .then_with(|| {
-                let a = alloc::format!("{}", self.data_model_json);
-                let b = alloc::format!("{}", other.data_model_json);
-                a.cmp(&b)
-            })
+        self.component_id.cmp(&other.component_id).then_with(|| {
+            let a = alloc::format!("{}", self.data_model_json);
+            let b = alloc::format!("{}", other.data_model_json);
+            a.cmp(&b)
+        })
     }
 }
 
@@ -1697,25 +1784,52 @@ pub enum SvgNodeData {
     /// `<circle cx="" cy="" r="">`.
     Circle { cx: f32, cy: f32, r: f32 },
     /// `<rect x="" y="" width="" height="" rx="" ry="">`.
-    Rect { x: f32, y: f32, width: f32, height: f32, rx: f32, ry: f32 },
+    Rect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        rx: f32,
+        ry: f32,
+    },
     /// `<ellipse cx="" cy="" rx="" ry="">`.
     Ellipse { cx: f32, cy: f32, rx: f32, ry: f32 },
     /// `<line x1="" y1="" x2="" y2="">`.
     Line { x1: f32, y1: f32, x2: f32, y2: f32 },
     /// `<polygon points="">` / `<polyline points="">` — parsed point list.
-    PointsList { points: alloc::vec::Vec<azul_css::props::basic::SvgPoint>, closed: bool },
+    PointsList {
+        points: alloc::vec::Vec<azul_css::props::basic::SvgPoint>,
+        closed: bool,
+    },
     /// `<svg viewBox="" width="" height="">` — viewport attributes.
-    ViewBox { min_x: f32, min_y: f32, width: f32, height: f32 },
+    ViewBox {
+        min_x: f32,
+        min_y: f32,
+        width: f32,
+        height: f32,
+    },
     /// `<linearGradient>` attributes.
     LinearGradient { x1: f32, y1: f32, x2: f32, y2: f32 },
     /// `<radialGradient>` attributes.
-    RadialGradient { cx: f32, cy: f32, r: f32, fx: f32, fy: f32 },
+    RadialGradient {
+        cx: f32,
+        cy: f32,
+        r: f32,
+        fx: f32,
+        fy: f32,
+    },
     /// `<stop offset="" stop-color="" stop-opacity="">`.
     GradientStop { offset: f32 },
     /// `<use href="" x="" y="">`.
     Use { href: AzString, x: f32, y: f32 },
     /// `<image href="" x="" y="" width="" height="">`.
-    SvgImageData { href: AzString, x: f32, y: f32, width: f32, height: f32 },
+    SvgImageData {
+        href: AzString,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    },
 }
 
 // PartialEq compares f32 fields by BIT PATTERN (to_bits), mirroring the Hash impl
@@ -1730,8 +1844,8 @@ impl PartialEq for SvgNodeData {
             a.to_bits() == b.to_bits()
         }
         use self::SvgNodeData::{
-            Circle, Ellipse, GradientStop, ImageClipMask, Line, LinearGradient, Path,
-            PointsList, RadialGradient, Rect, SvgImageData, Use, ViewBox,
+            Circle, Ellipse, GradientStop, ImageClipMask, Line, LinearGradient, Path, PointsList,
+            RadialGradient, Rect, SvgImageData, Use, ViewBox,
         };
         match (self, other) {
             (ImageClipMask(a), ImageClipMask(b)) => a == b,
@@ -1743,51 +1857,138 @@ impl PartialEq for SvgNodeData {
                         let ia = x.items.as_ref();
                         let ib = y.items.as_ref();
                         ia.len() == ib.len()
-                            && ia.iter().zip(ib.iter()).all(|(p, q)| svg_path_element_bits_eq(p, q))
+                            && ia
+                                .iter()
+                                .zip(ib.iter())
+                                .all(|(p, q)| svg_path_element_bits_eq(p, q))
                     })
             }
-            (Circle { cx, cy, r }, Circle { cx: cx2, cy: cy2, r: r2 }) => {
-                fb(*cx, *cx2) && fb(*cy, *cy2) && fb(*r, *r2)
+            (
+                Circle { cx, cy, r },
+                Circle {
+                    cx: cx2,
+                    cy: cy2,
+                    r: r2,
+                },
+            ) => fb(*cx, *cx2) && fb(*cy, *cy2) && fb(*r, *r2),
+            (
+                Rect {
+                    x,
+                    y,
+                    width,
+                    height,
+                    rx,
+                    ry,
+                },
+                Rect {
+                    x: x2,
+                    y: y2,
+                    width: w2,
+                    height: h2,
+                    rx: rx2,
+                    ry: ry2,
+                },
+            ) => {
+                fb(*x, *x2)
+                    && fb(*y, *y2)
+                    && fb(*width, *w2)
+                    && fb(*height, *h2)
+                    && fb(*rx, *rx2)
+                    && fb(*ry, *ry2)
             }
             (
-                Rect { x, y, width, height, rx, ry },
-                Rect { x: x2, y: y2, width: w2, height: h2, rx: rx2, ry: ry2 },
+                Ellipse { cx, cy, rx, ry },
+                Ellipse {
+                    cx: cx2,
+                    cy: cy2,
+                    rx: rx2,
+                    ry: ry2,
+                },
+            ) => fb(*cx, *cx2) && fb(*cy, *cy2) && fb(*rx, *rx2) && fb(*ry, *ry2),
+            (
+                Line { x1, y1, x2, y2 },
+                Line {
+                    x1: a1,
+                    y1: b1,
+                    x2: a2,
+                    y2: b2,
+                },
+            )
+            | (
+                LinearGradient { x1, y1, x2, y2 },
+                LinearGradient {
+                    x1: a1,
+                    y1: b1,
+                    x2: a2,
+                    y2: b2,
+                },
+            ) => fb(*x1, *a1) && fb(*y1, *b1) && fb(*x2, *a2) && fb(*y2, *b2),
+            (
+                PointsList {
+                    points: pa,
+                    closed: ca,
+                },
+                PointsList {
+                    points: pb,
+                    closed: cb,
+                },
             ) => {
-                fb(*x, *x2) && fb(*y, *y2) && fb(*width, *w2)
-                    && fb(*height, *h2) && fb(*rx, *rx2) && fb(*ry, *ry2)
-            }
-            (Ellipse { cx, cy, rx, ry }, Ellipse { cx: cx2, cy: cy2, rx: rx2, ry: ry2 }) => {
-                fb(*cx, *cx2) && fb(*cy, *cy2) && fb(*rx, *rx2) && fb(*ry, *ry2)
-            }
-            (Line { x1, y1, x2, y2 }, Line { x1: a1, y1: b1, x2: a2, y2: b2 })
-            | (LinearGradient { x1, y1, x2, y2 }, LinearGradient { x1: a1, y1: b1, x2: a2, y2: b2 }) => {
-                fb(*x1, *a1) && fb(*y1, *b1) && fb(*x2, *a2) && fb(*y2, *b2)
-            }
-            (PointsList { points: pa, closed: ca }, PointsList { points: pb, closed: cb }) => {
                 ca == cb
                     && pa.len() == pb.len()
-                    && pa.iter().zip(pb.iter()).all(|(p, q)| fb(p.x, q.x) && fb(p.y, q.y))
+                    && pa
+                        .iter()
+                        .zip(pb.iter())
+                        .all(|(p, q)| fb(p.x, q.x) && fb(p.y, q.y))
             }
             (
-                ViewBox { min_x, min_y, width, height },
-                ViewBox { min_x: a, min_y: b, width: w, height: h },
+                ViewBox {
+                    min_x,
+                    min_y,
+                    width,
+                    height,
+                },
+                ViewBox {
+                    min_x: a,
+                    min_y: b,
+                    width: w,
+                    height: h,
+                },
             ) => fb(*min_x, *a) && fb(*min_y, *b) && fb(*width, *w) && fb(*height, *h),
             (
                 RadialGradient { cx, cy, r, fx, fy },
-                RadialGradient { cx: cx2, cy: cy2, r: r2, fx: fx2, fy: fy2 },
-            ) => {
-                fb(*cx, *cx2) && fb(*cy, *cy2) && fb(*r, *r2) && fb(*fx, *fx2) && fb(*fy, *fy2)
-            }
+                RadialGradient {
+                    cx: cx2,
+                    cy: cy2,
+                    r: r2,
+                    fx: fx2,
+                    fy: fy2,
+                },
+            ) => fb(*cx, *cx2) && fb(*cy, *cy2) && fb(*r, *r2) && fb(*fx, *fx2) && fb(*fy, *fy2),
             (GradientStop { offset: a }, GradientStop { offset: b }) => fb(*a, *b),
-            (Use { href, x, y }, Use { href: h2, x: x2, y: y2 }) => {
-                href == h2 && fb(*x, *x2) && fb(*y, *y2)
-            }
             (
-                SvgImageData { href, x, y, width, height },
-                SvgImageData { href: h2, x: x2, y: y2, width: w2, height: hh2 },
-            ) => {
-                href == h2 && fb(*x, *x2) && fb(*y, *y2) && fb(*width, *w2) && fb(*height, *hh2)
-            }
+                Use { href, x, y },
+                Use {
+                    href: h2,
+                    x: x2,
+                    y: y2,
+                },
+            ) => href == h2 && fb(*x, *x2) && fb(*y, *y2),
+            (
+                SvgImageData {
+                    href,
+                    x,
+                    y,
+                    width,
+                    height,
+                },
+                SvgImageData {
+                    href: h2,
+                    x: x2,
+                    y: y2,
+                    width: w2,
+                    height: hh2,
+                },
+            ) => href == h2 && fb(*x, *x2) && fb(*y, *y2) && fb(*width, *w2) && fb(*height, *hh2),
             // Different variants are never equal.
             _ => false,
         }
@@ -1810,8 +2011,10 @@ const fn svg_path_element_bits_eq(
             pb(a.start, b.start) && pb(a.ctrl, b.ctrl) && pb(a.end, b.end)
         }
         (CubicCurve(a), CubicCurve(b)) => {
-            pb(a.start, b.start) && pb(a.ctrl_1, b.ctrl_1)
-                && pb(a.ctrl_2, b.ctrl_2) && pb(a.end, b.end)
+            pb(a.start, b.start)
+                && pb(a.ctrl_1, b.ctrl_1)
+                && pb(a.ctrl_2, b.ctrl_2)
+                && pb(a.end, b.end)
         }
         _ => false,
     }
@@ -1825,7 +2028,8 @@ impl Eq for SvgNodeData {}
 #[allow(clippy::derive_ord_xor_partial_ord)]
 impl Ord for SvgNodeData {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.partial_cmp(other).unwrap_or(core::cmp::Ordering::Equal)
+        self.partial_cmp(other)
+            .unwrap_or(core::cmp::Ordering::Equal)
     }
 }
 
@@ -1870,36 +2074,62 @@ impl Hash for SvgNodeData {
                 }
             }
             Self::Circle { cx, cy, r } => {
-                cx.to_bits().hash(state); cy.to_bits().hash(state); r.to_bits().hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                r.to_bits().hash(state);
             }
-            Self::Rect { x, y, width, height, rx, ry } => {
-                x.to_bits().hash(state); y.to_bits().hash(state);
-                width.to_bits().hash(state); height.to_bits().hash(state);
-                rx.to_bits().hash(state); ry.to_bits().hash(state);
+            Self::Rect {
+                x,
+                y,
+                width,
+                height,
+                rx,
+                ry,
+            } => {
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
+                rx.to_bits().hash(state);
+                ry.to_bits().hash(state);
             }
             Self::Ellipse { cx, cy, rx, ry } => {
-                cx.to_bits().hash(state); cy.to_bits().hash(state);
-                rx.to_bits().hash(state); ry.to_bits().hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                rx.to_bits().hash(state);
+                ry.to_bits().hash(state);
             }
             // Line and LinearGradient share a { x1, y1, x2, y2 } shape and hash
             // identically (Eq still distinguishes the variants); fold the duplicate bodies.
             Self::Line { x1, y1, x2, y2 } | Self::LinearGradient { x1, y1, x2, y2 } => {
-                x1.to_bits().hash(state); y1.to_bits().hash(state);
-                x2.to_bits().hash(state); y2.to_bits().hash(state);
+                x1.to_bits().hash(state);
+                y1.to_bits().hash(state);
+                x2.to_bits().hash(state);
+                y2.to_bits().hash(state);
             }
             Self::PointsList { points, closed } => {
                 for p in points {
-                    p.x.to_bits().hash(state); p.y.to_bits().hash(state);
+                    p.x.to_bits().hash(state);
+                    p.y.to_bits().hash(state);
                 }
                 closed.hash(state);
             }
-            Self::ViewBox { min_x, min_y, width, height } => {
-                min_x.to_bits().hash(state); min_y.to_bits().hash(state);
-                width.to_bits().hash(state); height.to_bits().hash(state);
+            Self::ViewBox {
+                min_x,
+                min_y,
+                width,
+                height,
+            } => {
+                min_x.to_bits().hash(state);
+                min_y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
             }
             Self::RadialGradient { cx, cy, r, fx, fy } => {
-                cx.to_bits().hash(state); cy.to_bits().hash(state);
-                r.to_bits().hash(state); fx.to_bits().hash(state);
+                cx.to_bits().hash(state);
+                cy.to_bits().hash(state);
+                r.to_bits().hash(state);
+                fx.to_bits().hash(state);
                 fy.to_bits().hash(state);
             }
             Self::GradientStop { offset } => {
@@ -1907,12 +2137,21 @@ impl Hash for SvgNodeData {
             }
             Self::Use { href, x, y } => {
                 href.hash(state);
-                x.to_bits().hash(state); y.to_bits().hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
             }
-            Self::SvgImageData { href, x, y, width, height } => {
+            Self::SvgImageData {
+                href,
+                x,
+                y,
+                width,
+                height,
+            } => {
                 href.hash(state);
-                x.to_bits().hash(state); y.to_bits().hash(state);
-                width.to_bits().hash(state); height.to_bits().hash(state);
+                x.to_bits().hash(state);
+                y.to_bits().hash(state);
+                width.to_bits().hash(state);
+                height.to_bits().hash(state);
             }
         }
     }
@@ -2056,7 +2295,14 @@ impl Clone for NodeData {
 }
 
 // Clone, PartialEq, Eq, Hash, PartialOrd, Ord
-impl_vec!(NodeData, NodeDataVec, NodeDataVecDestructor, NodeDataVecDestructorType, NodeDataVecSlice, OptionNodeData);
+impl_vec!(
+    NodeData,
+    NodeDataVec,
+    NodeDataVecDestructor,
+    NodeDataVecDestructorType,
+    NodeDataVecSlice,
+    OptionNodeData
+);
 impl_vec_clone!(NodeData, NodeDataVec, NodeDataVecDestructor);
 impl_vec_mut!(NodeData, NodeDataVec);
 impl_vec_debug!(NodeData, NodeDataVec);
@@ -2068,7 +2314,8 @@ impl_vec_hash!(NodeData, NodeDataVec);
 
 impl NodeDataVec {
     #[inline]
-    #[must_use] pub fn as_container(&self) -> NodeDataContainerRef<'_, NodeData> {
+    #[must_use]
+    pub fn as_container(&self) -> NodeDataContainerRef<'_, NodeData> {
         NodeDataContainerRef {
             internal: self.as_ref(),
         }
@@ -2121,8 +2368,9 @@ impl TabIndex {
     // const fn: TryFrom isn't const, and u32 -> isize is lossless on every
     // supported (>= 32-bit) target, so the `as` cast cannot actually wrap here.
     #[allow(clippy::cast_possible_wrap)]
-    #[must_use] pub const fn get_index(&self) -> isize {
-        use self::TabIndex::{Auto, OverrideInParent, NoKeyboardFocus};
+    #[must_use]
+    pub const fn get_index(&self) -> isize {
+        use self::TabIndex::{Auto, NoKeyboardFocus, OverrideInParent};
         match self {
             Auto => 0,
             OverrideInParent(x) => *x as isize,
@@ -2130,7 +2378,6 @@ impl TabIndex {
         }
     }
 }
-
 
 /// Packed representation of tab index + contenteditable flag.
 ///
@@ -2144,33 +2391,34 @@ impl TabIndex {
 ///   [28]     `is_anonymous` (1 = anonymous box for table layout)
 ///   [27:0]   `OverrideInParent` value (max ~268 million)
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct NodeFlags {
     pub inner: u32,
 }
 
-
 impl NodeFlags {
     const CONTENTEDITABLE_BIT: u32 = 1 << 31;
-    const TAB_INDEX_MASK: u32      = 0b11 << 29;
-    const ANONYMOUS_BIT: u32       = 1 << 28;
-    const TAB_VALUE_MASK: u32      = (1 << 28) - 1;
+    const TAB_INDEX_MASK: u32 = 0b11 << 29;
+    const ANONYMOUS_BIT: u32 = 1 << 28;
+    const TAB_VALUE_MASK: u32 = (1 << 28) - 1;
 
-    const TAB_NONE: u32            = 0b00 << 29;
-    const TAB_AUTO: u32            = 0b01 << 29;
-    const TAB_OVERRIDE: u32        = 0b10 << 29;
-    const TAB_NO_KEYBOARD: u32     = 0b11 << 29;
+    const TAB_NONE: u32 = 0b00 << 29;
+    const TAB_AUTO: u32 = 0b01 << 29;
+    const TAB_OVERRIDE: u32 = 0b10 << 29;
+    const TAB_NO_KEYBOARD: u32 = 0b11 << 29;
 
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { inner: 0 }
     }
 
-    #[must_use] pub const fn is_contenteditable(&self) -> bool {
+    #[must_use]
+    pub const fn is_contenteditable(&self) -> bool {
         (self.inner & Self::CONTENTEDITABLE_BIT) != 0
     }
 
-    #[must_use] pub const fn set_contenteditable(mut self, v: bool) -> Self {
+    #[must_use]
+    pub const fn set_contenteditable(mut self, v: bool) -> Self {
         if v {
             self.inner |= Self::CONTENTEDITABLE_BIT;
         } else {
@@ -2187,7 +2435,8 @@ impl NodeFlags {
         }
     }
 
-    #[must_use] pub const fn get_tab_index(&self) -> Option<TabIndex> {
+    #[must_use]
+    pub const fn get_tab_index(&self) -> Option<TabIndex> {
         match self.inner & Self::TAB_INDEX_MASK {
             x if x == Self::TAB_NONE => None,
             x if x == Self::TAB_AUTO => Some(TabIndex::Auto),
@@ -2201,7 +2450,8 @@ impl NodeFlags {
     }
 
     /// Returns whether this node is an anonymous box generated for table layout.
-    #[must_use] pub const fn is_anonymous(&self) -> bool {
+    #[must_use]
+    pub const fn is_anonymous(&self) -> bool {
         (self.inner & Self::ANONYMOUS_BIT) != 0
     }
 
@@ -2244,10 +2494,7 @@ impl fmt::Display for NodeData {
         let attributes_string = node_data_to_string(self);
 
         match self.node_type.format() {
-            Some(content) => write!(
-                f,
-                "<{html_type}{attributes_string}>{content}</{html_type}>"
-            ),
+            Some(content) => write!(f, "<{html_type}{attributes_string}>{content}</{html_type}>"),
             None => write!(f, "<{html_type}{attributes_string}/>"),
         }
     }
@@ -2291,14 +2538,15 @@ fn node_data_to_string(node_data: &NodeData) -> String {
 impl NodeData {
     /// Creates a new `NodeData` instance from a given `NodeType`.
     #[inline]
-    #[must_use] pub const fn create_node(node_type: NodeType) -> Self {
+    #[must_use]
+    pub const fn create_node(node_type: NodeType) -> Self {
         Self {
             node_type,
             callbacks: CoreCallbackDataVec::from_const_slice(&[]),
             style: azul_css::css::Css {
                 rules: azul_css::css::CssRuleBlockVec::from_const_slice(&[]),
                 keyframes: azul_css::css::KeyframesVec::from_const_slice(&[]),
-                },
+            },
             flags: NodeFlags::new(),
             accessibility: None,
             extra: None,
@@ -2308,7 +2556,8 @@ impl NodeData {
     /// Returns a reference to the node's attributes (from `NodeDataExt`).
     /// Returns an empty slice if no attributes have been set.
     #[inline]
-    #[must_use] pub fn attributes(&self) -> &AttributeTypeVec {
+    #[must_use]
+    pub fn attributes(&self) -> &AttributeTypeVec {
         static EMPTY: AttributeTypeVec = AttributeTypeVec::from_const_slice(&[]);
         self.extra.as_ref().map_or(&EMPTY, |ext| &ext.attributes)
     }
@@ -2317,30 +2566,38 @@ impl NodeData {
     /// lazily allocating `NodeDataExt` if needed.
     #[inline]
     pub fn attributes_mut(&mut self) -> &mut AttributeTypeVec {
-        &mut self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default())).attributes
+        &mut self
+            .extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+            .attributes
     }
 
     /// Sets the node's attributes, replacing any existing ones.
     #[inline]
     pub fn set_attributes(&mut self, attrs: AttributeTypeVec) {
-        self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default())).attributes = attrs;
+        self.extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+            .attributes = attrs;
     }
 
     /// Shorthand for `NodeData::create_node(NodeType::Body)`.
     #[inline]
-    #[must_use] pub const fn create_body() -> Self {
+    #[must_use]
+    pub const fn create_body() -> Self {
         Self::create_node(NodeType::Body)
     }
 
     /// Shorthand for `NodeData::create_node(NodeType::Div)`.
     #[inline]
-    #[must_use] pub const fn create_div() -> Self {
+    #[must_use]
+    pub const fn create_div() -> Self {
         Self::create_node(NodeType::Div)
     }
 
     /// Shorthand for `NodeData::create_node(NodeType::Br)`.
     #[inline]
-    #[must_use] pub const fn create_br() -> Self {
+    #[must_use]
+    pub const fn create_br() -> Self {
         Self::create_node(NodeType::Br)
     }
 
@@ -2363,22 +2620,23 @@ impl NodeData {
     ///
     /// Shorthand for `NodeData::create_node(NodeType::Text(value.into()))`.
     #[inline]
-    pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(
-        value: S,
-    ) -> Self {
+    pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(value: S) -> Self {
         Self::create_node(NodeType::Text(BoxOrStatic::heap(value.into())))
     }
 
     /// Shorthand for `NodeData::create_node(NodeType::Image(image_id))`.
     #[inline]
-    #[must_use] pub fn create_image(image: ImageRef) -> Self {
+    #[must_use]
+    pub fn create_image(image: ImageRef) -> Self {
         Self::create_node(NodeType::Image(BoxOrStatic::heap(image)))
     }
 
     #[inline]
     pub fn create_virtual_view(data: RefAny, callback: impl Into<VirtualViewCallback>) -> Self {
         let mut nd = Self::create_node(NodeType::VirtualView);
-        let ext = nd.extra.get_or_insert_with(|| Box::new(NodeDataExt::default()));
+        let ext = nd
+            .extra
+            .get_or_insert_with(|| Box::new(NodeDataExt::default()));
         ext.virtual_view = Some(VirtualViewNode {
             callback: callback.into(),
             refany: data,
@@ -2401,7 +2659,8 @@ impl NodeData {
     /// Creates a button `NodeData` with accessibility information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_button(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_button(aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::Button);
         nd.set_accessibility_info(aria.to_full_info());
         nd
@@ -2409,14 +2668,16 @@ impl NodeData {
 
     /// Creates a button `NodeData` without accessibility information.
     #[inline]
-    #[must_use] pub const fn create_button_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_button_no_a11y() -> Self {
         Self::create_node(NodeType::Button)
     }
 
     /// Creates an anchor `NodeData` with an href and accessibility information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_a(href: AzString, aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_a(href: AzString, aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::A).with_attribute(AttributeType::Href(href));
         nd.set_accessibility_info(aria.to_full_info());
         nd
@@ -2424,14 +2685,16 @@ impl NodeData {
 
     /// Creates an anchor `NodeData` with an href but no accessibility information.
     #[inline]
-    #[must_use] pub fn create_a_no_a11y(href: AzString) -> Self {
+    #[must_use]
+    pub fn create_a_no_a11y(href: AzString) -> Self {
         Self::create_node(NodeType::A).with_attribute(AttributeType::Href(href))
     }
 
     /// Creates an input `NodeData` with accessibility information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_input(
+    #[must_use]
+    pub fn create_input(
         input_type: AzString,
         name: AzString,
         label: AzString,
@@ -2447,7 +2710,8 @@ impl NodeData {
 
     /// Creates an input `NodeData` without accessibility information.
     #[inline]
-    #[must_use] pub fn create_input_no_a11y(input_type: AzString, name: AzString, label: AzString) -> Self {
+    #[must_use]
+    pub fn create_input_no_a11y(input_type: AzString, name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::Input)
             .with_attribute(AttributeType::InputType(input_type))
             .with_attribute(AttributeType::Name(name))
@@ -2457,7 +2721,8 @@ impl NodeData {
     /// Creates a textarea `NodeData` with accessibility information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_textarea(name: AzString, label: AzString, aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_textarea(name: AzString, label: AzString, aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::TextArea)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label));
@@ -2467,7 +2732,8 @@ impl NodeData {
 
     /// Creates a textarea `NodeData` without accessibility information.
     #[inline]
-    #[must_use] pub fn create_textarea_no_a11y(name: AzString, label: AzString) -> Self {
+    #[must_use]
+    pub fn create_textarea_no_a11y(name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::TextArea)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
@@ -2476,7 +2742,8 @@ impl NodeData {
     /// Creates a select `NodeData` with accessibility information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_select(name: AzString, label: AzString, aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_select(name: AzString, label: AzString, aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::Select)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label));
@@ -2486,7 +2753,8 @@ impl NodeData {
 
     /// Creates a select `NodeData` without accessibility information.
     #[inline]
-    #[must_use] pub fn create_select_no_a11y(name: AzString, label: AzString) -> Self {
+    #[must_use]
+    pub fn create_select_no_a11y(name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::Select)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
@@ -2495,7 +2763,8 @@ impl NodeData {
     /// Creates a table `NodeData` with accessibility information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_table(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_table(aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::Table);
         nd.set_accessibility_info(aria.to_full_info());
         nd
@@ -2503,7 +2772,8 @@ impl NodeData {
 
     /// Creates a table `NodeData` without accessibility information.
     #[inline]
-    #[must_use] pub const fn create_table_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_table_no_a11y() -> Self {
         Self::create_node(NodeType::Table)
     }
 
@@ -2511,7 +2781,8 @@ impl NodeData {
     /// information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_label(for_id: AzString, aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_label(for_id: AzString, aria: SmallAriaInfo) -> Self {
         let mut nd = Self::create_node(NodeType::Label).with_attribute(AttributeType::Custom(
             AttributeNameValue {
                 attr_name: "for".into(),
@@ -2525,45 +2796,54 @@ impl NodeData {
     /// Creates a label `NodeData` with an associated control ID but no
     /// accessibility information.
     #[inline]
-    #[must_use] pub fn create_label_no_a11y(for_id: AzString) -> Self {
-        Self::create_node(NodeType::Label).with_attribute(AttributeType::Custom(AttributeNameValue {
-            attr_name: "for".into(),
-            value: for_id,
-        }))
+    #[must_use]
+    pub fn create_label_no_a11y(for_id: AzString) -> Self {
+        Self::create_node(NodeType::Label).with_attribute(AttributeType::Custom(
+            AttributeNameValue {
+                attr_name: "for".into(),
+                value: for_id,
+            },
+        ))
     }
 
     /// Checks whether this node is of the given node type (div, image, text).
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn is_node_type(&self, searched_type: NodeType) -> bool {
+    #[must_use]
+    pub fn is_node_type(&self, searched_type: NodeType) -> bool {
         self.node_type == searched_type
     }
 
     /// Checks whether this node has the searched ID attached.
-    #[must_use] pub fn has_id(&self, id: &str) -> bool {
+    #[must_use]
+    pub fn has_id(&self, id: &str) -> bool {
         self.attributes()
             .iter()
             .any(|attr| attr.as_id() == Some(id))
     }
 
     /// Checks whether this node has the searched class attached.
-    #[must_use] pub fn has_class(&self, class: &str) -> bool {
+    #[must_use]
+    pub fn has_class(&self, class: &str) -> bool {
         self.attributes()
             .iter()
             .any(|attr| attr.as_class() == Some(class))
     }
 
-    #[must_use] pub fn has_context_menu(&self) -> bool {
+    #[must_use]
+    pub fn has_context_menu(&self) -> bool {
         self.extra
             .as_ref()
             .is_some_and(|m| m.context_menu.is_some())
     }
 
-    #[must_use] pub const fn is_text_node(&self) -> bool {
+    #[must_use]
+    pub const fn is_text_node(&self) -> bool {
         matches!(self.node_type, NodeType::Text(_))
     }
 
-    #[must_use] pub const fn is_virtual_view_node(&self) -> bool {
+    #[must_use]
+    pub const fn is_virtual_view_node(&self) -> bool {
         matches!(self.node_type, NodeType::VirtualView)
     }
 
@@ -2571,7 +2851,8 @@ impl NodeData {
     // in the future (which is why the fields are all private).
 
     #[inline]
-    #[must_use] pub const fn get_node_type(&self) -> &NodeType {
+    #[must_use]
+    pub const fn get_node_type(&self) -> &NodeType {
         &self.node_type
     }
     #[inline]
@@ -2579,7 +2860,8 @@ impl NodeData {
         self.extra.as_mut().and_then(|e| e.dataset.as_mut())
     }
     #[inline]
-    #[must_use] pub fn get_dataset(&self) -> Option<&RefAny> {
+    #[must_use]
+    pub fn get_dataset(&self) -> Option<&RefAny> {
         self.extra.as_ref().and_then(|e| e.dataset.as_ref())
     }
     /// Take the dataset out of the node, replacing it with None.
@@ -2589,27 +2871,34 @@ impl NodeData {
     /// Returns IDs and classes as a computed `IdOrClassVec`.
     /// Note: this allocates a new vec each time, prefer `has_id()`/`has_class()` for checks.
     #[inline]
-    #[must_use] pub fn get_ids_and_classes(&self) -> IdOrClassVec {
-        let v: Vec<IdOrClass> = self.attributes().as_ref().iter().filter_map(|attr| {
-            match attr {
+    #[must_use]
+    pub fn get_ids_and_classes(&self) -> IdOrClassVec {
+        let v: Vec<IdOrClass> = self
+            .attributes()
+            .as_ref()
+            .iter()
+            .filter_map(|attr| match attr {
                 AttributeType::Id(s) => Some(IdOrClass::Id(s.clone())),
                 AttributeType::Class(s) => Some(IdOrClass::Class(s.clone())),
                 _ => None,
-            }
-        }).collect();
+            })
+            .collect();
         v.into()
     }
     #[inline]
-    #[must_use] pub const fn get_callbacks(&self) -> &CoreCallbackDataVec {
+    #[must_use]
+    pub const fn get_callbacks(&self) -> &CoreCallbackDataVec {
         &self.callbacks
     }
     #[inline]
-    #[must_use] pub const fn get_style(&self) -> &azul_css::css::Css {
+    #[must_use]
+    pub const fn get_style(&self) -> &azul_css::css::Css {
         &self.style
     }
 
     #[inline]
-    #[must_use] pub fn get_svg_data(&self) -> Option<&SvgNodeData> {
+    #[must_use]
+    pub fn get_svg_data(&self) -> Option<&SvgNodeData> {
         self.extra.as_ref().and_then(|e| e.svg_data.as_ref())
     }
 
@@ -2646,32 +2935,38 @@ impl NodeData {
         }
     }
 
-    #[must_use] pub fn get_image_clip_mask(&self) -> Option<&ImageMask> {
+    #[must_use]
+    pub fn get_image_clip_mask(&self) -> Option<&ImageMask> {
         match self.get_svg_data()? {
             SvgNodeData::ImageClipMask(m) => Some(m),
             _ => None,
         }
     }
     #[inline]
-    #[must_use] pub const fn get_tab_index(&self) -> Option<TabIndex> {
+    #[must_use]
+    pub const fn get_tab_index(&self) -> Option<TabIndex> {
         self.flags.get_tab_index()
     }
     #[inline]
-    #[must_use] pub fn get_accessibility_info(&self) -> Option<&AccessibilityInfo> {
+    #[must_use]
+    pub fn get_accessibility_info(&self) -> Option<&AccessibilityInfo> {
         self.accessibility.as_deref()
     }
     #[inline]
-    #[must_use] pub fn get_menu_bar(&self) -> Option<&Menu> {
+    #[must_use]
+    pub fn get_menu_bar(&self) -> Option<&Menu> {
         self.extra.as_ref().and_then(|e| e.menu_bar.as_deref())
     }
     #[inline]
-    #[must_use] pub fn get_context_menu(&self) -> Option<&Menu> {
+    #[must_use]
+    pub fn get_context_menu(&self) -> Option<&Menu> {
         self.extra.as_ref().and_then(|e| e.context_menu.as_deref())
     }
 
     /// Returns whether this node is an anonymous box generated for table layout.
     #[inline]
-    #[must_use] pub const fn is_anonymous(&self) -> bool {
+    #[must_use]
+    pub const fn is_anonymous(&self) -> bool {
         self.flags.is_anonymous()
     }
 
@@ -2825,7 +3120,8 @@ impl NodeData {
         self.flags.set_contenteditable_mut(contenteditable);
     }
     #[inline]
-    #[must_use] pub const fn is_contenteditable(&self) -> bool {
+    #[must_use]
+    pub const fn is_contenteditable(&self) -> bool {
         self.flags.is_contenteditable()
     }
     #[inline]
@@ -2875,7 +3171,8 @@ impl NodeData {
 
     /// Gets the key for this node, if set.
     #[inline]
-    #[must_use] pub fn get_key(&self) -> Option<u64> {
+    #[must_use]
+    pub fn get_key(&self) -> Option<u64> {
         self.extra.as_ref().and_then(|ext| ext.key)
     }
 
@@ -2920,8 +3217,11 @@ impl NodeData {
 
     /// Gets the merge callback for this node, if set.
     #[inline]
-    #[must_use] pub fn get_merge_callback(&self) -> Option<DatasetMergeCallback> {
-        self.extra.as_ref().and_then(|ext| ext.dataset_merge_callback.clone())
+    #[must_use]
+    pub fn get_merge_callback(&self) -> Option<DatasetMergeCallback> {
+        self.extra
+            .as_ref()
+            .and_then(|ext| ext.dataset_merge_callback.clone())
     }
 
     /// Sets the component origin for this node.
@@ -2937,18 +3237,23 @@ impl NodeData {
 
     /// Gets the component origin for this node, if set.
     #[inline]
-    #[must_use] pub fn get_component_origin(&self) -> Option<&ComponentOrigin> {
-        self.extra.as_ref().and_then(|ext| ext.component_origin.as_ref())
+    #[must_use]
+    pub fn get_component_origin(&self) -> Option<&ComponentOrigin> {
+        self.extra
+            .as_ref()
+            .and_then(|ext| ext.component_origin.as_ref())
     }
 
     #[inline]
-    #[must_use] pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
+    #[must_use]
+    pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
         self.set_menu_bar(menu_bar);
         self
     }
 
     #[inline]
-    #[must_use] pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
+    #[must_use]
+    pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
         self.set_context_menu(context_menu);
         self
     }
@@ -2997,7 +3302,9 @@ impl NodeData {
     pub fn add_css_property(&mut self, p: CssPropertyWithConditions) {
         use azul_css::css::{rule_priority, CssDeclaration, CssPath, CssRuleBlock};
         let rule = CssRuleBlock {
-            path: CssPath { selectors: Vec::new().into() },
+            path: CssPath {
+                selectors: Vec::new().into(),
+            },
             declarations: vec![CssDeclaration::Static(p.property)].into(),
             conditions: p.apply_if,
             priority: rule_priority::INLINE,
@@ -3010,7 +3317,8 @@ impl NodeData {
     }
 
     /// Calculates a deterministic node hash for this node.
-    #[must_use] pub fn calculate_node_data_hash(&self) -> DomNodeHash {
+    #[must_use]
+    pub fn calculate_node_data_hash(&self) -> DomNodeHash {
         use core::hash::Hasher;
         let mut hasher = crate::hash::DefaultHasher::new();
         self.hash(&mut hasher);
@@ -3029,7 +3337,8 @@ impl NodeData {
     ///
     /// This allows a Text("Hello") node to match Text("Hello World") during reconciliation,
     /// preserving cursor position and selection state.
-    #[must_use] pub fn calculate_structural_hash(&self) -> DomNodeHash {
+    #[must_use]
+    pub fn calculate_structural_hash(&self) -> DomNodeHash {
         use core::hash::Hasher;
         use core::hash::Hasher as StdHasher;
 
@@ -3072,8 +3381,14 @@ impl NodeData {
         // (They are now stored as AttributeType::Id / AttributeType::Class in attributes)
         for attr in self.attributes().as_ref() {
             match attr {
-                AttributeType::Id(s) => { 0u8.hash(&mut hasher); s.as_str().hash(&mut hasher); }
-                AttributeType::Class(s) => { 1u8.hash(&mut hasher); s.as_str().hash(&mut hasher); }
+                AttributeType::Id(s) => {
+                    0u8.hash(&mut hasher);
+                    s.as_str().hash(&mut hasher);
+                }
+                AttributeType::Class(s) => {
+                    1u8.hash(&mut hasher);
+                    s.as_str().hash(&mut hasher);
+                }
                 _ => {}
             }
         }
@@ -3081,7 +3396,10 @@ impl NodeData {
         // Hash other attributes - but skip contenteditable since that might change
         // Also skip Id/Class since they were already hashed above
         for attr in self.attributes().as_ref() {
-            if !matches!(attr, AttributeType::ContentEditable(_) | AttributeType::Id(_) | AttributeType::Class(_)) {
+            if !matches!(
+                attr,
+                AttributeType::ContentEditable(_) | AttributeType::Id(_) | AttributeType::Class(_)
+            ) {
                 attr.hash(&mut hasher);
             }
         }
@@ -3096,17 +3414,20 @@ impl NodeData {
     }
 
     #[inline]
-    #[must_use] pub const fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
+    #[must_use]
+    pub const fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
         self.set_tab_index(tab_index);
         self
     }
     #[inline]
-    #[must_use] pub const fn with_contenteditable(mut self, contenteditable: bool) -> Self {
+    #[must_use]
+    pub const fn with_contenteditable(mut self, contenteditable: bool) -> Self {
         self.set_contenteditable(contenteditable);
         self
     }
     #[inline]
-    #[must_use] pub fn with_node_type(mut self, node_type: NodeType) -> Self {
+    #[must_use]
+    pub fn with_node_type(mut self, node_type: NodeType) -> Self {
         self.set_node_type(node_type);
         self
     }
@@ -3122,17 +3443,20 @@ impl NodeData {
         self
     }
     #[inline]
-    #[must_use] pub fn with_dataset(mut self, data: OptionRefAny) -> Self {
+    #[must_use]
+    pub fn with_dataset(mut self, data: OptionRefAny) -> Self {
         self.set_dataset(data);
         self
     }
     #[inline]
-    #[must_use] pub fn with_ids_and_classes(mut self, ids_and_classes: IdOrClassVec) -> Self {
+    #[must_use]
+    pub fn with_ids_and_classes(mut self, ids_and_classes: IdOrClassVec) -> Self {
         self.set_ids_and_classes(ids_and_classes);
         self
     }
     #[inline]
-    #[must_use] pub fn with_callbacks(mut self, callbacks: CoreCallbackDataVec) -> Self {
+    #[must_use]
+    pub fn with_callbacks(mut self, callbacks: CoreCallbackDataVec) -> Self {
         self.callbacks = callbacks;
         self
     }
@@ -3140,13 +3464,15 @@ impl NodeData {
     /// becomes a single-declaration rule at `rule_priority::INLINE`.
     /// Prefer `with_style(Css)` for new code.
     #[inline]
-    #[must_use] pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
         self.style = css_props.into();
         self
     }
     /// Builder-form of `set_style`.
     #[inline]
-    #[must_use] pub fn with_style(mut self, style: azul_css::css::Css) -> Self {
+    #[must_use]
+    pub fn with_style(mut self, style: azul_css::css::Css) -> Self {
         self.style = style;
         self
     }
@@ -3237,7 +3563,8 @@ impl NodeData {
     }
 
     /// Builder method for `set_css`
-    #[must_use] pub fn with_css(mut self, style: &str) -> Self {
+    #[must_use]
+    pub fn with_css(mut self, style: &str) -> Self {
         self.set_css(style);
         self
     }
@@ -3251,7 +3578,8 @@ impl NodeData {
     }
 
     #[inline]
-    #[must_use] pub fn copy_special(&self) -> Self {
+    #[must_use]
+    pub fn copy_special(&self) -> Self {
         Self {
             node_type: self.node_type.to_library_owned_nodetype(),
             style: self.style.clone(),
@@ -3298,17 +3626,24 @@ impl NodeData {
         // mis-lifts on the web backend) and leaks nothing, because the overwritten
         // value is a heap-free `Div`. Kept unsafe (not a plain `=` assignment)
         // specifically to skip that Drop.
-        unsafe { core::ptr::write(&raw mut copy.node_type, taken_node_type); }
+        unsafe {
+            core::ptr::write(&raw mut copy.node_type, taken_node_type);
+        }
         copy.style = taken_style;
         copy.extra = taken_extra;
         copy
     }
 
-    #[must_use] pub fn is_focusable(&self) -> bool {
+    #[must_use]
+    pub fn is_focusable(&self) -> bool {
         // Inherently focusable elements per HTML spec
-        if matches!(self.node_type,
-            NodeType::A | NodeType::Button | NodeType::Input
-            | NodeType::Select | NodeType::TextArea
+        if matches!(
+            self.node_type,
+            NodeType::A
+                | NodeType::Button
+                | NodeType::Input
+                | NodeType::Select
+                | NodeType::TextArea
         ) {
             return true;
         }
@@ -3336,7 +3671,8 @@ impl NodeData {
     /// - Any element with a click callback (implicit activation)
     ///
     /// See: <https://html.spec.whatwg.org/multipage/interaction.html#activation-behavior>
-    #[must_use] pub fn has_activation_behavior(&self) -> bool {
+    #[must_use]
+    pub fn has_activation_behavior(&self) -> bool {
         use crate::events::{EventFilter, HoverEventFilter};
 
         // Inherently activatable elements per HTML spec
@@ -3346,13 +3682,12 @@ impl NodeData {
 
         // Check for click callback (most common case for Azul)
         // In Azul, "click" is typically LeftMouseUp
-        let has_click_callback = self
-            .get_callbacks()
-            .iter()
-            .any(|cb| matches!(
+        let has_click_callback = self.get_callbacks().iter().any(|cb| {
+            matches!(
                 cb.event,
                 EventFilter::Hover(HoverEventFilter::MouseUp | HoverEventFilter::LeftMouseUp)
-            ));
+            )
+        });
 
         if has_click_callback {
             return true;
@@ -3380,7 +3715,8 @@ impl NodeData {
     ///
     /// An element is activatable if it has activation behavior AND is not disabled.
     /// This checks for common disability patterns (aria-disabled, disabled attribute).
-    #[must_use] pub fn is_activatable(&self) -> bool {
+    #[must_use]
+    pub fn is_activatable(&self) -> bool {
         if !self.has_activation_behavior() {
             return false;
         }
@@ -3409,16 +3745,26 @@ impl NodeData {
     /// - `Some(-1)`: Focusable programmatically but not via Tab
     /// - `Some(0)`: In natural tab order
     /// - `Some(n > 0)`: In tab order with priority n (higher = later)
-    #[must_use] pub fn get_effective_tabindex(&self) -> Option<i32> {
-        self.flags.get_tab_index().map_or_else(|| if self.get_callbacks().iter().any(|cb| cb.event.is_focus_callback()) {
+    #[must_use]
+    pub fn get_effective_tabindex(&self) -> Option<i32> {
+        self.flags.get_tab_index().map_or_else(
+            || {
+                if self
+                    .get_callbacks()
+                    .iter()
+                    .any(|cb| cb.event.is_focus_callback())
+                {
                     Some(0)
                 } else {
                     None
-                }, |tab_idx| match tab_idx {
-                    TabIndex::Auto => Some(0),
-                    TabIndex::OverrideInParent(n) => Some(i32::try_from(n).unwrap_or(i32::MAX)),
-                    TabIndex::NoKeyboardFocus => Some(-1),
-                })
+                }
+            },
+            |tab_idx| match tab_idx {
+                TabIndex::Auto => Some(0),
+                TabIndex::OverrideInParent(n) => Some(i32::try_from(n).unwrap_or(i32::MAX)),
+                TabIndex::NoKeyboardFocus => Some(-1),
+            },
+        )
     }
 
     /// Returns the accessible label for this node.
@@ -3426,9 +3772,12 @@ impl NodeData {
     /// Priority: `aria-label` attribute > `alt` attribute > `title` attribute > None.
     /// Does NOT include child text — the caller should collect that separately
     /// using the DOM hierarchy.
-    #[must_use] pub fn get_accessible_label(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_accessible_label(&self) -> Option<&str> {
         for attr in self.attributes().as_ref() {
-            if let AttributeType::AriaLabel(s) = attr { return Some(s.as_str()) }
+            if let AttributeType::AriaLabel(s) = attr {
+                return Some(s.as_str());
+            }
         }
         for attr in self.attributes().as_ref() {
             match attr {
@@ -3443,7 +3792,8 @@ impl NodeData {
     ///
     /// Priority: `value` attribute > None.
     /// For text inputs, this is the input's current value.
-    #[must_use] pub fn get_accessible_value(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_accessible_value(&self) -> Option<&str> {
         for attr in self.attributes().as_ref() {
             if let AttributeType::Value(s) = attr {
                 return Some(s.as_str());
@@ -3453,7 +3803,8 @@ impl NodeData {
     }
 
     /// Returns the placeholder text for this node.
-    #[must_use] pub fn get_placeholder(&self) -> Option<&str> {
+    #[must_use]
+    pub fn get_placeholder(&self) -> Option<&str> {
         for attr in self.attributes().as_ref() {
             if let AttributeType::Placeholder(s) = attr {
                 return Some(s.as_str());
@@ -3466,7 +3817,8 @@ impl NodeData {
         self.extra.as_mut()?.virtual_view.as_mut()
     }
 
-    #[must_use] pub fn get_virtual_view_node_ref(&self) -> Option<&VirtualViewNode> {
+    #[must_use]
+    pub fn get_virtual_view_node_ref(&self) -> Option<&VirtualViewNode> {
         self.extra.as_ref()?.virtual_view.as_ref()
     }
 
@@ -3504,7 +3856,8 @@ impl NodeData {
         )
     }
 
-    #[must_use] pub fn debug_print_end(&self) -> String {
+    #[must_use]
+    pub fn debug_print_end(&self) -> String {
         let html_type = self.node_type.get_path();
         format!("</{html_type}>")
     }
@@ -3570,7 +3923,14 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(DomId, DomIdVec, DomIdVecDestructor, DomIdVecDestructorType, DomIdVecSlice, OptionDomId);
+impl_vec!(
+    DomId,
+    DomIdVec,
+    DomIdVecDestructor,
+    DomIdVecDestructorType,
+    DomIdVecSlice,
+    OptionDomId
+);
 impl_vec_debug!(DomId, DomIdVec);
 impl_vec_clone!(DomId, DomIdVec, DomIdVecDestructor);
 impl_vec_partialeq!(DomId, DomIdVec);
@@ -3644,8 +4004,20 @@ pub struct CssWithNodeId {
     pub css: azul_css::css::Css,
 }
 
-impl_vec!(CssWithNodeId, CssWithNodeIdVec, CssWithNodeIdVecDestructor, CssWithNodeIdVecDestructorType, CssWithNodeIdVecSlice, OptionCssWithNodeId);
-impl_option!(CssWithNodeId, OptionCssWithNodeId, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd]);
+impl_vec!(
+    CssWithNodeId,
+    CssWithNodeIdVec,
+    CssWithNodeIdVecDestructor,
+    CssWithNodeIdVecDestructorType,
+    CssWithNodeIdVecSlice,
+    OptionCssWithNodeId
+);
+impl_option!(
+    CssWithNodeId,
+    OptionCssWithNodeId,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd]
+);
 impl_vec_clone!(CssWithNodeId, CssWithNodeIdVec, CssWithNodeIdVecDestructor);
 impl_vec_mut!(CssWithNodeId, CssWithNodeIdVec);
 impl_vec_debug!(CssWithNodeId, CssWithNodeIdVec);
@@ -3689,9 +4061,13 @@ impl PartialOrd for Dom {
 }
 impl Ord for Dom {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.root.cmp(&other.root)
+        self.root
+            .cmp(&other.root)
             .then_with(|| self.children.cmp(&other.children))
-            .then_with(|| self.estimated_total_children.cmp(&other.estimated_total_children))
+            .then_with(|| {
+                self.estimated_total_children
+                    .cmp(&other.estimated_total_children)
+            })
     }
 }
 
@@ -3702,7 +4078,14 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-impl_vec!(Dom, DomVec, DomVecDestructor, DomVecDestructorType, DomVecSlice, OptionDom);
+impl_vec!(
+    Dom,
+    DomVec,
+    DomVecDestructor,
+    DomVecDestructorType,
+    DomVecSlice,
+    OptionDom
+);
 impl_vec_clone!(Dom, DomVec, DomVecDestructor);
 impl_vec_mut!(Dom, DomVec);
 impl_vec_debug!(Dom, DomVec);
@@ -3729,7 +4112,8 @@ impl Dom {
     /// Creates an empty DOM with a give `NodeType`. Note: This is a `const fn` and
     /// doesn't allocate, it only allocates once you add at least one child node.
     #[inline]
-    #[must_use] pub fn create_node(node_type: NodeType) -> Self {
+    #[must_use]
+    pub fn create_node(node_type: NodeType) -> Self {
         Self {
             root: NodeData::create_node(node_type),
             children: Vec::new().into(),
@@ -3738,7 +4122,8 @@ impl Dom {
         }
     }
     #[inline]
-    #[must_use] pub fn create_from_data(node_data: NodeData) -> Self {
+    #[must_use]
+    pub fn create_from_data(node_data: NodeData) -> Self {
         Self {
             root: node_data,
             children: Vec::new().into(),
@@ -3754,7 +4139,8 @@ impl Dom {
     /// **Accessibility**: The `<html>` element is the root of an HTML document and should have a
     /// `lang` attribute.
     #[inline]
-    #[must_use] pub const fn create_html() -> Self {
+    #[must_use]
+    pub const fn create_html() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Html),
             children: DomVec::from_const_slice(&[]),
@@ -3767,7 +4153,8 @@ impl Dom {
     ///
     /// **Accessibility**: The `<head>` contains metadata. Use `<title>` for page titles.
     #[inline]
-    #[must_use] pub const fn create_head() -> Self {
+    #[must_use]
+    pub const fn create_head() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Head),
             children: DomVec::from_const_slice(&[]),
@@ -3777,7 +4164,8 @@ impl Dom {
     }
 
     #[inline]
-    #[must_use] pub const fn create_body() -> Self {
+    #[must_use]
+    pub const fn create_body() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Body),
             children: DomVec::from_const_slice(&[]),
@@ -3791,7 +4179,8 @@ impl Dom {
     /// **Accessibility**: Prefer semantic elements like `<article>`, `<section>`, `<nav>` when
     /// applicable.
     #[inline]
-    #[must_use] pub const fn create_div() -> Self {
+    #[must_use]
+    pub const fn create_div() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Div),
             children: DomVec::from_const_slice(&[]),
@@ -3808,7 +4197,8 @@ impl Dom {
     /// independently. Screen readers can navigate by articles. Consider adding aria-label for
     /// multiple articles.
     #[inline]
-    #[must_use] pub const fn create_article() -> Self {
+    #[must_use]
+    pub const fn create_article() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Article),
             children: DomVec::from_const_slice(&[]),
@@ -3822,7 +4212,8 @@ impl Dom {
     /// **Accessibility**: Represents a thematic grouping of content with a heading.
     /// Should typically have a heading (h1-h6) as a child. Consider aria-labelledby.
     #[inline]
-    #[must_use] pub const fn create_section() -> Self {
+    #[must_use]
+    pub const fn create_section() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Section),
             children: DomVec::from_const_slice(&[]),
@@ -3837,7 +4228,8 @@ impl Dom {
     /// Use aria-label to distinguish multiple nav elements (e.g., "Main navigation", "Footer
     /// links").
     #[inline]
-    #[must_use] pub const fn create_nav() -> Self {
+    #[must_use]
+    pub const fn create_nav() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Nav),
             children: DomVec::from_const_slice(&[]),
@@ -3851,7 +4243,8 @@ impl Dom {
     /// **Accessibility**: Represents content tangentially related to main content (sidebars,
     /// callouts). Screen readers announce this as complementary content.
     #[inline]
-    #[must_use] pub const fn create_aside() -> Self {
+    #[must_use]
+    pub const fn create_aside() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Aside),
             children: DomVec::from_const_slice(&[]),
@@ -3865,7 +4258,8 @@ impl Dom {
     /// **Accessibility**: Represents introductory content or navigational aids.
     /// Can be used for page headers or section headers.
     #[inline]
-    #[must_use] pub const fn create_header() -> Self {
+    #[must_use]
+    pub const fn create_header() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Header),
             children: DomVec::from_const_slice(&[]),
@@ -3879,7 +4273,8 @@ impl Dom {
     /// **Accessibility**: Represents footer for nearest section or page.
     /// Typically contains copyright, author info, or related links.
     #[inline]
-    #[must_use] pub const fn create_footer() -> Self {
+    #[must_use]
+    pub const fn create_footer() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Footer),
             children: DomVec::from_const_slice(&[]),
@@ -3894,7 +4289,8 @@ impl Dom {
     /// Screen readers can jump directly to main content. Do not nest inside
     /// article/aside/footer/header/nav.
     #[inline]
-    #[must_use] pub const fn create_main() -> Self {
+    #[must_use]
+    pub const fn create_main() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Main),
             children: DomVec::from_const_slice(&[]),
@@ -3908,7 +4304,8 @@ impl Dom {
     /// **Accessibility**: Represents self-contained content like diagrams, photos, code listings.
     /// Use with `<figcaption>` to provide a caption. Screen readers associate caption with figure.
     #[inline]
-    #[must_use] pub const fn create_figure() -> Self {
+    #[must_use]
+    pub const fn create_figure() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Figure),
             children: DomVec::from_const_slice(&[]),
@@ -3922,7 +4319,8 @@ impl Dom {
     /// **Accessibility**: Provides a caption for `<figure>`. Screen readers announce this as the
     /// figure description.
     #[inline]
-    #[must_use] pub const fn create_figcaption() -> Self {
+    #[must_use]
+    pub const fn create_figcaption() -> Self {
         Self {
             root: NodeData::create_node(NodeType::FigCaption),
             children: DomVec::from_const_slice(&[]),
@@ -3938,7 +4336,8 @@ impl Dom {
     /// Prefer [`Dom::create_details`] so that screen readers announce the
     /// disclosure widget's purpose.
     #[inline]
-    #[must_use] pub const fn create_details_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_details_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Details),
             children: DomVec::from_const_slice(&[]),
@@ -3955,7 +4354,8 @@ impl Dom {
     /// Use [`Dom::create_details_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_details(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_details(aria: SmallAriaInfo) -> Self {
         Self::create_details_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -3964,7 +4364,8 @@ impl Dom {
     /// Prefer [`Dom::create_summary`] so that screen readers can announce the
     /// disclosure heading.
     #[inline]
-    #[must_use] pub const fn create_summary_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_summary_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Summary),
             children: DomVec::from_const_slice(&[]),
@@ -3981,7 +4382,8 @@ impl Dom {
     /// Use [`Dom::create_summary_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_summary(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_summary(aria: SmallAriaInfo) -> Self {
         Self::create_summary_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -3991,7 +4393,9 @@ impl Dom {
     /// announce the disclosure heading.
     #[inline]
     pub fn create_summary_with_text_no_a11y<S: Into<AzString>>(text: S) -> Self {
-        Self::create_summary_no_a11y().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_summary_no_a11y().with_child(
+            Self::create_text_do_not_use_without_block_level_wrapper(text),
+        )
     }
 
     /// Creates a summary element with text and accessibility information for details.
@@ -4011,7 +4415,8 @@ impl Dom {
     /// Prefer [`Dom::create_dialog`] so that the dialog's purpose, modality,
     /// and described-by relationship are surfaced to assistive technologies.
     #[inline]
-    #[must_use] pub const fn create_dialog_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_dialog_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Dialog),
             children: DomVec::from_const_slice(&[]),
@@ -4029,14 +4434,16 @@ impl Dom {
     /// Use [`Dom::create_dialog_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_dialog(aria: DialogAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_dialog(aria: DialogAriaInfo) -> Self {
         Self::create_dialog_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
     // Basic Structural Elements
 
     #[inline]
-    #[must_use] pub const fn create_br() -> Self {
+    #[must_use]
+    pub const fn create_br() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Br),
             children: DomVec::from_const_slice(&[]),
@@ -4061,13 +4468,12 @@ impl Dom {
     /// which builds that shape for you. The engine also logs a warning after
     /// layout when it finds a text node used without a containing block.
     #[inline]
-    pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(
-        value: S,
-    ) -> Self {
+    pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(value: S) -> Self {
         Self::create_node(NodeType::Text(BoxOrStatic::heap(value.into())))
     }
     #[inline]
-    #[must_use] pub fn create_image(image: ImageRef) -> Self {
+    #[must_use]
+    pub fn create_image(image: ImageRef) -> Self {
         Self::create_node(NodeType::Image(BoxOrStatic::heap(image)))
     }
     /// Creates an icon node with the given icon name.
@@ -4104,7 +4510,8 @@ impl Dom {
     /// `CLLocationManager` / `LocationManager` / `geoclue`
     /// subscription. See `SUPER_PLAN_2.md` section 1.5.
     #[inline]
-    #[must_use] pub fn create_geolocation_probe(config: crate::geolocation::GeolocationProbeConfig) -> Self {
+    #[must_use]
+    pub fn create_geolocation_probe(config: crate::geolocation::GeolocationProbeConfig) -> Self {
         Self::create_node(NodeType::GeolocationProbe(config))
     }
 
@@ -4114,7 +4521,8 @@ impl Dom {
     ///
     /// **Accessibility**: Paragraphs provide semantic structure for screen readers.
     #[inline]
-    #[must_use] pub const fn create_p() -> Self {
+    #[must_use]
+    pub const fn create_p() -> Self {
         Self {
             root: NodeData::create_node(NodeType::P),
             children: DomVec::from_const_slice(&[]),
@@ -4128,7 +4536,8 @@ impl Dom {
     /// **Accessibility**: Use `h1` for the main page title. There should typically be only one `h1`
     /// per page.
     #[inline]
-    #[must_use] pub const fn create_h1() -> Self {
+    #[must_use]
+    pub const fn create_h1() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H1),
             children: DomVec::from_const_slice(&[]),
@@ -4146,14 +4555,17 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h1_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h1().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_h1().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty heading level 2 element.
     ///
     /// **Accessibility**: Use `h2` for major section headings under `h1`.
     #[inline]
-    #[must_use] pub const fn create_h2() -> Self {
+    #[must_use]
+    pub const fn create_h2() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H2),
             children: DomVec::from_const_slice(&[]),
@@ -4170,14 +4582,17 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h2_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h2().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_h2().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty heading level 3 element.
     ///
     /// **Accessibility**: Use `h3` for subsections under `h2`.
     #[inline]
-    #[must_use] pub const fn create_h3() -> Self {
+    #[must_use]
+    pub const fn create_h3() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H3),
             children: DomVec::from_const_slice(&[]),
@@ -4194,12 +4609,15 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h3_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h3().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_h3().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty heading level 4 element.
     #[inline]
-    #[must_use] pub const fn create_h4() -> Self {
+    #[must_use]
+    pub const fn create_h4() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H4),
             children: DomVec::from_const_slice(&[]),
@@ -4214,12 +4632,15 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h4_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h4().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_h4().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty heading level 5 element.
     #[inline]
-    #[must_use] pub const fn create_h5() -> Self {
+    #[must_use]
+    pub const fn create_h5() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H5),
             children: DomVec::from_const_slice(&[]),
@@ -4234,12 +4655,15 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h5_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h5().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_h5().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty heading level 6 element.
     #[inline]
-    #[must_use] pub const fn create_h6() -> Self {
+    #[must_use]
+    pub const fn create_h6() -> Self {
         Self {
             root: NodeData::create_node(NodeType::H6),
             children: DomVec::from_const_slice(&[]),
@@ -4254,7 +4678,9 @@ impl Dom {
     /// - `text`: Heading text
     #[inline]
     pub fn create_h6_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_h6().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_h6().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty generic inline container (span).
@@ -4262,7 +4688,8 @@ impl Dom {
     /// **Accessibility**: Prefer semantic elements like `strong`, `em`, `code`, etc. when
     /// applicable.
     #[inline]
-    #[must_use] pub const fn create_span() -> Self {
+    #[must_use]
+    pub const fn create_span() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Span),
             children: DomVec::from_const_slice(&[]),
@@ -4280,14 +4707,17 @@ impl Dom {
     /// - `text`: Span content
     #[inline]
     pub fn create_span_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_span().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_span().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty strong importance element.
     ///
     /// **Accessibility**: Use `strong` instead of `b` for semantic meaning.
     #[inline]
-    #[must_use] pub const fn create_strong() -> Self {
+    #[must_use]
+    pub const fn create_strong() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Strong),
             children: DomVec::from_const_slice(&[]),
@@ -4305,14 +4735,17 @@ impl Dom {
     /// - `text`: Text to emphasize
     #[inline]
     pub fn create_strong_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_strong().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_strong().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty emphasis element (stress emphasis).
     ///
     /// **Accessibility**: Use `em` instead of `i` for semantic meaning.
     #[inline]
-    #[must_use] pub const fn create_em() -> Self {
+    #[must_use]
+    pub const fn create_em() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Em),
             children: DomVec::from_const_slice(&[]),
@@ -4330,14 +4763,17 @@ impl Dom {
     /// - `text`: Text to emphasize
     #[inline]
     pub fn create_em_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_em().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_em().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty code element.
     ///
     /// **Accessibility**: Represents a fragment of computer code.
     #[inline]
-    #[must_use] pub fn create_code() -> Self {
+    #[must_use]
+    pub fn create_code() -> Self {
         Self::create_node(NodeType::Code)
     }
 
@@ -4350,14 +4786,17 @@ impl Dom {
     /// - `code`: Code content
     #[inline]
     pub fn create_code_with_text<S: Into<AzString>>(code: S) -> Self {
-        Self::create_code().with_child(Self::create_text_do_not_use_without_block_level_wrapper(code))
+        Self::create_code().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            code,
+        ))
     }
 
     /// Creates an empty preformatted text element.
     ///
     /// **Accessibility**: Preserves whitespace and line breaks.
     #[inline]
-    #[must_use] pub fn create_pre() -> Self {
+    #[must_use]
+    pub fn create_pre() -> Self {
         Self::create_node(NodeType::Pre)
     }
 
@@ -4370,14 +4809,17 @@ impl Dom {
     /// - `text`: Preformatted content
     #[inline]
     pub fn create_pre_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_pre().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_pre().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty blockquote element.
     ///
     /// **Accessibility**: Represents a section quoted from another source.
     #[inline]
-    #[must_use] pub fn create_blockquote() -> Self {
+    #[must_use]
+    pub fn create_blockquote() -> Self {
         Self::create_node(NodeType::BlockQuote)
     }
 
@@ -4390,14 +4832,17 @@ impl Dom {
     /// - `text`: Quote content
     #[inline]
     pub fn create_blockquote_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_blockquote().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_blockquote().with_child(
+            Self::create_text_do_not_use_without_block_level_wrapper(text),
+        )
     }
 
     /// Creates an empty citation element.
     ///
     /// **Accessibility**: Represents a reference to a creative work.
     #[inline]
-    #[must_use] pub fn create_cite() -> Self {
+    #[must_use]
+    pub fn create_cite() -> Self {
         Self::create_node(NodeType::Cite)
     }
 
@@ -4410,7 +4855,9 @@ impl Dom {
     /// - `text`: Citation text
     #[inline]
     pub fn create_cite_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_cite().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_cite().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty abbreviation element.
@@ -4418,7 +4865,8 @@ impl Dom {
     /// **Accessibility**: Represents an abbreviation or acronym. Use with a `title` attribute
     /// to provide the full expansion for screen readers.
     #[inline]
-    #[must_use] pub fn create_abbr() -> Self {
+    #[must_use]
+    pub fn create_abbr() -> Self {
         Self::create_node(NodeType::Abbr)
     }
 
@@ -4431,17 +4879,21 @@ impl Dom {
     /// - `abbr_text`: Abbreviated text
     /// - `title`: Full expansion
     #[inline]
-    #[must_use] pub fn create_abbr_with_title(abbr_text: AzString, title: AzString) -> Self {
+    #[must_use]
+    pub fn create_abbr_with_title(abbr_text: AzString, title: AzString) -> Self {
         Self::create_node(NodeType::Abbr)
             .with_attribute(AttributeType::Title(title))
-            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(abbr_text))
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+                abbr_text,
+            ))
     }
 
     /// Creates an empty keyboard input element.
     ///
     /// **Accessibility**: Represents keyboard input or key combinations.
     #[inline]
-    #[must_use] pub fn create_kbd() -> Self {
+    #[must_use]
+    pub fn create_kbd() -> Self {
         Self::create_node(NodeType::Kbd)
     }
 
@@ -4454,14 +4906,17 @@ impl Dom {
     /// - `text`: Keyboard instruction
     #[inline]
     pub fn create_kbd_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_kbd().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_kbd().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty sample output element.
     ///
     /// **Accessibility**: Represents sample output from a program or computing system.
     #[inline]
-    #[must_use] pub fn create_samp() -> Self {
+    #[must_use]
+    pub fn create_samp() -> Self {
         Self::create_node(NodeType::Samp)
     }
 
@@ -4473,14 +4928,17 @@ impl Dom {
     /// - `text`: Sample text
     #[inline]
     pub fn create_samp_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_samp().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_samp().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty variable element.
     ///
     /// **Accessibility**: Represents a variable in mathematical expressions or programming.
     #[inline]
-    #[must_use] pub fn create_var() -> Self {
+    #[must_use]
+    pub fn create_var() -> Self {
         Self::create_node(NodeType::Var)
     }
 
@@ -4492,12 +4950,15 @@ impl Dom {
     /// - `text`: Variable name
     #[inline]
     pub fn create_var_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_var().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_var().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty subscript element.
     #[inline]
-    #[must_use] pub fn create_sub() -> Self {
+    #[must_use]
+    pub fn create_sub() -> Self {
         Self::create_node(NodeType::Sub)
     }
 
@@ -4509,12 +4970,15 @@ impl Dom {
     /// - `text`: Subscript content
     #[inline]
     pub fn create_sub_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_sub().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_sub().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty superscript element.
     #[inline]
-    #[must_use] pub fn create_sup() -> Self {
+    #[must_use]
+    pub fn create_sup() -> Self {
         Self::create_node(NodeType::Sup)
     }
 
@@ -4526,12 +4990,15 @@ impl Dom {
     /// - `text`: Superscript content
     #[inline]
     pub fn create_sup_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_sup().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_sup().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty underline element.
     #[inline]
-    #[must_use] pub fn create_u() -> Self {
+    #[must_use]
+    pub fn create_u() -> Self {
         Self::create_node(NodeType::U)
     }
 
@@ -4541,12 +5008,15 @@ impl Dom {
     /// Use semantic elements when possible (e.g., `<em>` for emphasis).
     #[inline]
     pub fn create_u_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_u().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_u().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty strikethrough element.
     #[inline]
-    #[must_use] pub fn create_s() -> Self {
+    #[must_use]
+    pub fn create_s() -> Self {
         Self::create_node(NodeType::S)
     }
 
@@ -4556,12 +5026,15 @@ impl Dom {
     /// Consider using `<del>` for deleted content with datetime attribute.
     #[inline]
     pub fn create_s_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_s().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_s().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty mark element.
     #[inline]
-    #[must_use] pub fn create_mark() -> Self {
+    #[must_use]
+    pub fn create_mark() -> Self {
         Self::create_node(NodeType::Mark)
     }
 
@@ -4571,12 +5044,15 @@ impl Dom {
     /// Screen readers may announce this as "highlighted".
     #[inline]
     pub fn create_mark_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_mark().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_mark().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty deleted text element.
     #[inline]
-    #[must_use] pub fn create_del() -> Self {
+    #[must_use]
+    pub fn create_del() -> Self {
         Self::create_node(NodeType::Del)
     }
 
@@ -4586,12 +5062,15 @@ impl Dom {
     /// Use with `datetime` and `cite` attributes for edit tracking.
     #[inline]
     pub fn create_del_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_del().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_del().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty inserted text element.
     #[inline]
-    #[must_use] pub fn create_ins() -> Self {
+    #[must_use]
+    pub fn create_ins() -> Self {
         Self::create_node(NodeType::Ins)
     }
 
@@ -4601,12 +5080,15 @@ impl Dom {
     /// Use with `datetime` and `cite` attributes for edit tracking.
     #[inline]
     pub fn create_ins_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_ins().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_ins().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty definition element.
     #[inline]
-    #[must_use] pub fn create_dfn() -> Self {
+    #[must_use]
+    pub fn create_dfn() -> Self {
         Self::create_node(NodeType::Dfn)
     }
 
@@ -4616,7 +5098,9 @@ impl Dom {
     /// Often used within a definition list or with `<abbr>`.
     #[inline]
     pub fn create_dfn_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_dfn().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_dfn().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates a time element.
@@ -4628,8 +5112,11 @@ impl Dom {
     /// - `text`: Human-readable time/date
     /// - `datetime`: Optional machine-readable datetime
     #[inline]
-    #[must_use] pub fn create_time(text: AzString, datetime: OptionString) -> Self {
-        let mut element = Self::create_node(NodeType::Time).with_child(Self::create_text_do_not_use_without_block_level_wrapper(text));
+    #[must_use]
+    pub fn create_time(text: AzString, datetime: OptionString) -> Self {
+        let mut element = Self::create_node(NodeType::Time).with_child(
+            Self::create_text_do_not_use_without_block_level_wrapper(text),
+        );
         if let OptionString::Some(dt) = datetime {
             element = element.with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "datetime".into(),
@@ -4643,7 +5130,8 @@ impl Dom {
     ///
     /// **Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl).
     #[inline]
-    #[must_use] pub fn create_bdo() -> Self {
+    #[must_use]
+    pub fn create_bdo() -> Self {
         Self::create_node(NodeType::Bdo)
     }
 
@@ -4652,7 +5140,9 @@ impl Dom {
     /// **Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl).
     #[inline]
     pub fn create_bdo_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_bdo().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_bdo().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     // Additional inline / text-level elements
@@ -4661,7 +5151,8 @@ impl Dom {
     ///
     /// **Accessibility**: Prefer `<strong>` for semantic emphasis. `<b>` is purely stylistic.
     #[inline]
-    #[must_use] pub fn create_b() -> Self {
+    #[must_use]
+    pub fn create_b() -> Self {
         Self::create_node(NodeType::B)
     }
 
@@ -4673,14 +5164,17 @@ impl Dom {
     /// - `text`: Bold text content
     #[inline]
     pub fn create_b_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_b().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_b().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty italic element.
     ///
     /// **Accessibility**: Prefer `<em>` for stress emphasis. `<i>` is purely stylistic.
     #[inline]
-    #[must_use] pub fn create_i() -> Self {
+    #[must_use]
+    pub fn create_i() -> Self {
         Self::create_node(NodeType::I)
     }
 
@@ -4692,14 +5186,17 @@ impl Dom {
     /// - `text`: Italic text content
     #[inline]
     pub fn create_i_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_i().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_i().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty small text element.
     ///
     /// **Accessibility**: Represents side-comments and small print like copyright/legal text.
     #[inline]
-    #[must_use] pub fn create_small() -> Self {
+    #[must_use]
+    pub fn create_small() -> Self {
         Self::create_node(NodeType::Small)
     }
 
@@ -4709,14 +5206,17 @@ impl Dom {
     /// - `text`: Small text content
     #[inline]
     pub fn create_small_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_small().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_small().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty `<big>` element.
     ///
     /// **Note**: Deprecated in HTML5. Prefer CSS `font-size`.
     #[inline]
-    #[must_use] pub fn create_big() -> Self {
+    #[must_use]
+    pub fn create_big() -> Self {
         Self::create_node(NodeType::Big)
     }
 
@@ -4725,7 +5225,9 @@ impl Dom {
     /// **Note**: Deprecated in HTML5. Prefer CSS `font-size`.
     #[inline]
     pub fn create_big_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_big().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_big().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty bi-directional isolate element.
@@ -4733,7 +5235,8 @@ impl Dom {
     /// **Accessibility**: Used to isolate text whose direction is unknown,
     /// keeping it from affecting surrounding bidi layout.
     #[inline]
-    #[must_use] pub fn create_bdi() -> Self {
+    #[must_use]
+    pub fn create_bdi() -> Self {
         Self::create_node(NodeType::Bdi)
     }
 
@@ -4743,7 +5246,9 @@ impl Dom {
     /// keeping it from affecting surrounding bidi layout.
     #[inline]
     pub fn create_bdi_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_bdi().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_bdi().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty word break opportunity element.
@@ -4751,7 +5256,8 @@ impl Dom {
     /// **Note**: `<wbr>` is a self-closing element that suggests a line-break opportunity.
     /// It does not take text content.
     #[inline]
-    #[must_use] pub fn create_wbr() -> Self {
+    #[must_use]
+    pub fn create_wbr() -> Self {
         Self::create_node(NodeType::Wbr)
     }
 
@@ -4760,7 +5266,8 @@ impl Dom {
     /// **Accessibility**: Used for East Asian typography to provide
     /// pronunciation/translation annotations. Wraps `<rt>`/`<rp>` children.
     #[inline]
-    #[must_use] pub fn create_ruby() -> Self {
+    #[must_use]
+    pub fn create_ruby() -> Self {
         Self::create_node(NodeType::Ruby)
     }
 
@@ -4768,7 +5275,8 @@ impl Dom {
     ///
     /// **Accessibility**: Pronunciation/translation annotation inside `<ruby>`.
     #[inline]
-    #[must_use] pub fn create_rt() -> Self {
+    #[must_use]
+    pub fn create_rt() -> Self {
         Self::create_node(NodeType::Rt)
     }
 
@@ -4778,14 +5286,17 @@ impl Dom {
     /// - `text`: Ruby annotation content
     #[inline]
     pub fn create_rt_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_rt().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_rt().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates an empty ruby text container element.
     ///
     /// **Accessibility**: Container for ruby text annotations.
     #[inline]
-    #[must_use] pub fn create_rtc() -> Self {
+    #[must_use]
+    pub fn create_rtc() -> Self {
         Self::create_node(NodeType::Rtc)
     }
 
@@ -4793,7 +5304,8 @@ impl Dom {
     ///
     /// **Accessibility**: Provides parentheses around `<rt>` for browsers without ruby support.
     #[inline]
-    #[must_use] pub fn create_rp() -> Self {
+    #[must_use]
+    pub fn create_rp() -> Self {
         Self::create_node(NodeType::Rp)
     }
 
@@ -4803,7 +5315,9 @@ impl Dom {
     /// - `text`: Parenthesis text (typically "(" or ")")
     #[inline]
     pub fn create_rp_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_rp().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_rp().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates a `<data>` element binding a machine-readable value to its content.
@@ -4811,7 +5325,8 @@ impl Dom {
     /// **Parameters:**
     /// - `value`: Machine-readable value for the `value` attribute.
     #[inline]
-    #[must_use] pub fn create_data(value: AzString) -> Self {
+    #[must_use]
+    pub fn create_data(value: AzString) -> Self {
         Self::create_node(NodeType::Data).with_attribute(AttributeType::Value(value))
     }
 
@@ -4821,15 +5336,19 @@ impl Dom {
     /// - `value`: Machine-readable value for the `value` attribute.
     /// - `text`: Human-readable text content.
     #[inline]
-    #[must_use] pub fn create_data_with_text(value: AzString, text: AzString) -> Self {
-        Self::create_data(value).with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+    #[must_use]
+    pub fn create_data_with_text(value: AzString, text: AzString) -> Self {
+        Self::create_data(value).with_child(
+            Self::create_text_do_not_use_without_block_level_wrapper(text),
+        )
     }
 
     /// Creates an empty directory list element.
     ///
     /// **Note**: Deprecated in HTML5. Use `<ul>` instead.
     #[inline]
-    #[must_use] pub fn create_dir() -> Self {
+    #[must_use]
+    pub fn create_dir() -> Self {
         Self::create_node(NodeType::Dir)
     }
 
@@ -4837,7 +5356,8 @@ impl Dom {
     ///
     /// **Accessibility**: Provide `aria-label` or `<title>` child for assistive tech.
     #[inline]
-    #[must_use] pub fn create_svg() -> Self {
+    #[must_use]
+    pub fn create_svg() -> Self {
         Self::create_node(NodeType::Svg)
     }
 
@@ -4849,10 +5369,13 @@ impl Dom {
     /// - `href`: Link destination URL
     /// - `label`: Link text (pass `None` for image-only links with alt text)
     #[inline]
-    #[must_use] pub fn create_a_no_a11y(href: AzString, label: OptionString) -> Self {
+    #[must_use]
+    pub fn create_a_no_a11y(href: AzString, label: OptionString) -> Self {
         let mut link = Self::create_node(NodeType::A).with_attribute(AttributeType::Href(href));
         if let OptionString::Some(text) = label {
-            link = link.with_child(Self::create_text_do_not_use_without_block_level_wrapper(text));
+            link = link.with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+                text,
+            ));
         }
         link
     }
@@ -4865,8 +5388,11 @@ impl Dom {
     /// **Parameters:**
     /// - `text`: Button label text
     #[inline]
-    #[must_use] pub fn create_button_no_a11y(text: AzString) -> Self {
-        Self::create_node(NodeType::Button).with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+    #[must_use]
+    pub fn create_button_no_a11y(text: AzString) -> Self {
+        Self::create_node(NodeType::Button).with_child(
+            Self::create_text_do_not_use_without_block_level_wrapper(text),
+        )
     }
 
     /// Creates a label element for form controls without accessibility information.
@@ -4877,13 +5403,16 @@ impl Dom {
     /// - `for_id`: ID of the associated form control
     /// - `text`: Label text
     #[inline]
-    #[must_use] pub fn create_label_no_a11y(for_id: AzString, text: AzString) -> Self {
+    #[must_use]
+    pub fn create_label_no_a11y(for_id: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::Label)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "for".into(),
                 value: for_id,
             }))
-            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+                text,
+            ))
     }
 
     /// Creates an input element without accessibility information.
@@ -4896,7 +5425,8 @@ impl Dom {
     /// - `name`: Form field name
     /// - `label`: Accessibility label (required)
     #[inline]
-    #[must_use] pub fn create_input_no_a11y(input_type: AzString, name: AzString, label: AzString) -> Self {
+    #[must_use]
+    pub fn create_input_no_a11y(input_type: AzString, name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::Input)
             .with_attribute(AttributeType::InputType(input_type))
             .with_attribute(AttributeType::Name(name))
@@ -4912,7 +5442,8 @@ impl Dom {
     /// - `name`: Form field name
     /// - `label`: Accessibility label (required)
     #[inline]
-    #[must_use] pub fn create_textarea_no_a11y(name: AzString, label: AzString) -> Self {
+    #[must_use]
+    pub fn create_textarea_no_a11y(name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::TextArea)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
@@ -4927,7 +5458,8 @@ impl Dom {
     /// - `name`: Form field name
     /// - `label`: Accessibility label (required)
     #[inline]
-    #[must_use] pub fn create_select_no_a11y(name: AzString, label: AzString) -> Self {
+    #[must_use]
+    pub fn create_select_no_a11y(name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::Select)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::AriaLabel(label))
@@ -4939,10 +5471,13 @@ impl Dom {
     /// - `value`: Option value
     /// - `text`: Display text
     #[inline]
-    #[must_use] pub fn create_option_no_a11y(value: AzString, text: AzString) -> Self {
+    #[must_use]
+    pub fn create_option_no_a11y(value: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::SelectOption)
             .with_attribute(AttributeType::Value(value))
-            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+                text,
+            ))
     }
 
     /// Creates an option element for select dropdowns with accessibility information.
@@ -4955,7 +5490,8 @@ impl Dom {
     /// Use [`Dom::create_option_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_option(value: AzString, text: AzString, aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_option(value: AzString, text: AzString, aria: SmallAriaInfo) -> Self {
         Self::create_option_no_a11y(value, text).with_accessibility_info(aria.to_full_info())
     }
 
@@ -4964,7 +5500,8 @@ impl Dom {
     /// **Accessibility**: Screen readers announce lists and item counts, helping users
     /// understand content structure.
     #[inline]
-    #[must_use] pub fn create_ul() -> Self {
+    #[must_use]
+    pub fn create_ul() -> Self {
         Self::create_node(NodeType::Ul)
     }
 
@@ -4973,7 +5510,8 @@ impl Dom {
     /// **Accessibility**: Screen readers announce lists and item counts, helping users
     /// understand content structure and numbering.
     #[inline]
-    #[must_use] pub fn create_ol() -> Self {
+    #[must_use]
+    pub fn create_ol() -> Self {
         Self::create_node(NodeType::Ol)
     }
 
@@ -4982,7 +5520,8 @@ impl Dom {
     /// **Accessibility**: Must be a child of `ul`, `ol`, or `menu`. Screen readers announce
     /// list item position (e.g., "2 of 5").
     #[inline]
-    #[must_use] pub fn create_li() -> Self {
+    #[must_use]
+    pub fn create_li() -> Self {
         Self::create_node(NodeType::Li)
     }
 
@@ -4991,7 +5530,8 @@ impl Dom {
     /// Prefer [`Dom::create_table`] so that screen readers can announce the table's
     /// purpose alongside its caption.
     #[inline]
-    #[must_use] pub fn create_table_no_a11y() -> Self {
+    #[must_use]
+    pub fn create_table_no_a11y() -> Self {
         Self::create_node(NodeType::Table)
     }
 
@@ -4999,7 +5539,8 @@ impl Dom {
     ///
     /// **Accessibility**: Describes the purpose of the table. Screen readers announce this first.
     #[inline]
-    #[must_use] pub fn create_caption() -> Self {
+    #[must_use]
+    pub fn create_caption() -> Self {
         Self::create_node(NodeType::Caption)
     }
 
@@ -5007,7 +5548,8 @@ impl Dom {
     ///
     /// **Accessibility**: Groups header rows. Screen readers can navigate table structure.
     #[inline]
-    #[must_use] pub fn create_thead() -> Self {
+    #[must_use]
+    pub fn create_thead() -> Self {
         Self::create_node(NodeType::THead)
     }
 
@@ -5015,7 +5557,8 @@ impl Dom {
     ///
     /// **Accessibility**: Groups body rows. Screen readers can navigate table structure.
     #[inline]
-    #[must_use] pub fn create_tbody() -> Self {
+    #[must_use]
+    pub fn create_tbody() -> Self {
         Self::create_node(NodeType::TBody)
     }
 
@@ -5023,13 +5566,15 @@ impl Dom {
     ///
     /// **Accessibility**: Groups footer rows. Screen readers can navigate table structure.
     #[inline]
-    #[must_use] pub fn create_tfoot() -> Self {
+    #[must_use]
+    pub fn create_tfoot() -> Self {
         Self::create_node(NodeType::TFoot)
     }
 
     /// Creates a table row element.
     #[inline]
-    #[must_use] pub fn create_tr() -> Self {
+    #[must_use]
+    pub fn create_tr() -> Self {
         Self::create_node(NodeType::Tr)
     }
 
@@ -5038,13 +5583,15 @@ impl Dom {
     /// **Accessibility**: Use `scope` attribute ("col" or "row") to associate headers with
     /// data cells. Screen readers use this to announce cell context.
     #[inline]
-    #[must_use] pub fn create_th() -> Self {
+    #[must_use]
+    pub fn create_th() -> Self {
         Self::create_node(NodeType::Th)
     }
 
     /// Creates a table data cell element.
     #[inline]
-    #[must_use] pub fn create_td() -> Self {
+    #[must_use]
+    pub fn create_td() -> Self {
         Self::create_node(NodeType::Td)
     }
 
@@ -5052,7 +5599,8 @@ impl Dom {
     ///
     /// Prefer [`Dom::create_form`] so that screen readers can announce the form's purpose.
     #[inline]
-    #[must_use] pub fn create_form_no_a11y() -> Self {
+    #[must_use]
+    pub fn create_form_no_a11y() -> Self {
         Self::create_node(NodeType::Form)
     }
 
@@ -5064,7 +5612,8 @@ impl Dom {
     /// Use [`Dom::create_form_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_form(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_form(aria: SmallAriaInfo) -> Self {
         Self::create_form_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5072,7 +5621,8 @@ impl Dom {
     ///
     /// Prefer [`Dom::create_fieldset`] so that screen readers can announce the group's purpose.
     #[inline]
-    #[must_use] pub fn create_fieldset_no_a11y() -> Self {
+    #[must_use]
+    pub fn create_fieldset_no_a11y() -> Self {
         Self::create_node(NodeType::FieldSet)
     }
 
@@ -5085,7 +5635,8 @@ impl Dom {
     /// Use [`Dom::create_fieldset_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_fieldset(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_fieldset(aria: SmallAriaInfo) -> Self {
         Self::create_fieldset_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5093,7 +5644,8 @@ impl Dom {
     ///
     /// Prefer [`Dom::create_legend`] so that the legend's accessible name is explicit.
     #[inline]
-    #[must_use] pub fn create_legend_no_a11y() -> Self {
+    #[must_use]
+    pub fn create_legend_no_a11y() -> Self {
         Self::create_node(NodeType::Legend)
     }
 
@@ -5105,7 +5657,8 @@ impl Dom {
     /// Use [`Dom::create_legend_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_legend(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_legend(aria: SmallAriaInfo) -> Self {
         Self::create_legend_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5114,7 +5667,8 @@ impl Dom {
     /// **Accessibility**: Represents a thematic break. Screen readers may announce this as
     /// a separator. Consider using CSS borders for purely decorative lines.
     #[inline]
-    #[must_use] pub fn create_hr() -> Self {
+    #[must_use]
+    pub fn create_hr() -> Self {
         Self::create_node(NodeType::Hr)
     }
 
@@ -5131,7 +5685,8 @@ impl Dom {
     ///
     /// The XML pipeline's `<pagebreak/>` builtin renders the equivalent
     /// element.
-    #[must_use] pub fn create_page_break() -> Self {
+    #[must_use]
+    pub fn create_page_break() -> Self {
         Self::create_node(NodeType::PageBreak)
     }
 
@@ -5142,7 +5697,8 @@ impl Dom {
     /// **Accessibility**: Represents contact information. Screen readers identify this
     /// as address content.
     #[inline]
-    #[must_use] pub const fn create_address() -> Self {
+    #[must_use]
+    pub const fn create_address() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Address),
             children: DomVec::from_const_slice(&[]),
@@ -5155,7 +5711,8 @@ impl Dom {
     ///
     /// **Accessibility**: Screen readers announce definition lists and their structure.
     #[inline]
-    #[must_use] pub const fn create_dl() -> Self {
+    #[must_use]
+    pub const fn create_dl() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Dl),
             children: DomVec::from_const_slice(&[]),
@@ -5168,7 +5725,8 @@ impl Dom {
     ///
     /// **Accessibility**: Must be a child of `dl`. Represents the term being defined.
     #[inline]
-    #[must_use] pub const fn create_dt() -> Self {
+    #[must_use]
+    pub const fn create_dt() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Dt),
             children: DomVec::from_const_slice(&[]),
@@ -5181,7 +5739,8 @@ impl Dom {
     ///
     /// **Accessibility**: Must be a child of `dl`. Provides the definition for the term.
     #[inline]
-    #[must_use] pub const fn create_dd() -> Self {
+    #[must_use]
+    pub const fn create_dd() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Dd),
             children: DomVec::from_const_slice(&[]),
@@ -5192,7 +5751,8 @@ impl Dom {
 
     /// Creates a table column group element.
     #[inline]
-    #[must_use] pub const fn create_colgroup() -> Self {
+    #[must_use]
+    pub const fn create_colgroup() -> Self {
         Self {
             root: NodeData::create_node(NodeType::ColGroup),
             children: DomVec::from_const_slice(&[]),
@@ -5203,7 +5763,8 @@ impl Dom {
 
     /// Creates a table column element.
     #[inline]
-    #[must_use] pub fn create_col(span: i32) -> Self {
+    #[must_use]
+    pub fn create_col(span: i32) -> Self {
         Self::create_node(NodeType::Col).with_attribute(AttributeType::ColSpan(span))
     }
 
@@ -5214,7 +5775,8 @@ impl Dom {
     /// **Parameters:**
     /// - `label`: Label for the option group
     #[inline]
-    #[must_use] pub fn create_optgroup_no_a11y(label: AzString) -> Self {
+    #[must_use]
+    pub fn create_optgroup_no_a11y(label: AzString) -> Self {
         Self::create_node(NodeType::OptGroup).with_attribute(AttributeType::AriaLabel(label))
     }
 
@@ -5227,7 +5789,8 @@ impl Dom {
     /// Use [`Dom::create_optgroup_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_optgroup(label: AzString, aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_optgroup(label: AzString, aria: SmallAriaInfo) -> Self {
         Self::create_optgroup_no_a11y(label).with_accessibility_info(aria.to_full_info())
     }
 
@@ -5235,7 +5798,8 @@ impl Dom {
     ///
     /// **Accessibility**: Represents an inline quotation.
     #[inline]
-    #[must_use] pub const fn create_q() -> Self {
+    #[must_use]
+    pub const fn create_q() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Q),
             children: DomVec::from_const_slice(&[]),
@@ -5248,7 +5812,8 @@ impl Dom {
     ///
     /// **Note**: Deprecated in HTML5. Consider using `create_abbr()` instead.
     #[inline]
-    #[must_use] pub const fn create_acronym() -> Self {
+    #[must_use]
+    pub const fn create_acronym() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Acronym),
             children: DomVec::from_const_slice(&[]),
@@ -5262,14 +5827,17 @@ impl Dom {
     /// **Note**: Deprecated in HTML5. Consider using `create_abbr_with_title()` instead.
     #[inline]
     pub fn create_acronym_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_acronym().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_acronym().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates a menu element without accessibility information.
     ///
     /// Prefer [`Dom::create_menu`] so that the menu's purpose is announced.
     #[inline]
-    #[must_use] pub const fn create_menu_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_menu_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Menu),
             children: DomVec::from_const_slice(&[]),
@@ -5286,7 +5854,8 @@ impl Dom {
     /// Use [`Dom::create_menu_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_menu(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_menu(aria: SmallAriaInfo) -> Self {
         Self::create_menu_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5294,7 +5863,8 @@ impl Dom {
     ///
     /// Prefer [`Dom::create_menuitem`] so that the menu item's purpose is announced.
     #[inline]
-    #[must_use] pub const fn create_menuitem_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_menuitem_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::MenuItem),
             children: DomVec::from_const_slice(&[]),
@@ -5311,7 +5881,8 @@ impl Dom {
     /// Use [`Dom::create_menuitem_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_menuitem(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_menuitem(aria: SmallAriaInfo) -> Self {
         Self::create_menuitem_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5321,7 +5892,9 @@ impl Dom {
     /// distinct accessible name in addition to the visible text.
     #[inline]
     pub fn create_menuitem_with_text_no_a11y<S: Into<AzString>>(text: S) -> Self {
-        Self::create_menuitem_no_a11y().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_menuitem_no_a11y().with_child(
+            Self::create_text_do_not_use_without_block_level_wrapper(text),
+        )
     }
 
     /// Creates a menu item element with text and accessibility information.
@@ -5341,7 +5914,8 @@ impl Dom {
     /// Prefer [`Dom::create_output`] so that screen readers can announce the
     /// computed value's purpose.
     #[inline]
-    #[must_use] pub const fn create_output_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_output_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Output),
             children: DomVec::from_const_slice(&[]),
@@ -5358,7 +5932,8 @@ impl Dom {
     /// Use [`Dom::create_output_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_output(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_output(aria: SmallAriaInfo) -> Self {
         Self::create_output_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5370,7 +5945,8 @@ impl Dom {
     /// - `value`: Current progress value
     /// - `max`: Maximum value
     #[inline]
-    #[must_use] pub fn create_progress_no_a11y(value: f32, max: f32) -> Self {
+    #[must_use]
+    pub fn create_progress_no_a11y(value: f32, max: f32) -> Self {
         Self::create_node(NodeType::Progress)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "value".into(),
@@ -5391,7 +5967,8 @@ impl Dom {
     /// Use [`Dom::create_progress_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_progress(aria: ProgressAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_progress(aria: ProgressAriaInfo) -> Self {
         let mut node = Self::create_node(NodeType::Progress);
         if !aria.indeterminate {
             if let azul_css::OptionF32::Some(v) = aria.current_value {
@@ -5419,7 +5996,8 @@ impl Dom {
     /// - `min`: Minimum value
     /// - `max`: Maximum value
     #[inline]
-    #[must_use] pub fn create_meter_no_a11y(value: f32, min: f32, max: f32) -> Self {
+    #[must_use]
+    pub fn create_meter_no_a11y(value: f32, min: f32, max: f32) -> Self {
         Self::create_node(NodeType::Meter)
             .with_attribute(AttributeType::Custom(AttributeNameValue {
                 attr_name: "value".into(),
@@ -5444,7 +6022,8 @@ impl Dom {
     /// Use [`Dom::create_meter_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_meter(aria: MeterAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_meter(aria: MeterAriaInfo) -> Self {
         let mut node = Self::create_meter_no_a11y(aria.current_value, aria.min, aria.max);
         if let azul_css::OptionF32::Some(v) = aria.low {
             node = node.with_attribute(AttributeType::Custom(AttributeNameValue {
@@ -5471,7 +6050,8 @@ impl Dom {
     ///
     /// Prefer [`Dom::create_datalist`] so that the suggestion list's purpose is announced.
     #[inline]
-    #[must_use] pub const fn create_datalist_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_datalist_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::DataList),
             children: DomVec::from_const_slice(&[]),
@@ -5488,7 +6068,8 @@ impl Dom {
     /// Use [`Dom::create_datalist_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_datalist(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_datalist(aria: SmallAriaInfo) -> Self {
         Self::create_datalist_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5499,7 +6080,8 @@ impl Dom {
     /// Prefer [`Dom::create_canvas`] so that the canvas's purpose is announced; canvas
     /// content is otherwise opaque to assistive technologies.
     #[inline]
-    #[must_use] pub const fn create_canvas_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_canvas_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Canvas),
             children: DomVec::from_const_slice(&[]),
@@ -5517,7 +6099,8 @@ impl Dom {
     /// Use [`Dom::create_canvas_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_canvas(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_canvas(aria: SmallAriaInfo) -> Self {
         Self::create_canvas_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5525,7 +6108,8 @@ impl Dom {
     ///
     /// **Accessibility**: Provide fallback content as children. Use aria-label to describe content.
     #[inline]
-    #[must_use] pub const fn create_object() -> Self {
+    #[must_use]
+    pub const fn create_object() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Object),
             children: DomVec::from_const_slice(&[]),
@@ -5540,7 +6124,8 @@ impl Dom {
     /// - `name`: Parameter name
     /// - `value`: Parameter value
     #[inline]
-    #[must_use] pub fn create_param(name: AzString, value: AzString) -> Self {
+    #[must_use]
+    pub fn create_param(name: AzString, value: AzString) -> Self {
         Self::create_node(NodeType::Param)
             .with_attribute(AttributeType::Name(name))
             .with_attribute(AttributeType::Value(value))
@@ -5551,7 +6136,8 @@ impl Dom {
     /// **Accessibility**: Provide alternative content or link. Use aria-label to describe embedded
     /// content.
     #[inline]
-    #[must_use] pub const fn create_embed() -> Self {
+    #[must_use]
+    pub const fn create_embed() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Embed),
             children: DomVec::from_const_slice(&[]),
@@ -5564,7 +6150,8 @@ impl Dom {
     ///
     /// Prefer [`Dom::create_audio`] so that screen readers announce the audio's purpose.
     #[inline]
-    #[must_use] pub const fn create_audio_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_audio_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Audio),
             children: DomVec::from_const_slice(&[]),
@@ -5581,7 +6168,8 @@ impl Dom {
     /// Use [`Dom::create_audio_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_audio(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_audio(aria: SmallAriaInfo) -> Self {
         Self::create_audio_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5589,7 +6177,8 @@ impl Dom {
     ///
     /// Prefer [`Dom::create_video`] so that screen readers announce the video's purpose.
     #[inline]
-    #[must_use] pub const fn create_video_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_video_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Video),
             children: DomVec::from_const_slice(&[]),
@@ -5606,7 +6195,8 @@ impl Dom {
     /// Use [`Dom::create_video_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_video(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_video(aria: SmallAriaInfo) -> Self {
         Self::create_video_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5616,7 +6206,8 @@ impl Dom {
     /// - `src`: Media source URL
     /// - `media_type`: MIME type (e.g., "video/mp4", "audio/ogg")
     #[inline]
-    #[must_use] pub fn create_source(src: AzString, media_type: AzString) -> Self {
+    #[must_use]
+    pub fn create_source(src: AzString, media_type: AzString) -> Self {
         Self::create_node(NodeType::Source)
             .with_attribute(AttributeType::Src(src))
             .with_attribute(AttributeType::Custom(AttributeNameValue {
@@ -5634,7 +6225,8 @@ impl Dom {
     /// - `src`: Track file URL (`WebVTT` format)
     /// - `kind`: Track kind ("subtitles", "captions", "descriptions", "chapters", "metadata")
     #[inline]
-    #[must_use] pub fn create_track(src: AzString, kind: AzString) -> Self {
+    #[must_use]
+    pub fn create_track(src: AzString, kind: AzString) -> Self {
         Self::create_node(NodeType::Track)
             .with_attribute(AttributeType::Src(src))
             .with_attribute(AttributeType::Custom(AttributeNameValue {
@@ -5647,7 +6239,8 @@ impl Dom {
     ///
     /// **Accessibility**: Provide text alternatives. Ensure all areas have alt text.
     #[inline]
-    #[must_use] pub const fn create_map() -> Self {
+    #[must_use]
+    pub const fn create_map() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Map),
             children: DomVec::from_const_slice(&[]),
@@ -5660,7 +6253,8 @@ impl Dom {
     ///
     /// Prefer [`Dom::create_area`] so that screen readers can announce the region's purpose.
     #[inline]
-    #[must_use] pub const fn create_area_no_a11y() -> Self {
+    #[must_use]
+    pub const fn create_area_no_a11y() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Area),
             children: DomVec::from_const_slice(&[]),
@@ -5677,7 +6271,8 @@ impl Dom {
     /// Use [`Dom::create_area_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
-    #[must_use] pub fn create_area(aria: SmallAriaInfo) -> Self {
+    #[must_use]
+    pub fn create_area(aria: SmallAriaInfo) -> Self {
         Self::create_area_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
@@ -5687,7 +6282,8 @@ impl Dom {
     ///
     /// **Accessibility**: Required for all pages. Screen readers announce this first.
     #[inline]
-    #[must_use] pub fn create_title() -> Self {
+    #[must_use]
+    pub fn create_title() -> Self {
         Self::create_node(NodeType::Title)
     }
 
@@ -5697,14 +6293,17 @@ impl Dom {
     /// Should be unique and descriptive. Keep under 60 characters.
     #[inline]
     pub fn create_title_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_title().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_title().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates a meta element.
     ///
     /// **Accessibility**: Use for charset, viewport, description. Crucial for proper text display.
     #[inline]
-    #[must_use] pub const fn create_meta() -> Self {
+    #[must_use]
+    pub const fn create_meta() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Meta),
             children: DomVec::from_const_slice(&[]),
@@ -5718,7 +6317,8 @@ impl Dom {
     /// **Accessibility**: Use for stylesheets, icons, alternate versions.
     /// Provide meaningful `title` attribute for alternate stylesheets.
     #[inline]
-    #[must_use] pub const fn create_link() -> Self {
+    #[must_use]
+    pub const fn create_link() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Link),
             children: DomVec::from_const_slice(&[]),
@@ -5732,7 +6332,8 @@ impl Dom {
     /// **Accessibility**: Ensure scripted content is accessible.
     /// Provide noscript fallbacks for critical functionality.
     #[inline]
-    #[must_use] pub const fn create_script() -> Self {
+    #[must_use]
+    pub const fn create_script() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Script),
             children: DomVec::from_const_slice(&[]),
@@ -5746,7 +6347,8 @@ impl Dom {
     /// **Note**: In Azul, use `.with_css()` instead for styling.
     /// This creates a `<style>` HTML element for embedded stylesheets.
     #[inline]
-    #[must_use] pub const fn create_style() -> Self {
+    #[must_use]
+    pub const fn create_style() -> Self {
         Self {
             root: NodeData::create_node(NodeType::Style),
             children: DomVec::from_const_slice(&[]),
@@ -5761,7 +6363,9 @@ impl Dom {
     /// This creates a `<style>` HTML element for embedded stylesheets.
     #[inline]
     pub fn create_style_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_style().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_style().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates a base element for document base URL.
@@ -5769,7 +6373,8 @@ impl Dom {
     /// **Parameters:**
     /// - `href`: Base URL for relative URLs in the document
     #[inline]
-    #[must_use] pub fn create_base(href: AzString) -> Self {
+    #[must_use]
+    pub fn create_base(href: AzString) -> Self {
         Self::create_node(NodeType::Base).with_attribute(AttributeType::Href(href))
     }
 
@@ -5783,10 +6388,13 @@ impl Dom {
     ///
     /// **Accessibility**: The scope attribute is crucial for associating headers with data cells.
     #[inline]
-    #[must_use] pub fn create_th_with_scope(scope: AzString, text: AzString) -> Self {
+    #[must_use]
+    pub fn create_th_with_scope(scope: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::Th)
             .with_attribute(AttributeType::Scope(scope))
-            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+                text,
+            ))
     }
 
     /// Creates a table data cell with text.
@@ -5795,7 +6403,9 @@ impl Dom {
     /// - `text`: Cell content
     #[inline]
     pub fn create_td_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_td().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_td().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates a table header cell with text.
@@ -5804,7 +6414,9 @@ impl Dom {
     /// - `text`: Header text
     #[inline]
     pub fn create_th_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_th().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_th().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates a list item with text.
@@ -5813,7 +6425,9 @@ impl Dom {
     /// - `text`: List item content
     #[inline]
     pub fn create_li_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_li().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_li().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates a paragraph with text.
@@ -5822,8 +6436,9 @@ impl Dom {
     /// - `text`: Paragraph content
     #[inline]
     pub fn create_p_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_p()
-            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_p().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// Creates a generic block container (div) with text.
@@ -5837,8 +6452,9 @@ impl Dom {
     /// - `text`: Div content
     #[inline]
     pub fn create_div_with_text<S: Into<AzString>>(text: S) -> Self {
-        Self::create_div()
-            .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
+        Self::create_div().with_child(Self::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     // Accessibility-Aware Constructors
@@ -5954,8 +6570,9 @@ impl Dom {
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_table<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
-        let mut table = Self::create_table_no_a11y()
-            .with_child(Self::create_caption().with_child(Self::create_text_do_not_use_without_block_level_wrapper(caption)));
+        let mut table = Self::create_table_no_a11y().with_child(Self::create_caption().with_child(
+            Self::create_text_do_not_use_without_block_level_wrapper(caption),
+        ));
         table.root.set_accessibility_info(aria.to_full_info());
         table
     }
@@ -6066,8 +6683,7 @@ impl Dom {
         // it, without an O(subtree) recompute.
         debug_assert!(
             children.iter().all(|c| c.estimated_total_children
-                == c
-                    .children
+                == c.children
                     .iter()
                     .map(|g| g.estimated_total_children + 1)
                     .sum::<usize>()),
@@ -6091,7 +6707,8 @@ impl Dom {
             estimated_total_children: self.estimated_total_children,
         }
     }
-    #[must_use] pub const fn node_count(&self) -> usize {
+    #[must_use]
+    pub const fn node_count(&self) -> usize {
         // `saturating_add`, not `+`. `estimated_total_children` is a PUBLIC
         // field, so a caller can put `usize::MAX` in it. With `+` that is a
         // panic in debug and a silent wrap to **0** in release — and 0 is the
@@ -6131,27 +6748,32 @@ impl Dom {
         self.css = css;
     }
     #[inline]
-    #[must_use] pub fn with_children(mut self, children: DomVec) -> Self {
+    #[must_use]
+    pub fn with_children(mut self, children: DomVec) -> Self {
         self.set_children(children);
         self
     }
     #[inline]
-    #[must_use] pub fn with_child(mut self, child: Self) -> Self {
+    #[must_use]
+    pub fn with_child(mut self, child: Self) -> Self {
         self.add_child(child);
         self
     }
     #[inline]
-    #[must_use] pub fn with_node_type(mut self, node_type: NodeType) -> Self {
+    #[must_use]
+    pub fn with_node_type(mut self, node_type: NodeType) -> Self {
         self.root.set_node_type(node_type);
         self
     }
     #[inline]
-    #[must_use] pub fn with_id(mut self, id: AzString) -> Self {
+    #[must_use]
+    pub fn with_id(mut self, id: AzString) -> Self {
         self.root.add_id(id);
         self
     }
     #[inline]
-    #[must_use] pub fn with_class(mut self, class: AzString) -> Self {
+    #[must_use]
+    pub fn with_class(mut self, class: AzString) -> Self {
         self.root.add_class(class);
         self
     }
@@ -6168,7 +6790,8 @@ impl Dom {
     }
     /// Add a CSS property with optional conditions (hover, focus, active, etc.)
     #[inline]
-    #[must_use] pub fn with_css_property(mut self, prop: CssPropertyWithConditions) -> Self {
+    #[must_use]
+    pub fn with_css_property(mut self, prop: CssPropertyWithConditions) -> Self {
         self.root.add_css_property(prop);
         self
     }
@@ -6199,24 +6822,28 @@ impl Dom {
         self.root.set_contenteditable(contenteditable);
     }
     #[inline]
-    #[must_use] pub const fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
+    #[must_use]
+    pub const fn with_tab_index(mut self, tab_index: TabIndex) -> Self {
         self.root.set_tab_index(tab_index);
         self
     }
     #[inline]
-    #[must_use] pub const fn with_contenteditable(mut self, contenteditable: bool) -> Self {
+    #[must_use]
+    pub const fn with_contenteditable(mut self, contenteditable: bool) -> Self {
         self.root.set_contenteditable(contenteditable);
         self
     }
     #[inline]
-    #[must_use] pub fn with_dataset(mut self, data: OptionRefAny) -> Self {
+    #[must_use]
+    pub fn with_dataset(mut self, data: OptionRefAny) -> Self {
         self.root.set_dataset(data);
         self
     }
 
     /// Attach a presence-animation function to this node — see
     /// [`NodeData::add_animation_callback`].
-    #[must_use] pub fn with_animation_callback(
+    #[must_use]
+    pub fn with_animation_callback(
         mut self,
         name: AzString,
         callback: crate::resources::ZombieAnimCallback,
@@ -6226,14 +6853,16 @@ impl Dom {
         self
     }
     #[inline]
-    #[must_use] pub fn with_ids_and_classes(mut self, ids_and_classes: IdOrClassVec) -> Self {
+    #[must_use]
+    pub fn with_ids_and_classes(mut self, ids_and_classes: IdOrClassVec) -> Self {
         self.root.set_ids_and_classes(ids_and_classes);
         self
     }
 
     /// Adds an attribute to this DOM element.
     #[inline]
-    #[must_use] pub fn with_attribute(mut self, attr: AttributeType) -> Self {
+    #[must_use]
+    pub fn with_attribute(mut self, attr: AttributeType) -> Self {
         let mut attrs = self.root.attributes().clone();
         let mut v = attrs.into_library_owned_vec();
         v.push(attr);
@@ -6243,26 +6872,30 @@ impl Dom {
 
     /// Adds multiple attributes to this DOM element.
     #[inline]
-    #[must_use] pub fn with_attributes(mut self, attributes: AttributeTypeVec) -> Self {
+    #[must_use]
+    pub fn with_attributes(mut self, attributes: AttributeTypeVec) -> Self {
         self.root.set_attributes(attributes);
         self
     }
 
     #[inline]
-    #[must_use] pub fn with_callbacks(mut self, callbacks: CoreCallbackDataVec) -> Self {
+    #[must_use]
+    pub fn with_callbacks(mut self, callbacks: CoreCallbackDataVec) -> Self {
         self.root.callbacks = callbacks;
         self
     }
     /// Legacy: builder-form for the flat property+conditions list. Each entry
     /// becomes a single-declaration rule at `rule_priority::INLINE`.
     #[inline]
-    #[must_use] pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
         self.root.style = css_props.into();
         self
     }
     /// Builder-form for setting the inline `Css` directly.
     #[inline]
-    #[must_use] pub fn with_style(mut self, style: azul_css::css::Css) -> Self {
+    #[must_use]
+    pub fn with_style(mut self, style: azul_css::css::Css) -> Self {
         self.root.style = style;
         self
     }
@@ -6340,7 +6973,8 @@ impl Dom {
     }
 
     /// Builder method for `set_css`
-    #[must_use] pub fn with_css(mut self, style: &str) -> Self {
+    #[must_use]
+    pub fn with_css(mut self, style: &str) -> Self {
         self.set_css(style);
         self
     }
@@ -6352,7 +6986,8 @@ impl Dom {
     }
 
     #[inline]
-    #[must_use] pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
+    #[must_use]
+    pub fn with_context_menu(mut self, context_menu: Menu) -> Self {
         self.set_context_menu(context_menu);
         self
     }
@@ -6364,25 +6999,29 @@ impl Dom {
     }
 
     #[inline]
-    #[must_use] pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
+    #[must_use]
+    pub fn with_menu_bar(mut self, menu_bar: Menu) -> Self {
         self.set_menu_bar(menu_bar);
         self
     }
 
     #[inline]
-    #[must_use] pub fn with_clip_mask(mut self, clip_mask: ImageMask) -> Self {
+    #[must_use]
+    pub fn with_clip_mask(mut self, clip_mask: ImageMask) -> Self {
         self.root.set_clip_mask(clip_mask);
         self
     }
 
     #[inline]
-    #[must_use] pub fn with_svg_clip_path(mut self, clip: crate::svg::SvgMultiPolygon) -> Self {
+    #[must_use]
+    pub fn with_svg_clip_path(mut self, clip: crate::svg::SvgMultiPolygon) -> Self {
         self.root.set_svg_data(SvgNodeData::Path(clip));
         self
     }
 
     #[inline]
-    #[must_use] pub fn with_svg_data(mut self, data: SvgNodeData) -> Self {
+    #[must_use]
+    pub fn with_svg_data(mut self, data: SvgNodeData) -> Self {
         self.root.set_svg_data(data);
         self
     }
@@ -6450,7 +7089,8 @@ impl Dom {
         })
     }
 
-    #[must_use] pub fn with_accessibility_info(mut self, accessibility_info: AccessibilityInfo) -> Self {
+    #[must_use]
+    pub fn with_accessibility_info(mut self, accessibility_info: AccessibilityInfo) -> Self {
         self.root.set_accessibility_info(accessibility_info);
         self
     }
@@ -6508,2305 +7148,5 @@ impl fmt::Debug for Dom {
         }
 
         print_dom(self, f)
-    }
-}
-
-#[cfg(test)]
-mod audit_tests {
-    use super::*;
-
-    #[test]
-    fn node_count_matches_recompute() {
-        // root + [A(+grandchild), B] = 3 descendants, node_count 4.
-        let dom = Dom::create_div()
-            .with_child(Dom::create_div().with_child(Dom::create_div()))
-            .with_child(Dom::create_div());
-        assert_eq!(
-            dom.estimated_total_children,
-            dom.recompute_estimated_total_children()
-        );
-        assert_eq!(dom.estimated_total_children, 3);
-        assert_eq!(dom.node_count(), 4);
-    }
-
-    #[test]
-    fn single_node_dom_node_count() {
-        let dom = Dom::create_div();
-        assert_eq!(dom.estimated_total_children, 0);
-        assert_eq!(dom.node_count(), 1);
-        assert_eq!(dom.recompute_estimated_total_children(), 0);
-    }
-
-    #[test]
-    fn fixup_repairs_desynced_estimate() {
-        let mut dom = Dom::create_div().with_child(Dom::create_div());
-        // Corrupt the public cached field directly.
-        dom.estimated_total_children = 999;
-        let repaired = dom.fixup_children_estimated();
-        assert_eq!(repaired, 1);
-        assert_eq!(
-            dom.estimated_total_children,
-            dom.recompute_estimated_total_children()
-        );
-    }
-
-    // The debug_assert only fires with debug_assertions enabled.
-    #[cfg(debug_assertions)]
-    #[test]
-    #[should_panic(expected = "desynced")]
-    fn add_child_with_stale_estimate_panics_in_debug() {
-        let mut child = Dom::create_div().with_child(Dom::create_div());
-        child.estimated_total_children = 0; // corrupt: should be 1
-        let mut parent = Dom::create_div();
-        parent.add_child(child);
-    }
-
-    // NodeData carries a manual `unsafe impl Send`. This is a compile-time
-    // assertion that the marker holds (fails to build if a non-Send field is
-    // ever added), documenting the invariant the unsafe impl relies on.
-    #[test]
-    fn node_data_is_send() {
-        fn assert_send<T: Send>() {}
-        assert_send::<NodeData>();
-    }
-
-    // Exercises the `core::ptr::write` unsafe path in `copy_special_moving_complex`:
-    // the boxed Text `node_type` must be MOVED bitwise into the copy (box pointer
-    // preserved, string intact), `self.node_type` must be left as `Div`, and the
-    // moved-out `style`/`extra` must land on the copy. Small heap-only tree, so
-    // Miri can validate the raw write / box ownership transfer for UB.
-    #[test]
-    fn copy_special_moving_complex_moves_text_node_type() {
-        let mut nd = NodeData::create_text_do_not_use_without_block_level_wrapper("hello").with_css("color: red;");
-        assert!(!nd.style.rules.is_empty(), "precondition: style set");
-
-        let copy = nd.copy_special_moving_complex();
-
-        // The Text box was transferred to the copy with its string intact.
-        match copy.get_node_type() {
-            NodeType::Text(s) => assert_eq!(s.as_ref().as_str(), "hello"),
-            other => panic!("expected Text node_type on copy, got {other:?}"),
-        }
-        // The source's node_type was replaced with the heap-free Div placeholder.
-        assert!(matches!(nd.get_node_type(), NodeType::Div));
-        // `style` was moved out of `self` onto the copy.
-        assert!(nd.style.rules.is_empty());
-        assert!(!copy.style.rules.is_empty());
-    }
-
-    // A non-boxed (Div) node_type must also survive the ptr::write path unchanged.
-    #[test]
-    fn copy_special_moving_complex_moves_div_node_type() {
-        let mut nd = NodeData::create_div();
-        let copy = nd.copy_special_moving_complex();
-        assert!(matches!(copy.get_node_type(), NodeType::Div));
-        assert!(matches!(nd.get_node_type(), NodeType::Div));
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::cast_possible_wrap, clippy::too_many_lines)]
-mod autotest_generated {
-    use super::*;
-
-    // ---------------------------------------------------------------------
-    // upsert_inline_css_property
-    // ---------------------------------------------------------------------
-
-    /// The runtime-patch upsert must REPLACE the unconditional declaration of
-    /// the same type, KEEP every other inline property (the content
-    /// chokepoint used to wipe the whole inline style, so a patched panel
-    /// lost its `position: absolute`), KEEP conditional declarations, and
-    /// stay bounded under repeated toggles.
-    #[test]
-    fn upsert_inline_css_property_replaces_only_the_unconditional_same_type() {
-        use azul_css::dynamic_selector::{
-            CssPropertyWithConditions, DynamicSelector, PseudoStateType,
-        };
-        use azul_css::props::layout::display::LayoutDisplay;
-        use azul_css::props::layout::position::LayoutPosition;
-        use azul_css::props::property::{CssProperty, CssPropertyType};
-
-        let mut node = NodeData::create_div();
-        node.set_css_props(
-            vec![
-                CssPropertyWithConditions::simple(CssProperty::const_position(
-                    LayoutPosition::Absolute,
-                )),
-                CssPropertyWithConditions::simple(CssProperty::const_display(
-                    LayoutDisplay::None,
-                )),
-                // A conditional (hover) display declaration must survive.
-                CssPropertyWithConditions {
-                    property: CssProperty::const_display(LayoutDisplay::Block),
-                    apply_if: vec![DynamicSelector::PseudoState(PseudoStateType::Hover)]
-                        .into(),
-                },
-            ]
-            .into(),
-        );
-
-        node.upsert_inline_css_property(CssProperty::const_display(LayoutDisplay::Flex));
-
-        let collect = |node: &NodeData| -> Vec<(CssProperty, bool)> {
-            node.style
-                .iter_inline_properties()
-                .map(|(p, conds)| (p.clone(), conds.as_ref().is_empty()))
-                .collect()
-        };
-
-        let props = collect(&node);
-        let unconditional_displays: Vec<&CssProperty> = props
-            .iter()
-            .filter(|(p, uncond)| *uncond && p.get_type() == CssPropertyType::Display)
-            .map(|(p, _)| p)
-            .collect();
-        assert_eq!(
-            unconditional_displays,
-            vec![&CssProperty::const_display(LayoutDisplay::Flex)],
-            "exactly ONE unconditional display remains: the patched value"
-        );
-        assert!(
-            props.iter().any(|(p, uncond)| *uncond
-                && *p == CssProperty::const_position(LayoutPosition::Absolute)),
-            "unrelated inline properties must survive the patch"
-        );
-        assert!(
-            props.iter().any(|(p, uncond)| !*uncond
-                && *p == CssProperty::const_display(LayoutDisplay::Block)),
-            "conditional (hover) declarations must survive the patch"
-        );
-
-        // Toggle many times: the style must not grow without bound.
-        let len_before = node.style.rules.as_ref().len();
-        for i in 0..20 {
-            let v = if i % 2 == 0 { LayoutDisplay::None } else { LayoutDisplay::Flex };
-            node.upsert_inline_css_property(CssProperty::const_display(v));
-        }
-        assert_eq!(
-            node.style.rules.as_ref().len(),
-            len_before,
-            "repeated upserts of the same type must not grow the inline style"
-        );
-    }
-
-    // ---------------------------------------------------------------------
-    // helpers
-    // ---------------------------------------------------------------------
-
-    fn hash_of<T: Hash>(t: &T) -> u64 {
-        let mut h = crate::hash::DefaultHasher::new();
-        t.hash(&mut h);
-        h.finish()
-    }
-
-    extern "C" fn merge_cb_a(new_data: RefAny, _old: RefAny) -> RefAny {
-        new_data
-    }
-
-    extern "C" fn merge_cb_b(_new: RefAny, old_data: RefAny) -> RefAny {
-        old_data
-    }
-
-    /// A `VirtualViewCallbackType`-shaped stub. Never invoked — the tests only need
-    /// a well-typed callback to hang off a `NodeType::VirtualView` node.
-    extern "C" fn virtual_view_cb(
-        _data: RefAny,
-        _info: crate::callbacks::VirtualViewCallbackInfo,
-    ) -> crate::callbacks::VirtualViewReturn {
-        unreachable!("virtual view callback is never invoked by these tests")
-    }
-
-    fn virtual_view_callback() -> VirtualViewCallback {
-        VirtualViewCallback {
-            cb: virtual_view_cb,
-            ctx: OptionRefAny::None,
-        }
-    }
-
-    /// A ~100k-char string with multi-byte codepoints, for "huge input" cases.
-    fn huge_unicode_string() -> String {
-        "ä🎉本".repeat(25_000)
-    }
-
-    /// Every `AttributeType` variant, so invariant sweeps can't silently miss one.
-    fn all_attribute_variants() -> Vec<AttributeType> {
-        let nv = || AttributeNameValue {
-            attr_name: "data-x".into(),
-            value: "v".into(),
-        };
-        vec![
-            AttributeType::Id("i".into()),
-            AttributeType::Class("c".into()),
-            AttributeType::AriaLabel("l".into()),
-            AttributeType::AriaLabelledBy("lb".into()),
-            AttributeType::AriaDescribedBy("db".into()),
-            AttributeType::AriaRole("r".into()),
-            AttributeType::AriaState(nv()),
-            AttributeType::AriaProperty(nv()),
-            AttributeType::Href("h".into()),
-            AttributeType::Rel("rel".into()),
-            AttributeType::Target("t".into()),
-            AttributeType::Src("s".into()),
-            AttributeType::Alt("a".into()),
-            AttributeType::Title("ti".into()),
-            AttributeType::Name("n".into()),
-            AttributeType::Value("v".into()),
-            AttributeType::InputType("text".into()),
-            AttributeType::Placeholder("p".into()),
-            AttributeType::Required,
-            AttributeType::Disabled,
-            AttributeType::Readonly,
-            AttributeType::CheckedTrue,
-            AttributeType::CheckedFalse,
-            AttributeType::Selected,
-            AttributeType::Max("10".into()),
-            AttributeType::Min("0".into()),
-            AttributeType::Step("1".into()),
-            AttributeType::Pattern(".*".into()),
-            AttributeType::MinLength(i32::MIN),
-            AttributeType::MaxLength(i32::MAX),
-            AttributeType::Autocomplete("off".into()),
-            AttributeType::Scope("row".into()),
-            AttributeType::ColSpan(-1),
-            AttributeType::RowSpan(0),
-            AttributeType::TabIndex(i32::MIN),
-            AttributeType::Focusable,
-            AttributeType::Lang("en".into()),
-            AttributeType::Dir("rtl".into()),
-            AttributeType::ContentEditable(true),
-            AttributeType::Draggable(false),
-            AttributeType::Hidden,
-            AttributeType::Data(nv()),
-            AttributeType::Custom(nv()),
-        ]
-    }
-
-    /// A spread of `NodeType`s, including every payload-carrying variant.
-    fn representative_node_types() -> Vec<NodeType> {
-        vec![
-            NodeType::Html,
-            NodeType::Body,
-            NodeType::Div,
-            NodeType::Br,
-            NodeType::Button,
-            NodeType::Input,
-            NodeType::TextArea,
-            NodeType::Select,
-            NodeType::A,
-            NodeType::H1,
-            NodeType::H6,
-            NodeType::Table,
-            NodeType::Td,
-            NodeType::Svg,
-            NodeType::SvgPath,
-            NodeType::SvgText("svg text".into()),
-            NodeType::SvgImage(ImageRef::null_image(
-                1,
-                1,
-                crate::resources::RawImageFormat::R8,
-                Vec::new(),
-            )),
-            NodeType::Before,
-            NodeType::After,
-            NodeType::Marker,
-            NodeType::Placeholder,
-            NodeType::Text(BoxOrStatic::heap(AzString::from("hello"))),
-            NodeType::Image(BoxOrStatic::heap(ImageRef::null_image(
-                2,
-                2,
-                crate::resources::RawImageFormat::RGBA8,
-                Vec::new(),
-            ))),
-            NodeType::VirtualView,
-            NodeType::Icon(BoxOrStatic::heap(AzString::from("home"))),
-            NodeType::GeolocationProbe(crate::geolocation::GeolocationProbeConfig::default()),
-        ]
-    }
-
-    // =====================================================================
-    // NodeFlags — bit-packing round-trips, boundaries, field independence
-    // =====================================================================
-
-    #[test]
-    fn node_flags_new_is_empty_and_matches_default() {
-        let f = NodeFlags::new();
-        assert_eq!(f.inner, 0);
-        assert_eq!(f, NodeFlags::default());
-        assert!(!f.is_contenteditable());
-        assert!(!f.is_anonymous());
-        assert_eq!(f.get_tab_index(), None);
-    }
-
-    #[test]
-    fn node_flags_tab_index_round_trips_for_all_variants() {
-        for ti in [
-            None,
-            Some(TabIndex::Auto),
-            Some(TabIndex::NoKeyboardFocus),
-            Some(TabIndex::OverrideInParent(0)),
-            Some(TabIndex::OverrideInParent(1)),
-            Some(TabIndex::OverrideInParent(1_000)),
-        ] {
-            let mut f = NodeFlags::new();
-            f.set_tab_index(ti);
-            assert_eq!(f.get_tab_index(), ti, "round-trip failed for {ti:?}");
-        }
-    }
-
-    #[test]
-    fn node_flags_tab_index_round_trips_at_the_28_bit_boundary() {
-        // The value field is bits [27:0], so 2^28 - 1 is the largest exactly
-        // representable OverrideInParent value.
-        const MAX_EXACT: u32 = (1 << 28) - 1;
-        let mut f = NodeFlags::new();
-        f.set_tab_index(Some(TabIndex::OverrideInParent(MAX_EXACT)));
-        assert_eq!(
-            f.get_tab_index(),
-            Some(TabIndex::OverrideInParent(MAX_EXACT))
-        );
-    }
-
-    #[test]
-    fn node_flags_tab_index_above_28_bits_truncates_without_corrupting_other_flags() {
-        // AUDIT: `set_tab_index` masks the value with TAB_VALUE_MASK ((1 << 28) - 1),
-        // so any OverrideInParent >= 2^28 is SILENTLY TRUNCATED rather than rejected
-        // or saturated. That is lossy, but the safety-critical property is that the
-        // overflowing bits must not bleed into the anonymous / contenteditable /
-        // tab-variant bits. Pin both facts.
-        const OVERFLOW: u32 = 1 << 28;
-        let mut f = NodeFlags::new();
-        f.set_tab_index(Some(TabIndex::OverrideInParent(OVERFLOW)));
-        assert_eq!(
-            f.get_tab_index(),
-            Some(TabIndex::OverrideInParent(0)),
-            "2^28 truncates to 0 (documented lossiness)"
-        );
-        assert!(!f.is_anonymous(), "overflow bit must not set ANONYMOUS");
-        assert!(!f.is_contenteditable());
-
-        let mut f = NodeFlags::new();
-        f.set_tab_index(Some(TabIndex::OverrideInParent(u32::MAX)));
-        assert_eq!(
-            f.get_tab_index(),
-            Some(TabIndex::OverrideInParent((1 << 28) - 1)),
-            "u32::MAX truncates to the 28-bit mask"
-        );
-        assert!(!f.is_anonymous(), "u32::MAX must not set ANONYMOUS");
-        assert!(!f.is_contenteditable(), "u32::MAX must not set CONTENTEDITABLE");
-    }
-
-    #[test]
-    fn node_flags_set_tab_index_preserves_contenteditable_and_anonymous() {
-        let mut f = NodeFlags::new();
-        f.set_contenteditable_mut(true);
-        f.set_anonymous(true);
-
-        for ti in [
-            None,
-            Some(TabIndex::Auto),
-            Some(TabIndex::NoKeyboardFocus),
-            // NodeFlags packs the override into a documented 28-bit field
-            // (TAB_VALUE_MASK), so u32::MAX would truncate to (1<<28)-1 and not
-            // round-trip. (1<<28)-1 IS the largest encodable value -- still the
-            // boundary case, but one this API can actually represent.
-            Some(TabIndex::OverrideInParent((1 << 28) - 1)),
-            Some(TabIndex::OverrideInParent(7)),
-        ] {
-            f.set_tab_index(ti);
-            assert!(f.is_contenteditable(), "contenteditable lost for {ti:?}");
-            assert!(f.is_anonymous(), "anonymous lost for {ti:?}");
-            assert_eq!(f.get_tab_index(), ti);
-        }
-    }
-
-    #[test]
-    fn node_flags_set_contenteditable_preserves_tab_index_and_anonymous() {
-        let mut f = NodeFlags::new();
-        f.set_anonymous(true);
-        f.set_tab_index(Some(TabIndex::OverrideInParent(12_345)));
-
-        f.set_contenteditable_mut(true);
-        assert!(f.is_contenteditable());
-        assert!(f.is_anonymous());
-        assert_eq!(f.get_tab_index(), Some(TabIndex::OverrideInParent(12_345)));
-
-        f.set_contenteditable_mut(false);
-        assert!(!f.is_contenteditable());
-        assert!(f.is_anonymous());
-        assert_eq!(f.get_tab_index(), Some(TabIndex::OverrideInParent(12_345)));
-    }
-
-    #[test]
-    fn node_flags_set_anonymous_preserves_tab_index_and_contenteditable() {
-        let mut f = NodeFlags::new();
-        f.set_contenteditable_mut(true);
-        f.set_tab_index(Some(TabIndex::NoKeyboardFocus));
-
-        f.set_anonymous(true);
-        assert!(f.is_anonymous());
-        assert!(f.is_contenteditable());
-        assert_eq!(f.get_tab_index(), Some(TabIndex::NoKeyboardFocus));
-
-        f.set_anonymous(false);
-        assert!(!f.is_anonymous());
-        assert!(f.is_contenteditable());
-        assert_eq!(f.get_tab_index(), Some(TabIndex::NoKeyboardFocus));
-    }
-
-    #[test]
-    fn node_flags_consecutive_set_contenteditable_is_idempotent() {
-        let mut f = NodeFlags::new();
-        f.set_contenteditable_mut(true);
-        let once = f;
-        f.set_contenteditable_mut(true);
-        assert_eq!(f, once, "setting twice must not toggle");
-    }
-
-    #[test]
-    fn node_flags_builder_and_mut_setter_agree() {
-        for v in [true, false] {
-            let builder = NodeFlags::new().set_contenteditable(v);
-            let mut mutated = NodeFlags::new();
-            mutated.set_contenteditable_mut(v);
-            assert_eq!(builder, mutated, "builder/mut disagree for {v}");
-        }
-    }
-
-    #[test]
-    fn node_flags_all_bits_set_decodes_without_panicking() {
-        // Adversarial: a NodeFlags whose `inner` was never produced by the setters
-        // (e.g. deserialized from a hostile FFI caller). Every getter must still
-        // return a deterministic value instead of panicking.
-        let f = NodeFlags { inner: u32::MAX };
-        assert!(f.is_contenteditable());
-        assert!(f.is_anonymous());
-        // bits [30:29] == 0b11 == TAB_NO_KEYBOARD
-        assert_eq!(f.get_tab_index(), Some(TabIndex::NoKeyboardFocus));
-    }
-
-    #[test]
-    fn node_flags_get_tab_index_is_total_over_the_tag_bits() {
-        // The `_ => None` arm of get_tab_index is unreachable (2 bits => 4 patterns,
-        // all matched). Prove every tag pattern decodes to Some/None deterministically.
-        for tag in 0u32..4 {
-            for extra in [0u32, u32::MAX] {
-                let inner = (tag << 29) | (extra & !(0b11 << 29));
-                let f = NodeFlags { inner };
-                let decoded = f.get_tab_index();
-                match tag {
-                    0 => assert_eq!(decoded, None),
-                    1 => assert_eq!(decoded, Some(TabIndex::Auto)),
-                    2 => assert!(matches!(decoded, Some(TabIndex::OverrideInParent(_)))),
-                    _ => assert_eq!(decoded, Some(TabIndex::NoKeyboardFocus)),
-                }
-            }
-        }
-    }
-
-    // =====================================================================
-    // TabIndex — numeric limits
-    // =====================================================================
-
-    #[test]
-    fn tab_index_default_is_auto_with_index_zero() {
-        assert_eq!(TabIndex::default(), TabIndex::Auto);
-        assert_eq!(TabIndex::default().get_index(), 0);
-    }
-
-    #[test]
-    fn tab_index_get_index_at_numeric_limits() {
-        assert_eq!(TabIndex::Auto.get_index(), 0);
-        assert_eq!(TabIndex::NoKeyboardFocus.get_index(), -1);
-        assert_eq!(TabIndex::OverrideInParent(0).get_index(), 0);
-        // u32 -> isize must widen, never wrap negative (isize is >= 32 bits on all
-        // supported targets, so u32::MAX stays positive).
-        let max = TabIndex::OverrideInParent(u32::MAX).get_index();
-        assert_eq!(max, u32::MAX as isize);
-        assert!(max > 0, "u32::MAX must not wrap to a negative isize");
-    }
-
-    #[test]
-    fn get_effective_tabindex_saturates_into_i32() {
-        // Reached through NodeFlags, OverrideInParent is capped at 2^28 - 1, which
-        // always fits i32 — so the i32::MAX saturation arm is not reachable via a
-        // NodeData. Pin what IS reachable.
-        let nd = NodeData::create_div().with_tab_index(TabIndex::OverrideInParent(u32::MAX));
-        assert_eq!(nd.get_effective_tabindex(), Some((1 << 28) - 1));
-
-        assert_eq!(
-            NodeData::create_div()
-                .with_tab_index(TabIndex::Auto)
-                .get_effective_tabindex(),
-            Some(0)
-        );
-        assert_eq!(
-            NodeData::create_div()
-                .with_tab_index(TabIndex::NoKeyboardFocus)
-                .get_effective_tabindex(),
-            Some(-1)
-        );
-        assert_eq!(NodeData::create_div().get_effective_tabindex(), None);
-    }
-
-    #[test]
-    fn get_effective_tabindex_falls_back_to_zero_for_focus_callbacks() {
-        let nd = NodeData::create_div().with_callback(
-            EventFilter::Focus(FocusEventFilter::MouseDown),
-            RefAny::new(0u32),
-            0usize,
-        );
-        assert_eq!(nd.get_effective_tabindex(), Some(0));
-    }
-
-    // =====================================================================
-    // TagId / ScrollTagId
-    // =====================================================================
-
-    #[test]
-    fn tag_id_unique_never_returns_zero_and_never_repeats() {
-        // 0 is reserved for "no tag". Other tests in this binary also allocate tags,
-        // so assert distinctness rather than a specific starting value.
-        let ids: Vec<TagId> = (0..512).map(|_| TagId::unique()).collect();
-        for id in &ids {
-            assert_ne!(id.inner, 0, "TagId 0 is reserved for 'no tag'");
-        }
-        let mut sorted: Vec<u64> = ids.iter().map(|t| t.inner).collect();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), 512, "TagId::unique() handed out a duplicate");
-    }
-
-    #[test]
-    fn tag_id_crate_internal_conversions_are_identity_at_limits() {
-        for inner in [0u64, 1, u64::MAX, u64::MAX - 1] {
-            let t = TagId { inner };
-            assert_eq!(t.into_crate_internal(), t);
-            assert_eq!(TagId::from_crate_internal(t), t);
-            // Round-trip through both directions.
-            assert_eq!(
-                TagId::from_crate_internal(t.into_crate_internal()).inner,
-                inner
-            );
-        }
-    }
-
-    #[test]
-    fn tag_id_display_is_non_empty_at_numeric_limits() {
-        for inner in [0u64, 1, u64::MAX] {
-            let s = format!("{}", TagId { inner });
-            assert!(!s.is_empty());
-            assert!(s.contains(&inner.to_string()), "{s} should contain {inner}");
-        }
-    }
-
-    #[test]
-    fn scroll_tag_id_unique_is_distinct_and_debug_matches_display() {
-        let a = ScrollTagId::unique();
-        let b = ScrollTagId::unique();
-        assert_ne!(a, b);
-        assert_ne!(a.inner.inner, 0);
-
-        let s = ScrollTagId {
-            inner: TagId { inner: u64::MAX },
-        };
-        assert_eq!(format!("{s:?}"), format!("{s}"));
-        assert!(!format!("{s}").is_empty());
-    }
-
-    // =====================================================================
-    // AttributeType — getters / predicates / serializer invariants
-    // =====================================================================
-
-    #[test]
-    fn attribute_boolean_attrs_always_have_an_empty_value() {
-        // Invariant: is_boolean() means "present == true", so there is nothing to
-        // serialize on the right-hand side.
-        for attr in all_attribute_variants() {
-            if attr.is_boolean() {
-                assert_eq!(
-                    attr.value().as_str(),
-                    "",
-                    "boolean attr {} must have an empty value",
-                    attr.name()
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn attribute_name_and_value_never_panic_for_any_variant() {
-        for attr in all_attribute_variants() {
-            let name = attr.name();
-            let value = attr.value();
-            // Every built-in variant has a non-empty name; only a Custom/Data
-            // attribute can carry a caller-supplied empty name (see next test).
-            assert!(!name.is_empty(), "empty name for {attr:?}");
-            let _ = value.as_str();
-        }
-    }
-
-    #[test]
-    fn attribute_custom_with_empty_name_returns_empty_name_without_panicking() {
-        let attr = AttributeType::Custom(AttributeNameValue {
-            attr_name: "".into(),
-            value: "".into(),
-        });
-        assert_eq!(attr.name(), "");
-        assert_eq!(attr.value().as_str(), "");
-        assert!(!attr.is_boolean());
-    }
-
-    #[test]
-    fn attribute_as_id_and_as_class_are_mutually_exclusive() {
-        for attr in all_attribute_variants() {
-            match &attr {
-                AttributeType::Id(s) => {
-                    assert_eq!(attr.as_id(), Some(s.as_str()));
-                    assert_eq!(attr.as_class(), None);
-                }
-                AttributeType::Class(s) => {
-                    assert_eq!(attr.as_class(), Some(s.as_str()));
-                    assert_eq!(attr.as_id(), None);
-                }
-                _ => {
-                    assert_eq!(attr.as_id(), None, "as_id must be None for {attr:?}");
-                    assert_eq!(attr.as_class(), None, "as_class must be None for {attr:?}");
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn attribute_numeric_values_serialize_at_i32_limits() {
-        assert_eq!(
-            AttributeType::MinLength(i32::MIN).value().as_str(),
-            "-2147483648"
-        );
-        assert_eq!(
-            AttributeType::MaxLength(i32::MAX).value().as_str(),
-            "2147483647"
-        );
-        assert_eq!(AttributeType::ColSpan(0).value().as_str(), "0");
-        assert_eq!(AttributeType::RowSpan(-1).value().as_str(), "-1");
-        assert_eq!(
-            AttributeType::TabIndex(i32::MIN).value().as_str(),
-            "-2147483648"
-        );
-    }
-
-    #[test]
-    fn attribute_focusable_is_tabindex_zero_and_not_boolean() {
-        // Boundary: `Focusable` shares the "tabindex" name with TabIndex(i32) but,
-        // unlike the boolean attrs, serializes a value ("0").
-        let f = AttributeType::Focusable;
-        assert_eq!(f.name(), "tabindex");
-        assert_eq!(f.value().as_str(), "0");
-        assert!(!f.is_boolean());
-        assert_eq!(AttributeType::TabIndex(0).name(), "tabindex");
-    }
-
-    #[test]
-    fn attribute_checked_true_and_false_are_both_boolean_and_share_a_name() {
-        // AUDIT: CheckedFalse is_boolean() == true and value() == "", so a serializer
-        // that emits boolean attrs as bare names would render `checked` for the
-        // *unchecked* state. Pinning current behaviour — see report.
-        assert!(AttributeType::CheckedTrue.is_boolean());
-        assert!(AttributeType::CheckedFalse.is_boolean());
-        assert_eq!(AttributeType::CheckedTrue.name(), "checked");
-        assert_eq!(AttributeType::CheckedFalse.name(), "checked");
-        assert_eq!(AttributeType::CheckedFalse.value().as_str(), "");
-        // The two are still distinguishable as values.
-        assert_ne!(AttributeType::CheckedTrue, AttributeType::CheckedFalse);
-    }
-
-    #[test]
-    fn attribute_content_editable_and_draggable_stringify_bools() {
-        assert_eq!(AttributeType::ContentEditable(true).value().as_str(), "true");
-        assert_eq!(
-            AttributeType::ContentEditable(false).value().as_str(),
-            "false"
-        );
-        assert_eq!(AttributeType::Draggable(true).value().as_str(), "true");
-        assert_eq!(AttributeType::Draggable(false).value().as_str(), "false");
-        assert!(!AttributeType::ContentEditable(false).is_boolean());
-    }
-
-    #[test]
-    fn attribute_round_trips_huge_unicode_values() {
-        let big = huge_unicode_string();
-        let attr = AttributeType::Value(big.clone().into());
-        assert_eq!(attr.value().as_str(), big.as_str());
-        assert_eq!(attr.name(), "value");
-
-        let id = AttributeType::Id(big.clone().into());
-        assert_eq!(id.as_id(), Some(big.as_str()));
-    }
-
-    #[test]
-    fn id_or_class_accessors_are_mutually_exclusive() {
-        let id = IdOrClass::Id("my-id".into());
-        let class = IdOrClass::Class("my-class".into());
-        assert_eq!(id.as_id(), Some("my-id"));
-        assert_eq!(id.as_class(), None);
-        assert_eq!(class.as_class(), Some("my-class"));
-        assert_eq!(class.as_id(), None);
-
-        // Empty strings are legal and round-trip as Some("").
-        assert_eq!(IdOrClass::Id("".into()).as_id(), Some(""));
-        assert_eq!(IdOrClass::Class("".into()).as_class(), Some(""));
-    }
-
-    // =====================================================================
-    // InputType
-    // =====================================================================
-
-    #[test]
-    fn input_type_as_str_is_non_empty_and_unique_per_variant() {
-        let all = [
-            InputType::Text,
-            InputType::Button,
-            InputType::Checkbox,
-            InputType::Color,
-            InputType::Date,
-            InputType::Datetime,
-            InputType::DatetimeLocal,
-            InputType::Email,
-            InputType::File,
-            InputType::Hidden,
-            InputType::Image,
-            InputType::Month,
-            InputType::Number,
-            InputType::Password,
-            InputType::Radio,
-            InputType::Range,
-            InputType::Reset,
-            InputType::Search,
-            InputType::Submit,
-            InputType::Tel,
-            InputType::Time,
-            InputType::Url,
-            InputType::Week,
-        ];
-        let mut seen: Vec<&str> = all.iter().map(InputType::as_str).collect();
-        for s in &seen {
-            assert!(!s.is_empty());
-            assert!(
-                !s.contains(char::is_whitespace),
-                "{s} is not a valid HTML attribute value"
-            );
-        }
-        let len = seen.len();
-        seen.sort_unstable();
-        seen.dedup();
-        assert_eq!(seen.len(), len, "two InputType variants share an as_str()");
-
-        assert_eq!(InputType::DatetimeLocal.as_str(), "datetime-local");
-        assert_eq!(InputType::Text.as_str(), "text");
-    }
-
-    // =====================================================================
-    // NodeType
-    // =====================================================================
-
-    #[test]
-    fn node_type_to_library_owned_round_trips_every_variant() {
-        // encode == decode: the deep-copy must be value-equal to the original,
-        // including the payload-carrying (boxed) variants.
-        for nt in representative_node_types() {
-            let owned = nt.to_library_owned_nodetype();
-            assert_eq!(owned, nt, "to_library_owned_nodetype lost data for {nt:?}");
-            assert_eq!(owned.get_path(), nt.get_path());
-        }
-    }
-
-    #[test]
-    fn node_type_get_path_and_format_never_panic() {
-        for nt in representative_node_types() {
-            let _tag = nt.get_path();
-            let _fmt = nt.format();
-            let _semantic = nt.is_semantic_for_accessibility();
-        }
-    }
-
-    #[test]
-    fn node_type_format_returns_content_only_for_content_variants() {
-        assert_eq!(NodeType::Div.format(), None);
-        assert_eq!(NodeType::Br.format(), None);
-        assert_eq!(NodeType::Button.format(), None);
-
-        assert_eq!(
-            NodeType::Text(BoxOrStatic::heap(AzString::from("hi"))).format(),
-            Some("hi".to_string())
-        );
-        assert_eq!(
-            NodeType::VirtualView.format(),
-            Some("virtualized-view".to_string())
-        );
-        assert_eq!(
-            NodeType::Icon(BoxOrStatic::heap(AzString::from("home"))).format(),
-            Some("icon(home)".to_string())
-        );
-    }
-
-    #[test]
-    fn node_type_format_handles_empty_and_unicode_text() {
-        assert_eq!(
-            NodeType::Text(BoxOrStatic::heap(AzString::from(""))).format(),
-            Some(String::new())
-        );
-        let unicode = "日本語 🎉 ünïcødé";
-        assert_eq!(
-            NodeType::Text(BoxOrStatic::heap(AzString::from(unicode))).format(),
-            Some(unicode.to_string())
-        );
-    }
-
-    #[test]
-    fn node_type_format_of_geolocation_probe_survives_nan_and_infinity() {
-        // Adversarial floats: the probe config is formatted with `{}`, which must
-        // print NaN/inf rather than panicking.
-        for max_accuracy_m in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -0.0, f32::MAX] {
-            let cfg = crate::geolocation::GeolocationProbeConfig {
-                high_accuracy: true,
-                background: true,
-                max_accuracy_m,
-                min_interval_ms: u32::MAX,
-            };
-            let out = NodeType::GeolocationProbe(cfg)
-                .format()
-                .expect("GeolocationProbe always formats");
-            assert!(out.starts_with("geolocation-probe("));
-            assert!(out.contains("4294967295"), "min_interval_ms must be printed");
-        }
-    }
-
-    #[test]
-    fn geolocation_probe_nan_is_self_equal_and_hash_consistent() {
-        // GeolocationProbeConfig gives f32 a total order via to_bits, so (unlike raw
-        // f32) NaN == NaN. Eq and Hash must agree, or NodeType breaks as a HashMap key.
-        let cfg = crate::geolocation::GeolocationProbeConfig {
-            max_accuracy_m: f32::NAN,
-            ..Default::default()
-        };
-        let a = NodeType::GeolocationProbe(cfg);
-        let b = NodeType::GeolocationProbe(cfg);
-        assert_eq!(a, b, "bitwise-NaN configs must compare equal");
-        assert_eq!(
-            hash_of(&a),
-            hash_of(&b),
-            "Eq == true but hashes differ: violates the Hash/Eq contract"
-        );
-        assert_eq!(a.cmp(&b), core::cmp::Ordering::Equal);
-    }
-
-    #[test]
-    fn node_type_is_semantic_for_accessibility_known_true_and_false() {
-        for nt in [
-            NodeType::Button,
-            NodeType::Input,
-            NodeType::TextArea,
-            NodeType::Select,
-            NodeType::A,
-            NodeType::H1,
-            NodeType::H6,
-            NodeType::Article,
-            NodeType::Nav,
-            NodeType::Main,
-        ] {
-            assert!(
-                nt.is_semantic_for_accessibility(),
-                "{nt:?} should be semantic"
-            );
-        }
-        for nt in [
-            NodeType::Div,
-            NodeType::Span,
-            NodeType::Br,
-            NodeType::VirtualView,
-            NodeType::Text(BoxOrStatic::heap(AzString::from("x"))),
-        ] {
-            assert!(
-                !nt.is_semantic_for_accessibility(),
-                "{nt:?} should not be semantic"
-            );
-        }
-    }
-
-    #[test]
-    fn node_type_text_variants_are_content_sensitive() {
-        let a = NodeType::Text(BoxOrStatic::heap(AzString::from("a")));
-        let b = NodeType::Text(BoxOrStatic::heap(AzString::from("b")));
-        assert_ne!(a, b);
-        assert_eq!(a.get_path(), b.get_path(), "same tag, different content");
-    }
-
-    // =====================================================================
-    // NodeData — attributes, ids, classes
-    // =====================================================================
-
-    #[test]
-    fn node_data_default_has_no_attributes_and_no_extra_state() {
-        let nd = NodeData::default();
-        assert!(nd.is_node_type(NodeType::Div));
-        assert!(nd.attributes().as_ref().is_empty());
-        assert!(nd.get_ids_and_classes().as_ref().is_empty());
-        assert!(nd.get_dataset().is_none());
-        assert!(nd.get_key().is_none());
-        assert!(nd.get_menu_bar().is_none());
-        assert!(nd.get_context_menu().is_none());
-        assert!(nd.get_svg_data().is_none());
-        assert!(nd.get_image_clip_mask().is_none());
-        assert!(nd.get_accessibility_info().is_none());
-        assert!(nd.get_merge_callback().is_none());
-        assert!(nd.get_component_origin().is_none());
-        assert!(!nd.has_context_menu());
-        assert!(!nd.is_contenteditable());
-        assert!(!nd.is_anonymous());
-        assert_eq!(nd.get_tab_index(), None);
-    }
-
-    #[test]
-    fn attributes_mut_lazily_allocates_but_stays_empty() {
-        let mut nd = NodeData::create_div();
-        assert!(nd.attributes().as_ref().is_empty());
-        let _ = nd.attributes_mut(); // allocates NodeDataExt
-        assert!(
-            nd.attributes().as_ref().is_empty(),
-            "lazy alloc must not invent attributes"
-        );
-        nd.add_id("x".into());
-        assert_eq!(nd.attributes().as_ref().len(), 1);
-    }
-
-    #[test]
-    fn has_id_and_has_class_match_exactly_not_by_prefix() {
-        let mut nd = NodeData::create_div();
-        nd.add_id("header".into());
-        nd.add_class("btn".into());
-
-        assert!(nd.has_id("header"));
-        assert!(nd.has_class("btn"));
-        // No prefix/substring matching.
-        assert!(!nd.has_id("head"));
-        assert!(!nd.has_id("header2"));
-        assert!(!nd.has_class("bt"));
-        assert!(!nd.has_class(""));
-        // Ids and classes must not cross over.
-        assert!(!nd.has_class("header"));
-        assert!(!nd.has_id("btn"));
-    }
-
-    #[test]
-    fn has_id_matches_the_empty_string_id() {
-        let mut nd = NodeData::create_div();
-        assert!(!nd.has_id(""), "no ids at all => empty id must not match");
-        nd.add_id("".into());
-        assert!(nd.has_id(""), "an explicitly-added empty id must match");
-        assert!(!nd.has_id("x"));
-    }
-
-    #[test]
-    fn has_id_and_has_class_handle_unicode_and_huge_strings() {
-        let unicode = "日本語-🎉-ünïcødé";
-        let big = huge_unicode_string();
-
-        let mut nd = NodeData::create_div();
-        nd.add_id(unicode.into());
-        nd.add_class(big.clone().into());
-
-        assert!(nd.has_id(unicode));
-        assert!(nd.has_class(big.as_str()));
-        // A truncated-at-a-codepoint-boundary prefix must not match.
-        assert!(!nd.has_id("日本語"));
-    }
-
-    #[test]
-    fn duplicate_ids_are_kept_and_still_match() {
-        let mut nd = NodeData::create_div();
-        nd.add_id("dup".into());
-        nd.add_id("dup".into());
-        assert!(nd.has_id("dup"));
-        assert_eq!(
-            nd.get_ids_and_classes().as_ref().len(),
-            2,
-            "add_id does not deduplicate"
-        );
-    }
-
-    #[test]
-    fn get_ids_and_classes_preserves_insertion_order_and_kind() {
-        let mut nd = NodeData::create_div();
-        nd.add_id("i1".into());
-        nd.add_class("c1".into());
-        nd.add_id("i2".into());
-
-        let v = nd.get_ids_and_classes();
-        let v = v.as_ref();
-        assert_eq!(v.len(), 3);
-        assert_eq!(v[0], IdOrClass::Id("i1".into()));
-        assert_eq!(v[1], IdOrClass::Class("c1".into()));
-        assert_eq!(v[2], IdOrClass::Id("i2".into()));
-    }
-
-    #[test]
-    fn get_ids_and_classes_ignores_non_id_class_attributes() {
-        let mut nd = NodeData::create_div();
-        nd.set_attributes(
-            vec![
-                AttributeType::Href("/x".into()),
-                AttributeType::Id("i".into()),
-                AttributeType::Disabled,
-                AttributeType::Class("c".into()),
-            ]
-            .into(),
-        );
-        let v = nd.get_ids_and_classes();
-        assert_eq!(v.as_ref().len(), 2);
-    }
-
-    #[test]
-    fn set_ids_and_classes_replaces_ids_but_preserves_other_attributes() {
-        // The dangerous part of set_ids_and_classes: it rebuilds the attribute vec.
-        // Non-Id/Class attributes must survive.
-        let mut nd = NodeData::create_div();
-        nd.set_attributes(
-            vec![
-                AttributeType::Href("/old".into()),
-                AttributeType::Id("old-id".into()),
-                AttributeType::Class("old-class".into()),
-                AttributeType::Disabled,
-            ]
-            .into(),
-        );
-
-        nd.set_ids_and_classes(vec![IdOrClass::Class("new-class".into())].into());
-
-        assert!(!nd.has_id("old-id"), "old id must be dropped");
-        assert!(!nd.has_class("old-class"), "old class must be dropped");
-        assert!(nd.has_class("new-class"));
-        // Href / Disabled must NOT have been collateral damage.
-        let attrs = nd.attributes().as_ref();
-        assert!(attrs.contains(&AttributeType::Href("/old".into())));
-        assert!(attrs.contains(&AttributeType::Disabled));
-        assert_eq!(attrs.len(), 3);
-    }
-
-    #[test]
-    fn set_ids_and_classes_with_an_empty_vec_clears_all_ids_and_classes() {
-        let mut nd = NodeData::create_div();
-        nd.add_id("i".into());
-        nd.add_class("c".into());
-        nd.set_ids_and_classes(Vec::new().into());
-        assert!(nd.get_ids_and_classes().as_ref().is_empty());
-        assert!(!nd.has_id("i"));
-        assert!(!nd.has_class("c"));
-    }
-
-    #[test]
-    fn set_ids_and_classes_is_idempotent_when_reapplied() {
-        let mut nd = NodeData::create_div();
-        let ids: IdOrClassVec = vec![
-            IdOrClass::Id("i".into()),
-            IdOrClass::Class("c".into()),
-        ]
-        .into();
-        nd.set_ids_and_classes(ids.clone());
-        let after_first = nd.attributes().clone();
-        nd.set_ids_and_classes(ids);
-        assert_eq!(
-            nd.attributes().as_ref(),
-            after_first.as_ref(),
-            "re-applying the same ids/classes must not duplicate them"
-        );
-    }
-
-    #[test]
-    fn with_attribute_appends_without_dropping_existing_attributes() {
-        // `with_attribute` is private, so this can only be exercised from an inline
-        // test module.
-        let nd = NodeData::create_div()
-            .with_attribute(AttributeType::Href("/a".into()))
-            .with_attribute(AttributeType::Alt("alt".into()));
-        let attrs = nd.attributes().as_ref();
-        assert_eq!(attrs.len(), 2);
-        assert_eq!(attrs[0], AttributeType::Href("/a".into()));
-        assert_eq!(attrs[1], AttributeType::Alt("alt".into()));
-    }
-
-    // =====================================================================
-    // NodeData — constructors
-    // =====================================================================
-
-    #[test]
-    fn create_node_shorthands_produce_the_right_node_type() {
-        assert!(NodeData::create_body().is_node_type(NodeType::Body));
-        assert!(NodeData::create_div().is_node_type(NodeType::Div));
-        assert!(NodeData::create_br().is_node_type(NodeType::Br));
-        assert!(NodeData::create_button_no_a11y().is_node_type(NodeType::Button));
-        assert!(NodeData::create_table_no_a11y().is_node_type(NodeType::Table));
-    }
-
-    #[test]
-    fn create_text_accepts_empty_unicode_and_huge_input() {
-        for s in ["", "x", "日本語 🎉"] {
-            let nd = NodeData::create_text_do_not_use_without_block_level_wrapper(s);
-            assert!(nd.is_text_node());
-            assert_eq!(nd.get_node_type().format(), Some(s.to_string()));
-        }
-        let big = huge_unicode_string();
-        let nd = NodeData::create_text_do_not_use_without_block_level_wrapper(big.clone());
-        assert!(nd.is_text_node());
-        assert_eq!(nd.get_node_type().format(), Some(big));
-    }
-
-    #[test]
-    fn create_a_stores_href_and_accessibility_name() {
-        let nd = NodeData::create_a("/home".into(), SmallAriaInfo::label("Home"));
-        assert!(nd.is_node_type(NodeType::A));
-        assert!(nd
-            .attributes()
-            .as_ref()
-            .contains(&AttributeType::Href("/home".into())));
-        let info = nd
-            .get_accessibility_info()
-            .expect("create_a must set accessibility info");
-        assert_eq!(info.accessibility_name, OptionString::Some("Home".into()));
-    }
-
-    #[test]
-    fn create_a_no_a11y_has_href_but_no_accessibility_info() {
-        let nd = NodeData::create_a_no_a11y("/x".into());
-        assert!(nd
-            .attributes()
-            .as_ref()
-            .contains(&AttributeType::Href("/x".into())));
-        assert!(nd.get_accessibility_info().is_none());
-    }
-
-    #[test]
-    fn create_a_accepts_an_empty_href() {
-        let nd = NodeData::create_a_no_a11y("".into());
-        assert_eq!(
-            nd.attributes().as_ref()[0],
-            AttributeType::Href("".into()),
-            "empty href is stored verbatim, not dropped"
-        );
-    }
-
-    #[test]
-    fn create_input_stores_all_three_attributes_in_order() {
-        let nd = NodeData::create_input_no_a11y("text".into(), "user".into(), "Username".into());
-        assert!(nd.is_node_type(NodeType::Input));
-        let attrs = nd.attributes().as_ref();
-        assert_eq!(attrs.len(), 3);
-        assert_eq!(attrs[0], AttributeType::InputType("text".into()));
-        assert_eq!(attrs[1], AttributeType::Name("user".into()));
-        assert_eq!(attrs[2], AttributeType::AriaLabel("Username".into()));
-    }
-
-    #[test]
-    fn create_input_with_a11y_sets_both_attributes_and_accessibility_info() {
-        let nd = NodeData::create_input(
-            "password".into(),
-            "pw".into(),
-            "Password".into(),
-            SmallAriaInfo::label("Password").with_role(AccessibilityRole::Text),
-        );
-        assert_eq!(nd.attributes().as_ref().len(), 3);
-        let info = nd.get_accessibility_info().expect("a11y info");
-        assert_eq!(info.role, AccessibilityRole::Text);
-    }
-
-    #[test]
-    fn create_textarea_and_select_store_name_and_label() {
-        let ta = NodeData::create_textarea_no_a11y("body".into(), "Body".into());
-        assert!(ta.is_node_type(NodeType::TextArea));
-        assert_eq!(ta.attributes().as_ref().len(), 2);
-
-        let sel = NodeData::create_select_no_a11y("country".into(), "Country".into());
-        assert!(sel.is_node_type(NodeType::Select));
-        assert_eq!(
-            sel.attributes().as_ref()[0],
-            AttributeType::Name("country".into())
-        );
-    }
-
-    #[test]
-    fn create_label_uses_a_custom_for_attribute() {
-        let nd = NodeData::create_label_no_a11y("email-input".into());
-        assert!(nd.is_node_type(NodeType::Label));
-        assert_eq!(
-            nd.attributes().as_ref()[0],
-            AttributeType::Custom(AttributeNameValue {
-                attr_name: "for".into(),
-                value: "email-input".into(),
-            })
-        );
-        assert_eq!(nd.attributes().as_ref()[0].name(), "for");
-        assert_eq!(nd.attributes().as_ref()[0].value().as_str(), "email-input");
-    }
-
-    #[test]
-    fn create_button_and_table_with_aria_set_accessibility_info() {
-        let btn = NodeData::create_button(
-            SmallAriaInfo::label("Save").with_role(AccessibilityRole::PushButton),
-        );
-        let info = btn.get_accessibility_info().expect("a11y info");
-        assert_eq!(info.role, AccessibilityRole::PushButton);
-        assert_eq!(info.accessibility_name, OptionString::Some("Save".into()));
-
-        let table = NodeData::create_table(SmallAriaInfo::label("Results"));
-        assert!(table.is_node_type(NodeType::Table));
-        assert!(table.get_accessibility_info().is_some());
-    }
-
-    #[test]
-    fn a11y_constructors_accept_empty_aria_labels() {
-        let btn = NodeData::create_button(SmallAriaInfo::label(""));
-        let info = btn.get_accessibility_info().expect("a11y info");
-        assert_eq!(info.accessibility_name, OptionString::Some("".into()));
-        // An unset role degrades to Unknown rather than panicking.
-        assert_eq!(info.role, AccessibilityRole::Unknown);
-    }
-
-    #[test]
-    fn create_image_and_is_node_type_round_trip() {
-        let img = ImageRef::null_image(4, 4, crate::resources::RawImageFormat::RGBA8, Vec::new());
-        let nd = NodeData::create_image(img.clone());
-        assert!(!nd.is_text_node());
-        assert_eq!(nd.get_node_type().get_path(), NodeTypeTag::Img);
-        assert!(nd.is_node_type(NodeType::Image(BoxOrStatic::heap(img))));
-    }
-
-    // =====================================================================
-    // NodeData — predicates
-    // =====================================================================
-
-    #[test]
-    fn is_node_type_is_content_sensitive_for_text() {
-        let nd = NodeData::create_text_do_not_use_without_block_level_wrapper("a");
-        assert!(nd.is_node_type(NodeType::Text(BoxOrStatic::heap(AzString::from("a")))));
-        assert!(
-            !nd.is_node_type(NodeType::Text(BoxOrStatic::heap(AzString::from("b")))),
-            "is_node_type compares payloads, not just the discriminant"
-        );
-        assert!(!nd.is_node_type(NodeType::Div));
-    }
-
-    #[test]
-    fn is_text_node_and_is_virtual_view_node() {
-        assert!(NodeData::create_text_do_not_use_without_block_level_wrapper("x").is_text_node());
-        assert!(!NodeData::create_div().is_text_node());
-
-        let vv = NodeData::create_virtual_view(RefAny::new(1u32), virtual_view_callback());
-        assert!(vv.is_virtual_view_node());
-        assert!(!vv.is_text_node());
-        assert!(vv.get_virtual_view_node_ref().is_some());
-        assert!(!NodeData::create_div().is_virtual_view_node());
-        assert!(NodeData::create_div().get_virtual_view_node_ref().is_none());
-    }
-
-    #[test]
-    fn has_context_menu_flips_only_after_set_context_menu() {
-        let mut nd = NodeData::create_div();
-        assert!(!nd.has_context_menu());
-        // A menu bar is a different slot and must not be mistaken for a context menu.
-        nd.set_menu_bar(Menu::create(Vec::new().into()));
-        assert!(
-            !nd.has_context_menu(),
-            "menu_bar must not satisfy has_context_menu"
-        );
-        assert!(nd.get_menu_bar().is_some());
-
-        nd.set_context_menu(Menu::create(Vec::new().into()));
-        assert!(nd.has_context_menu());
-        assert!(nd.get_context_menu().is_some());
-    }
-
-    #[test]
-    fn with_menu_bar_and_with_context_menu_are_independent_slots() {
-        let nd = NodeData::create_div()
-            .with_menu_bar(Menu::create(Vec::new().into()))
-            .with_context_menu(Menu::create(Vec::new().into()));
-        assert!(nd.get_menu_bar().is_some());
-        assert!(nd.get_context_menu().is_some());
-        assert!(nd.has_context_menu());
-    }
-
-    #[test]
-    fn is_focusable_for_naturally_focusable_and_opted_in_nodes() {
-        for nt in [
-            NodeType::A,
-            NodeType::Button,
-            NodeType::Input,
-            NodeType::Select,
-            NodeType::TextArea,
-        ] {
-            assert!(
-                NodeData::create_node(nt.clone()).is_focusable(),
-                "{nt:?} is naturally focusable"
-            );
-        }
-        assert!(!NodeData::create_div().is_focusable());
-        assert!(NodeData::create_div()
-            .with_contenteditable(true)
-            .is_focusable());
-        assert!(NodeData::create_div()
-            .with_tab_index(TabIndex::NoKeyboardFocus)
-            .is_focusable());
-        assert!(NodeData::create_div()
-            .with_callback(
-                EventFilter::Focus(FocusEventFilter::MouseDown),
-                RefAny::new(0u32),
-                0usize,
-            )
-            .is_focusable());
-        // A non-focus callback must NOT make a plain div focusable.
-        assert!(!NodeData::create_div()
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseOver),
-                RefAny::new(0u32),
-                0usize,
-            )
-            .is_focusable());
-    }
-
-    #[test]
-    fn has_activation_behavior_for_elements_callbacks_and_roles() {
-        assert!(NodeData::create_node(NodeType::A).has_activation_behavior());
-        assert!(NodeData::create_button_no_a11y().has_activation_behavior());
-        assert!(!NodeData::create_div().has_activation_behavior());
-
-        for f in [HoverEventFilter::MouseUp, HoverEventFilter::LeftMouseUp] {
-            assert!(NodeData::create_div()
-                .with_callback(EventFilter::Hover(f), RefAny::new(0u32), 0usize)
-                .has_activation_behavior());
-        }
-        // MouseDown is not a click.
-        assert!(!NodeData::create_div()
-            .with_callback(
-                EventFilter::Hover(HoverEventFilter::MouseDown),
-                RefAny::new(0u32),
-                0usize,
-            )
-            .has_activation_behavior());
-
-        let mut nd = NodeData::create_div();
-        nd.set_accessibility_info(
-            SmallAriaInfo::label("x")
-                .with_role(AccessibilityRole::PushButton)
-                .to_full_info(),
-        );
-        assert!(nd.has_activation_behavior(), "role=PushButton activates");
-    }
-
-    #[test]
-    fn is_activatable_is_false_for_unavailable_elements() {
-        let mut nd = NodeData::create_button_no_a11y();
-        assert!(nd.is_activatable());
-
-        let mut info = SmallAriaInfo::label("Save")
-            .with_role(AccessibilityRole::PushButton)
-            .to_full_info();
-        info.states = vec![AccessibilityState::Unavailable].into();
-        nd.set_accessibility_info(info);
-
-        assert!(nd.has_activation_behavior());
-        assert!(
-            !nd.is_activatable(),
-            "an Unavailable (disabled) button must not be activatable"
-        );
-
-        // Something with no activation behaviour at all is never activatable.
-        assert!(!NodeData::create_div().is_activatable());
-    }
-
-    // =====================================================================
-    // NodeData — accessible label / value / placeholder
-    // =====================================================================
-
-    #[test]
-    fn get_accessible_label_prefers_aria_label_over_alt_and_title() {
-        let mut nd = NodeData::create_div();
-        nd.set_attributes(
-            vec![
-                AttributeType::Title("title".into()),
-                AttributeType::Alt("alt".into()),
-                AttributeType::AriaLabel("aria".into()),
-            ]
-            .into(),
-        );
-        assert_eq!(
-            nd.get_accessible_label(),
-            Some("aria"),
-            "aria-label wins regardless of attribute order"
-        );
-    }
-
-    #[test]
-    fn get_accessible_label_alt_vs_title_is_order_dependent() {
-        // AUDIT: the doc comment promises `aria-label > alt > title`, but the
-        // implementation's second pass matches `Alt(s) | Title(s)` in a single arm,
-        // so whichever appears FIRST in the attribute vec wins. With [Title, Alt]
-        // that yields "title" — contradicting the documented priority. Pinned here
-        // so a fix has to update this test deliberately. See report.
-        let mut title_first = NodeData::create_div();
-        title_first.set_attributes(
-            vec![
-                AttributeType::Title("title".into()),
-                AttributeType::Alt("alt".into()),
-            ]
-            .into(),
-        );
-        assert_eq!(title_first.get_accessible_label(), Some("title"));
-
-        let mut alt_first = NodeData::create_div();
-        alt_first.set_attributes(
-            vec![
-                AttributeType::Alt("alt".into()),
-                AttributeType::Title("title".into()),
-            ]
-            .into(),
-        );
-        assert_eq!(alt_first.get_accessible_label(), Some("alt"));
-    }
-
-    #[test]
-    fn get_accessible_label_value_and_placeholder_default_to_none() {
-        let nd = NodeData::create_div();
-        assert_eq!(nd.get_accessible_label(), None);
-        assert_eq!(nd.get_accessible_value(), None);
-        assert_eq!(nd.get_placeholder(), None);
-    }
-
-    #[test]
-    fn get_accessible_value_and_placeholder_return_the_first_match() {
-        let mut nd = NodeData::create_div();
-        nd.set_attributes(
-            vec![
-                AttributeType::Value("first".into()),
-                AttributeType::Value("second".into()),
-                AttributeType::Placeholder("ph".into()),
-            ]
-            .into(),
-        );
-        assert_eq!(nd.get_accessible_value(), Some("first"));
-        assert_eq!(nd.get_placeholder(), Some("ph"));
-    }
-
-    #[test]
-    fn get_accessible_label_returns_empty_string_not_none_for_empty_aria_label() {
-        // Boundary: an empty aria-label is still "present" — Some("") not None.
-        let mut nd = NodeData::create_div();
-        nd.set_attributes(vec![AttributeType::AriaLabel("".into())].into());
-        assert_eq!(nd.get_accessible_label(), Some(""));
-    }
-
-    // =====================================================================
-    // NodeData — dataset / key / merge callback / component origin
-    // =====================================================================
-
-    #[test]
-    fn dataset_set_get_take_round_trip() {
-        let mut nd = NodeData::create_div();
-        assert!(nd.get_dataset().is_none());
-        assert!(nd.take_dataset().is_none(), "take on empty must be None");
-
-        nd.set_dataset(OptionRefAny::Some(RefAny::new(42u32)));
-        assert!(nd.get_dataset().is_some());
-        assert!(nd.get_dataset_mut().is_some());
-
-        let mut taken = nd.take_dataset().expect("dataset was set");
-        assert_eq!(taken.downcast_ref::<u32>().map(|r| *r), Some(42));
-        assert!(nd.get_dataset().is_none(), "take must clear the slot");
-        assert!(nd.take_dataset().is_none(), "double-take must be None");
-    }
-
-    #[test]
-    fn set_dataset_none_clears_without_allocating_extra() {
-        let mut nd = NodeData::create_div();
-        // Setting None on a node that never had a dataset must be a no-op, not a panic.
-        nd.set_dataset(OptionRefAny::None);
-        assert!(nd.get_dataset().is_none());
-
-        nd.set_dataset(OptionRefAny::Some(RefAny::new(1u8)));
-        nd.set_dataset(OptionRefAny::None);
-        assert!(nd.get_dataset().is_none());
-    }
-
-    #[test]
-    fn set_key_is_deterministic_and_input_sensitive() {
-        let mut a = NodeData::create_div();
-        let mut b = NodeData::create_div();
-        a.set_key("user-123");
-        b.set_key("user-123");
-        assert_eq!(a.get_key(), b.get_key(), "same key input => same hash");
-        assert!(a.get_key().is_some());
-
-        let mut c = NodeData::create_div();
-        c.set_key("user-124");
-        assert_ne!(a.get_key(), c.get_key(), "different inputs => different keys");
-    }
-
-    #[test]
-    fn set_key_hashes_str_and_string_identically() {
-        let mut a = NodeData::create_div();
-        let mut b = NodeData::create_div();
-        a.set_key("x");
-        b.set_key(String::from("x"));
-        assert_eq!(
-            a.get_key(),
-            b.get_key(),
-            "&str and String must hash the same (Hash for str)"
-        );
-    }
-
-    #[test]
-    fn set_key_accepts_extreme_inputs() {
-        for nd in [
-            NodeData::create_div().with_key(""),
-            NodeData::create_div().with_key(u64::MAX),
-            NodeData::create_div().with_key(i64::MIN),
-            NodeData::create_div().with_key(huge_unicode_string()),
-        ] {
-            assert!(nd.get_key().is_some());
-        }
-    }
-
-    #[test]
-    fn set_key_overwrites_rather_than_accumulating() {
-        let mut nd = NodeData::create_div();
-        nd.set_key("a");
-        let first = nd.get_key();
-        nd.set_key("b");
-        assert_ne!(nd.get_key(), first, "the last set_key wins");
-    }
-
-    #[test]
-    fn merge_callback_round_trips_the_function_pointer() {
-        let mut nd = NodeData::create_div();
-        assert!(nd.get_merge_callback().is_none());
-
-        nd.set_merge_callback(merge_cb_a as DatasetMergeCallbackType);
-        let cb = nd.get_merge_callback().expect("merge callback was set");
-        assert_eq!(cb.cb as usize, merge_cb_a as usize);
-        assert_eq!(cb.callable, OptionRefAny::None);
-
-        // Overwriting swaps the pointer.
-        nd.set_merge_callback(merge_cb_b as DatasetMergeCallbackType);
-        let cb = nd.get_merge_callback().expect("merge callback was replaced");
-        assert_eq!(cb.cb as usize, merge_cb_b as usize);
-    }
-
-    #[test]
-    fn dataset_merge_callback_from_ptr_matches_the_from_impl() {
-        let via_ptr = DatasetMergeCallback::from_ptr(merge_cb_a);
-        let via_from = DatasetMergeCallback::from(merge_cb_a as DatasetMergeCallbackType);
-        assert_eq!(via_ptr, via_from);
-        assert_eq!(via_ptr.cb as usize, merge_cb_a as usize);
-        assert_eq!(via_ptr.callable, OptionRefAny::None);
-
-        // Distinct functions must not compare equal.
-        assert_ne!(via_ptr, DatasetMergeCallback::from_ptr(merge_cb_b));
-    }
-
-    #[test]
-    fn dataset_merge_callback_debug_is_non_empty_and_names_the_type() {
-        let cb = DatasetMergeCallback::from_ptr(merge_cb_a);
-        let s = format!("{cb:?}");
-        assert!(s.contains("DatasetMergeCallback"));
-        assert!(s.contains("cb"));
-    }
-
-    #[test]
-    fn merge_callback_is_actually_callable_through_the_stored_pointer() {
-        let cb = DatasetMergeCallback::from_ptr(merge_cb_b);
-        let mut out = (cb.cb)(RefAny::new(1u32), RefAny::new(2u32));
-        assert_eq!(
-            out.downcast_ref::<u32>().map(|r| *r),
-            Some(2),
-            "merge_cb_b returns the OLD data"
-        );
-    }
-
-    #[test]
-    fn component_origin_round_trips_and_defaults_to_none() {
-        let mut nd = NodeData::create_div();
-        assert!(nd.get_component_origin().is_none());
-
-        nd.set_component_origin(ComponentOrigin {
-            component_id: "shadcn:card".into(),
-            data_model_json: crate::json::Json::null(),
-        });
-        let origin = nd.get_component_origin().expect("origin was set");
-        assert_eq!(origin.component_id.as_str(), "shadcn:card");
-
-        // The Default impl is well-formed and hashable.
-        let d = ComponentOrigin::default();
-        assert_eq!(d.component_id.as_str(), "");
-        assert_eq!(hash_of(&d), hash_of(&ComponentOrigin::default()));
-    }
-
-    // =====================================================================
-    // NodeData — svg data / clip mask
-    // =====================================================================
-
-    #[test]
-    fn get_image_clip_mask_returns_none_for_non_mask_svg_data() {
-        let mut nd = NodeData::create_div();
-        assert!(nd.get_image_clip_mask().is_none());
-
-        nd.set_svg_data(SvgNodeData::Circle {
-            cx: 1.0,
-            cy: 2.0,
-            r: 3.0,
-        });
-        assert!(nd.get_svg_data().is_some());
-        assert!(
-            nd.get_image_clip_mask().is_none(),
-            "a Circle is not an ImageClipMask"
-        );
-    }
-
-    #[test]
-    fn set_clip_mask_is_readable_through_get_image_clip_mask() {
-        let mask = ImageMask {
-            image: ImageRef::null_image(2, 2, crate::resources::RawImageFormat::R8, Vec::new()),
-            rect: crate::geom::LogicalRect::new(
-                LogicalPosition { x: 0.0, y: 0.0 },
-                crate::geom::LogicalSize {
-                    width: 2.0,
-                    height: 2.0,
-                },
-            ),
-            repeat: false,
-        };
-        let mut nd = NodeData::create_div();
-        nd.set_clip_mask(mask.clone());
-        assert_eq!(nd.get_image_clip_mask(), Some(&mask));
-        // set_clip_mask stores through the same slot as set_svg_data.
-        assert!(matches!(
-            nd.get_svg_data(),
-            Some(SvgNodeData::ImageClipMask(_))
-        ));
-    }
-
-    #[test]
-    fn svg_node_data_with_nan_coords_is_self_equal_and_hash_consistent() {
-        // SvgNodeData hashes f32 via to_bits and derives Eq, so a NaN-carrying shape
-        // must be equal to (and hash like) itself, or NodeData's Hash/Eq contract
-        // breaks for SVG nodes.
-        let a = SvgNodeData::Rect {
-            x: f32::NAN,
-            y: f32::INFINITY,
-            width: f32::NEG_INFINITY,
-            height: -0.0,
-            rx: 0.0,
-            ry: f32::MAX,
-        };
-        let b = a.clone();
-        assert_eq!(a, b);
-        assert_eq!(hash_of(&a), hash_of(&b));
-        assert_eq!(a.cmp(&b), core::cmp::Ordering::Equal);
-    }
-
-    #[test]
-    fn svg_node_data_line_and_linear_gradient_are_distinct_despite_a_shared_hash_body() {
-        // The Hash impl deliberately folds Line and LinearGradient into one arm, so
-        // they can hash alike — but Eq must still tell them apart.
-        let line = SvgNodeData::Line {
-            x1: 1.0,
-            y1: 2.0,
-            x2: 3.0,
-            y2: 4.0,
-        };
-        let grad = SvgNodeData::LinearGradient {
-            x1: 1.0,
-            y1: 2.0,
-            x2: 3.0,
-            y2: 4.0,
-        };
-        assert_ne!(line, grad, "same field values, different variants");
-    }
-
-    // =====================================================================
-    // NodeData — hashing
-    // =====================================================================
-
-    #[test]
-    fn calculate_node_data_hash_is_deterministic_and_equal_for_equal_nodes() {
-        let a = NodeData::create_div().with_key("k").with_contenteditable(true);
-        let b = a.clone();
-        assert_eq!(a, b);
-        assert_eq!(a.calculate_node_data_hash(), b.calculate_node_data_hash());
-        assert_eq!(
-            a.calculate_node_data_hash(),
-            a.calculate_node_data_hash(),
-            "hashing must not depend on call count"
-        );
-    }
-
-    #[test]
-    fn structural_hash_ignores_text_content_but_data_hash_does_not() {
-        // Documented behaviour: Text("Hello") must match Text("Hello World") during
-        // reconciliation so the cursor survives an edit.
-        let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
-        let b = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello World");
-
-        assert_eq!(
-            a.calculate_structural_hash(),
-            b.calculate_structural_hash(),
-            "structural hash must ignore text content"
-        );
-        assert_ne!(
-            a.calculate_node_data_hash(),
-            b.calculate_node_data_hash(),
-            "the full data hash must NOT ignore text content"
-        );
-    }
-
-    #[test]
-    fn structural_hash_ignores_contenteditable_but_data_hash_does_not() {
-        let plain = NodeData::create_div();
-        let editable = NodeData::create_div().with_contenteditable(true);
-
-        assert_eq!(
-            plain.calculate_structural_hash(),
-            editable.calculate_structural_hash(),
-            "contenteditable flips with focus; it must not move the structural hash"
-        );
-        assert_ne!(
-            plain.calculate_node_data_hash(),
-            editable.calculate_node_data_hash(),
-            "flags ARE part of the full data hash"
-        );
-    }
-
-    #[test]
-    fn structural_hash_is_sensitive_to_ids_classes_and_node_type() {
-        let mut a = NodeData::create_div();
-        a.add_id("a".into());
-        let mut b = NodeData::create_div();
-        b.add_id("b".into());
-        assert_ne!(a.calculate_structural_hash(), b.calculate_structural_hash());
-
-        let mut c = NodeData::create_div();
-        c.add_class("a".into());
-        assert_ne!(
-            a.calculate_structural_hash(),
-            c.calculate_structural_hash(),
-            "id=\"a\" and class=\"a\" must not collide"
-        );
-
-        assert_ne!(
-            NodeData::create_div().calculate_structural_hash(),
-            NodeData::create_br().calculate_structural_hash()
-        );
-    }
-
-    #[test]
-    fn node_data_eq_implies_equal_hash_for_a_richly_populated_node() {
-        let mut a = NodeData::create_div();
-        a.add_id("id".into());
-        a.add_class("cls".into());
-        a.set_tab_index(TabIndex::OverrideInParent(9));
-        a.set_contenteditable(true);
-        a.set_anonymous(true);
-        a.set_key("key");
-        a.set_dataset(OptionRefAny::Some(RefAny::new(7u64)));
-        a.set_svg_data(SvgNodeData::GradientStop { offset: 0.5 });
-        a.set_context_menu(Menu::create(Vec::new().into()));
-        a.set_merge_callback(merge_cb_a as DatasetMergeCallbackType);
-        a.set_css("color: red;");
-
-        let b = a.clone();
-        assert_eq!(a, b, "clone must be value-equal");
-        assert_eq!(
-            hash_of(&a),
-            hash_of(&b),
-            "Eq == true but hashes differ: Hash/Eq contract violated"
-        );
-        assert_eq!(a.calculate_node_data_hash(), b.calculate_node_data_hash());
-        // copy_special must agree with Clone.
-        assert_eq!(a.copy_special(), b);
-    }
-
-    // =====================================================================
-    // NodeData — Display / node_data_to_string (serializer)
-    // =====================================================================
-
-    #[test]
-    fn node_data_to_string_is_empty_for_a_bare_node() {
-        // Private fn — only reachable from an inline test module.
-        assert_eq!(node_data_to_string(&NodeData::create_div()), "");
-    }
-
-    #[test]
-    fn node_data_to_string_emits_ids_classes_and_tabindex() {
-        let mut nd = NodeData::create_div();
-        nd.add_id("i1".into());
-        nd.add_id("i2".into());
-        nd.add_class("c1".into());
-        nd.set_tab_index(TabIndex::NoKeyboardFocus);
-
-        let s = node_data_to_string(&nd);
-        assert!(s.contains(r#"id="i1 i2""#), "ids are space-joined: {s}");
-        assert!(s.contains(r#"class="c1""#), "{s}");
-        assert!(s.contains(r#"tabindex="-1""#), "{s}");
-    }
-
-    #[test]
-    fn node_data_display_is_self_closing_without_content() {
-        let s = format!("{}", NodeData::create_div());
-        assert!(s.starts_with('<'), "{s}");
-        assert!(s.ends_with("/>"), "content-less nodes self-close: {s}");
-    }
-
-    #[test]
-    fn node_data_display_wraps_text_content_in_a_tag_pair() {
-        let s = format!("{}", NodeData::create_text_do_not_use_without_block_level_wrapper("hello"));
-        assert!(s.starts_with('<'));
-        assert!(s.ends_with('>'));
-        assert!(s.contains("hello"), "{s}");
-        assert!(!s.ends_with("/>"), "a node with content must not self-close");
-    }
-
-    #[test]
-    fn node_data_display_does_not_panic_on_hostile_text() {
-        // NOTE: Display is a debug/inspection aid and does NOT escape markup — a text
-        // node containing `<script>` reproduces it verbatim. Assert only that it is
-        // total (no panic) and round-trips the bytes; see report.
-        for text in [
-            "",
-            "<script>alert(1)</script>",
-            "\" onload=\"x",
-            "日本語 🎉",
-            "line\nbreak\ttab",
-        ] {
-            let s = format!("{}", NodeData::create_text_do_not_use_without_block_level_wrapper(text));
-            assert!(s.contains(text), "Display dropped content for {text:?}");
-        }
-    }
-
-    #[test]
-    fn node_data_display_survives_a_huge_text_payload() {
-        let big = huge_unicode_string();
-        let s = format!("{}", NodeData::create_text_do_not_use_without_block_level_wrapper(big.clone()));
-        assert!(s.len() > big.len());
-    }
-
-    #[test]
-    fn debug_print_end_matches_the_node_tag() {
-        let s = NodeData::create_div().debug_print_end();
-        assert!(s.starts_with("</"));
-        assert!(s.ends_with('>'));
-    }
-
-    // =====================================================================
-    // NodeData — setters / builders / swap
-    // =====================================================================
-
-    #[test]
-    fn set_node_type_replaces_the_type_and_keeps_the_attributes() {
-        let mut nd = NodeData::create_div();
-        nd.add_id("keep".into());
-        nd.set_node_type(NodeType::Span);
-        assert!(nd.is_node_type(NodeType::Span));
-        assert!(nd.has_id("keep"), "changing the tag must not drop attributes");
-    }
-
-    #[test]
-    fn add_callback_appends_and_get_callbacks_reflects_it() {
-        let mut nd = NodeData::create_div();
-        assert!(nd.get_callbacks().as_ref().is_empty());
-
-        nd.add_callback(
-            EventFilter::Hover(HoverEventFilter::MouseUp),
-            RefAny::new(1u32),
-            0usize,
-        );
-        nd.add_callback(
-            EventFilter::Focus(FocusEventFilter::MouseDown),
-            RefAny::new(2u32),
-            1usize,
-        );
-        assert_eq!(nd.get_callbacks().as_ref().len(), 2);
-        assert_eq!(
-            nd.get_callbacks().as_ref()[0].event,
-            EventFilter::Hover(HoverEventFilter::MouseUp)
-        );
-    }
-
-    #[test]
-    fn add_css_property_appends_an_inline_rule() {
-        use azul_css::props::property::{CssProperty, CssPropertyType};
-
-        let mut nd = NodeData::create_div();
-        assert!(nd.get_style().rules.as_ref().is_empty());
-
-        nd.add_css_property(CssPropertyWithConditions {
-            property: CssProperty::const_none(CssPropertyType::Display),
-            apply_if: Vec::new().into(),
-        });
-        assert_eq!(nd.get_style().rules.as_ref().len(), 1);
-
-        nd.add_css_property(CssPropertyWithConditions {
-            property: CssProperty::const_none(CssPropertyType::Display),
-            apply_if: Vec::new().into(),
-        });
-        assert_eq!(
-            nd.get_style().rules.as_ref().len(),
-            2,
-            "add_css_property appends, it does not replace"
-        );
-    }
-
-    #[test]
-    fn set_style_replaces_whereas_set_css_appends() {
-        let mut nd = NodeData::create_div();
-        nd.set_css("color: red;");
-        let after_first = nd.get_style().rules.as_ref().len();
-        assert!(after_first > 0);
-
-        nd.set_css("color: blue;");
-        assert!(
-            nd.get_style().rules.as_ref().len() > after_first,
-            "set_css appends to the existing inline style"
-        );
-
-        nd.set_style(azul_css::css::Css {
-            rules: Vec::new().into(),
-            keyframes: Vec::new().into(),
-        });
-        assert!(
-            nd.get_style().rules.as_ref().is_empty(),
-            "set_style replaces wholesale"
-        );
-    }
-
-    #[test]
-    fn set_css_with_empty_and_malformed_input_does_not_panic() {
-        for style in [
-            "",
-            "   ",
-            ";;;;",
-            "color",
-            "color:",
-            ":",
-            "}",
-            "{",
-            "color: ;",
-            "not-a-property: not-a-value;",
-            ":hover {",
-            "@os {",
-            "color: red",           // no trailing semicolon
-            "\u{0}color: red;",     // NUL byte
-            "color: 日本語;",
-        ] {
-            let nd = NodeData::create_div().with_css(style);
-            // The only contract for malformed input is "don't panic"; whether a rule
-            // survives parsing is the CSS parser's business.
-            let _ = nd.get_style().rules.as_ref().len();
-        }
-    }
-
-    #[test]
-    fn swap_with_default_returns_the_original_and_leaves_a_div() {
-        let mut nd = NodeData::create_text_do_not_use_without_block_level_wrapper("payload");
-        let taken = nd.swap_with_default();
-        assert!(taken.is_text_node());
-        assert!(nd.is_node_type(NodeType::Div), "the slot becomes a fresh div");
-        assert!(nd.attributes().as_ref().is_empty());
-    }
-
-    #[test]
-    fn node_data_builders_are_equivalent_to_their_setters() {
-        let built = NodeData::create_div()
-            .with_tab_index(TabIndex::Auto)
-            .with_contenteditable(true)
-            .with_node_type(NodeType::Span);
-
-        let mut set = NodeData::create_div();
-        set.set_tab_index(TabIndex::Auto);
-        set.set_contenteditable(true);
-        set.set_node_type(NodeType::Span);
-
-        assert_eq!(built, set);
-    }
-
-    // =====================================================================
-    // NodeDataVec containers
-    // =====================================================================
-
-    #[test]
-    fn node_data_vec_as_container_is_empty_for_an_empty_vec() {
-        let v: NodeDataVec = Vec::new().into();
-        assert_eq!(v.as_container().internal.len(), 0);
-    }
-
-    #[test]
-    fn node_data_vec_containers_expose_and_mutate_the_backing_slice() {
-        let mut v: NodeDataVec = vec![
-            NodeData::create_div(),
-            NodeData::create_br(),
-            NodeData::create_text_do_not_use_without_block_level_wrapper("t"),
-        ]
-        .into();
-        assert_eq!(v.as_container().internal.len(), 3);
-        assert!(v.as_container().internal[2].is_text_node());
-
-        v.as_container_mut().internal[0].set_node_type(NodeType::Span);
-        assert!(v.as_container().internal[0].is_node_type(NodeType::Span));
-    }
-
-    // =====================================================================
-    // Dom — child bookkeeping
-    // =====================================================================
-
-    #[test]
-    fn dom_default_is_an_empty_body() {
-        let d = Dom::default();
-        assert!(d.root.is_node_type(NodeType::Body));
-        assert_eq!(d.estimated_total_children, 0);
-        assert_eq!(d.node_count(), 1);
-    }
-
-    #[test]
-    fn dom_set_children_recomputes_the_estimate_from_scratch() {
-        let child = Dom::create_div().with_child(Dom::create_div());
-        let mut parent = Dom::create_div();
-        parent.add_child(Dom::create_div());
-        assert_eq!(parent.estimated_total_children, 1);
-
-        // set_children REPLACES; the old child must not be counted twice.
-        parent.set_children(vec![child].into());
-        assert_eq!(parent.estimated_total_children, 2);
-        assert_eq!(
-            parent.estimated_total_children,
-            parent.recompute_estimated_total_children()
-        );
-    }
-
-    #[test]
-    fn dom_set_children_with_an_empty_vec_zeroes_the_estimate() {
-        let mut d = Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_div()));
-        assert_eq!(d.estimated_total_children, 2);
-        d.set_children(Vec::new().into());
-        assert_eq!(d.estimated_total_children, 0);
-        assert_eq!(d.node_count(), 1);
-    }
-
-    #[test]
-    fn dom_deeply_nested_chain_keeps_an_exact_estimate() {
-        // 256-deep chain: every level adds exactly one descendant.
-        const DEPTH: usize = 256;
-        let mut d = Dom::create_div();
-        for _ in 0..DEPTH {
-            d = Dom::create_div().with_child(d);
-        }
-        assert_eq!(d.estimated_total_children, DEPTH);
-        assert_eq!(d.node_count(), DEPTH + 1);
-        assert_eq!(d.recompute_estimated_total_children(), DEPTH);
-    }
-
-    #[test]
-    fn dom_very_wide_child_list_keeps_an_exact_estimate() {
-        const WIDTH: usize = 5_000;
-        let children: Vec<Dom> = (0..WIDTH).map(|_| Dom::create_div()).collect();
-        let d = Dom::create_div().with_children(children.into());
-        assert_eq!(d.estimated_total_children, WIDTH);
-        assert_eq!(d.node_count(), WIDTH + 1);
-    }
-
-    #[test]
-    fn dom_from_iterator_counts_nested_grandchildren() {
-        let empty: Dom = Vec::new().into_iter().collect();
-        assert_eq!(empty.estimated_total_children, 0);
-        assert!(empty.root.is_node_type(NodeType::Div));
-
-        // Two children, one of which has a child of its own => 3 descendants.
-        let d: Dom = vec![
-            Dom::create_div().with_child(Dom::create_div()),
-            Dom::create_div(),
-        ]
-        .into_iter()
-        .collect();
-        assert_eq!(d.estimated_total_children, 3);
-        assert_eq!(d.estimated_total_children, d.recompute_estimated_total_children());
-        assert_eq!(d.node_count(), 4);
-    }
-
-    #[test]
-    fn dom_fixup_repairs_a_corrupted_estimate_at_every_depth() {
-        let mut d = Dom::create_div()
-            .with_child(Dom::create_div().with_child(Dom::create_div()))
-            .with_child(Dom::create_div());
-
-        // Corrupt the cached counter at BOTH levels (the public field makes this
-        // reachable from safe code, which is what fixup exists to undo).
-        d.estimated_total_children = 0;
-        d.children.as_mut()[0].estimated_total_children = 99;
-
-        let repaired = d.fixup_children_estimated();
-        assert_eq!(repaired, 3);
-        assert_eq!(d.children.as_ref()[0].estimated_total_children, 1);
-        assert_eq!(
-            d.estimated_total_children,
-            d.recompute_estimated_total_children()
-        );
-    }
-
-    #[test]
-    fn dom_fixup_on_a_leaf_zeroes_a_bogus_estimate() {
-        let mut d = Dom::create_div();
-        d.estimated_total_children = usize::MAX;
-        assert_eq!(d.fixup_children_estimated(), 0);
-        assert_eq!(d.node_count(), 1, "node_count is safe again after fixup");
-    }
-
-    // `estimated_total_children` is a public field, so `usize::MAX` is
-    // reachable. This used to be `#[cfg(debug_assertions)] #[should_panic]`,
-    // pinning "panics in debug, wraps to 0 in release" — i.e. pinning a
-    // divergence where the release answer was the dangerous one (0 reads as
-    // "empty DOM"). `node_count` saturates now, so assert the SAME defined
-    // answer in both configurations, and assert it is not the empty-DOM value.
-    #[test]
-    fn dom_node_count_saturates_on_a_corrupted_max_estimate() {
-        let mut d = Dom::create_div();
-        d.estimated_total_children = usize::MAX;
-        assert_eq!(d.node_count(), usize::MAX);
-        assert_ne!(
-            d.node_count(),
-            0,
-            "wrapping to 0 would claim an empty DOM — the one answer callers \
-             act on without checking"
-        );
-    }
-
-    #[test]
-    fn dom_swap_with_default_returns_the_original_tree() {
-        let mut d = Dom::create_div().with_child(Dom::create_div());
-        let taken = d.swap_with_default();
-        assert_eq!(taken.estimated_total_children, 1);
-        assert_eq!(d.estimated_total_children, 0, "the slot is reset");
-        assert!(d.root.is_node_type(NodeType::Div));
-    }
-
-    // =====================================================================
-    // Dom — builders
-    // =====================================================================
-
-    #[test]
-    fn dom_with_id_and_with_class_apply_to_the_root() {
-        let d = Dom::create_div()
-            .with_id("root".into())
-            .with_class("card".into());
-        assert!(d.root.has_id("root"));
-        assert!(d.root.has_class("card"));
-    }
-
-    #[test]
-    fn dom_with_attribute_appends_and_with_attributes_replaces() {
-        let d = Dom::create_div()
-            .with_attribute(AttributeType::Href("/a".into()))
-            .with_attribute(AttributeType::Alt("alt".into()));
-        assert_eq!(d.root.attributes().as_ref().len(), 2);
-
-        let d = d.with_attributes(vec![AttributeType::Disabled].into());
-        assert_eq!(
-            d.root.attributes().as_ref().len(),
-            1,
-            "with_attributes replaces wholesale"
-        );
-        assert_eq!(d.root.attributes().as_ref()[0], AttributeType::Disabled);
-    }
-
-    #[test]
-    fn dom_add_component_css_stacks_stylesheets() {
-        let mut d = Dom::create_div();
-        assert!(d.css.as_ref().is_empty());
-        d.set_css("color: red;");
-        d.set_css("color: blue;");
-        assert_eq!(d.css.as_ref().len(), 2, "each set_css pushes a stylesheet");
-
-        d.set_component_css(Vec::new().into());
-        assert!(d.css.as_ref().is_empty(), "set_component_css replaces");
-    }
-
-    #[test]
-    fn dom_with_css_does_not_panic_on_malformed_input() {
-        for style in ["", "}}}", "@os {", "color:", "\u{0}"] {
-            let d = Dom::create_div().with_css(style);
-            assert_eq!(d.css.as_ref().len(), 1, "a Css is pushed even if it parses empty");
-        }
-    }
-
-    #[test]
-    fn dom_text_helpers_produce_a_text_child() {
-        let d = Dom::create_h1_with_text("Title");
-        assert!(d.root.is_node_type(NodeType::H1));
-        assert_eq!(d.estimated_total_children, 1);
-        assert!(d.children.as_ref()[0].root.is_text_node());
-    }
-
-    #[test]
-    fn dom_create_geolocation_probe_carries_its_config() {
-        let cfg = crate::geolocation::GeolocationProbeConfig {
-            high_accuracy: true,
-            background: false,
-            max_accuracy_m: 25.0,
-            min_interval_ms: 1_000,
-        };
-        let d = Dom::create_geolocation_probe(cfg);
-        match d.root.get_node_type() {
-            NodeType::GeolocationProbe(c) => {
-                assert!(c.high_accuracy);
-                assert_eq!(c.min_interval_ms, 1_000);
-            }
-            other => panic!("expected GeolocationProbe, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn dom_clone_and_eq_agree_on_a_nested_tree() {
-        let d = Dom::create_div()
-            .with_id("r".into())
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a"))
-            .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("b")));
-        let c = d.clone();
-        assert_eq!(d, c);
-        assert_eq!(hash_of(&d), hash_of(&c));
-        // text("a") + div + text("b") == 3 descendants.
-        assert_eq!(c.estimated_total_children, 3);
-        assert_eq!(c.node_count(), 4);
-    }
-
-    #[test]
-    fn dom_debug_does_not_panic_on_a_nested_tree() {
-        let d = Dom::create_div()
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("日本語 🎉"))
-            .with_child(Dom::create_div().with_child(Dom::create_br()));
-        let s = format!("{d:?}");
-        assert!(s.contains("Dom"));
-        assert!(s.contains("estimated_total_children"));
-    }
-
-    // =====================================================================
-    // DomId / DomNodeId
-    // =====================================================================
-
-    #[test]
-    fn dom_id_root_is_zero_and_is_the_default() {
-        assert_eq!(DomId::ROOT_ID.inner, 0);
-        assert_eq!(DomId::default(), DomId::ROOT_ID);
-        assert_eq!(format!("{}", DomId::ROOT_ID), "0");
-        assert_eq!(format!("{}", DomId { inner: usize::MAX }), usize::MAX.to_string());
-    }
-
-    #[test]
-    fn dom_node_id_root_points_at_the_root_dom_and_no_node() {
-        assert_eq!(DomNodeId::ROOT.dom, DomId::ROOT_ID);
-        assert_eq!(DomNodeId::ROOT.node, NodeHierarchyItemId::NONE);
     }
 }
