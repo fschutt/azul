@@ -834,3 +834,8 @@ impl_option!(
     clone = false,
     [Debug, Clone, PartialEq, Eq]
 );
+
+
+#[cfg(test)]
+#[path = "selection_test.rs"]
+mod selection_test;

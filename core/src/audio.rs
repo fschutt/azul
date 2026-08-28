@@ -74,3 +74,8 @@ impl AudioFrame {
 // FFI Option wrapper for accessors that may have no frame yet. `copy = false`
 // because AudioFrame holds a F32Vec (matches the convention in `json.rs`).
 impl_option!(AudioFrame, OptionAudioFrame, copy = false, [Clone, Debug]);
+
+
+#[cfg(test)]
+#[path = "audio_test.rs"]
+mod audio_test;

@@ -604,3 +604,8 @@ pub enum GpuOpacityKeyEvent {
     /// An opacity was removed from a node
     Removed(NodeId, OpacityKey),
 }
+
+
+#[cfg(test)]
+#[path = "gpu_test.rs"]
+mod gpu_test;

@@ -383,3 +383,8 @@ impl Inclusivity {
         matches!(self, Self::SelfAndAncestors)
     }
 }
+
+
+#[cfg(test)]
+#[path = "spaces_test.rs"]
+mod spaces_test;

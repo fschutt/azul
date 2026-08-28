@@ -4100,3 +4100,8 @@ pub trait FocusManagerQuery {
 
     changes
 }
+
+
+#[cfg(test)]
+#[path = "events_test.rs"]
+mod events_test;

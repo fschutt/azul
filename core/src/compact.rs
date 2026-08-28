@@ -2194,3 +2194,8 @@ fn encode_flex_basis(val: &CssPropertyValue<LayoutFlexBasis>) -> u32 {
         _ => U32_SENTINEL,
     }
 }
+
+
+#[cfg(test)]
+#[path = "compact_test.rs"]
+mod compact_test;

@@ -1625,3 +1625,8 @@ impl Drop for RefAny {
         // The sharing_info field is dropped by Rust, triggering RefCount::drop.
     }
 }
+
+
+#[cfg(test)]
+#[path = "refany_test.rs"]
+mod refany_test;

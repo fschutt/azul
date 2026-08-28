@@ -1027,3 +1027,8 @@ mod tests {
         assert!(parsed.is_ok(), "valid multi-subpath path should parse");
     }
 }
+
+
+#[cfg(test)]
+#[path = "path_parser_test.rs"]
+mod path_parser_test;

@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 #[cfg(test)]
 #[allow(clippy::pedantic, clippy::nursery, clippy::too_many_lines)]
 mod autotest_generated {

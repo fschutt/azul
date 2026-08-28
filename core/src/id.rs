@@ -724,3 +724,8 @@ pub struct Children<'a> {
 }
 
 impl_node_iterator!(Children, |node: &Node| node.next_sibling);
+
+
+#[cfg(test)]
+#[path = "id_test.rs"]
+mod id_test;

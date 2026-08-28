@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // GPU cache values must round-trip bit-exactly, not "approximately"
 mod autotest_generated {

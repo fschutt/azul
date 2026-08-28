@@ -149,3 +149,8 @@ impl BiometricPrompt {
         }
     }
 }
+
+
+#[cfg(test)]
+#[path = "biometric_test.rs"]
+mod biometric_test;

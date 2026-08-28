@@ -640,3 +640,7 @@ mod tests {
         assert_eq!(out, FakeRet(99));
     }
 }
+
+#[cfg(test)]
+#[path = "host_invoker_test.rs"]
+mod host_invoker_test;

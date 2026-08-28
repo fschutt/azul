@@ -397,3 +397,8 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
 );
+
+
+#[cfg(test)]
+#[path = "menu_test.rs"]
+mod menu_test;

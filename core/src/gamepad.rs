@@ -168,3 +168,8 @@ impl_option!(
     OptionGamepadState,
     [Debug, Clone, Copy, PartialEq]
 );
+
+
+#[cfg(test)]
+#[path = "gamepad_test.rs"]
+mod gamepad_test;

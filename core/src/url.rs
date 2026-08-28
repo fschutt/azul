@@ -188,3 +188,8 @@ impl fmt::Display for Url {
         write!(f, "{}", self.href.as_str())
     }
 }
+
+
+#[cfg(test)]
+#[path = "url_test.rs"]
+mod url_test;

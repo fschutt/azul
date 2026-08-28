@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 #[cfg(test)]
 mod frame_consumer_contract {
     use super::*;

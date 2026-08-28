@@ -948,6 +948,3 @@ mod autotest_generated {
         assert!(!s.contains(&2));
     }
 }
-
-#[cfg(test)]
-mod a11y_test;

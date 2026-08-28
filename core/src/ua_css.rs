@@ -1300,3 +1300,8 @@ pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScro
         fade_duration: fade_duration.unwrap_or(ScrollbarFadeDuration { ms: 0 }),
     }
 }
+
+
+#[cfg(test)]
+#[path = "ua_css_test.rs"]
+mod ua_css_test;

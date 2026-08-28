@@ -2331,3 +2331,8 @@ pub enum SysDialogType {
     /// driver guidance - for apps that NEED working video acceleration.
     GpuCheck,
 }
+
+
+#[cfg(test)]
+#[path = "window_test.rs"]
+mod window_test;

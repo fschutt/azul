@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 #[cfg(test)]
 mod extract_tests {
     use super::*;

@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exactness IS the invariant under test for several cases

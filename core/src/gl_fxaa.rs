@@ -177,3 +177,8 @@ void main() {
     }
 }
 ";
+
+
+#[cfg(test)]
+#[path = "gl_fxaa_test.rs"]
+mod gl_fxaa_test;

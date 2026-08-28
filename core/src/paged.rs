@@ -116,3 +116,8 @@ impl PageMargins {
         self.top + self.bottom
     }
 }
+
+
+#[cfg(test)]
+#[path = "paged_test.rs"]
+mod paged_test;

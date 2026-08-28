@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exact float equality is the point: the parser propagates values bit-for-bit
 mod autotest_generated {

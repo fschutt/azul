@@ -7150,3 +7150,8 @@ impl fmt::Debug for Dom {
         print_dom(self, f)
     }
 }
+
+
+#[cfg(test)]
+#[path = "dom_test.rs"]
+mod dom_test;

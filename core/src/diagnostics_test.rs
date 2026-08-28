@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;

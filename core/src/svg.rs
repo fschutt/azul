@@ -1554,3 +1554,8 @@ pub enum Indent {
     Spaces(u8),
     Tabs,
 }
+
+
+#[cfg(test)]
+#[path = "svg_test.rs"]
+mod svg_test;

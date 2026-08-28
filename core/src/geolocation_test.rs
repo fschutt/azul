@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+pub use super::*;
 #[cfg(test)]
 #[allow(clippy::float_cmp, clippy::eq_op, clippy::unusual_byte_groupings)]
 mod autotest_generated {
