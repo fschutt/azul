@@ -7360,8 +7360,21 @@ impl LayoutWindow {
             focus_node.node.into_crate_internal().and_then(|node_id| {
                 // Check if this node or any ancestor is contenteditable
                 if self.is_node_contenteditable_inherited_internal(focus_node.dom, node_id) {
-                    // Find the text node where the cursor should be placed
-                    let text_node_id = self.find_last_text_child(focus_node.dom, node_id)
+                    // Find the text node where the cursor should be placed.
+                    //
+                    // An editing host with NO text anywhere under it — a brand
+                    // new document, whose whole content is one empty `<p>` —
+                    // has no text node to name, and falling back to the host
+                    // itself seeds the caret on a block that has no inline
+                    // layout, so it can never be painted or typed into (the
+                    // 2026-08-11 failure `find_last_text_child`'s subtree walk
+                    // was written for, in its remaining form). Anchor on the
+                    // host's last EMPTY EDITABLE LINE instead: `layout_ifc`
+                    // gives that one the editing-host strut, which is exactly
+                    // a line a caret can stand on.
+                    let text_node_id = self
+                        .find_last_text_child(focus_node.dom, node_id)
+                        .or_else(|| self.find_last_empty_editable_line(focus_node.dom, node_id))
                         .unwrap_or(node_id);
                     Some((focus_node.dom, node_id, text_node_id))
                 } else {
@@ -11977,6 +11990,42 @@ impl LayoutWindow {
             }
         }
         last_text
+    }
+
+    /// The last descendant of `parent_node_id` that is an IFC root with NO
+    /// clusters — an empty editable line.
+    ///
+    /// The companion of [`Self::find_last_text_child`] for an editing host that
+    /// has no text at all. Such a host still has line boxes: `layout_ifc` keeps
+    /// the editing-host strut for every empty editable IFC root, and that strut
+    /// is what `paint_cursor` draws the caret on. Naming the strut's node here
+    /// is what makes focusing a blank document produce a VISIBLE caret instead
+    /// of an editing session anchored on a block with no inline layout.
+    fn find_last_empty_editable_line(
+        &self,
+        dom_id: DomId,
+        parent_node_id: NodeId,
+    ) -> Option<NodeId> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+
+        let mut found: Option<NodeId> = None;
+        let mut stack = vec![parent_node_id];
+        while let Some(n) = stack.pop() {
+            if self.get_inline_layout_for_node(dom_id, n).is_some() {
+                found = Some(n);
+            }
+            let mut children = Vec::new();
+            let mut child = hierarchy[n].first_child_id(n);
+            while let Some(c) = child {
+                children.push(c);
+                child = hierarchy[c].next_sibling_id();
+            }
+            for c in children.into_iter().rev() {
+                stack.push(c);
+            }
+        }
+        found
     }
 
     /// Checks if a node has text content.

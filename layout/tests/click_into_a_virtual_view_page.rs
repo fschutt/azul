@@ -20,20 +20,26 @@
 //! 3. focusing an empty editing host must anchor the caret on a line that can
 //!    be painted, not on the host block itself.
 //!
+//! (3) is also the STARTUP caret, which never involves a click at all: AzWriter
+//! calls `set_focus_to_path(ROOT, ".mw-doc")` once the first layout exists, and
+//! that resolves to the editing host, so the engine alone decides which line
+//! the caret lands on.
+//!
 //! The DOM here is built with `StyledDom::create_from_dom`, the same entry the
 //! shell uses — `create(dom, Css::empty())` skips the per-subtree inline-CSS
 //! scoping and the page canvas never resolves its flex size.
 
 use azul_core::callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn};
-use azul_core::dom::{Dom, DomId, NodeId, NodeType, OptionDom};
+use azul_core::dom::{Dom, DomId, DomNodeId, NodeId, NodeType, OptionDom};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::refany::RefAny;
 use azul_core::resources::RendererResources;
-use azul_core::styled_dom::StyledDom;
+use azul_core::styled_dom::{NodeHierarchyItemId, StyledDom};
 use azul_layout::headless::CpuHitTester;
 use azul_layout::managers::hover::InputPointId;
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, solver3::display_list::DisplayListItem,
+    window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 use std::sync::{Arc, Mutex};
@@ -267,6 +273,31 @@ impl Harness {
             .find(|id| matches!(nd[*id].get_node_type(), NodeType::P))
             .expect("a materialised page has a paragraph")
     }
+
+    /// The first page's editing host — the content root `.mw-doc` sits on, and
+    /// the node `set_focus_to_path` resolves to.
+    fn first_editing_host(&self, dom: DomId) -> NodeId {
+        let lr = self.lw.get_layout_result(&dom).expect("nested layout");
+        let nd = lr.styled_dom.node_data.as_container();
+        (0..nd.len())
+            .map(NodeId::new)
+            .find(|id| nd[*id].is_contenteditable())
+            .expect("a materialised page has a contenteditable content root")
+    }
+
+    /// How many carets the rasteriser would draw in `dom`. The blink-off phase
+    /// still emits the item (with alpha 0), so this counts a caret that EXISTS,
+    /// not one that happens to be lit this frame.
+    fn caret_rects(&self, dom: DomId) -> usize {
+        self.lw
+            .get_layout_result(&dom)
+            .expect("nested layout")
+            .display_list
+            .items
+            .iter()
+            .filter(|item| matches!(item, DisplayListItem::CursorRect { .. }))
+            .count()
+    }
 }
 
 /// A loaded document: clicking a quarter of the way into the first
@@ -376,5 +407,74 @@ fn clicking_a_page_after_scrolling_past_the_first_screenful_still_places_a_caret
         h.lw.text_edit_manager.has_active_editing(),
         "after scrolling, a click on a visible page paragraph placed no caret \
          (click {target:?}, paragraph {origin:?} {size:?}, content_offset {content_offset:?})"
+    );
+}
+/// AzWriter's STARTUP caret on a brand-new document, with no click involved:
+/// 150 ms after the window opens the app calls `set_focus_to_path(ROOT,
+/// ".mw-doc")`, which resolves to the editing HOST — the class sits on the
+/// content root, never on a line inside it.
+///
+/// A blank document has no text node anywhere under that host, so
+/// `find_last_text_child` answers `None` and the old fallback anchored the
+/// editing session on the host itself. The host is a block container: it has
+/// no inline layout, so `paint_cursor` returns before it reaches a caret and
+/// there is nothing on screen to type into. The anchor has to be the host's
+/// empty editable LINE, the one `layout_ifc` gave the editing-host strut.
+#[test]
+fn focusing_a_blank_documents_editing_host_anchors_the_caret_on_its_empty_line() {
+    let mut h = Harness::new(Doc::Blank);
+    let (nested, _vv) = h.virtual_view();
+    let host = h.first_editing_host(nested);
+    let line = h.first_editable_line(nested);
+    assert!(
+        h.caret_rects(nested) == 0,
+        "premise: nothing is focused yet, so no caret is painted"
+    );
+
+    // `dll/.../shell2/common/event.rs`'s SetFocusTarget arm, verbatim: adopt
+    // the focus, flag the deferred contenteditable caret, finalize it. (The
+    // shell also scrolls the node into view between the first two; that moves
+    // the viewport, never the anchor.)
+    let focus = DomNodeId {
+        dom: nested,
+        node: NodeHierarchyItemId::from_crate_internal(Some(host)),
+    };
+    let window_state = h.lw.current_window_state.clone();
+    h.lw.focus_manager.set_focused_node(Some(focus));
+    let _ = h.lw.handle_focus_change_for_cursor_blink(Some(focus), &window_state);
+
+    let pending = h
+        .lw
+        .focus_manager
+        .pending_contenteditable_focus
+        .clone()
+        .expect("focusing a contenteditable flags a deferred caret");
+    assert_eq!(
+        pending.container_node_id, host,
+        "focus itself still belongs to the editing host"
+    );
+    assert_eq!(
+        pending.text_node_id, line,
+        "the caret must be anchored on the empty editable LINE ({line:?}); \
+         anchoring it on the host block ({host:?}) is an editing session whose \
+         caret has no inline layout to be painted in"
+    );
+
+    assert!(
+        h.lw.finalize_pending_focus_changes(),
+        "the deferred caret must be seeded in the pass after layout"
+    );
+    assert!(
+        h.lw.text_edit_manager.has_active_editing(),
+        "a focused blank document is an open editing session"
+    );
+
+    h.lw.regenerate_display_list_for_dom(nested);
+    assert_eq!(
+        h.caret_rects(nested),
+        1,
+        "the blank page must paint exactly one caret — with the session \
+         anchored on the host block instead, `paint_cursor` finds no inline \
+         layout and the new document shows no caret at all"
     );
 }

@@ -262,7 +262,20 @@ extern "C" fn pages_virtual_view(
             // includes page 0 at startup by construction.
             .with_ids_and_classes(
                 vec![azul_core::dom::IdOrClass::Class("mw-doc".into())].into(),
-            );
+            )
+            // The WHOLE writable area of the sheet is the editing host, the way
+            // a word processor's page is: `with_css` appends, so this only adds
+            // a floor to the content root's height.
+            //
+            // Without it the content root is exactly as tall as its blocks — on
+            // a new document, one empty line — so a click anywhere else on the
+            // white page landed on the sheet `<div>`, which is not editable and
+            // not focusable. Nothing took the click, no caret appeared, and the
+            // document could not be typed into. Filling the sheet's content box
+            // (`height: 1123px` minus the 96px margins, via `box-sizing:
+            // border-box`) makes every click inside the margins reach the
+            // editable host, which then seeds the caret at the end of the text.
+            .with_css("min-height: 100%;");
         col.add_child(Dom::create_div().with_css(&page_css).with_child(page));
     }
 
