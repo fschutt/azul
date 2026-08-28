@@ -204,7 +204,7 @@ pub fn ease(function: AnimationInterpolationFunction, t: f32) -> f32 {
         AnimationInterpolationFunction::EaseInOut => cubic_bezier_y(0.42, 0.0, 0.58, 1.0, t),
         AnimationInterpolationFunction::Spring(_) => {
             crate::diagnostics::emit(String::from(
-                "Warning: Spring evaluated as an easing curve. This is a misusage."
+                "Warning: Spring evaluated as an easing curve. This is a misusage.",
             ));
             // Degrade gracefully to ease-in-out to prevent crashes.
             cubic_bezier_y(0.42, 0.0, 0.58, 1.0, t)

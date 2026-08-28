@@ -56,3 +56,6 @@ serde-json = ["dep:serde", "dep:serde_json"]
 # URL parsing (`Url::parse` / `Url::join` via the `url` crate). The POD `Url`
 # type + accessors are always available; this only adds the parser. Requires std.
 url = ["dep:url", "std"]
+
+[dev-dependencies]
+proptest = "1.11.0"
