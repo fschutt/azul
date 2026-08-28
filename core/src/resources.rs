@@ -76,7 +76,8 @@ pub struct DpiScaleFactor {
 }
 
 impl DpiScaleFactor {
-    #[must_use] pub fn new(f: f32) -> Self {
+    #[must_use]
+    pub fn new(f: f32) -> Self {
         Self {
             inner: FloatValue::new(f),
         }
@@ -101,7 +102,6 @@ pub enum AppTerminationBehavior {
     EndProcess,
 }
 
-
 /// An email address, e.g. a support mailbox problem reports go to.
 ///
 /// Deliberately a thin wrapper (no RFC 5322 validation): the address is
@@ -122,7 +122,8 @@ impl_option!(
 );
 
 impl EmailAddress {
-    #[must_use] pub const fn new(address: AzString) -> Self {
+    #[must_use]
+    pub const fn new(address: AzString) -> Self {
         Self { address }
     }
 }
@@ -219,12 +220,20 @@ impl_option!(
 );
 
 impl NamedFont {
-    #[must_use] pub const fn new(name: AzString, bytes: U8Vec) -> Self {
+    #[must_use]
+    pub const fn new(name: AzString, bytes: U8Vec) -> Self {
         Self { name, bytes }
     }
 }
 
-impl_vec!(NamedFont, NamedFontVec, NamedFontVecDestructor, NamedFontVecDestructorType, NamedFontVecSlice, OptionNamedFont);
+impl_vec!(
+    NamedFont,
+    NamedFontVec,
+    NamedFontVecDestructor,
+    NamedFontVecDestructorType,
+    NamedFontVecSlice,
+    OptionNamedFont
+);
 impl_vec_mut!(NamedFont, NamedFontVec);
 impl_vec_debug!(NamedFont, NamedFontVec);
 impl_vec_partialeq!(NamedFont, NamedFontVec);
@@ -269,7 +278,13 @@ impl_option!(
 );
 
 impl LoadedFont {
-    #[must_use] pub const fn new(font_hash: u64, family_name: AzString, num_glyphs: u32, has_bytes: bool) -> Self {
+    #[must_use]
+    pub const fn new(
+        font_hash: u64,
+        family_name: AzString,
+        num_glyphs: u32,
+        has_bytes: bool,
+    ) -> Self {
         Self {
             font_hash,
             family_name,
@@ -279,7 +294,14 @@ impl LoadedFont {
     }
 }
 
-impl_vec!(LoadedFont, LoadedFontVec, LoadedFontVecDestructor, LoadedFontVecDestructorType, LoadedFontVecSlice, OptionLoadedFont);
+impl_vec!(
+    LoadedFont,
+    LoadedFontVec,
+    LoadedFontVecDestructor,
+    LoadedFontVecDestructorType,
+    LoadedFontVecSlice,
+    OptionLoadedFont
+);
 impl_vec_mut!(LoadedFont, LoadedFontVec);
 impl_vec_debug!(LoadedFont, LoadedFontVec);
 impl_vec_partialeq!(LoadedFont, LoadedFontVec);
@@ -288,7 +310,8 @@ impl_vec_partialord!(LoadedFont, LoadedFontVec);
 impl_vec_ord!(LoadedFont, LoadedFontVec);
 impl_vec_hash!(LoadedFont, LoadedFontVec);
 impl_vec_clone!(LoadedFont, LoadedFontVec, LoadedFontVecDestructor);
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Configuration for how fonts should be loaded at app startup.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
@@ -303,7 +326,6 @@ pub enum FontLoadingConfig {
     /// Don't load any system fonts, only use bundled fonts
     BundledFontsOnly,
 }
-
 
 /// Mock environment for CSS evaluation.
 ///
@@ -358,41 +380,56 @@ pub struct CssMockEnvironment {
 
 impl CssMockEnvironment {
     /// Create a mock for Linux environment
-    #[must_use] pub fn linux() -> Self {
+    #[must_use]
+    pub fn linux() -> Self {
         Self {
-            os: azul_css::dynamic_selector::OptionOsCondition::Some(azul_css::dynamic_selector::OsCondition::Linux),
+            os: azul_css::dynamic_selector::OptionOsCondition::Some(
+                azul_css::dynamic_selector::OsCondition::Linux,
+            ),
             ..Default::default()
         }
     }
 
     /// Create a mock for Windows environment
-    #[must_use] pub fn windows() -> Self {
+    #[must_use]
+    pub fn windows() -> Self {
         Self {
-            os: azul_css::dynamic_selector::OptionOsCondition::Some(azul_css::dynamic_selector::OsCondition::Windows),
+            os: azul_css::dynamic_selector::OptionOsCondition::Some(
+                azul_css::dynamic_selector::OsCondition::Windows,
+            ),
             ..Default::default()
         }
     }
 
     /// Create a mock for macOS environment
-    #[must_use] pub fn macos() -> Self {
+    #[must_use]
+    pub fn macos() -> Self {
         Self {
-            os: azul_css::dynamic_selector::OptionOsCondition::Some(azul_css::dynamic_selector::OsCondition::MacOS),
+            os: azul_css::dynamic_selector::OptionOsCondition::Some(
+                azul_css::dynamic_selector::OsCondition::MacOS,
+            ),
             ..Default::default()
         }
     }
 
     /// Create a mock for dark theme
-    #[must_use] pub fn dark_theme() -> Self {
+    #[must_use]
+    pub fn dark_theme() -> Self {
         Self {
-            theme: azul_css::dynamic_selector::OptionThemeCondition::Some(azul_css::dynamic_selector::ThemeCondition::Dark),
+            theme: azul_css::dynamic_selector::OptionThemeCondition::Some(
+                azul_css::dynamic_selector::ThemeCondition::Dark,
+            ),
             ..Default::default()
         }
     }
 
     /// Create a mock for light theme
-    #[must_use] pub fn light_theme() -> Self {
+    #[must_use]
+    pub fn light_theme() -> Self {
         Self {
-            theme: azul_css::dynamic_selector::OptionThemeCondition::Some(azul_css::dynamic_selector::ThemeCondition::Light),
+            theme: azul_css::dynamic_selector::OptionThemeCondition::Some(
+                azul_css::dynamic_selector::ThemeCondition::Light,
+            ),
             ..Default::default()
         }
     }
@@ -470,7 +507,10 @@ pub struct Route {
 
 impl Clone for Route {
     fn clone(&self) -> Self {
-        Self { pattern: self.pattern.clone(), layout_callback: self.layout_callback.clone() }
+        Self {
+            pattern: self.pattern.clone(),
+            layout_callback: self.layout_callback.clone(),
+        }
     }
 }
 impl fmt::Debug for Route {
@@ -481,14 +521,45 @@ impl fmt::Debug for Route {
             .finish()
     }
 }
-impl PartialEq for Route { fn eq(&self, o: &Self) -> bool { self.pattern == o.pattern && self.layout_callback == o.layout_callback } }
+impl PartialEq for Route {
+    fn eq(&self, o: &Self) -> bool {
+        self.pattern == o.pattern && self.layout_callback == o.layout_callback
+    }
+}
 impl Eq for Route {}
-impl PartialOrd for Route { fn partial_cmp(&self, o: &Self) -> Option<core::cmp::Ordering> { Some(self.cmp(o)) } }
-impl Ord for Route { fn cmp(&self, o: &Self) -> core::cmp::Ordering { self.pattern.cmp(&o.pattern).then_with(|| self.layout_callback.cmp(&o.layout_callback)) } }
-impl Hash for Route { fn hash<H: Hasher>(&self, state: &mut H) { self.pattern.hash(state); self.layout_callback.hash(state); } }
+impl PartialOrd for Route {
+    fn partial_cmp(&self, o: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for Route {
+    fn cmp(&self, o: &Self) -> core::cmp::Ordering {
+        self.pattern
+            .cmp(&o.pattern)
+            .then_with(|| self.layout_callback.cmp(&o.layout_callback))
+    }
+}
+impl Hash for Route {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.pattern.hash(state);
+        self.layout_callback.hash(state);
+    }
+}
 
-impl_option!(Route, OptionRoute, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
-impl_vec!(Route, RouteVec, RouteVecDestructor, RouteVecDestructorType, RouteVecSlice, OptionRoute);
+impl_option!(
+    Route,
+    OptionRoute,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_vec!(
+    Route,
+    RouteVec,
+    RouteVecDestructor,
+    RouteVecDestructorType,
+    RouteVecSlice,
+    OptionRoute
+);
 impl_vec_mut!(Route, RouteVec);
 impl_vec_debug!(Route, RouteVec);
 impl_vec_clone!(Route, RouteVec, RouteVecDestructor);
@@ -513,12 +584,18 @@ pub struct RouteMatch {
 
 impl RouteMatch {
     /// Get a route parameter by key.
-    #[must_use] pub fn get_param(&self, key: &str) -> Option<&AzString> {
+    #[must_use]
+    pub fn get_param(&self, key: &str) -> Option<&AzString> {
         self.params.get_key(key)
     }
 }
 
-impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
+impl_option!(
+    RouteMatch,
+    OptionRouteMatch,
+    copy = false,
+    [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
 
 /// Match a URL path against a route pattern, extracting parameters.
 ///
@@ -529,7 +606,8 @@ impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialE
 /// - pattern `"/"`, path `"/"` → `Some(RouteMatch { params: [] })`
 /// - pattern `"/about"`, path `"/settings"` → `None`
 #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
-#[must_use] pub fn match_route(pattern: &str, path: &str) -> Option<RouteMatch> {
+#[must_use]
+pub fn match_route(pattern: &str, path: &str) -> Option<RouteMatch> {
     let pat_segs: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
     let path_segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
 
@@ -745,7 +823,8 @@ impl SystemAnimations {
     /// All system animations disabled: no scroll-physics override, tween
     /// durations 0 (caret / selection jump). Test drivers and deterministic
     /// harnesses use this so screenshots never catch geometry mid-glide.
-    #[must_use] pub fn disabled() -> Self {
+    #[must_use]
+    pub fn disabled() -> Self {
         Self {
             caret_tween_duration_ms: 0,
             selection_tween_duration_ms: 0,
@@ -866,7 +945,8 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    #[must_use] pub fn create() -> Self {
+    #[must_use]
+    pub fn create() -> Self {
         let log_level = AppLogLevel::Error;
         let icon_provider = crate::icon::IconProviderHandle::new();
         let bundled_fonts = NamedFontVec::from_const_slice(&[]);
@@ -896,10 +976,7 @@ impl AppConfig {
         // `Into<RegisterComponentLibraryFn>` is implemented for (no `as` cast).
         let register_builtin: crate::xml::RegisterComponentLibraryFnType =
             crate::xml::register_builtin_components;
-        s.add_component_library(
-            AzString::from_const_str("builtin"),
-            register_builtin,
-        );
+        s.add_component_library(AzString::from_const_str("builtin"), register_builtin);
         s
     }
 
@@ -919,7 +996,8 @@ impl AppConfig {
     ///         ..Default::default()
     ///     });
     /// ```
-    #[must_use] pub fn with_mock_environment(mut self, env: CssMockEnvironment) -> Self {
+    #[must_use]
+    pub fn with_mock_environment(mut self, env: CssMockEnvironment) -> Self {
         self.mock_css_environment = OptionCssMockEnvironment::Some(env);
         self
     }
@@ -935,16 +1013,28 @@ impl AppConfig {
     /// ```c
     /// AzAppConfig_addComponent(&config, AzString_fromConstStr("mylib"), my_register_fn);
     /// ```
-    pub fn add_component<R: Into<RegisterComponentFn>>(&mut self, library: AzString, register_fn: R) {
+    pub fn add_component<R: Into<RegisterComponentFn>>(
+        &mut self,
+        library: AzString,
+        register_fn: R,
+    ) {
         let register_fn = register_fn.into();
         let component = (register_fn.cb)();
         let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
-        let mut libs = core::mem::replace(&mut self.component_libraries, empty_libs).into_library_owned_vec();
+        let mut libs =
+            core::mem::replace(&mut self.component_libraries, empty_libs).into_library_owned_vec();
 
-        if let Some(existing_lib) = libs.iter_mut().find(|l| l.name.as_str() == library.as_str()) {
+        if let Some(existing_lib) = libs
+            .iter_mut()
+            .find(|l| l.name.as_str() == library.as_str())
+        {
             let empty_comps = ComponentDefVec::from_const_slice(&[]);
-            let mut comps = core::mem::replace(&mut existing_lib.components, empty_comps).into_library_owned_vec();
-            if let Some(ec) = comps.iter_mut().find(|c| c.id.name.as_str() == component.id.name.as_str()) {
+            let mut comps = core::mem::replace(&mut existing_lib.components, empty_comps)
+                .into_library_owned_vec();
+            if let Some(ec) = comps
+                .iter_mut()
+                .find(|c| c.id.name.as_str() == component.id.name.as_str())
+            {
                 *ec = component;
             } else {
                 comps.push(component);
@@ -977,14 +1067,22 @@ impl AppConfig {
     /// ```c
     /// AzAppConfig_addComponentLibrary(&config, AzString_fromConstStr("vendor"), my_lib_fn);
     /// ```
-    pub fn add_component_library<R: Into<RegisterComponentLibraryFn>>(&mut self, name: AzString, register_fn: R) {
+    pub fn add_component_library<R: Into<RegisterComponentLibraryFn>>(
+        &mut self,
+        name: AzString,
+        register_fn: R,
+    ) {
         let register_fn = register_fn.into();
         let mut library = (register_fn.cb)();
         library.name = name;
 
         let empty_libs = ComponentLibraryVec::from_const_slice(&[]);
-        let mut libs = core::mem::replace(&mut self.component_libraries, empty_libs).into_library_owned_vec();
-        if let Some(existing) = libs.iter_mut().find(|l| l.name.as_str() == library.name.as_str()) {
+        let mut libs =
+            core::mem::replace(&mut self.component_libraries, empty_libs).into_library_owned_vec();
+        if let Some(existing) = libs
+            .iter_mut()
+            .find(|l| l.name.as_str() == library.name.as_str())
+        {
             *existing = library;
         } else {
             libs.push(library);
@@ -1003,7 +1101,11 @@ impl AppConfig {
     /// ```c
     /// AzAppConfig_addRoute(&config, AzString_fromConstStr("/user/:id"), layout_user);
     /// ```
-    pub fn add_route<P: Into<AzString>, L: Into<LayoutCallback>>(&mut self, pattern: P, layout_fn: L) {
+    pub fn add_route<P: Into<AzString>, L: Into<LayoutCallback>>(
+        &mut self,
+        pattern: P,
+        layout_fn: L,
+    ) {
         let route = Route {
             pattern: pattern.into(),
             layout_callback: layout_fn.into(),
@@ -1011,7 +1113,10 @@ impl AppConfig {
         let empty = RouteVec::from_const_slice(&[]);
         let mut routes = core::mem::replace(&mut self.routes, empty).into_library_owned_vec();
         // Replace existing route with the same pattern
-        if let Some(existing) = routes.iter_mut().find(|r| r.pattern.as_str() == route.pattern.as_str()) {
+        if let Some(existing) = routes
+            .iter_mut()
+            .find(|r| r.pattern.as_str() == route.pattern.as_str())
+        {
             *existing = route;
         } else {
             routes.push(route);
@@ -1022,7 +1127,8 @@ impl AppConfig {
     /// Find the route matching a given URL path.
     ///
     /// Returns the matched `Route` and a `RouteMatch` with extracted parameters.
-    #[must_use] pub fn match_route_for_path(&self, path: &str) -> Option<(&Route, RouteMatch)> {
+    #[must_use]
+    pub fn match_route_for_path(&self, path: &str) -> Option<(&Route, RouteMatch)> {
         for route in self.routes.as_ref() {
             if let Some(m) = match_route(route.pattern.as_str(), path) {
                 return Some((route, m));
@@ -1228,7 +1334,8 @@ fn next_image_ref_id() -> u64 {
 }
 
 impl ImageRef {
-    #[must_use] pub const fn get_hash(&self) -> ImageRefHash {
+    #[must_use]
+    pub const fn get_hash(&self) -> ImageRefHash {
         image_ref_get_hash(self)
     }
 }
@@ -1248,7 +1355,8 @@ impl_option!(
 
 impl ImageRef {
     /// If *copies = 1, returns the internal image data
-    #[must_use] pub fn into_inner(self) -> Option<DecodedImage> {
+    #[must_use]
+    pub fn into_inner(self) -> Option<DecodedImage> {
         // SAFETY: `data`/`copies` are non-null heap allocations from `Box::into_raw`
         // in `new()` (never mutated afterwards). When `copies == 1` we are the sole
         // owner, so reclaiming both Boxes and `forget`-ing `self` transfers ownership
@@ -1265,14 +1373,16 @@ impl ImageRef {
         }
     }
 
-    #[must_use] pub const fn get_data(&self) -> &DecodedImage {
+    #[must_use]
+    pub const fn get_data(&self) -> &DecodedImage {
         // SAFETY: `data` is a non-null, live `Box` allocation owned by this handle
         // (and its shallow clones) until the last copy drops; the returned borrow is
         // tied to `&self`, so it cannot outlive the allocation.
         unsafe { &*self.data }
     }
 
-    #[must_use] pub fn get_image_callback(&self) -> Option<&CoreImageCallback> {
+    #[must_use]
+    pub fn get_image_callback(&self) -> Option<&CoreImageCallback> {
         // SAFETY: `copies` is a non-null, live allocation for the lifetime of `&self`.
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
             return None; // not safe: shared, so no exclusive borrow of the data
@@ -1300,7 +1410,8 @@ impl ImageRef {
     }
 
     /// In difference to the default shallow copy, creates a new image ref
-    #[must_use] pub fn deep_copy(&self) -> Self {
+    #[must_use]
+    pub fn deep_copy(&self) -> Self {
         let new_data = match self.get_data() {
             DecodedImage::NullImage {
                 width,
@@ -1324,33 +1435,36 @@ impl ImageRef {
             },
             // WARNING: the data may still be a U8Vec<'static> - the data may still not be
             // actually cloned. The data only gets cloned on a write operation
-            DecodedImage::Raw((descriptor, data)) => {
-                DecodedImage::Raw((*descriptor, data.clone()))
-            }
+            DecodedImage::Raw((descriptor, data)) => DecodedImage::Raw((*descriptor, data.clone())),
             DecodedImage::Callback(cb) => DecodedImage::Callback(cb.clone()),
         };
 
         Self::new(new_data)
     }
 
-    #[must_use] pub const fn is_null_image(&self) -> bool {
+    #[must_use]
+    pub const fn is_null_image(&self) -> bool {
         matches!(self.get_data(), DecodedImage::NullImage { .. })
     }
 
-    #[must_use] pub const fn is_gl_texture(&self) -> bool {
+    #[must_use]
+    pub const fn is_gl_texture(&self) -> bool {
         matches!(self.get_data(), DecodedImage::Gl(_))
     }
 
-    #[must_use] pub const fn is_raw_image(&self) -> bool {
+    #[must_use]
+    pub const fn is_raw_image(&self) -> bool {
         matches!(self.get_data(), DecodedImage::Raw((_, _)))
     }
 
-    #[must_use] pub const fn is_callback(&self) -> bool {
+    #[must_use]
+    pub const fn is_callback(&self) -> bool {
         matches!(self.get_data(), DecodedImage::Callback(_))
     }
 
     // OptionRawImage
-    #[must_use] pub fn get_rawimage(&self) -> Option<RawImage> {
+    #[must_use]
+    pub fn get_rawimage(&self) -> Option<RawImage> {
         match self.get_data() {
             DecodedImage::Raw((image_descriptor, image_data)) => Some(RawImage {
                 pixels: match image_data {
@@ -1358,7 +1472,10 @@ impl ImageRef {
                         // Clone the SharedRawImageData (increments ref count),
                         // then try to extract or convert to U8Vec
                         let data_clone = shared_data.clone();
-                        data_clone.into_inner().map_or_else(|| RawImageData::U8(shared_data.as_ref().to_vec().into()), RawImageData::U8)
+                        data_clone.into_inner().map_or_else(
+                            || RawImageData::U8(shared_data.as_ref().to_vec().into()),
+                            RawImageData::U8,
+                        )
                     }
                     ImageData::External(_) => return None,
                 },
@@ -1374,7 +1491,8 @@ impl ImageRef {
 
     /// Get raw bytes from the image as a slice
     /// Returns None if this is not a Raw image or if it's an External image
-    #[must_use] pub fn get_bytes(&self) -> Option<&[u8]> {
+    #[must_use]
+    pub fn get_bytes(&self) -> Option<&[u8]> {
         match self.get_data() {
             DecodedImage::Raw((_, image_data)) => match image_data {
                 ImageData::Raw(shared_data) => Some(shared_data.as_ref()),
@@ -1386,7 +1504,8 @@ impl ImageRef {
 
     /// Get a pointer to the raw bytes for debugging/profiling purposes
     /// Returns a unique pointer for this `ImageRef`'s data
-    #[must_use] pub fn get_bytes_ptr(&self) -> *const u8 {
+    #[must_use]
+    pub fn get_bytes_ptr(&self) -> *const u8 {
         match self.get_data() {
             DecodedImage::Raw((_, image_data)) => match image_data {
                 ImageData::Raw(shared_data) => shared_data.as_ptr(),
@@ -1398,7 +1517,8 @@ impl ImageRef {
 
     /// NOTE: returns (0, 0) for a Callback
     #[allow(clippy::cast_precision_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
-    #[must_use] pub const fn get_size(&self) -> LogicalSize {
+    #[must_use]
+    pub const fn get_size(&self) -> LogicalSize {
         match self.get_data() {
             DecodedImage::NullImage { width, height, .. } => {
                 LogicalSize::new(*width as f32, *height as f32)
@@ -1414,7 +1534,8 @@ impl ImageRef {
         }
     }
 
-    #[must_use] pub fn null_image(width: usize, height: usize, format: RawImageFormat, tag: Vec<u8>) -> Self {
+    #[must_use]
+    pub fn null_image(width: usize, height: usize, format: RawImageFormat, tag: Vec<u8>) -> Self {
         Self::new(DecodedImage::NullImage {
             width,
             height,
@@ -1430,12 +1551,14 @@ impl ImageRef {
         }))
     }
 
-    #[must_use] pub fn new_rawimage(image_data: RawImage) -> Option<Self> {
+    #[must_use]
+    pub fn new_rawimage(image_data: RawImage) -> Option<Self> {
         let (image_data, image_descriptor) = image_data.into_loaded_image_source()?;
         Some(Self::new(DecodedImage::Raw((image_descriptor, image_data))))
     }
 
-    #[must_use] pub fn new_gltexture(texture: Texture) -> Self {
+    #[must_use]
+    pub fn new_gltexture(texture: Texture) -> Self {
         Self::new(DecodedImage::Gl(texture))
     }
 
@@ -1524,15 +1647,14 @@ impl Drop for ImageRef {
     }
 }
 
-#[must_use] pub const fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
+#[must_use]
+pub const fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
     // The identity is the never-reused `id`, not the freeable `data` pointer
     // (see the `id` field docs). This is what makes an ImageKey safe to
     // DeleteImage: once an image is dropped its id is retired forever, so a
     // future image that reuses the same heap address gets a *different* key
     // and is registered/uploaded correctly instead of aliasing the stale one.
-    ImageRefHash {
-        inner: ir.id,
-    }
+    ImageRefHash { inner: ir.id }
 }
 
 /// Convert a stable `ImageRefHash` directly to an `ImageKey`.
@@ -1541,14 +1663,16 @@ impl Drop for ImageRef {
 /// (a `u64` counter) stored in a `usize`; on a 32-bit host that truncates the
 /// top 32 bits, which is fine — a run would need 4 billion live images for the
 /// low 32 bits to collide.
-#[must_use] pub const fn image_ref_hash_to_image_key(hash: ImageRefHash, namespace: IdNamespace) -> ImageKey {
+#[must_use]
+pub const fn image_ref_hash_to_image_key(hash: ImageRefHash, namespace: IdNamespace) -> ImageKey {
     ImageKey {
         namespace,
         key: hash.inner,
     }
 }
 
-#[must_use] pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
+#[must_use]
+pub fn font_ref_get_hash(fr: &FontRef) -> u64 {
     fr.get_hash()
 }
 
@@ -1557,8 +1681,7 @@ impl Drop for ImageRef {
 ///
 /// Images and fonts can be references across window contexts (not yet tested,
 /// but should work).
-#[derive(Debug)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct ImageCache {
     /// The `AzString` is the string used in the CSS, i.e. `url("my_image`") = "`my_image`" -> ImageId(4)
     ///
@@ -1568,9 +1691,9 @@ pub struct ImageCache {
     pub image_id_map: OrderedMap<AzString, ImageRef>,
 }
 
-
 impl ImageCache {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
 
@@ -1580,7 +1703,8 @@ impl ImageCache {
         self.image_id_map.insert(css_id, image);
     }
 
-    #[must_use] pub fn get_css_image_id(&self, css_id: &AzString) -> Option<&ImageRef> {
+    #[must_use]
+    pub fn get_css_image_id(&self, css_id: &AzString) -> Option<&ImageRef> {
         self.image_id_map.get(css_id)
     }
 
@@ -1616,11 +1740,7 @@ pub trait RendererResourcesTrait: fmt::Debug {
     fn get_image(&self, hash: &ImageRefHash) -> Option<&ResolvedImage>;
 
     /// Update an image descriptor for an existing image hash
-    fn update_image(
-        &mut self,
-        image_ref_hash: &ImageRefHash,
-        descriptor: ImageDescriptor,
-    );
+    fn update_image(&mut self, image_ref_hash: &ImageRefHash, descriptor: ImageDescriptor);
 }
 
 // Implementation for the original RendererResources struct
@@ -1647,11 +1767,7 @@ impl RendererResourcesTrait for RendererResources {
         self.currently_registered_images.get(hash)
     }
 
-    fn update_image(
-        &mut self,
-        image_ref_hash: &ImageRefHash,
-        descriptor: ImageDescriptor,
-    ) {
+    fn update_image(&mut self, image_ref_hash: &ImageRefHash, descriptor: ImageDescriptor) {
         if let Some(s) = self.currently_registered_images.get_mut(image_ref_hash) {
             s.descriptor = descriptor;
         }
@@ -1718,9 +1834,9 @@ impl fmt::Debug for RendererResources {
     }
 }
 
-
 impl RendererResources {
-    #[must_use] pub fn get_renderable_font_data(
+    #[must_use]
+    pub fn get_renderable_font_data(
         &self,
         font_instance_key: &FontInstanceKey,
     ) -> Option<(&FontRef, Au, DpiScaleFactor)> {
@@ -1754,8 +1870,7 @@ impl RendererResources {
         // (FP_PRECISION_MULTIPLIER) inside `FloatValue::const_new`, which would
         // overflow. Clamp to the range that survives that multiply so an absurd
         // size misses cleanly instead of panicking.
-        let font_size_isize =
-            (font_size_px as isize).clamp(isize::MIN / 1000, isize::MAX / 1000);
+        let font_size_isize = (font_size_px as isize).clamp(isize::MIN / 1000, isize::MAX / 1000);
         let font_size = StyleFontSize {
             inner: azul_css::props::basic::PixelValue::const_px(font_size_isize),
         };
@@ -1778,7 +1893,8 @@ impl RendererResources {
         self.get_font_instance_key(&font_families_hash, font_size_au, dpi_scale_factor)
     }
 
-    #[must_use] pub fn get_font_instance_key(
+    #[must_use]
+    pub fn get_font_instance_key(
         &self,
         font_families_hash: &StyleFontFamiliesHash,
         font_size_au: Au,
@@ -1888,7 +2004,8 @@ unsafe impl Send for GlTextureCache {}
 
 impl GlTextureCache {
     /// Initializes an empty cache
-    #[must_use] pub const fn empty() -> Self {
+    #[must_use]
+    pub const fn empty() -> Self {
         Self {
             solved_textures: BTreeMap::new(),
             hashes: BTreeMap::new(),
@@ -2001,21 +2118,24 @@ pub enum RawImageData {
 }
 
 impl RawImageData {
-    #[must_use] pub const fn get_u8_vec_ref(&self) -> Option<&U8Vec> {
+    #[must_use]
+    pub const fn get_u8_vec_ref(&self) -> Option<&U8Vec> {
         match self {
             Self::U8(v) => Some(v),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn get_u16_vec_ref(&self) -> Option<&U16Vec> {
+    #[must_use]
+    pub const fn get_u16_vec_ref(&self) -> Option<&U16Vec> {
         match self {
             Self::U16(v) => Some(v),
             _ => None,
         }
     }
 
-    #[must_use] pub const fn get_f32_vec_ref(&self) -> Option<&F32Vec> {
+    #[must_use]
+    pub const fn get_f32_vec_ref(&self) -> Option<&F32Vec> {
         match self {
             Self::F32(v) => Some(v),
             _ => None,
@@ -2073,7 +2193,8 @@ pub struct Brush {
 
 impl Brush {
     /// A sensible default brush: medium-soft, full flow, dense spacing.
-    #[must_use] pub const fn new(color: ColorU, radius: f32) -> Self {
+    #[must_use]
+    pub const fn new(color: ColorU, radius: f32) -> Self {
         Self {
             color,
             radius,
@@ -2091,7 +2212,8 @@ impl Brush {
 /// `1 - smoothstep(hardness, 1, t)` so CPU and GPU strokes match.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[inline]
-#[must_use] pub fn brush_dab_coverage(t: f32, hardness: f32) -> f32 {
+#[must_use]
+pub fn brush_dab_coverage(t: f32, hardness: f32) -> f32 {
     let edge0 = hardness.clamp(0.0, 1.0);
     let denom = (1.0 - edge0).max(1.0e-4);
     let x = ((t - edge0) / denom).clamp(0.0, 1.0);
@@ -2104,7 +2226,11 @@ impl RawImage {
     /// `RGBA8`/`BGRA8` images are painted (other formats are left untouched).
     /// This is the CPU mirror of the GPU brush shader.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[allow(clippy::cast_possible_wrap)] // image/graphics: bounded pixel/colour casts
     pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: Brush) {
         let r = brush.radius;
@@ -2158,11 +2284,18 @@ impl RawImage {
                     (idx, idx + 1, idx + 2, idx + 3)
                 };
                 let inv = 1.0 - a;
-                buf[ri] = (cr * a + f32::from(buf[ri]) * inv).round().clamp(0.0, 255.0) as u8;
-                buf[gi] = (cg * a + f32::from(buf[gi]) * inv).round().clamp(0.0, 255.0) as u8;
-                buf[bi] = (cb * a + f32::from(buf[bi]) * inv).round().clamp(0.0, 255.0) as u8;
-                buf[ai] =
-                    ((a + (f32::from(buf[ai]) / 255.0) * inv) * 255.0).round().clamp(0.0, 255.0) as u8;
+                buf[ri] = (cr * a + f32::from(buf[ri]) * inv)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+                buf[gi] = (cg * a + f32::from(buf[gi]) * inv)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+                buf[bi] = (cb * a + f32::from(buf[bi]) * inv)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+                buf[ai] = ((a + (f32::from(buf[ai]) / 255.0) * inv) * 255.0)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
             }
         }
     }
@@ -2225,7 +2358,8 @@ const FOUR_CHANNELS: usize = 4;
 
 impl RawImage {
     /// Returns a null / empty image
-    #[must_use] pub fn null_image() -> Self {
+    #[must_use]
+    pub fn null_image() -> Self {
         Self {
             pixels: RawImageData::U8(Vec::new().into()),
             width: 0,
@@ -2238,7 +2372,8 @@ impl RawImage {
 
     /// Allocates a width * height, single-channel mask, used for drawing CPU image masks
     #[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
-    #[must_use] pub fn allocate_mask(size: LayoutSize) -> Self {
+    #[must_use]
+    pub fn allocate_mask(size: LayoutSize) -> Self {
         Self {
             pixels: RawImageData::U8(
                 vec![0; size.width.max(0) as usize * size.height.max(0) as usize].into(),
@@ -2256,7 +2391,8 @@ impl RawImage {
     /// Returns None if the width * height * BPP does not match
     ///
     /// TODO: autovectorization fails spectacularly, need to manually optimize!
-    #[must_use] pub fn into_loaded_image_source(self) -> Option<(ImageData, ImageDescriptor)> {
+    #[must_use]
+    pub fn into_loaded_image_source(self) -> Option<(ImageData, ImageDescriptor)> {
         let Self {
             width,
             height,
@@ -2295,7 +2431,8 @@ impl RawImage {
                 (bytes, RawImageFormat::BGRA8, is_opaque)
             }
             RawImageFormat::RGBA8 => {
-                let (bytes, is_opaque) = Self::load_rgba8(pixels, expected_len, premultiplied_alpha)?;
+                let (bytes, is_opaque) =
+                    Self::load_rgba8(pixels, expected_len, premultiplied_alpha)?;
                 (bytes, RawImageFormat::BGRA8, is_opaque)
             }
             RawImageFormat::R16 => {
@@ -2320,7 +2457,8 @@ impl RawImage {
                 (bytes, RawImageFormat::BGRA8, is_opaque)
             }
             RawImageFormat::BGRA8 => {
-                let (bytes, is_opaque) = Self::load_bgra8(pixels, expected_len, premultiplied_alpha)?;
+                let (bytes, is_opaque) =
+                    Self::load_bgra8(pixels, expected_len, premultiplied_alpha)?;
                 (bytes, RawImageFormat::BGRA8, is_opaque)
             }
             RawImageFormat::RGBF32 => {
@@ -2750,8 +2888,13 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd]
 );
 
-#[must_use] pub fn font_size_to_au(font_size: StyleFontSize) -> Au {
-    Au::from_px(font_size.inner.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE))
+#[must_use]
+pub fn font_size_to_au(font_size: StyleFontSize) -> Au {
+    Au::from_px(
+        font_size
+            .inner
+            .to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
+    )
 }
 
 pub type FontInstanceFlags = u32;
@@ -2835,8 +2978,7 @@ pub enum FontHinting {
     LCD,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Default)]
 pub enum FontLCDFilter {
     None,
     #[default]
@@ -2844,7 +2986,6 @@ pub enum FontLCDFilter {
     Light,
     Legacy,
 }
-
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct FontInstanceOptions {
@@ -2868,12 +3009,10 @@ impl Default for FontInstanceOptions {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-#[derive(Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash, Default)]
 pub struct SyntheticItalics {
     pub angle: i16,
 }
-
 
 /// Reference-counted wrapper around raw image bytes (`U8Vec`).
 /// This allows sharing image data between azul-core and webrender without cloning.
@@ -2893,7 +3032,8 @@ pub struct SharedRawImageData {
 
 impl SharedRawImageData {
     /// Create a new `SharedRawImageData` from a `U8Vec`
-    #[must_use] pub fn new(data: U8Vec) -> Self {
+    #[must_use]
+    pub fn new(data: U8Vec) -> Self {
         Self {
             data: Box::into_raw(Box::new(data)),
             copies: Box::into_raw(Box::new(AtomicUsize::new(1))),
@@ -2902,37 +3042,43 @@ impl SharedRawImageData {
     }
 
     /// Get a reference to the underlying bytes
-    #[must_use] pub fn as_ref(&self) -> &[u8] {
+    #[must_use]
+    pub fn as_ref(&self) -> &[u8] {
         // SAFETY: `data` is a non-null, live `Box<U8Vec>` owned by this handle (and its
         // clones) until the last copy drops; the borrow is tied to `&self`.
         unsafe { (*self.data).as_ref() }
     }
 
     /// Alias for `as_ref()` - get the raw bytes as a slice
-    #[must_use] pub fn get_bytes(&self) -> &[u8] {
+    #[must_use]
+    pub fn get_bytes(&self) -> &[u8] {
         self.as_ref()
     }
 
     /// Get a pointer to the raw bytes for hashing/identification
-    #[must_use] pub fn as_ptr(&self) -> *const u8 {
+    #[must_use]
+    pub fn as_ptr(&self) -> *const u8 {
         // SAFETY: `data` is a non-null, live `Box<U8Vec>` (see `as_ref`).
         unsafe { (*self.data).as_ref().as_ptr() }
     }
 
     /// Get the length of the data
-    #[must_use] pub const fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         // SAFETY: `data` is a non-null, live `Box<U8Vec>` (see `as_ref`).
         unsafe { (*self.data).len() }
     }
 
     /// Check if the data is empty
-    #[must_use] pub const fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Try to extract the `U8Vec` if this is the only reference
     /// Returns None if there are other references
-    #[must_use] pub fn into_inner(self) -> Option<U8Vec> {
+    #[must_use]
+    pub fn into_inner(self) -> Option<U8Vec> {
         // SAFETY: `data`/`copies` are non-null heap allocations from `Box::into_raw` in
         // `new()`. When `copies == 1` we are the sole owner, so reclaiming both Boxes
         // and `forget`-ing `self` transfers ownership without a double free.
@@ -3126,7 +3272,14 @@ pub struct GlyphOutline {
     pub operations: GlyphOutlineOperationVec,
 }
 
-azul_css::impl_vec!(GlyphOutlineOperation, GlyphOutlineOperationVec, GlyphOutlineOperationVecDestructor, GlyphOutlineOperationVecDestructorType, GlyphOutlineOperationVecSlice, OptionGlyphOutlineOperation);
+azul_css::impl_vec!(
+    GlyphOutlineOperation,
+    GlyphOutlineOperationVec,
+    GlyphOutlineOperationVecDestructor,
+    GlyphOutlineOperationVecDestructorType,
+    GlyphOutlineOperationVecSlice,
+    OptionGlyphOutlineOperation
+);
 azul_css::impl_vec_clone!(
     GlyphOutlineOperation,
     GlyphOutlineOperationVec,
@@ -3270,13 +3423,16 @@ impl Epoch {
     // prevent raw access to the .inner field so that
     // you can grep the codebase for .increment() to see
     // exactly where the epoch is being incremented
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { inner: 0 }
     }
-    #[must_use] pub const fn from(i: u32) -> Self {
+    #[must_use]
+    pub const fn from(i: u32) -> Self {
         Self { inner: i }
     }
-    #[must_use] pub const fn into_u32(&self) -> u32 {
+    #[must_use]
+    pub const fn into_u32(&self) -> u32 {
         self.inner
     }
 
@@ -3304,12 +3460,14 @@ pub const MIN_AU: i32 = -(1 << 30) - 1;
 
 impl Au {
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
-    #[must_use] pub fn from_px(px: f32) -> Self {
+    #[must_use]
+    pub fn from_px(px: f32) -> Self {
         let target_app_units = (px * AU_PER_PX as f32) as i32;
         Self(target_app_units.clamp(MIN_AU, MAX_AU))
     }
     #[allow(clippy::cast_precision_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
-    #[must_use] pub fn into_px(&self) -> f32 {
+    #[must_use]
+    pub fn into_px(&self) -> f32 {
         self.0 as f32 / AU_PER_PX as f32
     }
 }
@@ -3323,7 +3481,8 @@ pub enum AddFontMsg {
 }
 
 impl AddFontMsg {
-    #[must_use] pub fn into_resource_update(&self) -> ResourceUpdate {
+    #[must_use]
+    pub fn into_resource_update(&self) -> ResourceUpdate {
         use self::AddFontMsg::{Font, Instance};
         match self {
             Font(font_key, _, font_ref) => ResourceUpdate::AddFont(AddFont {
@@ -3342,7 +3501,8 @@ pub enum DeleteFontMsg {
 }
 
 impl DeleteFontMsg {
-    #[must_use] pub const fn into_resource_update(&self) -> ResourceUpdate {
+    #[must_use]
+    pub const fn into_resource_update(&self) -> ResourceUpdate {
         use self::DeleteFontMsg::{Font, Instance};
         match self {
             Font(f) => ResourceUpdate::DeleteFont(*f),
@@ -3355,7 +3515,8 @@ impl DeleteFontMsg {
 pub struct AddImageMsg(pub AddImage);
 
 impl AddImageMsg {
-    #[must_use] pub fn into_resource_update(&self) -> ResourceUpdate {
+    #[must_use]
+    pub fn into_resource_update(&self) -> ResourceUpdate {
         ResourceUpdate::AddImage(self.0.clone())
     }
 }
@@ -3382,7 +3543,8 @@ pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture, ExternalImageId);
 /// The same `(DomId, NodeId)` always
 /// maps to the same `ExternalImageId`, so cached display lists keep working across
 /// frames.
-#[must_use] pub fn texture_external_image_id(dom_id: DomId, node_id: NodeId) -> ExternalImageId {
+#[must_use]
+pub fn texture_external_image_id(dom_id: DomId, node_id: NodeId) -> ExternalImageId {
     let dom = dom_id.inner as u64;
     let node = node_id.index() as u64;
     debug_assert!(u32::try_from(dom).is_ok(), "DomId exceeds 32-bit range");
@@ -3395,10 +3557,9 @@ pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture, ExternalImageId);
 /// Compute the `ExternalImageId` for a static GL texture identified by its
 /// `ImageRefHash`. Mirrors `image_ref_hash_to_image_key` so a given image hash
 /// produces the same identifiers everywhere.
-#[must_use] pub const fn image_ref_hash_to_external_image_id(hash: ImageRefHash) -> ExternalImageId {
-    ExternalImageId {
-        inner: hash.inner,
-    }
+#[must_use]
+pub const fn image_ref_hash_to_external_image_id(hash: ImageRefHash) -> ExternalImageId {
+    ExternalImageId { inner: hash.inner }
 }
 
 /// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
@@ -3524,8 +3685,6 @@ pub fn build_add_font_resource_updates(
                             let Some(font_data) = (font_source_load_fn)(other, fc_cache) else {
                                 continue 'inner;
                             };
-
-
 
                             match (parse_font_fn)(font_data) {
                                 Some(s) => s,
@@ -3720,7 +3879,6 @@ pub fn add_resources(
         }
     }
 }
-
 
 #[cfg(test)]
 #[path = "resources_test.rs"]

@@ -1626,7 +1626,6 @@ impl Drop for RefAny {
     }
 }
 
-
 #[cfg(test)]
 #[path = "refany_test.rs"]
 mod refany_test;

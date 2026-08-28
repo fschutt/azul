@@ -18,9 +18,7 @@
 
 #![allow(unused_imports, dead_code, unused_variables, clippy::all)]
 
-use azul_core::a11y::{
-    DialogAriaInfo, MeterAriaInfo, ProgressAriaInfo, SmallAriaInfo,
-};
+use azul_core::a11y::{DialogAriaInfo, MeterAriaInfo, ProgressAriaInfo, SmallAriaInfo};
 use azul_core::dom::Dom;
 use azul_css::{AzString, OptionString};
 
@@ -52,8 +50,7 @@ fn _coverage_dialog_aria_info() {
 }
 
 fn _coverage_small_aria_info_builders() {
-    let _ = SmallAriaInfo::label("Save")
-        .with_description("Save the current document");
+    let _ = SmallAriaInfo::label("Save").with_description("Save the current document");
 }
 
 // ---------------------------------------------------------------------------
@@ -77,39 +74,16 @@ fn _coverage_existing_pairs() {
         AzString::from("name"),
         AzString::from("Name"),
     );
-    let _ = Dom::create_input(
-        "text",
-        "name",
-        "Name",
-        SmallAriaInfo::label("Name"),
-    );
+    let _ = Dom::create_input("text", "name", "Name", SmallAriaInfo::label("Name"));
 
-    let _ = Dom::create_textarea_no_a11y(
-        AzString::from("body"),
-        AzString::from("Body"),
-    );
-    let _ = Dom::create_textarea(
-        "body",
-        "Body",
-        SmallAriaInfo::label("Body"),
-    );
+    let _ = Dom::create_textarea_no_a11y(AzString::from("body"), AzString::from("Body"));
+    let _ = Dom::create_textarea("body", "Body", SmallAriaInfo::label("Body"));
 
-    let _ = Dom::create_select_no_a11y(
-        AzString::from("country"),
-        AzString::from("Country"),
-    );
-    let _ = Dom::create_select(
-        "country",
-        "Country",
-        SmallAriaInfo::label("Country"),
-    );
+    let _ = Dom::create_select_no_a11y(AzString::from("country"), AzString::from("Country"));
+    let _ = Dom::create_select("country", "Country", SmallAriaInfo::label("Country"));
 
     let _ = Dom::create_label_no_a11y(AzString::from("name"), AzString::from("Name"));
-    let _ = Dom::create_label(
-        "name",
-        "Name",
-        SmallAriaInfo::label("Name"),
-    );
+    let _ = Dom::create_label("name", "Name", SmallAriaInfo::label("Name"));
 }
 
 // ---------------------------------------------------------------------------
@@ -137,9 +111,7 @@ fn _coverage_meter() {
 
 fn _coverage_dialog() {
     let _ = Dom::create_dialog_no_a11y();
-    let _ = Dom::create_dialog(
-        DialogAriaInfo::create(AzString::from("Confirm")).with_modal(true),
-    );
+    let _ = Dom::create_dialog(DialogAriaInfo::create(AzString::from("Confirm")).with_modal(true));
 }
 
 // ---------------------------------------------------------------------------

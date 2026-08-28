@@ -407,7 +407,6 @@ impl TrayIconData {
     }
 }
 
-
 #[cfg(test)]
 #[path = "tray_test.rs"]
 mod tray_test;

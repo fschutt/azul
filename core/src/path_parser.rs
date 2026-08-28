@@ -1028,7 +1028,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 #[path = "path_parser_test.rs"]
 mod path_parser_test;

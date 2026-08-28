@@ -77,9 +77,9 @@ mod assign_tests {
 mod autotest_generated {
     use super::*;
     use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
+    use alloc::string::String;
     use alloc::vec::Vec;
     use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
-    use alloc::string::String;
 
     // ---- small helpers to reach into the FFI-style option wrappers ----
 

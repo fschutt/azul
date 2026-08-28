@@ -1,11 +1,9 @@
 // Tests for ChangeAccumulator: merging changes from multiple paths,
 // classification of layout/paint/no-visual changes, mount/unmount tracking.
 
-use azul_core::diff::{
-    ChangeAccumulator, NodeChangeSet, NodeChangeReport, TextChange,
-};
+use azul_core::diff::{ChangeAccumulator, NodeChangeReport, NodeChangeSet, TextChange};
 use azul_core::id::NodeId;
-use azul_css::props::property::{RelayoutScope, CssPropertyType};
+use azul_css::props::property::{CssPropertyType, RelayoutScope};
 
 // =========================================================================
 // BASIC CONSTRUCTION
@@ -33,11 +31,7 @@ fn default_accumulator_is_empty() {
 #[test]
 fn add_text_change_needs_layout() {
     let mut acc = ChangeAccumulator::new();
-    acc.add_text_change(
-        NodeId::new(0),
-        "old".into(),
-        "new".into(),
-    );
+    acc.add_text_change(NodeId::new(0), "old".into(), "new".into());
     assert!(!acc.is_empty());
     assert!(acc.needs_layout(), "text change should need layout");
     assert!(!acc.is_visually_unchanged());
@@ -90,8 +84,14 @@ fn add_css_paint_change_needs_paint_only() {
         CssPropertyType::TextColor,
         RelayoutScope::None,
     );
-    assert!(!acc.needs_layout(), "paint-only change should not need layout");
-    assert!(acc.needs_paint_only(), "paint-only change should need paint");
+    assert!(
+        !acc.needs_layout(),
+        "paint-only change should not need layout"
+    );
+    assert!(
+        acc.needs_paint_only(),
+        "paint-only change should need paint"
+    );
 }
 
 #[test]
@@ -103,7 +103,9 @@ fn add_css_change_records_property_type() {
         RelayoutScope::SizingOnly,
     );
     let report = acc.per_node.get(&NodeId::new(3)).unwrap();
-    assert!(report.changed_css_properties.contains(&CssPropertyType::Height));
+    assert!(report
+        .changed_css_properties
+        .contains(&CssPropertyType::Height));
 }
 
 #[test]
@@ -115,7 +117,9 @@ fn add_layout_css_sets_inline_style_layout_flag() {
         RelayoutScope::Full,
     );
     let report = acc.per_node.get(&NodeId::new(0)).unwrap();
-    assert!(report.change_set.contains(NodeChangeSet::INLINE_STYLE_LAYOUT));
+    assert!(report
+        .change_set
+        .contains(NodeChangeSet::INLINE_STYLE_LAYOUT));
 }
 
 #[test]
@@ -127,7 +131,9 @@ fn add_paint_css_sets_inline_style_paint_flag() {
         RelayoutScope::None,
     );
     let report = acc.per_node.get(&NodeId::new(0)).unwrap();
-    assert!(report.change_set.contains(NodeChangeSet::INLINE_STYLE_PAINT));
+    assert!(report
+        .change_set
+        .contains(NodeChangeSet::INLINE_STYLE_PAINT));
 }
 
 // =========================================================================
@@ -145,7 +151,11 @@ fn add_image_change_records_flag() {
 #[test]
 fn add_image_change_upgrades_max_scope() {
     let mut acc = ChangeAccumulator::new();
-    acc.add_css_change(NodeId::new(0), CssPropertyType::TextColor, RelayoutScope::None);
+    acc.add_css_change(
+        NodeId::new(0),
+        CssPropertyType::TextColor,
+        RelayoutScope::None,
+    );
     assert_eq!(acc.max_scope, RelayoutScope::None);
 
     acc.add_image_change(NodeId::new(1), RelayoutScope::SizingOnly);
@@ -202,24 +212,48 @@ fn max_scope_upgrades_from_none_to_ifc() {
 fn max_scope_upgrades_from_ifc_to_sizing() {
     let mut acc = ChangeAccumulator::new();
     acc.add_text_change(NodeId::new(0), "a".into(), "b".into());
-    acc.add_css_change(NodeId::new(1), CssPropertyType::Width, RelayoutScope::SizingOnly);
+    acc.add_css_change(
+        NodeId::new(1),
+        CssPropertyType::Width,
+        RelayoutScope::SizingOnly,
+    );
     assert_eq!(acc.max_scope, RelayoutScope::SizingOnly);
 }
 
 #[test]
 fn max_scope_upgrades_from_sizing_to_full() {
     let mut acc = ChangeAccumulator::new();
-    acc.add_css_change(NodeId::new(0), CssPropertyType::Width, RelayoutScope::SizingOnly);
-    acc.add_css_change(NodeId::new(1), CssPropertyType::Display, RelayoutScope::Full);
+    acc.add_css_change(
+        NodeId::new(0),
+        CssPropertyType::Width,
+        RelayoutScope::SizingOnly,
+    );
+    acc.add_css_change(
+        NodeId::new(1),
+        CssPropertyType::Display,
+        RelayoutScope::Full,
+    );
     assert_eq!(acc.max_scope, RelayoutScope::Full);
 }
 
 #[test]
 fn max_scope_does_not_downgrade() {
     let mut acc = ChangeAccumulator::new();
-    acc.add_css_change(NodeId::new(0), CssPropertyType::Display, RelayoutScope::Full);
-    acc.add_css_change(NodeId::new(1), CssPropertyType::TextColor, RelayoutScope::None);
-    assert_eq!(acc.max_scope, RelayoutScope::Full, "max scope should not downgrade");
+    acc.add_css_change(
+        NodeId::new(0),
+        CssPropertyType::Display,
+        RelayoutScope::Full,
+    );
+    acc.add_css_change(
+        NodeId::new(1),
+        CssPropertyType::TextColor,
+        RelayoutScope::None,
+    );
+    assert_eq!(
+        acc.max_scope,
+        RelayoutScope::Full,
+        "max scope should not downgrade"
+    );
 }
 
 // =========================================================================
@@ -232,32 +266,61 @@ fn multiple_changes_same_node_merge() {
     // First change: text
     acc.add_text_change(NodeId::new(0), "old".into(), "new".into());
     // Second change: CSS
-    acc.add_css_change(NodeId::new(0), CssPropertyType::Width, RelayoutScope::SizingOnly);
+    acc.add_css_change(
+        NodeId::new(0),
+        CssPropertyType::Width,
+        RelayoutScope::SizingOnly,
+    );
 
     let report = acc.per_node.get(&NodeId::new(0)).unwrap();
     assert!(report.change_set.contains(NodeChangeSet::TEXT_CONTENT));
-    assert!(report.change_set.contains(NodeChangeSet::INLINE_STYLE_LAYOUT));
-    assert_eq!(report.relayout_scope, RelayoutScope::SizingOnly,
-        "node scope should be upgraded to SizingOnly");
+    assert!(report
+        .change_set
+        .contains(NodeChangeSet::INLINE_STYLE_LAYOUT));
+    assert_eq!(
+        report.relayout_scope,
+        RelayoutScope::SizingOnly,
+        "node scope should be upgraded to SizingOnly"
+    );
 }
 
 #[test]
 fn multiple_css_changes_same_node_accumulate_properties() {
     let mut acc = ChangeAccumulator::new();
-    acc.add_css_change(NodeId::new(0), CssPropertyType::Width, RelayoutScope::SizingOnly);
-    acc.add_css_change(NodeId::new(0), CssPropertyType::Height, RelayoutScope::SizingOnly);
+    acc.add_css_change(
+        NodeId::new(0),
+        CssPropertyType::Width,
+        RelayoutScope::SizingOnly,
+    );
+    acc.add_css_change(
+        NodeId::new(0),
+        CssPropertyType::Height,
+        RelayoutScope::SizingOnly,
+    );
 
     let report = acc.per_node.get(&NodeId::new(0)).unwrap();
     assert_eq!(report.changed_css_properties.len(), 2);
-    assert!(report.changed_css_properties.contains(&CssPropertyType::Width));
-    assert!(report.changed_css_properties.contains(&CssPropertyType::Height));
+    assert!(report
+        .changed_css_properties
+        .contains(&CssPropertyType::Width));
+    assert!(report
+        .changed_css_properties
+        .contains(&CssPropertyType::Height));
 }
 
 #[test]
 fn per_node_scope_upgrades_independently() {
     let mut acc = ChangeAccumulator::new();
-    acc.add_css_change(NodeId::new(0), CssPropertyType::TextColor, RelayoutScope::None);
-    acc.add_css_change(NodeId::new(0), CssPropertyType::Display, RelayoutScope::Full);
+    acc.add_css_change(
+        NodeId::new(0),
+        CssPropertyType::TextColor,
+        RelayoutScope::None,
+    );
+    acc.add_css_change(
+        NodeId::new(0),
+        CssPropertyType::Display,
+        RelayoutScope::Full,
+    );
 
     let report = acc.per_node.get(&NodeId::new(0)).unwrap();
     assert_eq!(report.relayout_scope, RelayoutScope::Full);
@@ -273,11 +336,19 @@ fn mixed_dom_css_image_changes() {
     // DOM path: text change on node 0
     acc.add_text_change(NodeId::new(0), "a".into(), "b".into());
     // CSS path: width on node 1
-    acc.add_css_change(NodeId::new(1), CssPropertyType::Width, RelayoutScope::SizingOnly);
+    acc.add_css_change(
+        NodeId::new(1),
+        CssPropertyType::Width,
+        RelayoutScope::SizingOnly,
+    );
     // Image path: image on node 2
     acc.add_image_change(NodeId::new(2), RelayoutScope::SizingOnly);
     // Paint path: color on node 3
-    acc.add_css_change(NodeId::new(3), CssPropertyType::TextColor, RelayoutScope::None);
+    acc.add_css_change(
+        NodeId::new(3),
+        CssPropertyType::TextColor,
+        RelayoutScope::None,
+    );
 
     assert_eq!(acc.per_node.len(), 4);
     assert_eq!(acc.max_scope, RelayoutScope::SizingOnly);
@@ -287,8 +358,16 @@ fn mixed_dom_css_image_changes() {
 #[test]
 fn paint_only_changes_detected_correctly() {
     let mut acc = ChangeAccumulator::new();
-    acc.add_css_change(NodeId::new(0), CssPropertyType::TextColor, RelayoutScope::None);
-    acc.add_css_change(NodeId::new(1), CssPropertyType::Opacity, RelayoutScope::None);
+    acc.add_css_change(
+        NodeId::new(0),
+        CssPropertyType::TextColor,
+        RelayoutScope::None,
+    );
+    acc.add_css_change(
+        NodeId::new(1),
+        CssPropertyType::Opacity,
+        RelayoutScope::None,
+    );
 
     assert!(!acc.needs_layout());
     assert!(acc.needs_paint_only());
@@ -332,7 +411,9 @@ fn add_dom_change_with_all_params() {
     let mut acc = ChangeAccumulator::new();
     acc.add_dom_change(
         NodeId::new(7),
-        NodeChangeSet { bits: NodeChangeSet::TEXT_CONTENT | NodeChangeSet::IDS_AND_CLASSES },
+        NodeChangeSet {
+            bits: NodeChangeSet::TEXT_CONTENT | NodeChangeSet::IDS_AND_CLASSES,
+        },
         RelayoutScope::Full,
         Some(TextChange {
             old_text: "old".into(),

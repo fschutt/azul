@@ -1,4 +1,3 @@
-
 //! Unit tests for the Phase 3.5 event system
 //!
 //! Tests cover:

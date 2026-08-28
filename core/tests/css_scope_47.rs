@@ -37,8 +37,14 @@ fn inline_css_scopes_to_subtree_no_leak() {
     let body = bg(0);
 
     // Each leaf div gets its OWN inline background (subtree range == itself).
-    assert!(div_a.is_some(), "div A should have its own background (red)");
-    assert!(div_b.is_some(), "div B should have its own background (blue)");
+    assert!(
+        div_a.is_some(),
+        "div A should have its own background (red)"
+    );
+    assert!(
+        div_b.is_some(),
+        "div B should have its own background (blue)"
+    );
     // No cross-leak: under the old global-leak bug both divs received the same
     // merged global background, so they'd compare equal.
     assert_ne!(
@@ -63,7 +69,9 @@ fn parent_non_inherited_prop_does_not_leak_to_child() {
     //   parent div[1]  set_css("background: red")
     //     child div[2]  (no css)
     let child = Dom::create_div();
-    let parent = Dom::create_div().with_css("background: red").with_child(child);
+    let parent = Dom::create_div()
+        .with_css("background: red")
+        .with_child(child);
     let dom = Dom::create_body().with_child(parent);
     let styled_dom = StyledDom::create_from_dom(dom);
 
@@ -77,7 +85,10 @@ fn parent_non_inherited_prop_does_not_leak_to_child() {
             .cloned()
     };
 
-    assert!(bg(1).is_some(), "parent div should have its own background (red)");
+    assert!(
+        bg(1).is_some(),
+        "parent div should have its own background (red)"
+    );
     assert!(
         bg(2).is_none(),
         "child div must NOT receive the parent's background — set_css is node-only, not subtree"

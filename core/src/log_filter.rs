@@ -320,7 +320,6 @@ pub fn init_from_env() {
     }
 }
 
-
 #[cfg(test)]
 #[path = "log_filter_test.rs"]
 mod log_filter_test;

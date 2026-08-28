@@ -225,7 +225,6 @@ impl_vec_debug!(VideoFrame, VideoFrameVec);
 impl_vec_clone!(VideoFrame, VideoFrameVec, VideoFrameVecDestructor);
 impl_vec_partialeq!(VideoFrame, VideoFrameVec);
 
-
 #[cfg(test)]
 #[path = "video_test.rs"]
 mod video_test;

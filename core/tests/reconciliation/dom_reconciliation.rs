@@ -7,17 +7,16 @@
 // These simulate realistic scenarios: HTML-like state transitions.
 
 use azul_core::diff::{
-    reconcile_dom_with_changes, ChangeAccumulator, ExtendedDiffResult,
-    NodeChangeSet,
+    reconcile_dom_with_changes, ChangeAccumulator, ExtendedDiffResult, NodeChangeSet,
 };
-use azul_core::dom::{NodeData, DomId};
-use azul_core::id::NodeId;
+use azul_core::dom::{DomId, NodeData};
 use azul_core::geom::LogicalRect;
+use azul_core::id::NodeId;
 use azul_core::styled_dom::StyledNodeState;
 use azul_core::task::Instant;
 use azul_core::OrderedMap;
-use azul_css::AzString;
 use azul_css::props::property::RelayoutScope;
+use azul_css::AzString;
 
 /// Helper: create a layout map with zero-rect entries for N nodes
 fn make_layout(n: usize) -> OrderedMap<NodeId, LogicalRect> {
@@ -67,37 +66,54 @@ fn identical_dom_no_changes() {
         NodeData::create_text_do_not_use_without_block_level_wrapper("Hello"),
     ];
     let layout = make_layout(data.len());
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &data, &data,
-        None, None,
-        &layout, &layout,
+        &data,
+        &data,
+        None,
+        None,
+        &layout,
+        &layout,
         DomId { inner: 0 },
         Instant::now(),
     );
-    
+
     // All nodes should match with empty change sets
     for (_, _, cs) in &extended.node_changes {
-        assert!(cs.is_empty(), "identical DOM should have no changes, got {cs:?}");
+        assert!(
+            cs.is_empty(),
+            "identical DOM should have no changes, got {cs:?}"
+        );
     }
 }
 
 #[test]
 fn identical_dom_accumulator_empty() {
-    let data = vec![NodeData::create_div(), NodeData::create_text_do_not_use_without_block_level_wrapper("Hi")];
+    let data = vec![
+        NodeData::create_div(),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Hi"),
+    ];
     let layout = make_layout(data.len());
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &data, &data, None, None, &layout, &layout,
-        DomId { inner: 0 }, Instant::now(),
+        &data,
+        &data,
+        None,
+        None,
+        &layout,
+        &layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &data, &data);
-    
+
     // No CSS or text changed → per_node reports should all be empty
-    assert!(acc.is_visually_unchanged() || acc.is_empty(),
-        "identical DOM should produce no visual changes");
+    assert!(
+        acc.is_visually_unchanged() || acc.is_empty(),
+        "identical DOM should produce no visual changes"
+    );
 }
 
 // =========================================================================
@@ -108,44 +124,58 @@ fn identical_dom_accumulator_empty() {
 fn text_edit_detected() {
     let old = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("Hello")];
     let new = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("World")];
-    
+
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     // Should detect text change
     assert!(!extended.node_changes.is_empty());
     let (_, _, ref cs) = extended.node_changes[0];
-    assert!(cs.contains(NodeChangeSet::TEXT_CONTENT),
-        "text edit should be detected");
+    assert!(
+        cs.contains(NodeChangeSet::TEXT_CONTENT),
+        "text edit should be detected"
+    );
 }
 
 #[test]
 fn text_edit_accumulator_shows_ifc_scope() {
     let old = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("Hello")];
     let new = vec![NodeData::create_text_do_not_use_without_block_level_wrapper("World")];
-    
+
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &old, &new);
-    
+
     assert!(acc.needs_layout(), "text edit should need layout");
     // Text change → at least IfcOnly
-    assert!(acc.max_scope >= RelayoutScope::IfcOnly,
-        "text edit should produce at least IfcOnly scope");
+    assert!(
+        acc.max_scope >= RelayoutScope::IfcOnly,
+        "text edit should produce at least IfcOnly scope"
+    );
 }
 
 // =========================================================================
@@ -158,23 +188,30 @@ fn class_change_detected() {
     let mut new_div = NodeData::create_div();
     new_div.add_class(AzString::from("highlighted"));
     let new = vec![new_div];
-    
+
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     // The reconciliation may match the divs structurally (same position)
     // or may not match if the hash differs. Either way, the class change
     // should be detectable.
     if !extended.node_changes.is_empty() {
         let (_, _, ref cs) = extended.node_changes[0];
-        assert!(cs.contains(NodeChangeSet::IDS_AND_CLASSES),
-            "matched nodes with class change should flag IDS_AND_CLASSES");
+        assert!(
+            cs.contains(NodeChangeSet::IDS_AND_CLASSES),
+            "matched nodes with class change should flag IDS_AND_CLASSES"
+        );
     }
     // If no match: the class-changed div will show as mount/unmount
     // which is also correct (full layout needed)
@@ -186,19 +223,24 @@ fn class_change_accumulator_full_scope() {
     let mut new_div = NodeData::create_div();
     new_div.add_class(AzString::from("big"));
     let new = vec![new_div];
-    
+
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &old, &new);
-    
+
     // Class changes are conservatively Full (could add layout CSS)
     assert!(acc.needs_layout());
 }
@@ -211,36 +253,48 @@ fn class_change_accumulator_full_scope() {
 fn inline_style_change_detected() {
     let old = vec![NodeData::create_div().with_css("width: 50px;")];
     let new = vec![NodeData::create_div().with_css("width: 100px;")];
-    
+
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     assert!(!extended.node_changes.is_empty());
     let (_, _, ref cs) = extended.node_changes[0];
-    assert!(cs.contains(NodeChangeSet::INLINE_STYLE_LAYOUT),
-        "width change should be INLINE_STYLE_LAYOUT");
+    assert!(
+        cs.contains(NodeChangeSet::INLINE_STYLE_LAYOUT),
+        "width change should be INLINE_STYLE_LAYOUT"
+    );
 }
 
 #[test]
 fn paint_only_style_change() {
     let old = vec![NodeData::create_div().with_css("color: red;")];
     let new = vec![NodeData::create_div().with_css("color: blue;")];
-    
+
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     if !extended.node_changes.is_empty() {
         let (_, _, ref cs) = extended.node_changes[0];
         // Color change should be paint-only
@@ -263,23 +317,29 @@ fn node_added_detected_as_mount() {
         NodeData::create_div(),
         NodeData::create_text_do_not_use_without_block_level_wrapper("new"),
     ];
-    
+
     let old_layout = make_layout(1);
     let new_layout = make_layout(2);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &old, &new);
-    
-    assert!(!acc.mounted_nodes.is_empty(),
-        "new node should be tracked as mounted");
-    assert!(acc.needs_layout(),
-        "mounted nodes always need layout");
+
+    assert!(
+        !acc.mounted_nodes.is_empty(),
+        "new node should be tracked as mounted"
+    );
+    assert!(acc.needs_layout(), "mounted nodes always need layout");
 }
 
 // =========================================================================
@@ -293,21 +353,28 @@ fn node_removed_detected_as_unmount() {
         NodeData::create_text_do_not_use_without_block_level_wrapper("old"),
     ];
     let new = vec![NodeData::create_div()];
-    
+
     let old_layout = make_layout(2);
     let new_layout = make_layout(1);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &old, &new);
-    
-    assert!(!acc.unmounted_nodes.is_empty(),
-        "removed node should be tracked as unmounted");
+
+    assert!(
+        !acc.unmounted_nodes.is_empty(),
+        "removed node should be tracked as unmounted"
+    );
 }
 
 // =========================================================================
@@ -318,16 +385,21 @@ fn node_removed_detected_as_unmount() {
 fn node_type_change_full_scope() {
     let old = vec![NodeData::create_div()];
     let new = vec![NodeData::create_node(azul_core::dom::NodeType::Span)];
-    
+
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     // If they're matched (structural), NODE_TYPE_CHANGED should be set
     // If they're not matched, they'll show as mount/unmount
     let mut acc = ChangeAccumulator::new();
@@ -347,32 +419,41 @@ fn only_changed_node_flagged() {
         NodeData::create_text_do_not_use_without_block_level_wrapper("Line 3"),
     ];
     let new = vec![
-        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 1"),         // same
-        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 2 edited"),  // changed
-        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 3"),          // same
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 1"), // same
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 2 edited"), // changed
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Line 3"), // same
     ];
-    
+
     let old_layout = make_layout(3);
     let new_layout = make_layout(3);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &old, &new);
-    
+
     // Only the middle node should have TEXT_CONTENT flag
-    let changed_nodes: Vec<&NodeId> = acc.per_node.iter()
+    let changed_nodes: Vec<&NodeId> = acc
+        .per_node
+        .iter()
         .filter(|(_, r)| r.change_set.contains(NodeChangeSet::TEXT_CONTENT))
         .map(|(id, _)| id)
         .collect();
-    
+
     // At least one node should be flagged as text-changed
-    assert!(!changed_nodes.is_empty(),
-        "at least the edited node should be flagged");
+    assert!(
+        !changed_nodes.is_empty(),
+        "at least the edited node should be flagged"
+    );
 }
 
 // =========================================================================
@@ -387,25 +468,34 @@ fn keyed_reorder_no_content_change() {
     b.add_id(AzString::from("beta"));
     let mut c = NodeData::create_div();
     c.add_id(AzString::from("gamma"));
-    
+
     let old = vec![a.clone(), b.clone(), c.clone()];
     let new = vec![c.clone(), a.clone(), b.clone()]; // rotated
-    
+
     let old_layout = make_layout(3);
     let new_layout = make_layout(3);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     // All nodes should match (by key), and no content changes
     for (_, _, cs) in &extended.node_changes {
-        assert!(!cs.contains(NodeChangeSet::TEXT_CONTENT),
-            "reorder should not flag text changes");
-        assert!(!cs.contains(NodeChangeSet::NODE_TYPE_CHANGED),
-            "reorder should not flag node type changes");
+        assert!(
+            !cs.contains(NodeChangeSet::TEXT_CONTENT),
+            "reorder should not flag text changes"
+        );
+        assert!(
+            !cs.contains(NodeChangeSet::NODE_TYPE_CHANGED),
+            "reorder should not flag node type changes"
+        );
     }
 }
 
@@ -420,26 +510,33 @@ fn insert_at_beginning() {
         NodeData::create_text_do_not_use_without_block_level_wrapper("Item 2"),
     ];
     let new = vec![
-        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 0"),  // new
-        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 1"),  // old[0]
-        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 2"),  // old[1]
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 0"), // new
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 1"), // old[0]
+        NodeData::create_text_do_not_use_without_block_level_wrapper("Item 2"), // old[1]
     ];
-    
+
     let old_layout = make_layout(2);
     let new_layout = make_layout(3);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &old, &new);
-    
+
     // "Item 0" is new → mounted
-    assert!(!acc.mounted_nodes.is_empty() || !acc.per_node.is_empty(),
-        "insert at beginning should produce changes");
+    assert!(
+        !acc.mounted_nodes.is_empty() || !acc.per_node.is_empty(),
+        "insert at beginning should produce changes"
+    );
 }
 
 // =========================================================================
@@ -457,22 +554,29 @@ fn delete_from_middle() {
         NodeData::create_text_do_not_use_without_block_level_wrapper("A"),
         NodeData::create_text_do_not_use_without_block_level_wrapper("C"),
     ];
-    
+
     let old_layout = make_layout(3);
     let new_layout = make_layout(2);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &old, &new);
-    
+
     // "B" was removed → unmounted
-    assert!(!acc.unmounted_nodes.is_empty(),
-        "deleting a node should produce unmount");
+    assert!(
+        !acc.unmounted_nodes.is_empty(),
+        "deleting a node should produce unmount"
+    );
 }
 
 // =========================================================================
@@ -483,26 +587,33 @@ fn delete_from_middle() {
 fn contenteditable_change_detected() {
     let mut old_div = NodeData::create_div();
     old_div.set_contenteditable(false);
-    
+
     let mut new_div = NodeData::create_div();
     new_div.set_contenteditable(true);
-    
+
     let old = vec![old_div];
     let new = vec![new_div];
-    
+
     let old_layout = make_layout(1);
     let new_layout = make_layout(1);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     if !extended.node_changes.is_empty() {
         let (_, _, ref cs) = extended.node_changes[0];
-        assert!(cs.contains(NodeChangeSet::CONTENTEDITABLE),
-            "contenteditable change should be detected");
+        assert!(
+            cs.contains(NodeChangeSet::CONTENTEDITABLE),
+            "contenteditable change should be detected"
+        );
     }
 }
 
@@ -521,7 +632,7 @@ fn realistic_todo_list_update() {
         }
         nd
     };
-    
+
     let old = vec![
         make_todo("Buy milk", false),
         make_todo("Walk dog", false),
@@ -532,24 +643,30 @@ fn realistic_todo_list_update() {
         make_todo("Walk dog", true),          // class added
         make_todo("Code review done", false), // text changed
     ];
-    
+
     let old_layout = make_layout(3);
     let new_layout = make_layout(3);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &old, &new);
-    
+
     // Should detect changes (at least class or text changes)
-    assert!(!acc.is_visually_unchanged(),
-        "todo list update should produce visual changes");
-    assert!(acc.needs_layout(),
-        "text/class changes should need layout");
+    assert!(
+        !acc.is_visually_unchanged(),
+        "todo list update should produce visual changes"
+    );
+    assert!(acc.needs_layout(), "text/class changes should need layout");
 }
 
 // =========================================================================
@@ -560,16 +677,21 @@ fn realistic_todo_list_update() {
 fn empty_to_empty_no_changes() {
     let old: Vec<NodeData> = vec![];
     let new: Vec<NodeData> = vec![];
-    
+
     let old_layout = OrderedMap::default();
     let new_layout = OrderedMap::default();
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     assert!(extended.node_changes.is_empty());
     assert!(extended.diff.node_moves.is_empty());
 }
@@ -577,20 +699,28 @@ fn empty_to_empty_no_changes() {
 #[test]
 fn empty_to_populated() {
     let old: Vec<NodeData> = vec![];
-    let new = vec![NodeData::create_div(), NodeData::create_text_do_not_use_without_block_level_wrapper("hello")];
-    
+    let new = vec![
+        NodeData::create_div(),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("hello"),
+    ];
+
     let old_layout = OrderedMap::default();
     let new_layout = make_layout(2);
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &old, &new);
-    
+
     // All new → mounted
     assert_eq!(acc.mounted_nodes.len(), 2);
     assert!(acc.unmounted_nodes.is_empty());
@@ -599,21 +729,29 @@ fn empty_to_populated() {
 
 #[test]
 fn populated_to_empty() {
-    let old = vec![NodeData::create_div(), NodeData::create_text_do_not_use_without_block_level_wrapper("hello")];
+    let old = vec![
+        NodeData::create_div(),
+        NodeData::create_text_do_not_use_without_block_level_wrapper("hello"),
+    ];
     let new: Vec<NodeData> = vec![];
-    
+
     let old_layout = make_layout(2);
     let new_layout = OrderedMap::default();
-    
+
     let extended = reconcile_dom_with_changes_flat(
-        &old, &new, None, None,
-        &old_layout, &new_layout,
-        DomId { inner: 0 }, Instant::now(),
+        &old,
+        &new,
+        None,
+        None,
+        &old_layout,
+        &new_layout,
+        DomId { inner: 0 },
+        Instant::now(),
     );
-    
+
     let mut acc = ChangeAccumulator::new();
     acc.merge_extended_diff(&extended, &old, &new);
-    
+
     // All removed → unmounted
     assert_eq!(acc.unmounted_nodes.len(), 2);
     assert!(acc.mounted_nodes.is_empty());

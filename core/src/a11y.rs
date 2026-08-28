@@ -250,196 +250,132 @@ impl_option!(
 pub enum AccessibilityRole {
     /// Represents the title or caption bar of a window.
     TitleBar,
-
     /// Represents a menu bar at the top of a window.
     MenuBar,
-
     /// Represents a vertical or horizontal scroll bar.
     ScrollBar,
-
     /// Represents a handle or grip used for moving or resizing.
     Grip,
-
     /// Represents a system sound indicating an event.
     Sound,
-
     /// Represents the system's mouse pointer or other pointing device.
     Cursor,
-
     /// Represents the text insertion point indicator.
     Caret,
-
     /// Represents an alert or notification.
     Alert,
-
     /// Represents a window frame.
     Window,
-
     /// Represents a window's client area, where the main content is displayed.
     Client,
-
     /// Represents a pop-up menu.
     MenuPopup,
-
     /// Represents an individual item within a menu.
     MenuItem,
-
     /// Represents a small pop-up window that provides information.
     Tooltip,
-
     /// Represents the main window of an application.
     Application,
-
     /// Represents a document window within an application.
     Document,
-
     /// Represents a pane or a distinct section of a window.
     Pane,
-
     /// Represents a graphical chart or graph.
     Chart,
-
     /// Represents a dialog box or message box.
     Dialog,
-
     /// Represents a window's border.
     Border,
-
     /// Represents a group of related controls.
     Grouping,
-
     /// Represents a visual separator.
     Separator,
-
     /// Represents a toolbar containing a group of controls.
     Toolbar,
-
     /// Represents a status bar for displaying information.
     StatusBar,
-
     /// Represents a data table.
     Table,
-
     /// Represents a column header in a table.
     ColumnHeader,
-
     /// Represents a row header in a table.
     RowHeader,
-
     /// Represents a full column of cells in a table.
     Column,
-
     /// Represents a full row of cells in a table.
     Row,
-
     /// Represents a single cell within a table.
     Cell,
-
     /// Represents a hyperlink to a resource.
     Link,
-
     /// Represents a help balloon or pop-up.
     HelpBalloon,
-
     /// Represents an animated, character-like graphic object.
     Character,
-
     /// Represents a list of items.
     List,
-
     /// Represents an individual item within a list.
     ListItem,
-
     /// Represents an outline or tree structure.
     Outline,
-
     /// Represents an individual item within an outline or tree.
     OutlineItem,
-
     /// Represents a single tab in a tabbed interface.
     PageTab,
-
     /// Represents the content of a page in a property sheet.
     PropertyPage,
-
     /// Represents a visual indicator, like a slider thumb.
     Indicator,
-
     /// Represents a picture or graphical image.
     Graphic,
-
     /// Represents read-only text.
     StaticText,
-
     /// Represents editable text or a text area.
     Text,
-
     /// Represents a standard push button.
     PushButton,
-
     /// Represents a check box control.
     CheckButton,
-
     /// Represents a radio button.
     RadioButton,
-
     /// Represents a combination of a text field and a drop-down list.
     ComboBox,
-
     /// Represents a drop-down list box.
     DropList,
-
     /// Represents a progress bar.
     ProgressBar,
-
     /// Represents a dial or knob.
     Dial,
-
     /// Represents a control for entering a keyboard shortcut.
     HotkeyField,
-
     /// Represents a slider for selecting a value within a range.
     Slider,
-
     /// Represents a spin button (up/down arrows) for incrementing or decrementing a value.
     SpinButton,
-
     /// Represents a diagram or flowchart.
     Diagram,
-
     /// Represents an animation control.
     Animation,
-
     /// Represents a mathematical equation.
     Equation,
-
     /// Represents a button that drops down a list of items.
     ButtonDropdown,
-
     /// Represents a button that drops down a full menu.
     ButtonMenu,
-
     /// Represents a button that drops down a grid for selection.
     ButtonDropdownGrid,
-
     /// Represents blank space between other objects.
     Whitespace,
-
     /// Represents the container for a set of tabs.
     PageTabList,
-
     /// Represents a clock control.
     Clock,
-
     /// Represents a button with two parts: a default action and a dropdown.
     SplitButton,
-
     /// Represents a control for entering an IP address.
     IpAddress,
-
     /// Represents an element with no specific role.
     Nothing,
-
     /// Unknown or unspecified role.
     Unknown,
 }
@@ -460,51 +396,36 @@ impl_option!(
 pub enum AccessibilityState {
     /// The element is unavailable and cannot be interacted with.
     Unavailable,
-
     /// The element is selected.
     Selected,
-
     /// The element has the keyboard focus.
     Focused,
-
     /// The element is checked, toggled, or in an "on" state.
     CheckedTrue,
     /// The element is unchecked, untoggled, or in an "off" state.
     CheckedFalse,
-
     /// The element's content cannot be edited by the user.
     Readonly,
-
     /// The element is the default action in a dialog or form.
     Default,
-
     /// The element is expanded, showing its child items.
     Expanded,
-
     /// The element is collapsed, hiding its child items.
     Collapsed,
-
     /// The element is busy and cannot respond to user interaction.
     Busy,
-
     /// The element is not currently visible on the screen.
     Offscreen,
-
     /// The element can accept keyboard focus.
     Focusable,
-
     /// The element is a container whose children can be selected.
     Selectable,
-
     /// The element is a hyperlink.
     Linked,
-
     /// The element is a hyperlink that has been visited.
     Traversed,
-
     /// The element allows multiple of its children to be selected at once.
     Multiselectable,
-
     /// The element contains protected content that should not be read aloud.
     Protected,
 }
@@ -882,7 +803,6 @@ impl DialogAriaInfo {
         }
     }
 }
-
 
 #[cfg(test)]
 #[path = "a11y_test.rs"]

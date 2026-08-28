@@ -25,7 +25,6 @@ pub enum DebugLevel {
     Error,
 }
 
-
 /// Categories for debug messages to enable filtering
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -63,7 +62,6 @@ pub enum DebugCategory {
     /// Icon resolution
     Icon,
 }
-
 
 // Convenience macros for logging with automatic category and format.
 //
@@ -120,4 +118,3 @@ macro_rules! log_error {
         }
     };
 }
-

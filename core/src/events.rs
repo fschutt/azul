@@ -53,18 +53,24 @@ pub struct CallbackToCall {
 }
 
 impl CallbackToCall {
-    #[must_use] pub const fn new(
+    #[must_use]
+    pub const fn new(
         node_id: NodeId,
         hit_test_item: Option<HitTestItem>,
         event_filter: EventFilter,
     ) -> Self {
-        Self { node_id, hit_test_item, event_filter }
+        Self {
+            node_id,
+            hit_test_item,
+            event_filter,
+        }
     }
 
     /// Build a list of `CallbackToCall` entries for every node hit by the
     /// given hit test under the given DOM, tagged with `event_filter`.
     /// Returns an empty `Vec` when there is no hit test data for the DOM.
-    #[must_use] pub fn from_hit_test(
+    #[must_use]
+    pub fn from_hit_test(
         hit_test: &FullHitTest,
         dom_id: DomId,
         event_filter: EventFilter,
@@ -101,8 +107,13 @@ pub enum ProcessEventResult {
 }
 
 impl ProcessEventResult {
-    #[must_use] pub const fn order(&self) -> usize {
-        use self::ProcessEventResult::{DoNothing, ShouldReRenderCurrentWindow, ShouldUpdateDisplayListCurrentWindow, UpdateHitTesterAndProcessAgain, ShouldIncrementalRelayout, ShouldRegenerateDomCurrentWindow, ShouldRegenerateDomAllWindows};
+    #[must_use]
+    pub const fn order(&self) -> usize {
+        use self::ProcessEventResult::{
+            DoNothing, ShouldIncrementalRelayout, ShouldReRenderCurrentWindow,
+            ShouldRegenerateDomAllWindows, ShouldRegenerateDomCurrentWindow,
+            ShouldUpdateDisplayListCurrentWindow, UpdateHitTesterAndProcessAgain,
+        };
         match self {
             DoNothing => 0,
             ShouldReRenderCurrentWindow => 1,
@@ -169,7 +180,6 @@ pub enum EventPhase {
     Bubble,
 }
 
-
 /// Mouse button identifier for mouse events.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
@@ -224,7 +234,8 @@ pub struct ScrollIntoViewOptions {
 
 impl ScrollIntoViewOptions {
     /// Create options with "nearest" alignment for both axes
-    #[must_use] pub const fn nearest() -> Self {
+    #[must_use]
+    pub const fn nearest() -> Self {
         Self {
             block: ScrollLogicalPosition::Nearest,
             inline_axis: ScrollLogicalPosition::Nearest,
@@ -233,7 +244,8 @@ impl ScrollIntoViewOptions {
     }
 
     /// Create options with "center" alignment for both axes
-    #[must_use] pub const fn center() -> Self {
+    #[must_use]
+    pub const fn center() -> Self {
         Self {
             block: ScrollLogicalPosition::Center,
             inline_axis: ScrollLogicalPosition::Center,
@@ -242,7 +254,8 @@ impl ScrollIntoViewOptions {
     }
 
     /// Create options with "start" alignment for both axes
-    #[must_use] pub const fn start() -> Self {
+    #[must_use]
+    pub const fn start() -> Self {
         Self {
             block: ScrollLogicalPosition::Start,
             inline_axis: ScrollLogicalPosition::Start,
@@ -251,7 +264,8 @@ impl ScrollIntoViewOptions {
     }
 
     /// Create options to align the end of the target with the end of the viewport
-    #[must_use] pub const fn end() -> Self {
+    #[must_use]
+    pub const fn end() -> Self {
         Self {
             block: ScrollLogicalPosition::End,
             inline_axis: ScrollLogicalPosition::End,
@@ -260,13 +274,15 @@ impl ScrollIntoViewOptions {
     }
 
     /// Set instant scroll behavior
-    #[must_use] pub const fn with_instant(mut self) -> Self {
+    #[must_use]
+    pub const fn with_instant(mut self) -> Self {
         self.behavior = ScrollIntoViewBehavior::Instant;
         self
     }
 
     /// Set smooth scroll behavior
-    #[must_use] pub const fn with_smooth(mut self) -> Self {
+    #[must_use]
+    pub const fn with_smooth(mut self) -> Self {
         self.behavior = ScrollIntoViewBehavior::Smooth;
         self
     }
@@ -342,31 +358,37 @@ pub struct KeyModifiers {
 }
 
 impl KeyModifiers {
-    #[must_use] pub fn new() -> Self {
+    #[must_use]
+    pub fn new() -> Self {
         Self::default()
     }
 
-    #[must_use] pub const fn with_shift(mut self) -> Self {
+    #[must_use]
+    pub const fn with_shift(mut self) -> Self {
         self.shift = true;
         self
     }
 
-    #[must_use] pub const fn with_ctrl(mut self) -> Self {
+    #[must_use]
+    pub const fn with_ctrl(mut self) -> Self {
         self.ctrl = true;
         self
     }
 
-    #[must_use] pub const fn with_alt(mut self) -> Self {
+    #[must_use]
+    pub const fn with_alt(mut self) -> Self {
         self.alt = true;
         self
     }
 
-    #[must_use] pub const fn with_meta(mut self) -> Self {
+    #[must_use]
+    pub const fn with_meta(mut self) -> Self {
         self.meta = true;
         self
     }
 
-    #[must_use] pub const fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         !self.shift && !self.ctrl && !self.alt && !self.meta
     }
 }
@@ -811,7 +833,8 @@ impl SyntheticEvent {
     ///
     /// # Parameters
     /// - `timestamp`: Current time from `(system_callbacks.get_system_time_fn.cb)()`
-    #[must_use] pub const fn new(
+    #[must_use]
+    pub const fn new(
         event_type: EventType,
         source: EventSource,
         target: DomNodeId,
@@ -866,24 +889,26 @@ impl SyntheticEvent {
     }
 
     /// Check if propagation was stopped.
-    #[must_use] pub const fn is_propagation_stopped(&self) -> bool {
+    #[must_use]
+    pub const fn is_propagation_stopped(&self) -> bool {
         self.stopped
     }
 
     /// Check if immediate propagation was stopped.
-    #[must_use] pub const fn is_immediate_propagation_stopped(&self) -> bool {
+    #[must_use]
+    pub const fn is_immediate_propagation_stopped(&self) -> bool {
         self.stopped_immediate
     }
 
     /// Check if default action was prevented.
-    #[must_use] pub const fn is_default_prevented(&self) -> bool {
+    #[must_use]
+    pub const fn is_default_prevented(&self) -> bool {
         self.prevented_default
     }
 }
 
 /// Result of event propagation through DOM tree.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct PropagationResult {
     /// Callbacks that should be invoked, in order
     pub callbacks_to_invoke: Vec<(NodeId, EventFilter)>,
@@ -897,7 +922,8 @@ pub struct PropagationResult {
 /// are ancestors of the target to implement capture/bubble phases.
 ///
 /// Returns nodes in order from root to target (inclusive).
-#[must_use] pub fn get_dom_path(
+#[must_use]
+pub fn get_dom_path(
     node_hierarchy: &crate::id::NodeHierarchy,
     target_node: NodeHierarchyItemId,
 ) -> Vec<NodeId> {
@@ -1073,7 +1099,6 @@ fn collect_matching_callbacks(
     result.callbacks_to_invoke.extend(matching);
 }
 
-
 // =============================================================================
 // DEFAULT ACTIONS (W3C UI Events / HTML5 Activation Behavior)
 // =============================================================================
@@ -1107,17 +1132,11 @@ pub enum DefaultAction {
     ClearFocus,
     /// Activate the focused element (Enter/Space on activatable elements)
     /// This generates a synthetic Click event on the target
-    ActivateFocusedElement {
-        target: DomNodeId,
-    },
+    ActivateFocusedElement { target: DomNodeId },
     /// Submit the form containing the focused element (Enter in form input)
-    SubmitForm {
-        form_node: DomNodeId,
-    },
+    SubmitForm { form_node: DomNodeId },
     /// Close the current modal/dialog (Escape key when modal is open)
-    CloseModal {
-        modal_node: DomNodeId,
-    },
+    CloseModal { modal_node: DomNodeId },
     /// Scroll the focused scrollable container
     ScrollFocusedContainer {
         direction: ScrollDirection,
@@ -1128,19 +1147,13 @@ pub enum DefaultAction {
     /// Enter in a contenteditable host: record a STRUCTURAL split-block
     /// changeset for the app to apply to its model (azul never mutates the
     /// DOM). Execution = `LayoutWindow::record_structural_default_action`.
-    SplitBlockAtCursor {
-        target: DomNodeId,
-    },
+    SplitBlockAtCursor { target: DomNodeId },
     /// Backspace at block start in a contenteditable host: record a
     /// merge-with-previous-block changeset (same record-only semantics).
-    MergeWithPrevious {
-        target: DomNodeId,
-    },
+    MergeWithPrevious { target: DomNodeId },
     /// Delete at block end in a contenteditable host: record a
     /// merge-with-next-block changeset (same record-only semantics).
-    MergeWithNext {
-        target: DomNodeId,
-    },
+    MergeWithNext { target: DomNodeId },
     /// No default action for this event
     None,
     /// Enter in a PLAIN-TEXT editing context (the editing host's computed
@@ -1149,9 +1162,7 @@ pub enum DefaultAction {
     /// literal `"\n"` through the standard text-input pipeline (which brings
     /// veto, undo, and caret-follow along) instead of recording a structural
     /// block split. APPENDED at the enum tail for ABI stability.
-    InsertLineBreakAtCursor {
-        target: DomNodeId,
-    },
+    InsertLineBreakAtCursor { target: DomNodeId },
 }
 
 /// Amount to scroll for keyboard-based scrolling
@@ -1192,7 +1203,8 @@ impl Default for DefaultActionResult {
 
 impl DefaultActionResult {
     /// Create a new result with a specific action
-    #[must_use] pub const fn new(action: DefaultAction) -> Self {
+    #[must_use]
+    pub const fn new(action: DefaultAction) -> Self {
         Self {
             action,
             prevented: false,
@@ -1200,7 +1212,8 @@ impl DefaultActionResult {
     }
 
     /// Create a prevented result (callback called `prevent_default`)
-    #[must_use] pub const fn prevented() -> Self {
+    #[must_use]
+    pub const fn prevented() -> Self {
         Self {
             action: DefaultAction::None,
             prevented: true,
@@ -1208,7 +1221,8 @@ impl DefaultActionResult {
     }
 
     /// Check if there's an action to perform
-    #[must_use] pub const fn has_action(&self) -> bool {
+    #[must_use]
+    pub const fn has_action(&self) -> bool {
         !self.prevented && !matches!(self.action, DefaultAction::None)
     }
 }
@@ -1243,7 +1257,8 @@ pub trait Focusable {
 
     /// Returns true if this element should be in the tab order
     fn is_in_tab_order(&self) -> bool {
-        self.get_tabindex().map_or_else(|| self.is_naturally_focusable(), |i| i >= 0)
+        self.get_tabindex()
+            .map_or_else(|| self.is_naturally_focusable(), |i| i >= 0)
     }
 
     /// Returns true if this element type is naturally focusable
@@ -1334,7 +1349,15 @@ fn matches_hover_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use HoverEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop, DoubleClick, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, ScreenColorPicked};
+    use HoverEventFilter::{
+        BiometricResult, DoubleClick, Drag, DragEnd, DragEnter, DragLeave, DragOver, DragStart,
+        Drop, DroppedFile, GamepadInput, GeolocationError, GeolocationFix, HoveredFile,
+        HoveredFileCancelled, KeyringResult, LeftMouseDown, LeftMouseUp, MiddleMouseDown,
+        MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver, MouseUp, PenDown, PenEnter,
+        PenLeave, PenMove, PenUp, PermissionChanged, RightMouseDown, RightMouseUp,
+        ScreenColorPicked, Scroll, ScrollEnd, ScrollStart, SensorChanged, TextInput, TouchCancel,
+        TouchEnd, TouchMove, TouchStart, VirtualKeyDown, VirtualKeyUp,
+    };
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1416,7 +1439,12 @@ fn matches_focus_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use FocusEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, FocusReceived, FocusLost, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
+    use FocusEventFilter::{
+        Drag, DragEnd, DragEnter, DragLeave, DragOver, DragStart, Drop, FocusLost, FocusReceived,
+        LeftMouseDown, LeftMouseUp, MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter,
+        MouseLeave, MouseOver, MouseUp, RightMouseDown, RightMouseUp, Scroll, ScrollEnd,
+        ScrollStart, TextInput, VirtualKeyDown, VirtualKeyUp,
+    };
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1478,7 +1506,16 @@ fn matches_window_filter(
     event: &SyntheticEvent,
     _phase: EventPhase,
 ) -> bool {
-    use WindowEventFilter::{MouseOver, MouseDown, LeftMouseDown, RightMouseDown, MiddleMouseDown, MouseUp, LeftMouseUp, RightMouseUp, MiddleMouseUp, MouseEnter, MouseLeave, Scroll, ScrollStart, ScrollEnd, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, Resized, Moved, FrameChanged, TouchStart, TouchMove, TouchEnd, TouchCancel, PenDown, PenMove, PenUp, PenEnter, PenLeave, FocusReceived, FocusLost, CloseRequested, ThemeChanged, WindowFocusReceived, WindowFocusLost, SensorChanged, GamepadInput, GeolocationFix, GeolocationError, PermissionChanged, BiometricResult, KeyringResult, ScreenColorPicked, DragStart, Drag, DragEnd, DragEnter, DragOver, DragLeave, Drop};
+    use WindowEventFilter::{
+        BiometricResult, CloseRequested, Drag, DragEnd, DragEnter, DragLeave, DragOver, DragStart,
+        Drop, DroppedFile, FocusLost, FocusReceived, FrameChanged, GamepadInput, GeolocationError,
+        GeolocationFix, HoveredFile, HoveredFileCancelled, KeyringResult, LeftMouseDown,
+        LeftMouseUp, MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver,
+        MouseUp, Moved, PenDown, PenEnter, PenLeave, PenMove, PenUp, PermissionChanged, Resized,
+        RightMouseDown, RightMouseUp, ScreenColorPicked, Scroll, ScrollEnd, ScrollStart,
+        SensorChanged, TextInput, ThemeChanged, TouchCancel, TouchEnd, TouchMove, TouchStart,
+        VirtualKeyDown, VirtualKeyUp, WindowFocusLost, WindowFocusReceived,
+    };
 
     match (filter, &event.event_type) {
         (MouseOver, EventType::MouseOver) => true,
@@ -1560,7 +1597,8 @@ fn matches_window_filter(
 ///
 /// Generates Mount, Unmount, and Resize events by comparing DOM hierarchies.
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
-#[must_use] pub fn detect_lifecycle_events(
+#[must_use]
+pub fn detect_lifecycle_events(
     old_dom_id: DomId,
     new_dom_id: DomId,
     old_hierarchy: Option<&crate::id::NodeHierarchy>,
@@ -1685,7 +1723,8 @@ fn size_changed(old: crate::geom::LogicalSize, new: crate::geom::LogicalSize) ->
         // Fixed-point quantization mirrors `LogicalSize`'s `Ord`/`Hash`.
         // `f32 as i64` saturates on overflow (no wasm32 wraparound); a lone
         // NaN quantizes to `i64::MIN` and so registers as changed.
-        #[allow(clippy::cast_possible_truncation)] // intentional fixed-point quantization; saturates
+        #[allow(clippy::cast_possible_truncation)]
+        // intentional fixed-point quantization; saturates
         let q = |v: f32| -> i64 {
             if v.is_nan() {
                 i64::MIN
@@ -1831,7 +1870,8 @@ pub struct LifecycleEventResult {
 ///     }
 /// }
 /// ```
-#[must_use] pub fn detect_lifecycle_events_with_reconciliation(
+#[must_use]
+pub fn detect_lifecycle_events_with_reconciliation(
     dom_id: DomId,
     old_node_data: &[crate::dom::NodeData],
     new_node_data: &[crate::dom::NodeData],
@@ -2025,19 +2065,19 @@ pub enum HoverEventFilter {
 
 impl HoverEventFilter {
     /// Check if this is an internal system event that should not be exposed to user callbacks
-    #[must_use] pub const fn is_system_internal(&self) -> bool {
+    #[must_use]
+    pub const fn is_system_internal(&self) -> bool {
         matches!(
             self,
-            Self::SystemTextSingleClick
-                | Self::SystemTextDoubleClick
-                | Self::SystemTextTripleClick
+            Self::SystemTextSingleClick | Self::SystemTextDoubleClick | Self::SystemTextTripleClick
         )
     }
 
     // Exhaustive On -> Option<FocusEventFilter> mapping table; the several `=> None`
     // rows (window-only events) are intentional 1:1 rows — merging would collapse the table.
     #[allow(clippy::match_same_arms)]
-    #[must_use] pub const fn to_focus_event_filter(&self) -> Option<FocusEventFilter> {
+    #[must_use]
+    pub const fn to_focus_event_filter(&self) -> Option<FocusEventFilter> {
         match self {
             Self::MouseOver => Some(FocusEventFilter::MouseOver),
             Self::MouseDown => Some(FocusEventFilter::MouseDown),
@@ -2091,9 +2131,7 @@ impl HoverEventFilter {
             Self::PinchIn => Some(FocusEventFilter::PinchIn),
             Self::PinchOut => Some(FocusEventFilter::PinchOut),
             Self::RotateClockwise => Some(FocusEventFilter::RotateClockwise),
-            Self::RotateCounterClockwise => {
-                Some(FocusEventFilter::RotateCounterClockwise)
-            }
+            Self::RotateCounterClockwise => Some(FocusEventFilter::RotateCounterClockwise),
             Self::MouseOut => Some(FocusEventFilter::MouseLeave), // mouseout → closest focus equivalent
             Self::FocusIn => Some(FocusEventFilter::FocusIn),
             Self::FocusOut => Some(FocusEventFilter::FocusOut),
@@ -2392,7 +2430,8 @@ pub enum WindowEventFilter {
 impl WindowEventFilter {
     // Exhaustive On -> Option<HoverEventFilter> mapping table (see to_focus_event_filter).
     #[allow(clippy::match_same_arms)]
-    #[must_use] pub const fn to_hover_event_filter(&self) -> Option<HoverEventFilter> {
+    #[must_use]
+    pub const fn to_hover_event_filter(&self) -> Option<HoverEventFilter> {
         match self {
             Self::MouseOver => Some(HoverEventFilter::MouseOver),
             Self::MouseDown => Some(HoverEventFilter::MouseDown),
@@ -2459,9 +2498,7 @@ impl WindowEventFilter {
             Self::PinchIn => Some(HoverEventFilter::PinchIn),
             Self::PinchOut => Some(HoverEventFilter::PinchOut),
             Self::RotateClockwise => Some(HoverEventFilter::RotateClockwise),
-            Self::RotateCounterClockwise => {
-                Some(HoverEventFilter::RotateCounterClockwise)
-            }
+            Self::RotateCounterClockwise => Some(HoverEventFilter::RotateCounterClockwise),
             // Window-specific events with no hover equivalent
             Self::DpiChanged => None,
             Self::MonitorChanged => None,
@@ -2548,10 +2585,12 @@ pub enum EventFilter {
 }
 
 impl EventFilter {
-    #[must_use] pub const fn is_focus_callback(&self) -> bool {
+    #[must_use]
+    pub const fn is_focus_callback(&self) -> bool {
         matches!(self, Self::Focus(_))
     }
-    #[must_use] pub const fn is_window_callback(&self) -> bool {
+    #[must_use]
+    pub const fn is_window_callback(&self) -> bool {
         matches!(self, Self::Window(_))
     }
 }
@@ -2560,7 +2599,8 @@ impl EventFilter {
 /// variant if the enum is that variant.
 macro_rules! get_single_enum_type {
     ($fn_name:ident, $enum_name:ident:: $variant:ident($return_type:ty)) => {
-        #[must_use] pub const fn $fn_name(&self) -> Option<$return_type> {
+        #[must_use]
+        pub const fn $fn_name(&self) -> Option<$return_type> {
             use self::$enum_name::*;
             match self {
                 $variant(e) => Some(*e),
@@ -2590,7 +2630,12 @@ impl From<On> for EventFilter {
     // documented rows — merging would drop the per-row rationale comments.
     #[allow(clippy::match_same_arms)]
     fn from(input: On) -> Self {
-        use crate::dom::On::{MouseOver, MouseDown, LeftMouseDown, MiddleMouseDown, RightMouseDown, MouseUp, LeftMouseUp, MiddleMouseUp, RightMouseUp, MouseEnter, MouseLeave, Scroll, TextInput, VirtualKeyDown, VirtualKeyUp, HoveredFile, DroppedFile, HoveredFileCancelled, FocusReceived, FocusLost, Default, Collapse, Expand, Increment, Decrement};
+        use crate::dom::On::{
+            Collapse, Decrement, Default, DroppedFile, Expand, FocusLost, FocusReceived,
+            HoveredFile, HoveredFileCancelled, Increment, LeftMouseDown, LeftMouseUp,
+            MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver, MouseUp,
+            RightMouseDown, RightMouseUp, Scroll, TextInput, VirtualKeyDown, VirtualKeyUp,
+        };
         match input {
             MouseOver => Self::Hover(HoverEventFilter::MouseOver),
             MouseDown => Self::Hover(HoverEventFilter::MouseDown),
@@ -2653,7 +2698,8 @@ pub trait EventProvider {
 /// Deduplicate synthetic events by (target node, event type).
 ///
 /// Groups by (target.dom, target.node, `event_type`), keeping the latest timestamp.
-#[must_use] pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<SyntheticEvent> {
+#[must_use]
+pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<SyntheticEvent> {
     if events.len() <= 1 {
         return events;
     }
@@ -2684,8 +2730,6 @@ pub trait EventProvider {
     result
 }
 
-
-
 /// Convert `EventType` to `EventFilters` (returns multiple filters for generic + specific events)
 ///
 /// For mouse button events, returns both generic (`MouseUp`) AND button-specific (LeftMouseUp/RightMouseUp).
@@ -2694,7 +2738,8 @@ pub trait EventProvider {
 // the same filter set as intentional 1:1 rows — merging would collapse the table.
 #[allow(clippy::match_same_arms)]
 #[allow(clippy::too_many_lines)] // exhaustive EventType -> EventFilter mapping table
-#[must_use] pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
+#[must_use]
+pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
     use EventFilter as EF;
     use EventType as E;
     use FocusEventFilter as F;
@@ -2730,12 +2775,16 @@ pub trait EventProvider {
         // Mouse button events - return BOTH generic and button-specific
         E::MouseDown => {
             let mut v = vec![EF::Hover(H::MouseDown)];
-            if let Some(f) = button_specific_down() { v.push(f); }
+            if let Some(f) = button_specific_down() {
+                v.push(f);
+            }
             v
         }
         E::MouseUp => {
             let mut v = vec![EF::Hover(H::MouseUp)];
-            if let Some(f) = button_specific_up() { v.push(f); }
+            if let Some(f) = button_specific_up() {
+                v.push(f);
+            }
             v
         }
 
@@ -2755,14 +2804,46 @@ pub trait EventProvider {
         // Gestures: the detectors emitted these for years and this table sent
         // them to `vec![]` — no filter, no callback, whatever the widget
         // registered. Every gesture reaches its hover / focus / window filters.
-        E::LongPress => vec![EF::Hover(H::LongPress), EF::Focus(F::LongPress), EF::Window(W::LongPress)],
-        E::SwipeLeft => vec![EF::Hover(H::SwipeLeft), EF::Focus(F::SwipeLeft), EF::Window(W::SwipeLeft)],
-        E::SwipeRight => vec![EF::Hover(H::SwipeRight), EF::Focus(F::SwipeRight), EF::Window(W::SwipeRight)],
-        E::SwipeUp => vec![EF::Hover(H::SwipeUp), EF::Focus(F::SwipeUp), EF::Window(W::SwipeUp)],
-        E::SwipeDown => vec![EF::Hover(H::SwipeDown), EF::Focus(F::SwipeDown), EF::Window(W::SwipeDown)],
-        E::PinchIn => vec![EF::Hover(H::PinchIn), EF::Focus(F::PinchIn), EF::Window(W::PinchIn)],
-        E::PinchOut => vec![EF::Hover(H::PinchOut), EF::Focus(F::PinchOut), EF::Window(W::PinchOut)],
-        E::RotateClockwise => vec![EF::Hover(H::RotateClockwise), EF::Focus(F::RotateClockwise), EF::Window(W::RotateClockwise)],
+        E::LongPress => vec![
+            EF::Hover(H::LongPress),
+            EF::Focus(F::LongPress),
+            EF::Window(W::LongPress),
+        ],
+        E::SwipeLeft => vec![
+            EF::Hover(H::SwipeLeft),
+            EF::Focus(F::SwipeLeft),
+            EF::Window(W::SwipeLeft),
+        ],
+        E::SwipeRight => vec![
+            EF::Hover(H::SwipeRight),
+            EF::Focus(F::SwipeRight),
+            EF::Window(W::SwipeRight),
+        ],
+        E::SwipeUp => vec![
+            EF::Hover(H::SwipeUp),
+            EF::Focus(F::SwipeUp),
+            EF::Window(W::SwipeUp),
+        ],
+        E::SwipeDown => vec![
+            EF::Hover(H::SwipeDown),
+            EF::Focus(F::SwipeDown),
+            EF::Window(W::SwipeDown),
+        ],
+        E::PinchIn => vec![
+            EF::Hover(H::PinchIn),
+            EF::Focus(F::PinchIn),
+            EF::Window(W::PinchIn),
+        ],
+        E::PinchOut => vec![
+            EF::Hover(H::PinchOut),
+            EF::Focus(F::PinchOut),
+            EF::Window(W::PinchOut),
+        ],
+        E::RotateClockwise => vec![
+            EF::Hover(H::RotateClockwise),
+            EF::Focus(F::RotateClockwise),
+            EF::Window(W::RotateClockwise),
+        ],
         E::RotateCounterClockwise => vec![
             EF::Hover(H::RotateCounterClockwise),
             EF::Focus(F::RotateCounterClockwise),
@@ -2776,8 +2857,14 @@ pub trait EventProvider {
         E::KeyPress => vec![EF::Focus(F::TextInput)],
 
         // IME Composition events
-        E::CompositionStart => vec![EF::Hover(H::CompositionStart), EF::Focus(F::CompositionStart)],
-        E::CompositionUpdate => vec![EF::Hover(H::CompositionUpdate), EF::Focus(F::CompositionUpdate)],
+        E::CompositionStart => vec![
+            EF::Hover(H::CompositionStart),
+            EF::Focus(F::CompositionStart),
+        ],
+        E::CompositionUpdate => vec![
+            EF::Hover(H::CompositionUpdate),
+            EF::Focus(F::CompositionUpdate),
+        ],
         E::CompositionEnd => vec![EF::Hover(H::CompositionEnd), EF::Focus(F::CompositionEnd)],
 
         // Focus events
@@ -2820,7 +2907,9 @@ pub trait EventProvider {
 
         // Application events
         E::MonitorConnected => vec![EF::Application(ApplicationEventFilter::MonitorConnected)],
-        E::MonitorDisconnected => vec![EF::Application(ApplicationEventFilter::MonitorDisconnected)],
+        E::MonitorDisconnected => {
+            vec![EF::Application(ApplicationEventFilter::MonitorDisconnected)]
+        }
 
         // File events
         // MWA-B7: node-level Hover mirror + the window-level filter. Without
@@ -2855,14 +2944,26 @@ pub trait EventProvider {
         // filter (a fix isn't bound to a node). The fix itself is read via
         // CallbackInfo::get_geolocation_fix.
         E::GeolocationFix => vec![EF::Hover(H::GeolocationFix), EF::Window(W::GeolocationFix)],
-        E::GeolocationError => vec![EF::Hover(H::GeolocationError), EF::Window(W::GeolocationError)],
+        E::GeolocationError => vec![
+            EF::Hover(H::GeolocationError),
+            EF::Window(W::GeolocationError),
+        ],
 
         // Async capability outcomes (MWA-A1b): node-level Hover mirror (the
         // permission event targets the capability's subscriber node) + the
         // window-level filter.
-        E::PermissionChanged => vec![EF::Hover(H::PermissionChanged), EF::Window(W::PermissionChanged)],
-        E::BiometricResult => vec![EF::Hover(H::BiometricResult), EF::Window(W::BiometricResult)],
-        E::ScreenColorPicked => vec![EF::Hover(H::ScreenColorPicked), EF::Window(W::ScreenColorPicked)],
+        E::PermissionChanged => vec![
+            EF::Hover(H::PermissionChanged),
+            EF::Window(W::PermissionChanged),
+        ],
+        E::BiometricResult => vec![
+            EF::Hover(H::BiometricResult),
+            EF::Window(W::BiometricResult),
+        ],
+        E::ScreenColorPicked => vec![
+            EF::Hover(H::ScreenColorPicked),
+            EF::Window(W::ScreenColorPicked),
+        ],
         E::KeyringResult => vec![EF::Hover(H::KeyringResult), EF::Window(W::KeyringResult)],
 
         // MWA-C-clipboard: W3C clipboard events — fire on the focused
@@ -2876,8 +2977,6 @@ pub trait EventProvider {
         _ => vec![],
     }
 }
-
-
 
 // Internal System Event Processing
 
@@ -2920,13 +3019,9 @@ pub enum SystemChange {
     ///
     /// Replaces the old `ArrowKeyNavigation` and `DeleteTextSelection` variants.
     /// Every keyboard shortcut maps to a single `SelectionOp` — see its docs.
-    ApplySelectionOp {
-        target: DomNodeId,
-        op: SelectionOp,
-    },
+    ApplySelectionOp { target: DomNodeId, op: SelectionOp },
 
     // === Keyboard Shortcuts ===
-
     /// Copy selected text to system clipboard (Ctrl+C / Cmd+C).
     CopyToClipboard,
     /// Cut selected text to clipboard and delete (Ctrl+X / Cmd+X).
@@ -2941,32 +3036,22 @@ pub enum SystemChange {
     RedoTextEdit { target: DomNodeId },
 
     // === Multi-Cursor ===
-
     /// Add a cursor at the clicked position (Ctrl+Click).
     /// The position will be hit-tested to find the text cursor location.
-    AddCursorAtClick {
-        position: LogicalPosition,
-    },
+    AddCursorAtClick { position: LogicalPosition },
     /// Select the next occurrence of the current selection's text (Ctrl+D).
     /// If the primary selection is a cursor, expand it to the word first.
-    SelectNextOccurrence {
-        target: DomNodeId,
-    },
+    SelectNextOccurrence { target: DomNodeId },
 
     // === Text Input ===
-
     /// Apply pending text input from platform (keyboard/IME).
     ApplyPendingTextInput,
     /// Apply text changeset (incremental relayout).
     ApplyTextChangeset,
 
     // === Drag & Drop ===
-
     /// Activate node drag on a draggable element.
-    ActivateNodeDrag {
-        dom_id: DomId,
-        node_id: NodeId,
-    },
+    ActivateNodeDrag { dom_id: DomId, node_id: NodeId },
     /// Activate window drag (CSD titlebar).
     ActivateWindowDrag,
     /// Set up drag visual state (:dragging pseudo-state, GPU transform key).
@@ -2981,7 +3066,6 @@ pub enum SystemChange {
     DeactivateDrag,
 
     // === Focus ===
-
     /// Change focus to a new target (or clear focus if None).
     /// Handles: `set_focused_node`, `apply_focus_restyle`, `scroll_node_into_view`,
     /// `cursor_blink_timer` start/stop.
@@ -2995,7 +3079,6 @@ pub enum SystemChange {
     FinalizePendingFocusChanges,
 
     // === Scroll ===
-
     /// Scroll cursor/selection into view.
     ScrollSelectionIntoView,
     /// Scroll a specific node into view.
@@ -3004,7 +3087,6 @@ pub enum SystemChange {
     ScrollCursorIntoViewAfterTextInput,
 
     // === Auto-Scroll Timer ===
-
     /// Start auto-scroll timer for drag-to-scroll (60Hz).
     StartAutoScrollTimer,
     /// Cancel auto-scroll timer.
@@ -3019,7 +3101,14 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq]
 );
 
-impl_vec!(SystemChange, SystemChangeVec, SystemChangeVecDestructor, SystemChangeVecDestructorType, SystemChangeVecSlice, OptionSystemChange);
+impl_vec!(
+    SystemChange,
+    SystemChangeVec,
+    SystemChangeVecDestructor,
+    SystemChangeVecDestructorType,
+    SystemChangeVecSlice,
+    OptionSystemChange
+);
 impl_vec_debug!(SystemChange, SystemChangeVec);
 impl_vec_clone!(SystemChange, SystemChangeVec, SystemChangeVecDestructor);
 impl_vec_partialeq!(SystemChange, SystemChangeVec);
@@ -3066,7 +3155,7 @@ pub struct InputInterpreterInfo<'a> {
 /// For Rust: use `InputInterpreterCallback::from(fn_ptr)` which sets ctx=None.
 pub type InputInterpreterCallbackType = extern "C" fn(
     crate::refany::RefAny,
-    *const InputInterpreterInfo<'static>,  // Opaque; actual lifetime managed by caller
+    *const InputInterpreterInfo<'static>, // Opaque; actual lifetime managed by caller
 ) -> PreCallbackFilterResult;
 
 /// Configurable input interpreter callback.
@@ -3098,10 +3187,10 @@ impl Default for InputInterpreterCallback {
 /// The `extern "C"` callback type for the post-callback filter.
 pub type PostFilterCallbackType = extern "C" fn(
     crate::refany::RefAny,
-    bool,                    // prevent_default
-    SystemChangeVecSlice,    // pre_changes (immutable slice)
-    DomNodeId,               // old_focus (0xFFFF = None)
-    DomNodeId,               // new_focus (0xFFFF = None)
+    bool,                 // prevent_default
+    SystemChangeVecSlice, // pre_changes (immutable slice)
+    DomNodeId,            // old_focus (0xFFFF = None)
+    DomNodeId,            // new_focus (0xFFFF = None)
 ) -> SystemChangeVec;
 
 /// Configurable post-callback filter.
@@ -3218,8 +3307,7 @@ pub struct E2eOpSchema {
 fn json_has_success_bool(v: &crate::json::Json) -> bool {
     #[cfg(feature = "serde-json")]
     {
-        v
-            .to_serde_value()
+        v.to_serde_value()
             .get("success")
             .is_some_and(serde_json::Value::is_boolean)
     }
@@ -3255,7 +3343,10 @@ impl core::fmt::Display for E2eSchemaError {
         match self {
             Self::UnnamedOp { index } => write!(f, "op #{index} has an empty name"),
             Self::DuplicateOpName { name } => {
-                write!(f, "two ops are both named '{name}'; dispatch would be ambiguous")
+                write!(
+                    f,
+                    "two ops are both named '{name}'; dispatch would be ambiguous"
+                )
             }
             Self::UnnamedArg { op, index } => {
                 write!(f, "op '{op}' argument #{index} has an empty name")
@@ -3292,12 +3383,17 @@ impl E2eOpSchema {
                 return Err(E2eSchemaError::UnnamedOp { index: i });
             }
             if seen.contains(&op.name.as_str()) {
-                return Err(E2eSchemaError::DuplicateOpName { name: op.name.clone() });
+                return Err(E2eSchemaError::DuplicateOpName {
+                    name: op.name.clone(),
+                });
             }
             seen.push(op.name.as_str());
             for (a, arg) in op.args.iter().enumerate() {
                 if arg.name.trim().is_empty() {
-                    return Err(E2eSchemaError::UnnamedArg { op: op.name.clone(), index: a });
+                    return Err(E2eSchemaError::UnnamedArg {
+                        op: op.name.clone(),
+                        index: a,
+                    });
                 }
             }
             for (e, ex) in op.examples.iter().enumerate() {
@@ -3375,7 +3471,10 @@ impl Default for CustomE2eOpResult {
     /// bridge (e.g. the generated Python trampoline) returns when no user
     /// handler can run. Mirrors the debug server's unknown-op semantics.
     fn default() -> Self {
-        Self { handled: false, json: AzString::from_const_str("") }
+        Self {
+            handled: false,
+            json: AzString::from_const_str(""),
+        }
     }
 }
 
@@ -3481,9 +3580,7 @@ pub extern "C" fn default_custom_e2e_op_extern(
 }
 
 // Keep simpler Rust fn pointer aliases for internal use
-pub type InputInterpreterFn = fn(
-    info: &InputInterpreterInfo<'_>,
-) -> PreCallbackFilterResult;
+pub type InputInterpreterFn = fn(info: &InputInterpreterInfo<'_>) -> PreCallbackFilterResult;
 
 pub type PostFilterFn = fn(
     prevent_default: bool,
@@ -3520,8 +3617,9 @@ pub enum ArrowDirection {
 impl ArrowDirection {
     /// Map a `VirtualKeyCode` plus the `ctrl` modifier into an `ArrowDirection`.
     /// Returns `None` if the key is not a navigation key.
-    #[must_use] pub const fn from_key(vk: crate::window::VirtualKeyCode, ctrl: bool) -> Option<Self> {
-        use crate::window::VirtualKeyCode::{Left, Right, Up, Down, Home, End};
+    #[must_use]
+    pub const fn from_key(vk: crate::window::VirtualKeyCode, ctrl: bool) -> Option<Self> {
+        use crate::window::VirtualKeyCode::{Down, End, Home, Left, Right, Up};
         Some(match vk {
             Left => Self::Left,
             Right => Self::Right,
@@ -3537,7 +3635,8 @@ impl ArrowDirection {
 
     /// Convert to a `(SelectionDirection, SelectionStep)` pair for the
     /// selection-op interpreter. `ctrl` upgrades arrow keys to word jumps.
-    #[must_use] pub const fn to_selection(self, ctrl: bool) -> (SelectionDirection, SelectionStep) {
+    #[must_use]
+    pub const fn to_selection(self, ctrl: bool) -> (SelectionDirection, SelectionStep) {
         match self {
             Self::Left if ctrl => (SelectionDirection::Backward, SelectionStep::Word),
             Self::Right if ctrl => (SelectionDirection::Forward, SelectionStep::Word),
@@ -3615,8 +3714,18 @@ pub struct SelectionOp {
 }
 
 impl SelectionOp {
-    #[must_use] pub const fn new(direction: SelectionDirection, step: SelectionStep, mode: SelectionMode) -> Self {
-        Self { direction, step, mode, repeat: 1 }
+    #[must_use]
+    pub const fn new(
+        direction: SelectionDirection,
+        step: SelectionStep,
+        mode: SelectionMode,
+    ) -> Self {
+        Self {
+            direction,
+            step,
+            mode,
+            repeat: 1,
+        }
     }
 }
 
@@ -3638,8 +3747,13 @@ impl KeyboardShortcut {
     /// primary modifier — Cmd on macOS, Ctrl elsewhere — obtained from
     /// `KeyboardState::primary_down()` (MWA-A2: hardcoding Ctrl here made
     /// every editing shortcut dead on macOS).
-    #[must_use] pub const fn from_key(vk: crate::window::VirtualKeyCode, primary: bool, shift: bool) -> Option<Self> {
-        use crate::window::VirtualKeyCode::{C, X, V, A, Z, Y};
+    #[must_use]
+    pub const fn from_key(
+        vk: crate::window::VirtualKeyCode,
+        primary: bool,
+        shift: bool,
+    ) -> Option<Self> {
+        use crate::window::VirtualKeyCode::{A, C, V, X, Y, Z};
         if !primary {
             return None;
         }
@@ -3662,8 +3776,10 @@ impl KeyboardShortcut {
 /// Backspace/Delete, Ctrl+C/V/A/Z, mouse clicks, and drag selection.
 /// Replace it on `LayoutWindow` to implement vim, game controls, etc.
 /// `extern "C"` trampoline for `default_input_interpreter`.
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
-#[must_use] pub extern "C" fn default_input_interpreter_extern(
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+// SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
+#[must_use]
+pub extern "C" fn default_input_interpreter_extern(
     _user_data: crate::refany::RefAny,
     info_ptr: *const InputInterpreterInfo<'static>,
 ) -> PreCallbackFilterResult {
@@ -3678,7 +3794,8 @@ impl KeyboardShortcut {
 }
 
 /// `extern "C"` trampoline for `default_post_filter`.
-#[must_use] pub extern "C" fn default_post_filter_extern(
+#[must_use]
+pub extern "C" fn default_post_filter_extern(
     _user_data: crate::refany::RefAny,
     prevent_default: bool,
     pre_changes: SystemChangeVecSlice,
@@ -3691,9 +3808,8 @@ impl KeyboardShortcut {
     default_post_filter(prevent_default, pre_changes_slice, old, new).into()
 }
 
-#[must_use] pub fn default_input_interpreter(
-    info: &InputInterpreterInfo<'_>,
-) -> PreCallbackFilterResult {
+#[must_use]
+pub fn default_input_interpreter(info: &InputInterpreterInfo<'_>) -> PreCallbackFilterResult {
     let ctx = FilterContext {
         hit_test: info.hit_test,
         keyboard_state: info.keyboard_state,
@@ -3772,18 +3888,20 @@ fn process_event_for_internal(
     event: &SyntheticEvent,
 ) -> Option<InternalEventAction> {
     match event.event_type {
-        EventType::MouseDown => handle_mouse_down(event, ctx.hit_test, ctx.click_count, ctx.mouse_state, ctx.keyboard_state),
+        EventType::MouseDown => handle_mouse_down(
+            event,
+            ctx.hit_test,
+            ctx.click_count,
+            ctx.mouse_state,
+            ctx.keyboard_state,
+        ),
         EventType::MouseOver => handle_mouse_over(
             event,
             ctx.hit_test,
             ctx.mouse_state,
             ctx.drag_start_position,
         ),
-        EventType::KeyDown => handle_key_down(
-            event,
-            ctx.keyboard_state,
-            ctx.focused_node,
-        ),
+        EventType::KeyDown => handle_key_down(event, ctx.keyboard_state, ctx.focused_node),
         EventType::MouseUp => Some(handle_mouse_up()),
         _ => None,
     }
@@ -3851,7 +3969,10 @@ fn get_mouse_position_with_fallback(
             // Fallback: use current cursor position from mouse_state
             // This handles synthetic events from debug API and automation
             // where EventData may not contain the mouse position
-            mouse_state.cursor_position.get_position().unwrap_or(LogicalPosition::zero())
+            mouse_state
+                .cursor_position
+                .get_position()
+                .unwrap_or(LogicalPosition::zero())
         }
     }
 }
@@ -3982,7 +4103,11 @@ fn handle_key_down(
     }
 
     // Unified: arrow keys, Home/End, Backspace/Delete all map to SelectionOp.
-    let mode_for_shift = if shift { SelectionMode::Extend } else { SelectionMode::Move };
+    let mode_for_shift = if shift {
+        SelectionMode::Extend
+    } else {
+        SelectionMode::Move
+    };
     let selection_op = if let Some(arrow) = ArrowDirection::from_key(*vk, word_mod) {
         let (direction, step) = arrow.to_selection(word_mod);
         SelectionOp::new(direction, step, mode_for_shift)
@@ -3992,12 +4117,20 @@ fn handle_key_down(
             // Word: Option+Backspace on macOS, Ctrl+Backspace elsewhere)
             VirtualKeyCode::Back => SelectionOp::new(
                 SelectionDirection::Backward,
-                if word_mod { SelectionStep::Word } else { SelectionStep::Character },
+                if word_mod {
+                    SelectionStep::Word
+                } else {
+                    SelectionStep::Character
+                },
                 SelectionMode::Delete,
             ),
             VirtualKeyCode::Delete => SelectionOp::new(
                 SelectionDirection::Forward,
-                if word_mod { SelectionStep::Word } else { SelectionStep::Character },
+                if word_mod {
+                    SelectionStep::Word
+                } else {
+                    SelectionStep::Character
+                },
                 SelectionMode::Delete,
             ),
             _ => return None,
@@ -4005,7 +4138,10 @@ fn handle_key_down(
     };
 
     Some(InternalEventAction::AddAndSkip(
-        SystemChange::ApplySelectionOp { target, op: selection_op },
+        SystemChange::ApplySelectionOp {
+            target,
+            op: selection_op,
+        },
     ))
 }
 
@@ -4038,7 +4174,8 @@ pub trait FocusManagerQuery {
 /// Takes the pre-callback system changes and focus state to determine what
 /// post-callback system changes are needed (text input, scrolling, timers).
 /// Default post-callback filter: scroll-into-view after cursor ops, auto-scroll during drag.
-#[must_use] pub fn default_post_filter(
+#[must_use]
+pub fn default_post_filter(
     prevent_default: bool,
     pre_changes: &[SystemChange],
     old_focus: Option<DomNodeId>,
@@ -4050,7 +4187,8 @@ pub trait FocusManagerQuery {
 // SystemChange dispatch table; a few arms incidentally push the same follow-up
 // change but are kept as distinct documented cases.
 #[allow(clippy::match_same_arms)]
-#[must_use] pub fn post_callback_filter_system_changes(
+#[must_use]
+pub fn post_callback_filter_system_changes(
     prevent_default: bool,
     pre_changes: &[SystemChange],
     old_focus: Option<DomNodeId>,
@@ -4061,7 +4199,10 @@ pub trait FocusManagerQuery {
     if prevent_default {
         // Only focus change passes through preventDefault
         if old_focus != new_focus {
-            changes.push(SystemChange::SetFocus { new_focus, old_focus });
+            changes.push(SystemChange::SetFocus {
+                new_focus,
+                old_focus,
+            });
         }
         return changes;
     }
@@ -4095,12 +4236,14 @@ pub trait FocusManagerQuery {
 
     // Focus changed during callbacks
     if old_focus != new_focus {
-        changes.push(SystemChange::SetFocus { new_focus, old_focus });
+        changes.push(SystemChange::SetFocus {
+            new_focus,
+            old_focus,
+        });
     }
 
     changes
 }
-
 
 #[cfg(test)]
 #[path = "events_test.rs"]

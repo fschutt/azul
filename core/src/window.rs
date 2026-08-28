@@ -2332,7 +2332,6 @@ pub enum SysDialogType {
     GpuCheck,
 }
 
-
 #[cfg(test)]
 #[path = "window_test.rs"]
 mod window_test;

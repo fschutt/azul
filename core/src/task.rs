@@ -1358,7 +1358,6 @@ pub struct ThreadReceiverDestructorCallback {
 }
 impl_callback_simple!(ThreadReceiverDestructorCallback);
 
-
 #[cfg(test)]
 #[path = "task_test.rs"]
 mod task_test;

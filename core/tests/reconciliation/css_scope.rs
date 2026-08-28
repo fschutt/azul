@@ -11,33 +11,54 @@ use azul_css::props::property::{CssPropertyType, RelayoutScope};
 
 #[test]
 fn display_is_full_relayout() {
-    assert_eq!(CssPropertyType::Display.relayout_scope(true), RelayoutScope::Full);
-    assert_eq!(CssPropertyType::Display.relayout_scope(false), RelayoutScope::Full);
+    assert_eq!(
+        CssPropertyType::Display.relayout_scope(true),
+        RelayoutScope::Full
+    );
+    assert_eq!(
+        CssPropertyType::Display.relayout_scope(false),
+        RelayoutScope::Full
+    );
 }
 
 #[test]
 fn position_is_full_relayout() {
-    assert_eq!(CssPropertyType::Position.relayout_scope(true), RelayoutScope::Full);
+    assert_eq!(
+        CssPropertyType::Position.relayout_scope(true),
+        RelayoutScope::Full
+    );
 }
 
 #[test]
 fn float_is_full_relayout() {
-    assert_eq!(CssPropertyType::Float.relayout_scope(true), RelayoutScope::Full);
+    assert_eq!(
+        CssPropertyType::Float.relayout_scope(true),
+        RelayoutScope::Full
+    );
 }
 
 #[test]
 fn flex_direction_is_full_relayout() {
-    assert_eq!(CssPropertyType::FlexDirection.relayout_scope(true), RelayoutScope::Full);
+    assert_eq!(
+        CssPropertyType::FlexDirection.relayout_scope(true),
+        RelayoutScope::Full
+    );
 }
 
 #[test]
 fn overflow_x_is_full_relayout() {
-    assert_eq!(CssPropertyType::OverflowX.relayout_scope(true), RelayoutScope::Full);
+    assert_eq!(
+        CssPropertyType::OverflowX.relayout_scope(true),
+        RelayoutScope::Full
+    );
 }
 
 #[test]
 fn overflow_y_is_full_relayout() {
-    assert_eq!(CssPropertyType::OverflowY.relayout_scope(true), RelayoutScope::Full);
+    assert_eq!(
+        CssPropertyType::OverflowY.relayout_scope(true),
+        RelayoutScope::Full
+    );
 }
 
 // =========================================================================
@@ -47,13 +68,19 @@ fn overflow_y_is_full_relayout() {
 #[test]
 fn width_is_sizing_relayout() {
     let scope = CssPropertyType::Width.relayout_scope(false);
-    assert!(scope >= RelayoutScope::SizingOnly, "width should be at least SizingOnly, got {scope:?}");
+    assert!(
+        scope >= RelayoutScope::SizingOnly,
+        "width should be at least SizingOnly, got {scope:?}"
+    );
 }
 
 #[test]
 fn height_is_sizing_relayout() {
     let scope = CssPropertyType::Height.relayout_scope(false);
-    assert!(scope >= RelayoutScope::SizingOnly, "height should be at least SizingOnly");
+    assert!(
+        scope >= RelayoutScope::SizingOnly,
+        "height should be at least SizingOnly"
+    );
 }
 
 #[test]
@@ -71,8 +98,10 @@ fn max_width_is_sizing_relayout() {
 #[test]
 fn padding_top_is_sizing_relayout() {
     let scope = CssPropertyType::PaddingTop.relayout_scope(false);
-    assert!(scope >= RelayoutScope::SizingOnly,
-        "padding should be at least SizingOnly, got {scope:?}");
+    assert!(
+        scope >= RelayoutScope::SizingOnly,
+        "padding should be at least SizingOnly, got {scope:?}"
+    );
 }
 
 #[test]
@@ -106,43 +135,55 @@ fn flex_shrink_is_sizing_relayout() {
 #[test]
 fn font_size_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::FontSize.relayout_scope(true);
-    assert!(scope >= RelayoutScope::IfcOnly,
-        "font-size should be at least IfcOnly for IFC member, got {scope:?}");
+    assert!(
+        scope >= RelayoutScope::IfcOnly,
+        "font-size should be at least IfcOnly for IFC member, got {scope:?}"
+    );
 }
 
 #[test]
 fn letter_spacing_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::LetterSpacing.relayout_scope(true);
-    assert!(scope >= RelayoutScope::IfcOnly,
-        "letter-spacing should be at least IfcOnly, got {scope:?}");
+    assert!(
+        scope >= RelayoutScope::IfcOnly,
+        "letter-spacing should be at least IfcOnly, got {scope:?}"
+    );
 }
 
 #[test]
 fn word_spacing_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::WordSpacing.relayout_scope(true);
-    assert!(scope >= RelayoutScope::IfcOnly,
-        "word-spacing should be at least IfcOnly, got {scope:?}");
+    assert!(
+        scope >= RelayoutScope::IfcOnly,
+        "word-spacing should be at least IfcOnly, got {scope:?}"
+    );
 }
 
 #[test]
 fn line_height_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::LineHeight.relayout_scope(true);
-    assert!(scope >= RelayoutScope::IfcOnly,
-        "line-height should be at least IfcOnly, got {scope:?}");
+    assert!(
+        scope >= RelayoutScope::IfcOnly,
+        "line-height should be at least IfcOnly, got {scope:?}"
+    );
 }
 
 #[test]
 fn font_family_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::FontFamily.relayout_scope(true);
-    assert!(scope >= RelayoutScope::IfcOnly,
-        "font-family should be at least IfcOnly, got {scope:?}");
+    assert!(
+        scope >= RelayoutScope::IfcOnly,
+        "font-family should be at least IfcOnly, got {scope:?}"
+    );
 }
 
 #[test]
 fn text_align_is_ifc_only_for_ifc_member() {
     let scope = CssPropertyType::TextAlign.relayout_scope(true);
-    assert!(scope >= RelayoutScope::IfcOnly,
-        "text-align should be at least IfcOnly, got {scope:?}");
+    assert!(
+        scope >= RelayoutScope::IfcOnly,
+        "text-align should be at least IfcOnly, got {scope:?}"
+    );
 }
 
 // =========================================================================
@@ -151,28 +192,46 @@ fn text_align_is_ifc_only_for_ifc_member() {
 
 #[test]
 fn text_color_is_none_scope() {
-    assert_eq!(CssPropertyType::TextColor.relayout_scope(true), RelayoutScope::None);
-    assert_eq!(CssPropertyType::TextColor.relayout_scope(false), RelayoutScope::None);
+    assert_eq!(
+        CssPropertyType::TextColor.relayout_scope(true),
+        RelayoutScope::None
+    );
+    assert_eq!(
+        CssPropertyType::TextColor.relayout_scope(false),
+        RelayoutScope::None
+    );
 }
 
 #[test]
 fn opacity_is_none_scope() {
-    assert_eq!(CssPropertyType::Opacity.relayout_scope(true), RelayoutScope::None);
+    assert_eq!(
+        CssPropertyType::Opacity.relayout_scope(true),
+        RelayoutScope::None
+    );
 }
 
 #[test]
 fn background_content_is_none_scope() {
-    assert_eq!(CssPropertyType::BackgroundContent.relayout_scope(false), RelayoutScope::None);
+    assert_eq!(
+        CssPropertyType::BackgroundContent.relayout_scope(false),
+        RelayoutScope::None
+    );
 }
 
 #[test]
 fn border_top_color_is_none_scope() {
-    assert_eq!(CssPropertyType::BorderTopColor.relayout_scope(false), RelayoutScope::None);
+    assert_eq!(
+        CssPropertyType::BorderTopColor.relayout_scope(false),
+        RelayoutScope::None
+    );
 }
 
 #[test]
 fn cursor_is_none_scope() {
-    assert_eq!(CssPropertyType::Cursor.relayout_scope(false), RelayoutScope::None);
+    assert_eq!(
+        CssPropertyType::Cursor.relayout_scope(false),
+        RelayoutScope::None
+    );
 }
 
 // =========================================================================

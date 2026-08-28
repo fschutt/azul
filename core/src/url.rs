@@ -9,9 +9,9 @@
 //! `url` crate, are gated behind the `url` feature; `azul_layout`'s `http`
 //! feature enables it. Re-exported as `azul_layout::url`.
 
+use alloc::string::String;
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
-use alloc::string::String;
 use core::fmt;
 
 use azul_css::{impl_result, impl_result_inner, AzString};
@@ -88,7 +88,8 @@ impl Url {
     }
 
     /// Create a URL from components
-    #[must_use] pub fn from_parts(scheme: &str, host: &str, port: u16, path: &str) -> Self {
+    #[must_use]
+    pub fn from_parts(scheme: &str, host: &str, port: u16, path: &str) -> Self {
         let port_str = if port == 0
             || (scheme == "http" && port == 80)
             || (scheme == "https" && port == 443)
@@ -112,22 +113,26 @@ impl Url {
     }
 
     /// Get the full URL as a string slice
-    #[must_use] pub fn as_str(&self) -> &str {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
         self.href.as_str()
     }
 
     /// Check if this is an HTTPS URL
-    #[must_use] pub fn is_https(&self) -> bool {
+    #[must_use]
+    pub fn is_https(&self) -> bool {
         self.scheme.as_str() == "https"
     }
 
     /// Check if this is an HTTP URL
-    #[must_use] pub fn is_http(&self) -> bool {
+    #[must_use]
+    pub fn is_http(&self) -> bool {
         self.scheme.as_str() == "http"
     }
 
     /// Get the effective port (using default ports for http/https)
-    #[must_use] pub fn effective_port(&self) -> u16 {
+    #[must_use]
+    pub fn effective_port(&self) -> u16 {
         if self.port != 0 {
             self.port
         } else if self.is_https() {
@@ -188,7 +193,6 @@ impl fmt::Display for Url {
         write!(f, "{}", self.href.as_str())
     }
 }
-
 
 #[cfg(test)]
 #[path = "url_test.rs"]

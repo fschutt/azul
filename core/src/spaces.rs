@@ -384,7 +384,6 @@ impl Inclusivity {
     }
 }
 
-
 #[cfg(test)]
 #[path = "spaces_test.rs"]
 mod spaces_test;

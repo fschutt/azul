@@ -232,7 +232,8 @@ pub enum MenuItemState {
     /// Menu item is disabled, but NOT greyed out
     Disabled,
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Represents a single item in a menu.
 ///
 /// Menu items can be regular text items with labels and callbacks,
@@ -256,7 +257,14 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
 );
 
-impl_vec!(MenuItem, MenuItemVec, MenuItemVecDestructor, MenuItemVecDestructorType, MenuItemVecSlice, OptionMenuItem);
+impl_vec!(
+    MenuItem,
+    MenuItemVec,
+    MenuItemVecDestructor,
+    MenuItemVecDestructorType,
+    MenuItemVecSlice,
+    OptionMenuItem
+);
 impl_vec_clone!(MenuItem, MenuItemVec, MenuItemVecDestructor);
 impl_vec_debug!(MenuItem, MenuItemVec);
 impl_vec_partialeq!(MenuItem, MenuItemVec);
@@ -397,7 +405,6 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
 );
-
 
 #[cfg(test)]
 #[path = "menu_test.rs"]

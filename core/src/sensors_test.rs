@@ -151,11 +151,7 @@ mod autotest_generated {
         assert!(accel(f32::NAN, f32::NAN, f32::NAN).magnitude().is_nan());
         // NaN wins over infinity: inf*inf = inf, but inf + NaN = NaN.
         assert!(accel(f32::INFINITY, f32::NAN, 0.0).magnitude().is_nan());
-        assert!(
-            accel(f32::NEG_INFINITY, 0.0, f32::NAN)
-                .magnitude()
-                .is_nan()
-        );
+        assert!(accel(f32::NEG_INFINITY, 0.0, f32::NAN).magnitude().is_nan());
     }
 
     /// edge_access: an infinite axis (either sign) yields `+inf`, not NaN.
@@ -181,11 +177,9 @@ mod autotest_generated {
         // True magnitude is exactly f32::MAX (finite), but MAX*MAX == inf.
         assert!(accel(f32::MAX, 0.0, 0.0).magnitude().is_infinite());
         assert!(accel(0.0, f32::MIN, 0.0).magnitude().is_infinite());
-        assert!(
-            accel(f32::MAX, f32::MAX, f32::MAX)
-                .magnitude()
-                .is_infinite()
-        );
+        assert!(accel(f32::MAX, f32::MAX, f32::MAX)
+            .magnitude()
+            .is_infinite());
     }
 
     /// boundary: the exact cliff where squaring stops fitting in f32.
@@ -313,7 +307,10 @@ mod autotest_generated {
     fn reading_with_nan_axis_is_not_equal_to_itself() {
         let nan = accel(f32::NAN, 0.0, 0.0);
         let bit_identical = nan; // Copy, so this is the very same bit pattern
-        assert_ne!(nan, bit_identical, "a NaN axis makes PartialEq non-reflexive");
+        assert_ne!(
+            nan, bit_identical,
+            "a NaN axis makes PartialEq non-reflexive"
+        );
 
         // ... and the FFI wrapper inherits that.
         let opt = OptionSensorReading::Some(nan);

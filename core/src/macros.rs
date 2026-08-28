@@ -160,7 +160,9 @@ macro_rules! impl_callback_simple {
         // isn't available here; the explicit `*self` impl is required.
         #[allow(clippy::expl_impl_clone_on_copy)]
         impl Clone for $callback_value {
-            fn clone(&self) -> Self { *self }
+            fn clone(&self) -> Self {
+                *self
+            }
         }
 
         impl Copy for $callback_value {}

@@ -5,15 +5,17 @@
 //! Paint props (background) are known to apply + scope correctly (css_scope_47.rs).
 //! This test isolates whether layout-hot props (display/width/height) also apply.
 
-use azul_core::{dom::{Dom, NodeId}, styled_dom::StyledDom};
+use azul_core::{
+    dom::{Dom, NodeId},
+    styled_dom::StyledDom,
+};
 
 #[test]
 fn inline_css_layout_props_apply_to_owner() {
     // body[0]
     //   div[1]  with_css("display:flex; width:200px; height:50px; background:red")
     let dom = Dom::create_body().with_child(
-        Dom::create_div()
-            .with_css("display: flex; width: 200px; height: 50px; background: red"),
+        Dom::create_div().with_css("display: flex; width: 200px; height: 50px; background: red"),
     );
     let styled_dom = StyledDom::create_from_dom(dom);
 
@@ -30,7 +32,10 @@ fn inline_css_layout_props_apply_to_owner() {
 
     eprintln!(
         "[layout-prop test] node1: display={:?} width={:?} height={:?} bg.is_some={}",
-        display, width, height, bg.is_some()
+        display,
+        width,
+        height,
+        bg.is_some()
     );
 
     // Paint prop is the control (known to work).
@@ -49,10 +54,14 @@ fn inline_css_layout_props_apply_to_owner() {
 fn component_css_descendant_selectors_apply_in_subtree() {
     use azul_core::dom::{IdOrClass, IdOrClassVec};
 
-    let item = Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class("menu-item".into())]));
+    let item =
+        Dom::create_div().with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+            "menu-item".into(),
+        )]));
     let mut container = Dom::create_div()
-        .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class("menu-container".into())]))
+        .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
+            "menu-container".into(),
+        )]))
         .with_child(item);
     let (css, _errs) = azul_css::parser2::new_from_str(
         ".menu-container { min-width: 160px } .menu-item { display: flex; padding: 8px }",
@@ -67,13 +76,20 @@ fn component_css_descendant_selectors_apply_in_subtree() {
     let sn = styled_dom.styled_nodes.as_container();
     let c = NodeId::new(1);
     let it = NodeId::new(2);
-    let container_minwidth = cache.get_min_width(&nd[c], &c, &sn[c].styled_node_state).cloned();
-    let item_display = cache.get_display(&nd[it], &it, &sn[it].styled_node_state).cloned();
+    let container_minwidth = cache
+        .get_min_width(&nd[c], &c, &sn[c].styled_node_state)
+        .cloned();
+    let item_display = cache
+        .get_display(&nd[it], &it, &sn[it].styled_node_state)
+        .cloned();
 
     eprintln!(
         "[component-css test] container.min_width={container_minwidth:?} item.display={item_display:?}"
     );
-    assert!(container_minwidth.is_some(), ".menu-container min-width must apply to the container (owner)");
+    assert!(
+        container_minwidth.is_some(),
+        ".menu-container min-width must apply to the container (owner)"
+    );
     let item_is_flex = matches!(&item_display, Some(v) if format!("{v:?}").contains("Flex"));
     assert!(
         item_is_flex,

@@ -57,8 +57,9 @@ macro_rules! setup_styled_dom {
 
 #[test]
 fn test_computed_values_exist_for_all_nodes() {
-    let dom = Dom::create_div()
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")));
+    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("Text"),
+    ));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -97,8 +98,8 @@ fn test_inline_css_takes_precedence() {
         .computed_values
         .get(node_0.index())
         .expect("should have computed values");
-    let font_size_prop = find_prop(computed, &CssPropertyType::FontSize)
-        .expect("should have font-size");
+    let font_size_prop =
+        find_prop(computed, &CssPropertyType::FontSize).expect("should have font-size");
 
     assert_eq!(font_size_prop.origin, CssPropertyOrigin::Own);
 
@@ -115,8 +116,9 @@ fn test_inline_css_takes_precedence() {
 
 #[test]
 fn test_css_stylesheet_applies() {
-    let dom = Dom::create_div()
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")));
+    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("Text"),
+    ));
 
     let css = "p { font-size: 18px; }";
     let (_styled_dom, cache) = setup_styled_dom!(dom, css);
@@ -145,7 +147,9 @@ fn test_inherited_property_has_correct_origin() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")));
+        .with_child(Dom::create_node(NodeType::P).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Text"),
+        ));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -156,8 +160,8 @@ fn test_inherited_property_has_correct_origin() {
         .computed_values
         .get(p_id.index())
         .expect("p should have computed values");
-    let font_size_prop = find_prop(computed, &CssPropertyType::FontSize)
-        .expect("should have font-size");
+    let font_size_prop =
+        find_prop(computed, &CssPropertyType::FontSize).expect("should have font-size");
 
     // Check that P has the correct font-size value (inherited from div)
     if let CssProperty::FontSize(val) = &font_size_prop.property {
@@ -192,7 +196,9 @@ fn test_own_property_overrides_inherited() {
                     ))]
                     .into(),
                 )
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Text",
+                )),
         );
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
@@ -203,8 +209,8 @@ fn test_own_property_overrides_inherited() {
         .computed_values
         .get(p_id.index())
         .expect("p should have computed values");
-    let font_size_prop = find_prop(computed, &CssPropertyType::FontSize)
-        .expect("should have font-size");
+    let font_size_prop =
+        find_prop(computed, &CssPropertyType::FontSize).expect("should have font-size");
 
     assert_eq!(font_size_prop.origin, CssPropertyOrigin::Own);
 
@@ -236,7 +242,9 @@ fn test_em_resolved_to_px_in_computed() {
                     ))]
                     .into(),
                 )
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Text",
+                )),
         );
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
@@ -247,8 +255,8 @@ fn test_em_resolved_to_px_in_computed() {
         .computed_values
         .get(p_id.index())
         .expect("p should have computed values");
-    let font_size_prop = find_prop(computed, &CssPropertyType::FontSize)
-        .expect("should have font-size");
+    let font_size_prop =
+        find_prop(computed, &CssPropertyType::FontSize).expect("should have font-size");
 
     if let CssProperty::FontSize(val) = &font_size_prop.property {
         if let Some(size) = val.get_property() {
@@ -279,9 +287,11 @@ fn test_deeply_nested_inheritance() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_div().with_child(
-            Dom::create_div().with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Deep"))),
-        ));
+        .with_child(Dom::create_div().with_child(Dom::create_div().with_child(
+            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "Deep",
+            )),
+        )));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -291,8 +301,8 @@ fn test_deeply_nested_inheritance() {
         .computed_values
         .get(deep_id.index())
         .expect("deep node should have computed values");
-    let font_size_prop = find_prop(computed, &CssPropertyType::FontSize)
-        .expect("should have font-size");
+    let font_size_prop =
+        find_prop(computed, &CssPropertyType::FontSize).expect("should have font-size");
 
     if let CssProperty::FontSize(val) = &font_size_prop.property {
         if let Some(size) = val.get_property() {
@@ -303,7 +313,9 @@ fn test_deeply_nested_inheritance() {
 
 #[test]
 fn test_ua_css_for_headings() {
-    let dom = Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Heading"));
+    let dom = Dom::create_node(NodeType::H1).with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("Heading"),
+    );
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -343,7 +355,12 @@ fn test_multiple_properties_computed() {
 
     // After compact-prune, compact-encoded properties live in the compact cache,
     // not in computed_values. Verify via compact cache.
-    let cc = styled_dom.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let cc = styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .unwrap();
     let fs = cc.tier2_dims[0].font_size;
     assert_ne!(fs, 0, "font-size should be set in compact cache");
     let display = ((cc.tier1_enums[0] >> azul_css::compact_cache::DISPLAY_SHIFT)
@@ -374,7 +391,9 @@ fn test_font_weight_inheritance() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_node(NodeType::Span).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Bold text")));
+        .with_child(Dom::create_node(NodeType::Span).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Bold text"),
+        ));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -416,7 +435,9 @@ fn test_color_inheritance() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Red text")));
+        .with_child(Dom::create_node(NodeType::P).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Red text"),
+        ));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -446,8 +467,9 @@ fn test_color_inheritance() {
 fn test_non_inheritable_property_not_inherited() {
     // display is not inheritable
     let css = "div { display: flex; }";
-    let dom = Dom::create_div()
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")));
+    let dom = Dom::create_div().with_child(Dom::create_node(NodeType::P).with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("Text"),
+    ));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom, css);
 
@@ -463,10 +485,7 @@ fn test_non_inheritable_property_not_inherited() {
         if let CssProperty::Display(val) = &display_prop.property {
             if let Some(display) = val.get_property() {
                 // P's display should be block (UA CSS), not flex
-                assert_ne!(
-                    format!("{display:?}").to_lowercase(),
-                    "flex".to_lowercase()
-                );
+                assert_ne!(format!("{display:?}").to_lowercase(), "flex".to_lowercase());
             }
         }
     }
@@ -474,17 +493,26 @@ fn test_non_inheritable_property_not_inherited() {
 
 #[test]
 fn test_empty_css_produces_only_ua_styles() {
-    let dom = Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Paragraph"));
+    let dom = Dom::create_node(NodeType::P).with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("Paragraph"),
+    );
 
     let (styled_dom, _cache) = setup_styled_dom!(dom);
 
     // P should have UA CSS applied. Compact cache encodes Block as 0
     // (default when bits unset), so we check the POPULATED bit + margin.
-    let cc = styled_dom.css_property_cache.ptr.compact_cache.as_ref()
+    let cc = styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
         .expect("compact cache should exist");
     // P has margin-top from UA CSS — check it's non-zero in compact dims
     let margin_top = cc.tier2_dims[0].margin_top;
-    assert_ne!(margin_top, 0, "P should have non-zero margin-top from UA CSS");
+    assert_ne!(
+        margin_top, 0,
+        "P should have non-zero margin-top from UA CSS"
+    );
 }
 
 #[test]
@@ -496,7 +524,9 @@ fn test_text_node_inherits_from_parent() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text inherits"));
+        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            "Text inherits",
+        ));
 
     let (_styled_dom, cache) = setup_styled_dom!(dom);
 
@@ -527,8 +557,8 @@ fn test_text_node_inherits_from_parent() {
     }
 }
 
-use azul_core::prop_cache::*;
 use azul_core::dom::{NodeData, NodeId};
+use azul_core::prop_cache::*;
 use azul_core::styled_dom::StyledNodeState;
 use azul_css::props::layout::LayoutDisplay;
 
@@ -635,7 +665,10 @@ fn flatvecvec_flatten_frees_build_and_shrinks() {
     }
 
     let build_bytes_before = fvv.heap_bytes(4);
-    assert!(build_bytes_before > 0, "build phase should have allocations");
+    assert!(
+        build_bytes_before > 0,
+        "build phase should have allocations"
+    );
 
     fvv.sort_each_and_flatten(|x| *x);
 
@@ -679,7 +712,10 @@ fn flatvecvec_retain_shrinks_capacity() {
     // Verify filtered data
     for i in 0..10 {
         let slice = fvv.get_slice(i);
-        assert!(slice.iter().all(|x| x % 2 == 0), "all values should be even");
+        assert!(
+            slice.iter().all(|x| x % 2 == 0),
+            "all values should be even"
+        );
     }
 }
 
@@ -694,20 +730,25 @@ fn prune_handles_unflattened_cascaded_props() {
     let mut cache = CssPropertyCache::empty(5);
     // Add some Normal-state compact properties to cascaded_props (build phase)
     for i in 0..5 {
-        cache.cascaded_props.push_to(i, StatefulCssProperty {
-            state: PseudoStateType::Normal,
-            prop_type: CssPropertyType::Display,
-            property: CssProperty::Display(CssPropertyValue::Exact(
-                azul_css::props::layout::display::LayoutDisplay::Block,
-            )),
-        });
+        cache.cascaded_props.push_to(
+            i,
+            StatefulCssProperty {
+                state: PseudoStateType::Normal,
+                prop_type: CssPropertyType::Display,
+                property: CssProperty::Display(CssPropertyValue::Exact(
+                    azul_css::props::layout::display::LayoutDisplay::Block,
+                )),
+            },
+        );
     }
 
     // cascaded_props is still in build phase (not flattened)
     assert!(!cache.cascaded_props.is_flattened());
 
     // Build a dummy compact cache so prune can run
-    cache.compact_cache = Some(azul_css::compact_cache::CompactLayoutCache::with_capacity(5));
+    cache.compact_cache = Some(azul_css::compact_cache::CompactLayoutCache::with_capacity(
+        5,
+    ));
 
     // This should NOT panic and should actually prune
     cache.prune_compact_normal_props();
@@ -715,7 +756,9 @@ fn prune_handles_unflattened_cascaded_props() {
     // After prune, cascaded_props should be flattened and pruned
     assert!(cache.cascaded_props.is_flattened());
     // Display is compact-encoded + Normal state → should be removed
-    let total: usize = (0..5).map(|i| cache.cascaded_props.get_slice(i).len()).sum();
+    let total: usize = (0..5)
+        .map(|i| cache.cascaded_props.get_slice(i).len())
+        .sum();
     assert_eq!(total, 0, "all Normal+compact entries should be pruned");
 }
 
@@ -727,25 +770,79 @@ fn has_compact_encoding_covers_all_compact_properties() {
 
     // All properties that are encoded in compact_cache_builder.rs
     let compact_props = [
-        Display, Position, Float, OverflowX, OverflowY, BoxSizing,
-        FlexDirection, FlexWrap, JustifyContent, AlignItems, AlignContent,
-        WritingMode, Clear, FontWeight, FontStyle, TextAlign,
-        Visibility, WhiteSpace, Direction, VerticalAlign, BorderCollapse,
-        AlignSelf, JustifySelf, GridAutoFlow, JustifyItems,
-        Width, Height, MinWidth, MaxWidth, MinHeight, MaxHeight,
-        FlexBasis, FontSize,
-        PaddingTop, PaddingRight, PaddingBottom, PaddingLeft,
-        MarginTop, MarginRight, MarginBottom, MarginLeft,
-        BorderTopWidth, BorderRightWidth, BorderBottomWidth, BorderLeftWidth,
-        Top, Right, Bottom, Left,
-        FlexGrow, FlexShrink,
+        Display,
+        Position,
+        Float,
+        OverflowX,
+        OverflowY,
+        BoxSizing,
+        FlexDirection,
+        FlexWrap,
+        JustifyContent,
+        AlignItems,
+        AlignContent,
+        WritingMode,
+        Clear,
+        FontWeight,
+        FontStyle,
+        TextAlign,
+        Visibility,
+        WhiteSpace,
+        Direction,
+        VerticalAlign,
+        BorderCollapse,
+        AlignSelf,
+        JustifySelf,
+        GridAutoFlow,
+        JustifyItems,
+        Width,
+        Height,
+        MinWidth,
+        MaxWidth,
+        MinHeight,
+        MaxHeight,
+        FlexBasis,
+        FontSize,
+        PaddingTop,
+        PaddingRight,
+        PaddingBottom,
+        PaddingLeft,
+        MarginTop,
+        MarginRight,
+        MarginBottom,
+        MarginLeft,
+        BorderTopWidth,
+        BorderRightWidth,
+        BorderBottomWidth,
+        BorderLeftWidth,
+        Top,
+        Right,
+        Bottom,
+        Left,
+        FlexGrow,
+        FlexShrink,
         ZIndex,
-        BorderTopStyle, BorderRightStyle, BorderBottomStyle, BorderLeftStyle,
-        BorderTopColor, BorderRightColor, BorderBottomColor, BorderLeftColor,
-        BorderSpacing, TabSize,
-        TextColor, FontFamily, LineHeight, LetterSpacing, WordSpacing, TextIndent,
-        ColumnGap, RowGap, Gap,
-        GridColumn, GridRow,
+        BorderTopStyle,
+        BorderRightStyle,
+        BorderBottomStyle,
+        BorderLeftStyle,
+        BorderTopColor,
+        BorderRightColor,
+        BorderBottomColor,
+        BorderLeftColor,
+        BorderSpacing,
+        TabSize,
+        TextColor,
+        FontFamily,
+        LineHeight,
+        LetterSpacing,
+        WordSpacing,
+        TextIndent,
+        ColumnGap,
+        RowGap,
+        Gap,
+        GridColumn,
+        GridRow,
     ];
 
     for pt in &compact_props {
@@ -757,9 +854,16 @@ fn has_compact_encoding_covers_all_compact_properties() {
 
     // These should NOT have compact encoding
     let non_compact = [
-        BackgroundContent, BackgroundPosition, BackgroundSize,
-        Transform, TransformOrigin, BoxShadowLeft, Opacity,
-        GridTemplateColumns, GridTemplateRows, GridTemplateAreas,
+        BackgroundContent,
+        BackgroundPosition,
+        BackgroundSize,
+        Transform,
+        TransformOrigin,
+        BoxShadowLeft,
+        Opacity,
+        GridTemplateColumns,
+        GridTemplateRows,
+        GridTemplateAreas,
     ];
     for pt in &non_compact {
         assert!(

@@ -1,0 +1,85 @@
+Configuration Options:
+                          max_width <unsigned integer> Default: 100
+                                    Maximum width of each line
+
+                          hard_tabs <boolean> Default: false
+                                    Use tab characters for indentation, spaces for alignment
+
+                         tab_spaces <unsigned integer> Default: 4
+                                    Number of spaces per tab
+
+                      newline_style [Auto|Windows|Unix|Native] Default: Auto
+                                    Unix or Windows line endings
+
+               use_small_heuristics [Off|Max|Default] Default: Default
+                                    Whether to use different formatting for items and expressions if they satisfy a heuristic notion of 'small'
+
+                      fn_call_width <unsigned integer> Default: 60
+                                    Maximum width of the args of a function call before falling back to vertical formatting.
+
+                 attr_fn_like_width <unsigned integer> Default: 70
+                                    Maximum width of the args of a function-like attributes before falling back to vertical formatting.
+
+                   struct_lit_width <unsigned integer> Default: 18
+                                    Maximum width in the body of a struct lit before falling back to vertical formatting.
+
+               struct_variant_width <unsigned integer> Default: 35
+                                    Maximum width in the body of a struct variant before falling back to vertical formatting.
+
+                        array_width <unsigned integer> Default: 60
+                                    Maximum width of an array literal before falling back to vertical formatting.
+
+                        chain_width <unsigned integer> Default: 60
+                                    Maximum length of a chain to fit on a single line.
+
+      single_line_if_else_max_width <unsigned integer> Default: 50
+                                    Maximum line length for single line if-else expressions. A value of zero means always break if-else expressions.
+
+     single_line_let_else_max_width <unsigned integer> Default: 50
+                                    Maximum line length for single line let-else statements. A value of zero means always format the divergent `else` block over multiple lines.
+
+                    reorder_imports <boolean> Default: true
+                                    Reorder import and extern crate statements alphabetically
+
+                    reorder_modules <boolean> Default: true
+                                    Reorder module statements alphabetically in group
+
+               remove_nested_parens <boolean> Default: true
+                                    Remove nested parens
+
+short_array_element_width_threshold <unsigned integer> Default: 10
+                                    Width threshold for an array element to be considered short
+
+            match_arm_leading_pipes [Always|Never|Preserve] Default: Never
+                                    Determines whether leading pipes are emitted on match arms
+
+                   fn_params_layout [Compressed|Tall|Vertical] Default: Tall
+                                    Control the layout of parameters in function signatures.
+
+         match_block_trailing_comma <boolean> Default: false
+                                    Put a trailing comma after a block based match arm (non-block arms are not affected)
+
+                            edition [2015|2018|2021|2024] Default: 2015
+                                    The edition of the parser (RFC 2052)
+
+                      style_edition [2015|2018|2021|2024] Default: 2015
+                                    The edition of the Style Guide (RFC 3338)
+
+                      merge_derives <boolean> Default: true
+                                    Merge multiple `#[derive(...)]` into a single one
+
+                  use_try_shorthand <boolean> Default: false
+                                    Replace uses of the try! macro by the ? shorthand
+
+           use_field_init_shorthand <boolean> Default: false
+                                    Use field initialization shorthand if possible
+
+                 force_explicit_abi <boolean> Default: true
+                                    Always print the abi for extern items
+
+             disable_all_formatting <boolean> Default: false
+                                    Don't reformat anything
+
+      print_misformatted_file_names <boolean> Default: false
+                                    Prints the names of mismatched files that were formatted. Prints the names of files that would be formatted when used with `--check` mode. 
+

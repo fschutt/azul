@@ -65,7 +65,9 @@ fn test_font_size_inheritance_single_level() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")));
+        .with_child(Dom::create_node(NodeType::P).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Text"),
+        ));
 
     let (styled_dom, mut cache) = setup_test!(dom);
 
@@ -127,7 +129,9 @@ fn test_font_size_override_not_inherited() {
                     ))]
                     .into(),
                 )
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Text",
+                )),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
@@ -179,10 +183,11 @@ fn test_font_weight_inheritance_multi_level() {
             ))]
             .into(),
         )
-        .with_child(
-            Dom::create_node(NodeType::P)
-                .with_child(Dom::create_node(NodeType::Span).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text"))),
-        );
+        .with_child(Dom::create_node(NodeType::P).with_child(
+            Dom::create_node(NodeType::Span).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("Text"),
+            ),
+        ));
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
@@ -210,9 +215,7 @@ fn test_font_weight_inheritance_multi_level() {
                         "{node_name} should inherit font-weight: bold from ancestor div"
                     );
                 } else {
-                    panic!(
-                        "{node_name} FontWeight value should not be None/Auto/Initial/Inherit"
-                    );
+                    panic!("{node_name} FontWeight value should not be None/Auto/Initial/Inherit");
                 }
             } else {
                 panic!("{node_name} should have computed FontWeight property");
@@ -248,7 +251,9 @@ fn test_mixed_inherited_and_explicit_properties() {
                     ))]
                     .into(),
                 )
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Text",
+                )),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
@@ -311,7 +316,9 @@ fn test_non_inheritable_property_not_inherited() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")));
+        .with_child(Dom::create_node(NodeType::P).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Text"),
+        ));
 
     let (styled_dom, mut cache) = setup_test!(dom);
     let node_hierarchy = styled_dom.node_hierarchy.as_container().internal;
@@ -353,8 +360,12 @@ fn test_update_invalidation() {
         )
         .with_children(
             vec![
-                Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Child 1")),
-                Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Child 2")),
+                Dom::create_node(NodeType::P).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("Child 1"),
+                ),
+                Dom::create_node(NodeType::P).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("Child 2"),
+                ),
             ]
             .into(),
         );
@@ -411,7 +422,9 @@ fn test_deeply_nested_inheritance() {
         .with_child(Dom::create_node(NodeType::Section).with_child(
             Dom::create_node(NodeType::Article).with_child(
                 Dom::create_node(NodeType::P).with_child(
-                    Dom::create_node(NodeType::Span).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Deep text")),
+                    Dom::create_node(NodeType::Span).with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("Deep text"),
+                    ),
                 ),
             ),
         ));
@@ -473,7 +486,9 @@ fn test_em_unit_inheritance_basic() {
                     ))]
                     .into(),
                 )
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")),
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "Text",
+                )),
         );
 
     let (styled_dom, mut cache) = setup_test!(dom);
@@ -542,7 +557,9 @@ fn test_em_unit_cascading_multiplication() {
                             ))]
                             .into(),
                         )
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")),
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "Text",
+                        )),
                 ),
         );
 
@@ -641,7 +658,9 @@ fn test_em_on_font_size_refers_to_parent() {
                             ))]
                             .into(),
                         )
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")),
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "Text",
+                        )),
                 ),
         );
 
@@ -658,8 +677,8 @@ fn test_em_on_font_size_refers_to_parent() {
         .computed_values
         .get(div_id.index())
         .expect("div should have computed values");
-    let div_font_prop = find_prop(div_computed, &CssPropertyType::FontSize)
-        .expect("div should have FontSize");
+    let div_font_prop =
+        find_prop(div_computed, &CssPropertyType::FontSize).expect("div should have FontSize");
     let CssProperty::FontSize(div_font_size) = &div_font_prop.property else {
         panic!("div property should be FontSize");
     };
@@ -682,8 +701,8 @@ fn test_em_on_font_size_refers_to_parent() {
         .computed_values
         .get(p_id.index())
         .expect("p should have computed values");
-    let p_font_prop = find_prop(p_computed, &CssPropertyType::FontSize)
-        .expect("p should have FontSize");
+    let p_font_prop =
+        find_prop(p_computed, &CssPropertyType::FontSize).expect("p should have FontSize");
     let CssProperty::FontSize(p_font_size) = &p_font_prop.property else {
         panic!("p property should be FontSize");
     };
@@ -760,7 +779,9 @@ fn test_em_without_ancestor_absolute_unit() {
             ))]
             .into(),
         )
-        .with_child(Dom::create_node(NodeType::P).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")));
+        .with_child(Dom::create_node(NodeType::P).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("Text"),
+        ));
 
     // NOTE: setup_test! already calls StyledDom::new which calls compute_inherited_values
     let (_styled_dom, cache) = setup_test!(dom);
@@ -773,8 +794,8 @@ fn test_em_without_ancestor_absolute_unit() {
         .computed_values
         .get(div_id.index())
         .expect("div should have computed values");
-    let div_font_prop = find_prop(div_computed, &CssPropertyType::FontSize)
-        .expect("div should have FontSize");
+    let div_font_prop =
+        find_prop(div_computed, &CssPropertyType::FontSize).expect("div should have FontSize");
     let CssProperty::FontSize(div_font_size) = &div_font_prop.property else {
         panic!("div property should be FontSize");
     };
@@ -856,7 +877,9 @@ fn test_percentage_font_size_inheritance() {
                             ))]
                             .into(),
                         )
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Text")),
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "Text",
+                        )),
                 ),
         );
 

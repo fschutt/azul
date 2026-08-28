@@ -627,7 +627,6 @@ fn bake_resolved_style(
     }
 }
 
-
 #[cfg(test)]
 #[path = "transient_test.rs"]
 mod transient_test;

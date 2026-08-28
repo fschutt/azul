@@ -22,12 +22,15 @@ fn style_dom(mut dom: Dom) -> StyledDom {
 
 #[test]
 fn test_append_single_child() {
-    let parent = style_dom(Dom::create_div()
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("existing")));
+    let parent = style_dom(Dom::create_div().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("existing"),
+    ));
 
     let initial_len = parent.node_hierarchy.as_ref().len();
 
-    let child = style_dom(Dom::create_text_do_not_use_without_block_level_wrapper("appended"));
+    let child = style_dom(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "appended",
+    ));
     let child_len = child.node_hierarchy.as_ref().len();
 
     let mut combined = parent;
@@ -44,9 +47,15 @@ fn test_append_single_child() {
 fn test_append_multiple_children() {
     let mut parent = style_dom(Dom::create_div());
 
-    parent.append_child(style_dom(Dom::create_text_do_not_use_without_block_level_wrapper("first")));
-    parent.append_child(style_dom(Dom::create_text_do_not_use_without_block_level_wrapper("second")));
-    parent.append_child(style_dom(Dom::create_text_do_not_use_without_block_level_wrapper("third")));
+    parent.append_child(style_dom(
+        Dom::create_text_do_not_use_without_block_level_wrapper("first"),
+    ));
+    parent.append_child(style_dom(
+        Dom::create_text_do_not_use_without_block_level_wrapper("second"),
+    ));
+    parent.append_child(style_dom(
+        Dom::create_text_do_not_use_without_block_level_wrapper("third"),
+    ));
 
     assert_eq!(parent.node_hierarchy.as_ref().len(), 4);
 }
@@ -55,8 +64,9 @@ fn test_append_multiple_children() {
 fn test_append_nested_child() {
     let parent = style_dom(Dom::create_div());
 
-    let nested = style_dom(Dom::create_div()
-        .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("deeply nested"))));
+    let nested = style_dom(Dom::create_div().with_child(Dom::create_div().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("deeply nested"),
+    )));
 
     let mut combined = parent;
     combined.append_child(nested);
@@ -66,28 +76,36 @@ fn test_append_nested_child() {
             assert!(
                 parent_id.index() < combined.node_hierarchy.as_ref().len(),
                 "Node {} has invalid parent index {} (len={})",
-                i, parent_id.index(), combined.node_hierarchy.as_ref().len()
+                i,
+                parent_id.index(),
+                combined.node_hierarchy.as_ref().len()
             );
         }
         if let Some(last_child_id) = node.last_child_id() {
             assert!(
                 last_child_id.index() < combined.node_hierarchy.as_ref().len(),
                 "Node {} has invalid last_child index {} (len={})",
-                i, last_child_id.index(), combined.node_hierarchy.as_ref().len()
+                i,
+                last_child_id.index(),
+                combined.node_hierarchy.as_ref().len()
             );
         }
         if let Some(prev_id) = node.previous_sibling_id() {
             assert!(
                 prev_id.index() < combined.node_hierarchy.as_ref().len(),
                 "Node {} has invalid previous_sibling index {} (len={})",
-                i, prev_id.index(), combined.node_hierarchy.as_ref().len()
+                i,
+                prev_id.index(),
+                combined.node_hierarchy.as_ref().len()
             );
         }
         if let Some(next_id) = node.next_sibling_id() {
             assert!(
                 next_id.index() < combined.node_hierarchy.as_ref().len(),
                 "Node {} has invalid next_sibling index {} (len={})",
-                i, next_id.index(), combined.node_hierarchy.as_ref().len()
+                i,
+                next_id.index(),
+                combined.node_hierarchy.as_ref().len()
             );
         }
     }
@@ -98,7 +116,9 @@ fn test_append_nested_child() {
 #[test]
 fn test_no_underflow_on_empty_parent() {
     let parent = style_dom(Dom::create_div());
-    let child = style_dom(Dom::create_text_do_not_use_without_block_level_wrapper("child"));
+    let child = style_dom(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "child",
+    ));
 
     let mut combined = parent;
     combined.append_child(child);
@@ -108,7 +128,9 @@ fn test_no_underflow_on_empty_parent() {
             assert!(
                 last_child_id.index() < combined.node_hierarchy.as_ref().len(),
                 "Node {} last_child underflow: index {} >= len {}",
-                i, last_child_id.index(), combined.node_hierarchy.as_ref().len()
+                i,
+                last_child_id.index(),
+                combined.node_hierarchy.as_ref().len()
             );
         }
     }
@@ -116,8 +138,9 @@ fn test_no_underflow_on_empty_parent() {
 
 #[test]
 fn test_hierarchy_fields_use_one_based_encoding() {
-    let parent = style_dom(Dom::create_div()
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("child")));
+    let parent = style_dom(Dom::create_div().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("child"),
+    ));
 
     let root = parent.root.into_crate_internal().expect("should have root");
     let root_node = &parent.node_hierarchy.as_ref()[root.index()];
@@ -135,25 +158,36 @@ fn test_hierarchy_fields_use_one_based_encoding() {
 
 #[test]
 fn test_none_fields_are_zero() {
-    let leaf = style_dom(Dom::create_text_do_not_use_without_block_level_wrapper("leaf"));
+    let leaf = style_dom(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "leaf",
+    ));
 
     let root = leaf.root.into_crate_internal().expect("should have root");
     let root_node = &leaf.node_hierarchy.as_ref()[root.index()];
 
-    assert_eq!(root_node.last_child, 0, "Leaf node should have last_child = 0 (None)");
-    assert_eq!(root_node.parent, 0, "Root node should have parent = 0 (None)");
+    assert_eq!(
+        root_node.last_child, 0,
+        "Leaf node should have last_child = 0 (None)"
+    );
+    assert_eq!(
+        root_node.parent, 0,
+        "Root node should have parent = 0 (None)"
+    );
 }
 
 // ==================== Regression Tests ====================
 
 #[test]
 fn test_regression_index_2_with_len_2() {
-    let parent = style_dom(Dom::create_div()
-        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("child")));
+    let parent = style_dom(Dom::create_div().with_child(
+        Dom::create_text_do_not_use_without_block_level_wrapper("child"),
+    ));
 
     assert_eq!(parent.node_hierarchy.as_ref().len(), 2);
 
-    let child2 = style_dom(Dom::create_text_do_not_use_without_block_level_wrapper("child2"));
+    let child2 = style_dom(Dom::create_text_do_not_use_without_block_level_wrapper(
+        "child2",
+    ));
 
     let mut combined = parent;
     combined.append_child(child2);
@@ -165,7 +199,9 @@ fn test_regression_index_2_with_len_2() {
             assert!(
                 lc.index() < combined.node_hierarchy.as_ref().len(),
                 "BUG REGRESSION: Node {} has last_child index {} but len is {}",
-                i, lc.index(), combined.node_hierarchy.as_ref().len()
+                i,
+                lc.index(),
+                combined.node_hierarchy.as_ref().len()
             );
         }
     }
@@ -176,8 +212,9 @@ fn test_xml_like_append_sequence() {
     let mut body = style_dom(Dom::create_body());
 
     for i in 0..5 {
-        let child = style_dom(Dom::create_div()
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!("text {i}"))));
+        let child = style_dom(Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(format!("text {i}")),
+        ));
         body.append_child(child);
     }
 

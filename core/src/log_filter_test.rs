@@ -14,7 +14,9 @@ mod tests {
 
     #[test]
     fn off_spellings_disable_logging() {
-        for raw in ["off", "0", "false", "none", "no", "disable", "disabled", "  OFF  "] {
+        for raw in [
+            "off", "0", "false", "none", "no", "disable", "disabled", "  OFF  ",
+        ] {
             assert_eq!(parse(raw).0, None, "{raw} should disable logging");
         }
     }
@@ -38,7 +40,10 @@ mod tests {
     fn category_overrides_parse_in_both_directions() {
         let (level, overrides) = parse("warn,+platform,-layout");
         assert_eq!(level, Some(Level::Warn));
-        assert_eq!(overrides, vec![(Category::Platform, true), (Category::Layout, false)]);
+        assert_eq!(
+            overrides,
+            vec![(Category::Platform, true), (Category::Layout, false)]
+        );
     }
 
     #[test]
@@ -52,9 +57,18 @@ mod tests {
     #[test]
     fn category_bits_are_distinct() {
         let cats = [
-            Category::General, Category::Window, Category::EventLoop, Category::Input,
-            Category::Layout, Category::Text, Category::DisplayList, Category::Rendering,
-            Category::Resources, Category::Callbacks, Category::Timer, Category::DebugServer,
+            Category::General,
+            Category::Window,
+            Category::EventLoop,
+            Category::Input,
+            Category::Layout,
+            Category::Text,
+            Category::DisplayList,
+            Category::Rendering,
+            Category::Resources,
+            Category::Callbacks,
+            Category::Timer,
+            Category::DebugServer,
             Category::Platform,
         ];
         assert_eq!(cats.len(), CATEGORY_COUNT);
@@ -91,7 +105,10 @@ mod tests {
     fn silencing_one_category_leaves_the_others() {
         set_min_level(Some(Level::Debug));
         set_category(Category::Layout, false);
-        assert!(!enabled(Category::Layout, Level::Error), "silenced category ignores level");
+        assert!(
+            !enabled(Category::Layout, Level::Error),
+            "silenced category ignores level"
+        );
         assert!(enabled(Category::Platform, Level::Debug));
         set_category(Category::Layout, true);
         assert!(enabled(Category::Layout, Level::Debug));

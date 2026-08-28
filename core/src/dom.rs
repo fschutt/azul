@@ -7151,7 +7151,6 @@ impl fmt::Debug for Dom {
     }
 }
 
-
 #[cfg(test)]
 #[path = "dom_test.rs"]
 mod dom_test;

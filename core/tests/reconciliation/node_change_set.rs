@@ -22,7 +22,10 @@ fn identical_divs_produce_empty_changeset() {
     let a = NodeData::create_div();
     let b = NodeData::create_div();
     let cs = compute_node_changes(&a, &b, None, None);
-    assert!(cs.is_empty(), "identical divs should have empty changeset, got {cs:?}");
+    assert!(
+        cs.is_empty(),
+        "identical divs should have empty changeset, got {cs:?}"
+    );
 }
 
 #[test]
@@ -30,7 +33,10 @@ fn identical_text_nodes_produce_empty_changeset() {
     let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
     let b = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
     let cs = compute_node_changes(&a, &b, None, None);
-    assert!(cs.is_empty(), "identical text nodes should have empty changeset");
+    assert!(
+        cs.is_empty(),
+        "identical text nodes should have empty changeset"
+    );
 }
 
 #[test]
@@ -50,14 +56,18 @@ fn text_change_sets_text_content_flag() {
     let a = NodeData::create_text_do_not_use_without_block_level_wrapper("Hello");
     let b = NodeData::create_text_do_not_use_without_block_level_wrapper("World");
     let cs = compute_node_changes(&a, &b, None, None);
-    assert!(cs.contains(NodeChangeSet::TEXT_CONTENT),
-        "changing text content should set TEXT_CONTENT flag");
+    assert!(
+        cs.contains(NodeChangeSet::TEXT_CONTENT),
+        "changing text content should set TEXT_CONTENT flag"
+    );
 }
 
 #[test]
 fn text_change_needs_layout() {
     let a = NodeData::create_text_do_not_use_without_block_level_wrapper("short");
-    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("a much longer text that changes layout");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper(
+        "a much longer text that changes layout",
+    );
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.needs_layout(), "text change should need layout");
 }
@@ -67,8 +77,10 @@ fn text_same_length_different_content_sets_flag() {
     let a = NodeData::create_text_do_not_use_without_block_level_wrapper("AAAA");
     let b = NodeData::create_text_do_not_use_without_block_level_wrapper("BBBB");
     let cs = compute_node_changes(&a, &b, None, None);
-    assert!(cs.contains(NodeChangeSet::TEXT_CONTENT),
-        "same-length different text should still set TEXT_CONTENT");
+    assert!(
+        cs.contains(NodeChangeSet::TEXT_CONTENT),
+        "same-length different text should still set TEXT_CONTENT"
+    );
 }
 
 #[test]
@@ -96,8 +108,10 @@ fn div_to_span_sets_node_type_changed() {
     let a = NodeData::create_div();
     let b = NodeData::create_node(azul_core::dom::NodeType::Span);
     let cs = compute_node_changes(&a, &b, None, None);
-    assert!(cs.contains(NodeChangeSet::NODE_TYPE_CHANGED),
-        "changing node type should set NODE_TYPE_CHANGED");
+    assert!(
+        cs.contains(NodeChangeSet::NODE_TYPE_CHANGED),
+        "changing node type should set NODE_TYPE_CHANGED"
+    );
 }
 
 #[test]
@@ -131,8 +145,10 @@ fn adding_class_sets_ids_and_classes_flag() {
     let mut b = NodeData::create_div();
     b.add_class(AzString::from("highlight"));
     let cs = compute_node_changes(&a, &b, None, None);
-    assert!(cs.contains(NodeChangeSet::IDS_AND_CLASSES),
-        "adding a class should set IDS_AND_CLASSES flag");
+    assert!(
+        cs.contains(NodeChangeSet::IDS_AND_CLASSES),
+        "adding a class should set IDS_AND_CLASSES flag"
+    );
 }
 
 #[test]
@@ -201,8 +217,10 @@ fn changing_width_sets_layout_flag() {
     let a = NodeData::create_div().with_css("width: 50px;");
     let b = NodeData::create_div().with_css("width: 100px;");
     let cs = compute_node_changes(&a, &b, None, None);
-    assert!(cs.contains(NodeChangeSet::INLINE_STYLE_LAYOUT),
-        "changing width should set INLINE_STYLE_LAYOUT");
+    assert!(
+        cs.contains(NodeChangeSet::INLINE_STYLE_LAYOUT),
+        "changing width should set INLINE_STYLE_LAYOUT"
+    );
 }
 
 // =========================================================================
@@ -214,10 +232,15 @@ fn hover_change_sets_styled_state_flag() {
     let a = NodeData::create_div();
     let b = NodeData::create_div();
     let state_a = StyledNodeState::default();
-    let state_b = StyledNodeState { hover: true, ..StyledNodeState::default() };
+    let state_b = StyledNodeState {
+        hover: true,
+        ..StyledNodeState::default()
+    };
     let cs = compute_node_changes(&a, &b, Some(&state_a), Some(&state_b));
-    assert!(cs.contains(NodeChangeSet::STYLED_STATE),
-        "hover change should set STYLED_STATE flag");
+    assert!(
+        cs.contains(NodeChangeSet::STYLED_STATE),
+        "hover change should set STYLED_STATE flag"
+    );
 }
 
 #[test]
@@ -225,15 +248,24 @@ fn focus_change_sets_styled_state_flag() {
     let a = NodeData::create_div();
     let b = NodeData::create_div();
     let state_a = StyledNodeState::default();
-    let state_b = StyledNodeState { focused: true, ..StyledNodeState::default() };
+    let state_b = StyledNodeState {
+        focused: true,
+        ..StyledNodeState::default()
+    };
     let cs = compute_node_changes(&a, &b, Some(&state_a), Some(&state_b));
     assert!(cs.contains(NodeChangeSet::STYLED_STATE));
 }
 
 #[test]
 fn styled_state_is_paint_only() {
-    assert!(ncs(NodeChangeSet::STYLED_STATE).needs_paint(), "state change should need paint");
-    assert!(!ncs(NodeChangeSet::STYLED_STATE).needs_layout(), "state change alone should not need layout");
+    assert!(
+        ncs(NodeChangeSet::STYLED_STATE).needs_paint(),
+        "state change should need paint"
+    );
+    assert!(
+        !ncs(NodeChangeSet::STYLED_STATE).needs_layout(),
+        "state change alone should not need layout"
+    );
 }
 
 // =========================================================================
@@ -246,8 +278,10 @@ fn contenteditable_change_sets_flag() {
     let mut b = NodeData::create_div();
     b.set_contenteditable(true);
     let cs = compute_node_changes(&a, &b, None, None);
-    assert!(cs.contains(NodeChangeSet::CONTENTEDITABLE),
-        "contenteditable change should set CONTENTEDITABLE flag");
+    assert!(
+        cs.contains(NodeChangeSet::CONTENTEDITABLE),
+        "contenteditable change should set CONTENTEDITABLE flag"
+    );
 }
 
 #[test]
@@ -267,8 +301,10 @@ fn tab_index_change_sets_flag() {
 #[test]
 fn callbacks_flag_is_nonvisual() {
     let cs = ncs(NodeChangeSet::CALLBACKS);
-    assert!(cs.is_visually_unchanged(),
-        "callback changes alone should not affect visuals");
+    assert!(
+        cs.is_visually_unchanged(),
+        "callback changes alone should not affect visuals"
+    );
     assert!(!cs.needs_layout());
     assert!(!cs.needs_paint());
 }
@@ -289,7 +325,10 @@ fn affects_layout_mask_includes_all_layout_flags() {
         NodeChangeSet::CONTENTEDITABLE,
     ];
     for &flag in &layout_flags {
-        assert!(ncs(flag).needs_layout(), "flag 0x{flag:x} should be layout-affecting");
+        assert!(
+            ncs(flag).needs_layout(),
+            "flag 0x{flag:x} should be layout-affecting"
+        );
     }
 }
 
@@ -301,7 +340,8 @@ fn affects_paint_mask_works() {
 
 #[test]
 fn non_visual_flags_do_not_affect_paint_or_layout() {
-    let nonvisual = ncs(NodeChangeSet::CALLBACKS | NodeChangeSet::DATASET | NodeChangeSet::ACCESSIBILITY);
+    let nonvisual =
+        ncs(NodeChangeSet::CALLBACKS | NodeChangeSet::DATASET | NodeChangeSet::ACCESSIBILITY);
     assert!(!nonvisual.needs_layout());
     assert!(!nonvisual.needs_paint());
     assert!(nonvisual.is_visually_unchanged());
@@ -313,7 +353,7 @@ fn combined_flags_bitwise_or() {
     assert!(cs.contains(NodeChangeSet::TEXT_CONTENT));
     assert!(cs.contains(NodeChangeSet::STYLED_STATE));
     assert!(cs.needs_layout()); // TEXT_CONTENT is layout
-    assert!(cs.needs_paint());  // STYLED_STATE is paint
+    assert!(cs.needs_paint()); // STYLED_STATE is paint
 }
 
 // =========================================================================
@@ -333,7 +373,8 @@ fn multiple_changes_combined() {
 #[test]
 fn text_and_style_change_combined() {
     let a = NodeData::create_text_do_not_use_without_block_level_wrapper("old");
-    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("new").with_css("width: 50px;");
+    let b = NodeData::create_text_do_not_use_without_block_level_wrapper("new")
+        .with_css("width: 50px;");
     let cs = compute_node_changes(&a, &b, None, None);
     assert!(cs.contains(NodeChangeSet::TEXT_CONTENT));
     assert!(

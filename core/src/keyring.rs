@@ -96,7 +96,6 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq]
 );
 
-
 #[cfg(test)]
 #[path = "keyring_test.rs"]
 mod keyring_test;

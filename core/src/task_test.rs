@@ -89,7 +89,10 @@ mod tests {
         let t2 = Instant::now();
         assert_eq!(
             t2.duration_since(&t0),
-            Duration::System(SystemTimeDiff { secs: 0, nanos: 500_000_000 }),
+            Duration::System(SystemTimeDiff {
+                secs: 0,
+                nanos: 500_000_000
+            }),
             "a 500 ms tick must read back as exactly 500 ms",
         );
 
@@ -97,7 +100,10 @@ mod tests {
         freeze_test_clock();
         assert_eq!(
             Instant::now().duration_since(&t0),
-            Duration::System(SystemTimeDiff { secs: 0, nanos: 500_000_000 }),
+            Duration::System(SystemTimeDiff {
+                secs: 0,
+                nanos: 500_000_000
+            }),
             "re-freezing re-based the clock and discarded elapsed virtual time",
         );
 
@@ -186,16 +192,28 @@ mod tests {
         assert_eq!(inst.add_optional_duration(Some(&tick_dur(5))), tick(105));
         // Saturating add: near-max tick doesn't overflow-panic.
         let big = tick(u64::MAX);
-        assert_eq!(big.add_optional_duration(Some(&tick_dur(10))), tick(u64::MAX));
+        assert_eq!(
+            big.add_optional_duration(Some(&tick_dur(10))),
+            tick(u64::MAX)
+        );
         // ...and the cross-unit arm saturates too.
-        assert_eq!(big.add_optional_duration(Some(&Duration::max())), tick(u64::MAX));
+        assert_eq!(
+            big.add_optional_duration(Some(&Duration::max())),
+            tick(u64::MAX)
+        );
     }
 
     #[test]
     fn millis_saturates_on_overflow() {
-        let huge = SystemTimeDiff { secs: u64::MAX, nanos: 0 };
+        let huge = SystemTimeDiff {
+            secs: u64::MAX,
+            nanos: 0,
+        };
         assert_eq!(huge.millis(), u64::MAX);
-        let normal = SystemTimeDiff { secs: 2, nanos: 500_000_000 };
+        let normal = SystemTimeDiff {
+            secs: 2,
+            nanos: 500_000_000,
+        };
         assert_eq!(normal.millis(), 2500);
     }
 
@@ -260,7 +278,10 @@ mod autotest_generated {
         let a = TimerId::unique();
         let b = TimerId::unique();
         assert_ne!(a, b);
-        assert!(b.id > a.id, "unique() must strictly increase: {a:?} -> {b:?}");
+        assert!(
+            b.id > a.id,
+            "unique() must strictly increase: {a:?} -> {b:?}"
+        );
         // User IDs must never land inside the reserved system-timer block.
         for id in [a, b] {
             assert!(
@@ -378,7 +399,10 @@ mod autotest_generated {
         // Full u64 span: the tick diff hits u64::MAX and the f64->f32 narrowing
         // must not produce inf/NaN.
         let v = tick(u64::MAX / 2).linear_interpolate(tick(0), tick(u64::MAX));
-        assert!(v.is_finite(), "interpolation over the full u64 span went non-finite");
+        assert!(
+            v.is_finite(),
+            "interpolation over the full u64 span went non-finite"
+        );
         assert!((0.0..=1.0).contains(&v));
         assert!((v - 0.5).abs() < 1e-3, "expected ~0.5, got {v}");
 
@@ -438,7 +462,8 @@ mod autotest_generated {
     #[test]
     fn add_optional_duration_system_advances_by_the_duration() {
         let base = Instant::now();
-        let later = base.add_optional_duration(Some(&Duration::System(SystemTimeDiff::from_secs(1))));
+        let later =
+            base.add_optional_duration(Some(&Duration::System(SystemTimeDiff::from_secs(1))));
         assert!(later > base);
         let delta = later.duration_since(&base);
         assert_eq!(delta, sys_dur(1, 0));
@@ -457,14 +482,20 @@ mod autotest_generated {
         let sys = Instant::now();
         // System instant + Tick duration: 60 ticks is exactly one second.
         let later = sys.add_optional_duration(Some(&tick_dur(60)));
-        assert!(later > sys, "a tick interval must advance a wall-clock instant");
+        assert!(
+            later > sys,
+            "a tick interval must advance a wall-clock instant"
+        );
         assert_eq!(later.duration_since(&sys), sys_dur(1, 0));
 
         // 0 ticks is genuinely no time at all.
         assert_eq!(sys.add_optional_duration(Some(&tick_dur(0))), sys);
 
         // Tick instant + System duration: 3s is 180 whole frames.
-        assert_eq!(tick(7).add_optional_duration(Some(&sys_dur(3, 0))), tick(187));
+        assert_eq!(
+            tick(7).add_optional_duration(Some(&sys_dur(3, 0))),
+            tick(187)
+        );
     }
 
     // A `System` instant plus an enormous `System` duration overflows the
@@ -559,7 +590,10 @@ mod autotest_generated {
         assert_eq!(cloned.get(), base);
         // The clone owns its OWN box (freeing both must not double-free).
         assert!(!core::ptr::eq(&**a.ptr, &**cloned.ptr));
-        assert!(cloned.run_destructor, "clone handed back a disarmed destructor");
+        assert!(
+            cloned.run_destructor,
+            "clone handed back a disarmed destructor"
+        );
         drop(cloned);
         // The source survives its clone being dropped.
         assert_eq!(a.get(), base);
@@ -609,7 +643,10 @@ mod autotest_generated {
         ] {
             let s = alloc::format!("{d}");
             assert!(!s.is_empty());
-            assert!(!s.ends_with("ticks"), "System duration formatted as ticks: {s}");
+            assert!(
+                !s.ends_with("ticks"),
+                "System duration formatted as ticks: {s}"
+            );
         }
     }
 
@@ -694,7 +731,10 @@ mod autotest_generated {
 
     #[test]
     fn duration_comparison_is_a_strict_total_order_within_a_kind() {
-        let mut pairs = alloc::vec![(tick_dur(0), tick_dur(u64::MAX)), (tick_dur(1), tick_dur(2))];
+        let mut pairs = alloc::vec![
+            (tick_dur(0), tick_dur(u64::MAX)),
+            (tick_dur(1), tick_dur(2))
+        ];
         // System ordering no longer needs std: the comparison is u128 nanosecond
         // arithmetic. It used to defer to `StdDuration`, so on no_std it answered
         // `false` for every System pair — a total order that ordered nothing.
@@ -736,23 +776,45 @@ mod autotest_generated {
     fn system_tick_diff_div_edge_cases() {
         let zero = SystemTickDiff { tick_diff: 0 };
         let one = SystemTickDiff { tick_diff: 1 };
-        let max = SystemTickDiff { tick_diff: u64::MAX };
+        let max = SystemTickDiff {
+            tick_diff: u64::MAX,
+        };
 
         assert!(zero.div(&zero).is_nan());
         assert!(one.div(&zero).is_infinite());
         assert_eq!(zero.div(&one), 0.0);
         assert_eq!(max.div(&max), 1.0);
         assert!(max.div(&one).is_finite());
-        assert_eq!(SystemTickDiff { tick_diff: 5 }.div(&SystemTickDiff { tick_diff: 10 }), 0.5);
+        assert_eq!(
+            SystemTickDiff { tick_diff: 5 }.div(&SystemTickDiff { tick_diff: 10 }),
+            0.5
+        );
     }
 
     #[test]
     fn system_time_diff_as_secs_f64_is_exact_for_representable_values() {
         assert_eq!(SystemTimeDiff { secs: 0, nanos: 0 }.as_secs_f64(), 0.0);
-        assert_eq!(SystemTimeDiff { secs: 1, nanos: 500_000_000 }.as_secs_f64(), 1.5);
-        assert_eq!(SystemTimeDiff { secs: 0, nanos: 500_000_000 }.as_secs_f64(), 0.5);
+        assert_eq!(
+            SystemTimeDiff {
+                secs: 1,
+                nanos: 500_000_000
+            }
+            .as_secs_f64(),
+            1.5
+        );
+        assert_eq!(
+            SystemTimeDiff {
+                secs: 0,
+                nanos: 500_000_000
+            }
+            .as_secs_f64(),
+            0.5
+        );
         // Extremes stay finite (u64::MAX secs ~= 1.8e19, well inside f64).
-        let huge = SystemTimeDiff { secs: u64::MAX, nanos: NANOS_PER_SEC - 1 };
+        let huge = SystemTimeDiff {
+            secs: u64::MAX,
+            nanos: NANOS_PER_SEC - 1,
+        };
         assert!(huge.as_secs_f64().is_finite());
         assert!(huge.as_secs_f64() > 1e19);
         // Monotone in secs.
@@ -765,14 +827,20 @@ mod autotest_generated {
     fn system_time_diff_div_edge_cases() {
         let zero = SystemTimeDiff { secs: 0, nanos: 0 };
         let one = SystemTimeDiff::from_secs(1);
-        let half = SystemTimeDiff { secs: 0, nanos: 500_000_000 };
+        let half = SystemTimeDiff {
+            secs: 0,
+            nanos: 500_000_000,
+        };
 
         assert!(zero.div(&zero).is_nan());
         assert!(one.div(&zero).is_infinite());
         assert_eq!(zero.div(&one), 0.0);
         assert_eq!(one.div(&one), 1.0);
         assert_eq!(one.div(&half), 2.0);
-        let max = SystemTimeDiff { secs: u64::MAX, nanos: NANOS_PER_SEC - 1 };
+        let max = SystemTimeDiff {
+            secs: u64::MAX,
+            nanos: NANOS_PER_SEC - 1,
+        };
         assert_eq!(max.div(&max), 1.0);
         assert!(max.div(&one).is_finite());
     }
@@ -792,28 +860,49 @@ mod autotest_generated {
 
     #[test]
     fn from_millis_normalizes_and_keeps_nanos_in_range() {
-        assert_eq!(SystemTimeDiff::from_millis(0), SystemTimeDiff { secs: 0, nanos: 0 });
+        assert_eq!(
+            SystemTimeDiff::from_millis(0),
+            SystemTimeDiff { secs: 0, nanos: 0 }
+        );
         assert_eq!(
             SystemTimeDiff::from_millis(999),
-            SystemTimeDiff { secs: 0, nanos: 999_000_000 }
+            SystemTimeDiff {
+                secs: 0,
+                nanos: 999_000_000
+            }
         );
-        assert_eq!(SystemTimeDiff::from_millis(1_000), SystemTimeDiff { secs: 1, nanos: 0 });
+        assert_eq!(
+            SystemTimeDiff::from_millis(1_000),
+            SystemTimeDiff { secs: 1, nanos: 0 }
+        );
         assert_eq!(
             SystemTimeDiff::from_millis(1_500),
-            SystemTimeDiff { secs: 1, nanos: 500_000_000 }
+            SystemTimeDiff {
+                secs: 1,
+                nanos: 500_000_000
+            }
         );
         // u64::MAX millis must not overflow the u32 nanos field.
         let max = SystemTimeDiff::from_millis(u64::MAX);
-        assert!(max.nanos < NANOS_PER_SEC, "from_millis produced denormalized nanos");
+        assert!(
+            max.nanos < NANOS_PER_SEC,
+            "from_millis produced denormalized nanos"
+        );
         assert_eq!(max.secs, u64::MAX / MILLIS_PER_SEC);
     }
 
     #[test]
     fn from_nanos_normalizes_and_keeps_nanos_in_range() {
-        assert_eq!(SystemTimeDiff::from_nanos(0), SystemTimeDiff { secs: 0, nanos: 0 });
+        assert_eq!(
+            SystemTimeDiff::from_nanos(0),
+            SystemTimeDiff { secs: 0, nanos: 0 }
+        );
         assert_eq!(
             SystemTimeDiff::from_nanos(999_999_999),
-            SystemTimeDiff { secs: 0, nanos: 999_999_999 }
+            SystemTimeDiff {
+                secs: 0,
+                nanos: 999_999_999
+            }
         );
         assert_eq!(
             SystemTimeDiff::from_nanos(1_000_000_000),
@@ -821,10 +910,12 @@ mod autotest_generated {
         );
         for n in [0_u64, 1, 999_999_999, 1_000_000_001, u64::MAX] {
             let d = SystemTimeDiff::from_nanos(n);
-            assert!(d.nanos < NANOS_PER_SEC, "from_nanos({n}) produced denormalized nanos");
+            assert!(
+                d.nanos < NANOS_PER_SEC,
+                "from_nanos({n}) produced denormalized nanos"
+            );
             // Lossless round-trip: secs * 1e9 + nanos == n (checked in u128).
-            let back =
-                u128::from(d.secs) * u128::from(NANOS_PER_SEC) + u128::from(d.nanos);
+            let back = u128::from(d.secs) * u128::from(NANOS_PER_SEC) + u128::from(d.nanos);
             assert_eq!(back, u128::from(n), "from_nanos({n}) lost information");
         }
     }
@@ -849,15 +940,43 @@ mod autotest_generated {
     #[test]
     fn millis_truncates_and_saturates_instead_of_panicking() {
         // Sub-millisecond nanos truncate towards zero.
-        assert_eq!(SystemTimeDiff { secs: 0, nanos: 999_999 }.millis(), 0);
-        assert_eq!(SystemTimeDiff { secs: 0, nanos: 999_999_999 }.millis(), 999);
-        // secs * 1000 overflows u64 -> saturate at u64::MAX, no panic.
-        assert_eq!(SystemTimeDiff { secs: u64::MAX, nanos: 0 }.millis(), u64::MAX);
         assert_eq!(
-            SystemTimeDiff { secs: u64::MAX, nanos: NANOS_PER_SEC - 1 }.millis(),
+            SystemTimeDiff {
+                secs: 0,
+                nanos: 999_999
+            }
+            .millis(),
+            0
+        );
+        assert_eq!(
+            SystemTimeDiff {
+                secs: 0,
+                nanos: 999_999_999
+            }
+            .millis(),
+            999
+        );
+        // secs * 1000 overflows u64 -> saturate at u64::MAX, no panic.
+        assert_eq!(
+            SystemTimeDiff {
+                secs: u64::MAX,
+                nanos: 0
+            }
+            .millis(),
             u64::MAX
         );
-        assert_eq!(SystemTimeDiff::from_secs(u64::MAX / 1_000).millis(), (u64::MAX / 1_000) * 1_000);
+        assert_eq!(
+            SystemTimeDiff {
+                secs: u64::MAX,
+                nanos: NANOS_PER_SEC - 1
+            }
+            .millis(),
+            u64::MAX
+        );
+        assert_eq!(
+            SystemTimeDiff::from_secs(u64::MAX / 1_000).millis(),
+            (u64::MAX / 1_000) * 1_000
+        );
     }
 
     // ========================================================================
@@ -866,29 +985,50 @@ mod autotest_generated {
 
     #[test]
     fn checked_add_carries_nanos_into_secs() {
-        let a = SystemTimeDiff { secs: 0, nanos: 999_999_999 };
+        let a = SystemTimeDiff {
+            secs: 0,
+            nanos: 999_999_999,
+        };
         let sum = a.checked_add(a).expect("0.999s + 0.999s must not overflow");
-        assert_eq!(sum, SystemTimeDiff { secs: 1, nanos: 999_999_998 });
-        // Exactly one second of nanos carries cleanly.
-        let b = SystemTimeDiff { secs: 1, nanos: 500_000_000 };
         assert_eq!(
-            b.checked_add(b),
-            Some(SystemTimeDiff { secs: 3, nanos: 0 })
+            sum,
+            SystemTimeDiff {
+                secs: 1,
+                nanos: 999_999_998
+            }
         );
+        // Exactly one second of nanos carries cleanly.
+        let b = SystemTimeDiff {
+            secs: 1,
+            nanos: 500_000_000,
+        };
+        assert_eq!(b.checked_add(b), Some(SystemTimeDiff { secs: 3, nanos: 0 }));
     }
 
     #[test]
     fn checked_add_returns_none_on_overflow_instead_of_panicking() {
-        let max_secs = SystemTimeDiff { secs: u64::MAX, nanos: 0 };
+        let max_secs = SystemTimeDiff {
+            secs: u64::MAX,
+            nanos: 0,
+        };
         // secs overflow
         assert_eq!(max_secs.checked_add(SystemTimeDiff::from_secs(1)), None);
         // secs at max, nanos still fit -> Some
         assert_eq!(
-            max_secs.checked_add(SystemTimeDiff { secs: 0, nanos: NANOS_PER_SEC - 1 }),
-            Some(SystemTimeDiff { secs: u64::MAX, nanos: NANOS_PER_SEC - 1 })
+            max_secs.checked_add(SystemTimeDiff {
+                secs: 0,
+                nanos: NANOS_PER_SEC - 1
+            }),
+            Some(SystemTimeDiff {
+                secs: u64::MAX,
+                nanos: NANOS_PER_SEC - 1
+            })
         );
         // overflow that only happens because of the nanos CARRY
-        let brim = SystemTimeDiff { secs: u64::MAX, nanos: NANOS_PER_SEC - 1 };
+        let brim = SystemTimeDiff {
+            secs: u64::MAX,
+            nanos: NANOS_PER_SEC - 1,
+        };
         assert_eq!(brim.checked_add(SystemTimeDiff { secs: 0, nanos: 1 }), None);
     }
 
@@ -899,7 +1039,10 @@ mod autotest_generated {
             SystemTimeDiff::from_secs(0),
             SystemTimeDiff::from_millis(1_500),
             SystemTimeDiff::from_nanos(u64::MAX),
-            SystemTimeDiff { secs: u64::MAX, nanos: 0 },
+            SystemTimeDiff {
+                secs: u64::MAX,
+                nanos: 0,
+            },
         ] {
             assert_eq!(d.checked_add(zero), Some(d));
             assert_eq!(zero.checked_add(d), Some(d));
@@ -923,14 +1066,21 @@ mod autotest_generated {
             StdDuration::new(u64::MAX, NANOS_PER_SEC - 1),
         ] {
             let mid: SystemTimeDiff = std_d.into();
-            assert_eq!(mid.get(), std_d, "StdDuration -> SystemTimeDiff -> StdDuration lost data");
+            assert_eq!(
+                mid.get(),
+                std_d,
+                "StdDuration -> SystemTimeDiff -> StdDuration lost data"
+            );
         }
     }
 
     #[cfg(feature = "std")]
     #[test]
     fn system_time_diff_get_on_edge_values_does_not_panic() {
-        assert_eq!(SystemTimeDiff { secs: 0, nanos: 0 }.get(), StdDuration::ZERO);
+        assert_eq!(
+            SystemTimeDiff { secs: 0, nanos: 0 }.get(),
+            StdDuration::ZERO
+        );
         // secs at max with zero nanos: no carry, so no overflow in Duration::new.
         assert_eq!(
             SystemTimeDiff::from_secs(u64::MAX).get(),
@@ -938,7 +1088,11 @@ mod autotest_generated {
         );
         // Denormalized nanos (>= 1e9) are carried by Duration::new, not rejected.
         assert_eq!(
-            SystemTimeDiff { secs: 0, nanos: u32::MAX }.get(),
+            SystemTimeDiff {
+                secs: 0,
+                nanos: u32::MAX
+            }
+            .get(),
             StdDuration::new(0, u32::MAX)
         );
     }
@@ -963,7 +1117,9 @@ mod autotest_generated {
         let (tx, rx) = std::sync::mpsc::channel::<ThreadSendMsg>();
         let inner = ThreadReceiverInner {
             ptr: Box::new(rx),
-            recv_fn: ThreadRecvCallback { cb: test_thread_recv },
+            recv_fn: ThreadRecvCallback {
+                cb: test_thread_recv,
+            },
             destructor: ThreadReceiverDestructorCallback {
                 cb: test_thread_recv_destructor,
             },
@@ -975,8 +1131,14 @@ mod autotest_generated {
     #[test]
     fn thread_receiver_new_arms_destructor_and_has_no_ctx() {
         let (_tx, r) = test_receiver();
-        assert!(r.run_destructor, "ThreadReceiver::new left the destructor disarmed");
-        assert!(r.get_ctx().is_none(), "a fresh receiver must have no FFI context");
+        assert!(
+            r.run_destructor,
+            "ThreadReceiver::new left the destructor disarmed"
+        );
+        assert!(
+            r.get_ctx().is_none(),
+            "a fresh receiver must have no FFI context"
+        );
     }
 
     #[cfg(feature = "std")]
