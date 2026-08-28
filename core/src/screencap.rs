@@ -64,7 +64,6 @@ impl ScreenCaptureConfig {
     }
 }
 
-
 #[cfg(test)]
 #[path = "screencap_test.rs"]
 mod screencap_test;

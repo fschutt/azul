@@ -270,13 +270,13 @@ pub mod callbacks;
 /// struct-by-value signatures their FFI library can't handle.
 #[macro_use]
 pub mod host_invoker;
+pub mod a11y;
 /// Accessibility types for screen-reader integration (AccessKit).
 /// DOM-morph animation.
 ///
 /// Interpolation core (springs + easing), FLIP geometry, and the keyed
 /// store of in-flight animations..
 pub mod animation;
-pub mod a11y;
 /// Audio POD types — `AudioConfig` (stream format) + `AudioFrame` (interleaved
 /// f32 samples).
 ///
@@ -299,7 +299,6 @@ pub mod compact;
 /// Linear-time DOM diffing for incremental updates.
 pub mod diagnostics;
 pub mod diff;
-pub mod transient;
 /// DOM construction: `Dom`, `NodeData`, `NodeType`, and the CSS-in-Rust API.
 pub mod dom;
 /// Drag context for text selection, scrollbar, node, and window drags.
@@ -383,13 +382,14 @@ pub mod styled_dom;
 pub mod svg;
 /// Timer, thread, and async task management.
 pub mod task;
+/// 3D transform matrix computation for CSS transforms.
+pub mod transform;
+pub mod transient;
 /// System tray / status icon POD types.
 ///
 /// Icon bitmaps, category/status and the tray event kinds. The OS plumbing
 /// lives in `azul-dll` (`desktop/tray`).
 pub mod tray;
-/// 3D transform matrix computation for CSS transforms.
-pub mod transform;
 /// Built-in user-agent default stylesheet.
 pub mod ua_css;
 /// Default font/text constants and small geometry helpers for layout.
@@ -466,10 +466,28 @@ mod autotest_generated {
         let calls = Cell::new(0usize);
         let cell: OnceLock<u32> = OnceLock::new();
 
-        assert_eq!(*cell.get_or_init(|| { calls.set(calls.get() + 1); 7 }), 7);
+        assert_eq!(
+            *cell.get_or_init(|| {
+                calls.set(calls.get() + 1);
+                7
+            }),
+            7
+        );
         // The second/third call must return the FIRST value and never re-run `f`.
-        assert_eq!(*cell.get_or_init(|| { calls.set(calls.get() + 1); 9 }), 7);
-        assert_eq!(*cell.get_or_init(|| { calls.set(calls.get() + 1); 11 }), 7);
+        assert_eq!(
+            *cell.get_or_init(|| {
+                calls.set(calls.get() + 1);
+                9
+            }),
+            7
+        );
+        assert_eq!(
+            *cell.get_or_init(|| {
+                calls.set(calls.get() + 1);
+                11
+            }),
+            7
+        );
         assert_eq!(calls.get(), 1);
         assert_eq!(cell.get().copied(), Some(7));
     }
@@ -638,7 +656,10 @@ mod autotest_generated {
     #[test]
     fn hasher_is_deterministic_within_a_run() {
         assert_eq!(hash_bytes(b"azul"), hash_bytes(b"azul"));
-        assert_eq!(hash_u64(0xDEAD_BEEF_CAFE_F00D), hash_u64(0xDEAD_BEEF_CAFE_F00D));
+        assert_eq!(
+            hash_u64(0xDEAD_BEEF_CAFE_F00D),
+            hash_u64(0xDEAD_BEEF_CAFE_F00D)
+        );
     }
 
     #[test]
@@ -764,7 +785,10 @@ mod autotest_generated {
         }
         // A short slice must not collide with the same slice explicitly padded
         // out past the next 8-byte chunk boundary.
-        assert_ne!(hash_bytes(&[1u8]), hash_bytes(&[1u8, 0, 0, 0, 0, 0, 0, 0, 0]));
+        assert_ne!(
+            hash_bytes(&[1u8]),
+            hash_bytes(&[1u8, 0, 0, 0, 0, 0, 0, 0, 0])
+        );
     }
 
     // `write` must not swallow a trailing zero byte: `[1]` and `[1, 0]` are
@@ -839,11 +863,17 @@ mod autotest_generated {
 
         // Equal values must hash equal.
         assert_eq!(digest(&String::from("x")), digest(&String::from("x")));
-        assert_eq!(digest(&alloc::vec![1u64, 2, 3]), digest(&alloc::vec![1u64, 2, 3]));
+        assert_eq!(
+            digest(&alloc::vec![1u64, 2, 3]),
+            digest(&alloc::vec![1u64, 2, 3])
+        );
         assert_eq!(digest(&(1u8, "a")), digest(&(1u8, "a")));
 
         // Length must be part of the digest: [1,2] vs [1,2,0] must differ...
-        assert_ne!(digest(&alloc::vec![1u8, 2]), digest(&alloc::vec![1u8, 2, 0]));
+        assert_ne!(
+            digest(&alloc::vec![1u8, 2]),
+            digest(&alloc::vec![1u8, 2, 0])
+        );
         // ...and prefix-concatenation must not collide ("ab" vs "a"+"b" fields).
         assert_ne!(digest(&("ab", "")), digest(&("a", "b")));
     }
@@ -922,7 +952,12 @@ mod autotest_generated {
     #[test]
     fn ordered_map_iterates_in_key_order() {
         let mut m: OrderedMap<i64, &str> = OrderedMap::new();
-        for (k, v) in [(i64::MAX, "max"), (0, "zero"), (i64::MIN, "min"), (-1, "neg")] {
+        for (k, v) in [
+            (i64::MAX, "max"),
+            (0, "zero"),
+            (i64::MIN, "min"),
+            (-1, "neg"),
+        ] {
             let _ = m.insert(k, v);
         }
         let keys: Vec<i64> = m.keys().copied().collect();
@@ -943,7 +978,10 @@ mod autotest_generated {
         assert!(s.insert(1));
 
         assert_eq!(s.len(), 3);
-        assert_eq!(s.iter().copied().collect::<Vec<u32>>(), alloc::vec![0, 1, u32::MAX]);
+        assert_eq!(
+            s.iter().copied().collect::<Vec<u32>>(),
+            alloc::vec![0, 1, u32::MAX]
+        );
         assert!(s.contains(&u32::MAX));
         assert!(!s.contains(&2));
     }

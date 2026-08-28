@@ -3,7 +3,7 @@
 // Tier 1 (fingerprint diff): O(1) per node — compare 6 hashes.
 // Tier 2 (compute_node_changes): O(n) per changed field — only for mismatches.
 
-use azul_core::diff::{NodeDataFingerprint, NodeChangeSet, compute_node_changes};
+use azul_core::diff::{compute_node_changes, NodeChangeSet, NodeDataFingerprint};
 use azul_core::dom::NodeData;
 use azul_core::styled_dom::StyledNodeState;
 use azul_css::AzString;
@@ -18,7 +18,10 @@ fn identical_divs_have_identical_fingerprint() {
     let b = NodeData::create_div();
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
-    assert!(fa.is_identical(&fb), "identical divs should have identical fingerprint");
+    assert!(
+        fa.is_identical(&fb),
+        "identical divs should have identical fingerprint"
+    );
 }
 
 #[test]
@@ -36,13 +39,19 @@ fn identical_fingerprint_diff_is_empty() {
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&a, None);
     let diff = fa.diff(&fb);
-    assert!(diff.is_empty(), "identical fingerprints should produce empty diff");
+    assert!(
+        diff.is_empty(),
+        "identical fingerprints should produce empty diff"
+    );
 }
 
 #[test]
 fn identical_fingerprint_with_styled_state() {
     let a = NodeData::create_div();
-    let state = StyledNodeState { hover: true, ..Default::default() };
+    let state = StyledNodeState {
+        hover: true,
+        ..Default::default()
+    };
     let fa = NodeDataFingerprint::compute(&a, Some(&state));
     let fb = NodeDataFingerprint::compute(&a, Some(&state));
     assert!(fa.is_identical(&fb));
@@ -90,7 +99,10 @@ fn div_to_text_changes_content_hash() {
 fn hover_change_detected_by_state_hash() {
     let node = NodeData::create_div();
     let state_a = StyledNodeState::default();
-    let state_b = StyledNodeState { hover: true, ..StyledNodeState::default() };
+    let state_b = StyledNodeState {
+        hover: true,
+        ..StyledNodeState::default()
+    };
 
     let fa = NodeDataFingerprint::compute(&node, Some(&state_a));
     let fb = NodeDataFingerprint::compute(&node, Some(&state_b));
@@ -104,7 +116,10 @@ fn hover_change_detected_by_state_hash() {
 fn focus_change_detected_by_state_hash() {
     let node = NodeData::create_div();
     let state_a = StyledNodeState::default();
-    let state_b = StyledNodeState { focused: true, ..StyledNodeState::default() };
+    let state_b = StyledNodeState {
+        focused: true,
+        ..StyledNodeState::default()
+    };
 
     let fa = NodeDataFingerprint::compute(&node, Some(&state_a));
     let fb = NodeDataFingerprint::compute(&node, Some(&state_b));
@@ -136,7 +151,10 @@ fn inline_css_change_detected_by_css_hash() {
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
     assert_ne!(fa.inline_css_hash, fb.inline_css_hash);
-    assert_eq!(fa.content_hash, fb.content_hash, "content should not change");
+    assert_eq!(
+        fa.content_hash, fb.content_hash,
+        "content should not change"
+    );
 }
 
 #[test]
@@ -155,8 +173,10 @@ fn css_change_sets_inline_style_layout_in_diff() {
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
     let diff = fa.diff(&fb);
-    assert!(diff.contains(NodeChangeSet::INLINE_STYLE_LAYOUT),
-        "fingerprint diff should conservatively flag CSS as layout-affecting");
+    assert!(
+        diff.contains(NodeChangeSet::INLINE_STYLE_LAYOUT),
+        "fingerprint diff should conservatively flag CSS as layout-affecting"
+    );
 }
 
 // =========================================================================
@@ -213,9 +233,10 @@ fn contenteditable_change_detected_by_attrs_hash() {
     let fb = NodeDataFingerprint::compute(&b, None);
     assert_ne!(fa.attrs_hash, fb.attrs_hash);
     let diff = fa.diff(&fb);
-    assert!(diff.contains(NodeChangeSet::CONTENTEDITABLE)
-        || diff.contains(NodeChangeSet::TAB_INDEX),
-        "attrs hash change should set CONTENTEDITABLE or TAB_INDEX");
+    assert!(
+        diff.contains(NodeChangeSet::CONTENTEDITABLE) || diff.contains(NodeChangeSet::TAB_INDEX),
+        "attrs hash change should set CONTENTEDITABLE or TAB_INDEX"
+    );
 }
 
 #[test]
@@ -256,12 +277,17 @@ fn might_affect_layout_class_change() {
 fn might_affect_visuals_hover() {
     let node = NodeData::create_div();
     let state_a = StyledNodeState::default();
-    let state_b = StyledNodeState { hover: true, ..StyledNodeState::default() };
+    let state_b = StyledNodeState {
+        hover: true,
+        ..StyledNodeState::default()
+    };
     let fa = NodeDataFingerprint::compute(&node, Some(&state_a));
     let fb = NodeDataFingerprint::compute(&node, Some(&state_b));
     assert!(fa.might_affect_visuals(&fb));
-    assert!(!fa.might_affect_layout(&fb),
-        "hover change alone should not affect layout");
+    assert!(
+        !fa.might_affect_layout(&fb),
+        "hover change alone should not affect layout"
+    );
 }
 
 #[test]
@@ -269,7 +295,10 @@ fn callback_change_does_not_affect_layout_or_visuals() {
     // Callbacks hash changing doesn't affect layout or visuals
     let a = NodeData::create_div();
     let fa = NodeDataFingerprint::compute(&a, None);
-    let fb = NodeDataFingerprint { callbacks_hash: 999, ..fa };
+    let fb = NodeDataFingerprint {
+        callbacks_hash: 999,
+        ..fa
+    };
     assert!(!fa.might_affect_layout(&fb));
     assert!(!fa.might_affect_visuals(&fb));
 }
@@ -319,8 +348,10 @@ fn tier1_conservative_content_hash_refined_by_tier2() {
     let coarse = fa.diff(&fb);
     // Coarse: conservatively sets both
     assert!(coarse.contains(NodeChangeSet::TEXT_CONTENT));
-    assert!(coarse.contains(NodeChangeSet::IMAGE_CHANGED),
-        "fingerprint should conservatively flag content changes");
+    assert!(
+        coarse.contains(NodeChangeSet::IMAGE_CHANGED),
+        "fingerprint should conservatively flag content changes"
+    );
 
     // Precise: only TEXT_CONTENT since both are text nodes
     let precise = compute_node_changes(&a, &b, None, None);
@@ -387,11 +418,26 @@ fn text_change_only_affects_content_hash() {
     let fa = NodeDataFingerprint::compute(&a, None);
     let fb = NodeDataFingerprint::compute(&b, None);
 
-    assert_ne!(fa.content_hash, fb.content_hash, "text change should change content_hash");
-    assert_eq!(fa.inline_css_hash, fb.inline_css_hash, "text change should not affect CSS hash");
-    assert_eq!(fa.ids_classes_hash, fb.ids_classes_hash, "text change should not affect ids hash");
-    assert_eq!(fa.callbacks_hash, fb.callbacks_hash, "text change should not affect callbacks hash");
-    assert_eq!(fa.attrs_hash, fb.attrs_hash, "text change should not affect attrs hash");
+    assert_ne!(
+        fa.content_hash, fb.content_hash,
+        "text change should change content_hash"
+    );
+    assert_eq!(
+        fa.inline_css_hash, fb.inline_css_hash,
+        "text change should not affect CSS hash"
+    );
+    assert_eq!(
+        fa.ids_classes_hash, fb.ids_classes_hash,
+        "text change should not affect ids hash"
+    );
+    assert_eq!(
+        fa.callbacks_hash, fb.callbacks_hash,
+        "text change should not affect callbacks hash"
+    );
+    assert_eq!(
+        fa.attrs_hash, fb.attrs_hash,
+        "text change should not affect attrs hash"
+    );
 }
 
 #[test]

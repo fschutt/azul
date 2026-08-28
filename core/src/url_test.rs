@@ -443,7 +443,10 @@ mod autotest_generated {
         // These are unambiguously relative and must be rejected.
         assert!(Url::parse("not a url").is_err());
         assert!(Url::parse("/absolute/path/only").is_err());
-        assert!(Url::parse("http://").is_err(), "empty host must be an error");
+        assert!(
+            Url::parse("http://").is_err(),
+            "empty host must be an error"
+        );
     }
 
     #[cfg(feature = "url")]
@@ -775,8 +778,7 @@ mod autotest_generated {
                     assert_url_invariants(&u);
                     // join() funnels through parse(), so the result must be a
                     // fixed point of the parser too.
-                    let again = Url::parse(u.as_str())
-                        .expect("join() output must always re-parse");
+                    let again = Url::parse(u.as_str()).expect("join() output must always re-parse");
                     assert_eq!(again, u, "join({path:?}) is not idempotent");
                 }
                 Err(e) => assert!(

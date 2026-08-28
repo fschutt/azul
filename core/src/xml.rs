@@ -27,11 +27,11 @@ use alloc::{
 use core::{fmt, fmt::Write, hash::Hash};
 
 use azul_css::{
+    codegen::format::VecContents,
     css::{
         Css, CssDeclaration, CssPath, CssPathPseudoSelector, CssPathSelector, CssRuleBlock,
         NodeTypeTag,
     },
-    codegen::format::VecContents,
     parser2::{CssParseErrorOwned, ErrorLocation},
     props::{
         basic::{ColorU, StyleFontFamilyVec},
@@ -240,13 +240,15 @@ pub struct MimeTypeHint {
 }
 
 impl MimeTypeHint {
-    #[must_use] pub fn new(s: &str) -> Self {
+    #[must_use]
+    pub fn new(s: &str) -> Self {
         Self {
             inner: AzString::from(s),
         }
     }
 
-    #[must_use] pub fn from_extension(ext: &str) -> Self {
+    #[must_use]
+    pub fn from_extension(ext: &str) -> Self {
         let mime = match ext.to_lowercase().as_str() {
             // Images
             "png" => "image/png",
@@ -369,7 +371,8 @@ impl Xml {
     /// - `<a href="...">` - Links (classified as Unknown)
     /// - CSS `url()` in style attributes
     /// - `<style>` blocks with @import or `url()`
-    #[must_use] pub fn scan_external_resources(&self) -> ExternalResourceVec {
+    #[must_use]
+    pub fn scan_external_resources(&self) -> ExternalResourceVec {
         let mut resources = Vec::new();
 
         // AUDIT 2026-07-08: iterative DFS with an explicit worklist. The old
@@ -531,10 +534,7 @@ impl Xml {
                 if let Some(src) = get_attr("src") {
                     let type_attr = get_attr("type");
                     // Determine kind based on type or parent (heuristic: assume video)
-                    let kind = if type_attr
-                        .as_ref()
-                        .is_some_and(|t| t.starts_with("audio"))
-                    {
+                    let kind = if type_attr.as_ref().is_some_and(|t| t.starts_with("audio")) {
                         ExternalResourceKind::Audio
                     } else {
                         ExternalResourceKind::Video
@@ -681,7 +681,10 @@ impl Xml {
             // Match `url(` case-insensitively without allocating. `get(..4)`
             // returns `None` if byte 4 is not a char boundary, so the slice below
             // can never panic on multi-byte input.
-            let import_url = if trimmed.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("url(")) {
+            let import_url = if trimmed
+                .get(..4)
+                .is_some_and(|p| p.eq_ignore_ascii_case("url("))
+            {
                 Self::extract_url_value(&trimmed[4..])
             } else {
                 Self::extract_quoted_string(trimmed)
@@ -735,7 +738,10 @@ impl Xml {
             .filter_map(|entry| {
                 let trimmed = entry.trim();
                 // srcset format: "url 1x" or "url 100w"
-                trimmed.split_whitespace().next().map(alloc::string::ToString::to_string)
+                trimmed
+                    .split_whitespace()
+                    .next()
+                    .map(alloc::string::ToString::to_string)
             })
             .filter(|url| !url.is_empty())
             .collect()
@@ -890,7 +896,11 @@ pub enum XmlStreamError {
 
 impl fmt::Display for XmlStreamError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::XmlStreamError::{UnexpectedEndOfStream, InvalidName, NonXmlChar, InvalidChar, InvalidCharMultiple, InvalidQuote, InvalidSpace, InvalidString, InvalidReference, InvalidExternalID, InvalidCommentData, InvalidCommentEnd, InvalidCharacterData};
+        use self::XmlStreamError::{
+            InvalidChar, InvalidCharMultiple, InvalidCharacterData, InvalidCommentData,
+            InvalidCommentEnd, InvalidExternalID, InvalidName, InvalidQuote, InvalidReference,
+            InvalidSpace, InvalidString, NonXmlChar, UnexpectedEndOfStream,
+        };
         match self {
             UnexpectedEndOfStream => write!(f, "Unexpected end of stream"),
             InvalidName => write!(f, "Invalid name"),
@@ -966,7 +976,10 @@ pub enum XmlParseError {
 
 impl fmt::Display for XmlParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::XmlParseError::{InvalidDeclaration, InvalidComment, InvalidPI, InvalidDoctype, InvalidEntity, InvalidElement, InvalidAttribute, InvalidCdata, InvalidCharData, UnknownToken};
+        use self::XmlParseError::{
+            InvalidAttribute, InvalidCdata, InvalidCharData, InvalidComment, InvalidDeclaration,
+            InvalidDoctype, InvalidElement, InvalidEntity, InvalidPI, UnknownToken,
+        };
         match self {
             InvalidDeclaration(e) => {
                 write!(f, "Invalid declaration: {} at {}", e.stream_error, e.pos)
@@ -1084,7 +1097,17 @@ pub enum XmlError {
 
 impl fmt::Display for XmlError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::XmlError::{NoParserAvailable, InvalidXmlPrefixUri, UnexpectedXmlUri, UnexpectedXmlnsUri, InvalidElementNamePrefix, DuplicatedNamespace, UnknownNamespace, UnexpectedCloseTag, UnexpectedEntityCloseTag, UnknownEntityReference, MalformedEntityReference, EntityReferenceLoop, InvalidAttributeValue, DuplicatedAttribute, NoRootNode, SizeLimit, DtdDetected, MalformedHierarchy, ParserError, UnclosedRootNode, UnexpectedDeclaration, NodesLimitReached, AttributesLimitReached, NamespacesLimitReached, InvalidName, NonXmlChar, InvalidChar, InvalidChar2, InvalidString, InvalidExternalID, InvalidComment, InvalidCharacterData, UnknownToken, UnexpectedEndOfStream};
+        use self::XmlError::{
+            AttributesLimitReached, DtdDetected, DuplicatedAttribute, DuplicatedNamespace,
+            EntityReferenceLoop, InvalidAttributeValue, InvalidChar, InvalidChar2,
+            InvalidCharacterData, InvalidComment, InvalidElementNamePrefix, InvalidExternalID,
+            InvalidName, InvalidString, InvalidXmlPrefixUri, MalformedEntityReference,
+            MalformedHierarchy, NamespacesLimitReached, NoParserAvailable, NoRootNode,
+            NodesLimitReached, NonXmlChar, ParserError, SizeLimit, UnclosedRootNode,
+            UnexpectedCloseTag, UnexpectedDeclaration, UnexpectedEndOfStream,
+            UnexpectedEntityCloseTag, UnexpectedXmlUri, UnexpectedXmlnsUri, UnknownEntityReference,
+            UnknownNamespace, UnknownToken,
+        };
         match self {
             NoParserAvailable => write!(
                 f,
@@ -1201,14 +1224,16 @@ pub struct ComponentId {
 }
 
 impl ComponentId {
-    #[must_use] pub fn builtin(name: &str) -> Self {
+    #[must_use]
+    pub fn builtin(name: &str) -> Self {
         Self {
             collection: AzString::from_const_str("builtin"),
             name: AzString::from(name),
         }
     }
 
-    #[must_use] pub fn new(collection: &str, name: &str) -> Self {
+    #[must_use]
+    pub fn new(collection: &str, name: &str) -> Self {
         Self {
             collection: AzString::from(collection),
             name: AzString::from(name),
@@ -1216,7 +1241,8 @@ impl ComponentId {
     }
 
     /// Returns "collection:name" format string
-    #[must_use] pub fn qualified_name(&self) -> String {
+    #[must_use]
+    pub fn qualified_name(&self) -> String {
         format!("{}:{}", self.collection.as_str(), self.name.as_str())
     }
 }
@@ -1279,13 +1305,15 @@ pub struct ComponentFieldTypeBox {
 }
 
 impl ComponentFieldTypeBox {
-    #[must_use] pub fn new(t: ComponentFieldType) -> Self {
+    #[must_use]
+    pub fn new(t: ComponentFieldType) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(t)),
         }
     }
 
-    #[must_use] pub fn as_ref(&self) -> &ComponentFieldType {
+    #[must_use]
+    pub fn as_ref(&self) -> &ComponentFieldType {
         unsafe { &*self.ptr }
     }
 }
@@ -1372,13 +1400,15 @@ pub struct ComponentFieldValueBox {
 }
 
 impl ComponentFieldValueBox {
-    #[must_use] pub fn new(v: ComponentFieldValue) -> Self {
+    #[must_use]
+    pub fn new(v: ComponentFieldValue) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(v)),
         }
     }
 
-    #[must_use] pub fn as_ref(&self) -> &ComponentFieldValue {
+    #[must_use]
+    pub fn as_ref(&self) -> &ComponentFieldValue {
         unsafe { &*self.ptr }
     }
 }
@@ -1463,7 +1493,8 @@ impl ComponentFieldType {
     /// Parse a field type string like "String", "Option<Bool>", "Vec<I32>",
     /// "Callback(fn(LayoutCallbackInfo) -> Dom)", "StructRef(MyStruct)" etc.
     /// Returns `None` if the string cannot be parsed.
-    #[must_use] pub fn parse(s: &str) -> Option<Self> {
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
         Self::parse_depth(s, 0)
     }
 
@@ -1500,17 +1531,13 @@ impl ComponentFieldType {
         // Option<T>
         if let Some(inner) = s.strip_prefix("Option<").and_then(|r| r.strip_suffix('>')) {
             let inner_type = Self::parse_depth(inner, depth + 1)?;
-            return Some(Self::OptionType(ComponentFieldTypeBox::new(
-                inner_type,
-            )));
+            return Some(Self::OptionType(ComponentFieldTypeBox::new(inner_type)));
         }
 
         // Vec<T>
         if let Some(inner) = s.strip_prefix("Vec<").and_then(|r| r.strip_suffix('>')) {
             let inner_type = Self::parse_depth(inner, depth + 1)?;
-            return Some(Self::VecType(ComponentFieldTypeBox::new(
-                inner_type,
-            )));
+            return Some(Self::VecType(ComponentFieldTypeBox::new(inner_type)));
         }
 
         // Callback(signature)
@@ -1552,7 +1579,8 @@ impl ComponentFieldType {
 
     /// Format this field type to its canonical string representation.
     /// This is the inverse of `parse`.
-    #[must_use] pub fn format(&self) -> String {
+    #[must_use]
+    pub fn format(&self) -> String {
         match self {
             Self::String => "String".to_string(),
             Self::Bool => "Bool".to_string(),
@@ -1754,7 +1782,8 @@ pub enum ComponentFieldValueSource {
     /// Bound to an app state path (e.g. "`app_state.user.name`")
     Binding(AzString),
 }
-#[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
+#[allow(variant_size_differences)]
+// repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
 /// Runtime value for a component field — the "instance" counterpart
 /// to `ComponentFieldType` (which is the "class" / type descriptor).
 #[derive(Debug, Clone, PartialEq)]
@@ -1824,7 +1853,8 @@ impl_vec_clone!(
 
 impl ComponentFieldNamedValueVec {
     /// Look up a field by name, return a reference to its value.
-    #[must_use] pub fn get_field(&self, name: &str) -> Option<&ComponentFieldValue> {
+    #[must_use]
+    pub fn get_field(&self, name: &str) -> Option<&ComponentFieldValue> {
         self.as_ref().iter().find_map(|v| {
             if v.name.as_str() == name {
                 Some(&v.value)
@@ -1835,7 +1865,8 @@ impl ComponentFieldNamedValueVec {
     }
 
     /// Convenience: get a field as `&str` if it is `ComponentFieldValue::String`.
-    #[must_use] pub fn get_string(&self, name: &str) -> Option<&AzString> {
+    #[must_use]
+    pub fn get_string(&self, name: &str) -> Option<&AzString> {
         match self.get_field(name) {
             Some(ComponentFieldValue::String(s)) => Some(s),
             _ => None,
@@ -1922,7 +1953,8 @@ pub struct ComponentDataModel {
 
 impl ComponentDataModel {
     /// Look up a field by name.
-    #[must_use] pub fn get_field(&self, name: &str) -> Option<&ComponentDataField> {
+    #[must_use]
+    pub fn get_field(&self, name: &str) -> Option<&ComponentDataField> {
         self.fields
             .as_ref()
             .iter()
@@ -1930,7 +1962,8 @@ impl ComponentDataModel {
     }
 
     /// Look up a field's default value as a string, if it exists and is a String variant.
-    #[must_use] pub fn get_default_string(&self, name: &str) -> Option<&AzString> {
+    #[must_use]
+    pub fn get_default_string(&self, name: &str) -> Option<&AzString> {
         self.get_field(name).and_then(|f| match &f.default_value {
             OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => Some(s),
             _ => None,
@@ -1939,7 +1972,8 @@ impl ComponentDataModel {
 
     /// Clone this data model, overriding the default value for a field by name.
     /// If the field is not found, the data model is returned unchanged.
-    #[must_use] pub fn with_default(mut self, name: &str, value: ComponentDefaultValue) -> Self {
+    #[must_use]
+    pub fn with_default(mut self, name: &str, value: ComponentDefaultValue) -> Self {
         let mut fields_vec = core::mem::replace(
             &mut self.fields,
             ComponentDataFieldVec::from_const_slice(&[]),
@@ -2067,8 +2101,9 @@ mod serde_impl {
             "FontRef" | "Font" => ComponentFieldType::FontRef,
             "Dom" | "StyledDom" | "Children" => ComponentFieldType::StyledDom,
             other => {
-                if let Some(inner) =
-                    other.strip_prefix("Option<").and_then(|s| s.strip_suffix('>'))
+                if let Some(inner) = other
+                    .strip_prefix("Option<")
+                    .and_then(|s| s.strip_suffix('>'))
                 {
                     ComponentFieldType::OptionType(ComponentFieldTypeBox::new(
                         string_to_field_type(inner),
@@ -2134,9 +2169,7 @@ mod serde_impl {
                     map.serialize_entry("component", ci.component.as_str())?;
                     map.end()
                 }
-                Self::CallbackFnPointer(name) => {
-                    serializer.serialize_str(name.as_str())
-                }
+                Self::CallbackFnPointer(name) => serializer.serialize_str(name.as_str()),
                 Self::Json(json_str) => {
                     // Serialize raw JSON string as-is by parsing and re-emitting
                     match serde_json::from_str::<serde_json::Value>(json_str.as_str()) {
@@ -2155,15 +2188,11 @@ mod serde_impl {
             // `Self::None`, which is exactly what the catch-all below produces.
             Ok(match val {
                 serde_json::Value::Bool(b) => Self::Bool(b),
-                serde_json::Value::Number(n) => {
-                    n.as_i64().map_or_else(
-                        || n.as_f64().map_or(Self::None, Self::F64),
-                        |i| i32::try_from(i).map_or(Self::I64(i), Self::I32),
-                    )
-                }
-                serde_json::Value::String(s) => {
-                    Self::String(AzString::from(s.as_str()))
-                }
+                serde_json::Value::Number(n) => n.as_i64().map_or_else(
+                    || n.as_f64().map_or(Self::None, Self::F64),
+                    |i| i32::try_from(i).map_or(Self::I64(i), Self::I32),
+                ),
+                serde_json::Value::String(s) => Self::String(AzString::from(s.as_str())),
                 _ => Self::None,
             })
         }
@@ -2237,8 +2266,7 @@ mod serde_impl {
             let mut s = serializer.serialize_struct("ComponentDataModel", 3)?;
             s.serialize_field("name", self.name.as_str())?;
             s.serialize_field("description", self.description.as_str())?;
-            let fields: Vec<&ComponentDataField> =
-                self.fields.as_ref().iter().collect();
+            let fields: Vec<&ComponentDataField> = self.fields.as_ref().iter().collect();
             s.serialize_field("fields", &fields)?;
             s.end()
         }
@@ -2264,10 +2292,7 @@ mod serde_impl {
                     f.write_str("a data model object with `name`, `description` and `fields`")
                 }
 
-                fn visit_map<A: MapAccess<'de>>(
-                    self,
-                    mut map: A,
-                ) -> Result<Self::Value, A::Error> {
+                fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
                     let mut name: Option<String> = None;
                     let mut description: Option<String> = None;
                     let mut fields: Option<Vec<ComponentDataField>> = None;
@@ -2339,9 +2364,9 @@ pub enum ComponentSource {
     UserDefined,
 }
 
-
 impl ComponentSource {
-    #[must_use] pub fn create() -> Self {
+    #[must_use]
+    pub fn create() -> Self {
         Self::default()
     }
 }
@@ -2548,7 +2573,8 @@ pub struct ComponentMap {
 
 impl ComponentMap {
     /// Qualified lookup: "shadcn:avatar" -> finds library "shadcn", component "avatar"
-    #[must_use] pub fn get(&self, collection: &str, name: &str) -> Option<&ComponentDef> {
+    #[must_use]
+    pub fn get(&self, collection: &str, name: &str) -> Option<&ComponentDef> {
         self.libraries
             .iter()
             .find(|lib| lib.name.as_str() == collection)
@@ -2556,12 +2582,14 @@ impl ComponentMap {
     }
 
     /// Unqualified lookup: "div" -> searches ONLY the "builtin" library.
-    #[must_use] pub fn get_unqualified(&self, name: &str) -> Option<&ComponentDef> {
+    #[must_use]
+    pub fn get_unqualified(&self, name: &str) -> Option<&ComponentDef> {
         self.get("builtin", name)
     }
 
     /// Parse a "collection:name" string into a lookup
-    #[must_use] pub fn get_by_qualified_name(&self, qualified: &str) -> Option<&ComponentDef> {
+    #[must_use]
+    pub fn get_by_qualified_name(&self, qualified: &str) -> Option<&ComponentDef> {
         if let Some((collection, name)) = qualified.split_once(':') {
             self.get(collection, name)
         } else {
@@ -2570,12 +2598,14 @@ impl ComponentMap {
     }
 
     /// Get all libraries that can be exported (user-defined only)
-    #[must_use] pub fn get_exportable_libraries(&self) -> Vec<&ComponentLibrary> {
+    #[must_use]
+    pub fn get_exportable_libraries(&self) -> Vec<&ComponentLibrary> {
         self.libraries.iter().filter(|lib| lib.exportable).collect()
     }
 
     /// Get all component definitions across all libraries
-    #[must_use] pub fn all_components(&self) -> Vec<&ComponentDef> {
+    #[must_use]
+    pub fn all_components(&self) -> Vec<&ComponentDef> {
         self.libraries
             .iter()
             .flat_map(|lib| lib.components.iter())
@@ -2841,7 +2871,12 @@ fn builtin_render_fn(
     if let Some(text_str) = data.get_default_string("text") {
         let prepared = prepare_string(text_str);
         if !prepared.is_empty() {
-            dom = dom.with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(prepared)].into());
+            dom = dom.with_children(
+                alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+                    prepared
+                )]
+                .into(),
+            );
         }
     }
     let r: Result<StyledDom, RenderDomError> = Ok(StyledDom::create(&mut dom, Css::empty()));
@@ -2889,7 +2924,12 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
     use crate::dom::{Dom, NodeType};
     let text = alloc::format!("{field_name}: {value}");
     children.push(
-        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into()),
+        Dom::create_node(NodeType::Div).with_children(
+            alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+                text
+            )]
+            .into(),
+        ),
     );
 }
 
@@ -2905,7 +2945,8 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
 ///    - Other scalar fields → text display of the value
 /// 3. Applies the component's scoped CSS
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
-#[must_use] pub fn user_defined_render_fn(
+#[must_use]
+pub fn user_defined_render_fn(
     def: &ComponentDef,
     data: &ComponentDataModel,
     component_map: &ComponentMap,
@@ -2929,7 +2970,12 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                         let text = s.as_str().trim();
                         if !text.is_empty() {
                             let label_dom = Dom::create_node(NodeType::Div).with_children(
-                                alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text.to_string())].into(),
+                                alloc::vec![
+                                    Dom::create_text_do_not_use_without_block_level_wrapper(
+                                        text.to_string()
+                                    )
+                                ]
+                                .into(),
                             );
                             children.push(label_dom);
                         }
@@ -2968,8 +3014,12 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                             c.a
                         );
                         children.push(
-                            Dom::create_node(NodeType::Div)
-                                .with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into()),
+                            Dom::create_node(NodeType::Div).with_children(
+                                alloc::vec![
+                                    Dom::create_text_do_not_use_without_block_level_wrapper(text)
+                                ]
+                                .into(),
+                            ),
                         );
                     }
                     ComponentDefaultValue::ComponentInstance(ci) => {
@@ -3014,8 +3064,14 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                                 ci.component.as_str()
                             );
                             children.push(
-                                Dom::create_node(NodeType::Div)
-                                    .with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into()),
+                                Dom::create_node(NodeType::Div).with_children(
+                                    alloc::vec![
+                                        Dom::create_text_do_not_use_without_block_level_wrapper(
+                                            text
+                                        )
+                                    ]
+                                    .into(),
+                                ),
                             );
                         }
                     }
@@ -3023,15 +3079,23 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                         // Callbacks are not rendered, just acknowledged
                         let text = alloc::format!("{}: fn({})", field_name, name.as_str());
                         children.push(
-                            Dom::create_node(NodeType::Div)
-                                .with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into()),
+                            Dom::create_node(NodeType::Div).with_children(
+                                alloc::vec![
+                                    Dom::create_text_do_not_use_without_block_level_wrapper(text)
+                                ]
+                                .into(),
+                            ),
                         );
                     }
                     ComponentDefaultValue::Json(json_str) => {
                         let text = alloc::format!("{}: {}", field_name, json_str.as_str());
                         children.push(
-                            Dom::create_node(NodeType::Div)
-                                .with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(text)].into()),
+                            Dom::create_node(NodeType::Div).with_children(
+                                alloc::vec![
+                                    Dom::create_text_do_not_use_without_block_level_wrapper(text)
+                                ]
+                                .into(),
+                            ),
                         );
                     }
                     ComponentDefaultValue::None => {
@@ -3067,7 +3131,8 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
 /// - `ComponentInstance` → function call to sub-component's render function
 /// - `StyledDom` slots → child parameter pass-through
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
-#[must_use] pub fn user_defined_compile_fn(
+#[must_use]
+pub fn user_defined_compile_fn(
     def: &ComponentDef,
     target: &CompileTarget,
     data: &ComponentDataModel,
@@ -3166,9 +3231,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
         CompileTarget::Cpp => {
             let mut lines = Vec::new();
             lines.push(alloc::format!("{indent_str}// Component: {tag}"));
-            lines.push(alloc::format!(
-                "{indent_str}auto root = Dom::create_div();"
-            ));
+            lines.push(alloc::format!("{indent_str}auto root = Dom::create_div();"));
 
             for field in data.fields.as_ref() {
                 let fname = field.name.as_str();
@@ -3184,9 +3247,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                     ) => {
                         let fn_name =
                             alloc::format!("render_{}", ci.component.as_str().replace('-', "_"));
-                        lines.push(alloc::format!(
-                            "{inner_indent}root.add_child({fn_name}());"
-                        ));
+                        lines.push(alloc::format!("{inner_indent}root.add_child({fn_name}());"));
                     }
                     _ => {
                         lines.push(alloc::format!("{inner_indent}// field '{fname}'"));
@@ -3294,7 +3355,10 @@ fn data_field(
     ComponentDataField {
         name: AzString::from(name),
         field_type: ft,
-        default_value: default.map_or_else(|| OptionComponentDefaultValue::None, OptionComponentDefaultValue::Some),
+        default_value: default.map_or_else(
+            || OptionComponentDefaultValue::None,
+            OptionComponentDefaultValue::Some,
+        ),
         required,
         description: AzString::from(description),
     }
@@ -3308,7 +3372,7 @@ fn data_field(
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
     use ComponentDefaultValue as D;
-    use ComponentFieldType::{String, Bool, I32};
+    use ComponentFieldType::{Bool, String, I32};
     match tag {
         "a" => alloc::vec![
             data_field(
@@ -4036,12 +4100,14 @@ impl Default for ComponentMap {
 }
 
 impl ComponentMap {
-    #[must_use] pub fn create() -> Self {
+    #[must_use]
+    pub fn create() -> Self {
         Self::default()
     }
 
     /// Create a `ComponentMap` with the 52 built-in HTML element components pre-registered.
-    #[must_use] pub fn with_builtin() -> Self {
+    #[must_use]
+    pub fn with_builtin() -> Self {
         Self {
             libraries: alloc::vec![register_builtin_components()].into(),
         }
@@ -4052,7 +4118,8 @@ impl ComponentMap {
     /// The `component_libraries` field already contains builtins (registered in
     /// `AppConfig::create()`) plus any user-added libraries.  No merging needed —
     /// `add_component_library` / `add_component` handle insertion at registration time.
-    #[must_use] pub fn from_libraries(libs: &ComponentLibraryVec) -> Self {
+    #[must_use]
+    pub fn from_libraries(libs: &ComponentLibraryVec) -> Self {
         Self {
             libraries: libs.clone(),
         }
@@ -4160,8 +4227,12 @@ fn builtin_if_render_fn(
     } else {
         "if: false (else branch)"
     };
-    let mut dom =
-        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(label)].into());
+    let mut dom = Dom::create_node(NodeType::Div).with_children(
+        alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+            label
+        )]
+        .into(),
+    );
     let css = Css::empty();
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
@@ -4235,8 +4306,12 @@ fn builtin_for_render_fn(
     let mut items: Vec<Dom> = Vec::new();
     for i in 0..count {
         items.push(
-            Dom::create_node(NodeType::Div)
-                .with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(alloc::format!("Item {i}"))].into()),
+            Dom::create_node(NodeType::Div).with_children(
+                alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+                    alloc::format!("Item {i}")
+                )]
+                .into(),
+            ),
         );
     }
     let mut dom = Dom::create_node(NodeType::Div).with_children(items.into());
@@ -4316,8 +4391,12 @@ fn builtin_map_render_fn(
         .unwrap_or_else(|| "[]".to_string());
 
     let label = alloc::format!("map: data_json={data_str}");
-    let mut dom =
-        Dom::create_node(NodeType::Div).with_children(alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(label)].into());
+    let mut dom = Dom::create_node(NodeType::Div).with_children(
+        alloc::vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+            label
+        )]
+        .into(),
+    );
     let css = Css::empty();
     ResultStyledDomRenderDomError::Ok(StyledDom::create(&mut dom, css))
 }
@@ -4353,7 +4432,8 @@ fn builtin_map_compile_fn(
 /// Called once during `AppConfig::create()` — the framework dogfoods
 /// its own component registration system for builtins.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
-#[must_use] pub extern "C" fn register_builtin_components() -> ComponentLibrary {
+#[must_use]
+pub extern "C" fn register_builtin_components() -> ComponentLibrary {
     ComponentLibrary {
         name: AzString::from_const_str("builtin"),
         version: AzString::from_const_str("1.0.0"),
@@ -4529,15 +4609,17 @@ impl DomXml {
         let mut body = Dom::create_body();
         let mut fixed = StyledDom::create(&mut body, Css::empty());
         fixed.append_child(other);
-        assert!(!(self.parsed_dom != fixed),
-                "\r\nExpected DOM did not match:\r\n\r\nexpected: ----------\r\n{}\r\ngot: \
+        assert!(
+            !(self.parsed_dom != fixed),
+            "\r\nExpected DOM did not match:\r\n\r\nexpected: ----------\r\n{}\r\ngot: \
                  ----------\r\n{}\r\n",
-                self.parsed_dom.get_html_string("", "", true),
-                fixed.get_html_string("", "", true)
-            );
+            self.parsed_dom.get_html_string("", "", true),
+            fixed.get_html_string("", "", true)
+        );
     }
 
-    #[must_use] pub fn into_styled_dom(self) -> StyledDom {
+    #[must_use]
+    pub fn into_styled_dom(self) -> StyledDom {
         self.into()
     }
 }
@@ -4567,7 +4649,8 @@ impl_option!(
 
 impl XmlNodeChild {
     /// Get the text content if this is a text node
-    #[must_use] pub fn as_text(&self) -> Option<&str> {
+    #[must_use]
+    pub fn as_text(&self) -> Option<&str> {
         match self {
             Self::Text(s) => Some(s.as_str()),
             Self::Element(_) => None,
@@ -4575,7 +4658,8 @@ impl XmlNodeChild {
     }
 
     /// Get the element if this is an element node
-    #[must_use] pub const fn as_element(&self) -> Option<&XmlNode> {
+    #[must_use]
+    pub const fn as_element(&self) -> Option<&XmlNode> {
         match self {
             Self::Text(_) => None,
             Self::Element(node) => Some(node),
@@ -4634,7 +4718,8 @@ impl XmlNode {
             ..Default::default()
         }
     }
-    #[must_use] pub fn with_children(mut self, v: Vec<XmlNodeChild>) -> Self {
+    #[must_use]
+    pub fn with_children(mut self, v: Vec<XmlNodeChild>) -> Self {
         Self {
             children: v.into(),
             ..self
@@ -4642,7 +4727,8 @@ impl XmlNode {
     }
 
     /// Get all text content concatenated from direct children
-    #[must_use] pub fn get_text_content(&self) -> String {
+    #[must_use]
+    pub fn get_text_content(&self) -> String {
         self.children
             .as_ref()
             .iter()
@@ -4652,7 +4738,8 @@ impl XmlNode {
     }
 
     /// Check if this node has only text children (no element children)
-    #[must_use] pub fn has_only_text_children(&self) -> bool {
+    #[must_use]
+    pub fn has_only_text_children(&self) -> bool {
         self.children
             .as_ref()
             .iter()
@@ -4752,7 +4839,7 @@ impl From<CssParseErrorOwned> for CompileError {
 
 impl fmt::Display for CompileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::CompileError::{Dom, Xml, Css};
+        use self::CompileError::{Css, Dom, Xml};
         match self {
             Dom(d) => write!(f, "{d}"),
             Xml(s) => write!(f, "{s}"),
@@ -4864,7 +4951,10 @@ pub enum ComponentParseError {
 
 impl fmt::Display for DomXmlParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::DomXmlParseError::{NoHtmlNode, MultipleHtmlRootNodes, NoBodyInHtml, MultipleBodyNodes, Xml, MalformedHierarchy, RenderDom, Component, Css};
+        use self::DomXmlParseError::{
+            Component, Css, MalformedHierarchy, MultipleBodyNodes, MultipleHtmlRootNodes,
+            NoBodyInHtml, NoHtmlNode, RenderDom, Xml,
+        };
         match self {
             NoHtmlNode => write!(
                 f,
@@ -4899,7 +4989,10 @@ impl fmt::Display for DomXmlParseError {
 
 impl fmt::Display for ComponentParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::ComponentParseError::{NotAComponent, UnnamedComponent, MissingName, MissingType, WhiteSpaceInComponentName, WhiteSpaceInComponentType, CssError};
+        use self::ComponentParseError::{
+            CssError, MissingName, MissingType, NotAComponent, UnnamedComponent,
+            WhiteSpaceInComponentName, WhiteSpaceInComponentType,
+        };
         match self {
             NotAComponent => write!(f, "Expected <component/> node, found no such node"),
             UnnamedComponent => write!(
@@ -4937,7 +5030,7 @@ impl fmt::Display for ComponentParseError {
 
 impl fmt::Display for ComponentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::ComponentError::{UselessFunctionArgument, UnknownComponent};
+        use self::ComponentError::{UnknownComponent, UselessFunctionArgument};
         match self {
             UselessFunctionArgument(e) => {
                 write!(
@@ -5070,7 +5163,8 @@ fn find_node_by_type<'a>(root_nodes: &'a [XmlNodeChild], node_type: &str) -> Opt
     None
 }
 
-#[must_use] pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a AzString> {
+#[must_use]
+pub fn find_attribute<'a>(node: &'a XmlNode, attribute: &str) -> Option<&'a AzString> {
     node.attributes
         .iter()
         .find(|n| normalize_casing(n.key.as_str()).as_str() == attribute)
@@ -5078,7 +5172,8 @@ fn find_node_by_type<'a>(root_nodes: &'a [XmlNodeChild], node_type: &str) -> Opt
 }
 
 /// Normalizes input such as `abcDef`, `AbcDef`, `abc-def` to the normalized form of `abc_def`
-#[must_use] pub fn normalize_casing(input: &str) -> String {
+#[must_use]
+pub fn normalize_casing(input: &str) -> String {
     let mut words: Vec<String> = Vec::new();
     let mut cur_str = Vec::new();
 
@@ -5213,8 +5308,8 @@ pub fn str_to_dom_unstyled<'a>(
     }
 
     // Build the DOM tree from the body node
-    let body_dom = xml_node_to_dom_fast(body_node, component_map, false, 0)
-        .map_err(DomXmlParseError::from)?;
+    let body_dom =
+        xml_node_to_dom_fast(body_node, component_map, false, 0).map_err(DomXmlParseError::from)?;
 
     // Wrap in proper HTML structure (NodeType is imported at module top)
     let root_node_type = body_dom.root.node_type.clone();
@@ -5387,7 +5482,8 @@ fn format_component_args(component_args: &ComponentArgumentVec) -> String {
     args.join(", ")
 }
 
-#[must_use] pub fn compile_component(
+#[must_use]
+pub fn compile_component(
     component_name: &str,
     component_args: &ComponentArguments,
     component_function_body: &str,
@@ -5515,8 +5611,7 @@ fn apply_xml_node_attributes(
                 crate::resources::RawImageFormat::RGBA8,
                 src.as_str().as_bytes().to_vec(),
             );
-            node
-                .set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image_ref)));
+            node.set_node_type(NodeType::Image(azul_css::css::BoxOrStatic::heap(image_ref)));
         }
     }
 
@@ -5542,7 +5637,11 @@ fn apply_xml_node_attributes(
         .get_key("focusable")
         .and_then(|f| parse_bool(f.as_str()))
     {
-        if focusable { node.set_tab_index(TabIndex::Auto) } else { node.set_tab_index(TabIndex::NoKeyboardFocus) }
+        if focusable {
+            node.set_tab_index(TabIndex::Auto)
+        } else {
+            node.set_tab_index(TabIndex::NoKeyboardFocus)
+        }
     }
 
     // Handle tabindex attribute
@@ -5553,7 +5652,9 @@ fn apply_xml_node_attributes(
     {
         match tab_index {
             0 => node.set_tab_index(TabIndex::Auto),
-            i if i > 0 => node.set_tab_index(TabIndex::OverrideInParent(u32::try_from(i).unwrap_or(u32::MAX))),
+            i if i > 0 => node.set_tab_index(TabIndex::OverrideInParent(
+                u32::try_from(i).unwrap_or(u32::MAX),
+            )),
             _ => node.set_tab_index(TabIndex::NoKeyboardFocus),
         }
     }
@@ -5791,7 +5892,8 @@ fn apply_cell_span_attributes(node: &mut crate::dom::NodeData, xml_node: &XmlNod
     }
 }
 
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+#[allow(clippy::result_large_err)]
+// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 // component_map is threaded through the whole fast-DOM pipeline for parity with the
 // component-expanding interpreter path (see ~xml.rs:2845); this fast path never expands
 // components, so it only forwards the map into recursive calls. Removing it here would
@@ -5833,7 +5935,9 @@ fn xml_node_to_dom_fast<'a>(
                 children.push(child_dom);
             }
             XmlNodeChild::Text(text) => {
-                let text_dom = Dom::create_text_do_not_use_without_block_level_wrapper(AzString::from(text.as_str()));
+                let text_dom = Dom::create_text_do_not_use_without_block_level_wrapper(
+                    AzString::from(text.as_str()),
+                );
                 children.push(text_dom);
             }
         }
@@ -5864,7 +5968,8 @@ impl Default for CompactDomBuilder {
 }
 
 impl CompactDomBuilder {
-    #[must_use] pub const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             hierarchy: Vec::new(),
             node_data: Vec::new(),
@@ -5873,7 +5978,8 @@ impl CompactDomBuilder {
         }
     }
 
-    #[must_use] pub fn with_capacity(cap: usize) -> Self {
+    #[must_use]
+    pub fn with_capacity(cap: usize) -> Self {
         Self {
             hierarchy: Vec::with_capacity(cap),
             node_data: Vec::with_capacity(cap),
@@ -5898,8 +6004,7 @@ impl CompactDomBuilder {
 
         // Determine previous sibling from parent's last child tracking
         let prev_sibling_raw = if let Some(&(_, prev_child)) = self.stack.last() {
-            prev_child
-                .map_or(0, |pi| NodeId::into_raw(&Some(NodeId::new(pi))))
+            prev_child.map_or(0, |pi| NodeId::into_raw(&Some(NodeId::new(pi))))
         } else {
             0
         };
@@ -5933,8 +6038,8 @@ impl CompactDomBuilder {
 
         if let Some((idx, last_child_idx)) = self.stack.pop() {
             // Set last_child on this node's hierarchy item
-            self.hierarchy[idx].last_child = last_child_idx
-                .map_or(0, |lc| NodeId::into_raw(&Some(NodeId::new(lc))));
+            self.hierarchy[idx].last_child =
+                last_child_idx.map_or(0, |lc| NodeId::into_raw(&Some(NodeId::new(lc))));
         }
     }
 
@@ -5950,7 +6055,8 @@ impl CompactDomBuilder {
     }
 
     /// Finish building and produce a `FastDom`.
-    #[must_use] pub fn finish(self) -> crate::dom::FastDom {
+    #[must_use]
+    pub fn finish(self) -> crate::dom::FastDom {
         crate::dom::FastDom {
             node_hierarchy: self.hierarchy.into(),
             node_data: self.node_data.into(),
@@ -5961,7 +6067,8 @@ impl CompactDomBuilder {
 
 /// Convert an XML node tree into a `FastDom` (arena-based) in a single DFS pass.
 /// This is the fast path equivalent of `xml_node_to_dom_fast`.
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+#[allow(clippy::result_large_err)]
+// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 // See xml_node_to_dom_fast: component_map is forwarded for pipeline parity, not read here.
 #[allow(clippy::only_used_in_recursion)]
 fn xml_node_to_fast_dom<'a>(
@@ -6002,7 +6109,11 @@ fn xml_node_to_fast_dom<'a>(
                     )?;
                 }
                 XmlNodeChild::Text(text) => {
-                    builder.add_leaf(NodeData::create_text_do_not_use_without_block_level_wrapper(AzString::from(text.as_str())));
+                    builder.add_leaf(
+                        NodeData::create_text_do_not_use_without_block_level_wrapper(
+                            AzString::from(text.as_str()),
+                        ),
+                    );
                 }
             }
         }
@@ -6108,9 +6219,14 @@ fn set_stringified_attributes(
         .map(|f| format_args_dynamic(f, filtered_xml_attributes))
         .and_then(|f| parse_bool(&f))
     {
-        if focusable { let _ = write!(dom_string, "\r\n{t}.with_tab_index(TabIndex::Auto)"); } else { let _ = write!(dom_string,
-            "\r\n{t}.with_tab_index(TabIndex::NoKeyboardFocus)"
-        ); }
+        if focusable {
+            let _ = write!(dom_string, "\r\n{t}.with_tab_index(TabIndex::Auto)");
+        } else {
+            let _ = write!(
+                dom_string,
+                "\r\n{t}.with_tab_index(TabIndex::NoKeyboardFocus)"
+            );
+        }
     }
 
     if let Some(tab_index) = xml_attributes
@@ -6119,14 +6235,23 @@ fn set_stringified_attributes(
         .and_then(|val| val.parse::<isize>().ok())
     {
         match tab_index {
-            0 => { let _ = write!(dom_string, "\r\n{t}.with_tab_index(TabIndex::Auto)"); },
-            i if i > 0 => { let _ = write!(dom_string,
-                "\r\n{}.with_tab_index(TabIndex::OverrideInParent({}))",
-                t, usize::try_from(i).unwrap_or(0)
-            ); },
-            _ => { let _ = write!(dom_string,
-                "\r\n{t}.with_tab_index(TabIndex::NoKeyboardFocus)"
-            ); },
+            0 => {
+                let _ = write!(dom_string, "\r\n{t}.with_tab_index(TabIndex::Auto)");
+            }
+            i if i > 0 => {
+                let _ = write!(
+                    dom_string,
+                    "\r\n{}.with_tab_index(TabIndex::OverrideInParent({}))",
+                    t,
+                    usize::try_from(i).unwrap_or(0)
+                );
+            }
+            _ => {
+                let _ = write!(
+                    dom_string,
+                    "\r\n{t}.with_tab_index(TabIndex::NoKeyboardFocus)"
+                );
+            }
         }
     }
 }
@@ -6160,7 +6285,8 @@ pub enum DynamicItem {
 /// ];
 /// assert_eq!(output, split);
 /// ```
-#[must_use] pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
+#[must_use]
+pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
     use self::DynamicItem::{Str, Var};
 
     let input: Vec<char> = input.chars().collect();
@@ -6260,7 +6386,8 @@ fn combine_and_replace_dynamic_items(
                 if let Some(resolved_var) = variables
                     .iter()
                     .find(|s| s.name.as_str() == variable_name)
-                    .map(|q| &q.arg_type) {
+                    .map(|q| &q.arg_type)
+                {
                     // Format specifiers are applied at compile time, not at runtime replacement
                     s.push_str(resolved_var);
                 } else {
@@ -6300,7 +6427,8 @@ fn combine_and_replace_dynamic_items(
 /// Note: the number (0, 1, etc.) is the order of the argument, it is irrelevant for
 /// runtime formatting, only important for keeping the component / function arguments
 /// in order when compiling the arguments to Rust code
-#[must_use] pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentVec) -> String {
+#[must_use]
+pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentVec) -> String {
     let dynamic_str_items = split_dynamic_string(input);
     combine_and_replace_dynamic_items(&dynamic_str_items, variables)
 }
@@ -6338,7 +6466,7 @@ fn decode_entities(input: &str) -> String {
                 if semi_rel <= MAX_ENTITY_BODY {
                     let body = &input[i + 1..i + 1 + semi_rel];
                     let end = i + 1 + semi_rel; // index of ';'
-                    // Leave &nbsp; for the per-line pass in prepare_string.
+                                                // Leave &nbsp; for the per-line pass in prepare_string.
                     if body.eq_ignore_ascii_case("nbsp") {
                         out.push_str(&input[i..=end]);
                         i = end + 1;
@@ -6373,7 +6501,8 @@ fn decode_entities(input: &str) -> String {
 }
 
 // NOTE: Two sequential returns count as a single return, while single returns get ignored.
-#[must_use] pub fn prepare_string(input: &str) -> String {
+#[must_use]
+pub fn prepare_string(input: &str) -> String {
     const SPACE: &str = " ";
     const RETURN: &str = "\n";
 
@@ -6427,7 +6556,8 @@ fn decode_entities(input: &str) -> String {
 }
 
 /// Parses a string ("true" or "false")
-#[must_use] pub fn parse_bool(input: &str) -> Option<bool> {
+#[must_use]
+pub fn parse_bool(input: &str) -> Option<bool> {
     match input {
         "true" => Some(true),
         "false" => Some(false),
@@ -6556,14 +6686,20 @@ fn group_matches(
     idx_in_parent: usize,
     parent_children: usize,
 ) -> bool {
-    use azul_css::css::{CssNthChildSelector, CssPathPseudoSelector, CssPathSelector::{Global, PseudoSelector, Type, Class, Id}};
+    use azul_css::css::{
+        CssNthChildSelector, CssPathPseudoSelector,
+        CssPathSelector::{Class, Global, Id, PseudoSelector, Type},
+    };
 
     for selector in a {
         match selector {
             // always matches
-            Global |
-PseudoSelector(CssPathPseudoSelector::Hover | CssPathPseudoSelector::Active |
-CssPathPseudoSelector::Focus) => {}
+            Global
+            | PseudoSelector(
+                CssPathPseudoSelector::Hover
+                | CssPathPseudoSelector::Active
+                | CssPathPseudoSelector::Focus,
+            ) => {}
 
             Type(tag) => {
                 if !b.iter().any(|t| **t == Type(*tag)) {
@@ -6606,7 +6742,9 @@ CssPathPseudoSelector::Focus) => {}
                 }
             }
             PseudoSelector(CssPathPseudoSelector::NthChild(CssNthChildSelector::Pattern(p))) => {
-                if !idx_in_parent.saturating_sub(p.offset as usize).is_multiple_of(p.pattern_repeat as usize)
+                if !idx_in_parent
+                    .saturating_sub(p.offset as usize)
+                    .is_multiple_of(p.pattern_repeat as usize)
                 {
                     return false;
                 }
@@ -6703,7 +6841,8 @@ pub fn compile_body_node_to_rust_code<'a>(
                     matcher.indices_in_parent.push(child_idx);
                     matcher.children_length.push(body_node.children.len());
 
-                    let _ = write!(dom_string,
+                    let _ = write!(
+                        dom_string,
                         "{}{},\r\n",
                         t,
                         compile_node_to_rust_code_inner(
@@ -6801,7 +6940,7 @@ fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
 }
 
 fn compile_and_format_dynamic_items(input: &[DynamicItem]) -> String {
-    use self::DynamicItem::{Var, Str};
+    use self::DynamicItem::{Str, Var};
     if input.is_empty() {
         String::from("AzString::from_const_str(\"\")")
     } else if input.len() == 1 {
@@ -6855,7 +6994,8 @@ fn format_args_for_rust_code(input: &str) -> String {
     compile_and_format_dynamic_items(&dynamic_str_items)
 }
 
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+#[allow(clippy::result_large_err)]
+// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 // component_map is forwarded through the codegen recursion for parity with the
 // component-expanding path; this Rust-codegen path only threads it into recursive calls.
 #[allow(clippy::only_used_in_recursion)]
@@ -6889,10 +7029,13 @@ fn compile_node_to_rust_code_inner(
     // Interactive/data tags (Button/Input/…) whose NodeType carries data fall
     // back to `div`, matching the C/C++/Python walkers (`safe_container_tag`).
     let ctor = analyze_node_ctor(&component_name, node);
-    let mut dom_string = ctor.render_rust().map_or_else(|| {
-        let tag = safe_container_tag(&format!("{:?}", tag_to_node_type(&component_name)));
-        format!("{t2}Dom::create_node(NodeType::{tag})")
-    }, |expr| format!("{t2}{expr}"));
+    let mut dom_string = ctor.render_rust().map_or_else(
+        || {
+            let tag = safe_container_tag(&format!("{:?}", tag_to_node_type(&component_name)));
+            format!("{t2}Dom::create_node(NodeType::{tag})")
+        },
+        |expr| format!("{t2}{expr}"),
+    );
 
     matcher.path.push(node_type);
     let ids = node
@@ -6963,7 +7106,10 @@ fn compile_node_to_rust_code_inner(
             XmlNodeChild::Element(child_node) => {
                 if ctor.skip_caption()
                     && !caption_skipped
-                    && child_node.node_type.as_str().eq_ignore_ascii_case("caption")
+                    && child_node
+                        .node_type
+                        .as_str()
+                        .eq_ignore_ascii_case("caption")
                 {
                     caption_skipped = true;
                     return None;
@@ -7003,7 +7149,8 @@ fn compile_node_to_rust_code_inner(
         .join(",\r\n");
 
     if !children_string.is_empty() {
-        let _ = write!(dom_string,
+        let _ = write!(
+            dom_string,
             "\r\n{t2}.with_children(vec![\r\n{children_string}\r\n{t2}])"
         );
     }
@@ -7031,21 +7178,95 @@ const SAFE_CONTAINER_TAGS: &[&str] = &[
     // string compare against `{:?}`). Six used to be mis-cased — "Blockquote",
     // "Colgroup", "Figcaption", "Tbody", "Tfoot", "Thead" — so those tags silently
     // degraded to "Div".
-    "Abbr", "Acronym", "Address", "Article", "Aside", "B", "Bdi", "Bdo", "Big",
-    "BlockQuote", "Body", "Br", "Caption", "Cite", "Code", "ColGroup", "Dd",
-    "Del", "Dfn", "Dir", "Div", "Dl", "Dt", "Em", "Embed", "FigCaption",
-    "Figure", "Footer", "H1", "H2", "H3", "H4", "H5", "H6", "Head", "Header",
-    "Hr", "Html", "I", "Ins", "Kbd", "Li", "Link", "Main", "Map", "Mark",
-    "Meta", "Nav", "Object", "Ol", "P", "Pre", "Q", "Rp", "Rt", "Rtc", "Ruby",
-    "S", "Samp", "Script", "Section", "Small", "Span", "Strong", "Style", "Sub",
-    "Sup", "Svg", "TBody", "Td", "TFoot", "Th", "THead", "Title", "Tr", "U",
-    "Ul", "Var", "Wbr",
+    "Abbr",
+    "Acronym",
+    "Address",
+    "Article",
+    "Aside",
+    "B",
+    "Bdi",
+    "Bdo",
+    "Big",
+    "BlockQuote",
+    "Body",
+    "Br",
+    "Caption",
+    "Cite",
+    "Code",
+    "ColGroup",
+    "Dd",
+    "Del",
+    "Dfn",
+    "Dir",
+    "Div",
+    "Dl",
+    "Dt",
+    "Em",
+    "Embed",
+    "FigCaption",
+    "Figure",
+    "Footer",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "Head",
+    "Header",
+    "Hr",
+    "Html",
+    "I",
+    "Ins",
+    "Kbd",
+    "Li",
+    "Link",
+    "Main",
+    "Map",
+    "Mark",
+    "Meta",
+    "Nav",
+    "Object",
+    "Ol",
+    "P",
+    "Pre",
+    "Q",
+    "Rp",
+    "Rt",
+    "Rtc",
+    "Ruby",
+    "S",
+    "Samp",
+    "Script",
+    "Section",
+    "Small",
+    "Span",
+    "Strong",
+    "Style",
+    "Sub",
+    "Sup",
+    "Svg",
+    "TBody",
+    "Td",
+    "TFoot",
+    "Th",
+    "THead",
+    "Title",
+    "Tr",
+    "U",
+    "Ul",
+    "Var",
+    "Wbr",
 ];
 
 /// The CamelCase tag to actually emit a creator for: the tag itself if it has a
 /// zero-arg creator, else `"Div"`.
 fn safe_container_tag(tag_dbg: &str) -> &'static str {
-    SAFE_CONTAINER_TAGS.iter().copied().find(|t| *t == tag_dbg).unwrap_or("Div")
+    SAFE_CONTAINER_TAGS
+        .iter()
+        .copied()
+        .find(|t| *t == tag_dbg)
+        .unwrap_or("Div")
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -7112,7 +7333,9 @@ enum NodeCtor {
 /// spelling.
 fn cap_first(tag: &str) -> String {
     let mut c = tag.chars();
-    c.next().map_or_else(String::new, |f| f.to_uppercase().collect::<String>() + c.as_str())
+    c.next().map_or_else(String::new, |f| {
+        f.to_uppercase().collect::<String>() + c.as_str()
+    })
 }
 
 /// CamelCase → `snake_case` for the C++/Python/Rust method names
@@ -7160,7 +7383,11 @@ fn node_direct_text(node: &XmlNode) -> String {
         .filter_map(|c| match c {
             XmlNodeChild::Text(t) => {
                 let t = t.trim();
-                if t.is_empty() { None } else { Some(t.to_string()) }
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(t.to_string())
+                }
             }
             XmlNodeChild::Element(_) => None,
         })
@@ -7172,14 +7399,19 @@ fn node_direct_text(node: &XmlNode) -> String {
 fn node_aria_label(node: &XmlNode) -> Option<String> {
     node.attributes.get_key("aria-label").and_then(|v| {
         let v = v.as_str().trim();
-        if v.is_empty() { None } else { Some(v.to_string()) }
+        if v.is_empty() {
+            None
+        } else {
+            Some(v.to_string())
+        }
     })
 }
 
 /// Attribute value, or `default` when absent.
 fn node_attr_or(node: &XmlNode, key: &str, default: &str) -> String {
     node.attributes
-        .get_key(key).map_or_else(|| default.to_string(), |v| v.as_str().to_string())
+        .get_key(key)
+        .map_or_else(|| default.to_string(), |v| v.as_str().to_string())
 }
 
 /// Attribute parsed as `f32`, or `default` when absent / unparsable.
@@ -7196,7 +7428,11 @@ fn first_caption_text(node: &XmlNode) -> Option<String> {
         XmlNodeChild::Element(e) if e.node_type.as_str().eq_ignore_ascii_case("caption") => {
             let t = e.get_text_content();
             let t = t.trim();
-            if t.is_empty() { None } else { Some(t.to_string()) }
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
         }
         _ => None,
     })
@@ -7204,10 +7440,45 @@ fn first_caption_text(node: &XmlNode) -> Option<String> {
 
 /// Tags with a single-arg `create_<tag>_with_text(text)` constructor (Tier A).
 const WITH_TEXT_TAGS: &[&str] = &[
-    "acronym", "b", "bdi", "bdo", "big", "blockquote", "cite", "code", "del",
-    "dfn", "em", "h1", "h2", "h3", "h4", "h5", "h6", "i", "ins", "kbd", "li",
-    "mark", "p", "pre", "rp", "rt", "s", "samp", "small", "span", "strong",
-    "style", "sub", "sup", "td", "th", "title", "u", "var",
+    "acronym",
+    "b",
+    "bdi",
+    "bdo",
+    "big",
+    "blockquote",
+    "cite",
+    "code",
+    "del",
+    "dfn",
+    "em",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "i",
+    "ins",
+    "kbd",
+    "li",
+    "mark",
+    "p",
+    "pre",
+    "rp",
+    "rt",
+    "s",
+    "samp",
+    "small",
+    "span",
+    "strong",
+    "style",
+    "sub",
+    "sup",
+    "td",
+    "th",
+    "title",
+    "u",
+    "var",
 ];
 
 /// Pick the semantic constructor for `tag` (lowercase HTML tag) + `node`.
@@ -7243,8 +7514,8 @@ fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
 
     match tag {
         // Tier B — aria-only / void widgets.
-        "details" | "form" | "fieldset" | "legend" | "menu" | "output"
-        | "datalist" | "canvas" | "audio" | "video" | "area" => {
+        "details" | "form" | "fieldset" | "legend" | "menu" | "output" | "datalist" | "canvas"
+        | "audio" | "video" | "area" => {
             if has_aria {
                 sem(cap, vec![CtorArg::Aria(label)], false)
             } else {
@@ -7255,7 +7526,11 @@ fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
         "summary" => {
             if pure_text && has_text {
                 if has_aria {
-                    sem("SummaryWithText", vec![CtorArg::Str(text), CtorArg::Aria(label)], true)
+                    sem(
+                        "SummaryWithText",
+                        vec![CtorArg::Str(text), CtorArg::Aria(label)],
+                        true,
+                    )
                 } else {
                     sem("SummaryWithTextNoA11y", vec![CtorArg::Str(text)], true)
                 }
@@ -7269,7 +7544,11 @@ fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
         // Tier C — multi-arg widgets (args from HTML attributes).
         "button" => {
             if has_aria {
-                sem("Button", vec![CtorArg::Str(text), CtorArg::Aria(label)], true)
+                sem(
+                    "Button",
+                    vec![CtorArg::Str(text), CtorArg::Aria(label)],
+                    true,
+                )
             } else {
                 sem("ButtonNoA11y", vec![CtorArg::Str(text)], true)
             }
@@ -7277,57 +7556,130 @@ fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
         "a" => {
             let href = node_attr_or(node, "href", "");
             if has_aria {
-                sem("A", vec![CtorArg::Str(href), CtorArg::Str(text), CtorArg::Aria(label)], true)
+                sem(
+                    "A",
+                    vec![CtorArg::Str(href), CtorArg::Str(text), CtorArg::Aria(label)],
+                    true,
+                )
             } else {
-                let lbl = if has_text { CtorArg::OptSome(text) } else { CtorArg::OptNone };
+                let lbl = if has_text {
+                    CtorArg::OptSome(text)
+                } else {
+                    CtorArg::OptNone
+                };
                 sem("ANoA11y", vec![CtorArg::Str(href), lbl], true)
             }
         }
         "label" => {
             let for_id = node_attr_or(node, "for", "");
             if has_aria {
-                sem("Label", vec![CtorArg::Str(for_id), CtorArg::Str(text), CtorArg::Aria(label)], true)
+                sem(
+                    "Label",
+                    vec![
+                        CtorArg::Str(for_id),
+                        CtorArg::Str(text),
+                        CtorArg::Aria(label),
+                    ],
+                    true,
+                )
             } else {
-                sem("LabelNoA11y", vec![CtorArg::Str(for_id), CtorArg::Str(text)], true)
+                sem(
+                    "LabelNoA11y",
+                    vec![CtorArg::Str(for_id), CtorArg::Str(text)],
+                    true,
+                )
             }
         }
         "input" => {
             let ty = node_attr_or(node, "type", "text");
             let name = node_attr_or(node, "name", "");
             if has_aria {
-                sem("Input", vec![CtorArg::Str(ty), CtorArg::Str(name), CtorArg::Str(label.clone()), CtorArg::Aria(label)], false)
+                sem(
+                    "Input",
+                    vec![
+                        CtorArg::Str(ty),
+                        CtorArg::Str(name),
+                        CtorArg::Str(label.clone()),
+                        CtorArg::Aria(label),
+                    ],
+                    false,
+                )
             } else {
-                sem("InputNoA11y", vec![CtorArg::Str(ty), CtorArg::Str(name), CtorArg::Str(label)], false)
+                sem(
+                    "InputNoA11y",
+                    vec![CtorArg::Str(ty), CtorArg::Str(name), CtorArg::Str(label)],
+                    false,
+                )
             }
         }
         "textarea" => {
             let name = node_attr_or(node, "name", "");
             if has_aria {
-                sem("Textarea", vec![CtorArg::Str(name), CtorArg::Str(label.clone()), CtorArg::Aria(label)], false)
+                sem(
+                    "Textarea",
+                    vec![
+                        CtorArg::Str(name),
+                        CtorArg::Str(label.clone()),
+                        CtorArg::Aria(label),
+                    ],
+                    false,
+                )
             } else {
-                sem("TextareaNoA11y", vec![CtorArg::Str(name), CtorArg::Str(label)], false)
+                sem(
+                    "TextareaNoA11y",
+                    vec![CtorArg::Str(name), CtorArg::Str(label)],
+                    false,
+                )
             }
         }
         "select" => {
             let name = node_attr_or(node, "name", "");
             if has_aria {
-                sem("Select", vec![CtorArg::Str(name), CtorArg::Str(label.clone()), CtorArg::Aria(label)], false)
+                sem(
+                    "Select",
+                    vec![
+                        CtorArg::Str(name),
+                        CtorArg::Str(label.clone()),
+                        CtorArg::Aria(label),
+                    ],
+                    false,
+                )
             } else {
-                sem("SelectNoA11y", vec![CtorArg::Str(name), CtorArg::Str(label)], false)
+                sem(
+                    "SelectNoA11y",
+                    vec![CtorArg::Str(name), CtorArg::Str(label)],
+                    false,
+                )
             }
         }
         "option" => {
             let value = node_attr_or(node, "value", "");
             if has_aria {
-                sem("Option", vec![CtorArg::Str(value), CtorArg::Str(text), CtorArg::Aria(label)], true)
+                sem(
+                    "Option",
+                    vec![
+                        CtorArg::Str(value),
+                        CtorArg::Str(text),
+                        CtorArg::Aria(label),
+                    ],
+                    true,
+                )
             } else {
-                sem("OptionNoA11y", vec![CtorArg::Str(value), CtorArg::Str(text)], true)
+                sem(
+                    "OptionNoA11y",
+                    vec![CtorArg::Str(value), CtorArg::Str(text)],
+                    true,
+                )
             }
         }
         "optgroup" => {
             let lbl = node_attr_or(node, "label", "");
             if has_aria {
-                sem("Optgroup", vec![CtorArg::Str(lbl), CtorArg::Aria(label)], false)
+                sem(
+                    "Optgroup",
+                    vec![CtorArg::Str(lbl), CtorArg::Aria(label)],
+                    false,
+                )
             } else {
                 sem("OptgroupNoA11y", vec![CtorArg::Str(lbl)], false)
             }
@@ -7415,10 +7767,22 @@ impl CtorArg {
 
 impl NodeCtor {
     const fn consumes_text(&self) -> bool {
-        matches!(self, Self::Semantic { consumes_text: true, .. })
+        matches!(
+            self,
+            Self::Semantic {
+                consumes_text: true,
+                ..
+            }
+        )
     }
     const fn skip_caption(&self) -> bool {
-        matches!(self, Self::Semantic { skip_caption: true, .. })
+        matches!(
+            self,
+            Self::Semantic {
+                skip_caption: true,
+                ..
+            }
+        )
     }
     /// `Dom::create_…(args)` for Rust, or `None` for a plain container.
     fn render_rust(&self) -> Option<String> {
@@ -7427,7 +7791,10 @@ impl NodeCtor {
             Self::Semantic { suffix, args, .. } => Some(format!(
                 "Dom::create_{}({})",
                 camel_to_snake(suffix),
-                args.iter().map(CtorArg::render_rust).collect::<Vec<_>>().join(", ")
+                args.iter()
+                    .map(CtorArg::render_rust)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )),
         }
     }
@@ -7438,7 +7805,10 @@ impl NodeCtor {
             Self::Semantic { suffix, args, .. } => Some(format!(
                 "AzDom_create{}({})",
                 suffix,
-                args.iter().map(CtorArg::render_c).collect::<Vec<_>>().join(", ")
+                args.iter()
+                    .map(CtorArg::render_c)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )),
         }
     }
@@ -7489,7 +7859,9 @@ const CPP_SYNTAX: FluentSyntax = FluentSyntax {
     // — `NodeType` is a tagged union, so `create_node` would need union
     // construction; the per-tag creators exist for every common HTML element.
     create_node: |tag| alloc::format!("Dom::create_{}()", tag.to_lowercase()),
-    create_text: |s| alloc::format!("Dom::create_text_do_not_use_without_block_level_wrapper(String(\"{s}\"))"),
+    create_text: |s| {
+        alloc::format!("Dom::create_text_do_not_use_without_block_level_wrapper(String(\"{s}\"))")
+    },
     with_css: |s| alloc::format!(".with_css(String(\"{s}\"))"),
     with_class: |s| alloc::format!(".with_class(String(\"{s}\"))"),
     with_id: |s| alloc::format!(".with_id(String(\"{s}\"))"),
@@ -7500,7 +7872,9 @@ const PYTHON_SYNTAX: FluentSyntax = FluentSyntax {
     target: CompileTarget::Python,
     // Per-tag creators (azul.Dom.create_div(), …) — see CPP_SYNTAX note.
     create_node: |tag| alloc::format!("azul.Dom.create_{}()", tag.to_lowercase()),
-    create_text: |s| alloc::format!("azul.Dom.create_text_do_not_use_without_block_level_wrapper(\"{s}\")"),
+    create_text: |s| {
+        alloc::format!("azul.Dom.create_text_do_not_use_without_block_level_wrapper(\"{s}\")")
+    },
     with_css: |s| alloc::format!(".with_css(\"{s}\")"),
     with_class: |s| alloc::format!(".with_class(\"{s}\")"),
     with_id: |s| alloc::format!(".with_id(\"{s}\")"),
@@ -7509,7 +7883,8 @@ const PYTHON_SYNTAX: FluentSyntax = FluentSyntax {
 
 /// Walk one element node, emitting a fluent create-expression for `syntax`'s
 /// language. Mirrors `compile_node_to_rust_code_inner` but token-parameterized.
-#[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+#[allow(clippy::result_large_err)]
+// returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 // See compile_node_to_rust_code_inner: component_map is forwarded for codegen-path parity.
 #[allow(clippy::only_used_in_recursion)]
 fn compile_node_fluent(
@@ -7532,17 +7907,38 @@ fn compile_node_fluent(
     // Interactive/data tags (whose creators need args) fall back to `div`. Any
     // element text shows up as a Text child below and is handled there.
     let ctor = analyze_node_ctor(&component_name, node);
-    let mut s = ctor.render_fluent(&syntax.target).map_or_else(|| (syntax.create_node)(safe_container_tag(&tag_dbg)), |expr| expr);
+    let mut s = ctor.render_fluent(&syntax.target).map_or_else(
+        || (syntax.create_node)(safe_container_tag(&tag_dbg)),
+        |expr| expr,
+    );
 
     matcher.path.push(CssPathSelector::Type(node_type_tag));
-    let ids: Vec<String> = node.attributes.get_key("id")
-        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
+    let ids: Vec<String> = node
+        .attributes
+        .get_key("id")
+        .map(|v| {
+            v.split_whitespace()
+                .map(alloc::string::ToString::to_string)
+                .collect()
+        })
         .unwrap_or_default();
-    matcher.path.extend(ids.iter().map(|id| CssPathSelector::Id(id.clone().into())));
-    let classes: Vec<String> = node.attributes.get_key("class")
-        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
+    matcher
+        .path
+        .extend(ids.iter().map(|id| CssPathSelector::Id(id.clone().into())));
+    let classes: Vec<String> = node
+        .attributes
+        .get_key("class")
+        .map(|v| {
+            v.split_whitespace()
+                .map(alloc::string::ToString::to_string)
+                .collect()
+        })
         .unwrap_or_default();
-    matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
+    matcher.path.extend(
+        classes
+            .iter()
+            .map(|c| CssPathSelector::Class(c.clone().into())),
+    );
 
     // Inline CSS (matched rules -> `.with_css("..")`, pseudo blocks included).
     let blocks = get_css_blocks(css, &matcher);
@@ -7554,10 +7950,14 @@ fn compile_node_fluent(
         }
     }
     for id in &ids {
-        s.push_str(&(syntax.with_id)(&id.replace('\\', "\\\\").replace('"', "\\\"")));
+        s.push_str(&(syntax.with_id)(
+            &id.replace('\\', "\\\\").replace('"', "\\\""),
+        ));
     }
     for class in &classes {
-        s.push_str(&(syntax.with_class)(&class.replace('\\', "\\\\").replace('"', "\\\"")));
+        s.push_str(&(syntax.with_class)(
+            &class.replace('\\', "\\\\").replace('"', "\\\""),
+        ));
     }
 
     // Children (chained `.with_child(..)`). Text folded into the ctor (Tier A/C)
@@ -7568,7 +7968,10 @@ fn compile_node_fluent(
             XmlNodeChild::Element(child_node) => {
                 if ctor.skip_caption()
                     && !caption_skipped
-                    && child_node.node_type.as_str().eq_ignore_ascii_case("caption")
+                    && child_node
+                        .node_type
+                        .as_str()
+                        .eq_ignore_ascii_case("caption")
                 {
                     caption_skipped = true;
                     continue;
@@ -7607,10 +8010,20 @@ fn compile_body_fluent<'a>(
 ) -> Result<String, CompileError> {
     let mut s = (syntax.create_node)("Body");
     matcher.path.push(CssPathSelector::Type(NodeTypeTag::Body));
-    let classes: Vec<String> = body_node.attributes.get_key("class")
-        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
+    let classes: Vec<String> = body_node
+        .attributes
+        .get_key("class")
+        .map(|v| {
+            v.split_whitespace()
+                .map(alloc::string::ToString::to_string)
+                .collect()
+        })
         .unwrap_or_default();
-    matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
+    matcher.path.extend(
+        classes
+            .iter()
+            .map(|c| CssPathSelector::Class(c.clone().into())),
+    );
 
     let blocks = get_css_blocks(css, &matcher);
     if !blocks.is_empty() {
@@ -7621,7 +8034,9 @@ fn compile_body_fluent<'a>(
         }
     }
     for class in &classes {
-        s.push_str(&(syntax.with_class)(&class.replace('\\', "\\\\").replace('"', "\\\"")));
+        s.push_str(&(syntax.with_class)(
+            &class.replace('\\', "\\\\").replace('"', "\\\""),
+        ));
     }
 
     for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
@@ -7649,9 +8064,7 @@ fn compile_body_fluent<'a>(
 /// Parse the page's `<style>` and seed a matcher rooted at `<body>`. Shared by
 /// the C++/Python/C entry points (mirrors the head of `str_to_rust_code`).
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-fn parse_page_style_and_body(
-    root_nodes: &[XmlNodeChild],
-) -> Result<(Css, &XmlNode), CompileError> {
+fn parse_page_style_and_body(root_nodes: &[XmlNodeChild]) -> Result<(Css, &XmlNode), CompileError> {
     let html_node = get_html_node(root_nodes)?;
     let body_node = get_body_node(html_node.children.as_ref())?;
     let mut global_style = Css::empty();
@@ -7685,7 +8098,13 @@ pub fn str_to_cpp_code<'a>(
     component_map: &'a ComponentMap,
 ) -> Result<String, CompileError> {
     let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
-    let render = compile_body_fluent(body_node, &CPP_SYNTAX, component_map, &global_style, body_matcher(body_node))?;
+    let render = compile_body_fluent(
+        body_node,
+        &CPP_SYNTAX,
+        component_map,
+        &global_style,
+        body_matcher(body_node),
+    )?;
     Ok(alloc::format!(
         "// Auto-generated UI source code (C++). Build:\n\
          //   clang++ -std=c++20 -I <azul>/target/codegen main.cpp -lazul\n\
@@ -7713,7 +8132,13 @@ pub fn str_to_python_code<'a>(
     component_map: &'a ComponentMap,
 ) -> Result<String, CompileError> {
     let (global_style, body_node) = parse_page_style_and_body(root_nodes)?;
-    let render = compile_body_fluent(body_node, &PYTHON_SYNTAX, component_map, &global_style, body_matcher(body_node))?;
+    let render = compile_body_fluent(
+        body_node,
+        &PYTHON_SYNTAX,
+        component_map,
+        &global_style,
+        body_matcher(body_node),
+    )?;
     Ok(alloc::format!(
         "# Auto-generated UI source code (Python). Run: python3 main.py\n\
          import azul\n\n\
@@ -7740,10 +8165,13 @@ pub fn str_to_python_code<'a>(
 /// matching `AzDom_create<Suffix>` in azul.h.
 fn c_creator_suffix(tag_dbg: &str) -> String {
     let mut chars = tag_dbg.chars();
-    chars.next().map_or_else(|| "Div".to_string(), |first| {
+    chars.next().map_or_else(
+        || "Div".to_string(),
+        |first| {
             let rest: String = chars.as_str().to_lowercase();
             alloc::format!("{first}{rest}")
-        })
+        },
+    )
 }
 
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
@@ -7764,23 +8192,46 @@ fn compile_node_c(
     *counter += 1;
     let ctor = analyze_node_ctor(&component_name, node);
     match ctor.render_c() {
-        Some(expr) => { let _ = writeln!(out, "    AzDom {var} = {expr};"); },
-        None => { let _ = writeln!(out,
-            "    AzDom {} = AzDom_create{}();",
-            var,
-            c_creator_suffix(safe_container_tag(&tag_dbg))
-        ); },
+        Some(expr) => {
+            let _ = writeln!(out, "    AzDom {var} = {expr};");
+        }
+        None => {
+            let _ = writeln!(
+                out,
+                "    AzDom {} = AzDom_create{}();",
+                var,
+                c_creator_suffix(safe_container_tag(&tag_dbg))
+            );
+        }
     }
 
     matcher.path.push(CssPathSelector::Type(node_type_tag));
-    let ids: Vec<String> = node.attributes.get_key("id")
-        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
+    let ids: Vec<String> = node
+        .attributes
+        .get_key("id")
+        .map(|v| {
+            v.split_whitespace()
+                .map(alloc::string::ToString::to_string)
+                .collect()
+        })
         .unwrap_or_default();
-    matcher.path.extend(ids.iter().map(|id| CssPathSelector::Id(id.clone().into())));
-    let classes: Vec<String> = node.attributes.get_key("class")
-        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
+    matcher
+        .path
+        .extend(ids.iter().map(|id| CssPathSelector::Id(id.clone().into())));
+    let classes: Vec<String> = node
+        .attributes
+        .get_key("class")
+        .map(|v| {
+            v.split_whitespace()
+                .map(alloc::string::ToString::to_string)
+                .collect()
+        })
         .unwrap_or_default();
-    matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
+    matcher.path.extend(
+        classes
+            .iter()
+            .map(|c| CssPathSelector::Class(c.clone().into())),
+    );
 
     let blocks = get_css_blocks(css, &matcher);
     if !blocks.is_empty() {
@@ -7796,7 +8247,10 @@ fn compile_node_c(
     }
     for class in &classes {
         let esc = class.replace('\\', "\\\\").replace('"', "\\\"");
-        let _ = writeln!(out, "    {var} = AzDom_withClass({var}, AZ_STR(\"{esc}\"));");
+        let _ = writeln!(
+            out,
+            "    {var} = AzDom_withClass({var}, AZ_STR(\"{esc}\"));"
+        );
     }
 
     let mut caption_skipped = false;
@@ -7805,7 +8259,10 @@ fn compile_node_c(
             XmlNodeChild::Element(child_node) => {
                 if ctor.skip_caption()
                     && !caption_skipped
-                    && child_node.node_type.as_str().eq_ignore_ascii_case("caption")
+                    && child_node
+                        .node_type
+                        .as_str()
+                        .eq_ignore_ascii_case("caption")
                 {
                     caption_skipped = true;
                     continue;
@@ -7854,16 +8311,29 @@ pub fn str_to_c_code<'a>(
 
     let mut matcher = body_matcher(body_node);
     matcher.path.push(CssPathSelector::Type(NodeTypeTag::Body));
-    let classes: Vec<String> = body_node.attributes.get_key("class")
-        .map(|v| v.split_whitespace().map(alloc::string::ToString::to_string).collect())
+    let classes: Vec<String> = body_node
+        .attributes
+        .get_key("class")
+        .map(|v| {
+            v.split_whitespace()
+                .map(alloc::string::ToString::to_string)
+                .collect()
+        })
         .unwrap_or_default();
-    matcher.path.extend(classes.iter().map(|c| CssPathSelector::Class(c.clone().into())));
+    matcher.path.extend(
+        classes
+            .iter()
+            .map(|c| CssPathSelector::Class(c.clone().into())),
+    );
     let blocks = get_css_blocks(&global_style, &matcher);
     if !blocks.is_empty() {
         let inline_css = css_blocks_to_inline_string(&blocks);
         if !inline_css.is_empty() {
             let esc = inline_css.replace('\\', "\\\\").replace('"', "\\\"");
-            let _ = writeln!(body, "    {root} = AzDom_withCss({root}, AZ_STR(\"{esc}\"));");
+            let _ = writeln!(
+                body,
+                "    {root} = AzDom_withCss({root}, AZ_STR(\"{esc}\"));"
+            );
         }
     }
     for (child_idx, child) in body_node.children.as_ref().iter().enumerate() {
@@ -7873,7 +8343,14 @@ pub fn str_to_c_code<'a>(
                 m.path.push(CssPathSelector::Children);
                 m.indices_in_parent.push(child_idx);
                 m.children_length.push(body_node.children.len());
-                let child_var = compile_node_c(child_node, component_map, &global_style, m, &mut counter, &mut body)?;
+                let child_var = compile_node_c(
+                    child_node,
+                    component_map,
+                    &global_style,
+                    m,
+                    &mut counter,
+                    &mut body,
+                )?;
                 let _ = writeln!(body, "    AzDom_addChild(&{root}, {child_var});");
             }
             XmlNodeChild::Text(text) => {
@@ -7906,7 +8383,6 @@ pub fn str_to_c_code<'a>(
          return 0;\n}}\n"
     ))
 }
-
 
 #[cfg(test)]
 #[path = "xml_test.rs"]

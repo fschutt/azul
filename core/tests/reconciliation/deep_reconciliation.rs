@@ -19,18 +19,16 @@
 //     a hierarchy-aware match so the same node on both sides is found)
 //   - Keyed-component Update firing (the `matched_by_rec_key` path)
 
+use azul_core::callbacks::CoreCallback;
 use azul_core::diff::reconcile_dom;
 use azul_core::dom::{Dom, DomId, NodeData};
-use azul_core::events::{
-    ComponentEventFilter, EventData, EventFilter, EventType, LifecycleReason,
-};
+use azul_core::events::{ComponentEventFilter, EventData, EventFilter, EventType, LifecycleReason};
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use azul_core::id::NodeId;
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_core::styled_dom::{convert_dom_into_compact_dom, NodeHierarchyItem};
 use azul_core::task::Instant;
 use azul_core::OrderedMap;
-use azul_core::callbacks::CoreCallback;
 
 // The function pointer identity doesn't matter for `reconcile_dom` — only the
 // presence of a callback with `EventFilter::Component(...)` on the node is
@@ -38,7 +36,10 @@ use azul_core::callbacks::CoreCallback;
 // `0` as the sentinel because CoreCallback.cb is a `usize` (raw fn pointer
 // smuggled across the azul-core / azul-layout boundary) — see callbacks.rs:762.
 fn noop_core_callback() -> CoreCallback {
-    CoreCallback { cb: 0usize, ctx: OptionRefAny::None }
+    CoreCallback {
+        cb: 0usize,
+        ctx: OptionRefAny::None,
+    }
 }
 
 fn lifecycle_cb(filter: ComponentEventFilter) -> impl Fn(NodeData) -> NodeData {
@@ -85,8 +86,12 @@ fn deep_nested_mount_produces_mount_events_for_each_new_node() {
 
     let mount_cb = lifecycle_cb(ComponentEventFilter::AfterMount);
     let new_dom = Dom::create_from_data(NodeData::create_div())
-        .with_child(Dom::create_from_data(mount_cb(NodeData::create_text_do_not_use_without_block_level_wrapper("inner1"))))
-        .with_child(Dom::create_from_data(mount_cb(NodeData::create_text_do_not_use_without_block_level_wrapper("inner2"))));
+        .with_child(Dom::create_from_data(mount_cb(
+            NodeData::create_text_do_not_use_without_block_level_wrapper("inner1"),
+        )))
+        .with_child(Dom::create_from_data(mount_cb(
+            NodeData::create_text_do_not_use_without_block_level_wrapper("inner2"),
+        )));
 
     let (old_nd, old_hier) = flatten(old_dom);
     let (new_nd, new_hier) = flatten(new_dom);
@@ -115,7 +120,10 @@ fn deep_nested_mount_produces_mount_events_for_each_new_node() {
     );
     for ev in mount_events {
         let EventData::Lifecycle(data) = &ev.data else {
-            panic!("mount event must carry EventData::Lifecycle, got {:?}", ev.data);
+            panic!(
+                "mount event must carry EventData::Lifecycle, got {:?}",
+                ev.data
+            );
         };
         assert_eq!(data.reason, LifecycleReason::InitialMount);
     }
@@ -129,8 +137,11 @@ fn deep_nested_unmount_fires_for_removed_subtree_root_only() {
     // walker respects `has_unmount_callback`.
     let unmount_cb = lifecycle_cb(ComponentEventFilter::BeforeUnmount);
     let old_dom = Dom::create_from_data(NodeData::create_div()).with_child(
-        Dom::create_from_data(unmount_cb(NodeData::create_div()))
-            .with_child(Dom::create_from_data(NodeData::create_text_do_not_use_without_block_level_wrapper("leaf"))),
+        Dom::create_from_data(unmount_cb(NodeData::create_div())).with_child(
+            Dom::create_from_data(
+                NodeData::create_text_do_not_use_without_block_level_wrapper("leaf"),
+            ),
+        ),
     );
     let new_dom = Dom::create_from_data(NodeData::create_div());
 
@@ -153,7 +164,11 @@ fn deep_nested_unmount_fires_for_removed_subtree_root_only() {
         .iter()
         .filter(|e| e.event_type == EventType::Unmount)
         .collect();
-    assert_eq!(unmounts.len(), 1, "exactly one node had an unmount callback");
+    assert_eq!(
+        unmounts.len(),
+        1,
+        "exactly one node had an unmount callback"
+    );
     let EventData::Lifecycle(data) = &unmounts[0].data else {
         panic!("unmount event must carry EventData::Lifecycle");
     };
@@ -174,8 +189,8 @@ fn nth_of_type_distinguishes_siblings_of_same_type() {
     let old_dom = Dom::create_from_data(NodeData::create_div())
         .with_child(Dom::create_from_data(unmount_cb(NodeData::create_div())))
         .with_child(Dom::create_from_data(unmount_cb(NodeData::create_div())));
-    let new_dom =
-        Dom::create_from_data(NodeData::create_div()).with_child(Dom::create_from_data(unmount_cb(NodeData::create_div())));
+    let new_dom = Dom::create_from_data(NodeData::create_div())
+        .with_child(Dom::create_from_data(unmount_cb(NodeData::create_div())));
 
     let (old_nd, old_hier) = flatten(old_dom);
     let (new_nd, new_hier) = flatten(new_dom);
@@ -198,7 +213,11 @@ fn nth_of_type_distinguishes_siblings_of_same_type() {
         .iter()
         .filter(|e| e.event_type == EventType::Unmount)
         .collect();
-    assert_eq!(unmounts.len(), 1, "one of the two identical siblings must unmount");
+    assert_eq!(
+        unmounts.len(),
+        1,
+        "one of the two identical siblings must unmount"
+    );
 
     // The survivor should be the FIRST old child (index 1 in old tree: root=0,
     // first child=1, second child=2). It matched the new tree's only child
@@ -245,12 +264,16 @@ fn identical_leaves_under_different_parents_do_not_match() {
             .with_child(
                 Dom::create_from_data(NodeData::create_div())
                     .with_class("X".into())
-                    .with_child(Dom::create_from_data(mount_cb(NodeData::create_text_do_not_use_without_block_level_wrapper("leaf")))),
+                    .with_child(Dom::create_from_data(mount_cb(
+                        NodeData::create_text_do_not_use_without_block_level_wrapper("leaf"),
+                    ))),
             )
             .with_child(
                 Dom::create_from_data(NodeData::create_div())
                     .with_class("Y".into())
-                    .with_child(Dom::create_from_data(mount_cb(NodeData::create_text_do_not_use_without_block_level_wrapper("leaf")))),
+                    .with_child(Dom::create_from_data(mount_cb(
+                        NodeData::create_text_do_not_use_without_block_level_wrapper("leaf"),
+                    ))),
             )
     };
 
@@ -302,8 +325,9 @@ fn deep_resize_event_fires_when_bounds_change_on_matched_node() {
     let resize_cb = lifecycle_cb(ComponentEventFilter::NodeResized);
 
     let build = |label: &str| -> Dom {
-        Dom::create_from_data(NodeData::create_div())
-            .with_child(Dom::create_from_data(resize_cb(NodeData::create_text_do_not_use_without_block_level_wrapper(label))))
+        Dom::create_from_data(NodeData::create_div()).with_child(Dom::create_from_data(resize_cb(
+            NodeData::create_text_do_not_use_without_block_level_wrapper(label),
+        )))
     };
 
     let (old_nd, old_hier) = flatten(build("content"));
@@ -314,11 +338,17 @@ fn deep_resize_event_fires_when_bounds_change_on_matched_node() {
     let mut new_layout = zero_layout(new_nd.len());
     old_layout.insert(
         NodeId::new(1),
-        LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(100.0, 20.0)),
+        LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(100.0, 20.0),
+        ),
     );
     new_layout.insert(
         NodeId::new(1),
-        LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(200.0, 20.0)),
+        LogicalRect::new(
+            LogicalPosition::new(0.0, 0.0),
+            LogicalSize::new(200.0, 20.0),
+        ),
     );
 
     let result = reconcile_dom(

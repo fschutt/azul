@@ -2,8 +2,8 @@
 
 #![allow(dead_code)]
 
-use azul_core::dom::*;
 use azul_core::callbacks::*;
+use azul_core::dom::*;
 use azul_core::refany::RefAny;
 use azul_core::styled_dom::*;
 
@@ -11,9 +11,11 @@ use azul_core::styled_dom::*;
 fn print_layout_sizes() {
     println!();
     println!("=== Layout-phase struct sizes (bytes) ===");
-    macro_rules! s { ($t:ty) => {
-        println!("  {:>5}  {}", core::mem::size_of::<$t>(), stringify!($t));
-    }}
+    macro_rules! s {
+        ($t:ty) => {
+            println!("  {:>5}  {}", core::mem::size_of::<$t>(), stringify!($t));
+        };
+    }
     println!();
     println!("Tree shape:");
     s!(Dom);

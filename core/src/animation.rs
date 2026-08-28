@@ -778,7 +778,6 @@ where
     seeded
 }
 
-
 #[cfg(test)]
 #[path = "animation_test.rs"]
 mod animation_test;

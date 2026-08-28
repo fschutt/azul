@@ -10,11 +10,11 @@
 // - text_reconciliation: Text content change detection + cursor adjustment
 // - dom_reconciliation:  Full DOM reconciliation with change tracking
 
-mod node_change_set;
 mod change_accumulator;
-mod fingerprint;
 mod css_scope;
+mod deep_reconciliation;
+mod dom_reconciliation;
+mod fingerprint;
+mod node_change_set;
 mod state_preservation;
 mod text_reconciliation;
-mod dom_reconciliation;
-mod deep_reconciliation;

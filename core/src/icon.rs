@@ -795,7 +795,6 @@ fn icon_spec_of(dom: &Dom) -> Option<AzString> {
 
 impl_option!(IconProviderHandle, OptionIconProviderHandle, [Clone]);
 
-
 #[cfg(test)]
 #[path = "icon_test.rs"]
 mod icon_test;

@@ -2195,7 +2195,6 @@ fn encode_flex_basis(val: &CssPropertyValue<LayoutFlexBasis>) -> u32 {
     }
 }
 
-
 #[cfg(test)]
 #[path = "compact_test.rs"]
 mod compact_test;

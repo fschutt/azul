@@ -2,8 +2,8 @@
 /// are correctly resolved through the cascade pipeline.
 use azul_core::dom::{Dom, NodeType};
 use azul_core::styled_dom::StyledDom;
-use azul_css::css::Css;
 use azul_css::compact_cache::*;
+use azul_css::css::Css;
 
 /// Helper: create StyledDom from Dom + CSS string
 fn styled(dom: Dom, css_str: &str) -> StyledDom {
@@ -18,18 +18,35 @@ fn styled(dom: Dom, css_str: &str) -> StyledDom {
 
 /// Read display from compact cache for a given node index
 fn get_display(styled: &StyledDom, idx: usize) -> u8 {
-    let cache = styled.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let cache = styled
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .unwrap();
     ((cache.tier1_enums[idx] >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8
 }
 
 /// Read font_size from compact cache
 fn get_font_size_u32(styled: &StyledDom, idx: usize) -> u32 {
-    styled.css_property_cache.ptr.compact_cache.as_ref().unwrap().tier2_dims[idx].font_size
+    styled
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .unwrap()
+        .tier2_dims[idx]
+        .font_size
 }
 
 /// Read font_weight from compact tier1
 fn get_font_weight(styled: &StyledDom, idx: usize) -> u8 {
-    let cache = styled.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let cache = styled
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .unwrap();
     ((cache.tier1_enums[idx] >> FONT_WEIGHT_SHIFT) & FONT_WEIGHT_MASK) as u8
 }
 
@@ -40,11 +57,11 @@ fn get_font_weight(styled: &StyledDom, idx: usize) -> u8 {
 #[test]
 fn test_h1_display_block_from_ua() {
     // H1 should get display:block from UA CSS even without any author CSS
-    let dom = Dom::create_html().with_child(
-        Dom::create_body().with_child(
-            Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("heading"))
-        )
-    );
+    let dom = Dom::create_html().with_child(Dom::create_body().with_child(
+        Dom::create_node(NodeType::H1).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("heading"),
+        ),
+    ));
     let s = styled(dom, "");
     // node 0 = Html, 1 = Body, 2 = H1, 3 = text
     assert_eq!(get_display(&s, 0), 0, "Html should be display:block (0)");
@@ -57,8 +74,12 @@ fn test_h1_display_block_from_ua() {
 fn test_div_block_span_inline_from_ua() {
     let dom = Dom::create_html().with_child(
         Dom::create_body()
-            .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("div")))
-            .with_child(Dom::create_node(NodeType::Span).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("span")))
+            .with_child(Dom::create_div().with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("div"),
+            ))
+            .with_child(Dom::create_node(NodeType::Span).with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("span"),
+            )),
     );
     let s = styled(dom, "");
     // 0=Html, 1=Body, 2=Div, 3=text, 4=Span, 5=text
@@ -70,13 +91,17 @@ fn test_div_block_span_inline_from_ua() {
 fn test_h1_bold_from_ua() {
     let dom = Dom::create_html().with_child(
         Dom::create_body().with_child(
-            Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("h"))
-        )
+            Dom::create_node(NodeType::H1)
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("h")),
+        ),
     );
     let s = styled(dom, "");
     // font_weight bold = style_font_weight_to_u8(Bold) = 6
     let h1_fw = get_font_weight(&s, 2);
-    assert_eq!(h1_fw, 6, "H1 should have font-weight:bold (6) from UA, got {h1_fw}");
+    assert_eq!(
+        h1_fw, 6,
+        "H1 should have font-weight:bold (6) from UA, got {h1_fw}"
+    );
 }
 
 #[test]
@@ -84,8 +109,9 @@ fn test_h1_font_size_from_ua() {
     // H1 should get font-size: 2em from UA CSS
     let dom = Dom::create_html().with_child(
         Dom::create_body().with_child(
-            Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("h"))
-        )
+            Dom::create_node(NodeType::H1)
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("h")),
+        ),
     );
     let s = styled(dom, "");
     let h1_fs = get_font_size_u32(&s, 2);
@@ -96,7 +122,10 @@ fn test_h1_font_size_from_ua() {
     // encode_pixel_value_u32: (32000 << 4) | 0 = 512000
     assert_ne!(h1_fs, 0, "H1 font-size should not be 0 (unset)");
     let decoded = decode_pixel_value_u32(h1_fs);
-    assert!(decoded.is_some(), "H1 font-size should decode to a valid PixelValue");
+    assert!(
+        decoded.is_some(),
+        "H1 font-size should decode to a valid PixelValue"
+    );
     let pv = decoded.unwrap();
     let resolved_px = pv.number.get();
     assert!(
@@ -111,26 +140,33 @@ fn test_h1_font_size_from_ua() {
 
 #[test]
 fn test_author_css_display_flex_overrides_ua_block() {
-    let dom = Dom::create_html().with_child(
-        Dom::create_body().with_child(
-            Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("flex"))
-        )
-    );
+    let dom =
+        Dom::create_html().with_child(Dom::create_body().with_child(Dom::create_div().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("flex"),
+        )));
     let s = styled(dom, "div { display: flex; }");
     // Div should now be flex (4) instead of block (1)
-    assert_eq!(get_display(&s, 2), 3, "Div should be display:flex (3) from author CSS");
+    assert_eq!(
+        get_display(&s, 2),
+        3,
+        "Div should be display:flex (3) from author CSS"
+    );
 }
 
 #[test]
 fn test_global_star_doesnt_override_ua_display() {
     // `* { margin: 0; }` should NOT change display (it doesn't set display)
-    let dom = Dom::create_html().with_child(
-        Dom::create_body().with_child(
-            Dom::create_node(NodeType::H1).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("h1"))
-        )
-    );
+    let dom = Dom::create_html().with_child(Dom::create_body().with_child(
+        Dom::create_node(NodeType::H1).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("h1"),
+        ),
+    ));
     let s = styled(dom, "* { margin: 0; padding: 0; }");
-    assert_eq!(get_display(&s, 2), 0, "H1 should still be display:block after * reset");
+    assert_eq!(
+        get_display(&s, 2),
+        0,
+        "H1 should still be display:block after * reset"
+    );
 }
 
 // ===================================================================
@@ -141,38 +177,48 @@ fn test_global_star_doesnt_override_ua_display() {
 fn test_font_weight_inherits_from_parent() {
     // Parent sets font-weight:bold, child should inherit
     use azul_css::dynamic_selector::CssPropertyWithConditions;
-    use azul_css::props::property::CssProperty;
     use azul_css::props::basic::StyleFontWeight;
+    use azul_css::props::property::CssProperty;
 
     let dom = Dom::create_html().with_child(
         Dom::create_body()
-            .with_css_props(vec![
-                CssPropertyWithConditions::simple(
-                    CssProperty::font_weight(StyleFontWeight::Bold)
-                )
-            ].into())
-            .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("child")))
+            .with_css_props(
+                vec![CssPropertyWithConditions::simple(CssProperty::font_weight(
+                    StyleFontWeight::Bold,
+                ))]
+                .into(),
+            )
+            .with_child(Dom::create_div().with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("child"),
+            )),
     );
     let s = styled(dom, "");
     // 0=Html, 1=Body (bold), 2=Div, 3=text
     let body_fw = get_font_weight(&s, 1);
     let div_fw = get_font_weight(&s, 2);
     assert_eq!(body_fw, 6, "Body should have font-weight:bold (6)");
-    assert_eq!(div_fw, 6, "Div should inherit font-weight:bold (6) from body, got {div_fw}");
+    assert_eq!(
+        div_fw, 6,
+        "Div should inherit font-weight:bold (6) from body, got {div_fw}"
+    );
 }
 
 #[test]
 fn test_display_does_not_inherit() {
     // Body is display:block, but a Span child should NOT inherit block
-    let dom = Dom::create_html().with_child(
-        Dom::create_body().with_child(
-            Dom::create_node(NodeType::Span).with_child(Dom::create_text_do_not_use_without_block_level_wrapper("span"))
-        )
-    );
+    let dom = Dom::create_html().with_child(Dom::create_body().with_child(
+        Dom::create_node(NodeType::Span).with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("span"),
+        ),
+    ));
     let s = styled(dom, "");
     assert_eq!(get_display(&s, 1), 0, "Body should be block");
     // Span gets display:inline from UA, NOT inherited block from body
-    assert_eq!(get_display(&s, 2), 1, "Span should be display:inline (1), not inherited block");
+    assert_eq!(
+        get_display(&s, 2),
+        1,
+        "Span should be display:inline (1), not inherited block"
+    );
 }
 
 // ===================================================================
@@ -182,27 +228,40 @@ fn test_display_does_not_inherit() {
 #[test]
 fn test_inline_css_overrides_stylesheet() {
     use azul_css::dynamic_selector::CssPropertyWithConditions;
-    use azul_css::props::property::CssProperty;
     use azul_css::props::basic::pixel::PixelValue;
+    use azul_css::props::property::CssProperty;
 
     // Stylesheet says div { width: 100px }, inline says width: 200px
     let dom = Dom::create_html().with_child(
         Dom::create_body().with_child(
             Dom::create_div()
-                .with_css_props(vec![
-                    CssPropertyWithConditions::simple(
-                        CssProperty::width(azul_css::props::layout::LayoutWidth::Px(PixelValue::px(200.0)))
-                    )
-                ].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("wide"))
-        )
+                .with_css_props(
+                    vec![CssPropertyWithConditions::simple(CssProperty::width(
+                        azul_css::props::layout::LayoutWidth::Px(PixelValue::px(200.0)),
+                    ))]
+                    .into(),
+                )
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "wide",
+                )),
+        ),
     );
     let s = styled(dom, "div { width: 100px; }");
-    let w = s.css_property_cache.ptr.compact_cache.as_ref().unwrap().tier2_dims[2].width;
+    let w = s
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .unwrap()
+        .tier2_dims[2]
+        .width;
     // 200px should win over 100px (inline > stylesheet)
     // decode: metric = w & 0xF (Px=0), value = (w >> 4) as i32
     let value = (w >> 4) as i32;
-    assert_eq!(value, 200000, "Width should be 200px (200000), got {value} (inline should override stylesheet)");
+    assert_eq!(
+        value, 200000,
+        "Width should be 200px (200000), got {value} (inline should override stylesheet)"
+    );
 }
 
 // ===================================================================
@@ -217,8 +276,10 @@ fn test_background_color_via_class_selector() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("red".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("red bg"))
-        )
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "red bg",
+                )),
+        ),
     );
     let s = styled(dom, ".red { background-color: #ff0000; }");
 
@@ -241,18 +302,20 @@ fn test_background_color_via_class_selector() {
 /// Helper: create a styled dom with a body child div that has the given CSS
 fn styled_div_with_css(css: &str) -> StyledDom {
     use azul_core::dom::IdOrClass;
-    let dom = Dom::create_html().with_child(
-        Dom::create_body().with_child(
-            Dom::create_div()
-                .with_ids_and_classes(vec![IdOrClass::Class("t".into())].into())
-        )
-    );
+    let dom = Dom::create_html().with_child(Dom::create_body().with_child(
+        Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("t".into())].into()),
+    ));
     styled(dom, css)
 }
 
 /// Read a compact i16 field and decode to f32 px value (÷10)
 fn read_compact_i16_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
-    let cc = styled.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let cc = styled
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .unwrap();
     let d = &cc.tier2_dims[idx];
     let raw = match field {
         "padding_top" => d.padding_top,
@@ -278,7 +341,12 @@ fn read_compact_i16_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
 
 /// Read a compact u32 width/height field and decode to f32 px value
 fn read_compact_u32_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
-    let cc = styled.css_property_cache.ptr.compact_cache.as_ref().unwrap();
+    let cc = styled
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .unwrap();
     let d = &cc.tier2_dims[idx];
     let raw = match field {
         "width" => d.width,
@@ -288,7 +356,8 @@ fn read_compact_u32_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
     // Decode: lower 4 bits = metric, upper 28 bits = value
     let metric = raw & 0xF;
     let value = (raw >> 4) as i32;
-    if metric == 0 { // Px
+    if metric == 0 {
+        // Px
         value as f32 / 1000.0
     } else {
         panic!("Expected Px metric (0), got {metric}");
@@ -299,19 +368,51 @@ fn read_compact_u32_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
 fn test_roundtrip_padding() {
     let s = styled_div_with_css(".t { padding: 15px; }");
     // node 0=Html, 1=Body, 2=Div
-    assert_eq!(read_compact_i16_as_px(&s, 2, "padding_top"), 15.0, "padding-top");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "padding_bottom"), 15.0, "padding-bottom");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "padding_left"), 15.0, "padding-left");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "padding_right"), 15.0, "padding-right");
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "padding_top"),
+        15.0,
+        "padding-top"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "padding_bottom"),
+        15.0,
+        "padding-bottom"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "padding_left"),
+        15.0,
+        "padding-left"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "padding_right"),
+        15.0,
+        "padding-right"
+    );
 }
 
 #[test]
 fn test_roundtrip_margin() {
     let s = styled_div_with_css(".t { margin: 10px; }");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "margin_top"), 10.0, "margin-top");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "margin_bottom"), 10.0, "margin-bottom");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "margin_left"), 10.0, "margin-left");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "margin_right"), 10.0, "margin-right");
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "margin_top"),
+        10.0,
+        "margin-top"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "margin_bottom"),
+        10.0,
+        "margin-bottom"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "margin_left"),
+        10.0,
+        "margin-left"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "margin_right"),
+        10.0,
+        "margin-right"
+    );
 }
 
 #[test]
@@ -324,15 +425,33 @@ fn test_roundtrip_width_height() {
 #[test]
 fn test_roundtrip_border_width() {
     let s = styled_div_with_css(".t { border: 3px solid red; }");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "border_top_width"), 3.0, "border-top-width");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "border_bottom_width"), 3.0, "border-bottom-width");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "border_left_width"), 3.0, "border-left-width");
-    assert_eq!(read_compact_i16_as_px(&s, 2, "border_right_width"), 3.0, "border-right-width");
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "border_top_width"),
+        3.0,
+        "border-top-width"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "border_bottom_width"),
+        3.0,
+        "border-bottom-width"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "border_left_width"),
+        3.0,
+        "border-left-width"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 2, "border_right_width"),
+        3.0,
+        "border-right-width"
+    );
 }
 
 #[test]
 fn test_roundtrip_position_offsets() {
-    let s = styled_div_with_css(".t { position: absolute; top: 10px; left: 20px; bottom: 30px; right: 40px; }");
+    let s = styled_div_with_css(
+        ".t { position: absolute; top: 10px; left: 20px; bottom: 30px; right: 40px; }",
+    );
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
     let t1 = cc.tier1_enums[2];
     let pos = ((t1 >> POSITION_SHIFT) & POSITION_MASK) as u8;
@@ -350,11 +469,23 @@ fn test_roundtrip_display_flex() {
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
     let t1 = cc.tier1_enums[2];
     let display = ((t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
-    assert_eq!(display, layout_display_to_u8(azul_css::props::layout::LayoutDisplay::Flex), "display:flex");
+    assert_eq!(
+        display,
+        layout_display_to_u8(azul_css::props::layout::LayoutDisplay::Flex),
+        "display:flex"
+    );
     let flex_dir = ((t1 >> FLEX_DIRECTION_SHIFT) & FLEX_DIR_MASK) as u8;
-    assert_eq!(flex_dir, layout_flex_direction_to_u8(azul_css::props::layout::LayoutFlexDirection::Column), "flex-direction:column");
+    assert_eq!(
+        flex_dir,
+        layout_flex_direction_to_u8(azul_css::props::layout::LayoutFlexDirection::Column),
+        "flex-direction:column"
+    );
     let flex_wrap = ((t1 >> FLEX_WRAP_SHIFT) & FLEX_WRAP_MASK) as u8;
-    assert_eq!(flex_wrap, layout_flex_wrap_to_u8(azul_css::props::layout::LayoutFlexWrap::Wrap), "flex-wrap:wrap");
+    assert_eq!(
+        flex_wrap,
+        layout_flex_wrap_to_u8(azul_css::props::layout::LayoutFlexWrap::Wrap),
+        "flex-wrap:wrap"
+    );
 }
 
 #[test]
@@ -376,8 +507,16 @@ fn test_roundtrip_overflow_hidden() {
     let t1 = cc.tier1_enums[2];
     let ox = ((t1 >> OVERFLOW_X_SHIFT) & OVERFLOW_MASK) as u8;
     let oy = ((t1 >> OVERFLOW_Y_SHIFT) & OVERFLOW_MASK) as u8;
-    assert_eq!(ox, layout_overflow_to_u8(azul_css::props::layout::LayoutOverflow::Hidden), "overflow-x:hidden");
-    assert_eq!(oy, layout_overflow_to_u8(azul_css::props::layout::LayoutOverflow::Hidden), "overflow-y:hidden");
+    assert_eq!(
+        ox,
+        layout_overflow_to_u8(azul_css::props::layout::LayoutOverflow::Hidden),
+        "overflow-x:hidden"
+    );
+    assert_eq!(
+        oy,
+        layout_overflow_to_u8(azul_css::props::layout::LayoutOverflow::Hidden),
+        "overflow-y:hidden"
+    );
 }
 
 #[test]
@@ -415,8 +554,16 @@ fn test_roundtrip_global_star_overrides_ua_margin() {
     let dom = Dom::create_html().with_child(Dom::create_body());
     let s = styled(dom, "* { margin: 0; }");
     // Body is node 1
-    assert_eq!(read_compact_i16_as_px(&s, 1, "margin_top"), 0.0, "body margin-top should be 0 (overridden by *)");
-    assert_eq!(read_compact_i16_as_px(&s, 1, "margin_left"), 0.0, "body margin-left should be 0 (overridden by *)");
+    assert_eq!(
+        read_compact_i16_as_px(&s, 1, "margin_top"),
+        0.0,
+        "body margin-top should be 0 (overridden by *)"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 1, "margin_left"),
+        0.0,
+        "body margin-left should be 0 (overridden by *)"
+    );
 }
 
 #[test]
@@ -424,17 +571,27 @@ fn test_roundtrip_specific_overrides_global_star() {
     // body { padding: 20px; } should override * { padding: 0; }
     let dom = Dom::create_html().with_child(Dom::create_body());
     let s = styled(dom, "* { padding: 0; } body { padding: 20px; }");
-    assert_eq!(read_compact_i16_as_px(&s, 1, "padding_top"), 20.0,
-        "body padding-top should be 20px (body selector overrides *)");
-    assert_eq!(read_compact_i16_as_px(&s, 1, "padding_bottom"), 20.0,
-        "body padding-bottom should be 20px (body selector overrides *)");
+    assert_eq!(
+        read_compact_i16_as_px(&s, 1, "padding_top"),
+        20.0,
+        "body padding-top should be 20px (body selector overrides *)"
+    );
+    assert_eq!(
+        read_compact_i16_as_px(&s, 1, "padding_bottom"),
+        20.0,
+        "body padding-bottom should be 20px (body selector overrides *)"
+    );
 }
 
 #[test]
 fn test_roundtrip_font_weight_default() {
     // No CSS → font-weight should default to Normal (0 in encoding)
     let s = styled_div_with_css(".t { width: 100px; }");
-    assert_eq!(get_font_weight(&s, 2), 0, "font-weight should default to Normal (0)");
+    assert_eq!(
+        get_font_weight(&s, 2),
+        0,
+        "font-weight should default to Normal (0)"
+    );
 }
 
 #[test]
@@ -462,8 +619,10 @@ fn test_calc_width_stored_as_sentinel_in_compact() {
     let s = styled_div_with_css(".t { width: calc(100% - 20px); }");
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
     let raw = cc.tier2_dims[2].width;
-    assert!(raw >= azul_css::compact_cache::U32_SENTINEL_THRESHOLD,
-        "calc() width should encode as sentinel (got {raw})");
+    assert!(
+        raw >= azul_css::compact_cache::U32_SENTINEL_THRESHOLD,
+        "calc() width should encode as sentinel (got {raw})"
+    );
 }
 
 #[test]
@@ -475,8 +634,14 @@ fn test_percentage_width_in_compact_cache() {
     // Decode: lower 4 bits = metric (Percent=7), upper 28 bits = value
     let metric = raw & 0xF;
     let value = (raw >> 4) as i32;
-    assert_eq!(metric, 7, "50% width metric should be Percent (7), got {metric}");
-    assert_eq!(value, 50000, "50% width value should be 50000 (50.0%), got {value}");
+    assert_eq!(
+        metric, 7,
+        "50% width metric should be Percent (7), got {metric}"
+    );
+    assert_eq!(
+        value, 50000,
+        "50% width value should be 50000 (50.0%), got {value}"
+    );
 }
 
 // ===================================================================
@@ -491,8 +656,10 @@ fn test_text_color_inherits_from_parent_div() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("c".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
-        )
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "hello",
+                )),
+        ),
     );
     let s = styled(dom, ".c { color: #ff0000; }");
     // node: 0=Html, 1=Body, 2=Div(.c), 3=Text("hello")
@@ -501,12 +668,18 @@ fn test_text_color_inherits_from_parent_div() {
     // Parent div should have red text color
     let parent_tc = cc.tier2b_text[2].text_color;
     let parent_r = (parent_tc >> 24) & 0xFF;
-    assert_eq!(parent_r, 255, "parent div text_color red should be 255, got {parent_r}");
+    assert_eq!(
+        parent_r, 255,
+        "parent div text_color red should be 255, got {parent_r}"
+    );
 
     // Text node should INHERIT red text color from parent
     let child_tc = cc.tier2b_text[3].text_color;
     let child_r = (child_tc >> 24) & 0xFF;
-    assert_eq!(child_r, 255, "text node should inherit red text_color, got r={child_r}");
+    assert_eq!(
+        child_r, 255,
+        "text node should inherit red text_color, got r={child_r}"
+    );
 }
 
 #[test]
@@ -517,15 +690,20 @@ fn test_text_color_white_on_red_background() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("visible"))
-        )
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "visible",
+                )),
+        ),
     );
     let s = styled(dom, ".box { background-color: #ff0000; color: #ffffff; }");
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
 
     // Text node should have white text color (inherited from .box)
     let text_tc = cc.tier2b_text[3].text_color;
-    assert_eq!(text_tc, 0xFFFFFFFF, "text node text_color should be white (0xFFFFFFFF), got {text_tc:#010x}");
+    assert_eq!(
+        text_tc, 0xFFFFFFFF,
+        "text node text_color should be white (0xFFFFFFFF), got {text_tc:#010x}"
+    );
 }
 
 #[test]
@@ -555,21 +733,34 @@ fn test_dom_node_id_mapping_with_whitespace_text() {
     // HTML: <body>\n  <div class="a">text</div>\n  <div class="b">text</div>\n</body>
     let dom = Dom::create_html().with_child(
         Dom::create_body()
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("\n  "))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "\n  ",
+            ))
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("a".into())].into())
-                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("first"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        "first",
+                    )),
             )
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("\n  "))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "\n  ",
+            ))
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![azul_core::dom::IdOrClass::Class("b".into())].into())
-                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("second"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        "second",
+                    )),
             )
-            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("\n"))
+            .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                "\n",
+            )),
     );
-    let s = styled(dom, ".a { color: #ff0000; padding: 10px; } .b { color: #0000ff; padding: 20px; }");
+    let s = styled(
+        dom,
+        ".a { color: #ff0000; padding: 10px; } .b { color: #0000ff; padding: 20px; }",
+    );
 
     // Find the div.a and div.b node indices
     let node_count = s.node_data.as_ref().len();
@@ -582,8 +773,12 @@ fn test_dom_node_id_mapping_with_whitespace_text() {
             let attrs = nd.attributes();
             for attr in attrs.as_ref().iter() {
                 match attr {
-                    azul_core::dom::AttributeType::Class(c) if c.as_str() == "a" => div_a_idx = Some(i),
-                    azul_core::dom::AttributeType::Class(c) if c.as_str() == "b" => div_b_idx = Some(i),
+                    azul_core::dom::AttributeType::Class(c) if c.as_str() == "a" => {
+                        div_a_idx = Some(i)
+                    }
+                    azul_core::dom::AttributeType::Class(c) if c.as_str() == "b" => {
+                        div_b_idx = Some(i)
+                    }
                     _ => {}
                 }
             }
@@ -598,20 +793,35 @@ fn test_dom_node_id_mapping_with_whitespace_text() {
     // div.a should have red text color and 10px padding
     let a_tc = cc.tier2b_text[a_idx].text_color;
     let a_r = (a_tc >> 24) & 0xFF;
-    assert_eq!(a_r, 255, "div.a text_color red should be 255 (got {a_r} at idx {a_idx})");
-    assert_eq!(cc.tier2_dims[a_idx].padding_top, 100, "div.a padding_top should be 100 (10px) at idx {a_idx}");
+    assert_eq!(
+        a_r, 255,
+        "div.a text_color red should be 255 (got {a_r} at idx {a_idx})"
+    );
+    assert_eq!(
+        cc.tier2_dims[a_idx].padding_top, 100,
+        "div.a padding_top should be 100 (10px) at idx {a_idx}"
+    );
 
     // div.b should have blue text color and 20px padding
     let b_tc = cc.tier2b_text[b_idx].text_color;
     let b_b = (b_tc >> 8) & 0xFF; // blue channel
-    assert_eq!(b_b, 255, "div.b text_color blue should be 255 (got {b_b} at idx {b_idx})");
-    assert_eq!(cc.tier2_dims[b_idx].padding_top, 200, "div.b padding_top should be 200 (20px) at idx {b_idx}");
+    assert_eq!(
+        b_b, 255,
+        "div.b text_color blue should be 255 (got {b_b} at idx {b_idx})"
+    );
+    assert_eq!(
+        cc.tier2_dims[b_idx].padding_top, 200,
+        "div.b padding_top should be 200 (20px) at idx {b_idx}"
+    );
 
     // Text "first" inside div.a should inherit red text color
     let first_text_idx = a_idx + 1; // text is direct child
     let first_tc = cc.tier2b_text[first_text_idx].text_color;
     let first_r = (first_tc >> 24) & 0xFF;
-    assert_eq!(first_r, 255, "text 'first' should inherit red from div.a (got r={first_r} at idx {first_text_idx})");
+    assert_eq!(
+        first_r, 255,
+        "text 'first' should inherit red from div.a (got r={first_r} at idx {first_text_idx})"
+    );
 }
 
 #[test]
@@ -624,13 +834,17 @@ fn test_multiple_text_children_with_different_parent_styles() {
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![IdOrClass::Class("red".into())].into())
-                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("red text"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        "red text",
+                    )),
             )
             .with_child(
                 Dom::create_div()
                     .with_ids_and_classes(vec![IdOrClass::Class("blue".into())].into())
-                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("blue text"))
-            )
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        "blue text",
+                    )),
+            ),
     );
     let s = styled(dom, ".red { color: #ff0000; background: #ffcccc; } .blue { color: #0000ff; background: #ccccff; }");
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
@@ -639,15 +853,24 @@ fn test_multiple_text_children_with_different_parent_styles() {
     // Text "red text" should inherit red
     let red_text_tc = cc.tier2b_text[3].text_color;
     let red_r = (red_text_tc >> 24) & 0xFF;
-    assert_eq!(red_r, 255, "text 'red text' should have red color (r=255), got r={red_r}");
+    assert_eq!(
+        red_r, 255,
+        "text 'red text' should have red color (r=255), got r={red_r}"
+    );
 
     // Text "blue text" should inherit blue
     let blue_text_tc = cc.tier2b_text[5].text_color;
     let blue_b = (blue_text_tc >> 8) & 0xFF; // blue in bits 8-15 of RGBA u32
-    assert_eq!(blue_b, 255, "text 'blue text' should have blue color (b=255), got b={blue_b}");
+    assert_eq!(
+        blue_b, 255,
+        "text 'blue text' should have blue color (b=255), got b={blue_b}"
+    );
 
     // Verify they're DIFFERENT
-    assert_ne!(red_text_tc, blue_text_tc, "red and blue text should have different colors");
+    assert_ne!(
+        red_text_tc, blue_text_tc,
+        "red and blue text should have different colors"
+    );
 }
 
 #[test]
@@ -658,19 +881,33 @@ fn test_font_family_inherits_from_body() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
-        )
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "hello",
+                )),
+        ),
     );
-    let s = styled(dom, "body { font-family: sans-serif; } .box { background: red; }");
+    let s = styled(
+        dom,
+        "body { font-family: sans-serif; } .box { background: red; }",
+    );
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
     // node 0=Html, 1=Body, 2=Div, 3=Text
     let body_fh = cc.tier2b_text[1].font_family_hash;
     let div_fh = cc.tier2b_text[2].font_family_hash;
     let text_fh = cc.tier2b_text[3].font_family_hash;
-    
-    assert_ne!(body_fh, 0, "body should have non-zero font_family_hash for sans-serif");
-    assert_eq!(div_fh, body_fh, "div should inherit font_family_hash from body");
-    assert_eq!(text_fh, body_fh, "text should inherit font_family_hash from body (via div)");
+
+    assert_ne!(
+        body_fh, 0,
+        "body should have non-zero font_family_hash for sans-serif"
+    );
+    assert_eq!(
+        div_fh, body_fh,
+        "div should inherit font_family_hash from body"
+    );
+    assert_eq!(
+        text_fh, body_fh,
+        "text should inherit font_family_hash from body (via div)"
+    );
 }
 
 #[test]
@@ -681,8 +918,10 @@ fn test_font_hash_to_families_populated() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
-        )
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "hello",
+                )),
+        ),
     );
     let s = styled(dom, "body { font-family: sans-serif; }");
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
@@ -692,15 +931,20 @@ fn test_font_hash_to_families_populated() {
 
     // The reverse map should contain the hash
     let families = cc.font_hash_to_families.get(&body_fh);
-    assert!(families.is_some(), "font_hash_to_families should contain body's hash");
+    assert!(
+        families.is_some(),
+        "font_hash_to_families should contain body's hash"
+    );
 
     // The families should include "sans-serif"
     let families = families.unwrap();
     let family_names: Vec<String> = (0..families.len())
         .map(|i| families.get(i).unwrap().as_string())
         .collect();
-    assert!(family_names.iter().any(|n| n == "sans-serif"),
-        "font families should contain 'sans-serif', got {family_names:?}");
+    assert!(
+        family_names.iter().any(|n| n == "sans-serif"),
+        "font families should contain 'sans-serif', got {family_names:?}"
+    );
 }
 
 #[test]
@@ -712,24 +956,33 @@ fn test_font_hash_to_families_text_node_inherits() {
         Dom::create_body().with_child(
             Dom::create_div()
                 .with_ids_and_classes(vec![IdOrClass::Class("box".into())].into())
-                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))
-        )
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                    "hello",
+                )),
+        ),
     );
     let s = styled(dom, "body { font-family: sans-serif; }");
     let cc = s.css_property_cache.ptr.compact_cache.as_ref().unwrap();
 
     // node 3 is text — it inherits font_family_hash from body (via div)
     let text_fh = cc.tier2b_text[3].font_family_hash;
-    assert_ne!(text_fh, 0, "text node should have inherited non-zero font_family_hash");
+    assert_ne!(
+        text_fh, 0,
+        "text node should have inherited non-zero font_family_hash"
+    );
 
     // The same hash should resolve to the same families via reverse map
     let families = cc.font_hash_to_families.get(&text_fh);
-    assert!(families.is_some(),
-        "text node's inherited hash should be in font_hash_to_families");
+    assert!(
+        families.is_some(),
+        "text node's inherited hash should be in font_hash_to_families"
+    );
     let families = families.unwrap();
     let family_names: Vec<String> = (0..families.len())
         .map(|i| families.get(i).unwrap().as_string())
         .collect();
-    assert!(family_names.iter().any(|n| n == "sans-serif"),
-        "inherited families should contain 'sans-serif', got {family_names:?}");
+    assert!(
+        family_names.iter().any(|n| n == "sans-serif"),
+        "inherited families should contain 'sans-serif', got {family_names:?}"
+    );
 }

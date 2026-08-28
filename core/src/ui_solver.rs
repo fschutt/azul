@@ -53,7 +53,6 @@ impl GlyphInstance {
     }
 }
 
-
 #[cfg(test)]
 #[path = "ui_solver_test.rs"]
 mod ui_solver_test;

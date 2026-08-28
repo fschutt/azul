@@ -188,7 +188,6 @@ impl core::hash::Hash for GeolocationProbeConfig {
     }
 }
 
-
 #[cfg(test)]
 #[path = "geolocation_test.rs"]
 mod geolocation_test;

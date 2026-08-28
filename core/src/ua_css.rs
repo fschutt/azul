@@ -1301,7 +1301,6 @@ pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScro
     }
 }
 
-
 #[cfg(test)]
 #[path = "ua_css_test.rs"]
 mod ua_css_test;

@@ -6,8 +6,8 @@
 // 3. Reconcile cursor position (reconcile_cursor_position)
 
 use azul_core::diff::{
-    reconcile_cursor_position, compute_node_changes,
-    NodeChangeSet, TextChange, ChangeAccumulator, get_node_text_content,
+    compute_node_changes, get_node_text_content, reconcile_cursor_position, ChangeAccumulator,
+    NodeChangeSet, TextChange,
 };
 use azul_core::dom::NodeData;
 use azul_core::id::NodeId;
@@ -63,10 +63,13 @@ fn accumulator_records_text_change() {
     let mut acc = ChangeAccumulator::new();
     acc.add_text_change(NodeId::new(0), "old text".into(), "new text".into());
     let report = acc.per_node.get(&NodeId::new(0)).unwrap();
-    assert_eq!(report.text_change, Some(TextChange {
-        old_text: "old text".into(),
-        new_text: "new text".into(),
-    }));
+    assert_eq!(
+        report.text_change,
+        Some(TextChange {
+            old_text: "old text".into(),
+            new_text: "new text".into(),
+        })
+    );
 }
 
 #[test]
@@ -224,14 +227,26 @@ fn cursor_unicode_text() {
 
 #[test]
 fn text_change_struct_equality() {
-    let a = TextChange { old_text: "Hello".into(), new_text: "World".into() };
-    let b = TextChange { old_text: "Hello".into(), new_text: "World".into() };
+    let a = TextChange {
+        old_text: "Hello".into(),
+        new_text: "World".into(),
+    };
+    let b = TextChange {
+        old_text: "Hello".into(),
+        new_text: "World".into(),
+    };
     assert_eq!(a, b);
 }
 
 #[test]
 fn text_change_struct_inequality() {
-    let a = TextChange { old_text: "Hello".into(), new_text: "World".into() };
-    let b = TextChange { old_text: "Hello".into(), new_text: "Earth".into() };
+    let a = TextChange {
+        old_text: "Hello".into(),
+        new_text: "World".into(),
+    };
+    let b = TextChange {
+        old_text: "Hello".into(),
+        new_text: "Earth".into(),
+    };
     assert_ne!(a, b);
 }

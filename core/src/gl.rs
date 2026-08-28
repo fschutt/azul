@@ -4443,7 +4443,6 @@ fn get_gl_program_error(context: &GlContextPtr, shader_object: GLuint) -> Option
     }
 }
 
-
 #[cfg(test)]
 #[path = "gl_test.rs"]
 mod gl_test;

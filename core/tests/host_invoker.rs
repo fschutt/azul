@@ -35,7 +35,7 @@ use std::sync::{Mutex, OnceLock};
 use azul_core::callbacks::LayoutCallback;
 use azul_core::host_invoker::{
     host_handle_to_refany, refany_to_host_handle, AzApp_setGenericInvoker,
-    AzApp_setHostHandleReleaser, GENERIC_INVOKER, AZ_HOST_HANDLE_RTTI_ID,
+    AzApp_setHostHandleReleaser, AZ_HOST_HANDLE_RTTI_ID, GENERIC_INVOKER,
 };
 use azul_core::refany::RefAny;
 
@@ -88,7 +88,10 @@ fn host_handle_roundtrips_id_and_destructor_fires_on_drop() {
         initial_count + 1,
         "releaser must fire exactly once when the last clone is dropped"
     );
-    assert_eq!(RELEASER_LAST_ID.load(Ordering::SeqCst), 0xDEAD_BEEF_CAFE_F00D);
+    assert_eq!(
+        RELEASER_LAST_ID.load(Ordering::SeqCst),
+        0xDEAD_BEEF_CAFE_F00D
+    );
 }
 
 #[test]

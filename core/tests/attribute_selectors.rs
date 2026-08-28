@@ -6,13 +6,13 @@ use azul_core::{
     dom::{AttributeNameValue, AttributeType, Dom, IdOrClass, NodeType},
     id::NodeId,
     style::{construct_html_cascade_tree, matches_html_element},
-    styled_dom::{convert_dom_into_compact_dom, CompactDom, NodeHierarchyItem, NodeHierarchyItemVec},
+    styled_dom::{
+        convert_dom_into_compact_dom, CompactDom, NodeHierarchyItem, NodeHierarchyItemVec,
+    },
 };
 use azul_css::{
-    css::{
-        AttributeMatchOp, CssAttributeSelector, CssPath, CssPathSelector, NodeTypeTag,
-    },
     corety::OptionString,
+    css::{AttributeMatchOp, CssAttributeSelector, CssPath, CssPathSelector, NodeTypeTag},
 };
 
 fn attr_selector(name: &str, op: AttributeMatchOp, value: Option<&str>) -> CssPathSelector {
@@ -93,7 +93,12 @@ fn matches_eq_on_input_type() {
     assert!(matches(&dom, NodeId::new(0), matches_text));
 
     let does_not_match = CssPath {
-        selectors: vec![attr_selector("type", AttributeMatchOp::Eq, Some("password"))].into(),
+        selectors: vec![attr_selector(
+            "type",
+            AttributeMatchOp::Eq,
+            Some("password"),
+        )]
+        .into(),
     };
     assert!(!matches(&dom, NodeId::new(0), does_not_match));
 }
@@ -126,9 +131,8 @@ fn matches_includes_word_in_class_attribute() {
 fn includes_does_not_match_substring_inside_word() {
     // class="primary-button" — `[class~="primary"]` should NOT match
     // because `~=` requires whitespace-separated whole words.
-    let dom = Dom::create_div().with_ids_and_classes(
-        vec![IdOrClass::Class("primary-button".into())].into(),
-    );
+    let dom = Dom::create_div()
+        .with_ids_and_classes(vec![IdOrClass::Class("primary-button".into())].into());
     let dom = convert_dom_into_compact_dom(dom);
 
     let path = CssPath {
@@ -156,7 +160,12 @@ fn matches_dashmatch_on_lang() {
     );
 
     let mk = || CssPath {
-        selectors: vec![attr_selector("lang", AttributeMatchOp::DashMatch, Some("en"))].into(),
+        selectors: vec![attr_selector(
+            "lang",
+            AttributeMatchOp::DashMatch,
+            Some("en"),
+        )]
+        .into(),
     };
 
     assert!(matches(&en, NodeId::new(0), mk()));
@@ -166,31 +175,47 @@ fn matches_dashmatch_on_lang() {
 
 #[test]
 fn matches_prefix_suffix_substring_on_href() {
-    let dom = convert_dom_into_compact_dom(
-        Dom::create_node(NodeType::A)
-            .with_attribute(AttributeType::Href(
-                "https://example.com/file.pdf".to_string().into(),
-            )),
-    );
+    let dom = convert_dom_into_compact_dom(Dom::create_node(NodeType::A).with_attribute(
+        AttributeType::Href("https://example.com/file.pdf".to_string().into()),
+    ));
 
     let prefix = CssPath {
-        selectors: vec![attr_selector("href", AttributeMatchOp::Prefix, Some("https://"))].into(),
+        selectors: vec![attr_selector(
+            "href",
+            AttributeMatchOp::Prefix,
+            Some("https://"),
+        )]
+        .into(),
     };
     assert!(matches(&dom, NodeId::new(0), prefix));
 
     let suffix = CssPath {
-        selectors: vec![attr_selector("href", AttributeMatchOp::Suffix, Some(".pdf"))].into(),
+        selectors: vec![attr_selector(
+            "href",
+            AttributeMatchOp::Suffix,
+            Some(".pdf"),
+        )]
+        .into(),
     };
     assert!(matches(&dom, NodeId::new(0), suffix));
 
     let substring = CssPath {
-        selectors: vec![attr_selector("href", AttributeMatchOp::Substring, Some("example"))]
-            .into(),
+        selectors: vec![attr_selector(
+            "href",
+            AttributeMatchOp::Substring,
+            Some("example"),
+        )]
+        .into(),
     };
     assert!(matches(&dom, NodeId::new(0), substring));
 
     let bad_prefix = CssPath {
-        selectors: vec![attr_selector("href", AttributeMatchOp::Prefix, Some("ftp://"))].into(),
+        selectors: vec![attr_selector(
+            "href",
+            AttributeMatchOp::Prefix,
+            Some("ftp://"),
+        )]
+        .into(),
     };
     assert!(!matches(&dom, NodeId::new(0), bad_prefix));
 }
@@ -198,10 +223,9 @@ fn matches_prefix_suffix_substring_on_href() {
 #[test]
 fn empty_target_value_never_matches_substring_ops() {
     // `[href^=""]` and similar are commonly defined to never match in CSS.
-    let dom = convert_dom_into_compact_dom(
-        Dom::create_node(NodeType::A)
-            .with_attribute(AttributeType::Href("https://example.com".to_string().into())),
-    );
+    let dom = convert_dom_into_compact_dom(Dom::create_node(NodeType::A).with_attribute(
+        AttributeType::Href("https://example.com".to_string().into()),
+    ));
     for op in [
         AttributeMatchOp::Prefix,
         AttributeMatchOp::Suffix,

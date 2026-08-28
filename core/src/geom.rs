@@ -735,7 +735,6 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, PartialOrd]
 );
 
-
 #[cfg(test)]
 #[path = "geom_test.rs"]
 mod geom_test;

@@ -24,8 +24,7 @@ use azul_css::AzString;
 /// policy" alike; callers that need to distinguish those use the richer
 /// per-attempt [`BiometricResult`] variants.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum BiometricKind {
     /// No usable biometric sensor (absent, unenrolled, or disabled).
     #[default]
@@ -39,11 +38,11 @@ pub enum BiometricKind {
     Iris,
 }
 
-
 impl BiometricKind {
     /// `true` for any real sensor — i.e. anything except `NotAvailable`.
     /// Lets the demo gate decide whether to even offer a biometric unlock.
-    #[must_use] pub const fn is_available(&self) -> bool {
+    #[must_use]
+    pub const fn is_available(&self) -> bool {
         !matches!(self, Self::NotAvailable)
     }
 }
@@ -83,11 +82,9 @@ impl BiometricResult {
     /// `true` when the user successfully unlocked — either by biometric
     /// match (`Authenticated`) or by the OS passcode fallback
     /// (`FellBackToPasscode`). The vault gate keys off this.
-    #[must_use] pub const fn is_success(&self) -> bool {
-        matches!(
-            self,
-            Self::Authenticated | Self::FellBackToPasscode
-        )
+    #[must_use]
+    pub const fn is_success(&self) -> bool {
+        matches!(self, Self::Authenticated | Self::FellBackToPasscode)
     }
 }
 
@@ -142,14 +139,14 @@ impl Default for BiometricPrompt {
 impl BiometricPrompt {
     /// Convenience constructor: a biometric-only prompt showing `reason`,
     /// with the platform-default cancel label and no passcode fallback.
-    #[must_use] pub fn new(reason: AzString) -> Self {
+    #[must_use]
+    pub fn new(reason: AzString) -> Self {
         Self {
             reason,
             ..Self::default()
         }
     }
 }
-
 
 #[cfg(test)]
 #[path = "biometric_test.rs"]

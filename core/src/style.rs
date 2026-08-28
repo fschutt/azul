@@ -693,7 +693,6 @@ fn match_interactive_pseudo(
     is_last_content_group && expected_path_ending == Some(pseudo)
 }
 
-
 #[cfg(test)]
 #[path = "style_test.rs"]
 mod style_test;
