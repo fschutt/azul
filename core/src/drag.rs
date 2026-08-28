@@ -1,14 +1,8 @@
-//! Unified drag context for all drag operations.
-//!
-//! This module provides a single, coherent way to handle all drag operations:
-//! - Text selection drag
-//! - Scrollbar thumb drag
-//! - Node drag-and-drop
-//! - Window drag/resize
-//! - File drop from OS
-//!
-//! The `DragContext` struct tracks the current drag state and provides
-//! a unified interface for event processing.
+//! Unified drag context for all drag operations. This module provides a single,
+//! coherent way to handle all drag operations: - Text selection drag - Scrollbar
+//! thumb drag - Node drag-and-drop - Window drag/resize - File drop from OS The
+//! `DragContext` struct tracks the current drag state and provides a unified
+//! interface for event processing.
 
 use alloc::vec::Vec;
 
@@ -19,10 +13,9 @@ use crate::window::WindowPosition;
 
 use azul_css::{AzString, StringVec, U8Vec};
 
-/// Type of the active drag operation.
-///
-/// This enum unifies all drag types into a single discriminated union,
-/// making it easy to handle different drag behaviors in one place.
+/// Type of the active drag operation. This enum unifies all drag types into a
+/// single discriminated union, making it easy to handle different drag behaviors in
+/// one place.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum ActiveDragType {
@@ -40,9 +33,8 @@ pub enum ActiveDragType {
     FileDrop(FileDropDrag),
 }
 
-/// Text selection drag state.
-///
-/// Tracks the anchor point (where selection started) and current position.
+/// Text selection drag state. Tracks the anchor point (where selection started) and
+/// current position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextSelectionDrag {
@@ -58,15 +50,14 @@ pub struct TextSelectionDrag {
     pub current_mouse_position: LogicalPosition,
 }
 
-/// Scrollbar thumb drag state.
-///
-/// Tracks which scrollbar is being dragged and the current offset.
+/// Scrollbar thumb drag state. Tracks which scrollbar is being dragged and the
+/// current offset.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct ScrollbarThumbDrag {
     /// DOM ID that `scroll_container_node` belongs to. Used to scope
-    /// `remap_node_ids` so a reconciliation of a *different* DOM can't remap
-    /// this drag's node id against an unrelated DOM's old→new map.
+    /// `remap_node_ids` so a reconciliation of a *different* DOM can't remap this
+    /// drag's node id against an unrelated DOM's old→new map.
     pub dom_id: DomId,
     /// The scroll container node being scrolled
     pub scroll_container_node: NodeId,
@@ -94,9 +85,8 @@ pub enum ScrollbarAxis {
     Horizontal,
 }
 
-/// Node drag-and-drop state.
-///
-/// Tracks a DOM node being dragged for reordering or moving.
+/// Node drag-and-drop state. Tracks a DOM node being dragged for reordering or
+/// moving.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct NodeDrag {
@@ -122,9 +112,7 @@ pub struct NodeDrag {
     pub drop_effect: DropEffect,
 }
 
-/// Window move drag state.
-///
-/// Tracks the window being moved via titlebar drag.
+/// Window move drag state. Tracks the window being moved via titlebar drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct WindowMoveDrag {
@@ -136,9 +124,7 @@ pub struct WindowMoveDrag {
     pub initial_window_position: WindowPosition,
 }
 
-/// Window resize drag state.
-///
-/// Tracks the window being resized via edge/corner drag.
+/// Window resize drag state. Tracks the window being resized via edge/corner drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct WindowResizeDrag {
@@ -168,9 +154,8 @@ pub enum WindowResizeEdge {
     BottomRight,
 }
 
-/// File drop from OS drag state.
-///
-/// Tracks files being dragged from the operating system.
+/// File drop from OS drag state. Tracks files being dragged from the operating
+/// system.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct FileDropDrag {
@@ -185,12 +170,10 @@ pub struct FileDropDrag {
 }
 
 
-/// Drop effect — the operation that will happen if the data is dropped
-/// on the current target (HTML5 `DataTransfer.dropEffect`).
-///
-/// This is a strict subset of `DragEffect`: a drop target selects one of
-/// these four outcomes, which must also be allowed by the source's
-/// `effect_allowed`.
+/// Drop effect - the operation that will happen if the data is dropped on the
+/// current target (HTML5 `DataTransfer.dropEffect`). This is a strict subset of
+/// `DragEffect`: a drop target selects one of these four outcomes, which must also
+/// be allowed by the source's `effect_allowed`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(C)]
 pub enum DropEffect {
@@ -205,18 +188,14 @@ pub enum DropEffect {
     Move,
 }
 
-/// Allowed drag effects — the set of operations the drag source permits
-/// (HTML5 `DataTransfer.effectAllowed`).
-///
-/// The drop target's `DropEffect` must be a member of this set for the
-/// drop to succeed. Semantic superset of `DropEffect` that adds the
-/// HTML5 combined-permission values (`CopyLink`, `CopyMove`, `LinkMove`,
-/// `All`) and the pre-drag `Uninitialized` sentinel.
+/// Allowed drag effects - the set of operations the drag source permits (HTML5
+/// `DataTransfer.effectAllowed`). The drop target's `DropEffect` must be a member of
+/// this set for the drop to succeed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(C)]
 pub enum DragEffect {
-    /// Allowed set has not been initialized yet (equivalent to `All` in
-    /// most user agents). Default for fresh drags.
+    /// Allowed set has not been initialized yet (equivalent to `All` in most user
+    /// agents). Default for fresh drags.
     #[default]
     Uninitialized,
     /// No drop is permitted.
@@ -237,8 +216,8 @@ pub enum DragEffect {
     All,
 }
 
-/// FFI-safe (`mime_type`, `data`) pair used by [`DragData`] in place of
-/// a `BTreeMap<AzString, Vec<u8>>` entry.
+/// FFI-safe (`mime_type`, `data`) pair used by [`DragData`] in place of a
+/// `BTreeMap<AzString, Vec<u8>>` entry.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct MimeTypeData {
@@ -270,16 +249,14 @@ impl_vec_partialeq!(MimeTypeData, MimeTypeDataVec);
 impl_vec_eq!(MimeTypeData, MimeTypeDataVec);
 impl_vec_hash!(MimeTypeData, MimeTypeDataVec);
 
-/// Drag data (HTML5 `DataTransfer`).
-///
-/// Holds the payload(s) being transferred during a drag operation, keyed
-/// by MIME type, plus the set of operations the source allows.
+/// Drag data (HTML5 `DataTransfer`). Holds the payload(s) being transferred during
+/// a drag operation, keyed by MIME type, plus the set of operations the source
+/// allows.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct DragData {
-    /// MIME type -> data mapping (vec-of-pairs for FFI compatibility).
-    ///
-    /// e.g., `"text/plain" -> "Hello World"`.
+    /// MIME type -> data mapping (vec-of-pairs for FFI compatibility). e.g.,
+    /// `"text/plain" -> "Hello World"`.
     pub data: MimeTypeDataVec,
     /// Set of drag operations the source permits for this drag.
     pub effect_allowed: DragEffect,
@@ -294,8 +271,8 @@ impl DragData {
         }
     }
 
-    /// Set data for a MIME type. Replaces any existing entry for the
-    /// same MIME type.
+    /// Set data for a MIME type. Replaces any existing entry for the same MIME
+    /// type.
     pub fn set_data(&mut self, mime_type: impl Into<AzString>, data: Vec<u8>) {
         let mime_type = mime_type.into();
         let value: U8Vec = data.into();
@@ -336,12 +313,8 @@ impl DragData {
     }
 }
 
-/// The unified drag context.
-///
-/// This struct wraps `ActiveDragType` and provides common metadata
-/// that applies to all drag operations.
-///
-/// Note: this type is Rust-only and not exposed through the C API.
+/// The unified drag context. This struct wraps `ActiveDragType` and provides common
+/// metadata that applies to all drag operations.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DragContext {
     /// The specific type of drag operation
@@ -608,9 +581,8 @@ impl DragContext {
         }
     }
 
-    /// Calculate scroll delta for scrollbar thumb drag
-    ///
-    /// Returns the new scroll offset based on current mouse position.
+    /// Calculate scroll delta for scrollbar thumb drag Returns the new scroll
+    /// offset based on current mouse position.
     #[must_use] pub fn calculate_scrollbar_scroll_offset(&self) -> Option<f32> {
         let drag = self.as_scrollbar_thumb()?;
         
@@ -626,10 +598,11 @@ impl DragContext {
 
         // Calculate the scrollable range
         let scrollable_range = drag.content_length_px - drag.viewport_length_px;
-        // The explicit `is_nan()` (equivalent to the old `!(x > 0.0)`) catches a NaN
-        // scrollable_range — from a NaN, or inf-minus-inf, content/viewport length —
-        // so it never reaches the `clamp(0.0, scrollable_range)` below, whose
-        // f32::clamp would panic (it asserts min <= max, and NaN fails every compare).
+        // The explicit `is_nan()` (equivalent to the old `!(x > 0.0)`) catches a
+        // NaN scrollable_range - from a NaN, or inf-minus-inf, content/viewport
+        // length - so it never reaches the `clamp(0.0, scrollable_range)` below,
+        // whose f32::clamp would panic (it asserts min <= max, and NaN fails every
+        // compare).
         if scrollable_range <= 0.0 || scrollable_range.is_nan() || drag.track_length_px <= 0.0 {
             return Some(drag.start_scroll_offset);
         }
@@ -653,8 +626,8 @@ impl DragContext {
         Some(new_offset.clamp(0.0, scrollable_range))
     }
 
-    /// Remap a drop target's `NodeId` using the old→new mapping.
-    /// Clears the target if the old `NodeId` was removed.
+    /// Remap a drop target's `NodeId` using the old→new mapping. Clears the target
+    /// if the old `NodeId` was removed.
     fn remap_drop_target(
         target: &mut OptionDomNodeId,
         dom_id: DomId,
@@ -677,11 +650,8 @@ impl DragContext {
         }
     }
 
-    /// Remap `NodeIds` stored in this drag context after DOM reconciliation.
-    ///
-    /// When the DOM is regenerated during an active drag, `NodeIds` can change.
-    /// This updates all stored `NodeIds` using the old→new mapping.
-    /// Returns `false` if a critical `NodeId` was removed (drag should be cancelled).
+    /// Remap `NodeIds` stored in this drag context after DOM reconciliation. When
+    /// the DOM is regenerated during an active drag, `NodeIds` can change.
     pub fn remap_node_ids(
         &mut self,
         dom_id: DomId,
@@ -721,10 +691,10 @@ impl DragContext {
                 } else {
                     return false; // dragged node removed
                 }
-                // Drop target remap — both current AND previous, otherwise a
-                // stale `previous_drop_target` keeps a pre-reconciliation NodeId
-                // and later generates spurious DragEnter/DragLeave against a
-                // node that no longer exists (or a different node reusing the id).
+                // Drop target remap - both current AND previous, otherwise a stale
+                // `previous_drop_target` keeps a pre-reconciliation NodeId and later
+                // generates spurious DragEnter/DragLeave against a node that no
+                // longer exists (or a different node reusing the id).
                 Self::remap_drop_target(&mut drag.current_drop_target, dom_id, node_id_map);
                 Self::remap_drop_target(&mut drag.previous_drop_target, dom_id, node_id_map);
                 true
@@ -747,8 +717,8 @@ azul_css::impl_option!(
 );
 
 
-/// Drag offset from the cursor position at drag start (logical pixels).
-/// `dx`/`dy` are the delta from drag start to current position.
+/// Drag offset from the cursor position at drag start (logical pixels). `dx`/`dy`
+/// are the delta from drag start to current position.
 #[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct DragDelta {
@@ -1054,8 +1024,8 @@ mod autotest_generated {
 
     #[test]
     fn get_data_deeply_nested_brackets_do_not_stack_overflow() {
-        // The lookup is a linear scan, not a recursive-descent parse: 10k
-        // nested brackets must be inert.
+        // The lookup is a linear scan, not a recursive-descent parse: 10k nested
+        // brackets must be inert.
         let nested: String = "[".repeat(10_000);
         let mut d = DragData::new();
         assert!(d.get_data(&nested).is_none());
@@ -1170,9 +1140,9 @@ mod autotest_generated {
 
     #[test]
     fn get_text_on_invalid_utf8_yields_empty_string_not_panic() {
-        // Documents the `unwrap_or("")` fallback: invalid UTF-8 under
-        // "text/plain" is silently reported as an EMPTY string, not None and
-        // not a panic. (Lossy data: the bytes are still there via get_data.)
+        // Documents the `unwrap_or("")` fallback: invalid UTF-8 under "text/plain"
+        // is silently reported as an EMPTY string, not None and not a panic. (Lossy
+        // data: the bytes are still there via get_data.)
         let mut d = DragData::new();
         d.set_data("text/plain", alloc::vec![0xFF, 0xFE, 0x80]);
         let got = d.get_text().expect("entry exists, so Some");
@@ -1226,8 +1196,8 @@ mod autotest_generated {
         assert_eq!(ts.dom_id, dom(usize::MAX));
         assert_eq!(ts.anchor_ifc_node, NodeId::new(usize::MAX));
         assert!(ts.anchor_cursor.is_none());
-        // start == current at construction, bit-for-bit (quantized PartialEq
-        // would happily accept a saturated mismatch here, so compare raw bits).
+        // start == current at construction, bit-for-bit (quantized PartialEq would
+        // happily accept a saturated mismatch here, so compare raw bits).
         assert_eq!(ts.start_mouse_position.x.to_bits(), f32::MIN.to_bits());
         assert_eq!(ts.start_mouse_position.y.to_bits(), f32::MAX.to_bits());
         assert_eq!(
@@ -1512,8 +1482,8 @@ mod autotest_generated {
             ctx.update_position(new_pos);
             assert_eq!(ctx.current_position(), new_pos, "variant {i} did not move");
             if i == 5 {
-                // FileDrop has a single `position` field: start aliases current,
-                // so updating the position also moves the reported start.
+                // FileDrop has a single `position` field: start aliases current, so
+                // updating the position also moves the reported start.
                 assert_eq!(ctx.start_position(), new_pos);
             } else {
                 assert_eq!(ctx.start_position(), start_before, "variant {i} start moved");
@@ -1577,8 +1547,8 @@ mod autotest_generated {
     #[test]
     fn scroll_offset_basic_vertical_half_track() {
         // track=100, content=200, viewport=100 => range=100, thumb=50,
-        // scrollable_track=50. A 25px drag is half the scrollable track =>
-        // half the range = 50.
+        // scrollable_track=50. A 25px drag is half the scrollable track => half the
+        // range = 50.
         let mut ctx = vscroll(0.0, 100.0, 200.0, 100.0);
         ctx.update_position(LogicalPosition::new(0.0, 25.0));
         assert_eq!(ctx.calculate_scrollbar_scroll_offset(), Some(50.0));
@@ -1697,9 +1667,9 @@ mod autotest_generated {
         let mut ctx = vscroll(0.0, f32::NAN, 200.0, 100.0);
         ctx.update_position(LogicalPosition::new(0.0, 10.0));
         let off = ctx.calculate_scrollbar_scroll_offset().expect("Some");
-        // NaN track passes the `track_length_px <= 0.0` guard (NaN compares
-        // false) and poisons the result. min/max of the clamp stay finite, so
-        // no panic — just a NaN scroll offset handed to the caller.
+        // NaN track passes the `track_length_px <= 0.0` guard (NaN compares false)
+        // and poisons the result. min/max of the clamp stay finite, so no panic -
+        // just a NaN scroll offset handed to the caller.
         assert!(off.is_nan());
     }
 
@@ -1713,9 +1683,9 @@ mod autotest_generated {
 
     #[test]
     fn scroll_offset_infinite_content_yields_nan_on_zero_mouse_delta() {
-        // range = inf, thumb = 0, ratio = 0 => scroll_delta = 0.0 * inf = NaN.
-        // Not a panic (clamp's min/max are 0.0/inf), but the returned offset is
-        // NaN even though the mouse never moved.
+        // range = inf, thumb = 0, ratio = 0 => scroll_delta = 0.0 * inf = NaN. Not
+        // a panic (clamp's min/max are 0.0/inf), but the returned offset is NaN even
+        // though the mouse never moved.
         let ctx = vscroll(0.0, 100.0, f32::INFINITY, 100.0);
         let off = ctx.calculate_scrollbar_scroll_offset().expect("Some");
         assert!(off.is_nan(), "expected the 0 * inf NaN, got {off}");
@@ -2015,8 +1985,8 @@ mod autotest_generated {
 
     #[test]
     fn drag_delta_nan_is_not_equal_to_itself() {
-        // Derived PartialEq on f32 => NaN != NaN. Callers must not use
-        // equality to detect "no movement" on a NaN delta.
+        // Derived PartialEq on f32 => NaN != NaN. Callers must not use equality to
+        // detect "no movement" on a NaN delta.
         let n = DragDelta::new(f32::NAN, f32::NAN);
         assert_ne!(n, DragDelta::new(f32::NAN, f32::NAN));
         assert_ne!(n, DragDelta::zero());

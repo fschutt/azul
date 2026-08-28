@@ -1,34 +1,19 @@
-//! POD types for the gamepad / game-controller surface
-//! (SUPER_PLAN_2 §1 feature 6 + research/03 §"Feature 6").
-//!
-//! Cross-platform controller input: `gilrs` on the desktop
-//! (Windows / Linux / macOS), iOS `GCController` + Android `InputDevice`
-//! on mobile (research/03). Defined here in `azul-core` so the manager +
-//! accessors cross the FFI without `azul-layout` as a dependency; the
-//! stateful side lives in `azul_layout::managers::gamepad::GamepadManager`.
-//!
-//! Poll model, like the sensors: the backend keeps a [`GamepadState`]
-//! snapshot per connected pad current, and a callback reads the latest each
-//! frame (`CallbackInfo::get_gamepad_state`) to drive movement / menus.
-//! Button + axis naming follows the SDL / gilrs "standard gamepad" mapping,
-//! so the face buttons are Xbox-style: South = A, East = B, West = X,
-//! North = Y.
+//! POD types for the gamepad / game-controller surface . Cross-platform controller
+//! input: `gilrs` on the desktop (Windows / Linux / macOS), iOS `GCController` +
+//! Android `InputDevice` on mobile (research/03).
 
-/// A connected gamepad's id — stable for the lifetime of the connection,
-/// assigned by the backend on connect. (gilrs `GamepadId` / the platform
-/// device id, normalised to a `u32`.)
+/// A connected gamepad's id - stable for the lifetime of the connection, assigned
+/// by the backend on connect. (gilrs `GamepadId` / the platform device id,
+/// normalised to a `u32`.)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GamepadId {
     pub id: u32,
 }
 
-/// A standard-layout gamepad button. Face buttons are Xbox-style by
-/// position (South = A / Cross, East = B / Circle, West = X / Square,
-/// North = Y / Triangle), so layouts stay consistent across vendors.
-///
-/// The discriminant order is also the bit position in
-/// [`GamepadState::buttons`] — don't reorder without bumping the ABI.
+/// A standard-layout gamepad button. Face buttons are Xbox-style by position (South
+/// = A / Cross, East = B / Circle, West = X / Square, North = Y / Triangle), so
+/// layouts stay consistent across vendors.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum GamepadButton {
@@ -69,8 +54,7 @@ pub enum GamepadButton {
 }
 
 /// A gamepad analog axis. Stick axes are in `[-1, 1]` (right / up positive);
-/// trigger axes ([`GamepadAxis::LeftZ`] / [`GamepadAxis::RightZ`]) in
-/// `[0, 1]`.
+/// trigger axes ([`GamepadAxis::LeftZ`] / [`GamepadAxis::RightZ`]) in `[0, 1]`.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum GamepadAxis {
@@ -89,18 +73,17 @@ pub enum GamepadAxis {
 }
 
 /// Snapshot of one gamepad's state. Buttons are a bitset (bit `n` = the
-/// [`GamepadButton`] with discriminant `n`); axes are explicit fields. All
-/// POD / `Copy`, so it crosses the FFI by value.
+/// [`GamepadButton`] with discriminant `n`); axes are explicit fields.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GamepadState {
     /// Which pad this snapshot is for.
     pub id: GamepadId,
-    /// `false` once the pad disconnects (the manager keeps the last slot so
-    /// a callback can observe the disconnect).
+    /// `false` once the pad disconnects (the manager keeps the last slot so a
+    /// callback can observe the disconnect).
     pub connected: bool,
-    /// Pressed-button bitset — bit `n` set ⇔ the `GamepadButton` with
-    /// discriminant `n` is held. Read via [`GamepadState::is_pressed`].
+    /// Pressed-button bitset - bit `n` set ⇔ the `GamepadButton` with discriminant
+    /// `n` is held. Read via [`GamepadState::is_pressed`].
     pub buttons: u32,
     /// Left stick X in `[-1, 1]`.
     pub left_stick_x: f32,
@@ -124,7 +107,7 @@ impl GamepadButton {
 }
 
 impl GamepadState {
-    /// An empty (disconnected) state for `id` — all buttons up, axes zero.
+    /// An empty (disconnected) state for `id` - all buttons up, axes zero.
     #[must_use] pub const fn empty(id: GamepadId) -> Self {
         Self {
             id,
@@ -169,8 +152,8 @@ impl_option!(
 mod autotest_generated {
     use super::*;
 
-    /// Every `GamepadButton`, in discriminant order. The order here is also
-    /// the asserted bit order — see `bit_matches_documented_abi`.
+    /// Every `GamepadButton`, in discriminant order. The order here is also the
+    /// asserted bit order - see `bit_matches_documented_abi`.
     const ALL_BUTTONS: [GamepadButton; 17] = [
         GamepadButton::South,
         GamepadButton::East,
@@ -200,12 +183,12 @@ mod autotest_generated {
         GamepadAxis::RightZ,
     ];
 
-    /// Bitset of every defined button — bits 0..=16.
+    /// Bitset of every defined button - bits 0..=16.
     const ALL_BUTTONS_MASK: u32 = 0x0001_FFFF;
 
     /// Writes `v` into the field that `GamepadState::axis` reads for `axis`.
-    /// Deliberately mirrors `axis()`; a mis-mapping here would still be caught
-    /// by `axis_reads_each_field_uniquely`, which pokes the fields directly.
+    /// Deliberately mirrors `axis()`; a mis-mapping here would still be caught by
+    /// `axis_reads_each_field_uniquely`, which pokes the fields directly.
     fn set_axis(s: &mut GamepadState, axis: GamepadAxis, v: f32) {
         match axis {
             GamepadAxis::LeftStickX => s.left_stick_x = v,
@@ -218,13 +201,13 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // GamepadButton::bit  (other)
+    // GamepadButton::bit (other)
     // ------------------------------------------------------------------
 
-    /// no_panic_smoke + shift-overflow guard: `bit()` is `1u32 << (self as
-    /// u32)`, which is UB / a panic in debug the moment a discriminant reaches
-    /// 32. Pin the discriminants to a contiguous 0..17 so adding an 18th..32nd
-    /// button stays safe and a 33rd fails HERE rather than at a user's shift.
+    /// no_panic_smoke + shift-overflow guard: `bit()` is `1u32 << (self as u32)`,
+    /// which is UB / a panic in debug the moment a discriminant reaches 32. Pin the
+    /// discriminants to a contiguous 0..17 so adding an 18th..32nd button stays safe
+    /// and a 33rd fails HERE rather than at a user's shift.
     #[test]
     fn bit_discriminants_are_contiguous_and_shift_safe() {
         for (i, b) in ALL_BUTTONS.iter().enumerate() {
@@ -241,10 +224,9 @@ mod autotest_generated {
         }
     }
 
-    /// The ABI the doc comment promises ("the discriminant order is also the
-    /// bit position … don't reorder without bumping the ABI"). Hard-coded so a
-    /// reorder is a loud test failure, not a silent remap of every FFI client's
-    /// button bits.
+    /// The ABI the doc comment promises ("the discriminant order is also the bit
+    /// position … don't reorder without bumping the ABI"). Hard-coded so a reorder
+    /// is a loud test failure, not a silent remap of every FFI client's button bits.
     #[test]
     fn bit_matches_documented_abi() {
         assert_eq!(GamepadButton::South.bit(), 1 << 0);
@@ -282,9 +264,9 @@ mod autotest_generated {
         assert_eq!(seen.count_ones(), ALL_BUTTONS.len() as u32);
     }
 
-    /// `bit()` is `const fn` — usable in a `const` item / array length. A
-    /// non-const-evaluable body (or an overflowing shift, which is a hard
-    /// compile error in const context) fails to build.
+    /// `bit()` is `const fn` - usable in a `const` item / array length. A
+    /// non-const-evaluable body (or an overflowing shift, which is a hard compile
+    /// error in const context) fails to build.
     #[test]
     fn bit_is_const_evaluable() {
         const SOUTH: u32 = GamepadButton::South.bit();
@@ -294,11 +276,11 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // GamepadState::empty  (constructor)
+    // GamepadState::empty (constructor)
     // ------------------------------------------------------------------
 
-    /// no_panic + invariants_hold: extreme ids (0, 1, MAX/2, MAX) round-trip
-    /// into the state unchanged and every other field is the documented zero.
+    /// no_panic + invariants_hold: extreme ids (0, 1, MAX/2, MAX) round-trip into
+    /// the state unchanged and every other field is the documented zero.
     #[test]
     fn empty_preserves_id_and_zeroes_everything_else() {
         for raw in [0, 1, u32::MAX / 2, u32::MAX - 1, u32::MAX] {
@@ -310,10 +292,10 @@ mod autotest_generated {
         }
     }
 
-    /// default_is_neutral: an empty state is the neutral element — no button
-    /// reads as pressed and every axis is exactly *positive* zero. The
-    /// `to_bits()` check is the point: a `-0.0` would still compare `== 0.0`
-    /// yet flips the sign of anything a caller multiplies by it.
+    /// default_is_neutral: an empty state is the neutral element - no button reads
+    /// as pressed and every axis is exactly *positive* zero. The `to_bits()` check
+    /// is the point: a `-0.0` would still compare `== 0.0` yet flips the sign of
+    /// anything a caller multiplies by it.
     #[test]
     fn empty_is_neutral_for_every_button_and_axis() {
         let s = GamepadState::empty(GamepadId { id: 42 });
@@ -330,9 +312,9 @@ mod autotest_generated {
         }
     }
 
-    /// invariant: `empty()` is a pure function of `id` — same id gives an
-    /// equal state, a different id gives an unequal one (so a stale slot for
-    /// pad 0 can't be mistaken for pad 1's).
+    /// invariant: `empty()` is a pure function of `id` - same id gives an equal
+    /// state, a different id gives an unequal one (so a stale slot for pad 0 can't
+    /// be mistaken for pad 1's).
     #[test]
     fn empty_is_deterministic_and_id_discriminating() {
         let a = GamepadState::empty(GamepadId { id: 7 });
@@ -352,12 +334,12 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // GamepadState::is_pressed  (predicate)
+    // GamepadState::is_pressed (predicate)
     // ------------------------------------------------------------------
 
-    /// basic_true_false + isolation: with exactly one bit set, that button —
-    /// and *only* that button — reads as pressed. Catches an off-by-one shift
-    /// or a bit collision that a single known-true case would miss.
+    /// basic_true_false + isolation: with exactly one bit set, that button - and
+    /// *only* that button - reads as pressed. Catches an off-by-one shift or a bit
+    /// collision that a single known-true case would miss.
     #[test]
     fn is_pressed_isolates_each_single_bit() {
         for pressed in ALL_BUTTONS {
@@ -375,8 +357,8 @@ mod autotest_generated {
         }
     }
 
-    /// edge_inputs: the two saturating bitsets. `0` = nothing pressed,
-    /// `u32::MAX` = everything pressed. Both are deterministic, neither panics.
+    /// edge_inputs: the two saturating bitsets. `0` = nothing pressed, `u32::MAX` =
+    /// everything pressed.
     #[test]
     fn is_pressed_handles_empty_and_full_bitsets() {
         let mut s = GamepadState::empty(GamepadId { id: 0 });
@@ -392,9 +374,9 @@ mod autotest_generated {
         }
     }
 
-    /// Adversarial: a backend (or a hostile FFI caller) writes junk into the
-    /// 15 *reserved* high bits, 17..=31. No defined button may light up — the
-    /// mask is per-button, so garbage outside the defined range must be inert.
+    /// Adversarial: a backend (or a hostile FFI caller) writes junk into the 15
+    /// *reserved* high bits, 17..=31. No defined button may light up - the mask is
+    /// per-button, so garbage outside the defined range must be inert.
     #[test]
     fn is_pressed_ignores_reserved_high_bits() {
         let mut s = GamepadState::empty(GamepadId { id: 0 });
@@ -416,8 +398,8 @@ mod autotest_generated {
     }
 
     /// round-trip: encode a button set into the bitset, decode it back through
-    /// `is_pressed` — the decoded set must equal the encoded one, and
-    /// re-encoding must reproduce the exact same bits (encode == decode).
+    /// `is_pressed` - the decoded set must equal the encoded one, and re-encoding
+    /// must reproduce the exact same bits (encode == decode).
     #[test]
     fn is_pressed_bitset_roundtrips() {
         let subsets: [&[GamepadButton]; 5] = [
@@ -456,7 +438,7 @@ mod autotest_generated {
         }
     }
 
-    /// `is_pressed` is `const fn` and takes `&self` — usable on a const state.
+    /// `is_pressed` is `const fn` and takes `&self` - usable on a const state.
     #[test]
     fn is_pressed_is_const_evaluable() {
         const S: GamepadState = GamepadState {
@@ -476,8 +458,8 @@ mod autotest_generated {
         const _: () = assert!(SOUTH && !EAST && NORTH);
     }
 
-    /// invariant: `is_pressed` is a read-only view — polling every button
-    /// leaves the snapshot byte-identical.
+    /// invariant: `is_pressed` is a read-only view - polling every button leaves
+    /// the snapshot byte-identical.
     #[test]
     fn is_pressed_does_not_mutate_the_snapshot() {
         let mut s = GamepadState::empty(GamepadId { id: 9 });
@@ -490,13 +472,13 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // GamepadState::axis  (other)
+    // GamepadState::axis (other)
     // ------------------------------------------------------------------
 
     /// The copy-paste trap: `axis()` is a six-arm match over six near-identical
     /// fields. Give every field a unique sentinel and poke the fields directly
     /// (never through a helper that could share the same bug), so any two arms
-    /// reading the same field — or reading each other's — fails here.
+    /// reading the same field - or reading each other's - fails here.
     #[test]
     fn axis_reads_each_field_uniquely() {
         let s = GamepadState {
@@ -530,10 +512,7 @@ mod autotest_generated {
     }
 
     /// no_panic_smoke over the nasty floats: NaN (incl. a signalling payload),
-    /// ±inf, ±0.0, subnormals, MIN/MAX. `axis()` is a getter, so it must hand
-    /// each one back *bit-for-bit* — no clamping, no NaN canonicalisation,
-    /// no sign-of-zero loss (a `-0.0` silently flipping to `+0.0` would change
-    /// the direction of a caller's `v.signum()` deadzone check).
+    /// ±inf, ±0.0, subnormals, MIN/MAX.
     #[test]
     fn axis_returns_extreme_floats_bit_exact() {
         let nasty: [f32; 12] = [
@@ -572,10 +551,10 @@ mod autotest_generated {
         }
     }
 
-    /// Boundary + out-of-range: the doc gives sticks `[-1, 1]` and triggers
-    /// `[0, 1]`, but `axis()` is a plain accessor — range enforcement is the
-    /// *backend's* contract, not this getter's. Pin the pass-through so nobody
-    /// "helpfully" adds a silent clamp that would hide a mis-scaling backend.
+    /// Boundary + out-of-range: the doc gives sticks `[-1, 1]` and triggers `[0,
+    /// 1]`, but `axis()` is a plain accessor - range enforcement is the *backend's*
+    /// contract, not this getter's. Pin the pass-through so nobody "helpfully" adds
+    /// a silent clamp that would hide a mis-scaling backend.
     #[test]
     fn axis_does_not_clamp_out_of_range_values() {
         for a in ALL_AXES {
@@ -612,15 +591,12 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // GamepadState / OptionGamepadState — derived-impl invariants
+    // GamepadState / OptionGamepadState - derived-impl invariants
     // ------------------------------------------------------------------
 
-    /// FFI trap, asserted rather than fixed: `GamepadState` derives
-    /// `PartialEq` over `f32`, so IEEE-754 applies — a snapshot with a NaN axis
-    /// is *not equal to itself*. Callers that dedupe frames with `==` (e.g.
-    /// "skip the callback if the state didn't change") will therefore always
-    /// see a change once a backend reports a NaN axis. Reflexivity holds for
-    /// every non-NaN state.
+    /// FFI trap, asserted rather than fixed: `GamepadState` derives `PartialEq`
+    /// over `f32`, so IEEE-754 applies - a snapshot with a NaN axis is *not equal to
+    /// itself*. Callers that dedupe frames with `==` (e.g.
     #[test]
     fn state_equality_is_ieee_not_reflexive_over_nan() {
         let mut nan_state = GamepadState::empty(GamepadId { id: 0 });
@@ -636,10 +612,10 @@ mod autotest_generated {
         assert_eq!(c, d);
     }
 
-    /// round-trip: `GamepadState` -> `Option` -> `OptionGamepadState` -> back.
-    /// This is the wrapper `CallbackInfo::get_gamepad_state` returns across the
-    /// FFI, so encode == decode must hold in both directions, and the default
-    /// must be the "no such pad" case.
+    /// round-trip: `GamepadState` -> `Option` -> `OptionGamepadState` -> back. This
+    /// is the wrapper `CallbackInfo::get_gamepad_state` returns across the FFI, so
+    /// encode == decode must hold in both directions, and the default must be the
+    /// "no such pad" case.
     #[test]
     fn option_gamepad_state_roundtrips() {
         assert!(OptionGamepadState::default().is_none());

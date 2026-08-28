@@ -1,13 +1,4 @@
-//! URL types for the C API.
-//!
-//! Provides a C-compatible, parsed-URL type. Key types: [`Url`],
-//! [`UrlParseError`], [`ResultUrlUrlParseError`].
-//!
-//! The POD type and the cheap accessors live here in `azul-core` (so consumers
-//! like `crate::video::VideoSource` can hold a typed `Url` without an
-//! `azul-layout` dependency). `Url::parse` / `Url::join`, which rely on the
-//! `url` crate, are gated behind the `url` feature; `azul_layout`'s `http`
-//! feature enables it. Re-exported as `azul_layout::url`.
+//! URL types for the C API. Provides a C-compatible, parsed-URL type.
 
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
@@ -26,7 +17,8 @@ pub struct Url {
     pub scheme: AzString,
     /// The host (e.g., "example.com")
     pub host: AzString,
-    /// The port number, or 0 if not specified (sentinel value; see `effective_port()`)
+    /// The port number, or 0 if not specified (sentinel value; see
+    /// `effective_port()`)
     pub port: u16,
     /// The path (e.g., "/path/to/resource")
     pub path: AzString,
@@ -63,11 +55,8 @@ impl_result!(
 );
 
 impl Url {
-    /// Parse a URL from a string
-    ///
-    /// # Errors
-    ///
-    /// Returns a `UrlParseError` if `s` is not a valid absolute URL.
+    /// Parse a URL from a string Returns a `UrlParseError` if `s` is not a valid
+    /// absolute URL.
     #[cfg(feature = "url")]
     pub fn parse(s: &str) -> Result<Self, UrlParseError> {
         use ::url::Url as UrlParser;
@@ -139,12 +128,9 @@ impl Url {
         }
     }
 
-    /// Join a relative path to this URL
-    ///
-    /// # Errors
-    ///
-    /// Returns a `UrlParseError` if this URL's `href` is not parseable as a
-    /// base, or if `path` cannot be resolved against it.
+    /// Join a relative path to this URL Returns a `UrlParseError` if this URL's
+    /// `href` is not parseable as a base, or if `path` cannot be resolved against
+    /// it.
     #[cfg(feature = "url")]
     pub fn join(&self, path: &str) -> Result<Self, UrlParseError> {
         use ::url::Url as UrlParser;
@@ -162,9 +148,8 @@ impl Url {
 
     /// Stub: `url` feature disabled (the `url` crate is gated behind it).
     #[cfg(not(feature = "url"))]
-    /// # Errors
-    ///
-    /// Returns an error: the `url` feature is disabled, so URL parsing is unsupported.
+    /// Returns an error: the `url` feature is disabled, so URL parsing is
+    /// unsupported.
     pub const fn parse(_s: &str) -> Result<Self, UrlParseError> {
         Err(UrlParseError {
             message: AzString::from_const_str("url feature not enabled"),
@@ -173,9 +158,8 @@ impl Url {
 
     /// Stub: `url` feature disabled (the `url` crate is gated behind it).
     #[cfg(not(feature = "url"))]
-    /// # Errors
-    ///
-    /// Returns an error: the `url` feature is disabled, so URL joining is unsupported.
+    /// Returns an error: the `url` feature is disabled, so URL joining is
+    /// unsupported.
     pub const fn join(&self, _path: &str) -> Result<Self, UrlParseError> {
         Err(UrlParseError {
             message: AzString::from_const_str("url feature not enabled"),
@@ -220,9 +204,8 @@ mod autotest_generated {
     use super::*;
 
     /// Structural invariants that must hold for ANY `Url`, however it was built.
-    ///
-    /// Only checks properties derivable from the type's own contract, so it is
-    /// safe to apply to the output of the external `url` crate parser too.
+    /// Only checks properties derivable from the type's own contract, so it is safe
+    /// to apply to the output of the external `url` crate parser too.
     fn assert_url_invariants(u: &Url) {
         // as_str() is exactly the href field, and Display agrees with it.
         assert_eq!(u.as_str(), u.href.as_str());
@@ -316,7 +299,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // Url::from_parts — constructor, no panics, invariants
+    // Url::from_parts - constructor, no panics, invariants
     // ---------------------------------------------------------------------
 
     #[test]
@@ -413,7 +396,7 @@ mod autotest_generated {
         let u = Url::from_parts("https", "例え.テスト", 0, "/パス/😀");
         assert_eq!(u.host.as_str(), "例え.テスト");
         assert_eq!(u.path.as_str(), "/パス/😀");
-        // No IDNA/percent-encoding happens here — from_parts is a plain formatter.
+        // No IDNA/percent-encoding happens here - from_parts is a plain formatter.
         assert_eq!(u.as_str(), "https://例え.テスト/パス/😀");
         assert!(u.is_https());
         assert_url_invariants(&u);
@@ -546,15 +529,14 @@ mod autotest_generated {
         assert_ne!(c, d, "…but the port field still distinguishes them");
     }
 
-    // =====================================================================
-    // Parser tests — only meaningful with the `url` feature.
+    // ===================================================================== Parser
+    // tests - only meaningful with the `url` feature.
     // =====================================================================
 
-    /// Parse `s`; if it succeeds, assert the general invariants AND that
-    /// re-parsing the serialization is a fixed point (`parse(as_str(x)) == x`).
-    ///
-    /// Used for inputs whose accept/reject verdict is the `url` crate's business:
-    /// the point is that we never panic and never produce an inconsistent `Url`.
+    /// Parse `s`; if it succeeds, assert the general invariants AND that re-parsing
+    /// the serialization is a fixed point (`parse(as_str(x)) == x`). Used for inputs
+    /// whose accept/reject verdict is the `url` crate's business: the point is that
+    /// we never panic and never produce an inconsistent `Url`.
     #[cfg(feature = "url")]
     fn assert_no_panic_and_idempotent(s: &str) {
         match Url::parse(s) {
@@ -658,9 +640,10 @@ mod autotest_generated {
     #[cfg(feature = "url")]
     #[test]
     fn parse_port_zero_collides_with_the_no_port_sentinel() {
-        // `port: 0` doubles as "unspecified", so an explicit :0 is indistinguishable
-        // from no port at all — effective_port() then reports the scheme default.
-        // This documents the sentinel's cost; it must at least stay self-consistent.
+        // `port: 0` doubles as "unspecified", so an explicit :0 is
+        // indistinguishable from no port at all - effective_port() then reports the
+        // scheme default. This documents the sentinel's cost; it must at least stay
+        // self-consistent.
         if let Ok(u) = Url::parse("http://example.com:0/") {
             assert_eq!(u.port, 0);
             assert_eq!(
@@ -675,8 +658,8 @@ mod autotest_generated {
     #[cfg(feature = "url")]
     #[test]
     fn parse_default_ports_are_reported_via_effective_port() {
-        // Whether the parser stores or elides a scheme-default port, effective_port()
-        // must resolve to the same answer.
+        // Whether the parser stores or elides a scheme-default port,
+        // effective_port() must resolve to the same answer.
         let u = Url::parse("https://example.com:443/").unwrap();
         assert!(u.port == 0 || u.port == 443);
         assert_eq!(u.effective_port(), 443);
@@ -744,7 +727,7 @@ mod autotest_generated {
     #[cfg(feature = "url")]
     #[test]
     fn parse_normalizes_leading_and_trailing_whitespace_deterministically() {
-        // Either the junk is stripped (spec behaviour) or the input is rejected —
+        // Either the junk is stripped (spec behaviour) or the input is rejected -
         // never a Url carrying stray whitespace in its href.
         match Url::parse("  https://example.com/  ") {
             Ok(u) => {
@@ -788,7 +771,8 @@ mod autotest_generated {
     #[cfg(feature = "url")]
     #[test]
     fn parse_survives_extremely_long_input() {
-        // 1M-char path segment: must be linear-time and allocation-safe, not a hang.
+        // 1M-char path segment: must be linear-time and allocation-safe, not a
+        // hang.
         let long = format!("http://example.com/{}", "a".repeat(1_000_000));
         let u = Url::parse(&long).expect("a long-but-valid URL must parse");
         assert_eq!(u.host.as_str(), "example.com");
@@ -805,7 +789,7 @@ mod autotest_generated {
     #[cfg(feature = "url")]
     #[test]
     fn parse_survives_deeply_nested_and_repetitive_input() {
-        // 10k nested path segments — must not blow the stack.
+        // 10k nested path segments - must not blow the stack.
         let nested = format!("http://example.com/{}", "a/".repeat(10_000));
         let u = Url::parse(&nested).expect("deeply nested path must parse");
         assert_eq!(u.path.as_str().matches('/').count(), 10_001);
@@ -854,7 +838,7 @@ mod autotest_generated {
         let parsed = Url::parse(built.as_str()).expect("from_parts output must be parseable");
         assert_eq!(parsed, built, "from_parts must be a faithful serializer");
 
-        // Elided default port: the href round-trips, but the port FIELD does not —
+        // Elided default port: the href round-trips, but the port FIELD does not -
         // the parser reports the 0 sentinel where from_parts kept 443. The two
         // disagree on `port` yet must still agree on `effective_port()`.
         let built = Url::from_parts("https", "example.com", 443, "/a");
@@ -898,7 +882,7 @@ mod autotest_generated {
     #[cfg(feature = "url")]
     #[test]
     fn join_on_an_unparseable_base_errors_instead_of_panicking() {
-        // Default Url: href is "" — the base itself cannot be parsed.
+        // Default Url: href is "" - the base itself cannot be parsed.
         let e = Url::default()
             .join("/x")
             .expect_err("joining onto an empty base must fail");
@@ -961,8 +945,8 @@ mod autotest_generated {
             match base.join(path) {
                 Ok(u) => {
                     assert_url_invariants(&u);
-                    // join() funnels through parse(), so the result must be a
-                    // fixed point of the parser too.
+                    // join() funnels through parse(), so the result must be a fixed
+                    // point of the parser too.
                     let again = Url::parse(u.as_str())
                         .expect("join() output must always re-parse");
                     assert_eq!(again, u, "join({path:?}) is not idempotent");
@@ -1010,8 +994,8 @@ mod autotest_generated {
     #[cfg(feature = "url")]
     #[test]
     fn join_result_is_a_fully_populated_url_not_a_partial_one() {
-        // join() re-parses, so query/fragment/port must all be repopulated
-        // from the joined string rather than inherited or dropped.
+        // join() re-parses, so query/fragment/port must all be repopulated from the
+        // joined string rather than inherited or dropped.
         let base = Url::parse("http://example.com:8080/a?old=1#oldfrag").unwrap();
         let u = base.join("b?new=2#newfrag").unwrap();
         assert_eq!(u.as_str(), "http://example.com:8080/b?new=2#newfrag");
@@ -1025,8 +1009,8 @@ mod autotest_generated {
         assert_url_invariants(&u);
     }
 
-    // =====================================================================
-    // Stub tests — the `url` feature is OFF, parse/join are const Err stubs.
+    // ===================================================================== Stub
+    // tests - the `url` feature is OFF, parse/join are const Err stubs.
     // =====================================================================
 
     #[cfg(not(feature = "url"))]
@@ -1079,8 +1063,8 @@ mod autotest_generated {
     #[cfg(not(feature = "url"))]
     #[test]
     fn stub_parse_and_join_are_usable_in_const_context() {
-        // Both stubs are `const fn`; evaluating them at compile time must not
-        // trip a const-eval panic.
+        // Both stubs are `const fn`; evaluating them at compile time must not trip
+        // a const-eval panic.
         const PARSED: Result<Url, UrlParseError> = Url::parse("https://example.com/");
         assert!(PARSED.is_err());
     }

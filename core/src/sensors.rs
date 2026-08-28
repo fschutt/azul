@@ -1,27 +1,15 @@
-//! POD types for the motion-sensor surface
-//! (SUPER_PLAN_2 §1 feature 5 + research/03 §"Feature 5").
-//!
-//! The three raw sensors apps want — accelerometer, gyroscope,
-//! magnetometer — each delivered as an `(x, y, z)` triple in the sensor's
-//! natural unit. Defined here in `azul-core` so the manager + accessors
-//! cross the FFI without `azul-layout` being a dependency. The stateful
-//! side lives in `azul_layout::managers::sensors::SensorManager`.
-//!
-//! Coordinate frame (research/03 §coordinate-frame): right-handed,
-//! +X right, +Y up, +Z out of the screen toward the user, in the device's
-//! default-portrait frame (iOS keeps the device frame regardless of UI
-//! orientation; Android auto-rotates only fused sensors). v1 reports the
-//! raw device frame.
+//! POD types for the motion-sensor surface . The three raw sensors apps want -
+//! accelerometer, gyroscope, magnetometer - each delivered as an `(x, y, z)` triple
+//! in the sensor's natural unit.
 
 /// Which motion sensor a [`SensorReading`] came from.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SensorKind {
-    /// Linear acceleration including gravity, in **m/s²**
-    /// (iOS `CMAccelerometerData` ×9.80665, Android `TYPE_ACCELEROMETER`).
+    /// Linear acceleration including gravity, in **m/s²** (iOS
+    /// `CMAccelerometerData` ×9.80665, Android `TYPE_ACCELEROMETER`).
     Accelerometer,
-    /// Angular velocity, in **rad/s** (iOS `CMGyroData`, Android
-    /// `TYPE_GYROSCOPE`).
+    /// Angular velocity, in **rad/s** (iOS `CMGyroData`, Android `TYPE_GYROSCOPE`).
     Gyroscope,
     /// Geomagnetic field, in **µT** (iOS `magneticField`, Android
     /// `TYPE_MAGNETIC_FIELD`).
@@ -29,7 +17,7 @@ pub enum SensorKind {
 }
 
 /// One `(x, y, z)` sample from a motion sensor. Units depend on
-/// [`SensorReading::kind`] (see [`SensorKind`]). All POD / `Copy`.
+/// [`SensorReading::kind`] (see [`SensorKind`]).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SensorReading {
@@ -46,8 +34,8 @@ pub struct SensorReading {
 }
 
 impl SensorReading {
-    /// The magnitude of the `(x, y, z)` vector — e.g. total acceleration
-    /// (≈9.81 at rest for the accelerometer) or field strength.
+    /// The magnitude of the `(x, y, z)` vector - e.g. total acceleration (≈9.81 at
+    /// rest for the accelerometer) or field strength.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn magnitude(&self) -> f32 {
         (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
@@ -89,8 +77,8 @@ mod autotest_generated {
         reading(SensorKind::Accelerometer, x, y, z)
     }
 
-    /// Relative comparison with an absolute floor, for the cases where f32
-    /// addition is not associative and bit-exactness is not guaranteed.
+    /// Relative comparison with an absolute floor, for the cases where f32 addition
+    /// is not associative and bit-exactness is not guaranteed.
     fn approx(a: f32, b: f32, rel: f32) -> bool {
         let scale = a.abs().max(b.abs()).max(1.0);
         (a - b).abs() <= rel * scale
@@ -123,7 +111,7 @@ mod autotest_generated {
     // --- SensorReading::magnitude (getter) -------------------------------
 
     /// basic_access: exactly representable Pythagorean triples must come back
-    /// bit-exact — every intermediate (square, sum, sqrt) is exact in f32.
+    /// bit-exact - every intermediate (square, sum, sqrt) is exact in f32.
     #[test]
     fn magnitude_pythagorean_is_exact() {
         assert_eq!(accel(3.0, 4.0, 0.0).magnitude(), 5.0);
@@ -143,8 +131,8 @@ mod autotest_generated {
         }
     }
 
-    /// edge_access: an all-negative-zero reading must not produce `-0.0`
-    /// (squaring clears the sign, so the result is `+0.0`).
+    /// edge_access: an all-negative-zero reading must not produce `-0.0` (squaring
+    /// clears the sign, so the result is `+0.0`).
     #[test]
     fn magnitude_negative_zero_yields_positive_zero() {
         let m = accel(-0.0, -0.0, -0.0).magnitude();
@@ -152,8 +140,8 @@ mod autotest_generated {
         assert!(m.is_sign_positive(), "expected +0.0, got {m:?}");
     }
 
-    /// invariant: magnitude depends only on |x|,|y|,|z| — all 8 sign
-    /// combinations of the same triple agree bit-for-bit.
+    /// invariant: magnitude depends only on |x|,|y|,|z| - all 8 sign combinations
+    /// of the same triple agree bit-for-bit.
     #[test]
     fn magnitude_is_sign_invariant() {
         let base = accel(1.5, 2.5, 3.5).magnitude();
@@ -167,7 +155,7 @@ mod autotest_generated {
         }
     }
 
-    /// invariant: for any non-NaN input the result is non-negative — never a
+    /// invariant: for any non-NaN input the result is non-negative - never a
     /// negative number, never a `-0.0`.
     #[test]
     fn magnitude_is_never_negative() {
@@ -234,9 +222,9 @@ mod autotest_generated {
     }
 
     /// overflow: the naive `sqrt(x² + y² + z²)` overflows for large-but-finite
-    /// inputs — the squares exceed `f32::MAX` even though the true magnitude
-    /// is finite (`|f32::MAX|` would fit). Documents the limitation: the
-    /// result saturates to `+inf` rather than panicking or wrapping.
+    /// inputs - the squares exceed `f32::MAX` even though the true magnitude is
+    /// finite (`|f32::MAX|` would fit). Documents the limitation: the result
+    /// saturates to `+inf` rather than panicking or wrapping.
     #[test]
     fn magnitude_overflows_to_infinity_on_huge_finite_input() {
         // True magnitude is exactly f32::MAX (finite), but MAX*MAX == inf.
@@ -249,8 +237,8 @@ mod autotest_generated {
         );
     }
 
-    /// boundary: the exact cliff where squaring stops fitting in f32.
-    /// `1.8e19² ≈ 3.24e38 < f32::MAX`, `1.9e19² ≈ 3.61e38 > f32::MAX`.
+    /// boundary: the exact cliff where squaring stops fitting in f32. `1.8e19² ≈
+    /// 3.24e38 < f32::MAX`, `1.9e19² ≈ 3.61e38 > f32::MAX`.
     #[test]
     fn magnitude_overflow_cliff_per_term_and_in_the_sum() {
         // Below the cliff: finite, and accurate.
@@ -271,9 +259,9 @@ mod autotest_generated {
         );
     }
 
-    /// underflow: the mirror image — squaring flushes tiny inputs to zero, so
-    /// the magnitude of a non-zero vector reads back as exactly 0.0. No panic,
-    /// no NaN; the reading is simply below the formula's resolution.
+    /// underflow: the mirror image - squaring flushes tiny inputs to zero, so the
+    /// magnitude of a non-zero vector reads back as exactly 0.0. No panic, no NaN;
+    /// the reading is simply below the formula's resolution.
     #[test]
     fn magnitude_underflows_to_zero_on_tiny_input() {
         assert_eq!(accel(1e-30, 0.0, 0.0).magnitude(), 0.0);
@@ -283,8 +271,8 @@ mod autotest_generated {
         assert_eq!(accel(f32::from_bits(1), 0.0, 0.0).magnitude(), 0.0);
     }
 
-    /// boundary: just above the underflow cliff (x² lands in the subnormal
-    /// range) the result is still finite and roughly right.
+    /// boundary: just above the underflow cliff (x² lands in the subnormal range)
+    /// the result is still finite and roughly right.
     #[test]
     fn magnitude_near_underflow_cliff_is_finite_and_close() {
         let m = accel(1e-19, 0.0, 0.0).magnitude();
@@ -292,8 +280,8 @@ mod autotest_generated {
         assert!(approx(m, 1e-19, 1e-2), "{m} !~ 1e-19");
     }
 
-    /// invariant: scaling by a power of two is exact in IEEE-754, so
-    /// `magnitude(2v) == 2 * magnitude(v)` bit-for-bit (absent over/underflow).
+    /// invariant: scaling by a power of two is exact in IEEE-754, so `magnitude(2v)
+    /// == 2 * magnitude(v)` bit-for-bit (absent over/underflow).
     #[test]
     fn magnitude_scaling_by_power_of_two_is_exact() {
         let (x, y, z) = (1.5_f32, -2.25_f32, 0.75_f32);
@@ -316,8 +304,8 @@ mod autotest_generated {
         }
     }
 
-    /// basic_access: the documented value — an accelerometer at rest reads
-    /// ~9.81 m/s² total, whichever axis gravity lands on.
+    /// basic_access: the documented value - an accelerometer at rest reads ~9.81
+    /// m/s² total, whichever axis gravity lands on.
     #[test]
     fn magnitude_accelerometer_at_rest_is_about_9_81() {
         for r in [
@@ -331,7 +319,7 @@ mod autotest_generated {
         }
     }
 
-    /// invariant: `kind` and `timestamp_ms` are not part of the computation —
+    /// invariant: `kind` and `timestamp_ms` are not part of the computation -
     /// including at the extremes of `u64`.
     #[test]
     fn magnitude_ignores_kind_and_timestamp() {
@@ -354,8 +342,8 @@ mod autotest_generated {
         }
     }
 
-    /// invariant: `&self` getter — repeated calls are bit-identical and the
-    /// reading is left untouched.
+    /// invariant: `&self` getter - repeated calls are bit-identical and the reading
+    /// is left untouched.
     #[test]
     fn magnitude_is_deterministic_and_leaves_the_reading_intact() {
         let r = accel(0.1, -0.2, 9.79);
@@ -368,8 +356,8 @@ mod autotest_generated {
 
     // --- SensorReading / SensorKind POD invariants ------------------------
 
-    /// A NaN axis makes the derived `PartialEq` non-reflexive — callers that
-    /// dedup readings by equality must not assume `r == r`.
+    /// A NaN axis makes the derived `PartialEq` non-reflexive - callers that dedup
+    /// readings by equality must not assume `r == r`.
     #[test]
     fn reading_with_nan_axis_is_not_equal_to_itself() {
         let nan = accel(f32::NAN, 0.0, 0.0);
@@ -386,8 +374,8 @@ mod autotest_generated {
         assert_eq!(ok, accel(1.0, 2.0, 2.0));
     }
 
-    /// The derived `Ord` follows declaration order, and `Hash` agrees with
-    /// `Eq` (equal values hash equal, the three variants are distinguishable).
+    /// The derived `Ord` follows declaration order, and `Hash` agrees with `Eq`
+    /// (equal values hash equal, the three variants are distinguishable).
     #[test]
     fn sensor_kind_ordering_and_hash_are_consistent() {
         use SensorKind::{Accelerometer, Gyroscope, Magnetometer};
@@ -426,8 +414,8 @@ mod autotest_generated {
         assert_eq!(d.into_option(), None);
     }
 
-    /// round-trip: `Option<SensorReading> -> OptionSensorReading -> Option<_>`
-    /// is the identity, for both variants.
+    /// round-trip: `Option<SensorReading> -> OptionSensorReading -> Option<_>` is
+    /// the identity, for both variants.
     #[test]
     fn option_roundtrips_through_the_ffi_wrapper() {
         let r = accel(1.0, 2.0, 2.0);
@@ -513,8 +501,8 @@ mod autotest_generated {
         );
     }
 
-    /// The wrapper is `Copy` — passing it by value across FFI leaves the
-    /// source usable (and the copy independent).
+    /// The wrapper is `Copy` - passing it by value across FFI leaves the source
+    /// usable (and the copy independent).
     #[test]
     fn option_is_copy_and_the_source_survives() {
         let o = OptionSensorReading::Some(accel(0.0, 3.0, 4.0));

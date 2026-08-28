@@ -1,24 +1,13 @@
-//! POD types for the camera-capture surface
-//! (SUPER_PLAN_2 §4 Priority 6 + research/01).
-//!
-//! Camera frames are GPU textures, not scalar samples, so the stateful side
-//! is heavier than the sensors': `azul_layout::managers::camera` owns a
-//! `CameraStream` per capture, each holding a shared `ImageRef` texture the
-//! capture thread writes into (zero-copy - clones see new bytes via the
-//! `ImageRef` `Arc`). A `CameraPreview` node renders that texture and, by
-//! appearing in the DOM, declares "I need the camera" to the permission
-//! layer (research/01 §"permission-as-DOM").
-//!
-//! Defined here in `azul-core` so the config / id / status types cross the
-//! FFI without `azul-layout` (or AVFoundation / Camera2) as a dependency -
-//! these are what an app passes to `start_camera` and reads back from a
-//! stream. The `Nv12` zero-copy output format is a `RawImageFormat` addition
-//! deferred to the backend tick; configs default to `BGRA8`.
+//! POD types for the camera-capture surface . Camera frames are GPU textures, not
+//! scalar samples, so the stateful side is heavier than the sensors':
+//! `azul_layout::managers::camera` owns a `CameraStream` per capture, each holding a
+//! shared `ImageRef` texture the capture thread writes into (zero-copy - clones see
+//! new bytes via the `ImageRef` `Arc`).
 
 use crate::resources::RawImageFormat;
 
-/// Identifies one camera capture stream - assigned by `start_camera`, used
-/// to read the stream back (`get_camera_frame`) and to stop / pause / flip it.
+/// Identifies one camera capture stream - assigned by `start_camera`, used to read
+/// the stream back (`get_camera_frame`) and to stop / pause / flip it.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CaptureStreamId {
@@ -53,8 +42,8 @@ pub enum StreamState {
     Error,
 }
 
-/// Rotation / mirroring the capture needs relative to the display (the
-/// sensor's native orientation rarely matches the UI's).
+/// Rotation / mirroring the capture needs relative to the display (the sensor's
+/// native orientation rarely matches the UI's).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CaptureOrientation {
@@ -99,9 +88,9 @@ pub struct CameraConfig {
     pub height: u32,
     /// Preferred frame rate (0 = backend default).
     pub fps: u32,
-    /// Texture format the backend should deliver. `BGRA8` is the portable
-    /// default; `Nv12` (a later `RawImageFormat` addition) is the zero-copy
-    /// path on platforms that produce it natively.
+    /// Texture format the backend should deliver. `BGRA8` is the portable default;
+    /// `Nv12` (a later `RawImageFormat` addition) is the zero-copy path on platforms
+    /// that produce it natively.
     pub output_format: RawImageFormat,
 }
 
@@ -118,8 +107,7 @@ impl Default for CameraConfig {
 }
 
 impl CameraConfig {
-    /// A default config for the given `facing` (backend-chosen size/fps,
-    /// `BGRA8`).
+    /// A default config for the given `facing` (backend-chosen size/fps, `BGRA8`).
     #[must_use] pub fn new(facing: CameraFacing) -> Self {
         Self {
             facing,
@@ -170,8 +158,8 @@ mod autotest_generated {
     #[test]
     fn new_sets_facing_and_leaves_everything_else_at_default() {
         // Documented contract: default config for the given `facing`
-        // (backend-chosen size/fps, BGRA8). So new(f) must differ from
-        // Default only in `facing`.
+        // (backend-chosen size/fps, BGRA8). So new(f) must differ from Default only
+        // in `facing`.
         let def = CameraConfig::default();
         for &facing in &ALL_FACINGS {
             let cfg = CameraConfig::new(facing);
@@ -225,8 +213,8 @@ mod autotest_generated {
 
     #[test]
     fn new_differs_only_by_facing_between_variants() {
-        // Two configs built from different facings must be unequal, and equal
-        // once their facings are aligned (proves facing is the only variance).
+        // Two configs built from different facings must be unequal, and equal once
+        // their facings are aligned (proves facing is the only variance).
         let front = CameraConfig::new(CameraFacing::Front);
         let mut back = CameraConfig::new(CameraFacing::Back);
         assert_ne!(front, back);
@@ -291,8 +279,8 @@ mod autotest_generated {
 
     #[test]
     fn capture_stats_nan_fps_breaks_eq_reflexivity() {
-        // measured_fps is f32; NaN != NaN, so a stats value carrying NaN must
-        // not compare equal to itself. This confirms CaptureStats is (correctly)
+        // measured_fps is f32; NaN != NaN, so a stats value carrying NaN must not
+        // compare equal to itself. This confirms CaptureStats is (correctly)
         // PartialEq and not Eq.
         let s = CaptureStats {
             measured_fps: f32::NAN,
@@ -366,8 +354,8 @@ mod autotest_generated {
         assert!(CaptureOrientation::Down < CaptureOrientation::Left);
         assert!(CaptureOrientation::Left < CaptureOrientation::Right);
         assert!(CaptureOrientation::Right < CaptureOrientation::Mirror);
-        // CaptureErrorCode: PermissionDenied < DeviceUnavailable < DeviceLost
-        //                   < Unsupported < Internal.
+        // CaptureErrorCode: PermissionDenied < DeviceUnavailable < DeviceLost <
+        // Unsupported < Internal.
         assert!(CaptureErrorCode::PermissionDenied < CaptureErrorCode::DeviceUnavailable);
         assert!(CaptureErrorCode::DeviceUnavailable < CaptureErrorCode::DeviceLost);
         assert!(CaptureErrorCode::DeviceLost < CaptureErrorCode::Unsupported);
@@ -407,12 +395,10 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // Appended adversarial tests.
-    //
-    // NOTE: the module docs mention an `Nv12` output format, but it is an
-    // explicitly deferred `RawImageFormat` addition and does not exist yet -
-    // it is therefore un-constructible and deliberately NOT tested here.
-    // =====================================================================
+    // Appended adversarial tests. NOTE: the module docs mention an `Nv12` output
+    // format, but it is an explicitly deferred `RawImageFormat` addition and does
+    // not exist yet - it is therefore un-constructible and deliberately NOT tested
+    // here.
 
     const ALL_STATES: [StreamState; 5] = [
         StreamState::Starting,
@@ -438,8 +424,8 @@ mod autotest_generated {
         CaptureErrorCode::Internal,
     ];
 
-    /// Every `RawImageFormat` a `CameraConfig` could carry. `Nv12` is absent
-    /// on purpose (see the note above).
+    /// Every `RawImageFormat` a `CameraConfig` could carry. `Nv12` is absent on
+    /// purpose (see the note above).
     const ALL_FORMATS: [RawImageFormat; 12] = [
         RawImageFormat::R8,
         RawImageFormat::RG8,
@@ -456,12 +442,9 @@ mod autotest_generated {
     ];
 
     // ---- Round-trip: enum -> FFI discriminant -> enum (encode == decode) ----
-    //
-    // These are `#[repr(C)]` fieldless enums that cross the FFI boundary, so
-    // their discriminants ARE the wire format. A reordered / inserted variant
-    // silently re-numbers the C ABI; these round-trips pin it down. The
-    // `match` arms are exhaustive, so adding a variant fails to compile rather
-    // than silently shipping an untested value.
+    // These are `#[repr(C)]` fieldless enums that cross the FFI boundary, so their
+    // discriminants ARE the wire format. A reordered / inserted variant silently
+    // re-numbers the C ABI; these round-trips pin it down.
 
     fn facing_from_discriminant(i: i32) -> Option<CameraFacing> {
         match i {
@@ -550,8 +533,8 @@ mod autotest_generated {
 
     #[test]
     fn enum_decode_rejects_out_of_range_discriminants() {
-        // A hostile / buggy FFI caller can hand over ANY i32. Decoding must
-        // yield None, never a bogus variant (and never wrap around).
+        // A hostile / buggy FFI caller can hand over ANY i32. Decoding must yield
+        // None, never a bogus variant (and never wrap around).
         for bad in [-1i32, 3, 5, 99, i32::MIN, i32::MAX] {
             assert_eq!(facing_from_discriminant(bad), None, "facing {bad}");
         }
@@ -569,8 +552,8 @@ mod autotest_generated {
 
     #[test]
     fn enum_discriminant_order_agrees_with_ord() {
-        // Ord is derived from declaration order, which is also the FFI
-        // numbering; the two must not drift apart.
+        // Ord is derived from declaration order, which is also the FFI numbering;
+        // the two must not drift apart.
         for &a in &ALL_STATES {
             for &b in &ALL_STATES {
                 assert_eq!(
@@ -586,8 +569,8 @@ mod autotest_generated {
 
     #[test]
     fn camera_config_field_roundtrip_is_identity_over_full_cross_product() {
-        // Every facing x every format, with adversarial extents: taking a
-        // config apart and rebuilding it must reproduce it exactly.
+        // Every facing x every format, with adversarial extents: taking a config
+        // apart and rebuilding it must reproduce it exactly.
         for &facing in &ALL_FACINGS {
             for &output_format in &ALL_FORMATS {
                 for &(width, height, fps) in &[
@@ -625,8 +608,8 @@ mod autotest_generated {
 
     #[test]
     fn camera_config_does_not_confuse_width_and_height() {
-        // Guards against a transposed-field bug in any future manual PartialEq
-        // or FFI struct layout: a config is NOT equal to its transpose.
+        // Guards against a transposed-field bug in any future manual PartialEq or
+        // FFI struct layout: a config is NOT equal to its transpose.
         let a = CameraConfig {
             width: 1920,
             height: 1080,
@@ -703,8 +686,8 @@ mod autotest_generated {
     }
 
     #[test]
-    // These types are Copy; calling .clone() explicitly is the point of the
-    // test (Clone must agree with Copy), so the lint is deliberately waived.
+    // These types are Copy; calling .clone() explicitly is the point of the test
+    // (Clone must agree with Copy), so the lint is deliberately waived.
     #[allow(clippy::clone_on_copy)]
     fn clone_is_identity_for_all_pod_types_at_extremes() {
         let cfg = CameraConfig {
@@ -719,9 +702,9 @@ mod autotest_generated {
         let id = CaptureStreamId { id: u64::MAX };
         assert_eq!(id.clone(), id);
 
-        // NaN is excluded here on purpose: clone of NaN cannot compare equal
-        // (see capture_stats_nan_fps_breaks_eq_reflexivity); assert bit
-        // equality instead, which IS reflexive.
+        // NaN is excluded here on purpose: clone of NaN cannot compare equal (see
+        // capture_stats_nan_fps_breaks_eq_reflexivity); assert bit equality instead,
+        // which IS reflexive.
         let nan_stats = CaptureStats {
             measured_fps: f32::NAN,
             frames_delivered: u64::MAX,
@@ -741,8 +724,8 @@ mod autotest_generated {
 
     #[test]
     fn capture_stats_nan_fps_makes_partial_cmp_none() {
-        // CaptureStats is only PartialEq (no Ord) precisely because of the f32.
-        // A NaN fps must yield an *incomparable* float, not a silent ordering.
+        // CaptureStats is only PartialEq (no Ord) precisely because of the f32. A
+        // NaN fps must yield an *incomparable* float, not a silent ordering.
         let nan = f32::NAN;
         assert!(nan.partial_cmp(&0.0).is_none());
         assert!(nan.partial_cmp(&nan).is_none());
@@ -751,8 +734,8 @@ mod autotest_generated {
             measured_fps: nan,
             ..CaptureStats::default()
         };
-        // A NaN-carrying stats value can never be *found* by equality search,
-        // so consumers must not rely on `contains` / dedup for it.
+        // A NaN-carrying stats value can never be *found* by equality search, so
+        // consumers must not rely on `contains` / dedup for it.
         let haystack = [s, CaptureStats::default()];
         assert!(!haystack.contains(&s), "NaN stats is unfindable by Eq");
         assert!(haystack.contains(&CaptureStats::default()));
@@ -760,8 +743,8 @@ mod autotest_generated {
 
     #[test]
     fn measured_fps_to_integer_cast_saturates_instead_of_wrapping() {
-        // HUD code casting measured_fps to an integer must not hit UB or wrap.
-        // Rust `as` casts are saturating: NaN -> 0, +inf -> MAX, negative -> 0.
+        // HUD code casting measured_fps to an integer must not hit UB or wrap. Rust
+        // `as` casts are saturating: NaN -> 0, +inf -> MAX, negative -> 0.
         let cases: [(f32, u32); 6] = [
             (f32::NAN, 0),
             (f32::INFINITY, u32::MAX),
@@ -821,10 +804,10 @@ mod autotest_generated {
 
     #[test]
     fn drop_rate_over_zeroed_stats_must_be_guarded() {
-        // Default stats have delivered == dropped == 0, so the natural drop
-        // rate `dropped / (delivered + dropped)` divides by zero: integer
-        // division would PANIC, float division yields NaN. Assert both, so the
-        // hazard is pinned rather than discovered in a HUD at runtime.
+        // Default stats have delivered == dropped == 0, so the natural drop rate
+        // `dropped / (delivered + dropped)` divides by zero: integer division would
+        // PANIC, float division yields NaN. Assert both, so the hazard is pinned
+        // rather than discovered in a HUD at runtime.
         let s = CaptureStats::default();
         let total = s.frames_delivered + s.frames_dropped;
         assert_eq!(total, 0);
@@ -877,8 +860,8 @@ mod autotest_generated {
 
     #[test]
     fn fps_u32_to_f32_roundtrip_is_lossy_above_2_pow_24() {
-        // The config's requested `fps` is u32 while the reported `measured_fps`
-        // is f32. Comparing them via a cast is exact only below 2^24.
+        // The config's requested `fps` is u32 while the reported `measured_fps` is
+        // f32. Comparing them via a cast is exact only below 2^24.
         let exact: u32 = 1 << 24; // 16_777_216
         assert_eq!(exact as f32 as u32, exact, "2^24 round-trips exactly");
 
@@ -902,8 +885,8 @@ mod autotest_generated {
 
     #[test]
     fn frames_delivered_u64_to_f32_roundtrip_is_lossy_at_the_boundary() {
-        // Same hazard on the counter side: a HUD computing fps as
-        // frames_delivered as f32 / secs loses counts past 2^24.
+        // Same hazard on the counter side: a HUD computing fps as frames_delivered
+        // as f32 / secs loses counts past 2^24.
         let s = CaptureStats {
             frames_delivered: (1 << 24) + 1,
             ..CaptureStats::default()
@@ -951,8 +934,8 @@ mod autotest_generated {
     #[test]
     fn ord_is_a_total_order_for_every_camera_enum() {
         use core::cmp::Ordering;
-        // Trichotomy + antisymmetry + transitivity, exhaustively over the
-        // (small) variant spaces. CameraFacing is already covered above.
+        // Trichotomy + antisymmetry + transitivity, exhaustively over the (small)
+        // variant spaces. CameraFacing is already covered above.
         macro_rules! assert_total_order {
             ($set:expr) => {{
                 for &a in $set {
@@ -1058,15 +1041,15 @@ mod autotest_generated {
     #[test]
     fn repr_c_layout_invariants_hold_for_the_ffi_pod_types() {
         use core::mem::{align_of, size_of};
-        // Single-field #[repr(C)] newtype: must be exactly its payload, so it
-        // can be passed across the FFI as a bare u64.
+        // Single-field #[repr(C)] newtype: must be exactly its payload, so it can
+        // be passed across the FFI as a bare u64.
         assert_eq!(size_of::<CaptureStreamId>(), size_of::<u64>());
         assert_eq!(align_of::<CaptureStreamId>(), align_of::<u64>());
 
         // No exact byte sizes asserted for the aggregates: u64 alignment (and
-        // therefore trailing padding) differs on 32-bit targets. Assert the
-        // portable invariants instead - big enough for the payload, and a
-        // whole number of alignment units (a valid array element).
+        // therefore trailing padding) differs on 32-bit targets. Assert the portable
+        // invariants instead - big enough for the payload, and a whole number of
+        // alignment units (a valid array element).
         assert!(size_of::<CaptureStats>() >= size_of::<f32>() + 2 * size_of::<u64>());
         assert_eq!(size_of::<CaptureStats>() % align_of::<CaptureStats>(), 0);
 

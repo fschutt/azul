@@ -1,8 +1,6 @@
-//! SVG `d=""` path data parser.
-//!
-//! Parses the `d` attribute of SVG `<path>` elements into `SvgMultiPolygon`
-//! geometry, supporting all 14 SVG path commands (M/m, L/l, H/h, V/v,
-//! C/c, S/s, Q/q, T/t, A/a, Z/z).
+//! SVG `d=""` path data parser. Parses the `d` attribute of SVG `<path>` elements
+//! into `SvgMultiPolygon` geometry, supporting all 14 SVG path commands (M/m, L/l,
+//! H/h, V/v, C/c, S/s, Q/q, T/t, A/a, Z/z).
 
 use alloc::{string::String, vec::Vec};
 use azul_css::props::basic::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve};
@@ -12,25 +10,25 @@ use crate::svg::{SvgLine, SvgMultiPolygon, SvgPath, SvgPathElement, SvgPathEleme
 /// Bezier approximation constant for quarter-circle arcs.
 const KAPPA: f32 = 0.552_284_8;
 
-/// Tolerance for treating two points as coincident (used in closepath and arc degeneracy checks).
+/// Tolerance for treating two points as coincident (used in closepath and arc
+/// degeneracy checks).
 const POINT_EPSILON: f32 = 1e-6;
 
-/// Tolerance for snapping a closepath line (slightly larger to avoid micro-segments).
+/// Tolerance for snapping a closepath line (slightly larger to avoid
+/// micro-segments).
 const CLOSEPATH_EPSILON: f32 = 0.001;
 
 /// Tolerance for treating a vector length as zero in angle computation.
 const ZERO_LENGTH_EPSILON: f32 = 1e-10;
 
-/// Small offset added to PI/2 when splitting arcs to avoid exact-boundary floating-point issues.
+/// Small offset added to PI/2 when splitting arcs to avoid exact-boundary
+/// floating-point issues.
 const ARC_SPLIT_FUDGE: f32 = 0.001;
 
-/// Decode the UTF-8 character starting at `pos` in `input`.
-///
-/// `input` is always the byte view of a valid `&str` and `pos` is always at a
-/// char boundary (only whole ASCII tokens are consumed), so the UTF-8 decode
-/// succeeds; a corrupt offset falls back to the replacement character rather
-/// than panicking. Used so error messages report the real Unicode char instead
-/// of a Latin-1 reinterpretation of a single UTF-8 byte (`b as char`).
+/// Decode the UTF-8 character starting at `pos` in `input`. `input` is always the
+/// byte view of a valid `&str` and `pos` is always at a char boundary (only whole
+/// ASCII tokens are consumed), so the UTF-8 decode succeeds; a corrupt offset falls
+/// back to the replacement character rather than panicking.
 fn char_at(input: &[u8], pos: usize) -> char {
     input
         .get(pos..)
@@ -340,19 +338,10 @@ impl<'a> PathParser<'a> {
     }
 }
 
-/// Parse an SVG path `d` attribute string into a `SvgMultiPolygon`.
-///
-/// Each M/m command starts a new subpath (ring). All 14 SVG path commands are
-/// supported including arcs (converted to cubic beziers).
-///
-/// # Panics
-///
-/// Panics if the path tokenizer signals a command but then yields no token
-/// (an internal parser invariant that should not occur for any input).
+/// Parse an SVG path `d` attribute string into a `SvgMultiPolygon`. Each M/m
+/// command starts a new subpath (ring).
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
-/// # Errors
-///
 /// Returns an error if `d` is not a valid SVG path-data string.
 pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
     let d = d.trim();
@@ -385,10 +374,7 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
                 b'm' => b'l',
                 // AUDIT 2026-07-08: a `Z`/`z` closepath takes no arguments, so it
                 // cannot be implicitly repeated. Reaching here means a stray
-                // non-command byte followed a closepath (e.g. the `5` in "M0 0Z5").
-                // The old `other => other` fell through to the `Z` arm, which
-                // consumes zero bytes, so `pos` never advanced -> 100% CPU infinite
-                // loop. Reject it as an unexpected character instead.
+                // non-command byte followed a closepath (e.g.
                 b'Z' | b'z' => {
                     return Err(SvgPathParseError::UnexpectedChar {
                         pos: parser.pos,
@@ -483,8 +469,8 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
             }
         }
 
-        // After processing one argument group, try to consume more
-        // argument groups for the same command (implicit repeats)
+        // After processing one argument group, try to consume more argument groups
+        // for the same command (implicit repeats)
         if cmd_upper != b'M' && cmd_upper != b'Z' {
             loop {
                 parser.skip_whitespace_and_commas();
@@ -523,9 +509,7 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
     }
 
     // A `d` made up solely of comma/whitespace filler (e.g. ",") consumes to EOF
-    // without ever reading a command and used to be accepted as an empty Ok. The SVG
-    // path grammar requires a moveto to start; a bare separator is only valid BETWEEN
-    // commands, never as the whole string.
+    // without ever reading a command and used to be accepted as an empty Ok.
     if parser.last_command == 0 && rings.is_empty() {
         return Err(SvgPathParseError::UnexpectedChar {
             pos: 0,
@@ -538,9 +522,8 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
     })
 }
 
-/// Convert an SVG arc to 1–4 cubic bezier curves.
-///
-/// Implements the SVG spec arc endpoint-to-center parameterization (Appendix F.6).
+/// Convert an SVG arc to 1 - 4 cubic bezier curves. Implements the SVG spec arc
+/// endpoint-to-center parameterization (Appendix F.6).
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 // n_segs is a tiny arc-quadrant count (<= ~6) and its loop index; the float<->usize
 // casts are exact for these bounded values.
@@ -714,9 +697,8 @@ fn arc_segment_to_cubic(
     (c1, c2, ep)
 }
 
-/// Approximate a circle with 4 cubic bezier curves.
-///
-/// Uses the standard kappa constant (0.5522847498) for quarter-arc approximation.
+/// Approximate a circle with 4 cubic bezier curves. Uses the standard kappa
+/// constant (0.5522847498) for quarter-arc approximation.
 #[must_use]
 pub fn svg_circle_to_paths(cx: f32, cy: f32, r: f32) -> SvgPath {
     let k = r * KAPPA;
@@ -781,13 +763,11 @@ pub fn svg_circle_to_paths(cx: f32, cy: f32, r: f32) -> SvgPath {
     }
 }
 
-/// Convert an SVG `<rect>` to a path with optional rounded corners.
-///
-/// If `rx` and `ry` are both 0, produces 4 line segments.
-/// Otherwise, produces lines for straight edges and cubic curves for corners.
+/// Convert an SVG `<rect>` to a path with optional rounded corners. If `rx` and
+/// `ry` are both 0, produces 4 line segments.
 #[must_use]
-// builds the rounded-rect path segment-by-segment with a matching capacity hint;
-// a `vec![..]` literal of the 8 multi-line elements would be less readable here.
+// builds the rounded-rect path segment-by-segment with a matching capacity hint; a
+// `vec![..]` literal of the 8 multi-line elements would be less readable here.
 #[allow(clippy::vec_init_then_push)]
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 pub fn svg_rect_to_path(x: f32, y: f32, w: f32, h: f32, rx: f32, ry: f32) -> SvgPath {
@@ -923,8 +903,8 @@ mod tests {
     use super::*;
 
     /// AUDIT 2026-07-08 regression: `"M0 0Z5"` used to spin at 100% CPU forever
-    /// because the trailing `5` re-derived `cmd = Z` (zero-length consume) and
-    /// the cursor never advanced. It must now terminate with `UnexpectedChar`.
+    /// because the trailing `5` re-derived `cmd = Z` (zero-length consume) and the
+    /// cursor never advanced. It must now terminate with `UnexpectedChar`.
     #[test]
     fn m0_0z5_does_not_hang() {
         let err = parse_svg_path_d("M0 0Z5").unwrap_err();
@@ -1070,8 +1050,8 @@ mod autotest_generated {
         }
     }
 
-    /// Trailing garbage after a valid char makes the *whole rest* invalid UTF-8,
-    /// so even a valid leading char decodes to the replacement char. Pinned as
+    /// Trailing garbage after a valid char makes the *whole rest* invalid UTF-8, so
+    /// even a valid leading char decodes to the replacement char. Pinned as
     /// deterministic (never a panic).
     #[test]
     fn char_at_invalid_utf8_tail_is_replacement() {
@@ -1207,7 +1187,8 @@ mod autotest_generated {
         assert_eq!(p.pos, 0);
     }
 
-    // ======================================================= has_number (predicate)
+    // ======================================================= has_number
+    // (predicate)
 
     #[test]
     fn has_number_true_for_number_starters() {
@@ -1230,7 +1211,8 @@ mod autotest_generated {
         }
     }
 
-    // ========================================================= parse_number (parser)
+    // ========================================================= parse_number
+    // (parser)
 
     fn num(s: &str) -> Result<f32, SvgPathParseError> {
         PathParser::new(s.as_bytes()).parse_number()
@@ -1274,7 +1256,8 @@ mod autotest_generated {
         }
     }
 
-    /// A dangling exponent is consumed by the tokenizer but rejected by `f32::from_str`.
+    /// A dangling exponent is consumed by the tokenizer but rejected by
+    /// `f32::from_str`.
     #[test]
     fn parse_number_dangling_exponent_is_err() {
         for s in ["1e", "1E", "1e+", "1e-", "1.5e"] {
@@ -1353,7 +1336,8 @@ mod autotest_generated {
         }
     }
 
-    // =========================================================== parse_flag (parser)
+    // =========================================================== parse_flag
+    // (parser)
 
     fn flag(s: &str) -> Result<bool, SvgPathParseError> {
         PathParser::new(s.as_bytes()).parse_flag()
@@ -1410,7 +1394,8 @@ mod autotest_generated {
         );
     }
 
-    // ================================================ parse_coordinate_pair (parser)
+    // ================================================ parse_coordinate_pair
+    // (parser)
 
     fn pair(s: &str) -> Result<(f32, f32), SvgPathParseError> {
         PathParser::new(s.as_bytes()).parse_coordinate_pair()
@@ -1465,7 +1450,8 @@ mod autotest_generated {
         assert!(x.is_infinite() && y.is_infinite());
     }
 
-    // ======================================================= make_absolute (numeric)
+    // ======================================================= make_absolute
+    // (numeric)
 
     #[test]
     fn make_absolute_zero_and_absolute_mode_is_identity() {
@@ -1520,8 +1506,8 @@ mod autotest_generated {
 
     // ============================================================ handle_* (other)
 
-    /// Drive one handler over `input` starting from `current`, returning the
-    /// pushed elements plus the parser's post-state.
+    /// Drive one handler over `input` starting from `current`, returning the pushed
+    /// elements plus the parser's post-state.
     fn run_handler<F>(
         input: &str,
         current: SvgPoint,
@@ -1619,8 +1605,8 @@ mod autotest_generated {
         }
     }
 
-    /// S reflects the previous control point only when the previous command was
-    /// C or S; otherwise ctrl_1 collapses onto the current point.
+    /// S reflects the previous control point only when the previous command was C
+    /// or S; otherwise ctrl_1 collapses onto the current point.
     #[test]
     fn handle_smooth_cubic_reflects_only_after_c_or_s() {
         let cur = SvgPoint { x: 10.0, y: 10.0 };
@@ -1705,8 +1691,8 @@ mod autotest_generated {
         assert!(matches!(r, Err(SvgPathParseError::InvalidArcFlag { .. })));
     }
 
-    /// Infinite radii feed NaN through the endpoint parameterization. The
-    /// segment count must still be bounded (no runaway loop) and no panic.
+    /// Infinite radii feed NaN through the endpoint parameterization. The segment
+    /// count must still be bounded (no runaway loop) and no panic.
     #[test]
     fn handle_arc_to_infinite_radii_is_bounded() {
         let (r, els, _) = run_handler("1e999 1e999 0 0 1 10 10", ORIGIN, b'A', None, |p, e| {
@@ -1720,7 +1706,8 @@ mod autotest_generated {
         );
     }
 
-    // ===================================================== parse_svg_path_d (parser)
+    // ===================================================== parse_svg_path_d
+    // (parser)
 
     #[test]
     fn parse_path_empty_and_whitespace_only_is_empty_path_err() {
@@ -1754,7 +1741,8 @@ mod autotest_generated {
         assert_eq!(items[0].get_end(), SvgPoint { x: 40.0, y: 60.0 });
     }
 
-    /// A moveto with no drawing commands produces no geometry (but is not an error).
+    /// A moveto with no drawing commands produces no geometry (but is not an
+    /// error).
     #[test]
     fn parse_path_moveto_only_yields_no_rings() {
         let mp = parse_svg_path_d("M10 10").unwrap();
@@ -1796,8 +1784,8 @@ mod autotest_generated {
                 ch: '\u{0301}',
             })
         );
-        // A multibyte char *after* a valid command falls into the argument
-        // parser and is rejected as a missing number, at the right byte offset.
+        // A multibyte char *after* a valid command falls into the argument parser
+        // and is rejected as a missing number, at the right byte offset.
         assert_eq!(
             parse_svg_path_d("M0 0L1 1ü"),
             Err(SvgPathParseError::ExpectedNumber { pos: 8 })
@@ -1876,8 +1864,8 @@ mod autotest_generated {
         assert_eq!(items.first().unwrap().get_start(), SvgPoint { x: 0.0, y: 0.0 });
     }
 
-    /// Boundary numerics survive the full parse: coordinates saturate to inf
-    /// rather than panicking or wrapping.
+    /// Boundary numerics survive the full parse: coordinates saturate to inf rather
+    /// than panicking or wrapping.
     #[test]
     fn parse_path_boundary_numbers_saturate() {
         let mp = parse_svg_path_d("M1e999 -1e999 L1e-999 0").unwrap();
@@ -1891,14 +1879,14 @@ mod autotest_generated {
         let items_owner = &mp.rings.as_ref()[0];
         assert!(items_owner.items.as_ref()[0].get_end().x.is_infinite());
 
-        // "NaN" / "inf" are not valid SVG numbers -- they must be rejected,
-        // so a NaN coordinate can never enter the geometry via the parser.
+        // "NaN" / "inf" are not valid SVG numbers -- they must be rejected, so a
+        // NaN coordinate can never enter the geometry via the parser.
         assert!(parse_svg_path_d("M NaN 0").is_err());
         assert!(parse_svg_path_d("M inf 0").is_err());
     }
 
-    /// 5000 implicit repeats: the parser is iterative, so this must neither
-    /// hang nor blow the stack.
+    /// 5000 implicit repeats: the parser is iterative, so this must neither hang
+    /// nor blow the stack.
     #[test]
     fn parse_path_extremely_long_input_terminates() {
         let mut d = String::from("M0 0");
@@ -1917,8 +1905,8 @@ mod autotest_generated {
         assert_eq!(parse_svg_path_d(&d).unwrap().rings.as_ref().len(), 5_000);
     }
 
-    /// A long run of adversarial fragments: every one must *return* (Ok or Err)
-    /// and never spin. The `Z`-followed-by-a-digit case used to loop forever.
+    /// A long run of adversarial fragments: every one must *return* (Ok or Err) and
+    /// never spin. The `Z`-followed-by-a-digit case used to loop forever.
     #[test]
     fn parse_path_adversarial_fragments_all_terminate() {
         let fragments = [
@@ -1932,8 +1920,8 @@ mod autotest_generated {
             "M0 0 h1e999 v1e999 h-1e999", "M-0-0-0-0",
         ];
         for f in fragments {
-            // The assertion is termination itself; the result is merely pinned
-            // as "did not panic".
+            // The assertion is termination itself; the result is merely pinned as
+            // "did not panic".
             let r = parse_svg_path_d(f);
             assert!(r.is_ok() || r.is_err(), "{f:?} must return, not panic");
         }
@@ -1963,7 +1951,8 @@ mod autotest_generated {
         }
     }
 
-    // ======================================================= arc_to_cubics (numeric)
+    // ======================================================= arc_to_cubics
+    // (numeric)
 
     #[test]
     fn arc_to_cubics_coincident_endpoints_emit_nothing() {
@@ -2073,7 +2062,8 @@ mod autotest_generated {
         assert!(out.len() <= 4);
     }
 
-    // ======================================================= angle_between (numeric)
+    // ======================================================= angle_between
+    // (numeric)
 
     #[test]
     fn angle_between_known_angles() {
@@ -2148,7 +2138,8 @@ mod autotest_generated {
         assert!(angle_between(f32::INFINITY, 0.0, 1.0, 0.0).is_nan());
     }
 
-    // ================================================ arc_segment_to_cubic (numeric)
+    // ================================================ arc_segment_to_cubic
+    // (numeric)
 
     #[test]
     fn arc_segment_to_cubic_quarter_circle() {
@@ -2191,7 +2182,8 @@ mod autotest_generated {
     /// Rotation is applied via the caller-supplied cos/sin pair.
     #[test]
     fn arc_segment_to_cubic_applies_rotation() {
-        // 90-degree rotation (cos=0, sin=1) maps the theta=0 point (rx, 0) to (0, rx).
+        // 90-degree rotation (cos=0, sin=1) maps the theta=0 point (rx, 0) to (0,
+        // rx).
         let (_, _, ep) = arc_segment_to_cubic(0.0, 0.0, 2.0, 1.0, 0.0, 1.0, 0.0, 0.0);
         assert!(approx(ep.x, 0.0) && approx(ep.y, 2.0), "ep = {ep:?}");
     }
@@ -2221,7 +2213,8 @@ mod autotest_generated {
         assert!(!c1.x.is_nan() || c1.x.is_nan(), "must not panic");
     }
 
-    // =================================================== svg_circle_to_paths (numeric)
+    // =================================================== svg_circle_to_paths
+    // (numeric)
 
     #[test]
     fn circle_has_four_cubics_and_closes_on_itself() {
@@ -2253,8 +2246,8 @@ mod autotest_generated {
         }
     }
 
-    /// A negative radius mirrors the circle (it is not rejected or abs()'d);
-    /// it still yields a closed 4-curve path.
+    /// A negative radius mirrors the circle (it is not rejected or abs()'d); it
+    /// still yields a closed 4-curve path.
     #[test]
     fn circle_negative_radius_is_mirrored_not_rejected() {
         let p = svg_circle_to_paths(0.0, 0.0, -5.0);
@@ -2285,7 +2278,8 @@ mod autotest_generated {
         assert!(all_points(&p).iter().any(|pt| pt.x.is_infinite()));
     }
 
-    // ==================================================== svg_rect_to_path (numeric)
+    // ==================================================== svg_rect_to_path
+    // (numeric)
 
     #[test]
     fn rect_sharp_corners_are_four_lines() {

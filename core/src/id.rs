@@ -1,21 +1,9 @@
-//! Node tree data structures and hierarchy management.
-//!
-//! This module provides the core data structures for managing DOM-like tree hierarchies:
-//!
-//! - `NodeId`: Type-safe node identifiers with Option<NodeId> optimization
-//! - `NodeHierarchy`: Parent-child relationships between nodes
-//! - `NodeDataContainer`: Generic storage for node data with efficient indexing
-//!
-//! # Memory Layout
-//!
-//! `NodeId` stores a plain `usize` index internally. For FFI structs that need
-//! `Option<NodeId>`, a manual 1-based encoding is used (0 = None, n > 0 = Some(n-1)).
-//!
-//! # Performance
-//!
-//! - Node lookups are O(1) via direct array indexing
-//! - Parent/child traversal is O(1) via pre-computed indices
-//! - No heap allocations after initial tree construction
+//! Node tree data structures and hierarchy management. This module provides the
+//! core data structures for managing DOM-like tree hierarchies: - `NodeId`:
+//! Type-safe node identifiers with Option<NodeId> optimization - `NodeHierarchy`:
+//! Parent-child relationships between nodes - `NodeDataContainer`: Generic storage
+//! for node data with efficient indexing `NodeId` stores a plain `usize` index
+//! internally.
 
 use alloc::vec::Vec;
 use core::{
@@ -38,39 +26,13 @@ pub mod node_id {
         ops::{Add, AddAssign},
     };
 
-    /// A type-safe identifier for a node within a DOM tree.
-    ///
-    /// `NodeId` is FFI-safe (`#[repr(C)]`) and stores a **zero-based** index internally.
-    /// Use `NodeId::index()` to get the array index for direct node access.
-    ///
-    /// # Zero-based indexing
-    ///
-    /// - `NodeId::new(0)` → first node (index 0)
-    /// - `NodeId::new(5)` → sixth node (index 5)
-    /// - Use `node_id.index()` to get the array index
-    ///
-    /// # FFI Encoding (for `Option<NodeId>`)
-    ///
-    /// When storing `Option<NodeId>` in FFI structs (like `NodeHierarchyItem`),
-    /// we use a **1-based encoding** to represent None:
-    ///
-    /// - `0` means `None` (no node)
-    /// - `n > 0` means `Some(NodeId(n - 1))`
-    ///
-    /// Use [`NodeId::from_usize`] to decode and [`NodeId::into_raw`] to encode.
-    /// See also: [`crate::styled_dom::NodeHierarchyItemId`] for the FFI wrapper type.
-    ///
-    /// # Warning
-    ///
-    /// **Never manually construct raw usize values for node hierarchy fields!**
-    /// Always use the provided `from_usize`/`into_raw` functions to avoid
-    /// off-by-one errors that can cause index-out-of-bounds panics.
-    ///
+    /// A type-safe identifier for a node within a DOM tree. `NodeId` is FFI-safe
+    /// (`#[repr(C)]`) and stores a **zero-based** index internally.
     #[repr(C)]
     #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
     pub struct NodeId {
-        // Private field to prevent direct manipulation.
-        // Use NodeId::new() to create, NodeId::index() to read.
+        // Private field to prevent direct manipulation. Use NodeId::new() to
+        // create, NodeId::index() to read.
         inner: usize,
     }
 
@@ -84,18 +46,8 @@ pub mod node_id {
             Self { inner: value }
         }
 
-        /// Decodes a raw `usize` to `Option<NodeId>` using 1-based encoding.
-        ///
-        /// This is the inverse of [`NodeId::into_usize`].
-        ///
-        /// - `0` → `None` (no node)
-        /// - `n > 0` → `Some(NodeId(n - 1))`
-        ///
-        /// # Warning
-        ///
-        /// This function is for decoding values stored in FFI structs like
-        /// `NodeHierarchyItem`. Do not use raw usize values directly - always
-        /// decode them first!
+        /// Decodes a raw `usize` to `Option<NodeId>` using 1-based encoding. This
+        /// is the inverse of [`NodeId::into_usize`].
         #[inline]
         #[must_use] pub const fn from_usize(value: usize) -> Option<Self> {
             match value {
@@ -104,14 +56,9 @@ pub mod node_id {
             }
         }
 
-        /// Encodes `Option<NodeId>` to a raw `usize` for storage in FFI structs.
-        ///
-        /// - `None` → `0`
-        /// - `Some(NodeId(n))` → `n + 1`
-        ///
-        /// The returned value uses **1-based encoding**! A value of `0` means "no node",
-        /// NOT "node at index 0". Use [`NodeId::from_usize`] to decode.
-        ///
+        /// Encodes `Option<NodeId>` to a raw `usize` for storage in FFI structs. -
+        /// `None` → `0` - `Some(NodeId(n))` → `n + 1` The returned value uses
+        /// **1-based encoding**!
         #[inline]
         #[must_use] pub const fn into_raw(val: &Option<Self>) -> usize {
             match val {
@@ -120,9 +67,8 @@ pub mod node_id {
             }
         }
 
-        /// Returns the **zero-based** index of this node.
-        ///
-        /// This is the actual array index where the node data is stored.
+        /// Returns the **zero-based** index of this node. This is the actual array
+        /// index where the node data is stored.
         #[inline]
         #[must_use] pub const fn index(&self) -> usize {
             self.inner
@@ -143,11 +89,9 @@ pub mod node_id {
 
     impl Add<usize> for NodeId {
         type Output = Self;
-        /// AUDIT: saturating add. A raw `self.inner + other` could overflow
-        /// (debug panic / release wrap to a bogus small index that then aliases
-        /// a real node). `NodeId` indices are bounded by the arena length, so a
-        /// saturation to `usize::MAX` is an obviously-invalid index that fails
-        /// loudly at the next bounds-checked access rather than silently aliasing.
+        /// AUDIT: saturating add. A raw `self.inner + other` could overflow (debug
+        /// panic / release wrap to a bogus small index that then aliases a real
+        /// node).
         #[inline]
         fn add(self, other: usize) -> Self {
             Self::new(self.inner.saturating_add(other))
@@ -155,7 +99,7 @@ pub mod node_id {
     }
 
     impl AddAssign<usize> for NodeId {
-        /// AUDIT: saturating add — see [`Add`] impl above.
+        /// AUDIT: saturating add - see [`Add`] impl above.
         #[inline]
         fn add_assign(&mut self, other: usize) {
             *self = *self + other;
@@ -175,21 +119,18 @@ pub mod node_id {
     }
 }
 
-/// Hierarchical information about a node (stores the indices of the parent / child nodes).
+/// Hierarchical information about a node (stores the indices of the parent / child
+/// nodes).
 #[derive(Debug, Default, Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
 pub struct Node {
     pub parent: Option<NodeId>,
     pub previous_sibling: Option<NodeId>,
     pub next_sibling: Option<NodeId>,
     pub last_child: Option<NodeId>,
-    // NOTE: first_child can be calculated on the fly:
-    //
-    //   - if last_child is None, first_child is None
-    //   - if last_child is Some, first_child is parent_index + 1
-    //
-    // This makes the "Node" struct take up 4 registers instead of 5
-    //
-    // pub first_child: Option<NodeId>,
+    // NOTE: first_child can be calculated on the fly: - if last_child is None,
+    // first_child is None - if last_child is Some, first_child is parent_index + 1
+    // This makes the "Node" struct take up 4 registers instead of 5 pub first_child:
+    // Option<NodeId>,
 }
 
 impl Node {
@@ -228,9 +169,9 @@ impl Node {
     }
 }
 
-/// The hierarchy of nodes is stored separately from the actual node content in order
-/// to save on memory, since the hierarchy can be re-used across several DOM trees even
-/// if the content changes.
+/// The hierarchy of nodes is stored separately from the actual node content in
+/// order to save on memory, since the hierarchy can be re-used across several DOM
+/// trees even if the content changes.
 #[derive(Debug, Default, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 pub struct NodeHierarchy {
     pub internal: Vec<Node>,
@@ -251,9 +192,9 @@ impl NodeHierarchy {
 
 }
 
-/// The hierarchy of nodes is stored separately from the actual node content in order
-/// to save on memory, since the hierarchy can be re-used across several DOM trees even
-/// if the content changes.
+/// The hierarchy of nodes is stored separately from the actual node content in
+/// order to save on memory, since the hierarchy can be re-used across several DOM
+/// trees even if the content changes.
 #[derive(Debug, PartialEq, Hash, Eq)]
 pub struct NodeHierarchyRef<'a> {
     pub internal: &'a [Node],
@@ -289,16 +230,11 @@ impl<'a> NodeHierarchyRef<'a> {
     }
 
     /// Returns the `(depth, NodeId)` of all parent nodes (i.e. nodes that have a
-    /// `first_child`), in depth sorted order, (i.e. `NodeId(0)` with a depth of 0) is
-    /// the first element.
-    ///
-    /// Runtime: O(n) max
-    // the `.drain(..)` calls intentionally empty current/next_children to REUSE
-    // their allocations across the BFS levels; `into_iter()` would move them.
+    /// `first_child`), in depth sorted order, (i.e.
     #[allow(clippy::iter_with_drain)]
     #[must_use] pub fn get_parents_sorted_by_depth(&self) -> NodeDepths {
-        // AUDIT: an empty hierarchy has no root node — indexing `internal[0]`
-        // (via `self[root]` below) would panic. Bail out early.
+        // AUDIT: an empty hierarchy has no root node - indexing `internal[0]` (via
+        // `self[root]` below) would panic. Bail out early.
         if self.is_empty() {
             return Vec::new();
         }
@@ -306,11 +242,7 @@ impl<'a> NodeHierarchyRef<'a> {
         let root = NodeId::new(0);
         let mut non_leaf_nodes = Vec::new();
 
-        // AUDIT: a childless root (e.g. a single-node DOM) is a LEAF, not a
-        // parent. The old code seeded `current_children` with the root and
-        // unconditionally pushed it into `non_leaf_nodes`, mislabeling it as a
-        // parent. Only descend (and only emit the root) when it actually has a
-        // first child.
+        // AUDIT: a childless root (e.g. a single-node DOM) is a LEAF, not a parent.
         if !self[root].has_first_child() {
             return non_leaf_nodes;
         }
@@ -511,7 +443,6 @@ impl<T> IndexMut<NodeId> for NodeDataContainerRefMut<'_, T> {
 
 impl NodeId {
     /// Return an iterator of references to this node and the siblings before it.
-    ///
     /// Call `.next().unwrap()` once on the iterator to skip the node itself.
     #[inline]
     #[must_use] pub const fn preceding_siblings<'a>(
@@ -552,8 +483,8 @@ macro_rules! impl_node_iterator {
     };
 }
 
-/// An linear iterator, does not respect the DOM in any way,
-/// it just iterates over the nodes like a Vec
+/// An linear iterator, does not respect the DOM in any way, it just iterates over
+/// the nodes like a Vec
 #[derive(Debug, Clone)]
 pub struct LinearIterator {
     arena_len: usize,
@@ -583,7 +514,8 @@ pub struct PrecedingSiblings<'a> {
 
 impl_node_iterator!(PrecedingSiblings, |node: &Node| node.previous_sibling);
 
-/// Special iterator for using `NodeDataContainerRef`<AzNode> instead of `NodeHierarchy`
+/// Special iterator for using `NodeDataContainerRef`<AzNode> instead of
+/// `NodeHierarchy`
 #[derive(Debug)]
 pub struct AzChildren<'a> {
     node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
@@ -604,7 +536,8 @@ impl Iterator for AzChildren<'_> {
     }
 }
 
-/// Special iterator for using `NodeDataContainerRef`<AzNode> instead of `NodeHierarchy`
+/// Special iterator for using `NodeDataContainerRef`<AzNode> instead of
+/// `NodeHierarchy`
 #[derive(Debug)]
 pub struct AzReverseChildren<'a> {
     node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
@@ -626,10 +559,9 @@ impl Iterator for AzReverseChildren<'_> {
 }
 
 impl NodeId {
-    /// Traverse up through the hierarchy until a node matching the predicate is found.
-    ///
-    /// Necessary to resolve the last positioned (= relative)
-    /// element of an absolute node.
+    /// Traverse up through the hierarchy until a node matching the predicate is
+    /// found. Necessary to resolve the last positioned (= relative) element of an
+    /// absolute node.
     pub fn get_nearest_matching_parent<'a, F>(
         self,
         node_hierarchy: &'a NodeDataContainerRef<'a, NodeHierarchyItem>,
@@ -639,9 +571,9 @@ impl NodeId {
         F: Fn(Self) -> bool,
     {
         // AUDIT: guard against (a) an out-of-bounds `self` and (b) a cycle in a
-        // corrupt hierarchy (a `parent_id` that points back down into a
-        // descendant). Use checked `get` and cap the walk at the node count —
-        // a valid parent chain can never be longer than the number of nodes.
+        // corrupt hierarchy (a `parent_id` that points back down into a descendant).
+        // Use checked `get` and cap the walk at the node count - a valid parent
+        // chain can never be longer than the number of nodes.
         let node_count = node_hierarchy.internal.len();
         let mut current_node = node_hierarchy.internal.get(self.index())?.parent_id()?;
         for _ in 0..node_count {
@@ -653,7 +585,8 @@ impl NodeId {
         None
     }
 
-    /// Return the children of this node (necessary for parallel iteration over children)
+    /// Return the children of this node (necessary for parallel iteration over
+    /// children)
     #[inline]
     #[must_use] pub fn az_children_collect<'a>(
         self,
@@ -742,7 +675,7 @@ mod audit_tests {
 
     #[test]
     fn nearest_matching_parent_cycle_terminates() {
-        // node1.parent = 2, node2.parent = 1 — cyclic, must not hang.
+        // node1.parent = 2, node2.parent = 1 - cyclic, must not hang.
         let items = vec![item(None), item(Some(2)), item(Some(1))];
         let cont = NodeDataContainerRef { internal: &items };
         let r = NodeId::new(1).get_nearest_matching_parent(&cont, |_| false);
@@ -780,14 +713,8 @@ mod autotest_generated {
     // helpers
     // ---------------------------------------------------------------------
 
-    /// A well-formed 5-node tree (children are always contiguous after the
-    /// parent, as the `first_child = parent + 1` design requires):
-    ///
-    /// ```text
-    /// 0 ── 1 ── 2
-    ///  │    └── 3
-    ///  └── 4
-    /// ```
+    /// A well-formed 5-node tree (children are always contiguous after the parent,
+    /// as the `first_child = parent + 1` design requires): 0 ── 1 ── 2 │ └── 3 └── 4
     fn tree_5() -> Vec<Node> {
         vec![
             Node {
@@ -828,7 +755,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // NodeId::new / index / ZERO  (constructor + getter)
+    // NodeId::new / index / ZERO (constructor + getter)
     // ---------------------------------------------------------------------
 
     #[test]
@@ -861,7 +788,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // NodeId::from_usize / into_raw  (1-based FFI encoding round-trip)
+    // NodeId::from_usize / into_raw (1-based FFI encoding round-trip)
     // ---------------------------------------------------------------------
 
     #[test]
@@ -903,18 +830,16 @@ mod autotest_generated {
         }
     }
 
-    /// BOUNDARY: `NodeId::new(usize::MAX)` is the one index that cannot be
-    /// encoded — `into_raw` computes `inner + 1`, which overflows. Unlike the
-    /// `Add`/`AddAssign` impls (which were deliberately made saturating), this
-    /// add is unchecked: debug builds panic, release builds wrap to `0`, i.e.
-    /// the `None` encoding. Either way the node is lost; assert that it never
-    /// silently produces some *other* valid-looking node id.
+    /// BOUNDARY: `NodeId::new(usize::MAX)` is the one index that cannot be encoded
+    /// - `into_raw` computes `inner + 1`, which overflows. Unlike the
+    /// `Add`/`AddAssign` impls (which were deliberately made saturating), this add
+    /// is unchecked: debug builds panic, release builds wrap to `0`, i.e.
     #[cfg(feature = "std")]
     #[test]
     fn into_raw_at_usize_max_never_yields_a_bogus_node() {
         let encoded = std::panic::catch_unwind(|| NodeId::into_raw(&Some(NodeId::new(usize::MAX))));
         match encoded {
-            // debug: overflow check fires — loud failure, acceptable.
+            // debug: overflow check fires - loud failure, acceptable.
             Err(_) => {}
             // release: wraps to 0 == the "no node" encoding.
             Ok(raw) => {
@@ -925,7 +850,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // NodeId Display / Debug  (serializer)
+    // NodeId Display / Debug (serializer)
     // ---------------------------------------------------------------------
 
     #[test]
@@ -975,8 +900,8 @@ mod autotest_generated {
         assert!(full.has_last_child());
     }
 
-    /// INVARIANT: `has_first_child()` and `has_last_child()` read the same
-    /// field, so they can never disagree — child-presence is all-or-nothing.
+    /// INVARIANT: `has_first_child()` and `has_last_child()` read the same field,
+    /// so they can never disagree - child-presence is all-or-nothing.
     #[test]
     fn has_first_child_always_agrees_with_has_last_child() {
         for last_child in [None, Some(NodeId::new(0)), Some(NodeId::new(usize::MAX))] {
@@ -1057,8 +982,8 @@ mod autotest_generated {
         assert_eq!(r.get(NodeId::new(usize::MAX)), None);
     }
 
-    /// `Index` (unlike `get`) is unchecked-by-contract: it must fail loudly
-    /// rather than silently hand back an unrelated node.
+    /// `Index` (unlike `get`) is unchecked-by-contract: it must fail loudly rather
+    /// than silently hand back an unrelated node.
     #[test]
     #[should_panic]
     fn hierarchy_ref_index_out_of_bounds_panics() {
@@ -1079,8 +1004,8 @@ mod autotest_generated {
         );
     }
 
-    /// The `arena_len < 1` guard exists because `arena_len - 1` would underflow
-    /// on an empty arena; check the 0- and 1-element boundaries explicitly.
+    /// The `arena_len < 1` guard exists because `arena_len - 1` would underflow on
+    /// an empty arena; check the 0- and 1-element boundaries explicitly.
     #[test]
     fn linear_iter_len_zero_and_one_boundaries() {
         let empty: [Node; 0] = [];
@@ -1108,7 +1033,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // NodeId::children / preceding_siblings  (NodeHierarchyRef iterators)
+    // NodeId::children / preceding_siblings (NodeHierarchyRef iterators)
     // ---------------------------------------------------------------------
 
     #[test]
@@ -1133,7 +1058,7 @@ mod autotest_generated {
     fn children_of_out_of_bounds_node_panics_loudly() {
         let nodes = tree_5();
         let r = NodeHierarchyRef::from_slice(&nodes);
-        // `children()` indexes the hierarchy directly — an id past the end must
+        // `children()` indexes the hierarchy directly - an id past the end must
         // abort rather than fabricate a child list.
         let _ = NodeId::new(99).children(&r);
     }
@@ -1154,10 +1079,10 @@ mod autotest_generated {
         );
     }
 
-    /// ADVERSARIAL: a corrupt hierarchy whose `previous_sibling` points at the
-    /// node itself makes the iterator cycle forever. It must not panic — but a
-    /// caller that `collect()`s it would hang, so only ever take a bounded
-    /// prefix from an untrusted hierarchy.
+    /// ADVERSARIAL: a corrupt hierarchy whose `previous_sibling` points at the node
+    /// itself makes the iterator cycle forever. It must not panic - but a caller
+    /// that `collect()`s it would hang, so only ever take a bounded prefix from an
+    /// untrusted hierarchy.
     #[test]
     fn preceding_siblings_on_self_cycle_repeats_without_panicking() {
         let nodes = vec![
@@ -1284,11 +1209,10 @@ mod autotest_generated {
         assert!(out.is_empty());
     }
 
-    /// CONTRACT TRAP: `None` results are *filtered out*, so the output is
-    /// COMPACTED — it is shorter than the input and its positions no longer
-    /// line up with the `NodeId`s that produced them. Indexing the result by a
-    /// `NodeId` therefore reads the wrong element (or goes out of bounds).
-    /// Pinned here so the aliasing behaviour can't change silently.
+    /// CONTRACT TRAP: `None` results are *filtered out*, so the output is COMPACTED
+    /// - it is shorter than the input and its positions no longer line up with the
+    /// `NodeId`s that produced them. Indexing the result by a `NodeId` therefore
+    /// reads the wrong element (or goes out of bounds).
     #[test]
     fn transform_nodeid_optional_compacts_and_breaks_nodeid_alignment() {
         let data = [0_u32; 5];
@@ -1303,7 +1227,7 @@ mod autotest_generated {
         });
         assert_eq!(out.len(), 3, "output is compacted, NOT padded to the input len");
         assert_eq!(out.internal, vec![0, 2, 4]);
-        // Position 1 holds node 2's value — the result is not index-aligned.
+        // Position 1 holds node 2's value - the result is not index-aligned.
         assert_eq!(out.as_ref().get(NodeId::new(1)), Some(&2));
         assert_eq!(out.as_ref().get(NodeId::new(4)), None);
 
@@ -1352,8 +1276,8 @@ mod autotest_generated {
 
     /// ADVERSARIAL: a `next_sibling` that points back at the node itself makes
     /// `az_children` an infinite iterator. It must not panic, but
-    /// `az_children_collect` on such a hierarchy would allocate until OOM —
-    /// so only a bounded prefix is taken here.
+    /// `az_children_collect` on such a hierarchy would allocate until OOM - so only
+    /// a bounded prefix is taken here.
     #[test]
     fn az_children_on_sibling_cycle_repeats_without_panicking() {
         let nodes = vec![
@@ -1421,7 +1345,7 @@ mod autotest_generated {
 
     #[test]
     fn nearest_matching_parent_self_parent_cycle_terminates() {
-        // node 1 is its own parent — the node-count cap must break the loop.
+        // node 1 is its own parent - the node-count cap must break the loop.
         let nodes = vec![
             Node::ROOT,
             Node {
@@ -1437,11 +1361,8 @@ mod autotest_generated {
         );
     }
 
-    /// ADVERSARIAL: a corrupt `parent` index that points past the end of the
-    /// arena. The lookup must not panic. Note the predicate is still called
-    /// with that out-of-bounds id, so a permissive predicate hands the caller
-    /// back an id that will panic when used to index the arena — callers must
-    /// bounds-check the returned id, not assume it is valid.
+    /// ADVERSARIAL: a corrupt `parent` index that points past the end of the arena.
+    /// The lookup must not panic.
     #[test]
     fn nearest_matching_parent_out_of_bounds_ancestor_does_not_panic() {
         let nodes = vec![

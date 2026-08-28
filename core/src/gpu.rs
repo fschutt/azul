@@ -1,22 +1,6 @@
-//! GPU value caching for CSS transforms and opacity.
-//!
-//! This module manages the synchronization between DOM CSS properties (transforms and opacity)
-//! and GPU-side keys used by WebRender. It tracks changes to transform and opacity values
-//! and generates events when values are added, changed, or removed.
-//!
-//! # Performance
-//!
-//! The cache uses CPU feature detection (SSE/AVX on x86_64) to optimize transform calculations.
-//! Values are only recalculated when CSS properties change, minimizing GPU updates.
-//!
-//! # Architecture
-//!
-//! - `GpuValueCache`: Stores current transform/opacity keys and values for all nodes
-//! - `GpuEventChanges`: Contains delta events for transform/opacity changes
-//! - `GpuTransformKeyEvent`: Events for transform additions, changes, and removals
-//!
-//! The cache is synchronized with the `StyledDom` on each frame, generating minimal
-//! update events to send to the GPU.
+//! GPU value caching for CSS transforms and opacity. This module manages the
+//! synchronization between DOM CSS properties (transforms and opacity) and GPU-side
+//! keys used by WebRender.
 
 use alloc::vec::Vec;
 #[cfg(feature = "std")]
@@ -35,10 +19,8 @@ use crate::{
 };
 
 /// Caches GPU transform and opacity keys and their current values for all nodes.
-///
-/// This cache stores the `WebRender` keys and computed values for nodes with
-/// CSS transforms or opacity. It's synchronized with the `StyledDom` to detect
-/// changes and generate minimal update events.
+/// This cache stores the `WebRender` keys and computed values for nodes with CSS
+/// transforms or opacity.
 #[derive(Default, Debug, Clone)]
 pub struct GpuValueCache {
     /// Vertical scrollbar thumb transform keys (keyed by scrollable node ID)
@@ -49,20 +31,14 @@ pub struct GpuValueCache {
     pub h_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current horizontal scrollbar thumb transform values
     pub h_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
-    /// CSS transform keys (keyed by node ID) — for CSS `transform` property animation.
-    /// Separate from scrollbar transform keys to avoid `SpatialTreeItemKey` collisions.
+    /// CSS transform keys (keyed by node ID) - for CSS `transform` property
+    /// animation. Separate from scrollbar transform keys to avoid
+    /// `SpatialTreeItemKey` collisions.
     pub css_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current CSS transform values (keyed by node ID)
     pub css_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
-    /// ANIMATION transform keys (keyed by node ID).
-    ///
-    /// A separate channel from `css_transform_keys` on purpose. That map is
-    /// OWNED by `synchronize`, which adds and removes entries to match the
-    /// DOM's CSS `transform` property — so an animation writing into it has its
-    /// keys evicted on the very next frame, and the element snaps instead of
-    /// moving. Scrollbar thumbs already have their own channel for the same
-    /// reason; this follows that precedent rather than fighting the cascade for
-    /// one map.
+    /// ANIMATION transform keys (keyed by node ID). A separate channel from
+    /// `css_transform_keys` on purpose.
     pub anim_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current animation transform values (keyed by node ID).
     pub anim_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
@@ -84,10 +60,9 @@ pub struct GpuValueCache {
     pub scrollbar_h_opacity_values: HashMap<(DomId, NodeId), f32>,
 }
 
-/// Represents a change to a GPU transform key.
-///
-/// These events are generated when synchronizing the cache with the `StyledDom`
-/// and are used to update `WebRender`'s transform state efficiently.
+/// Represents a change to a GPU transform key. These events are generated when
+/// synchronizing the cache with the `StyledDom` and are used to update `WebRender`'s
+/// transform state efficiently.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum GpuTransformKeyEvent {
     /// A new transform was added to a node
@@ -109,27 +84,13 @@ impl GpuValueCache {
         Self::default()
     }
 
-    /// Fingerprint of the KEY POPULATION the display-list builder consumes —
-    /// which nodes carry which transform/opacity keys, and (for the channels
-    /// the builder `zip`s with their value map) whether a value exists.
-    ///
-    /// This exists because the solver's structural-identity display-list cache
-    /// keyed on (root subtree hash, viewport) alone, and the emitted list is
-    /// ALSO a function of this population: `PushReferenceFrame` is emitted for
-    /// a node exactly when it has a key+value pair. Diff-driven animation
-    /// mints its keys AFTER the first layout (First/Last need solved rects),
-    /// so the very next relayout of the unchanged DOM hit the cache and served
-    /// the PRE-KEY display list back — no reference frames, so no GPU damage,
-    /// so the animation was invisible and every subsequent screenshot froze.
-    ///
-    /// Deliberately a population fingerprint, not a value fingerprint: values
-    /// change every animation tick, and serving the cached list across ticks
-    /// is the entire point of routing animation through GPU keys. The hash
-    /// covers exactly the maps the builder reads: css/anim transform keys
-    /// (plus the keysets of their value maps — a key without a value emits
-    /// nothing), scrollbar v/h thumb transform keys, and scrollbar v/h
-    /// opacity keys. In-process comparison only, so hasher stability across
-    /// runs is not required; iteration order is normalised by sorting.
+    /// Fingerprint of the KEY POPULATION the display-list builder consumes - which
+    /// nodes carry which transform/opacity keys, and (for the channels the builder
+    /// `zip`s with their value map) whether a value exists. This exists because the
+    /// solver's structural-identity display-list cache keyed on (root subtree hash,
+    /// viewport) alone, and the emitted list is ALSO a function of this population:
+    /// `PushReferenceFrame` is emitted for a node exactly when it has a key+value
+    /// pair.
     #[must_use]
     pub fn dl_emission_fingerprint(&self) -> u64 {
         const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
@@ -177,10 +138,10 @@ impl GpuValueCache {
             entries.push((9, n.index() as u64, 0));
         }
         entries.sort_unstable();
-        // FNV-1a over the sorted entry words. Hand-rolled because this file
-        // builds under no_std (where `HashMap` above is really `BTreeMap` and
-        // `DefaultHasher` does not exist) — and in-process comparison needs
-        // no cryptographic strength, only sensitivity to every entry.
+        // FNV-1a over the sorted entry words. Hand-rolled because this file builds
+        // under no_std (where `HashMap` above is really `BTreeMap` and
+        // `DefaultHasher` does not exist) - and in-process comparison needs no
+        // cryptographic strength, only sensitivity to every entry.
         let mut h: u64 = FNV_OFFSET;
         for (tag, a, b) in entries {
             for word in [u64::from(tag), a, b] {
@@ -193,9 +154,8 @@ impl GpuValueCache {
         h
     }
 
-    /// Synchronizes the cache with the current `StyledDom`, generating change events
-    /// for CSS transform and opacity additions, modifications, and removals.
-    ///
+    /// Synchronizes the cache with the current `StyledDom`, generating change
+    /// events for CSS transform and opacity additions, modifications, and removals.
     /// Split into read-only `compute_*_events` passes (which diff against the cache)
     /// and `apply_*_events` passes (which mutate it).
     #[must_use]
@@ -203,16 +163,11 @@ impl GpuValueCache {
         self.synchronize_with_sizes(styled_dom, &|_| None)
     }
 
-    /// [`Self::synchronize`] with the nodes' border-box sizes (logical px),
-    /// which is what `transform-origin` and `translate()` percentages
-    /// resolve against (CSS Transforms 1: the element's own box). Layout
-    /// runs AFTER this sync, so callers pass the PREVIOUS pass's sizes —
-    /// exact in steady state — and correct the values once the new sizes
-    /// exist with [`Self::refresh_transform_values`]. With no size source
-    /// a percentage origin resolves to 0, i.e. the top-left corner: that
-    /// was the only behaviour before, and it pivoted every `rotate()` /
-    /// `scale()` under the default `transform-origin: 50% 50%` at the
-    /// corner instead of the centre.
+    /// [`Self::synchronize`] with the nodes' border-box sizes (logical px), which
+    /// is what `transform-origin` and `translate()` percentages resolve against (CSS
+    /// Transforms 1: the element's own box). Layout runs AFTER this sync, so callers
+    /// pass the PREVIOUS pass's sizes - exact in steady state - and correct the
+    /// values once the new sizes exist with [`Self::refresh_transform_values`].
     #[must_use]
     pub fn synchronize_with_sizes(
         &mut self,
@@ -257,9 +212,8 @@ impl GpuValueCache {
     }
 
     /// Computes CSS-transform change events against the cached values (read-only).
-    /// The node's CSS `transform` as a matrix, with percentages resolved
-    /// against `size` (its border box, logical px); `None` when the node
-    /// has no transform.
+    /// The node's CSS `transform` as a matrix, with percentages resolved against
+    /// `size` (its border box, logical px); `None` when the node has no transform.
     fn css_transform_of(
         styled_dom: &StyledDom,
         node_id: NodeId,
@@ -286,12 +240,9 @@ impl GpuValueCache {
         ))
     }
 
-    /// AFTER layout: recompute every cached CSS transform with the nodes'
-    /// real sizes (see [`Self::synchronize_with_sizes`]). Returns how many
-    /// values changed. Both compositors read the LIVE values from this cache
-    /// (the display list's baked matrix is only the fallback for a key
-    /// nothing has published), so a corrected value reaches the screen in
-    /// the same frame.
+    /// AFTER layout: recompute every cached CSS transform with the nodes' real
+    /// sizes (see [`Self::synchronize_with_sizes`]). Returns how many values
+    /// changed.
     pub fn refresh_transform_values(
         &mut self,
         styled_dom: &StyledDom,
@@ -326,25 +277,21 @@ impl GpuValueCache {
         let css_property_cache = styled_dom.get_css_property_cache();
         let node_states = styled_dom.styled_nodes.as_container();
 
-        // calculate the transform values of every single node that has a non-default transform.
-        //
-        // GPU fast path: `has_transform` is a single bit in the compact cache.
-        // The overwhelmingly common case is "no transform set", which now reads one
-        // byte and bails — no cascade walk. Only nodes that actually have a
-        // transform pay the slow-walk cost (required to retrieve the parsed value).
+        // calculate the transform values of every single node that has a
+        // non-default transform. GPU fast path: `has_transform` is a single bit in
+        // the compact cache.
         let mut events = (0..styled_dom.node_data.len())
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
                 let styled_node_state = &node_states[node_id].styled_node_state;
-                // Bit-check short-circuit: only proceed if the node might have a transform.
+                // Bit-check short-circuit: only proceed if the node might have a
+                // transform.
                 if styled_node_state.is_normal() {
                     if let Some(ref cc) = css_property_cache.compact_cache {
                         // M12.7: short-circuit the empty-map get. hashbrown's
                         // empty-map probe touches the static empty control-group,
                         // which mis-lifts to wasm (out-of-bounds access); the web
-                        // headless layout uses a fresh (empty) GpuValueCache. An
-                        // empty map has no entry anyway, and is_empty() is len-based
-                        // (no probe), so the result is identical on desktop.
+                        // headless layout uses a fresh (empty) GpuValueCache.
                         if !cc.has_transform(node_id.index())
                             && (self.css_current_transform_values.is_empty()
                                 || !self.css_current_transform_values.contains_key(&node_id))
@@ -354,12 +301,12 @@ impl GpuValueCache {
                     }
                 }
                 // `css_transform_of` turns "no transform cascade entry" (the
-                // ordinary case) into `None` rather than skipping the node, so
-                // a node that just LOST its transform still reaches the
-                // `(Some(old), None) => Removed` arm and its cached
-                // TransformKey is evicted. Percentages resolve against the
-                // node's own box — the previous pass's size before layout, 0
-                // (the corner) when no size is known yet.
+                // ordinary case) into `None` rather than skipping the node, so a
+                // node that just LOST its transform still reaches the `(Some(old),
+                // None) => Removed` arm and its cached TransformKey is evicted.
+                // Percentages resolve against the node's own box - the previous
+                // pass's size before layout, 0 (the corner) when no size is known
+                // yet.
                 let size = node_size(node_id).unwrap_or((0.0, 0.0));
                 let current_transform = Self::css_transform_of(styled_dom, node_id, size);
 
@@ -390,9 +337,9 @@ impl GpuValueCache {
             })
             .collect::<Vec<GpuTransformKeyEvent>>();
 
-        // Structural shrink: any cached transform key whose node no longer
-        // exists in the (smaller) DOM is never visited by the loop above, so it
-        // would leak on the GPU. Emit an explicit Removed for those.
+        // Structural shrink: any cached transform key whose node no longer exists
+        // in the (smaller) DOM is never visited by the loop above, so it would leak
+        // on the GPU. Emit an explicit Removed for those.
         let node_count = styled_dom.node_data.len();
         for (node_id, key) in &self.css_transform_keys {
             if node_id.index() >= node_count {
@@ -430,11 +377,9 @@ impl GpuValueCache {
         let node_states = styled_dom.styled_nodes.as_container();
 
         // calculate the opacity of every single node that has a non-default opacity
-        //
-        // GPU fast path: compact cache encodes opacity as a single u8. Nodes with
-        // no author-set opacity (the common case) have `OPACITY_SENTINEL` and
-        // return immediately — no cascade walk. Only non-default opacities
-        // generate key events.
+        // GPU fast path: compact cache encodes opacity as a single u8. Nodes with no
+        // author-set opacity (the common case) have `OPACITY_SENTINEL` and return
+        // immediately - no cascade walk.
         let mut events = (0..styled_dom.node_data.len())
             .filter_map(|node_id| {
                 let node_id = NodeId::new(node_id);
@@ -446,7 +391,8 @@ impl GpuValueCache {
                     if let Some(ref cc) = css_property_cache.compact_cache {
                         let raw = cc.get_opacity_raw(node_id.index());
                         compact_opacity = if raw == azul_css::compact_cache::OPACITY_SENTINEL {
-                            // unset → default (1.0) — bail out unless we had a prior opacity key
+                            // unset → default (1.0) - bail out unless we had a
+                            // prior opacity key
                             self.current_opacity_values.get(&node_id)?;
                             None
                         } else {
@@ -460,7 +406,8 @@ impl GpuValueCache {
                     // Fast path: value already read from compact cache.
                     Some(v)
                 } else if styled_node_state.is_normal() && css_property_cache.compact_cache.is_some() {
-                    // Fast path: sentinel — unset → default (1.0, treated as None here).
+                    // Fast path: sentinel - unset → default (1.0, treated as None
+                    // here).
                     None
                 } else {
                     css_property_cache
@@ -524,10 +471,9 @@ impl GpuValueCache {
     }
 }
 
-/// Represents a change to a scrollbar opacity key.
-///
-/// Scrollbar opacity is managed separately from CSS opacity to enable
-/// independent fading animations without affecting element opacity.
+/// Represents a change to a scrollbar opacity key. Scrollbar opacity is managed
+/// separately from CSS opacity to enable independent fading animations without
+/// affecting element opacity.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum GpuScrollbarOpacityEvent {
     /// A vertical scrollbar was added to a node
@@ -544,10 +490,9 @@ pub enum GpuScrollbarOpacityEvent {
     HorizontalRemoved(DomId, NodeId, OpacityKey),
 }
 
-/// Contains all GPU-related change events from a cache synchronization.
-///
-/// This structure groups transform, opacity, and scrollbar opacity changes together
-/// for efficient batch processing when updating `WebRender`.
+/// Contains all GPU-related change events from a cache synchronization. This
+/// structure groups transform, opacity, and scrollbar opacity changes together for
+/// efficient batch processing when updating `WebRender`.
 #[derive(Default, Debug, Clone, PartialEq, PartialOrd)]
 pub struct GpuEventChanges {
     /// All transform key changes (additions, modifications, removals)
@@ -564,16 +509,16 @@ impl GpuEventChanges {
         Self::default()
     }
 
-    /// Returns `true` if there are no transform, opacity, or scrollbar opacity changes.
+    /// Returns `true` if there are no transform, opacity, or scrollbar opacity
+    /// changes.
     #[must_use] pub const fn is_empty(&self) -> bool {
         self.transform_key_changes.is_empty()
             && self.opacity_key_changes.is_empty()
             && self.scrollbar_opacity_changes.is_empty()
     }
 
-    /// Merges another `GpuEventChanges` into this one, consuming the other.
-    ///
-    /// This is useful for combining changes from multiple sources.
+    /// Merges another `GpuEventChanges` into this one, consuming the other. This is
+    /// useful for combining changes from multiple sources.
     pub fn merge(&mut self, other: &mut Self) {
         self.transform_key_changes.append(&mut other.transform_key_changes);
         self.opacity_key_changes.append(&mut other.opacity_key_changes);
@@ -581,10 +526,9 @@ impl GpuEventChanges {
     }
 }
 
-/// Represents a change to a GPU opacity key.
-///
-/// These events are generated when synchronizing the cache with the `StyledDom`
-/// and are used to update `WebRender`'s opacity state efficiently.
+/// Represents a change to a GPU opacity key. These events are generated when
+/// synchronizing the cache with the `StyledDom` and are used to update `WebRender`'s
+/// opacity state efficiently.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum GpuOpacityKeyEvent {
     /// A new opacity was added to a node
@@ -603,8 +547,8 @@ mod autotest_generated {
     use super::*;
     use crate::dom::Dom;
 
-    /// A `StyledDom` with exactly one node (the body) and no CSS at all:
-    /// compact cache present, `has_transform` unset, opacity == `OPACITY_SENTINEL`.
+    /// A `StyledDom` with exactly one node (the body) and no CSS at all: compact
+    /// cache present, `has_transform` unset, opacity == `OPACITY_SENTINEL`.
     fn plain_styled_dom() -> StyledDom {
         let mut dom = Dom::create_body();
         StyledDom::create(&mut dom, Css::empty())
@@ -697,7 +641,7 @@ mod autotest_generated {
             .push(GpuOpacityKeyEvent::Removed(node, OpacityKey::unique()));
         assert!(!only_opacity.is_empty());
 
-        // scrollbar changes alone must also flip the predicate — is_empty() has to
+        // scrollbar changes alone must also flip the predicate - is_empty() has to
         // check all three vecs, not just the two the CSS passes fill.
         let mut only_scrollbar = GpuEventChanges::empty();
         only_scrollbar
@@ -747,7 +691,8 @@ mod autotest_generated {
         assert_eq!(target.transform_key_changes.len(), 2);
         assert_eq!(target.opacity_key_changes.len(), 1);
         assert_eq!(target.scrollbar_opacity_changes.len(), 1);
-        // append semantics: self's events keep their position, other's are pushed after.
+        // append semantics: self's events keep their position, other's are pushed
+        // after.
         assert!(matches!(
             target.transform_key_changes[0],
             GpuTransformKeyEvent::Added(..)
@@ -798,7 +743,8 @@ mod autotest_generated {
         assert_eq!(target.opacity_key_changes.len(), 20_000);
         assert!(source.is_empty());
 
-        // merging an already-drained source a second time must be a no-op, not a duplicate
+        // merging an already-drained source a second time must be a no-op, not a
+        // duplicate
         target.merge(&mut source);
         assert_eq!(target.opacity_key_changes.len(), 20_000);
     }
@@ -852,8 +798,8 @@ mod autotest_generated {
     #[test]
     fn removing_an_uncached_or_out_of_range_node_does_not_panic() {
         let mut cache = GpuValueCache::empty();
-        // NodeId::new(usize::MAX) is never a valid DOM index — apply_* only hashes it,
-        // so it must be tolerated rather than used as an array index.
+        // NodeId::new(usize::MAX) is never a valid DOM index - apply_* only hashes
+        // it, so it must be tolerated rather than used as an array index.
         cache.apply_transform_events(&[
             GpuTransformKeyEvent::Removed(NodeId::new(usize::MAX), TransformKey::unique()),
             GpuTransformKeyEvent::Removed(NodeId::ZERO, TransformKey::unique()),
@@ -914,8 +860,9 @@ mod autotest_generated {
 
     #[test]
     fn a_changed_event_for_an_uncached_node_inserts_a_value_but_no_key() {
-        // compute_transform_events can never emit this (it `?`s on an existing key),
-        // but apply_transform_events takes an arbitrary slice and must not panic.
+        // compute_transform_events can never emit this (it `?`s on an existing
+        // key), but apply_transform_events takes an arbitrary slice and must not
+        // panic.
         let node = NodeId::new(5);
         let mut cache = GpuValueCache::empty();
         cache.apply_transform_events(&[GpuTransformKeyEvent::Changed(
@@ -952,8 +899,8 @@ mod autotest_generated {
         assert_eq!(stored.m[0][3], f32::MIN);
         assert_eq!(stored.m[1][0], f32::MAX);
 
-        // Consequence worth pinning: a NaN matrix is not PartialEq-equal to itself, so
-        // no caller may use `old == new` to suppress a redundant GPU update.
+        // Consequence worth pinning: a NaN matrix is not PartialEq-equal to itself,
+        // so no caller may use `old == new` to suppress a redundant GPU update.
         let a = hostile_matrix();
         let b = hostile_matrix();
         assert_ne!(a, b);
@@ -988,7 +935,7 @@ mod autotest_generated {
 
     #[test]
     fn apply_opacity_events_stores_out_of_range_values_verbatim() {
-        // The cache does no clamping of its own — pin that, so a future "helpful"
+        // The cache does no clamping of its own - pin that, so a future "helpful"
         // clamp shows up as a test change rather than a silent behaviour change.
         let cases = [
             f32::NAN,
@@ -1059,7 +1006,8 @@ mod autotest_generated {
     #[test]
     fn synchronize_never_fills_scrollbar_opacity_changes() {
         // Documented contract: scrollbar opacity is filled by a *separate* pass, so
-        // synchronize() must leave that vec empty (and not touch the scrollbar maps).
+        // synchronize() must leave that vec empty (and not touch the scrollbar
+        // maps).
         let styled = plain_styled_dom();
         let mut cache = GpuValueCache::empty();
         cache
@@ -1078,9 +1026,9 @@ mod autotest_generated {
 
     #[test]
     fn opacity_round_trips_from_css_through_the_compact_cache_quantizer() {
-        // compact.rs encodes opacity as `(o * 254.0).round() as u8`; gpu.rs decodes it
-        // as `raw / 254.0`. Every value must survive that round-trip within one step,
-        // and must never leave [0, 1] (which WebRender would reject).
+        // compact.rs encodes opacity as `(o * 254.0).round() as u8`; gpu.rs decodes
+        // it as `raw / 254.0`. Every value must survive that round-trip within one
+        // step, and must never leave [0, 1] (which WebRender would reject).
         const STEP: f32 = 1.0 / 254.0;
         for (css_value, expected) in [
             ("0", 0.0f32),
@@ -1146,8 +1094,8 @@ mod autotest_generated {
 
     #[test]
     fn synchronize_evicts_cached_keys_for_nodes_that_no_longer_exist() {
-        // Structural shrink: the DOM got smaller, so cached keys for now-missing nodes
-        // are never visited by the per-node loop and would leak on the GPU.
+        // Structural shrink: the DOM got smaller, so cached keys for now-missing
+        // nodes are never visited by the per-node loop and would leak on the GPU.
         let styled = plain_styled_dom();
         assert_eq!(styled.node_data.len(), 1);
 
@@ -1205,11 +1153,9 @@ mod autotest_generated {
 
     #[test]
     fn a_cached_transform_is_evicted_when_the_node_loses_its_transform() {
-        // Same scenario as the opacity test above, for transforms: the node is still in
-        // the DOM but no longer carries a `transform` property (e.g. its class was
-        // dropped between frames). The (Some(old), None) arm of compute_transform_events
-        // must fire a Removed — otherwise the TransformKey leaks on the GPU and the
-        // cache keeps serving a stale matrix forever.
+        // Same scenario as the opacity test above, for transforms: the node is
+        // still in the DOM but no longer carries a `transform` property (e.g. its
+        // class was dropped between frames).
         let styled = plain_styled_dom();
         let node = NodeId::ZERO;
         let key = TransformKey::unique();
@@ -1297,8 +1243,8 @@ mod autotest_generated {
         let mut cache = GpuValueCache::empty();
         let changes = cache.synchronize(&styled);
 
-        // On a fresh cache every event has to be an Added, so the event count and the
-        // resulting key count must agree exactly.
+        // On a fresh cache every event has to be an Added, so the event count and
+        // the resulting key count must agree exactly.
         assert_eq!(
             changes.transform_key_changes.len(),
             cache.css_transform_keys.len()

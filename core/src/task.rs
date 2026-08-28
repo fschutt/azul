@@ -1,9 +1,7 @@
-//! Timer and thread management for asynchronous operations.
-//!
-//! This module provides:
-//! - `TimerId` / `ThreadId`: Unique identifiers for timers and background threads
-//! - `Instant` / `Duration`: Cross-platform time types (works on no_std with tick counters)
-//! - `ThreadReceiver`: Channel for receiving messages from the main thread
+//! Timer and thread management for asynchronous operations. This module provides: -
+//! `TimerId` / `ThreadId`: Unique identifiers for timers and background threads -
+//! `Instant` / `Duration`: Cross-platform time types (works on no_std with tick
+//! counters) - `ThreadReceiver`: Channel for receiving messages from the main thread
 //! - Callback types for thread communication and system time queries
 
 #[cfg(not(feature = "std"))]
@@ -60,9 +58,9 @@ pub enum TerminateTimer {
 
 // ============================================================================
 // Reserved System Timer IDs (0x0000 - 0x00FF)
-// ============================================================================
-// User timers start at 0x0100 to avoid conflicts with system timers.
-// These constants define well-known timer IDs for internal framework use.
+// ============================================================================ User
+// timers start at 0x0100 to avoid conflicts with system timers. These constants
+// define well-known timer IDs for internal framework use.
 
 /// Timer ID for cursor blinking in contenteditable elements (~530ms interval)
 pub const CURSOR_BLINK_TIMER_ID: TimerId = TimerId { id: 0x0001 };
@@ -70,41 +68,27 @@ pub const CURSOR_BLINK_TIMER_ID: TimerId = TimerId { id: 0x0001 };
 pub const SCROLL_MOMENTUM_TIMER_ID: TimerId = TimerId { id: 0x0002 };
 /// Timer ID for auto-scroll during drag operations near edges
 pub const DRAG_AUTOSCROLL_TIMER_ID: TimerId = TimerId { id: 0x0003 };
-/// Timer ID for tooltip show delay.
-///
-/// Started by the platform event loop when the hover target changes to a node
-/// that advertises a tooltip source (`aria-label` / `alt` / `title`); fires
-/// once after `SystemStyle::input_metrics.hover_time_ms` (`SPI_GETMOUSEHOVERTIME`
-/// on Windows, default 400ms) and emits a `ShowTooltip` `CallbackChange`. The
-/// timer is torn down on hover loss, which also emits `HideTooltip`.
-///
-/// Double-click detection used to live on a neighbouring reserved ID but is
-/// now handled entirely by `GestureManager::detect_double_click`, so no
-/// equivalent `DOUBLE_CLICK_TIMER_ID` exists.
+/// Timer ID for tooltip show delay. Started by the platform event loop when the
+/// hover target changes to a node that advertises a tooltip source (`aria-label` /
+/// `alt` / `title`); fires once after `SystemStyle::input_metrics.hover_time_ms`
+/// (`SPI_GETMOUSEHOVERTIME` on Windows, default 400ms) and emits a `ShowTooltip`
+/// `CallbackChange`.
 pub const TOOLTIP_DELAY_TIMER_ID: TimerId = TimerId { id: 0x0004 };
-/// Timer ID for the single-threaded capability pump (MWA-A1).
-///
-/// Armed by `sync_capability_pump_timer` whenever a capability source needs
-/// polling or draining while the app is otherwise idle (gamepad listeners,
-/// sensor listeners, an active geolocation subscription). Each tick wakes the
-/// blocked platform loop; `invoke_expired_timers` then runs an event pass,
-/// whose top-of-pass pump drains the async capability channels. There is NO
-/// pump thread by design — a recurring shell timer is the only wake
-/// mechanism, so the identical code path works on WASM (no threads).
+/// Timer ID for the single-threaded capability pump (MWA-A1). Armed by
+/// `sync_capability_pump_timer` whenever a capability source needs polling or
+/// draining while the app is otherwise idle (gamepad listeners, sensor listeners, an
+/// active geolocation subscription).
 pub const CAPABILITY_PUMP_TIMER_ID: TimerId = TimerId { id: 0x0005 };
-/// Timer ID for the one-shot long-press wake-up (MWA-B12).
-///
-/// Armed on every `MouseDown` for the long-press threshold: a motionless
-/// press generates no further events, so no pass would ever evaluate
-/// `detect_long_press` — this timer wakes the loop exactly once at the
-/// threshold, `invoke_expired_timers` runs an event pass, and the
-/// detection fires (or doesn't — moved/released holds are no-ops).
+/// Timer ID for the one-shot long-press wake-up (MWA-B12). Armed on every
+/// `MouseDown` for the long-press threshold: a motionless press generates no further
+/// events, so no pass would ever evaluate `detect_long_press` - this timer wakes the
+/// loop exactly once at the threshold, `invoke_expired_timers` runs an event pass,
+/// and the detection fires (or doesn't - moved/released holds are no-ops).
 pub const LONG_PRESS_TIMER_ID: TimerId = TimerId { id: 0x0006 };
 
-/// Reserved timer ID for the caret / selection tween driver (~16ms).
-///
-/// Armed by the shared event dispatcher whenever a text tween is in flight; the
-/// callback terminates itself the tick after the tween state goes idle.
+/// Reserved timer ID for the caret / selection tween driver (~16ms). Armed by the
+/// shared event dispatcher whenever a text tween is in flight; the callback
+/// terminates itself the tick after the tween state goes idle.
 pub const CARET_TWEEN_TIMER_ID: TimerId = TimerId { id: 0x0007 };
 
 /// First available ID for user-defined timers
@@ -142,8 +126,8 @@ impl_vec_clone!(TimerId, TimerIdVec, TimerIdVecDestructor);
 impl_vec_partialeq!(TimerId, TimerIdVec);
 impl_vec_partialord!(TimerId, TimerIdVec);
 
-// Thread IDs 0-4 are reserved for internal framework use.
-// User threads start at RESERVED_THREAD_ID_COUNT.
+// Thread IDs 0-4 are reserved for internal framework use. User threads start at
+// RESERVED_THREAD_ID_COUNT.
 const RESERVED_THREAD_ID_COUNT: usize = 5;
 static MAX_THREAD_ID: AtomicUsize = AtomicUsize::new(RESERVED_THREAD_ID_COUNT);
 
@@ -176,9 +160,8 @@ impl ThreadId {
     }
 }
 
-/// A point in time, either from the system clock or a tick counter.
-///
-/// Use `Instant::System` on platforms with std, `Instant::Tick` on `embedded/no_std`.
+/// A point in time, either from the system clock or a tick counter. Use
+/// `Instant::System` on platforms with std, `Instant::Tick` on `embedded/no_std`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum Instant {
@@ -198,40 +181,12 @@ impl From<StdInstant> for Instant {
 #[cfg(feature = "std")]
 std::thread_local! {
     /// Injectable test-clock offset, in milliseconds, added to every
-    /// `Instant::now()` **on this thread**.
-    ///
-    /// Driven by the E2E `tick_ms` op. Everything time-driven in the engine —
-    /// scroll momentum, scrollbar fade, cursor blink, animations, timers —
-    /// reads the clock through `Instant::now()` / `get_system_time_libstd()`,
-    /// so advancing this offset moves all of them forward by exactly N ms
-    /// WITHOUT sleeping. That is what makes "drive the animation to completion
-    /// and assert it converges" deterministic instead of a `wait { ms }` race.
-    ///
-    /// Zero in production; only the debug-server `tick_ms` op ever writes it.
-    ///
-    /// # Why this is a thread-local and not a `static AtomicU64`
-    ///
-    /// It used to be process-global, which made the clock a shared mutable
-    /// resource: every scenario that ticked had to run SERIALLY, or scenario
-    /// A's `tick_ms` would shift scenario B's animations mid-frame. Since the
-    /// corpus is dominated by idle/animation scenarios, that serialised
-    /// essentially the whole suite.
-    ///
-    /// The read path is [`GetSystemTimeCallbackType`] — a bare
-    /// `extern "C" fn() -> Instant` in the public C API — plus ~140 direct
-    /// `Instant::now()` calls. Neither can carry a window, an app or a clock
-    /// handle without either breaking the C ABI for every language binding or
-    /// threading a time source through every call site including `no_std`
-    /// ones. A thread-local is the narrowest scope a context-free C callback
-    /// can read: it turns "the whole process" into "the thread that owns this
-    /// scenario", which is exactly the ownership boundary the parallel E2E
-    /// runner already establishes (one scenario runs start-to-finish on one
-    /// worker thread). [`reset_test_clock`] makes that boundary explicit.
+    /// `Instant::now()` **on this thread**. Driven by the E2E `tick_ms` op.
     static TEST_CLOCK_OFFSET_MS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 /// Advance the injectable test clock by `ms` (E2E `tick_ms`), returning the new
-/// offset. Affects only the CURRENT thread — see [`TEST_CLOCK_OFFSET_MS`].
+/// offset. Affects only the CURRENT thread - see [`TEST_CLOCK_OFFSET_MS`].
 #[cfg(feature = "std")]
 #[must_use]
 pub fn advance_test_clock_ms(ms: u64) -> u64 {
@@ -254,37 +209,15 @@ pub fn test_clock_offset_ms() -> u64 {
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 std::thread_local! {
     /// When set, this thread's clock is FROZEN at this instant: `Instant::now()`
-    /// answers `base + TEST_CLOCK_OFFSET_MS` and real time does not flow into it
-    /// at all. See [`freeze_test_clock`].
+    /// answers `base + TEST_CLOCK_OFFSET_MS` and real time does not flow into it at
+    /// all. See [`freeze_test_clock`].
     static TEST_CLOCK_BASE: core::cell::Cell<Option<StdInstant>> =
         const { core::cell::Cell::new(None) };
 }
 
-/// Freeze this thread's clock, so engine time advances ONLY when a scenario says
-/// it does (`tick_ms` / `wait`) and never because wall time passed.
-///
-/// Offsetting alone is not enough. `Instant::now()` was
-/// `StdInstant::now() + offset`, so the REAL component still flowed and every
-/// time-driven behaviour rode on however long the machine happened to take:
-/// elapsed = (exact virtual) + (whatever this build, under this load, spent
-/// computing). The E2E suite runs 8 scenarios per core, so that second term is
-/// both large and variable, and an assertion on a blinking caret's phase would
-/// flip between runs on a loaded runner while passing every time in isolation.
-///
-/// Frozen, engine time becomes a pure function of the ops a scenario executed —
-/// identical on a debug build, a release build and a saturated CI box. That is
-/// also what makes an off-by-one in animation timing *observable*: advance
-/// exactly one interval and the frame either flipped or it did not, with no
-/// jitter to hide behind.
-///
-/// This deliberately does NOT touch [`Instant::Tick`]. Interval constants are
-/// built as `Duration::System` (e.g. the cursor blink in `text_edit`), and
-/// `Duration::greater_than` compares only matching variants — handing the engine
-/// `Tick` elapsed values against `System` intervals would mismatch and silently
-/// answer "not yet" forever. Freezing keeps every existing comparison intact.
-///
-/// Idempotent: re-freezing an already-frozen clock keeps the original base, so
-/// the offset stays the single source of elapsed time.
+/// Freeze this thread's clock, so engine time advances ONLY when a scenario says it
+/// does (`tick_ms` / `wait`) and never because wall time passed. Offsetting alone is
+/// not enough.
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 pub fn freeze_test_clock() {
     TEST_CLOCK_BASE.with(|c| {
@@ -301,14 +234,10 @@ pub fn test_clock_is_frozen() -> bool {
     TEST_CLOCK_BASE.with(core::cell::Cell::get).is_some()
 }
 
-/// Put this thread's test clock back on real time.
-///
-/// Worker threads are REUSED across scenarios, so without this the next
-/// scenario scheduled onto this thread would inherit the previous one's
-/// accumulated offset — the same cross-contamination the process-global
-/// offset had, just at thread granularity. The E2E runner calls this at the
-/// start of every scenario. Clears the freeze as well, so a scenario cannot
-/// leave the next one's clock stopped.
+/// Put this thread's test clock back on real time. Worker threads are REUSED across
+/// scenarios, so without this the next scenario scheduled onto this thread would
+/// inherit the previous one's accumulated offset - the same cross-contamination the
+/// process-global offset had, just at thread granularity.
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 pub fn reset_test_clock() {
     TEST_CLOCK_OFFSET_MS.with(|c| c.set(0));
@@ -316,21 +245,14 @@ pub fn reset_test_clock() {
 }
 
 /// Monotonic frame counter, and the ONLY clock a wasm build has.
-///
-/// `std::time::Instant::now()` PANICS on wasm32-unknown-unknown, and
-/// `#[cfg(feature = "std")]` does not exclude wasm here: azul-core is built with
-/// `default = ["std"]` for the web target, so every `std` path is compiled in.
-///
-/// Answering `Tick(0)` forever would stop the panic and freeze every animation
-/// instead — a silent stall, which is worse than a loud crash. So the web build
-/// gets a real monotonic source: the browser drives redraw, each produced DOM
-/// patch is one frame, and one frame is exactly what a `t` (tick) duration
-/// counts. `AzStartup_buildPatch` calls [`advance_system_tick`] once per patch.
+/// `std::time::Instant::now()` PANICS on wasm32-unknown-unknown, and `#[cfg(feature
+/// = "std")]` does not exclude wasm here: azul-core is built with `default =
+/// ["std"]` for the web target, so every `std` path is compiled in.
 #[cfg(feature = "std")]
 static SYSTEM_TICK: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 /// Advance the frame counter by one. Called once per produced frame by backends
-/// that have no wall clock. Cheap enough to call unconditionally.
+/// that have no wall clock.
 #[cfg(feature = "std")]
 pub fn advance_system_tick() {
     SYSTEM_TICK.fetch_add(1, Ordering::Relaxed);
@@ -343,16 +265,9 @@ pub fn system_tick_now() -> u64 {
     SYSTEM_TICK.load(Ordering::Relaxed)
 }
 
-/// `std::time::Instant::now()` shifted by the injectable test-clock offset, or —
-/// when the clock is frozen — built from the frozen base so real time cannot
-/// leak in.
-///
-/// NOT COMPILED on wasm32, where `std::time::Instant::now()` panics.
-///
-/// `web_lift` is deliberately NOT included here. That backend compiles natively
-/// and is lifted to wasm afterwards, so `target_arch` reads `x86_64` — but the
-/// lift walks the LLVM graph and auto-inserts calls out to JS for things like
-/// time, so it supplies its own clock and does not want this arm disabled.
+/// `std::time::Instant::now()` shifted by the injectable test-clock offset, or -
+/// when the clock is frozen - built from the frozen base so real time cannot leak
+/// in. NOT COMPILED on wasm32, where `std::time::Instant::now()` panics.
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 fn std_now_with_test_offset() -> StdInstant {
     let offset = test_clock_offset_ms();
@@ -367,29 +282,18 @@ fn std_now_with_test_offset() -> StdInstant {
 }
 
 impl Instant {
-    /// Returns the current system time.
-    ///
-    /// On systems with std, this uses `std::time::Instant::now()`.
-    /// On `no_std` systems, this returns a zero tick.
+    /// Returns the current system time. On systems with std, this uses
+    /// `std::time::Instant::now()`.
     #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
     #[must_use] pub fn now() -> Self {
         std_now_with_test_offset().into()
     }
 
     /// Returns the current time on wasm32, which has no clock to read.
-    ///
     /// `std::time::Instant::now()` panics on wasm32-unknown-unknown, and
-    /// `#[cfg(feature = "std")]` does not exclude wasm here — azul-core is built
-    /// with `default = ["std"]` for the web target, so the std path is compiled
-    /// in and would trap on the first frame.
-    ///
-    /// This deliberately does NOT answer a constant `Tick(0)`. That stops the
-    /// panic and freezes every animation instead, which is a silent stall — the
-    /// worse failure of the two. The browser drives redraw and each produced DOM
-    /// patch is one frame, so the frame counter IS the clock, and a frame is
-    /// exactly what a `t` (tick) duration counts. Elapsed values come out as
-    /// `Tick` and convert against `System` intervals through
-    /// `Duration::as_nanos`, so `60t` compares equal to one second.
+    /// `#[cfg(feature = "std")]` does not exclude wasm here - azul-core is built
+    /// with `default = ["std"]` for the web target, so the std path is compiled in
+    /// and would trap on the first frame.
     #[cfg(all(feature = "std", target_arch = "wasm32"))]
     #[must_use] pub fn now() -> Self {
         Instant::Tick(SystemTick::new(system_tick_now()))
@@ -401,8 +305,8 @@ impl Instant {
         Instant::Tick(SystemTick::new(0))
     }
 
-    /// Returns a number from 0.0 to 1.0 indicating the current
-    /// linear interpolation value between (start, end)
+    /// Returns a number from 0.0 to 1.0 indicating the current linear interpolation
+    /// value between (start, end)
     #[must_use] pub fn linear_interpolate(&self, mut start: Self, mut end: Self) -> f32 {
         use core::mem;
 
@@ -417,9 +321,9 @@ impl Instant {
             return 1.0;
         }
 
-        // Zero-length interval: `duration_current / duration_total` would be
-        // `0/0 = NaN`. Treat a collapsed interval as fully elapsed (1.0) rather
-        // than propagating NaN into animation progress.
+        // Zero-length interval: `duration_current / duration_total` would be `0/0 =
+        // NaN`. Treat a collapsed interval as fully elapsed (1.0) rather than
+        // propagating NaN into animation progress.
         if start == end {
             return 1.0;
         }
@@ -434,24 +338,10 @@ impl Instant {
         ratio.clamp(0.0, 1.0)
     }
 
-    /// Adds a duration to the instant.
-    ///
-    /// The duration's UNIT need not match the instant's: a `Tick` duration added
-    /// to a `System` instant is converted at [`TICKS_PER_SECOND`], and a `System`
-    /// duration added to a `Tick` instant is converted to whole ticks.
-    ///
-    /// # Why the mismatch is converted rather than dropped
-    ///
-    /// This used to return `self` unchanged for a unit mismatch, which turned a
-    /// `Duration::Tick` interval on a wall-clock timer into a schedule point of
-    /// `last_run + 0` — `Timer::instant_of_next_run` is literally
-    /// `last_run + delay + interval`, so the timer reported itself permanently
-    /// overdue and `LayoutWindow::time_until_next_timer_ms` answered `Some(0)`
-    /// for it, i.e. "block for zero milliseconds" to any loop that consults it.
-    ///
-    /// `System + System` still overflow-panics on an absurd duration (that is
-    /// `StdInstant`'s own behaviour, characterised in the tests); the tick arms
-    /// saturate.
+    /// Adds a duration to the instant. The duration's UNIT need not match the
+    /// instant's: a `Tick` duration added to a `System` instant is converted at
+    /// [`TICKS_PER_SECOND`], and a `System` duration added to a `Tick` instant is
+    /// converted to whole ticks.
     #[must_use] pub fn add_optional_duration(&self, duration: Option<&Duration>) -> Self {
         duration.map_or_else(|| self.clone(), |d| match (self, d) {
                 (Self::System(i), Duration::System(d)) => {
@@ -501,11 +391,10 @@ impl Instant {
         }
     }
 
-    /// Calculates the duration since an earlier point in time.
-    ///
-    /// Saturates to a zero duration in the degenerate cases (earlier is actually
-    /// *later* than `self`, or the two instants are of mismatched kinds) instead
-    /// of panicking — this runs on the hot event-loop path and must not crash.
+    /// Calculates the duration since an earlier point in time. Saturates to a zero
+    /// duration in the degenerate cases (earlier is actually *later* than `self`, or
+    /// the two instants are of mismatched kinds) instead of panicking - this runs on
+    /// the hot event-loop path and must not crash.
     #[must_use] pub fn duration_since(&self, earlier: &Self) -> Duration {
         match (earlier, self) {
             (Self::System(prev), Self::System(now)) => {
@@ -513,8 +402,8 @@ impl Instant {
                 {
                     let prev_instant: StdInstant = prev.clone().into();
                     let now_instant: StdInstant = now.clone().into();
-                    // `saturating_duration_since` yields 0 if `prev` is later
-                    // than `now` (monotonic-clock skew / reordered instants).
+                    // `saturating_duration_since` yields 0 if `prev` is later than
+                    // `now` (monotonic-clock skew / reordered instants).
                     Duration::System(now_instant.saturating_duration_since(prev_instant).into())
                 }
                 #[cfg(not(feature = "std"))]
@@ -537,9 +426,8 @@ impl Instant {
     }
 }
 
-/// Tick-based timestamp for systems without a real-time clock.
-///
-/// Used on embedded systems where time is measured in frame ticks or cycles.
+/// Tick-based timestamp for systems without a real-time clock. Used on embedded
+/// systems where time is measured in frame ticks or cycles.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SystemTick {
@@ -554,17 +442,14 @@ impl SystemTick {
 }
 
 /// FFI-safe wrapper around `std::time::Instant` with custom clone/drop callbacks.
-///
 /// Allows crossing FFI boundaries while maintaining proper memory management.
 #[repr(C)]
 pub struct InstantPtr {
     /// `ManuallyDrop` so the owned `Box` is freed ONLY when `run_destructor` is
-    /// still set (see `Drop`). The codegen FFI wrappers (`AzTimerCallbackInfo`
-    /// etc.) embed this by value AND have their own `Drop` that `drop_in_place`s
-    /// the real type first; Rust's drop glue would then drop this `ptr` field a
-    /// SECOND time on the same bytes. Gating the `Box` free on `run_destructor`
-    /// (cleared by the first drop) makes that second drop a safe no-op. Layout is
-    /// unchanged: `ManuallyDrop<Box<T>>` is one pointer, like the old `Box<T>`.
+    /// still set (see `Drop`). The codegen FFI wrappers (`AzTimerCallbackInfo` etc.)
+    /// embed this by value AND have their own `Drop` that `drop_in_place`s the real
+    /// type first; Rust's drop glue would then drop this `ptr` field a SECOND time
+    /// on the same bytes.
     #[cfg(feature = "std")]
     pub ptr: ManuallyDrop<Box<StdInstant>>,
     #[cfg(not(feature = "std"))]
@@ -714,13 +599,9 @@ impl Drop for InstantPtr {
             self.run_destructor = false;
             (self.destructor.cb)(self);
             // Free the owned Box exactly once, here under the run_destructor guard.
-            // A second drop on the same bytes (the codegen wrapper's field-drop after
-            // its own `_delete` already ran the real drop) sees run_destructor=false
-            // and skips this -> no double-free. (non-std `ptr` is a raw POD pointer
-            // freed by the destructor callback above, so nothing to drop here.)
-            // SAFETY: `run_destructor` is set false above, so this arm runs at
-            // most once per InstantPtr value; the `Box` inside was never moved
-            // out, so it is live and owned here and safe to drop exactly once.
+            // A second drop on the same bytes (the codegen wrapper's field-drop
+            // after its own `_delete` already ran the real drop) sees
+            // run_destructor=false and skips this -> no double-free.
             #[cfg(feature = "std")]
             unsafe {
                 ManuallyDrop::drop(&mut self.ptr);
@@ -734,10 +615,9 @@ const extern "C" fn std_instant_drop(_: *mut InstantPtr) {}
 
 // ----  LIBSTD implementation for InstantPtr END
 
-/// A span of time, either from the system clock or as tick difference.
-///
-/// Mirrors `Instant` variants - System durations work with System instants,
-/// Tick durations work with Tick instants.
+/// A span of time, either from the system clock or as tick difference. Mirrors
+/// `Instant` variants - System durations work with System instants, Tick durations
+/// work with Tick instants.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum Duration {
@@ -769,27 +649,17 @@ impl From<StdDuration> for Duration {
     }
 }
 
-/// Nominal engine tick (frame) rate — the single exchange rate between
-/// [`Duration::Tick`] (frames) and [`Duration::System`] (wall time).
-///
-/// Re-exported from `azul-css` so the CSS `t` unit and the engine's `Duration`
-/// arithmetic cannot drift apart. See [`azul_css::props::basic::time::TICKS_PER_SECOND`].
+/// Nominal engine tick (frame) rate - the single exchange rate between
+/// [`Duration::Tick`] (frames) and [`Duration::System`] (wall time). Re-exported
+/// from `azul-css` so the CSS `t` unit and the engine's `Duration` arithmetic cannot
+/// drift apart.
 pub use azul_css::props::basic::time::TICKS_PER_SECOND;
 
 impl Duration {
-    /// This duration on ONE canonical scale, in nanoseconds — the common ground
-    /// on which a `Tick` span and a `System` span can be compared.
-    ///
-    /// `u128` because a `System` duration holds up to `u64::MAX` *seconds*
-    /// (~1.8e28 ns), which does not fit `u64`. The tick conversion multiplies
-    /// before it divides so whole seconds stay exact: `60t` is `1_000_000_000`ns,
-    /// not `60 * 16_666_666 = 999_999_960`ns.
-    ///
-    /// Note this also normalises a DENORMALISED `SystemTimeDiff` (`nanos` past
-    /// `1e9`) the same way `std::time::Duration::new` would — except it cannot
-    /// panic on overflow while doing it.
-    // `as u128` rather than `u128::from`: this is a `const fn` and `From` is not
-    // const. Every one of these widenings is lossless.
+    /// This duration on ONE canonical scale, in nanoseconds - the common ground on
+    /// which a `Tick` span and a `System` span can be compared. `u128` because a
+    /// `System` duration holds up to `u64::MAX` *seconds* (~1.8e28 ns), which does
+    /// not fit `u64`.
     #[allow(clippy::cast_lossless)]
     #[must_use]
     pub const fn as_nanos(&self) -> u128 {
@@ -805,20 +675,16 @@ impl Duration {
         Self::System(SystemTimeDiff::from_millis(ms))
     }
 
-    /// A duration of `ticks` engine frames — the clockless unit, and what the
-    /// CSS `t` unit becomes.
+    /// A duration of `ticks` engine frames - the clockless unit, and what the CSS
+    /// `t` unit becomes.
     #[must_use]
     pub const fn from_ticks(ticks: u64) -> Self {
         Self::Tick(SystemTickDiff { tick_diff: ticks })
     }
 
-    /// This duration in whole ticks (frames), truncating toward zero.
-    ///
-    /// A sub-frame span is **zero** ticks, not one: "how many whole frames fit",
-    /// never "round up so that something happens".
-    // `as` casts: `const fn`, so `From`/`TryFrom` are unavailable. The widenings
-    // are lossless and the u128 -> u64 narrowing is range-checked immediately
-    // above it.
+    /// This duration in whole ticks (frames), truncating toward zero. A sub-frame
+    /// span is **zero** ticks, not one: "how many whole frames fit", never "round up
+    /// so that something happens".
     #[allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
     #[must_use]
     pub const fn as_ticks(&self) -> u64 {
@@ -835,10 +701,9 @@ impl Duration {
         }
     }
 
-    /// This duration in whole milliseconds, truncating toward zero and
-    /// saturating at `u64::MAX` rather than wrapping.
-    // `as` casts: `const fn`, so `From`/`TryFrom` are unavailable. The u128 ->
-    // u64 narrowing is range-checked immediately above it.
+    /// This duration in whole milliseconds, truncating toward zero and saturating
+    /// at `u64::MAX` rather than wrapping. `as` casts: `const fn`, so
+    /// `From`/`TryFrom` are unavailable.
     #[allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
     #[must_use]
     pub const fn as_millis_u64(&self) -> u64 {
@@ -864,15 +729,9 @@ impl Duration {
         }
     }
 
-    /// Divides this duration by another, returning the ratio as f32.
-    ///
-    /// Same-unit division goes through the unit's own `div` so its exact
-    /// floating-point result is unchanged. Cross-unit division falls back to the
-    /// canonical nanosecond scale rather than returning `0.0` — a `0.0` ratio
-    /// here means "animation is at 0% progress", which is a frozen animation, not
-    /// an error anyone would notice.
-    // the f64 ratio is intentionally narrowed to the f32 return type; the value
-    // is a duration ratio, far inside f32's range.
+    /// Divides this duration by another, returning the ratio as f32. Same-unit
+    /// division goes through the unit's own `div` so its exact floating-point result
+    /// is unchanged.
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     #[must_use] pub fn div(&self, other: &Self) -> f32 {
         use self::Duration::{System, Tick};
@@ -894,44 +753,22 @@ impl Duration {
         }
     }
 
-    /// Returns true if self > other.
-    ///
-    /// Compares on the canonical nanosecond scale ([`Self::as_nanos`]), so a
-    /// `Tick` span and a `System` span compare TRUTHFULLY against each other.
-    ///
-    /// # Why this is not "mismatched kinds saturate to false"
-    ///
-    /// It used to be. That made a unit mismatch invisible and permanent instead
-    /// of loud: the engine's interval constants are `Duration::System` (the
-    /// cursor blink, the scrollbar fade, the tooltip delay), so the moment a
-    /// clock produced `Tick` elapsed values every one of those comparisons
-    /// answered "not yet" — forever. Nothing panicked, nothing logged, the UI
-    /// simply stopped animating. That is precisely the failure a clockless unit
-    /// is supposed to make *catchable*, so the comparison has to be total.
-    ///
-    /// Three behaviours changed, all in the safe direction:
-    ///
-    /// 1. Cross-unit comparisons now answer, instead of always `false`.
-    /// 2. On `no_std` the `System`/`System` arm used to be hardcoded `false`
-    ///    (there was no `StdDuration` to defer to); it now compares properly.
-    /// 3. A denormalised `SystemTimeDiff` whose `secs + nanos/1e9` overflows
-    ///    `u64` used to panic inside `StdDuration::new`; `u128` nanoseconds
-    ///    cannot overflow.
+    /// Returns true if self > other. Compares on the canonical nanosecond scale
+    /// ([`Self::as_nanos`]), so a `Tick` span and a `System` span compare TRUTHFULLY
+    /// against each other.
     #[must_use] pub const fn greater_than(&self, other: &Self) -> bool {
         self.as_nanos() > other.as_nanos()
     }
 
-    /// Returns true if self < other.
-    ///
-    /// Canonical-scale comparison; see [`Self::greater_than`] for why this is
-    /// unit-aware rather than saturating to `false` on a unit mismatch.
+    /// Returns true if self < other. Canonical-scale comparison; see
+    /// [`Self::greater_than`] for why this is unit-aware rather than saturating to
+    /// `false` on a unit mismatch.
     #[must_use] pub const fn smaller_than(&self, other: &Self) -> bool {
         self.as_nanos() < other.as_nanos()
     }
 }
 
-/// Represents a difference in ticks for systems that
-/// don't support timing
+/// Represents a difference in ticks for systems that don't support timing
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct SystemTickDiff {
@@ -939,9 +776,7 @@ pub struct SystemTickDiff {
 }
 
 impl SystemTickDiff {
-    /// Divide duration A by duration B.
-    /// Returns `Inf` or `NaN` if `other` is zero.
-    // tick counts -> f64 for the ratio; precision only degrades past 2^53 ticks.
+    /// Divide duration A by duration B. Returns `Inf` or `NaN` if `other` is zero.
     #[allow(clippy::cast_precision_loss)]
     #[must_use] pub fn div(&self, other: &Self) -> f64 {
         self.tick_diff as f64 / other.tick_diff as f64
@@ -957,8 +792,7 @@ pub struct SystemTimeDiff {
 }
 
 impl SystemTimeDiff {
-    /// Divide duration A by duration B.
-    /// Returns `Inf` or `NaN` if `other` is zero.
+    /// Divide duration A by duration B. Returns `Inf` or `NaN` if `other` is zero.
     #[must_use] pub fn div(&self, other: &Self) -> f64 {
         self.as_secs_f64() / other.as_secs_f64()
     }
@@ -1002,9 +836,9 @@ impl SystemTimeDiff {
             nanos: ((millis % MILLIS_PER_SEC) as u32) * NANOS_PER_MILLI,
         }
     }
-    /// Creates a duration from nanoseconds.
-    // const fn (no const TryFrom); `nanos % NANOS_PER_SEC` is always < 10^9, which
-    // fits u32, so the narrowing cast cannot truncate.
+    /// Creates a duration from nanoseconds. const fn (no const TryFrom); `nanos %
+    /// NANOS_PER_SEC` is always < 10^9, which fits u32, so the narrowing cast cannot
+    /// truncate.
     #[allow(clippy::cast_possible_truncation)]
     #[must_use] pub const fn from_nanos(nanos: u64) -> Self {
         Self {
@@ -1013,14 +847,10 @@ impl SystemTimeDiff {
         }
     }
 
-    /// Creates a duration from a `u128` nanosecond count, saturating at the
-    /// largest representable duration instead of wrapping.
-    ///
-    /// Needed because [`Duration::as_nanos`] is `u128`: a tick count near
-    /// `u64::MAX` converts to ~3e26 ns, far past what `u64` nanoseconds hold.
-    // `nanos % NANOS_PER_SEC` is always < 10^9 and `secs` is range-checked above,
-    // so neither narrowing cast can truncate. `as` widenings rather than `From`
-    // because this is a `const fn`.
+    /// Creates a duration from a `u128` nanosecond count, saturating at the largest
+    /// representable duration instead of wrapping. Needed because
+    /// [`Duration::as_nanos`] is `u128`: a tick count near `u64::MAX` converts to
+    /// ~3e26 ns, far past what `u64` nanoseconds hold.
     #[allow(clippy::cast_possible_truncation, clippy::cast_lossless)]
     #[must_use] pub const fn from_nanos_u128(nanos: u128) -> Self {
         let secs = nanos / (NANOS_PER_SEC as u128);
@@ -1054,10 +884,9 @@ impl SystemTimeDiff {
         }
     }
 
-    /// Returns the total duration in milliseconds.
-    ///
-    /// Saturates at `u64::MAX` instead of overflow-panicking for enormous
-    /// `secs` values (`secs * 1000` overflows around ~1.8e16 seconds).
+    /// Returns the total duration in milliseconds. Saturates at `u64::MAX` instead
+    /// of overflow-panicking for enormous `secs` values (`secs * 1000` overflows
+    /// around ~1.8e16 seconds).
     #[must_use] pub const fn millis(&self) -> u64 {
         self.secs
             .saturating_mul(MILLIS_PER_SEC)
@@ -1071,14 +900,9 @@ impl SystemTimeDiff {
     }
 }
 
-/// Bridge from the CSS-level duration to the engine-level one, preserving the
-/// unit.
-///
-/// This is the join that makes a CSS `5t` mean five FRAMES all the way down to
-/// the timer: `ms`/`s` become `Duration::System`, `t` becomes `Duration::Tick`.
-/// Collapsing ticks to milliseconds here would put the wall clock back in the
-/// path and make "advance exactly 5 ticks, assert the 5th frame flipped"
-/// untestable again.
+/// Bridge from the CSS-level duration to the engine-level one, preserving the unit.
+/// This is the join that makes a CSS `5t` mean five FRAMES all the way down to the
+/// timer: `ms`/`s` become `Duration::System`, `t` becomes `Duration::Tick`.
 impl From<azul_css::props::basic::time::CssDuration> for Duration {
     fn from(d: azul_css::props::basic::time::CssDuration) -> Self {
         use azul_css::props::basic::time::CssDurationUnit;
@@ -1101,9 +925,8 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 #[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
-/// Message that can be sent from the main thread to the Thread using the `ThreadId`.
-///
-/// The thread can ignore the event.
+/// Message that can be sent from the main thread to the Thread using the
+/// `ThreadId`. The thread can ignore the event.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C, u8)]
 pub enum ThreadSendMsg {
@@ -1122,9 +945,8 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash]
 );
 
-/// Channel endpoint for receiving messages from the main thread in a background thread.
-///
-/// Thread-safe wrapper around the receiver end of a message channel.
+/// Channel endpoint for receiving messages from the main thread in a background
+/// thread. Thread-safe wrapper around the receiver end of a message channel.
 #[derive(Debug)]
 #[repr(C)]
 pub struct ThreadReceiver {
@@ -1251,8 +1073,8 @@ impl Drop for ThreadReceiverInner {
     }
 }
 
-/// Get the current system type, equivalent to `std::time::Instant::now()`, except it
-/// also works on systems that don't have a clock (such as embedded timers)
+/// Get the current system type, equivalent to `std::time::Instant::now()`, except
+/// it also works on systems that don't have a clock (such as embedded timers)
 pub type GetSystemTimeCallbackType = extern "C" fn() -> Instant;
 #[repr(C)]
 pub struct GetSystemTimeCallback {
@@ -1260,10 +1082,9 @@ pub struct GetSystemTimeCallback {
 }
 impl_callback_simple!(GetSystemTimeCallback);
 
-/// Default implementation that gets the current system time.
-///
-/// On WASM targets `std::time::Instant::now()` panics, so we fall back to
-/// a zero-tick instant instead.
+/// Default implementation that gets the current system time. On WASM targets
+/// `std::time::Instant::now()` panics, so we fall back to a zero-tick instant
+/// instead.
 #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
 #[must_use] pub extern "C" fn get_system_time_libstd() -> Instant {
     // Honours the injectable E2E test clock (see TEST_CLOCK_OFFSET_MS).
@@ -1330,10 +1151,10 @@ mod tests {
         Duration::System(SystemTimeDiff { secs, nanos })
     }
 
-    /// The property the parallel E2E runner depends on: a `tick_ms` on one
-    /// thread must not shift any other thread's clock. This is what allows a
-    /// scenario that ticks to run in parallel with every other scenario
-    /// instead of being serialised behind a process-global offset.
+    /// The property the parallel E2E runner depends on: a `tick_ms` on one thread
+    /// must not shift any other thread's clock. This is what allows a scenario that
+    /// ticks to run in parallel with every other scenario instead of being
+    /// serialised behind a process-global offset.
     #[test]
     #[cfg(feature = "std")]
     fn test_clock_offset_is_per_thread_not_process_global() {
@@ -1372,13 +1193,10 @@ mod tests {
         assert_eq!(test_clock_offset_ms(), 0);
     }
 
-    /// A frozen clock must advance ONLY by what a scenario asks for.
-    ///
-    /// Offsetting alone left `Instant::now()` as `StdInstant::now() + offset`, so
-    /// real time still flowed: elapsed time was what the scenario asked for PLUS
-    /// whatever the machine happened to spend. Under the 8-wide E2E runner that
-    /// second term is large and varies per run — enough to flip an assertion on a
-    /// blinking caret's phase while the same scenario passes in isolation.
+    /// A frozen clock must advance ONLY by what a scenario asks for. Offsetting
+    /// alone left `Instant::now()` as `StdInstant::now() + offset`, so real time
+    /// still flowed: elapsed time was what the scenario asked for PLUS whatever the
+    /// machine happened to spend.
     #[test]
     #[cfg(feature = "std")]
     fn a_frozen_clock_advances_only_by_what_the_scenario_asks_for() {
@@ -1415,8 +1233,8 @@ mod tests {
             "re-freezing re-based the clock and discarded elapsed virtual time",
         );
 
-        // A reset must unfreeze, or the next scenario on this reused worker
-        // thread would start with time stopped.
+        // A reset must unfreeze, or the next scenario on this reused worker thread
+        // would start with time stopped.
         reset_test_clock();
         assert!(!test_clock_is_frozen());
         let r0 = Instant::now();
@@ -1449,12 +1267,11 @@ mod tests {
         assert_eq!(d, tick_dur(0));
     }
 
-    /// Cross-unit comparison must answer TRUTHFULLY, not saturate to `false`.
-    ///
-    /// The saturating version made a unit mismatch a permanent silent "not yet":
-    /// every interval constant in the engine is a `Duration::System`, so a Tick
-    /// elapsed value compared against one never expired and the UI simply stopped
-    /// animating, with nothing to catch.
+    /// Cross-unit comparison must answer TRUTHFULLY, not saturate to `false`. The
+    /// saturating version made a unit mismatch a permanent silent "not yet": every
+    /// interval constant in the engine is a `Duration::System`, so a Tick elapsed
+    /// value compared against one never expired and the UI simply stopped animating,
+    /// with nothing to catch.
     #[test]
     fn duration_compare_is_unit_aware_across_ticks_and_wall_clock() {
         // 5 ticks at 60Hz is ~83ms, i.e. LESS than one second.
@@ -1476,9 +1293,8 @@ mod tests {
         assert!(!one_second.smaller_than(&tick_dur(60)));
     }
 
-    /// `Duration::max()` is `System`, and it must still dominate every tick count
-    /// — including `u64::MAX` ticks, which is a bigger *number* but a smaller
-    /// span.
+    /// `Duration::max()` is `System`, and it must still dominate every tick count -
+    /// including `u64::MAX` ticks, which is a bigger *number* but a smaller span.
     #[test]
     fn duration_compare_across_units_at_the_extremes() {
         assert!(Duration::max().greater_than(&tick_dur(u64::MAX)));
@@ -1494,7 +1310,7 @@ mod tests {
         let inst = tick(100);
         // A System duration on a Tick instant advances by WHOLE ticks: 1s = 60.
         assert_eq!(inst.add_optional_duration(Some(&sys_dur(1, 0))), tick(160));
-        // Sub-frame durations advance nothing — one frame is the resolution.
+        // Sub-frame durations advance nothing - one frame is the resolution.
         assert_eq!(inst.add_optional_duration(Some(&sys_dur(0, 1))), tick(100));
         // Matching kinds add and saturate.
         assert_eq!(inst.add_optional_duration(Some(&tick_dur(5))), tick(105));
@@ -1514,8 +1330,7 @@ mod tests {
     }
 
     /// Cross-unit division goes through the canonical scale. Returning `0.0` (the
-    /// old behaviour) reads downstream as "this animation is at 0% progress",
-    /// i.e. a frozen animation that never reports an error.
+    /// old behaviour) reads downstream as "this animation is at 0% progress", i.e.
     #[test]
     fn duration_div_is_unit_aware() {
         // 30 ticks is half a second.
@@ -1528,11 +1343,11 @@ mod tests {
         assert!((sys_dur(1, 0).div(&sys_dur(2, 0)) - 0.5).abs() < 1e-6);
     }
 
-    // Exercises the `unsafe` pointer work in `std_instant_clone` (`&*ptr`) and
-    // the `ManuallyDrop::drop` guard in `InstantPtr::drop`: build an InstantPtr,
-    // clone it (goes through the FFI clone callback + raw-ptr deref), then let
-    // both drop. Under Miri this asserts the clone/drop path is UB-free and the
-    // owned `Box` is freed exactly once per value (no double-free).
+    // Exercises the `unsafe` pointer work in `std_instant_clone` (`&*ptr`) and the
+    // `ManuallyDrop::drop` guard in `InstantPtr::drop`: build an InstantPtr, clone
+    // it (goes through the FFI clone callback + raw-ptr deref), then let both drop.
+    // Under Miri this asserts the clone/drop path is UB-free and the owned `Box` is
+    // freed exactly once per value (no double-free).
     #[cfg(feature = "std")]
     #[test]
     fn instant_ptr_clone_and_drop_no_ub() {
@@ -1566,7 +1381,7 @@ mod autotest_generated {
     }
 
     // ========================================================================
-    // TimerId::unique / ThreadId::unique  (monotonic, never hits reserved IDs)
+    // TimerId::unique / ThreadId::unique (monotonic, never hits reserved IDs)
     // ========================================================================
 
     #[test]
@@ -1664,7 +1479,7 @@ mod autotest_generated {
     }
 
     // ========================================================================
-    // Instant::linear_interpolate  (must never return NaN / escape [0.0, 1.0])
+    // Instant::linear_interpolate (must never return NaN / escape [0.0, 1.0])
     // ========================================================================
 
     #[test]
@@ -1761,10 +1576,10 @@ mod autotest_generated {
     }
 
     /// A `Tick` interval on a wall-clock instant has to ADVANCE that instant, not
-    /// leave it alone. `Timer::instant_of_next_run` is exactly `last_run +
-    /// delay + interval`; when this returned `self`, a tick-unit timer's next run
-    /// was always "now" — permanently overdue, and `time_until_next_timer_ms`
-    /// answered `Some(0)` for it.
+    /// leave it alone. `Timer::instant_of_next_run` is exactly `last_run + delay +
+    /// interval`; when this returned `self`, a tick-unit timer's next run was always
+    /// "now" - permanently overdue, and `time_until_next_timer_ms` answered
+    /// `Some(0)` for it.
     #[cfg(feature = "std")]
     #[test]
     fn add_optional_duration_converts_between_units_in_both_directions() {
@@ -1781,11 +1596,11 @@ mod autotest_generated {
         assert_eq!(tick(7).add_optional_duration(Some(&sys_dur(3, 0))), tick(187));
     }
 
-    // A `System` instant plus an enormous `System` duration overflows the
-    // platform clock representation: `StdInstant + StdDuration` panics with
-    // "overflow when adding duration to instant". Unlike the mismatched-kind
-    // case (documented to saturate), this arm has no guard -- characterized
-    // here so a future saturating fix flips this test loudly.
+    // A `System` instant plus an enormous `System` duration overflows the platform
+    // clock representation: `StdInstant + StdDuration` panics with "overflow when
+    // adding duration to instant". Unlike the mismatched-kind case (documented to
+    // saturate), this arm has no guard -- characterized here so a future saturating
+    // fix flips this test loudly.
     #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
     #[test]
     #[should_panic(expected = "overflow")]
@@ -1882,9 +1697,9 @@ mod autotest_generated {
     #[cfg(feature = "std")]
     #[test]
     fn std_instant_drop_is_a_noop_even_for_null() {
-        // The libstd destructor callback is deliberately empty: the Box is freed
-        // by `InstantPtr::drop` under the `run_destructor` guard. Calling it with
-        // a null pointer must therefore be harmless.
+        // The libstd destructor callback is deliberately empty: the Box is freed by
+        // `InstantPtr::drop` under the `run_destructor` guard. Calling it with a
+        // null pointer must therefore be harmless.
         std_instant_drop(core::ptr::null_mut());
 
         let mut p: InstantPtr = StdInstant::now().into();
@@ -1912,8 +1727,8 @@ mod autotest_generated {
     #[cfg(feature = "std")]
     #[test]
     fn duration_display_system_edge_values_do_not_panic() {
-        // zero, sub-second, denormalized nanos and the absolute maximum all have
-        // to format without panicking and without producing an empty string.
+        // zero, sub-second, denormalized nanos and the absolute maximum all have to
+        // format without panicking and without producing an empty string.
         for d in [
             sys_dur(0, 0),
             sys_dur(1, 500_000_000),
@@ -1973,9 +1788,9 @@ mod autotest_generated {
         assert_eq!(sys_dur(3, 0).div(&sys_dur(2, 0)), 1.5);
     }
 
-    /// Cross-unit division converts instead of collapsing to `0.0`. 10 ticks is
-    /// one sixth of a second, so the two ratios are reciprocals of each other —
-    /// which is the property `0.0` both ways could never satisfy.
+    /// Cross-unit division converts instead of collapsing to `0.0`. 10 ticks is one
+    /// sixth of a second, so the two ratios are reciprocals of each other - which is
+    /// the property `0.0` both ways could never satisfy.
     #[test]
     fn duration_div_across_kinds_converts_both_ways() {
         assert!((sys_dur(1, 0).div(&tick_dur(10)) - 6.0).abs() < 1e-5);
@@ -1993,9 +1808,9 @@ mod autotest_generated {
     }
 
     /// `min` is built on `smaller_than`, so it picks the genuinely shorter span
-    /// across units and is COMMUTATIVE. It used to just return `other` whenever
-    /// the units differed — so `a.min(b)` and `b.min(a)` disagreed, and the
-    /// answer depended on argument order rather than on the durations.
+    /// across units and is COMMUTATIVE. It used to just return `other` whenever the
+    /// units differed - so `a.min(b)` and `b.min(a)` disagreed, and the answer
+    /// depended on argument order rather than on the durations.
     #[test]
     fn duration_min_across_kinds_picks_the_genuinely_shorter_span() {
         // 5 ticks is ~83ms, so it is shorter than a second either way round.
@@ -2011,7 +1826,7 @@ mod autotest_generated {
         let mut pairs = alloc::vec![(tick_dur(0), tick_dur(u64::MAX)), (tick_dur(1), tick_dur(2))];
         // System ordering no longer needs std: the comparison is u128 nanosecond
         // arithmetic. It used to defer to `StdDuration`, so on no_std it answered
-        // `false` for every System pair — a total order that ordered nothing.
+        // `false` for every System pair - a total order that ordered nothing.
         pairs.extend_from_slice(&[
             (sys_dur(0, 0), sys_dur(u64::MAX, 0)),
             (sys_dur(1, 999_999_999), sys_dur(2, 0)),
@@ -2035,8 +1850,8 @@ mod autotest_generated {
     #[cfg(feature = "std")]
     #[test]
     fn duration_comparison_normalizes_denormalized_nanos() {
-        // nanos == u32::MAX (> 1e9) is denormalized; the std conversion carries
-        // it into secs, so {0, u32::MAX} == 4.294967295s > 4s.
+        // nanos == u32::MAX (> 1e9) is denormalized; the std conversion carries it
+        // into secs, so {0, u32::MAX} == 4.294967295s > 4s.
         let denorm = sys_dur(0, u32::MAX);
         assert!(denorm.greater_than(&sys_dur(4, 0)));
         assert!(denorm.smaller_than(&sys_dur(5, 0)));
@@ -2149,8 +1964,8 @@ mod autotest_generated {
 
     #[test]
     fn millis_round_trips_through_from_millis() {
-        // Exact for every whole-millisecond value, INCLUDING u64::MAX (where
-        // `secs * 1000 + 615` lands exactly on u64::MAX without saturating).
+        // Exact for every whole-millisecond value, INCLUDING u64::MAX (where `secs
+        // * 1000 + 615` lands exactly on u64::MAX without saturating).
         for m in [0_u64, 1, 999, 1_000, 1_500, 86_400_000, u64::MAX] {
             assert_eq!(
                 SystemTimeDiff::from_millis(m).millis(),
@@ -2224,7 +2039,7 @@ mod autotest_generated {
     }
 
     // ========================================================================
-    // SystemTimeDiff::get  (std::time::Duration conversion round-trip)
+    // SystemTimeDiff::get (std::time::Duration conversion round-trip)
     // ========================================================================
 
     #[cfg(feature = "std")]
@@ -2263,8 +2078,8 @@ mod autotest_generated {
 
     #[cfg(feature = "std")]
     extern "C" fn test_thread_recv(ptr: *const c_void) -> OptionThreadSendMsg {
-        // Mirrors the real callback: `ThreadReceiver::recv` hands over a pointer
-        // to the boxed `Receiver<ThreadSendMsg>` inside `ThreadReceiverInner`.
+        // Mirrors the real callback: `ThreadReceiver::recv` hands over a pointer to
+        // the boxed `Receiver<ThreadSendMsg>` inside `ThreadReceiverInner`.
         let receiver = unsafe { &*(ptr.cast::<Receiver<ThreadSendMsg>>()) };
         receiver.try_recv().ok().into()
     }
@@ -2335,8 +2150,8 @@ mod autotest_generated {
 
         tx.send(ThreadSendMsg::Tick).unwrap();
         // The clone shares the Arc<Mutex<..>>: whichever half receives first
-        // consumes the message; the other must see an empty channel, not a
-        // duplicate and not a deadlock.
+        // consumes the message; the other must see an empty channel, not a duplicate
+        // and not a deadlock.
         assert_eq!(a.recv(), OptionThreadSendMsg::Some(ThreadSendMsg::Tick));
         assert!(b.recv().is_none());
 

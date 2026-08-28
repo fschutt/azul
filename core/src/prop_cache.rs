@@ -1,25 +1,5 @@
-//! CSS property cache for efficient style resolution and animation.
-//!
-//! This module implements a cache layer between the raw CSS stylesheet and the rendered DOM.
-//! It resolves CSS properties for each node, handling:
-//!
-//! - **Cascade resolution**: Computes final values from CSS rules, inline styles, and inheritance
-//! - **Pseudo-class states**: Caches styles for `:hover`, `:active`, `:focus`, etc.
-//! - **Animation support**: Tracks animating properties for smooth interpolation
-//! - **Performance**: Avoids re-parsing and re-resolving unchanged properties
-//!
-//! # Architecture
-//!
-//! The cache is organized per-node and per-property-type. Each property has a dedicated
-//! getter method that:
-//!
-//! 1. Checks if the property is cached
-//! 2. If not, resolves it from CSS rules + inline styles
-//! 3. Caches the result for subsequent frames
-//!
-//! # Thread Safety
-//!
-//! Not thread-safe. Each window has its own cache instance.
+//! CSS property cache for efficient style resolution and animation. This module
+//! implements a cache layer between the raw CSS stylesheet and the rendered DOM.
 
 extern crate alloc;
 
@@ -29,13 +9,14 @@ use core::mem::ManuallyDrop;
 
 use crate::dom::NodeType;
 
-/// Tracks the origin of a CSS property value.
-/// Used to correctly implement the CSS cascade and inheritance rules.
+/// Tracks the origin of a CSS property value. Used to correctly implement the CSS
+/// cascade and inheritance rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CssPropertyOrigin {
     /// Property was inherited from parent node (only for inheritable properties)
     Inherited,
-    /// Property is the node's own value (from UA CSS, CSS file, inline style, or user override)
+    /// Property is the node's own value (from UA CSS, CSS file, inline style, or
+    /// user override)
     Own,
 }
 
@@ -136,17 +117,12 @@ std::thread_local! {
 }
 
 /// Drain the per-thread CSS cascade-walk counter populated by
-/// [`CssPropertyCache::get_property`] when `AZ_PROP_COUNT=1` is set
-/// in the environment.
-///
-/// Returns `(property_label, count)` pairs
-/// sorted by count descending. Layout-side instrumentation calls
-/// this after each `layout_document` to print which properties
-/// drove the most cascade walks.
+/// [`CssPropertyCache::get_property`] when `AZ_PROP_COUNT=1` is set in the
+/// environment. Returns `(property_label, count)` pairs sorted by count descending.
 #[cfg(feature = "std")]
 #[must_use] pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
-    // try_with: no real TLS in the lifted-to-wasm web backend (see the
-    // get_property recording site) — return empty rather than panic.
+    // try_with: no real TLS in the lifted-to-wasm web backend (see the get_property
+    // recording site) - return empty rather than panic.
     PROP_COUNTS
         .try_with(|c| {
             let map = core::mem::take(&mut *c.borrow_mut());
@@ -334,11 +310,10 @@ macro_rules! match_property_value {
     };
 }
 
-/// A CSS property tagged with its pseudo-state and property type.
-///
-/// Replaces the per-pseudo-state `BTreeMap` approach: instead of 6 `BTreeMaps`
-/// per node (Normal/Hover/Active/Focus/Dragging/DragOver), we store one Vec
-/// per node and tag each property with its state. Lookups use `.iter().find()`.
+/// A CSS property tagged with its pseudo-state and property type. Replaces the
+/// per-pseudo-state `BTreeMap` approach: instead of 6 `BTreeMaps` per node
+/// (Normal/Hover/Active/Focus/Dragging/DragOver), we store one Vec per node and tag
+/// each property with its state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatefulCssProperty {
     pub state: azul_css::dynamic_selector::PseudoStateType,
@@ -350,20 +325,8 @@ pub struct StatefulCssProperty {
 // FlatVecVec: Cache-friendly replacement for Vec<Vec<T>>
 // =============================================================================
 
-/// A flat, cache-friendly replacement for `Vec<Vec<T>>`.
-///
-/// During the **build phase**, items are pushed into per-node inner Vecs
-/// (same as before). After building is complete, `flatten()` compacts all
-/// inner Vecs into a single contiguous `Vec<T>` with a `(start, len)` offset
-/// table per node. All subsequent reads use the flat layout, eliminating
-/// N heap allocations and pointer chasing.
-///
-/// ## Lifecycle
-///
-/// ```text
-/// new(n) → push_to(idx, item)* → sort_each_and_flatten(key_fn) → get_slice(idx)*
-///          ── build phase ──       ── transition ──                ── read phase ──
-/// ```
+/// A flat, cache-friendly replacement for `Vec<Vec<T>>`. During the **build
+/// phase**, items are pushed into per-node inner Vecs (same as before).
 #[derive(Debug, Clone)]
 pub struct FlatVecVec<T> {
     /// Per-node inner Vecs (used during build phase, empty after flatten).
@@ -401,10 +364,9 @@ impl<T> Default for FlatVecVec<T> {
 }
 
 impl<T> FlatVecVec<T> {
-    /// Approximate heap bytes retained. Sums capacity of the
-    /// flattened `data` + `offsets` tables and the per-node build
-    /// Vecs (in case `sort_each_and_flatten` hasn't been called
-    /// yet). `per_element_size` should be `size_of::<T>()`.
+    /// Approximate heap bytes retained. Sums capacity of the flattened `data` +
+    /// `offsets` tables and the per-node build Vecs (in case `sort_each_and_flatten`
+    /// hasn't been called yet).
     #[must_use] pub fn heap_bytes(&self, per_element_size: usize) -> usize {
         let data_bytes = self.data.capacity() * per_element_size;
         let offsets_bytes =
@@ -429,10 +391,8 @@ impl<T> FlatVecVec<T> {
         }
     }
 
-    /// Push an item to the inner Vec at `node_index` (build phase).
-    ///
-    /// # Panics
-    /// Panics if already flattened or if `node_index >= len()`.
+    /// Push an item to the inner Vec at `node_index` (build phase). Panics if
+    /// already flattened or if `node_index >= len()`.
     #[inline]
     pub fn push_to(&mut self, node_index: usize, item: T) {
         self.build[node_index].push(item);
@@ -450,8 +410,8 @@ impl<T> FlatVecVec<T> {
         self.build.iter_mut()
     }
 
-    /// Get a reference to the inner Vec at `node_index` during build phase.
-    /// During read phase, returns None (use `get_slice` instead).
+    /// Get a reference to the inner Vec at `node_index` during build phase. During
+    /// read phase, returns None (use `get_slice` instead).
     #[inline]
     #[must_use] pub fn build_get(&self, node_index: usize) -> Option<&Vec<T>> {
         self.build.get(node_index)
@@ -479,9 +439,9 @@ impl<T> FlatVecVec<T> {
         !self.offsets.is_empty() || self.build.is_empty()
     }
 
-    /// Get a slice for the node at `node_index` (read phase).
-    /// Returns empty slice if index is out of bounds or not yet flattened
-    /// (falls back to build-phase data if not yet flattened).
+    /// Get a slice for the node at `node_index` (read phase). Returns empty slice
+    /// if index is out of bounds or not yet flattened (falls back to build-phase
+    /// data if not yet flattened).
     #[inline]
     #[must_use] pub fn get_slice(&self, node_index: usize) -> &[T] {
         if self.offsets.is_empty() {
@@ -500,9 +460,8 @@ impl<T> FlatVecVec<T> {
     }
 
     /// Flatten: sort each inner Vec by key, deduplicate by keeping the last
-    /// occurrence of each key (CSS cascade: later source order wins among
-    /// equal specificity), then compact into flat storage.
-    /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
+    /// occurrence of each key (CSS cascade: later source order wins among equal
+    /// specificity), then compact into flat storage. Drains all build-phase Vecs.
     pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K) {
         let node_count = self.build.len();
         let total: usize = self.build.iter().map(alloc::vec::Vec::len).sum();
@@ -560,8 +519,8 @@ impl<T> FlatVecVec<T> {
         self.build = Vec::new();
     }
 
-    /// Rebuild flat storage, keeping only items matching `predicate`.
-    /// Must be called after flatten. Preserves per-node ordering.
+    /// Rebuild flat storage, keeping only items matching `predicate`. Must be
+    /// called after flatten.
     pub fn retain(&mut self, predicate: impl Fn(&T) -> bool) where T: Clone {
         if self.offsets.is_empty() { return; }
         let node_count = self.offsets.len();
@@ -588,12 +547,6 @@ impl<T> FlatVecVec<T> {
 
     /// Return to build phase from read (flattened) phase, preserving all data, so
     /// `push_to` / `build_mut` work again. No-op if already in build phase.
-    ///
-    /// The build → flatten → read progression is otherwise one-way, but `restyle()`
-    /// legitimately runs more than once on the same cache (`StyledDom::create` does one
-    /// internal pass, then the public API may do more), and building the compact cache
-    /// flattens these vecs in between. Without re-entering build phase, the next
-    /// restyle's `push_to` / `build_mut` would index an emptied `build` and panic.
     pub fn ensure_build_phase(&mut self) where T: Clone {
         if self.offsets.is_empty() {
             return; // already in build phase (or wholly empty)
@@ -610,7 +563,7 @@ impl<T> FlatVecVec<T> {
     }
 
     /// Like `retain`, but passes each item's owning node index to the predicate.
-    /// Must be called after flatten. Preserves per-node ordering.
+    /// Must be called after flatten.
     pub fn retain_with_node_index(
         &mut self,
         predicate: impl Fn(usize, &T) -> bool,
@@ -638,8 +591,8 @@ impl<T> FlatVecVec<T> {
         self.offsets = new_offsets;
     }
 
-    /// Iterate over all nodes, yielding (`node_index`, &[T]) for each.
-    /// Works in both build and flattened phases.
+    /// Iterate over all nodes, yielding (`node_index`, &[T]) for each. Works in
+    /// both build and flattened phases.
     pub(crate) const fn iter_node_slices(&self) -> FlatVecVecIter<'_, T> {
         FlatVecVecIter {
             fvv: self,
@@ -694,86 +647,60 @@ impl<'a, T> Iterator for FlatVecVecIter<'a, T> {
 
 impl<T> ExactSizeIterator for FlatVecVecIter<'_, T> {}
 
-// NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
-// found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many
-// nodes are in the DOM.
-//
-// If each node would carry its own CSS properties, that would unnecessarily consume memory
-// because most nodes use the default properties or override only one or two properties.
-//
-// The cache can compute the property of any node at any given time, given the current node
-// state (hover, active, focused, normal). This way we don't have to duplicate the CSS properties
-// onto every single node and exchange them when the style changes. Two caches can be appended
-// to each other by simply merging their NodeIds.
+// NOTE: To avoid large memory allocations, this is a "cache" that stores all the
+// CSS properties found in the DOM. This cache exists on a per-DOM basis, so it
+// scales independent of how many nodes are in the DOM.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct CssPropertyCache {
     // number of nodes in the current DOM
     pub node_count: usize,
 
     // The author stylesheet this cache was last cascaded with. Retained so nodes
-    // inserted at runtime can be re-styled (`StyledDom::restyle_retained`) — the
+    // inserted at runtime can be re-styled (`StyledDom::restyle_retained`) - the
     // cascade runs once at creation, and without the rules an inserted node could
     // only ever receive UA defaults + inheritance, never its author CSS.
-    // (This struct lives behind `CssPropertyCachePtr`, so the field is invisible
-    // to the C ABI.)
     pub retained_author_css: Css,
 
     // properties that were overridden in callbacks (not specific to any node state)
     pub user_overridden_properties: Vec<Vec<(CssPropertyType, CssProperty)>>,
-    /// The window's dynamic-selector context (viewport size, theme, OS,
-    /// media type...), provided by the layout funnel before the first
-    /// layout. `None` = context UNKNOWN (a freshly created `StyledDom` that no
-    /// window has adopted yet): non-pseudo-state conditions then evaluate to
-    /// "does not apply", which is the same behaviour they always had before
-    /// contexts were wired through. Pseudo-state conditions never depend on
-    /// this field.
+    /// The window's dynamic-selector context (viewport size, theme, OS, media
+    /// type...), provided by the layout funnel before the first layout. `None` =
+    /// context UNKNOWN (a freshly created `StyledDom` that no window has adopted
+    /// yet): non-pseudo-state conditions then evaluate to "does not apply", which is
+    /// the same behaviour they always had before contexts were wired through.
     pub dynamic_context: Option<Box<DynamicSelectorContext>>,
 
-    // non-default CSS properties that were cascaded from the parent,
-    // unified across all pseudo-states (Normal, Hover, Active, Focus, Dragging, DragOver).
-    // Stored in a flat cache-friendly layout after sort_and_flatten().
+    // non-default CSS properties that were cascaded from the parent, unified across
+    // all pseudo-states (Normal, Hover, Active, Focus, Dragging, DragOver). Stored
+    // in a flat cache-friendly layout after sort_and_flatten().
     pub cascaded_props: FlatVecVec<StatefulCssProperty>,
 
-    // non-default CSS properties that were set via a CSS file,
-    // unified across all pseudo-states.
+    // non-default CSS properties that were set via a CSS file, unified across all
+    // pseudo-states.
     pub css_props: FlatVecVec<StatefulCssProperty>,
 
-    // Pre-resolved inherited properties (sorted Vec per node, keyed by CssPropertyType)
+    // Pre-resolved inherited properties (sorted Vec per node, keyed by
+    // CssPropertyType)
     pub computed_values: Vec<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
 
     // Compact layout cache: three-tier numeric encoding for O(1) layout lookups.
     // Built once after restyle + apply_ua_css + compute_inherited_values.
-    // Non-compact properties (background, shadow, transform) use get_property_slow().
     pub compact_cache: Option<azul_css::compact_cache::CompactLayoutCache>,
 
-    // Global CSS properties from `*` rules — shared across all nodes.
-    // Applied during build_compact_cache_with_inheritance instead of being
-    // cloned into each node's css_props (saves 50K×N clones).
+    // Global CSS properties from `*` rules - shared across all nodes. Applied
+    // during build_compact_cache_with_inheritance instead of being cloned into each
+    // node's css_props (saves 50K×N clones).
     pub global_css_props: Vec<CssProperty>,
 
-    /// Per-node resolved font-size, in pixels, for the `Normal`
-    /// pseudo-state. Populated lazily on first call to
-    /// [`crate::styled_dom::StyledDom::resolved_font_size_px`] via a
-    /// single bottom-up DOM walk; subsequent reads are O(1) Vec
-    /// index by `NodeId::index()`.
-    ///
-    /// Motivation: `get_font_size` is called ~730× per node per
-    /// layout pass (see `AZ_PROP_COUNT=1` report — 329 629
-    /// cascade walks on excel.html alone). Each resolution
-    /// recursively reads the parent's font-size (for `em`) plus
-    /// the root's font-size (for `rem`), multiplying the walk
-    /// count. Caching the pre-resolved pixel value collapses that
-    /// to a single `Vec<f32>` indexed lookup.
+    /// Per-node resolved font-size, in pixels, for the `Normal` pseudo-state.
+    /// Populated lazily on first call to
+    /// [`crate::styled_dom::StyledDom::resolved_font_size_px`] via a single
+    /// bottom-up DOM walk; subsequent reads are O(1) Vec index by `NodeId::index()`.
     pub resolved_font_sizes_px: crate::sync::OnceLock<Vec<f32>>,
 }
 
 /// Heap-size breakdown of a `CssPropertyCache`, produced by
 /// [`CssPropertyCache::memory_breakdown`]. All values in bytes.
-///
-/// Primarily a diagnostic — the numbers are capacity-based and
-/// don't chase into property-variant payloads (e.g. the `Vec`
-/// inside a `FontFamily(...)`). Intended for "which subfield is
-/// eating RSS" triage, not for precise accounting.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CssPropertyCacheBreakdown {
     pub node_count: usize,
@@ -800,19 +727,8 @@ impl CssPropertyCacheBreakdown {
 }
 
 impl CssPropertyCache {
-    /// Approximate heap bytes retained by this cache, broken out by
-    /// subfield. Used by `StyledDom::memory_breakdown` + the
-    /// `AZ_PROFILE=memory` reporter. Sums capacity × element size
-    /// for each Vec and adds a coarse allowance for the inner Vec
-    /// headers inside `computed_values`.
-    ///
-    /// This is a measurement helper, not a tight bound — it doesn't
-    /// chase into the `CssProperty` enum variants that carry their
-    /// own `Vec`/`String` allocations (notably `FontFamily` →
-    /// `StyleFontFamilyVec` → `Vec<StyleFontFamily>`), so the real
-    /// heap footprint for a property-rich DOM can be 2-3× these
-    /// numbers. Still useful for spotting gross duplication between
-    /// the pre-compact and compact caches.
+    /// Approximate heap bytes retained by this cache, broken out by subfield. Used
+    /// by `StyledDom::memory_breakdown` + the `AZ_PROFILE=memory` reporter.
     pub fn memory_breakdown(&self) -> CssPropertyCacheBreakdown {
         let stateful_sz = size_of::<StatefulCssProperty>();
         let computed_entry_sz =
@@ -868,11 +784,9 @@ impl CssPropertyCache {
         }
     }
 
-    /// Drop Normal-state properties that have compact encodings from
-    /// `css_props` and `cascaded_props`. After `build_compact_cache_with_inheritance`,
-    /// these are redundant — the compact cache is the source of truth for layout.
-    /// Non-Normal entries (hover/active/focus) and non-compact properties
-    /// (background, box-shadow, transform, etc.) are kept for `get_property_slow`.
+    /// Drop Normal-state properties that have compact encodings from `css_props`
+    /// and `cascaded_props`. After `build_compact_cache_with_inheritance`, these are
+    /// redundant - the compact cache is the source of truth for layout.
     pub fn prune_compact_normal_props(&mut self) {
         use azul_css::dynamic_selector::PseudoStateType;
 
@@ -913,8 +827,7 @@ impl CssPropertyCache {
         // The compact cache stores SENTINEL for pixel-valued properties whose inner
         // value is Exact with a non-px metric (vh, vw, %, em, rem, calc(), ...).
         // Those need the slow `css_props` walk at layout time because the compact
-        // cache has nothing usable. We must keep them here or the slow path falls
-        // back to UA CSS and silently clobbers the author's rule.
+        // cache has nothing usable.
         let keep = |p: &StatefulCssProperty| -> bool {
             if p.state != PseudoStateType::Normal {
                 return true;
@@ -934,27 +847,20 @@ impl CssPropertyCache {
         // compact cache from css_props (build_compact_cache_with_inheritance reads
         // css_props in its per-node Step 3). If we drop compact-encoded Normal props
         // here, that rebuild reads pruned css_props and resets those props to their
-        // CSS-initial value — e.g. white-space:pre-wrap on a node regressed to Normal
-        // on the 2nd (recompute) build, collapsing \n in pre-wrap text into one line
-        // (#8, intermittently — depends on whether the recompute ran). The doc's
-        // premise ("the compact cache is the source of truth", implying permanence)
-        // is false given that per-frame recompute. cascaded_props is NOT read by the
-        // rebuild (Step 1 inherits from the parent's COMPACT value, not cascaded_props),
-        // so pruning it remains safe. TODO: re-enable css_props pruning once recompute
-        // becomes incremental (preserve directly-set compact values instead of rebuilding).
+        // CSS-initial value - e.g.
         if !self.cascaded_props.is_flattened() {
             self.cascaded_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
         }
         self.cascaded_props.retain(keep);
     }
 
-    /// Look up a CSS property for a specific pseudo-state in a stateful property vec.
-    /// Requires the vec to be sorted by (state, `prop_type`).
+    /// Look up a CSS property for a specific pseudo-state in a stateful property
+    /// vec. Requires the vec to be sorted by (state, `prop_type`).
     #[inline]
     // prop_cache threads &NodeId/&CssPropertyType uniformly through its hot cascade
     // lookup API (40+ such params); flipping only clippy's few flags to by-value
-    // would force ref/deref juggling at every boundary with the by-ref majority,
-    // for no measurable hot-path gain — keep the uniform by-ref convention.
+    // would force ref/deref juggling at every boundary with the by-ref majority, for
+    // no measurable hot-path gain - keep the uniform by-ref convention.
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn find_in_stateful<'a>(
         props: &'a [StatefulCssProperty],
@@ -967,15 +873,15 @@ impl CssPropertyCache {
             .map(|idx| &props[idx].property)
     }
 
-    /// Check if any properties exist for a specific pseudo-state in a stateful property vec.
-    /// Requires the vec to be sorted by (state, `prop_type`).
+    /// Check if any properties exist for a specific pseudo-state in a stateful
+    /// property vec. Requires the vec to be sorted by (state, `prop_type`).
     #[inline]
     fn has_state_props(
         props: &[StatefulCssProperty],
         state: azul_css::dynamic_selector::PseudoStateType,
     ) -> bool {
-        // All entries with the same state are contiguous. Use partition_point
-        // to find the first entry >= state, then check if it matches.
+        // All entries with the same state are contiguous. Use partition_point to
+        // find the first entry >= state, then check if it matches.
         let i = props.partition_point(|p| p.state < state);
         i < props.len() && props[i].state == state
     }
@@ -989,15 +895,12 @@ impl CssPropertyCache {
     }
 }
 
-/// Returns true if `prop`'s value cannot be fully represented in the compact
-/// cache and therefore needs to survive `prune_compact_normal_props` so the
-/// slow `css_props` walk can still find it at layout time.
-///
-/// Pixel-valued properties (margin, padding, width, height, ...) are the only
-/// case: `Exact(pv)` with `pv.metric != Px` (vh, vw, %, em, rem, ...) encodes
-/// to the compact cache's SENTINEL slot, which loses the value. All other
-/// compact-encoded types (tier1 enums, colors, hashes, etc.) always round-trip
-/// through the compact encoding.
+/// Returns true if `prop`'s value cannot be fully represented in the compact cache
+/// and therefore needs to survive `prune_compact_normal_props` so the slow
+/// `css_props` walk can still find it at layout time. Pixel-valued properties
+/// (margin, padding, width, height, ...) are the only case: `Exact(pv)` with
+/// `pv.metric != Px` (vh, vw, %, em, rem, ...) encodes to the compact cache's
+/// SENTINEL slot, which loses the value.
 fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
     use azul_css::css::CssPropertyValue;
     use azul_css::props::{
@@ -1008,7 +911,7 @@ fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
         },
     };
 
-    // `inner: PixelValue` wrapper types — check metric directly.
+    // `inner: PixelValue` wrapper types - check metric directly.
     macro_rules! check_plain {
         ($v:expr) => {{
             if let CssPropertyValue::Exact(ref inner) = $v {
@@ -1019,9 +922,9 @@ fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
     }
 
     match prop {
-        // LayoutWidth / LayoutHeight: enum with `Px(PixelValue)` variant.
-        // Non-pixel variants (Auto / MinContent / MaxContent / FitContent / Calc)
-        // are already handled by the tier1 fast path or don't exist as i16 dims.
+        // LayoutWidth / LayoutHeight: enum with `Px(PixelValue)` variant. Non-pixel
+        // variants (Auto / MinContent / MaxContent / FitContent / Calc) are already
+        // handled by the tier1 fast path or don't exist as i16 dims.
         CssProperty::Width(v) => {
             if let CssPropertyValue::Exact(LayoutWidth::Px(pv)) = v {
                 return pv.metric != SizeMetric::Px;
@@ -1077,30 +980,9 @@ fn property_needs_slow_path_after_compact(prop: &CssProperty) -> bool {
     }
 }
 
-/// Clone a `CssProperty` WITHOUT going through its derived `Clone`. The derived clone
-/// is a ~179-arm `match self { V(x) => V(x.clone()) }` that LLVM lowers to an indirect
-/// HALFWORD jump table (`ldrh`-indexed). The web (remill→wasm) backend mis-lifts that
-/// table, so for HEAP/Vec-bearing variants (gradients, font-family, shadows, filters,
-/// transforms) the mis-dispatched clone reads wrong-sized data and the cascade traps
-/// with "memory access out of bounds" (restyle → inherit → clone). Here every
-/// heap-bearing variant is dispatched via single-variant `if let` — a direct
-/// discriminant compare, NO jump table — and each inner `v.clone()` is the value
-/// type's own clone, which lifts correctly. POD variants fall through to the derived
-/// clone: correct on native, and harmless on web (a mis-dispatched discriminant 0 is
-/// `CaretColor`, a `Copy` value with no heap pointer to deref). On native this function
-/// is byte-for-byte equivalent to `p.clone()`.
-/// Inheritable properties whose value must be inherited as the parent's already
-/// *resolved* value, NOT propagated as a raw declaration through `cascaded_props`.
-///
-/// `font-size` is the case: a relative parent value (`1.5em`) propagated raw
-/// would be re-resolved against the already-resolved parent at every descendant
-/// (multiplicative error: 30px -> 45px -> 67.5px down a chain), and a parent
-/// whose own `cascaded` font-size is the *grandparent's* absolute value would
-/// skip the parent's own size entirely. Both consuming paths already inherit
-/// font-size correctly from the parent's resolved value — `inherit_from_parent`
-/// for `computed_values`, and the parent's resolved compact slot in
-/// `build_compact_cache_with_inheritance` — so font-size must not ride the raw
-/// propagation at all.
+/// Clone a `CssProperty` WITHOUT going through its derived `Clone`. The derived
+/// clone is a ~179-arm `match self { V(x) => V(x.clone()) }` that LLVM lowers to an
+/// indirect HALFWORD jump table (`ldrh`-indexed).
 fn is_resolved_parent_inherited(prop_type: CssPropertyType) -> bool {
     prop_type == CssPropertyType::FontSize
 }
@@ -1134,9 +1016,8 @@ fn clone_inheritable_property(
 }
 
 impl CssPropertyCache {
-    /// Match CSS selectors to nodes and populate `css_props`.
-    /// Returns tag IDs for hit-testing. If `compact_cache` is available,
-    /// uses it for fast display/overflow checks; otherwise falls back to slow path.
+    /// Match CSS selectors to nodes and populate `css_props`. Returns tag IDs for
+    /// hit-testing.
     #[must_use]
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn restyle(
@@ -1155,16 +1036,11 @@ impl CssPropertyCache {
 
         let css_is_empty = css.is_empty();
 
-        // @-rule conditions (@media width/height, theme, OS...) gate whole
-        // rule BLOCKS. Evaluated here against the window's dynamic context —
-        // rules whose conditions do not hold are dropped from this cascade
-        // exactly as if absent, and `StyledDom::set_dynamic_selector_context`
-        // re-runs the cascade when the context changes and the author css
-        // has conditional rules. With NO context yet (a StyledDom no window
-        // has adopted), conditional rules do not apply — the same behaviour
-        // inline conditional properties have always had. (Until 2026-08-10
-        // these conditions were silently IGNORED: an author
-        // `@media (max-width: 720px)` block applied at every viewport.)
+        // @-rule conditions (@media width/height, theme, OS...) gate whole rule
+        // BLOCKS. Evaluated here against the window's dynamic context - rules whose
+        // conditions do not hold are dropped from this cascade exactly as if absent,
+        // and `StyledDom::set_dynamic_selector_context` re-runs the cascade when the
+        // context changes and the author css has conditional rules.
         let dyn_ctx = self.dynamic_context.clone();
         let rule_applies = |conds: &azul_css::dynamic_selector::DynamicSelectorVec| -> bool {
             let cs = conds.as_slice();
@@ -1177,10 +1053,10 @@ impl CssPropertyCache {
         if !css_is_empty {
             css.sort_by_specificity();
 
-            // Separate CSS rules into "global only" (just `*`) vs "has specific selector".
-            // Global-only rules apply to ALL nodes — push directly into css_props
-            // without per-node selector matching (avoids m×n for these rules).
-            // Specific rules still go through matches_html_element per-node.
+            // Separate CSS rules into "global only" (just `*`) vs "has specific
+            // selector". Global-only rules apply to ALL nodes - push directly into
+            // css_props without per-node selector matching (avoids m×n for these
+            // rules).
             let mut global_only_rules: Vec<&CssRuleBlock> = Vec::new();
             let mut specific_rules: Vec<&CssRuleBlock> = Vec::new();
 
@@ -1196,34 +1072,18 @@ impl CssPropertyCache {
             }
 
             // Re-enter build phase before repopulating. restyle() is not
-            // single-shot: StyledDom::create runs one restyle internally, and building
-            // the compact cache flattens these vecs — so on a later restyle both are in
-            // read phase, where the old reset `build_iter_mut().clear()` silently
-            // iterated ZERO entries (flatten empties `build`). The push_to / build_mut
-            // below then indexed an emptied Vec and panicked.
-            //
-            // css_props is rebuilt from scratch each restyle (repopulated below,
-            // flattened at the end), so replace it with a fresh build-phase vec.
-            //
-            // cascaded_props is rebuilt from scratch TOO (2026-08-12): the old
-            // preserve-and-or_insert approach LEAKED properties of rules whose
-            // @-condition turned OFF — a color inherited under a min-width
-            // block survived in every descendant after crossing below it, so
-            // wide and narrow styling applied SIMULTANEOUSLY (the
-            // media_restyle_cost law pin caught it). Preservation is
-            // unnecessary: the inheritance walk is top-down (parents' fresh
-            // slices are written before children read them — the same
-            // ordering css_props relies on), so a fresh build-phase vec
-            // repopulates completely. The historical reason for preserving
-            // was a phase-bug in the old clear, not a data dependency.
+            // single-shot: StyledDom::create runs one restyle internally, and
+            // building the compact cache flattens these vecs - so on a later restyle
+            // both are in read phase, where the old reset `build_iter_mut().clear()`
+            // silently iterated ZERO entries (flatten empties `build`).
             let node_count = self.css_props.len();
             self.css_props = FlatVecVec::new(node_count);
             self.cascaded_props = FlatVecVec::new(node_count);
 
-            // Collect global-only rule declarations ONCE (not per-node).
-            // These are stored in self.global_css_props and applied during
-            // build_compact_cache_with_inheritance for each node, avoiding
-            // 50K × N clones into per-node css_props Vecs.
+            // Collect global-only rule declarations ONCE (not per-node). These are
+            // stored in self.global_css_props and applied during
+            // build_compact_cache_with_inheritance for each node, avoiding 50K × N
+            // clones into per-node css_props Vecs.
             self.global_css_props.clear();
             for rule in &global_only_rules {
                 if !rule_applies(&rule.conditions) {
@@ -1241,15 +1101,10 @@ impl CssPropertyCache {
             // Phase 2: Match specific rules per-node (only non-global rules)
             if !specific_rules.is_empty() {
 
-            // Per-node "which declarations match" lists are built as
-            // `(rule_idx, decl_idx)` pairs — 4 bytes per entry instead of
-            // cloning a 140-byte `CssProperty`. The clone only happens at
-            // the final push_to step, so the transient peak is ~35× smaller.
-            //
-            // rule_idx indexes into `specific_rules` (Vec<&CssRuleBlock>),
-            // decl_idx indexes into `rule.declarations.as_slice()`. Both
-            // fit in u16 since real stylesheets have far fewer than 65k
-            // rules and declarations per rule.
+            // Per-node "which declarations match" lists are built as `(rule_idx,
+            // decl_idx)` pairs - 4 bytes per entry instead of cloning a 140-byte
+            // `CssProperty`. The clone only happens at the final push_to step, so
+            // the transient peak is ~35× smaller.
             macro_rules! filter_rules {($expected_pseudo_selector:expr, $node_id:expr) => {{
                 let mut out: Vec<(u16, u16)> = Vec::new();
                 for (rule_idx, rule_block) in specific_rules.iter().enumerate() {
@@ -1278,9 +1133,9 @@ impl CssPropertyCache {
                 out
             }};}
 
-            // Pre-check which pseudo-states have any matching rules at all.
-            // This avoids iterating 50K nodes for pseudo-states with zero rules
-            // (common: most stylesheets have no :hover/:focus/:active rules).
+            // Pre-check which pseudo-states have any matching rules at all. This
+            // avoids iterating 50K nodes for pseudo-states with zero rules (common:
+            // most stylesheets have no :hover/:focus/:active rules).
             let has_normal = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, None));
             let has_hover = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(Hover)));
             let has_active = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(Active)));
@@ -1324,8 +1179,8 @@ impl CssPropertyCache {
             } // end if !specific_rules.is_empty()
         }
 
-        // Inheritance: Inherit all values of the parent to the children, but
-        // only if the property is inheritable and isn't yet set
+        // Inheritance: Inherit all values of the parent to the children, but only
+        // if the property is inheritable and isn't yet set
         for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes {
             let Some(parent_id) = node_id.into_crate_internal() else {
                 continue;
@@ -1341,7 +1196,8 @@ impl CssPropertyCache {
             ];
 
             for &state in &all_states {
-                // 1. Inherit inline CSS properties from parent for this pseudo-state
+                // 1. Inherit inline CSS properties from parent for this
+                // pseudo-state
                 let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = node_data[parent_id]
                     .style
                     .iter_inline_properties()
@@ -1360,7 +1216,8 @@ impl CssPropertyCache {
                     .map(|p| (p.get_type(), clone_inheritable_property(p)))
                     .collect();
 
-                // 2. Inherit CSS stylesheet properties from parent for this pseudo-state
+                // 2. Inherit CSS stylesheet properties from parent for this
+                // pseudo-state
                 let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if css_is_empty {
                     Vec::new()
                 } else {
@@ -1379,8 +1236,9 @@ impl CssPropertyCache {
                         .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
                         .collect();
 
-                // Combine all inheritable props (inline first = strongest, cascaded last)
-                // Only insert if child doesn't already have that (state, prop_type) combo
+                // Combine all inheritable props (inline first = strongest, cascaded
+                // last) Only insert if child doesn't already have that (state,
+                // prop_type) combo
                 if parent_inheritable_inline.is_empty()
                     && parent_inheritable_css.is_empty()
                     && parent_inheritable_cascaded.is_empty()
@@ -1395,7 +1253,8 @@ impl CssPropertyCache {
                         .chain(parent_inheritable_css.iter())
                         .chain(parent_inheritable_cascaded.iter())
                     {
-                        // or_insert: only insert if child doesn't already have this (state, prop_type)
+                        // or_insert: only insert if child doesn't already have this
+                        // (state, prop_type)
                         if !child_vec.iter().any(|p| p.state == state && p.prop_type == *prop_type) {
                             child_vec.push(StatefulCssProperty {
                                 state,
@@ -1408,8 +1267,8 @@ impl CssPropertyCache {
             }
         }
 
-        // Sort css_props by (state, prop_type) for binary search lookups,
-        // then flatten into contiguous memory for cache-friendly reads.
+        // Sort css_props by (state, prop_type) for binary search lookups, then
+        // flatten into contiguous memory for cache-friendly reads.
         self.css_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
 
         // Restyling can change font-size properties; the memoized resolved font
@@ -1419,9 +1278,8 @@ impl CssPropertyCache {
         self.generate_tag_ids(node_data, node_hierarchy)
     }
 
-    /// Generate hit-test tag IDs for nodes that need event handling.
-    /// Uses compact cache (if available) for fast display/overflow reads.
-    /// Can be called separately after `build_compact_cache_with_inheritance`.
+    /// Generate hit-test tag IDs for nodes that need event handling. Uses compact
+    /// cache (if available) for fast display/overflow reads.
     pub fn generate_tag_ids(
         &self,
         node_data: &NodeDataContainerRef<'_, NodeData>,
@@ -1429,8 +1287,8 @@ impl CssPropertyCache {
     ) -> Vec<TagIdToNodeIdMapping> {
 
         // Tag ID generation: determine which nodes need hit-test tags for
-        // hover/click/scroll events. Uses compact cache for display/overflow
-        // checks instead of get_property_slow (which searches 6 data structures).
+        // hover/click/scroll events. Uses compact cache for display/overflow checks
+        // instead of get_property_slow (which searches 6 data structures).
         use azul_css::compact_cache::{
             DISPLAY_SHIFT, DISPLAY_MASK,
             OVERFLOW_X_SHIFT, OVERFLOW_Y_SHIFT, OVERFLOW_MASK,
@@ -1463,7 +1321,8 @@ impl CssPropertyCache {
                 // decides `need_tag`. Labeled block (not `loop`) makes the
                 // never-iterating control flow explicit (clippy::never_loop).
                 'compute_need_tag: {
-                    // display:none check — read directly from compact tier1 (fast u64 read)
+                    // display:none check - read directly from compact tier1 (fast
+                    // u64 read)
                     if let Some(cc) = compact_cache.as_ref() {
                         let t1 = cc.tier1_enums[node_idx];
                         let display_val = ((t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
@@ -1475,7 +1334,8 @@ impl CssPropertyCache {
                     }
                     if tab_index.is_some() { need_tag = true; break 'compute_need_tag; }
 
-                    // Pseudo-state property checks (hover/active/focus/dragging/drag-over)
+                    // Pseudo-state property checks
+                    // (hover/active/focus/dragging/drag-over)
                     {
                         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
                         let has_pseudo = |state: PseudoStateType| -> bool {
@@ -1501,7 +1361,7 @@ impl CssPropertyCache {
                         && !node_data.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
                     if has_non_window_cb { need_tag = true; break 'compute_need_tag; }
 
-                    // Cursor check — read from cached css_props or inline style.
+                    // Cursor check - read from cached css_props or inline style.
                     if self.css_props.get_slice(node_idx).iter().any(|p|
                         p.state == azul_css::dynamic_selector::PseudoStateType::Normal
                         && p.prop_type == CssPropertyType::Cursor
@@ -1511,12 +1371,13 @@ impl CssPropertyCache {
                         need_tag = true; break 'compute_need_tag;
                     }
 
-                    // Overflow scroll check — read from compact tier1
+                    // Overflow scroll check - read from compact tier1
                     if let Some(cc) = compact_cache.as_ref() {
                         let t1 = cc.tier1_enums[node_idx];
                         let ox = ((t1 >> OVERFLOW_X_SHIFT) & OVERFLOW_MASK) as u8;
                         let oy = ((t1 >> OVERFLOW_Y_SHIFT) & OVERFLOW_MASK) as u8;
-                        // 2 = Scroll, 3 = Auto in layout_overflow_to_u8 (new encoding)
+                        // 2 = Scroll, 3 = Auto in layout_overflow_to_u8 (new
+                        // encoding)
                         if ox == 2 || ox == 3 || oy == 2 || oy == 3 {
                             need_tag = true; break 'compute_need_tag;
                         }
@@ -1543,28 +1404,10 @@ impl CssPropertyCache {
                 }
 
                 if need_tag {
-                    // DETERMINISTIC tag: a pure function of node identity
-                    // (node index + 1; 0 stays "no tag"), NOT a global
-                    // counter. Tag values are namespaced by tag TYPE
-                    // (`TAG_TYPE_DOM_NODE` vs cursor/scrollbar/... — every
-                    // consumer matches `tag.1`) and resolved per-DOM, so
-                    // per-node determinism is all that is required.
-                    //
-                    // The old `TagId::unique()` counter made tag numbers an
-                    // ALLOCATION ORDER artifact: rebuilding the SAME UI (any
-                    // callback returning RefreshDom) produced a fresh tag
-                    // map, while the structural-identity display-list cache
-                    // (solver3 Step 1.1 — root subtree hash + viewport)
-                    // correctly reused the old display list. Map and display
-                    // list then disagreed about every tag, and each lookup
-                    // that crosses the two — `get_node_hit_test_bounds`, the
-                    // WebRender hit-test translation — silently resolved to
-                    // nothing: after a hash-identical rebuild, clicks aimed
-                    // by node stopped landing (the E2E `double_click` on the
-                    // ribbon tab was the visible case). With tags derived
-                    // from node identity, a structurally identical tree gets
-                    // identical tags, which is exactly the invariant the
-                    // display-list cache assumes.
+                    // DETERMINISTIC tag: a pure function of node identity (node
+                    // index + 1; 0 stays "no tag"), NOT a global counter. Tag values
+                    // are namespaced by tag TYPE (`TAG_TYPE_DOM_NODE` vs
+                    // cursor/scrollbar/...
                     Some(TagIdToNodeIdMapping {
                         tag_id: TagId::from_crate_internal(TagId {
                             inner: (node_idx as u64) + 1,
@@ -1871,11 +1714,9 @@ impl CssPropertyCache {
 pub struct CssPropertyCachePtr {
     // `ManuallyDrop` so the owned `Box` is freed ONLY by our `Drop` (gated on
     // `run_destructor`), never by drop-glue. The codegen Az wrapper (AzStyledDom)
-    // nests an AzCssPropertyCachePtr field whose own `Drop` re-runs
-    // `_delete` -> `drop_in_place::<CssPropertyCachePtr>` on the SAME bytes; with a
-    // bare `Box` the glue freed it a second time -> double free. Layout is
-    // unchanged (one pointer), so the AzCssPropertyCachePtr<->CssPropertyCachePtr
-    // FFI transmute stays valid. Matches the GlContextPtr / InstantPtr convention.
+    // nests an AzCssPropertyCachePtr field whose own `Drop` re-runs `_delete` ->
+    // `drop_in_place::<CssPropertyCachePtr>` on the SAME bytes; with a bare `Box`
+    // the glue freed it a second time -> double free.
     pub ptr: ManuallyDrop<Box<CssPropertyCache>>,
     pub run_destructor: bool,
 }
@@ -1894,8 +1735,9 @@ impl CssPropertyCachePtr {
 
 impl Drop for CssPropertyCachePtr {
     fn drop(&mut self) {
-        // First drop (run_destructor still true) frees the Box and clears the flag in
-        // the shared bytes; the codegen's redundant second drop sees false -> no-op.
+        // First drop (run_destructor still true) frees the Box and clears the flag
+        // in the shared bytes; the codegen's redundant second drop sees false ->
+        // no-op.
         if self.run_destructor {
             self.run_destructor = false;
             unsafe {
@@ -1940,11 +1782,8 @@ impl CssPropertyCache {
         }
     }
 
-    /// Clear the lazily-populated font-size cache. Call after any
-    /// mutation that could change resolved font-sizes (restyle,
-    /// DOM mutation, `append`, etc.). The next
-    /// [`crate::styled_dom::StyledDom::resolved_font_size_px`] call
-    /// repopulates via a single bottom-up tree walk.
+    /// Clear the lazily-populated font-size cache. Call after any mutation that
+    /// could change resolved font-sizes (restyle, DOM mutation, `append`, etc.).
     pub fn invalidate_resolved_font_sizes(&mut self) {
         self.resolved_font_sizes_px = crate::sync::OnceLock::new();
     }
@@ -1961,7 +1800,7 @@ impl CssPropertyCache {
         self.computed_values.append(&mut other.computed_values);
 
         self.node_count += other.node_count;
-        // Indices shifted — invalidate the font-size cache too.
+        // Indices shifted - invalidate the font-size cache too.
         self.resolved_font_sizes_px = crate::sync::OnceLock::new();
 
         // Invalidate compact cache since node IDs shifted
@@ -2016,10 +1855,10 @@ impl CssPropertyCache {
             .is_overflow_hidden()
     }
 
-    /// The node's USER OVERRIDE for a property, if any — the runtime layer a
-    /// transition writes. Public so the display-list builder's inheritance
-    /// walk can consult ancestors (the precomputed inherited tables cannot
-    /// see a runtime override on an ancestor).
+    /// The node's USER OVERRIDE for a property, if any - the runtime layer a
+    /// transition writes. Public so the display-list builder's inheritance walk can
+    /// consult ancestors (the precomputed inherited tables cannot see a runtime
+    /// override on an ancestor).
     #[must_use]
     pub fn get_user_override(
         &self,
@@ -2033,10 +1872,9 @@ impl CssPropertyCache {
     }
 
     /// Does this node DECLARE the property itself (inline style or a matched
-    /// stylesheet rule, any pseudo-state)? Inherited values do NOT count —
-    /// this is the "inheritance re-roots here" test for the ancestor-override
-    /// walk: below a node with its own `color`, an animated ancestor colour
-    /// must not leak through.
+    /// stylesheet rule, any pseudo-state)? Inherited values do NOT count - this is
+    /// the "inheritance re-roots here" test for the ancestor-override walk: below a
+    /// node with its own `color`, an animated ancestor colour must not leak through.
     #[must_use]
     pub fn has_own_declaration(
         &self,
@@ -2069,7 +1907,8 @@ impl CssPropertyCache {
             .unwrap_or(DEFAULT_TEXT_COLOR)
     }
 
-    /// Returns the font family of the node, or the default font family if none is set.
+    /// Returns the font family of the node, or the default font family if none is
+    /// set.
     pub fn get_font_id_or_default(
         &self,
         node_data: &NodeData,
@@ -2146,22 +1985,9 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
-        // Thread-local counter of cascade walks, broken down by
-        // property type. Drain with `drain_css_prop_counts` (free
-        // fn below) when `AZ_PROP_COUNT=1` is set to see which
-        // properties dominate the cold layout path.
-        //
-        // Env check is read ONCE at process start and cached in a
-        // `OnceLock<bool>`. Before this, the env check ran per
-        // `get_property` call — and the function fires 710k+ times
-        // per cold layout on excel.html. `std::env::var_os` takes
-        // ~100 ns per call on macOS (env lock + hashmap lookup), so
-        // the naive check added ~70 ms of pure noise to every
-        // single layout, regardless of whether the env var was set.
-        // Using a one-time cached bool removes that overhead.
-        //
-        // `no_std` builds have no thread-locals / env, so the profiling
-        // counter is compiled out entirely.
+        // Thread-local counter of cascade walks, broken down by property type.
+        // Drain with `drain_css_prop_counts` (free fn below) when `AZ_PROP_COUNT=1`
+        // is set to see which properties dominate the cold layout path.
         #[cfg(feature = "std")]
         {
             static PROP_COUNT_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -2171,8 +1997,7 @@ impl CssPropertyCache {
                 // real TLS, so `with` would hit `panic_access_error` (the layout
                 // path reads CSS props via these getters → would trap). `try_with`
                 // returns Err and we skip the profiling-only increment (and its
-                // inner Mutex-guarded label table). Desktop behaviour unchanged —
-                // when the env var is unset the whole block is gated off anyway.
+                // inner Mutex-guarded label table).
                 let _ = PROP_COUNTS.try_with(|c| {
                     *c.borrow_mut()
                         .entry(Self::css_prop_type_label(css_property_type))
@@ -2181,19 +2006,17 @@ impl CssPropertyCache {
             }
         }
 
-        // Always use full cascade resolution.
-        // Tier 1/2/2b handle layout-hot properties via direct typed getters.
-        // This path is only used for paint-time reads (background, shadow, etc.)
+        // Always use full cascade resolution. Tier 1/2/2b handle layout-hot
+        // properties via direct typed getters.
         self.get_property_slow(node_data, node_id, node_state, css_property_type)
     }
 
     #[cfg(feature = "std")]
     #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     fn css_prop_type_label(t: &CssPropertyType) -> &'static str {
-        // Intern Debug-format labels under a mutex-guarded map so
-        // we leak at most one `&'static str` per distinct
-        // `CssPropertyType` variant (bounded at ≤ 178 total). Only
-        // triggered when `AZ_PROP_COUNT=1`, so zero cost normally.
+        // Intern Debug-format labels under a mutex-guarded map so we leak at most
+        // one `&'static str` per distinct `CssPropertyType` variant (bounded at ≤
+        // 178 total). Only triggered when `AZ_PROP_COUNT=1`, so zero cost normally.
         use std::sync::{Mutex, OnceLock};
         static TABLE: OnceLock<Mutex<std::collections::HashMap<CssPropertyType, &'static str>>> =
             OnceLock::new();
@@ -2208,9 +2031,8 @@ impl CssPropertyCache {
         leaked
     }
 
-    /// Full cascade resolution for any CSS property type.
-    /// Walks all cascade layers: user overrides → inline → stylesheet → cascaded → computed → UA.
-    /// Also used by restyle functions that need state-aware lookups.
+    /// Full cascade resolution for any CSS property type. Walks all cascade layers:
+    /// user overrides → inline → stylesheet → cascaded → computed → UA.
     #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub(crate) fn get_property_slow<'a>(
@@ -2223,15 +2045,8 @@ impl CssPropertyCache {
 
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
-        // Helper: do these conditions identify a rule that applies in `state`
-        // under the window's dynamic context? Empty conditions = Normal-only.
-        // Otherwise EVERY condition must hold: a pseudo-state condition must
-        // equal `state`, and every other condition (viewport/@media, theme,
-        // OS, container...) is evaluated against the window-provided
-        // `dynamic_context`. With no context yet (a StyledDom no window has
-        // adopted), non-pseudo conditions do not apply - the exact behaviour
-        // they had before contexts were wired through, so creation-time
-        // styling is unchanged.
+        // Helper: do these conditions identify a rule that applies in `state` under
+        // the window's dynamic context? Empty conditions = Normal-only.
         let ctx = self.dynamic_context.as_deref();
         let matches_pseudo_state = |conds: &azul_css::dynamic_selector::DynamicSelectorVec,
                                     state: PseudoStateType|
@@ -2254,8 +2069,8 @@ impl CssPropertyCache {
             }
         }
 
-        // If that fails, see if there is an inline CSS property that matches
-        // :focus > :active > :hover > normal (fallback)
+        // If that fails, see if there is an inline CSS property that matches :focus
+        // > :active > :hover > normal (fallback)
         if node_state.focused {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
             if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
@@ -2264,8 +2079,8 @@ impl CssPropertyCache {
                 {
                     // LAST matching inline declaration wins (CSS source order),
                     // same as the compact builder's later-overwrites-earlier and
-                    // get_property_with_context - a widget's merged_style()
-                    // appends overrides and relies on exactly this.
+                    // get_property_with_context - a widget's merged_style() appends
+                    // overrides and relies on exactly this.
                     Some(prop)
                 } else {
                     acc
@@ -2301,8 +2116,8 @@ impl CssPropertyCache {
                 {
                     // LAST matching inline declaration wins (CSS source order),
                     // same as the compact builder's later-overwrites-earlier and
-                    // get_property_with_context - a widget's merged_style()
-                    // appends overrides and relies on exactly this.
+                    // get_property_with_context - a widget's merged_style() appends
+                    // overrides and relies on exactly this.
                     Some(prop)
                 } else {
                     acc
@@ -2338,8 +2153,8 @@ impl CssPropertyCache {
                 {
                     // LAST matching inline declaration wins (CSS source order),
                     // same as the compact builder's later-overwrites-earlier and
-                    // get_property_with_context - a widget's merged_style()
-                    // appends overrides and relies on exactly this.
+                    // get_property_with_context - a widget's merged_style() appends
+                    // overrides and relies on exactly this.
                     Some(prop)
                 } else {
                     acc
@@ -2373,8 +2188,8 @@ impl CssPropertyCache {
                 {
                     // LAST matching inline declaration wins (CSS source order),
                     // same as the compact builder's later-overwrites-earlier and
-                    // get_property_with_context - a widget's merged_style()
-                    // appends overrides and relies on exactly this.
+                    // get_property_with_context - a widget's merged_style() appends
+                    // overrides and relies on exactly this.
                     Some(prop)
                 } else {
                     acc
@@ -2408,8 +2223,8 @@ impl CssPropertyCache {
                 {
                     // LAST matching inline declaration wins (CSS source order),
                     // same as the compact builder's later-overwrites-earlier and
-                    // get_property_with_context - a widget's merged_style()
-                    // appends overrides and relies on exactly this.
+                    // get_property_with_context - a widget's merged_style() appends
+                    // overrides and relies on exactly this.
                     Some(prop)
                 } else {
                     acc
@@ -2437,17 +2252,16 @@ impl CssPropertyCache {
             }
         }
 
-        // Normal/fallback properties - always apply as base layer
-        // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
+        // Normal/fallback properties - always apply as base layer PRIORITY 1:
+        // Inline CSS properties (highest priority per CSS spec)
         if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
             if matches_pseudo_state(conds, PseudoStateType::Normal)
                 && prop.get_type() == *css_property_type
             {
-                // LAST matching inline declaration wins (CSS source order),
-                // same as the compact builder's later-overwrites-earlier and
-                // get_property_with_context - the widget pattern
-                // "display:none + display:flex @media(max-width)" relies on
-                // exactly this ordering.
+                // LAST matching inline declaration wins (CSS source order), same as
+                // the compact builder's later-overwrites-earlier and
+                // get_property_with_context - the widget pattern "display:none +
+                // display:flex @media(max-width)" relies on exactly this ordering.
                 Some(prop)
             } else {
                 acc
@@ -2465,9 +2279,9 @@ impl CssPropertyCache {
             return Some(p);
         }
 
-        // PRIORITY 2b: Global `*` selector properties (specificity 0,0,0)
-        // These are collected once during restyle and apply to all nodes.
-        // Lower priority than per-node rules but higher than inheritance/UA.
+        // PRIORITY 2b: Global `*` selector properties (specificity 0,0,0) These are
+        // collected once during restyle and apply to all nodes. Lower priority than
+        // per-node rules but higher than inheritance/UA.
         if let Some(p) = self.global_css_props.iter().find(|p| p.get_type() == *css_property_type) {
             return Some(p);
         }
@@ -2481,8 +2295,8 @@ impl CssPropertyCache {
             return Some(p);
         }
 
-        // Check computed values cache for inherited properties
-        // Sorted Vec with binary search
+        // Check computed values cache for inherited properties Sorted Vec with
+        // binary search
         if css_property_type.is_inheritable() {
             if let Some(vec) = self.computed_values.get(node_id.index()) {
                 if let Ok(idx) = vec.binary_search_by_key(css_property_type, |(k, _)| *k) {
@@ -2491,18 +2305,14 @@ impl CssPropertyCache {
             }
         }
 
-        // User-agent stylesheet fallback (lowest precedence)
-        // Check if the node type has a default value for this property
+        // User-agent stylesheet fallback (lowest precedence) Check if the node type
+        // has a default value for this property
         crate::ua_css::get_ua_property(&node_data.node_type, *css_property_type)
     }
 
-    /// Get a CSS property using `DynamicSelectorContext` for evaluation.
-    ///
-    /// This is the new API that supports @media queries, @container queries,
-    /// OS-specific styles, and all pseudo-states via `CssPropertyWithConditions`.
-    ///
-    /// The evaluation follows "last wins" semantics - properties are evaluated
-    /// in reverse order and the first matching property wins.
+    /// Get a CSS property using `DynamicSelectorContext` for evaluation. This is
+    /// the new API that supports @media queries, @container queries, OS-specific
+    /// styles, and all pseudo-states via `CssPropertyWithConditions`.
     #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
     pub(crate) fn get_property_with_context<'a>(
         &'a self,
@@ -2519,12 +2329,9 @@ impl CssPropertyCache {
         }
 
         // Check inline CSS properties with DynamicSelectorContext evaluation.
-        // Iterate in REVERSE order across the flat (prop, conds) view —
-        // "last found wins" semantics, replacing the old Focus > Active >
-        // Hover > Normal priority chain.
-        // "last found wins": scan the flat (prop, conds) view forward and keep the
-        // last match (iter_inline_properties is not DoubleEndedIterator, so this
-        // replaces an earlier collect-then-rev-find_map).
+        // Iterate in REVERSE order across the flat (prop, conds) view - "last found
+        // wins" semantics, replacing the old Focus > Active > Hover > Normal
+        // priority chain.
         let mut last_inline = None;
         for (prop, conds) in node_data.style.iter_inline_properties() {
             let conditions_match = conds.as_slice().iter().all(|c| c.matches(context));
@@ -3373,7 +3180,8 @@ impl CssPropertyCache {
             SizeMetric::In => target_pixel_value.number.get() * IN_TO_PX,
             SizeMetric::Cm => target_pixel_value.number.get() * CM_TO_PX,
             SizeMetric::Mm => target_pixel_value.number.get() * MM_TO_PX,
-            // em/rem both scale by reference (rem uses reference as root font-size).
+            // em/rem both scale by reference (rem uses reference as root
+            // font-size).
             SizeMetric::Em | SizeMetric::Rem => target_pixel_value.number.get() * reference_px,
             SizeMetric::Percent => target_pixel_value.number.get() / 100.0 * reference_px,
             // Need viewport context
@@ -3468,15 +3276,9 @@ impl CssPropertyCache {
         }
     }
 
-    /// Applies user-agent (UA) CSS properties to the cascade before inheritance.
-    ///
-    /// UA CSS has the lowest priority in the cascade, so it should only be applied
-    /// if the node doesn't already have the property from inline styles or author CSS.
-    ///
-    /// This is critical for text nodes: UA CSS properties (like font-weight: bold for H1)
-    /// must be in the cascade maps so they can be inherited by child text nodes.
-    ///
-    /// Uses a bitset per node to avoid O(n²) scanning of property vecs.
+    /// Applies user-agent (UA) CSS properties to the cascade before inheritance. UA
+    /// CSS has the lowest priority in the cascade, so it should only be applied if
+    /// the node doesn't already have the property from inline styles or author CSS.
     #[allow(clippy::too_many_lines)] // cohesive single-pass walker; splitting adds state-threading
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
         use azul_css::props::property::CssPropertyType;
@@ -3487,8 +3289,9 @@ impl CssPropertyCache {
             return;
         }
 
-        // Build a bitset per node: which CssPropertyType values are already set (Normal state).
-        // CssPropertyType has ~178 variants, so we need [u128; 2] per node (256 bits).
+        // Build a bitset per node: which CssPropertyType values are already set
+        // (Normal state). CssPropertyType has ~178 variants, so we need [u128; 2]
+        // per node (256 bits).
         let mut prop_set: Vec<[u128; 2]> = vec![[0u128; 2]; node_count];
 
         // Mark properties from css_props (author CSS, Normal state)
@@ -3534,14 +3337,12 @@ impl CssPropertyCache {
             }
         }
 
-        // Mark properties from the GLOBAL `*` bucket. A `* { margin: 0 }`
-        // reset is author CSS and must beat UA defaults on every ELEMENT
-        // (origin beats specificity), but it is stored once globally rather
-        // than per node, so the per-node marking above never saw it - the UA
-        // body margin (8px) survived the classic reset and every page using
-        // it rendered shifted against the browser reference. Text nodes are
-        // exempt: `*` matches elements only (the compact builder makes the
-        // same distinction), and UA defaults for text nodes must stay.
+        // Mark properties from the GLOBAL `*` bucket. A `* { margin: 0 }` reset is
+        // author CSS and must beat UA defaults on every ELEMENT (origin beats
+        // specificity), but it is stored once globally rather than per node, so the
+        // per-node marking above never saw it - the UA body margin (8px) survived
+        // the classic reset and every page using it rendered shifted against the
+        // browser reference.
         if !self.global_css_props.is_empty() {
             let mut global_bits = [0u128; 2];
             for p in &self.global_css_props {
@@ -3560,11 +3361,10 @@ impl CssPropertyCache {
             }
         }
 
-        // All UA property types that get_ua_property() may return Some for.
-        // MUST stay in sync with compact.rs::UA_PROPERTY_TYPES: a UA property
-        // present in one list but not the other makes the two cascade paths
-        // disagree about the computed value (this bit the VirtualView
-        // overflow default).
+        // All UA property types that get_ua_property() may return Some for. MUST
+        // stay in sync with compact.rs::UA_PROPERTY_TYPES: a UA property present in
+        // one list but not the other makes the two cascade paths disagree about the
+        // computed value (this bit the VirtualView overflow default).
         let property_types = [
             CssPropertyType::Display,
             CssPropertyType::OverflowX,
@@ -3595,7 +3395,8 @@ impl CssPropertyCache {
             CssPropertyType::Cursor,
         ];
 
-        // Apply UA CSS: only insert for property types not yet set (bitset check = O(1))
+        // Apply UA CSS: only insert for property types not yet set (bitset check =
+        // O(1))
         for (node_index, node) in node_data.iter().enumerate() {
             let node_type = &node.node_type;
 
@@ -3620,7 +3421,8 @@ impl CssPropertyCache {
                         property: ua_prop.clone(),
                     });
 
-                    // Mark as set in the bitset (prevent duplicate insertion for same node)
+                    // Mark as set in the bitset (prevent duplicate insertion for
+                    // same node)
                     if d < 128 {
                         prop_set[node_index][0] |= 1u128 << d;
                     } else {
@@ -3631,17 +3433,17 @@ impl CssPropertyCache {
         }
     }
 
-    /// Sort `cascaded_props` by (state, `prop_type`) and flatten into contiguous memory.
-    /// Must be called after `apply_ua_css()` which adds entries to `cascaded_props`.
+    /// Sort `cascaded_props` by (state, `prop_type`) and flatten into contiguous
+    /// memory. Must be called after `apply_ua_css()` which adds entries to
+    /// `cascaded_props`.
     pub fn sort_cascaded_props(&mut self) {
         self.cascaded_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
     }
 
-    /// Compute inherited values for all nodes in the DOM tree.
-    ///
-    /// Implements CSS inheritance: walk tree depth-first, apply cascade priority
-    /// (inherited → cascaded → css → inline → user), create dependency chains for
-    /// relative values. Call `apply_ua_css()` before this function.
+    /// Compute inherited values for all nodes in the DOM tree. Implements CSS
+    /// inheritance: walk tree depth-first, apply cascade priority (inherited →
+    /// cascaded → css → inline → user), create dependency chains for relative
+    /// values.
     pub fn compute_inherited_values(
         &mut self,
         node_hierarchy: &[NodeHierarchyItem],
@@ -3752,18 +3554,9 @@ impl CssPropertyCache {
         }
     }
 
-    /// Check if a cascaded property should be applied.
-    ///
-    /// A cascaded (UA / author-selector) value applies unless the node has
-    /// already set its OWN value (`origin == Own`), which wins per the cascade.
-    /// An `Inherited` placeholder must NOT block it — including a relative
-    /// `font-size`: an earlier version skipped a cascaded relative font-size when
-    /// an inherited value existed, which silently dropped `<h1>`'s UA
-    /// `font-size: 2em` (and every heading), leaving headings at their parent's
-    /// size. That was wrong: `resolve_font_size_property` resolves the `em`
-    /// against the *parent's* font-size, not the inherited value, so there is no
-    /// double-scaling — the cascaded relative size must apply and overwrite the
-    /// inherited entry.
+    /// Check if a cascaded property should be applied. A cascaded (UA /
+    /// author-selector) value applies unless the node has already set its OWN value
+    /// (`origin == Own`), which wins per the cascade.
     fn should_apply_cascaded(
         computed: &[(CssPropertyType, CssPropertyWithOrigin)],
         prop_type: CssPropertyType,
@@ -3940,7 +3733,7 @@ mod autotest_generated {
     // helpers
     // ---------------------------------------------------------------------
 
-    /// Approximate float compare — every value here round-trips through
+    /// Approximate float compare - every value here round-trips through
     /// `FloatValue`'s fixed-point (1/1000) encoding.
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 0.01
@@ -4011,7 +3804,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // FlatVecVec — construction / getters / predicates
+    // FlatVecVec - construction / getters / predicates
     // =====================================================================
 
     #[test]
@@ -4057,7 +3850,7 @@ mod autotest_generated {
         assert!(f.get_slice(usize::MAX).is_empty());
 
         f.flatten();
-        // read phase — same out-of-bounds contract, still no panic
+        // read phase - same out-of-bounds contract, still no panic
         assert_eq!(f.get_slice(0), &[7]);
         assert!(f.get_slice(2).is_empty());
         assert!(f.get_slice(usize::MAX).is_empty());
@@ -4113,7 +3906,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // FlatVecVec — heap_bytes (numeric)
+    // FlatVecVec - heap_bytes (numeric)
     // =====================================================================
 
     #[test]
@@ -4145,7 +3938,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // FlatVecVec — flatten / sort_each_and_flatten
+    // FlatVecVec - flatten / sort_each_and_flatten
     // =====================================================================
 
     #[test]
@@ -4193,13 +3986,13 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // FlatVecVec — retain
+    // FlatVecVec - retain
     // =====================================================================
 
     #[test]
     fn flatvecvec_retain_before_flatten_is_a_noop() {
         // Doc: "Must be called after flatten." Before that it must not silently
-        // corrupt the build-phase data — it early-returns.
+        // corrupt the build-phase data - it early-returns.
         let mut f = FlatVecVec::<i32>::new(1);
         f.push_to(0, 1);
         f.push_to(0, 2);
@@ -4257,7 +4050,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // FlatVecVec — iteration / extend_from
+    // FlatVecVec - iteration / extend_from
     // =====================================================================
 
     #[test]
@@ -4324,8 +4117,8 @@ mod autotest_generated {
     #[test]
     fn flatvecvec_extend_from_across_phases_discards_self_flat_data() {
         // Doc precondition: "Both must be in build phase, or both must be
-        // flattened." This pins what a violation actually does today — the
-        // flattened side's items are dropped on the floor rather than merged.
+        // flattened." This pins what a violation actually does today - the flattened
+        // side's items are dropped on the floor rather than merged.
         let mut a = FlatVecVec::<i32>::new(1);
         a.push_to(0, 1);
         a.flatten();
@@ -4354,8 +4147,8 @@ mod autotest_generated {
         assert_ne!(a, b);
 
         a.flatten();
-        // (a and c are both flattened below — equality is only meaningful
-        // between two caches in the same phase)
+        // (a and c are both flattened below - equality is only meaningful between
+        // two caches in the same phase)
         let mut c = FlatVecVec::<i32>::new(1);
         c.push_to(0, 1);
         c.flatten();
@@ -4393,7 +4186,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // CssPropertyCache — construction / memory / append
+    // CssPropertyCache - construction / memory / append
     // =====================================================================
 
     #[test]
@@ -4593,8 +4386,8 @@ mod autotest_generated {
         assert_eq!(c.get_font_id_or_default(&nd, &far, &normal()).as_ref().len(), 1);
     }
 
-    // =====================================================================
-    // calc_* (numeric: zero / negative / NaN / inf / saturation)
+    // ===================================================================== calc_*
+    // (numeric: zero / negative / NaN / inf / saturation)
     // =====================================================================
 
     #[test]
@@ -4647,9 +4440,9 @@ mod autotest_generated {
     fn calc_width_saturates_non_finite_pixel_values_at_construction() {
         let c = CssPropertyCache::empty(1);
 
-        // PixelValue stores a fixed-point isize, so `as isize` saturates:
-        // NaN => 0, +inf => isize::MAX, -inf => isize::MIN. Nothing panics and
-        // nothing leaks a NaN into layout.
+        // PixelValue stores a fixed-point isize, so `as isize` saturates: NaN => 0,
+        // +inf => isize::MAX, -inf => isize::MIN. Nothing panics and nothing leaks a
+        // NaN into layout.
         let nan = div_with(vec![width_px(f32::NAN)]);
         assert_eq!(c.calc_width(&nan, &n0(), &normal(), 800.0), 0.0);
 
@@ -4779,8 +4572,8 @@ mod autotest_generated {
 
     #[test]
     fn calc_padding_em_uses_the_default_font_size_not_the_reference() {
-        // `calc_*` passes DEFAULT_FONT_SIZE (16px) as both em and rem resolvers,
-        // so an em padding must be invariant under the reference width.
+        // `calc_*` passes DEFAULT_FONT_SIZE (16px) as both em and rem resolvers, so
+        // an em padding must be invariant under the reference width.
         let c = CssPropertyCache::empty(1);
         let nd = div_with(vec![CssProperty::PaddingLeft(CssPropertyValue::Exact(
             LayoutPaddingLeft {
@@ -5245,7 +5038,7 @@ mod autotest_generated {
             &width_px(1.0)
         ));
 
-        // A cascaded (UA/author) font-size — relative OR absolute — overrides an
+        // A cascaded (UA/author) font-size - relative OR absolute - overrides an
         // inherited value: it is the node's own declared size (e.g. <h1>'s UA
         // `font-size: 2em`), and `resolve_font_size_property` resolves the `em`
         // against the parent's size, so there is no double-scaling.
@@ -5718,8 +5511,8 @@ mod autotest_generated {
         assert!(c.computed_values.is_empty());
     }
 
-    // =====================================================================
-    // restyle / generate_tag_ids
+    // ===================================================================== restyle
+    // / generate_tag_ids
     // =====================================================================
 
     fn one_node_scaffold() -> (NodeHierarchyItemVec, NodeDataContainer<CascadeInfo>) {
@@ -5818,8 +5611,8 @@ mod autotest_generated {
     #[cfg(feature = "std")]
     #[test]
     fn drain_css_prop_counts_is_sorted_descending_and_drains() {
-        // The counter is thread-local and only records when AZ_PROP_COUNT=1, so
-        // the contract to pin here is "never panics, and drains".
+        // The counter is thread-local and only records when AZ_PROP_COUNT=1, so the
+        // contract to pin here is "never panics, and drains".
         let first = drain_css_prop_counts();
         for w in first.windows(2) {
             assert!(w[0].1 >= w[1].1, "counts must be sorted descending");

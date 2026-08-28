@@ -1,44 +1,7 @@
-//! Host-language callback invoker registry.
-//!
-//! Managed-FFI bindings (Lua, Ruby, Perl, PHP, OCaml, Node, C#, Java, …) can't
-//! generate C-ABI trampolines for callback typedefs that take aggregate args
-//! by value — that's a libffi / LuaJIT FFI / ruby-ffi limitation we can't fix
-//! at the host. This module provides the alternative the user's analysis
-//! settled on: each language registers **one** generic invoker function at
-//! module load time, plus a releaser that fires when a host-language handle
-//! goes out of use.
-//!
-//! Every callback the host registers becomes a `Callback { cb, ctx }` pair
-//! whose `cb` is a *static thunk* in libazul (so by-value args land on a
-//! native frame the way the framework already expects), and whose `ctx` is
-//! a `RefAny` payload that carries an opaque host-language `u64` handle.
-//! The thunk reads `info.get_ctx()`, extracts the handle, and dispatches to
-//! the registered per-kind invoker — which, on the host side, looks up the
-//! callable by id in a host-managed table and runs it. When the RefAny's
-//! refcount drops to zero, the destructor calls back through the registered
-//! releaser so the host can drop its table entry, mirroring Python's
-//! `Py<PyAny>` lifetime story without making libazul link against any host
-//! runtime.
-//!
-//! ## API surface
-//!
-//! - [`AzApp_setHostHandleReleaser`] — register the host's "drop this id"
-//!   callback once per process. Fires when a host-handle [`RefAny`] is
-//!   collected.
-//! - Per callback kind, [`crate::impl_managed_callback!`] expands to:
-//!   - A static thunk (`extern "C" fn`) compiled into libazul.
-//!   - A `<Wrapper>::create_from_host_handle(u64)` constructor.
-//!   - An `AzApp_set<Kind>Invoker(...)` setter for the host-side per-kind
-//!     pointer-arg invoker.
-//!
-//! ## Why a single shared releaser
-//!
-//! Per-kind invokers are necessarily distinct — each callback typedef has
-//! a different signature, so the host has to register a libffi closure per
-//! typedef anyway. The releaser, on the other hand, has the same signature
-//! for every kind (`extern "C" fn(u64)`), so we can share one slot across
-//! all callbacks; the host registers it once and every kind's destructor
-//! routes through it.
+//! Host-language callback invoker registry. Managed-FFI bindings (Lua, Ruby, Perl,
+//! PHP, OCaml, Node, C#, Java, …) can't generate C-ABI trampolines for callback
+//! typedefs that take aggregate args by value - that's a libffi / LuaJIT FFI /
+//! ruby-ffi limitation we can't fix at the host.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicUsize, Ordering};
@@ -47,30 +10,25 @@ use azul_css::AzString;
 
 use crate::refany::RefAny;
 
-/// RTTI id stamped into every `RefAny` created via [`host_handle_to_refany`].
-///
-/// Hosts must not reuse this id for their own user-data `RefAnys`, otherwise
-/// `refany_to_host_handle` would mis-identify their data as a host handle
-/// and the destructor would call the registered releaser with a bogus id.
-/// The high 32 bits are reserved for azul-internal RTTI ids; the low 32
-/// spell `'H','S','T','H'` so the value reads `0xA20A_4853_5448_5F44`.
+/// RTTI id stamped into every `RefAny` created via [`host_handle_to_refany`]. Hosts
+/// must not reuse this id for their own user-data `RefAnys`, otherwise
+/// `refany_to_host_handle` would mis-identify their data as a host handle and the
+/// destructor would call the registered releaser with a bogus id.
 pub const AZ_HOST_HANDLE_RTTI_ID: u64 = 0xA20A_4853_5448_5F44;
 
-/// Heap payload stored inside the [`RefAny`] returned by
-/// [`host_handle_to_refany`]. Just the opaque host-language id — the actual
-/// host callable lives on the host side keyed by this id.
+/// Heap payload stored inside the [`RefAny`] returned by [`host_handle_to_refany`].
+/// Just the opaque host-language id - the actual host callable lives on the host
+/// side keyed by this id.
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct HostHandlePayload {
     pub id: u64,
 }
 
-/// A single atomic-pointer slot for one registered host-side function
-/// pointer.
-///
-/// `0` means "not registered"; the static thunks bail out (returning
-/// the kind's default value) when they see an unregistered slot rather than
-/// transmuting `0` into a fn pointer and crashing.
+/// A single atomic-pointer slot for one registered host-side function pointer. `0`
+/// means "not registered"; the static thunks bail out (returning the kind's default
+/// value) when they see an unregistered slot rather than transmuting `0` into a fn
+/// pointer and crashing.
 #[repr(C)]
 #[derive(Debug)]
 pub struct InvokerSlot {
@@ -78,19 +36,17 @@ pub struct InvokerSlot {
 }
 
 impl InvokerSlot {
-    /// Create an empty slot. `const` so it can be used to declare `static`
-    /// per-kind slots in `impl_managed_callback!` expansions.
+    /// Create an empty slot. `const` so it can be used to declare `static` per-kind
+    /// slots in `impl_managed_callback!` expansions.
     #[must_use] pub const fn new() -> Self {
         Self {
             fn_ptr: AtomicUsize::new(0),
         }
     }
 
-    /// Replace the registered function pointer.
-    ///
-    /// `SeqCst` because the slot is read on every callback fire and we
-    /// don't want any stale-pointer windows after the host swaps invokers
-    /// (rare but legal — e.g. unloading a Lua module that registered).
+    /// Replace the registered function pointer. `SeqCst` because the slot is read
+    /// on every callback fire and we don't want any stale-pointer windows after the
+    /// host swaps invokers (rare but legal - e.g.
     pub fn set(&self, ptr: usize) {
         self.fn_ptr.store(ptr, Ordering::SeqCst);
     }
@@ -108,41 +64,15 @@ impl Default for InvokerSlot {
 }
 
 /// Process-global slot for the host's "drop a handle id" callback. Set via
-/// [`AzApp_setHostHandleReleaser`]. Read by [`host_handle_destructor`]
-/// when a host-handle [`RefAny`]'s last clone drops.
+/// [`AzApp_setHostHandleReleaser`].
 pub static HOST_HANDLE_RELEASER: InvokerSlot = InvokerSlot::new();
 
-/// Process-global slot for the host's *generic* invoker.
-///
-/// Set via
-/// [`AzApp_setGenericInvoker`]. Used as a fallback in macro-generated
-/// per-kind thunks when the per-kind invoker is not registered, and as
-/// the **only** dispatch path for user-defined custom callback kinds in
-/// libffi-restricted hosts (Lua, PHP, koffi, …) that can't easily ship
-/// an upstream `impl_managed_callback!` invocation.
-///
-/// Signature on the host side:
-///
-/// ```c
-/// typedef void (*AzGenericInvoker)(
-///     uint64_t           handle,    /* host-handle id from the RefAny ctx */
-///     const char*        kind,      /* null-terminated wrapper name */
-///     const void* const* args,      /* array of pointers, one per arg, in declared order */
-///     size_t             n_args,    /* args[] length */
-///     void*              ret        /* where to write the return value (kind-specific size) */
-/// );
-/// extern void AzApp_setGenericInvoker(AzGenericInvoker);
-/// ```
-///
-/// The args array carries pointers into the framework's by-value frame
-/// — host code must not retain them past the call. The host decides what
-/// to do per kind from the `kind` string (which matches the wrapper
-/// struct name, e.g. `"Callback"`, `"LayoutCallback"`,
-/// `"ButtonOnClickCallback"`).
+/// Process-global slot for the host's *generic* invoker. Set via
+/// [`AzApp_setGenericInvoker`].
 pub static GENERIC_INVOKER: InvokerSlot = InvokerSlot::new();
 
-/// Type alias for the generic invoker callable. Hosts cast a libffi
-/// closure to this signature once at module load.
+/// Type alias for the generic invoker callable. Hosts cast a libffi closure to this
+/// signature once at module load.
 pub type AzGenericInvoker = extern "C" fn(
     handle: u64,
     kind: *const core::ffi::c_char,
@@ -151,61 +81,44 @@ pub type AzGenericInvoker = extern "C" fn(
     ret: *mut c_void,
 );
 
-/// Register the generic invoker for user-defined custom callback kinds
-/// or as a fallback for per-kind dispatch. Called once at module load;
-/// subsequent registrations replace the previous slot.
-///
-/// Safety: `invoker` must be a valid [`AzGenericInvoker`] function
-/// pointer for the lifetime of any callback that might be dispatched
-/// through it — typically the whole process.
+/// Register the generic invoker for user-defined custom callback kinds or as a
+/// fallback for per-kind dispatch. Called once at module load; subsequent
+/// registrations replace the previous slot.
 #[no_mangle]
 pub extern "C" fn AzApp_setGenericInvoker(invoker: AzGenericInvoker) {
     GENERIC_INVOKER.set(invoker as usize);
 }
 
-/// Register the host-language releaser. Hosts call this once at module
-/// load time; subsequent registrations replace the previous slot.
-///
-/// `releaser` will be invoked as `releaser(id)` whenever a host-handle
-/// `RefAny` (the kind built by [`host_handle_to_refany`]) drops its last
-/// reference. The host should remove `id` from whatever id→callable table
-/// it maintains.
-///
-/// Safety: `releaser` must be a valid `extern "C" fn(u64)` for the lifetime
-/// of any host-handle [`RefAny`] that may still be alive — typically the
-/// whole process. Passing a function pointer that becomes invalid (e.g.,
-/// from an unloaded library) without first re-registering will cause a
-/// crash on the next collection.
+/// Register the host-language releaser. Hosts call this once at module load time;
+/// subsequent registrations replace the previous slot.
 #[no_mangle]
 pub extern "C" fn AzApp_setHostHandleReleaser(releaser: extern "C" fn(u64)) {
     HOST_HANDLE_RELEASER.set(releaser as usize);
 }
 
-/// Destructor stamped into every host-handle [`RefAny`]. Reads the payload's
-/// `id` and forwards it to the registered releaser; if no releaser has been
-/// registered (e.g., host hasn't initialized yet, or this is a release-build
-/// dll loaded by a non-managed-FFI consumer) the destructor is a no-op so
-/// the C side doesn't crash.
+/// Destructor stamped into every host-handle [`RefAny`]. Reads the payload's `id`
+/// and forwards it to the registered releaser; if no releaser has been registered
+/// (e.g., host hasn't initialized yet, or this is a release-build dll loaded by a
+/// non-managed-FFI consumer) the destructor is a no-op so the C side doesn't crash.
 extern "C" fn host_handle_destructor(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
-    // SAFETY: the destructor only runs for RefAnys built via
-    // host_handle_to_refany, whose payload type is HostHandlePayload.
+    // SAFETY: the destructor only runs for RefAnys built via host_handle_to_refany,
+    // whose payload type is HostHandlePayload.
     let payload = unsafe { &*(ptr as *const HostHandlePayload) };
 
     let releaser_addr = HOST_HANDLE_RELEASER.get();
     if releaser_addr == 0 {
         return;
     }
-    // SAFETY: HOST_HANDLE_RELEASER only ever holds a value that came from
-    // `releaser as usize` in `AzApp_setHostHandleReleaser`, where `releaser`
-    // is an `extern "C" fn(u64)`.
+    // SAFETY: HOST_HANDLE_RELEASER only ever holds a value that came from `releaser
+    // as usize` in `AzApp_setHostHandleReleaser`, where `releaser` is an `extern "C"
+    // fn(u64)`.
     let releaser: extern "C" fn(u64) = unsafe { core::mem::transmute(releaser_addr) };
     // AUDIT: this destructor is `extern "C"` and the host releaser is arbitrary
-    // (often a Rust closure via libffi). A panic escaping it would unwind across
-    // the FFI boundary (UB), so contain it. `catch_unwind` needs `std`; `no_std`
-    // builds use `panic = "abort"` where unwinding cannot occur.
+    // (often a Rust closure via libffi). A panic escaping it would unwind across the
+    // FFI boundary (UB), so contain it.
     #[cfg(feature = "std")]
     {
         drop(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| releaser(payload.id))));
@@ -216,12 +129,10 @@ extern "C" fn host_handle_destructor(ptr: *mut c_void) {
     }
 }
 
-/// Wrap a host-language `u64` handle in a [`RefAny`] suitable for storing
-/// in a callback wrapper's `ctx` field.
-///
-/// The returned `RefAny`'s destructor calls back through the registered
-/// host releaser when the last clone is dropped, giving the host an
-/// opportunity to release whatever its `id` was keying.
+/// Wrap a host-language `u64` handle in a [`RefAny`] suitable for storing in a
+/// callback wrapper's `ctx` field. The returned `RefAny`'s destructor calls back
+/// through the registered host releaser when the last clone is dropped, giving the
+/// host an opportunity to release whatever its `id` was keying.
 pub fn host_handle_to_refany(id: u64) -> RefAny {
     let payload = HostHandlePayload { id };
     let type_name: AzString = "AzHostHandle".into();
@@ -237,12 +148,10 @@ pub fn host_handle_to_refany(id: u64) -> RefAny {
     )
 }
 
-/// Read the host-language id back out of a [`RefAny`] previously created
-/// via [`host_handle_to_refany`].
-///
-/// Returns `None` for any other `RefAny`, so
-/// a static thunk that mistakenly receives a non-host-handle ctx falls
-/// back to the kind's default value rather than reading random bytes.
+/// Read the host-language id back out of a [`RefAny`] previously created via
+/// [`host_handle_to_refany`]. Returns `None` for any other `RefAny`, so a static
+/// thunk that mistakenly receives a non-host-handle ctx falls back to the kind's
+/// default value rather than reading random bytes.
 #[must_use] pub fn refany_to_host_handle(refany: &RefAny) -> Option<u64> {
     if !refany.is_type(AZ_HOST_HANDLE_RTTI_ID) {
         return None;
@@ -255,27 +164,17 @@ pub fn host_handle_to_refany(id: u64) -> RefAny {
     Some(unsafe { (*ptr).id })
 }
 
-/// C-ABI: build a [`RefAny`] wrapping a host-language id.
-///
-/// Lets managed-FFI
-/// bindings use the same machinery for user data that callbacks already use
-/// — one releaser, one id-keyed table, one lifetime story.
-///
-/// The returned `RefAny`'s destructor fires the releaser registered via
-/// [`AzApp_setHostHandleReleaser`] once the last clone drops, so the host
-/// can drop its `id → value` entry.
+/// C-ABI: build a [`RefAny`] wrapping a host-language id. Lets managed-FFI bindings
+/// use the same machinery for user data that callbacks already use - one releaser,
+/// one id-keyed table, one lifetime story.
 #[no_mangle]
 pub extern "C" fn AzRefAny_newHostHandle(id: u64) -> RefAny {
     host_handle_to_refany(id)
 }
 
 /// C-ABI: read the host-language id from a [`RefAny`] previously built via
-/// [`AzRefAny_newHostHandle`] (or any other host-handle constructor).
-///
-/// Returns `0` if `refany` is null or wasn't a host handle. Host bindings
-/// must reserve `0` as "no value" — [`host_handle_to_refany`] never produces
-/// `0` if the host's id allocator starts at `1` (the convention used by
-/// every binding in this repo).
+/// [`AzRefAny_newHostHandle`] (or any other host-handle constructor). Returns `0` if
+/// `refany` is null or wasn't a host handle.
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
 pub extern "C" fn AzRefAny_getHostHandle(refany: *const RefAny) -> u64 {
@@ -287,38 +186,18 @@ pub extern "C" fn AzRefAny_getHostHandle(refany: *const RefAny) -> u64 {
     refany_to_host_handle(r).unwrap_or(0)
 }
 
-/// Macro that expands to the per-callback-kind boilerplate:
-///
-/// a static thunk
+/// Macro that expands to the per-callback-kind boilerplate: a static thunk
 /// (compiled into libazul) that the framework calls with by-value args, a
 /// `<Wrapper>::create_from_host_handle(u64)` constructor, and an
-/// `AzApp_set<Kind>Invoker` setter the host calls once at module load.
-///
-/// All identifiers are passed in explicitly so we don't need a proc-macro
-/// dependency just to concatenate idents. Codegen emits invocations of this
-/// macro from `ir.callback_typedefs`.
-///
-/// Caller responsibilities:
-///
-/// - The wrapper type must have public fields `cb: <typedef>` and
-///   `ctx: OptionRefAny` — that's the standard shape every callback wrapper
-///   in the framework already follows.
-/// - `info_ty` must expose a `.get_ctx() -> OptionRefAny` method (also
-///   standard for `*CallbackInfo` types).
-/// - `default_ret` is returned when:
-///   - the framework invokes the thunk with `OptionRefAny::None` ctx
-///     (host called the typedef directly without going through this path),
-///   - the ctx isn't a host-handle (host registered the wrapper but the
-///     ctx came from somewhere else),
-///   - or no invoker has been registered yet for this kind. Pick a value
-///     that can't be confused with a "real" return — typically the kind's
-///     "do nothing" / "empty body" default.
+/// `AzApp_set<Kind>Invoker` setter the host calls once at module load. All
+/// identifiers are passed in explicitly so we don't need a proc-macro dependency
+/// just to concatenate idents.
 #[macro_export]
 macro_rules! impl_managed_callback {
-    // Form 1: simple two-argument callbacks `(RefAny, info) -> ret` —
-    // matches `Callback`, `LayoutCallback`, `ButtonOnClickCallback`,
-    // and the bulk of widget event callbacks. Identical to the
-    // extras-form below with an empty extra-args list.
+    // Form 1: simple two-argument callbacks `(RefAny, info) -> ret` - matches
+    // `Callback`, `LayoutCallback`, `ButtonOnClickCallback`, and the bulk of widget
+    // event callbacks. Identical to the extras-form below with an empty extra-args
+    // list.
     (
         wrapper:        $wrapper:ty,
         info_ty:        $info_ty:ty,
@@ -343,11 +222,8 @@ macro_rules! impl_managed_callback {
             extra_args:     [],
         }
     };
-    // Form 2: callbacks that take additional state after info — e.g.
+    // Form 2: callbacks that take additional state after info - e.g.
     // `CheckBoxOnToggleCallback(RefAny, CallbackInfo, CheckBoxState)`.
-    // The extras list is forwarded by reference into the host invoker
-    // so libffi-style runtimes never have to handle aggregate-by-value
-    // returns OR aggregate-by-value args.
     (
         wrapper:        $wrapper:ty,
         info_ty:        $info_ty:ty,
@@ -364,17 +240,10 @@ macro_rules! impl_managed_callback {
         pub static $invoker_static: $crate::host_invoker::InvokerSlot =
             $crate::host_invoker::InvokerSlot::new();
 
-        /// Pointer-arg variant of this callback kind's typedef.
-        ///
-        /// The host's libffi closure casts to this signature (which all
-        /// managed-FFI runtimes can handle — args and return are passed
-        /// by pointer, no aggregate-by-value anywhere). The static thunk
-        /// in libazul does the by-value plumbing on the C ABI side.
-        ///
-        /// `LuaJIT` FFI in particular cannot return aggregates larger than
-        /// 8 bytes from a callback, so we use an out-pointer for the
-        /// return value uniformly across kinds — even for `Update` which
-        /// would fit in a register, so the macro stays homogeneous.
+        /// Pointer-arg variant of this callback kind's typedef. The host's libffi
+        /// closure casts to this signature (which all managed-FFI runtimes can
+        /// handle - args and return are passed by pointer, no aggregate-by-value
+        /// anywhere).
         pub type $invoker_ty = extern "C" fn(
             handle: u64,
             data: *const $crate::refany::RefAny,
@@ -389,28 +258,23 @@ macro_rules! impl_managed_callback {
             $invoker_static.set(invoker as usize);
         }
 
-        /// Static thunk compiled into libazul. The framework calls this
-        /// with by-value args; we extract the host handle from `info.ctx`,
-        /// allocate space for the return value on our stack, and forward
-        /// pointers to the registered invoker.
+        /// Static thunk compiled into libazul. The framework calls this with
+        /// by-value args; we extract the host handle from `info.ctx`, allocate space
+        /// for the return value on our stack, and forward pointers to the registered
+        /// invoker.
         extern "C" fn $thunk_fn(
             data: $crate::refany::RefAny,
             info: $info_ty,
             $( $extra_name : $extra_ty , )*
         ) -> $ret {
-            // Wrapper name as a null-terminated C string. `stringify!`
-            // expands `$wrapper:ty` to e.g. `Callback`,
-            // `ButtonOnClickCallback`, etc. — matching what the host's
-            // dispatch table keys on.
+            // Wrapper name as a null-terminated C string. `stringify!` expands
+            // `$wrapper:ty` to e.g.
             const KIND_STR: &str = concat!(stringify!($wrapper), "\0");
 
-            // AUDIT: this thunk is `extern "C"` and dispatches into arbitrary
-            // host code (via a transmuted invoker pointer). A panic escaping the
-            // dispatch would unwind across the FFI boundary (UB), so run the
-            // whole body inside `catch_unwind` and fall back to `$default` on a
-            // panic. `catch_unwind` needs `std`; `no_std` builds use
-            // `panic = "abort"` where unwinding cannot occur. The body captures
-            // `data`/`info`/extras by move (they are consumed either way).
+            // AUDIT: this thunk is `extern "C"` and dispatches into arbitrary host
+            // code (via a transmuted invoker pointer). A panic escaping the dispatch
+            // would unwind across the FFI boundary (UB), so run the whole body
+            // inside `catch_unwind` and fall back to `$default` on a panic.
             let body = move || -> $ret {
                 let ctx = info.get_ctx();
                 let handle = match ctx {
@@ -424,27 +288,25 @@ macro_rules! impl_managed_callback {
                 };
                 let invoker_addr = $invoker_static.get();
                 if invoker_addr == 0 {
-                    // Per-kind invoker not registered — fall back to the
-                    // generic invoker for hosts that wired up only the
-                    // single `AzApp_setGenericInvoker` slot (or for custom
-                    // user-defined kinds emitted by a downstream
-                    // `impl_managed_callback!` whose host hasn't shipped a
-                    // per-kind invoker setter yet).
+                    // Per-kind invoker not registered - fall back to the generic
+                    // invoker for hosts that wired up only the single
+                    // `AzApp_setGenericInvoker` slot (or for custom user-defined
+                    // kinds emitted by a downstream `impl_managed_callback!` whose
+                    // host hasn't shipped a per-kind invoker setter yet).
                     let generic_addr = $crate::host_invoker::GENERIC_INVOKER.get();
                     if generic_addr == 0 {
                         return $default;
                     }
-                    // SAFETY: GENERIC_INVOKER only ever holds an address that
-                    // came from `invoker as usize` in `AzApp_setGenericInvoker`,
-                    // whose parameter is typed as `AzGenericInvoker`.
+                    // SAFETY: GENERIC_INVOKER only ever holds an address that came
+                    // from `invoker as usize` in `AzApp_setGenericInvoker`, whose
+                    // parameter is typed as `AzGenericInvoker`.
                     let generic: $crate::host_invoker::AzGenericInvoker =
                         unsafe { core::mem::transmute(generic_addr) };
 
-                    // Build the args array: pointers to each by-value frame
-                    // arg, in declared order (data, info, extras…). Lifetime
-                    // is the scope of this thunk; the host MUST NOT retain
-                    // these pointers past the call. Array size is inferred
-                    // (2 base args + however many extras the macro forwarded).
+                    // Build the args array: pointers to each by-value frame arg, in
+                    // declared order (data, info, extras…). Lifetime is the scope of
+                    // this thunk; the host MUST NOT retain these pointers past the
+                    // call.
                     let args = [
                         &raw const data as *const core::ffi::c_void,
                         &raw const info as *const core::ffi::c_void,
@@ -466,9 +328,9 @@ macro_rules! impl_managed_callback {
                 // `$invoker_ty`.
                 let invoker: $invoker_ty = unsafe { core::mem::transmute(invoker_addr) };
 
-                // Pre-fill `out` with the kind's default so a host that fails
-                // to write to the out-pointer (e.g. a buggy invoker) leaves us
-                // with a sane value rather than uninitialized memory.
+                // Pre-fill `out` with the kind's default so a host that fails to
+                // write to the out-pointer (e.g. a buggy invoker) leaves us with a
+                // sane value rather than uninitialized memory.
                 let mut out: $ret = $default;
                 invoker(
                     handle,
@@ -492,11 +354,10 @@ macro_rules! impl_managed_callback {
         }
 
         impl $wrapper {
-            /// Build a wrapper whose `cb` is the static thunk above and
-            /// whose `ctx` carries the host's `u64` handle. The host
-            /// language is responsible for keeping its id→callable table
-            /// in sync with the releaser registered via
-            /// `AzApp_setHostHandleReleaser`.
+            /// Build a wrapper whose `cb` is the static thunk above and whose `ctx`
+            /// carries the host's `u64` handle. The host language is responsible for
+            /// keeping its id→callable table in sync with the releaser registered
+            /// via `AzApp_setHostHandleReleaser`.
             #[must_use] pub fn create_from_host_handle(handle: u64) -> Self {
                 Self {
                     cb: $thunk_fn,
@@ -515,15 +376,12 @@ macro_rules! impl_managed_callback {
     };
 }
 
-// NOTE on Miri coverage: the *genuine* FFI transmutes here (a raw host fn
-// pointer stored as `usize` in an `InvokerSlot`, transmuted back to a fn
-// pointer) cannot be driven from real C under Miri. Instead the tests below
-// register real Rust `extern "C"` fns through the public C-ABI setters, so the
-// `set(ptr as usize)` -> `get()` -> `transmute` round-trip is exercised
-// end-to-end with a live pointer (Miri-clean, no UB). The panic-containment
-// test drives the macro-generated thunk's `catch_unwind` with a pure-Rust
-// panic raised *inside* the thunk body (before any extern-"C" boundary), which
-// is the realistic containment path.
+// NOTE on Miri coverage: the *genuine* FFI transmutes here (a raw host fn pointer
+// stored as `usize` in an `InvokerSlot`, transmuted back to a fn pointer) cannot be
+// driven from real C under Miri. Instead the tests below register real Rust `extern
+// "C"` fns through the public C-ABI setters, so the `set(ptr as usize)` -> `get()`
+// -> `transmute` round-trip is exercised end-to-end with a live pointer (Miri-clean,
+// no UB).
 #[cfg(all(test, feature = "std"))]
 #[allow(clippy::items_after_statements, clippy::redundant_clone, clippy::cast_possible_truncation, clippy::cast_sign_loss, trivial_casts, clippy::borrow_as_ptr, clippy::cast_ptr_alignment, clippy::unused_self, unused_qualifications, unreachable_pub, private_interfaces)] // test-only fakes drive the FFI macro; pedantic lints are noise here
 mod tests {
@@ -532,11 +390,10 @@ mod tests {
 
     use super::*;
 
-    // The invoker/releaser slots are process-global; serialize tests that
-    // touch them so parallel test threads don't clobber each other.
-    // `pub(super)` so `autotest_generated` below locks the SAME mutex — a
-    // second, independent lock would not serialize the two modules against
-    // each other.
+    // The invoker/releaser slots are process-global; serialize tests that touch
+    // them so parallel test threads don't clobber each other. `pub(super)` so
+    // `autotest_generated` below locks the SAME mutex - a second, independent lock
+    // would not serialize the two modules against each other.
     pub(super) static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     // Records the id the releaser was called with, so we can assert the
@@ -554,9 +411,9 @@ mod tests {
         // Register via the real C-ABI setter (exercises `releaser as usize`).
         AzApp_setHostHandleReleaser(recording_releaser);
         let mut payload = HostHandlePayload { id: 0xABCD_1234 };
-        // Drive the destructor directly with a pointer to the payload — the
-        // same shape a host-handle RefAny hands it. Exercises the payload
-        // deref + the usize->fn-pointer transmute + the invoke.
+        // Drive the destructor directly with a pointer to the payload - the same
+        // shape a host-handle RefAny hands it. Exercises the payload deref + the
+        // usize->fn-pointer transmute + the invoke.
         host_handle_destructor((&raw mut payload).cast::<c_void>());
         assert_eq!(LAST_RELEASED.load(AtOrdering::SeqCst), 0xABCD_1234);
         // Clear the slot so a later drop can't call a stale test fn pointer.
@@ -579,16 +436,16 @@ mod tests {
         assert_eq!(refany_to_host_handle(&refany), Some(0x55));
     }
 
-    // A fake callback kind used to instantiate `impl_managed_callback!` and
-    // assert the generated thunk contains a panic instead of unwinding out of
-    // its `extern "C"` boundary.
+    // A fake callback kind used to instantiate `impl_managed_callback!` and assert
+    // the generated thunk contains a panic instead of unwinding out of its `extern
+    // "C"` boundary.
     #[derive(PartialEq, Debug)]
     struct FakeRet(u32);
 
     struct FakeInfo;
     impl FakeInfo {
-        // Panics from *inside* the thunk body (pure-Rust unwind), so the
-        // thunk's `catch_unwind` is the thing under test.
+        // Panics from *inside* the thunk body (pure-Rust unwind), so the thunk's
+        // `catch_unwind` is the thing under test.
         fn get_ctx(&self) -> crate::refany::OptionRefAny {
             panic!("boom from get_ctx");
         }
@@ -618,27 +475,17 @@ mod tests {
         let _g = TEST_LOCK.lock().unwrap();
         HOST_HANDLE_RELEASER.set(0);
         let data = host_handle_to_refany(1);
-        // get_ctx() panics inside the thunk body; catch_unwind must contain it
-        // and hand back `default_ret` rather than unwinding across FFI.
+        // get_ctx() panics inside the thunk body; catch_unwind must contain it and
+        // hand back `default_ret` rather than unwinding across FFI.
         let out = az_test_fake_thunk(data, FakeInfo);
         assert_eq!(out, FakeRet(99));
     }
 }
 
-/// Adversarial tests for the host-invoker registry.
-///
-/// Everything here that touches `HOST_HANDLE_RELEASER` / `GENERIC_INVOKER` /
-/// the per-kind slot holds [`tests::TEST_LOCK`] — those slots are
-/// process-global, so a parallel test thread would otherwise observe (or
-/// clobber) another test's registration.
-///
-/// Deliberately NOT tested: a host releaser / host invoker that panics. Those
-/// are `extern "C" fn`s, so Rust's abort-on-unwind shim fires *inside the
-/// callee*, before the caller's `catch_unwind` can see the payload — such a
-/// test would abort the whole test binary rather than assert anything. The
-/// realistic containment path (a panic raised inside the thunk body, before
-/// the FFI boundary) is already covered by
-/// `tests::thunk_contains_panic_and_returns_default`.
+/// Adversarial tests for the host-invoker registry. Everything here that touches
+/// `HOST_HANDLE_RELEASER` / `GENERIC_INVOKER` / the per-kind slot holds
+/// [`tests::TEST_LOCK`] - those slots are process-global, so a parallel test thread
+/// would otherwise observe (or clobber) another test's registration.
 #[cfg(all(test, feature = "std"))]
 #[allow(
     clippy::items_after_statements,
@@ -663,14 +510,14 @@ mod autotest_generated {
     use super::{tests::TEST_LOCK, *};
     use crate::refany::OptionRefAny;
 
-    /// Lock the shared slot mutex, tolerating poisoning from an earlier failed
-    /// test (otherwise one genuine failure cascades into N spurious ones).
+    /// Lock the shared slot mutex, tolerating poisoning from an earlier failed test
+    /// (otherwise one genuine failure cascades into N spurious ones).
     fn lock_slots() -> std::sync::MutexGuard<'static, ()> {
         TEST_LOCK.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Zero every process-global slot this module touches, so a test that
-    /// asserts "unregistered" behaviour can't be fooled by a leftover pointer.
+    /// Zero every process-global slot this module touches, so a test that asserts
+    /// "unregistered" behaviour can't be fooled by a leftover pointer.
     fn clear_all_slots() {
         HOST_HANDLE_RELEASER.set(0);
         GENERIC_INVOKER.set(0);
@@ -678,8 +525,8 @@ mod autotest_generated {
     }
 
     /// Ids chosen to bracket every interesting `u64` boundary: the "no value"
-    /// sentinel, the low/high extremes, the 32-bit rollover (managed hosts
-    /// love to truncate to i32/f64), the sign bit, and the RTTI id itself.
+    /// sentinel, the low/high extremes, the 32-bit rollover (managed hosts love to
+    /// truncate to i32/f64), the sign bit, and the RTTI id itself.
     const BOUNDARY_IDS: [u64; 11] = [
         0,
         1,
@@ -695,7 +542,7 @@ mod autotest_generated {
     ];
 
     // ---------------------------------------------------------------------
-    // InvokerSlot — constructor / numeric set / getter
+    // InvokerSlot - constructor / numeric set / getter
     // ---------------------------------------------------------------------
 
     #[test]
@@ -706,8 +553,8 @@ mod autotest_generated {
 
     #[test]
     fn slot_new_is_const_usable_in_static() {
-        // The whole point of `const fn new()` — `impl_managed_callback!`
-        // declares per-kind slots as `static`.
+        // The whole point of `const fn new()` - `impl_managed_callback!` declares
+        // per-kind slots as `static`.
         static SLOT: InvokerSlot = InvokerSlot::new();
         assert_eq!(SLOT.get(), 0);
         SLOT.set(0x1234);
@@ -740,7 +587,7 @@ mod autotest_generated {
         slot.set(usize::MAX);
         slot.set(0x42);
         assert_eq!(slot.get(), 0x42);
-        // `0` is the "unregistered" sentinel — setting it back must actually
+        // `0` is the "unregistered" sentinel - setting it back must actually
         // un-register, not be treated as a no-op.
         slot.set(0);
         assert_eq!(slot.get(), 0);
@@ -759,8 +606,8 @@ mod autotest_generated {
     #[test]
     fn slot_concurrent_writes_never_tear() {
         // The slot is read on every callback fire while a host may be swapping
-        // invokers. A torn read would transmute into a wild fn pointer, so
-        // assert every observed value is one that was actually written.
+        // invokers. A torn read would transmute into a wild fn pointer, so assert
+        // every observed value is one that was actually written.
         let slot = InvokerSlot::new();
         let written: [usize; 4] = [0, 1, usize::MAX, 1usize << (usize::BITS - 1)];
         let slot_ref = &slot;
@@ -790,8 +637,8 @@ mod autotest_generated {
 
     #[test]
     fn rtti_id_matches_documented_constant() {
-        // Hosts hard-code this value in their bindings; changing it silently
-        // would make every previously-built host handle unrecognisable.
+        // Hosts hard-code this value in their bindings; changing it silently would
+        // make every previously-built host handle unrecognisable.
         assert_eq!(AZ_HOST_HANDLE_RTTI_ID, 0xA20A_4853_5448_5F44);
         assert_ne!(AZ_HOST_HANDLE_RTTI_ID, 0);
     }
@@ -803,7 +650,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // host_handle_to_refany / refany_to_host_handle — round-trip + rejection
+    // host_handle_to_refany / refany_to_host_handle - round-trip + rejection
     // ---------------------------------------------------------------------
 
     #[test]
@@ -846,15 +693,15 @@ mod autotest_generated {
 
     #[test]
     fn refany_to_host_handle_rejects_foreign_refanys() {
-        // A stray ctx must decode as None (-> thunk returns its default),
-        // never as random bytes reinterpreted as an id.
+        // A stray ctx must decode as None (-> thunk returns its default), never as
+        // random bytes reinterpreted as an id.
         assert_eq!(refany_to_host_handle(&RefAny::new(0u64)), None);
         assert_eq!(refany_to_host_handle(&RefAny::new(u64::MAX)), None);
         assert_eq!(refany_to_host_handle(&RefAny::new(())), None);
         assert_eq!(refany_to_host_handle(&RefAny::new([0xFFu8; 64])), None);
-        // Same *payload type*, but built through RefAny::new -> TypeId-derived
-        // id, not the host RTTI id. Layout-compatible but must still be
-        // rejected: the guard is the id, not the shape.
+        // Same *payload type*, but built through RefAny::new -> TypeId-derived id,
+        // not the host RTTI id. Layout-compatible but must still be rejected: the
+        // guard is the id, not the shape.
         let same_shape = RefAny::new(HostHandlePayload { id: 0x1111 });
         assert_ne!(same_shape.get_type_id(), AZ_HOST_HANDLE_RTTI_ID);
         assert_eq!(refany_to_host_handle(&same_shape), None);
@@ -864,10 +711,10 @@ mod autotest_generated {
 
     #[test]
     fn refany_to_host_handle_trusts_the_rtti_id_alone() {
-        // Pins the documented hazard on AZ_HOST_HANDLE_RTTI_ID: a host that
-        // reuses the id for its own (layout-compatible) payload gets its bytes
-        // read back as a handle. If this ever starts returning None, the guard
-        // grew a second check and the doc comment needs updating.
+        // Pins the documented hazard on AZ_HOST_HANDLE_RTTI_ID: a host that reuses
+        // the id for its own (layout-compatible) payload gets its bytes read back as
+        // a handle. If this ever starts returning None, the guard grew a second
+        // check and the doc comment needs updating.
         let _g = lock_slots();
         clear_all_slots();
         let payload = HostHandlePayload {
@@ -914,11 +761,10 @@ mod autotest_generated {
 
     #[test]
     fn c_abi_get_host_handle_cannot_distinguish_id_zero_from_failure() {
-        // Documented contract: `0` is reserved as "no value", so a host whose
-        // id allocator starts at 0 gets an unfixable ambiguity across the C
-        // ABI. Assert the ambiguity exists (so nobody "fixes" getHostHandle
-        // without also fixing the bindings) AND that the Rust-side accessor
-        // stays lossless.
+        // Documented contract: `0` is reserved as "no value", so a host whose id
+        // allocator starts at 0 gets an unfixable ambiguity across the C ABI. Assert
+        // the ambiguity exists (so nobody "fixes" getHostHandle without also fixing
+        // the bindings) AND that the Rust-side accessor stays lossless.
         let _g = lock_slots();
         clear_all_slots();
         let zero_handle = AzRefAny_newHostHandle(0);
@@ -980,7 +826,7 @@ mod autotest_generated {
 
         drop(clone_a);
         drop(clone_b);
-        // Two of three refs gone — the host's table entry must still be alive.
+        // Two of three refs gone - the host's table entry must still be alive.
         assert_eq!(RELEASE_COUNT.load(AtOrdering::SeqCst), 0);
 
         drop(refany);
@@ -1020,7 +866,7 @@ mod autotest_generated {
         let _g = lock_slots();
         clear_all_slots();
         reset_release_recorder();
-        // Slot is 0 ("host hasn't initialised yet") — the destructor must bail
+        // Slot is 0 ("host hasn't initialised yet") - the destructor must bail
         // rather than transmute 0 into a fn pointer and jump to it.
         drop(host_handle_to_refany(1));
         drop(host_handle_to_refany(u64::MAX));
@@ -1035,9 +881,8 @@ mod autotest_generated {
         reset_release_recorder();
         AzApp_setHostHandleReleaser(counting_releaser);
         let live = host_handle_to_refany(7);
-        // Host swaps releasers (e.g. module reload) while a handle is alive:
-        // the *current* slot wins at drop time, not the one in force at
-        // construction.
+        // Host swaps releasers (e.g. module reload) while a handle is alive: the
+        // *current* slot wins at drop time, not the one in force at construction.
         AzApp_setHostHandleReleaser(other_releaser);
         drop(live);
         assert_eq!(RELEASE_COUNT.load(AtOrdering::SeqCst), 0);
@@ -1102,9 +947,8 @@ mod autotest_generated {
         from_handle_fn: az_autotest_from_handle,
     }
 
-    // What the fake host invokers saw. Recorded into atomics rather than
-    // asserted in-place: these fns are `extern "C"`, so a failing assert!
-    // inside one would abort the test binary instead of failing the test.
+    // What the fake host invokers saw. Recorded into atomics rather than asserted
+    // in-place: these fns are `extern "C"`, so a failing assert!
     static GENERIC_CALLS: AtomicUsize = AtomicUsize::new(0);
     static GENERIC_HANDLE: AtomicU64 = AtomicU64::new(0);
     static GENERIC_NARGS: AtomicUsize = AtomicUsize::new(0);
@@ -1135,10 +979,9 @@ mod autotest_generated {
         GENERIC_HANDLE.store(handle, AtOrdering::SeqCst);
         GENERIC_NARGS.store(n_args, AtOrdering::SeqCst);
 
-        // The kind string must be a NUL-terminated "AutoWrapper" — that's what
-        // the host's dispatch table keys on. Also gates the `ret` write below:
-        // another kind's thunk falling back here would have a differently-sized
-        // out-slot.
+        // The kind string must be a NUL-terminated "AutoWrapper" - that's what the
+        // host's dispatch table keys on. Also gates the `ret` write below: another
+        // kind's thunk falling back here would have a differently-sized out-slot.
         let kind_ok = !kind.is_null()
             && unsafe { CStr::from_ptr(kind) }.to_str() == Ok("AutoWrapper");
         GENERIC_KIND_OK.store(kind_ok, AtOrdering::SeqCst);
@@ -1246,8 +1089,8 @@ mod autotest_generated {
         AzApp_setGenericInvoker(recording_generic);
         az_autotest_set_invoker(recording_perkind);
 
-        // A foreign ctx must NOT be reinterpreted as a handle — that would
-        // dispatch the host on a garbage id.
+        // A foreign ctx must NOT be reinterpreted as a handle - that would dispatch
+        // the host on a garbage id.
         let ctx = OptionRefAny::Some(RefAny::new(0xFFFF_FFFF_FFFF_FFFF_u64));
         let out = az_autotest_thunk(RefAny::new(1u32), info_with_ctx(ctx));
         assert_eq!(out, DEFAULT_RET);
@@ -1260,8 +1103,8 @@ mod autotest_generated {
     fn thunk_returns_default_when_nothing_is_registered() {
         let _g = lock_slots();
         clear_all_slots();
-        // Valid host handle, but both slots are 0 — the thunk must bail with
-        // the default instead of transmuting 0 into a fn pointer.
+        // Valid host handle, but both slots are 0 - the thunk must bail with the
+        // default instead of transmuting 0 into a fn pointer.
         let ctx = OptionRefAny::Some(host_handle_to_refany(5));
         let out = az_autotest_thunk(RefAny::new(1u32), info_with_ctx(ctx));
         assert_eq!(out, DEFAULT_RET);

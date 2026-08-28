@@ -1,23 +1,16 @@
-//! FXAA (Fast Approximate Anti-Aliasing) shader implementation.
-//!
-//! Post-processing AA that detects edges via luminance and selectively blurs them.
-//! Faster than supersampling and works without hardware MSAA support.
-//!
-//! Shader compilation: `GlContextPtrInner.fxaa_shader` (see `core/src/gl.rs`).
-//! FXAA pass: `apply_fxaa` / `apply_fxaa_with_config` (see `layout/src/xml/svg.rs`).
-//!
-//! Presets: `FxaaConfig::enabled()`, `::high_quality()`, `::balanced()`, `::performance()`
+//! FXAA (Fast Approximate Anti-Aliasing) shader implementation. Post-processing AA
+//! that detects edges via luminance and selectively blurs them.
 
 /// FXAA shader configuration
 #[derive(Debug, Clone, Copy)]
 pub struct FxaaConfig {
     /// Enable/disable FXAA
     pub enabled: bool,
-    /// Edge detection threshold (0.063 - 0.333, default: 0.125)
-    /// Lower = more edges detected = more AA but potential blur
+    /// Edge detection threshold (0.063 - 0.333, default: 0.125) Lower = more edges
+    /// detected = more AA but potential blur
     pub edge_threshold: f32,
-    /// Minimum edge threshold (0.0312 - 0.0833, default: 0.0312)
-    /// Prevents AA on very low contrast edges
+    /// Minimum edge threshold (0.0312 - 0.0833, default: 0.0312) Prevents AA on
+    /// very low contrast edges
     pub edge_threshold_min: f32,
 }
 
@@ -244,7 +237,7 @@ mod autotest_generated {
 
     #[test]
     fn balanced_matches_enabled_default() {
-        // "Balanced preset - default settings" — the doc claims these are the same.
+        // "Balanced preset - default settings" - the doc claims these are the same.
         assert!(
             same(FxaaConfig::balanced(), FxaaConfig::enabled()),
             "balanced() drifted away from the documented default settings"
@@ -312,9 +305,9 @@ mod autotest_generated {
     #[test]
     fn min_threshold_never_exceeds_edge_threshold() {
         // The shader computes `max(uEdgeThresholdMin, lumMax * uEdgeThreshold)`;
-        // with lumMax <= 1.0 the relative term can only ever win if
-        // edge_threshold >= edge_threshold_min. If min > threshold, the relative
-        // threshold is dead code for every possible luminance.
+        // with lumMax <= 1.0 the relative term can only ever win if edge_threshold
+        // >= edge_threshold_min. If min > threshold, the relative threshold is dead
+        // code for every possible luminance.
         for (name, cfg) in all_presets() {
             assert!(
                 cfg.edge_threshold_min <= cfg.edge_threshold,
@@ -328,8 +321,8 @@ mod autotest_generated {
 
     #[test]
     fn presets_are_ordered_by_aggressiveness() {
-        // high_quality = most edges detected (lowest threshold),
-        // performance = fewest (highest threshold), balanced in between.
+        // high_quality = most edges detected (lowest threshold), performance =
+        // fewest (highest threshold), balanced in between.
         let hq = FxaaConfig::high_quality();
         let bal = FxaaConfig::balanced();
         let perf = FxaaConfig::performance();
@@ -405,8 +398,8 @@ mod autotest_generated {
     // The shader's threshold math, replayed in Rust against every preset
     // ---------------------------------------------------------------------
 
-    /// Mirrors the shader's early-exit predicate:
-    /// `lumRange < max(uEdgeThresholdMin, lumMax * uEdgeThreshold)`.
+    /// Mirrors the shader's early-exit predicate: `lumRange <
+    /// max(uEdgeThresholdMin, lumMax * uEdgeThreshold)`.
     fn shader_skips_aa(cfg: FxaaConfig, lum_min: f32, lum_max: f32) -> bool {
         let lum_range = lum_max - lum_min;
         let threshold = if cfg.edge_threshold_min > lum_max * cfg.edge_threshold {
@@ -434,8 +427,8 @@ mod autotest_generated {
 
     #[test]
     fn maximum_contrast_edge_always_triggers_aa() {
-        // A pure black/white edge (lumRange == 1.0) must never be skipped:
-        // that requires edge_threshold < 1.0 AND edge_threshold_min < 1.0.
+        // A pure black/white edge (lumRange == 1.0) must never be skipped: that
+        // requires edge_threshold < 1.0 AND edge_threshold_min < 1.0.
         for (name, cfg) in all_presets() {
             assert!(
                 !shader_skips_aa(cfg, 0.0, 1.0),
@@ -461,9 +454,9 @@ mod autotest_generated {
 
     #[test]
     fn threshold_predicate_is_nan_safe() {
-        // GL_RGBA16F / GL_RGBA32F render targets can legitimately carry NaN.
-        // The predicate must not panic and must fall through to "no AA" (all
-        // float comparisons against NaN are false, so lumRange < t is false).
+        // GL_RGBA16F / GL_RGBA32F render targets can legitimately carry NaN. The
+        // predicate must not panic and must fall through to "no AA" (all float
+        // comparisons against NaN are false, so lumRange < t is false).
         for (_, cfg) in all_presets() {
             let skipped = shader_skips_aa(cfg, f32::NAN, f32::NAN);
             assert!(!skipped, "NaN luminance must not take the flat-region path");
@@ -475,8 +468,8 @@ mod autotest_generated {
 
     #[test]
     fn extreme_luminance_inputs_do_not_produce_nan_thresholds() {
-        // lumMax * edge_threshold with a huge lumMax must stay finite-or-inf,
-        // never NaN (NaN would silently disable the early exit).
+        // lumMax * edge_threshold with a huge lumMax must stay finite-or-inf, never
+        // NaN (NaN would silently disable the early exit).
         for (name, cfg) in all_presets() {
             for &lum_max in &[0.0_f32, 1.0, 1e30, f32::MAX, f32::MIN_POSITIVE] {
                 let t = lum_max * cfg.edge_threshold;
@@ -498,9 +491,9 @@ mod autotest_generated {
             assert!(!src.is_empty(), "{name} shader is empty");
             let text = core::str::from_utf8(src)
                 .unwrap_or_else(|e| panic!("{name} shader is not valid UTF-8: {e}"));
-            // GLSL 1.50 source must be ASCII outside of comments; a stray
-            // non-ASCII byte (e.g. a smart quote from an editor) is a hard
-            // compile error on some drivers.
+            // GLSL 1.50 source must be ASCII outside of comments; a stray non-ASCII
+            // byte (e.g. a smart quote from an editor) is a hard compile error on
+            // some drivers.
             assert!(
                 text.is_ascii(),
                 "{name} shader contains non-ASCII bytes (unicode smuggled into GLSL)"
@@ -510,8 +503,8 @@ mod autotest_generated {
 
     #[test]
     fn shaders_contain_no_interior_nul_byte() {
-        // These are handed to glShaderSource; an embedded NUL truncates the
-        // source at the driver and yields a baffling "missing main()" error.
+        // These are handed to glShaderSource; an embedded NUL truncates the source
+        // at the driver and yields a baffling "missing main()" error.
         for (name, src) in [
             ("vertex", FXAA_VERTEX_SHADER),
             ("fragment", FXAA_FRAGMENT_SHADER),
@@ -589,8 +582,8 @@ mod autotest_generated {
 
     #[test]
     fn vertex_and_fragment_varyings_match() {
-        // vTexCoord is written by the vertex stage and read by the fragment
-        // stage; a name mismatch is a link error at runtime only.
+        // vTexCoord is written by the vertex stage and read by the fragment stage;
+        // a name mismatch is a link error at runtime only.
         assert!(contains(FXAA_VERTEX_SHADER, b"varying vec2 vTexCoord;"));
         assert!(contains(FXAA_FRAGMENT_SHADER, b"varying vec2 vTexCoord;"));
         assert!(contains(FXAA_VERTEX_SHADER, b"attribute vec2 vAttrXY;"));
@@ -600,8 +593,8 @@ mod autotest_generated {
 
     #[test]
     fn both_shaders_guard_the_es100_compatibility_defines() {
-        // `#define varying out` (VS) / `#define varying in` (FS) must stay behind
-        // a `__VERSION__ != 100` guard, or ES2 builds break.
+        // `#define varying out` (VS) / `#define varying in` (FS) must stay behind a
+        // `__VERSION__ != 100` guard, or ES2 builds break.
         assert!(contains(FXAA_VERTEX_SHADER, b"#if __VERSION__ != 100"));
         assert!(contains(FXAA_VERTEX_SHADER, b"#define varying out"));
         assert!(contains(FXAA_FRAGMENT_SHADER, b"#if __VERSION__ != 100"));
@@ -649,9 +642,9 @@ mod autotest_generated {
             "luminance weights sum to {sum}, not 1.0 — white would not map to lum 1.0"
         );
 
-        // Consequence the thresholds rely on: luminance(white) == 1.0, so
-        // lumMax is bounded by 1.0 for any LDR color, which is what makes
-        // `lumMax * edge_threshold <= edge_threshold` hold.
+        // Consequence the thresholds rely on: luminance(white) == 1.0, so lumMax is
+        // bounded by 1.0 for any LDR color, which is what makes `lumMax *
+        // edge_threshold <= edge_threshold` hold.
         for (name, cfg) in all_presets() {
             assert!(
                 sum * cfg.edge_threshold <= cfg.edge_threshold + 1e-6,
@@ -674,8 +667,8 @@ mod autotest_generated {
 
     #[test]
     fn shader_direction_clamp_is_symmetric() {
-        // `min(vec2(8.0), max(vec2(-8.0), dir * rcpDirMin))` — the FXAA span
-        // clamp must be symmetric, otherwise edges blur asymmetrically.
+        // `min(vec2(8.0), max(vec2(-8.0), dir * rcpDirMin))` - the FXAA span clamp
+        // must be symmetric, otherwise edges blur asymmetrically.
         assert!(contains(FXAA_FRAGMENT_SHADER, b"min(vec2(8.0), max(vec2(-8.0)"));
         // dirReduce must be clamped away from zero, or rcpDirMin divides by 0.
         assert!(contains(FXAA_FRAGMENT_SHADER, b"0.0078125"));
@@ -684,8 +677,8 @@ mod autotest_generated {
 
     #[test]
     fn shader_dir_reduce_never_divides_by_zero() {
-        // Replay `1.0 / (min(|dir.x|, |dir.y|) + dirReduce)` for the worst case:
-        // an entirely black neighborhood, where every luminance is 0.
+        // Replay `1.0 / (min(|dir.x|, |dir.y|) + dirReduce)` for the worst case: an
+        // entirely black neighborhood, where every luminance is 0.
         let (lum_n, lum_s, lum_e, lum_w) = (0.0_f32, 0.0, 0.0, 0.0);
         let dir_x = (lum_n + lum_s) - (lum_e + lum_w);
         let dir_y = lum_n - lum_s;

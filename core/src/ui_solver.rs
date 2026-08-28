@@ -1,11 +1,10 @@
 //! Small geometry types used by the layout solver and text shaping pipeline.
-//!
 //! Default font / text constants live in [`azul_css::defaults`].
 
 use crate::geom::{LogicalPosition, LogicalSize};
 
-/// Resolved top/right/bottom/left offsets in logical pixels (used for
-/// margins, padding, and borders after CSS resolution).
+/// Resolved top/right/bottom/left offsets in logical pixels (used for margins,
+/// padding, and borders after CSS resolution).
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ResolvedOffsets {
@@ -256,7 +255,8 @@ mod autotest_generated {
         assert!(g.size.width.is_infinite() && g.size.width.is_sign_positive());
         assert!(g.size.height.is_infinite() && g.size.height.is_sign_negative());
 
-        // 0 * inf == NaN, per IEEE-754 — must not panic, must not silently become 0.
+        // 0 * inf == NaN, per IEEE-754 - must not panic, must not silently become
+        // 0.
         let mut g = glyph(0, 0.0, 0.0, 0.0, 0.0);
         g.scale_for_dpi(f32::INFINITY);
         assert!(g.point.x.is_nan());

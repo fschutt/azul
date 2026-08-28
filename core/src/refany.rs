@@ -1,33 +1,6 @@
-//! Type-erased, reference-counted smart pointer with runtime borrow checking.
-//!
-//! # Safety
-//!
-//! This module provides `RefAny`, a type-erased container similar to `Arc<RefCell<dyn Any>>`,
-//! but designed for FFI compatibility and cross-language interoperability.
-//!
-//! ## Memory Safety Guarantees
-//!
-//! 1. **Proper Alignment**: Fixed in commit addressing Miri UB - memory is allocated with correct
-//!    alignment for the stored type using `Layout::from_size_align()`.
-//!
-//! 2. **Atomic Reference Counting**: All reference counts use `AtomicUsize` with `SeqCst` ordering,
-//!    ensuring thread-safe access and preventing use-after-free.
-//!
-//! 3. **Runtime Type Safety**: Type IDs are checked before downcasting, preventing invalid pointer
-//!    casts that would cause undefined behavior.
-//!
-//! 4. **Runtime Borrow Checking**: Shared and mutable borrows are tracked at runtime, enforcing
-//!    Rust's borrowing rules dynamically (similar to `RefCell`).
-//!
-//! ## Thread Safety
-//!
-//! - `RefAny` is `Send`: Can be transferred between threads (data is heap-allocated)
-//! - `RefAny` is `Sync`: Can be shared between threads (atomic operations + `&mut self` for
-//!   borrows)
-//!
-//! The `SeqCst` (Sequentially Consistent) memory ordering provides the strongest guarantees:
-//! all atomic operations appear in a single global order visible to all threads, preventing
-//! race conditions where one thread doesn't see another's reference count updates.
+//! Type-erased, reference-counted smart pointer with runtime borrow checking. This
+//! module provides `RefAny`, a type-erased container similar to `Arc<RefCell<dyn
+//! Any>>`, but designed for FFI compatibility and cross-language interoperability.
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -40,56 +13,42 @@ use core::{
 
 use azul_css::AzString;
 
-/// C-compatible destructor function type for `RefAny`.
-/// Called when the last reference to a `RefAny` is dropped.
+/// C-compatible destructor function type for `RefAny`. Called when the last
+/// reference to a `RefAny` is dropped.
 pub type RefAnyDestructorType = extern "C" fn(*mut c_void);
 
-// NOTE: JSON serialization/deserialization callback types are defined in azul_layout::json
-// The actual types are:
-//   RefAnySerializeFnType = extern "C" fn(RefAny) -> Json
-//   RefAnyDeserializeFnType = extern "C" fn(Json) -> ResultRefAnyString
-// In azul_core, we only store function pointers as usize (0 = not set).
+// NOTE: JSON serialization/deserialization callback types are defined in
+// azul_layout::json The actual types are: RefAnySerializeFnType = extern "C"
+// fn(RefAny) -> Json RefAnyDeserializeFnType = extern "C" fn(Json) ->
+// ResultRefAnyString In azul_core, we only store function pointers as usize (0 = not
+// set).
 
-/// Internal reference counting metadata for `RefAny`.
-///
-/// This struct tracks:
-///
-/// - How many `RefAny` clones exist (`num_copies`)
-/// - How many shared borrows are active (`num_refs`)
-/// - How many mutable borrows are active (`num_mutable_refs`)
-/// - Memory layout information for correct deallocation
-/// - Type information for runtime type checking
-///
-/// # Thread Safety
-///
-/// All counters are `AtomicUsize` with `SeqCst` ordering, making them safe to access
-/// from multiple threads simultaneously. The strong ordering ensures no thread can
-/// observe inconsistent states (e.g., both seeing count=1 during final drop).
+/// Internal reference counting metadata for `RefAny`. This struct tracks: - How
+/// many `RefAny` clones exist (`num_copies`) - How many shared borrows are active
+/// (`num_refs`) - How many mutable borrows are active (`num_mutable_refs`) - Memory
+/// layout information for correct deallocation - Type information for runtime type
+/// checking All counters are `AtomicUsize` with `SeqCst` ordering, making them safe
+/// to access from multiple threads simultaneously.
 #[derive(Debug)]
 #[repr(C)]
 // `_internal_*` are C-ABI field names exposed in api.json; the `_` prefix is the
 // intentional "internal" convention and cannot be renamed without breaking the ABI.
 #[allow(clippy::pub_underscore_fields)]
 pub struct RefCountInner {
-    /// Type-erased pointer to heap-allocated data.
-    ///
-    /// SAFETY: Must be properly aligned for the stored type (guaranteed by
-    /// `Layout::from_size_align` in `new_c`). Never null for non-ZST types.
-    ///
-    /// This pointer is shared by all `RefAny` clones, so `replace_contents`
-    /// updates are visible to all clones.
+    /// Type-erased pointer to heap-allocated data. SAFETY: Must be properly aligned
+    /// for the stored type (guaranteed by `Layout::from_size_align` in `new_c`).
     pub _internal_ptr: *const c_void,
 
-    /// Number of `RefAny` instances sharing the same data.
-    /// When this reaches 0, the data is deallocated.
+    /// Number of `RefAny` instances sharing the same data. When this reaches 0, the
+    /// data is deallocated.
     pub num_copies: AtomicUsize,
 
-    /// Number of active shared borrows (`Ref<T>`).
-    /// While > 0, mutable borrows are forbidden.
+    /// Number of active shared borrows (`Ref<T>`). While > 0, mutable borrows are
+    /// forbidden.
     pub num_refs: AtomicUsize,
 
-    /// Number of active mutable borrows (`RefMut<T>`).
-    /// While > 0, all other borrows are forbidden.
+    /// Number of active mutable borrows (`RefMut<T>`). While > 0, all other borrows
+    /// are forbidden.
     pub num_mutable_refs: AtomicUsize,
 
     /// Size of the stored type in bytes (from `size_of::<T>()`).
@@ -98,57 +57,37 @@ pub struct RefCountInner {
     /// Layout size for deallocation (from `Layout::size()`).
     pub _internal_layout_size: usize,
 
-    /// Required alignment for the stored type (from `align_of::<T>()`).
-    /// CRITICAL: Must match the alignment used during allocation to prevent UB.
+    /// Required alignment for the stored type (from `align_of::<T>()`). CRITICAL:
+    /// Must match the alignment used during allocation to prevent UB.
     pub _internal_layout_align: usize,
 
-    /// Runtime type identifier computed from `TypeId::of::<T>()`.
-    /// Used to prevent invalid downcasts.
+    /// Runtime type identifier computed from `TypeId::of::<T>()`. Used to prevent
+    /// invalid downcasts.
     pub type_id: u64,
 
     /// Human-readable type name (e.g., "`MyStruct`") for debugging.
     pub type_name: AzString,
 
-    /// Function pointer to correctly drop the type-erased data.
-    /// SAFETY: Must be called with a pointer to data of the correct type.
+    /// Function pointer to correctly drop the type-erased data. SAFETY: Must be
+    /// called with a pointer to data of the correct type.
     pub custom_destructor: extern "C" fn(*mut c_void),
 
-    /// Function pointer to serialize `RefAny` to JSON (0 = not set).
-    /// Cast to `RefAnySerializeFnType` (defined in `azul_layout::json`) when called.
-    /// Type: extern "C" fn(RefAny) -> Json
+    /// Function pointer to serialize `RefAny` to JSON (0 = not set). Cast to
+    /// `RefAnySerializeFnType` (defined in `azul_layout::json`) when called.
     pub serialize_fn: usize,
 
-    /// Function pointer to deserialize JSON to new `RefAny` (0 = not set).
-    /// Cast to `RefAnyDeserializeFnType` (defined in `azul_layout::json`) when called.
-    /// Type: extern "C" fn(Json) -> `ResultRefAnyString`
+    /// Function pointer to deserialize JSON to new `RefAny` (0 = not set). Cast to
+    /// `RefAnyDeserializeFnType` (defined in `azul_layout::json`) when called.
     pub deserialize_fn: usize,
 
-    /// Function pointer to an on-update observer (0 = not set).
-    /// Cast to `extern "C" fn(*const c_void, usize)` — the (data ptr, byte len)
-    /// of the *pre-mutation* data — and fired from `downcast_mut` BEFORE the
-    /// mutable borrow is handed out. This is the foundation for undo/redo
-    /// snapshots and client/server state sync. Set via `RefAny::set_update_fn`.
+    /// Function pointer to an on-update observer (0 = not set). Cast to `extern "C"
+    /// fn(*const c_void, usize)` - the (data ptr, byte len) of the *pre-mutation*
+    /// data - and fired from `downcast_mut` BEFORE the mutable borrow is handed out.
     pub update_fn: usize,
 }
 
-/// Wrapper around a heap-allocated `RefCountInner`.
-///
-/// This is the shared metadata that all `RefAny` clones point to.
-/// The `RefCount` is responsible for all memory management:
-///
-/// - `RefCount::clone()` increments `num_copies` in `RefCountInner`
-/// - `RefCount::drop()` decrements `num_copies` and, if it reaches 0:
-///   1. Frees the `RefCountInner`
-///   2. Calls the custom destructor on the data
-///   3. Deallocates the data memory
-///
-/// # Why `run_destructor: bool`
-///
-/// This flag tracks whether this `RefCount` instance should decrement
-/// `num_copies` when dropped. Set to `true` for all clones (including
-/// those created by `RefAny::clone()` and `AZ_REFLECT` macros).
-/// Set to `false` after the decrement has been performed to prevent
-/// double-decrement.
+/// Wrapper around a heap-allocated `RefCountInner`. This is the shared metadata
+/// that all `RefAny` clones point to.
 #[derive(Hash, PartialEq, PartialOrd, Ord, Eq)]
 #[repr(C)]
 pub struct RefCount {
@@ -163,22 +102,18 @@ impl fmt::Debug for RefCount {
 }
 
 impl Clone for RefCount {
-    /// Clones the `RefCount` and increments the reference count.
-    ///
-    /// # Safety
-    ///
-    /// This is safe because:
-    /// - The ptr is valid (created from `Box::into_raw`)
-    /// - `num_copies` is atomically incremented with `SeqCst` ordering
-    /// - This ensures the `RefCountInner` is not freed while clones exist
+    /// Clones the `RefCount` and increments the reference count. This is safe
+    /// because: - The ptr is valid (created from `Box::into_raw`) - `num_copies` is
+    /// atomically incremented with `SeqCst` ordering - This ensures the
+    /// `RefCountInner` is not freed while clones exist
     fn clone(&self) -> Self {
         // CRITICAL: Must increment num_copies so the RefCountInner is not freed
-        // while this clone exists. The C macros (AZ_REFLECT) use AzRefCount_clone
-        // to create Ref/RefMut guards, and those guards must keep the data alive.
+        // while this clone exists. The C macros (AZ_REFLECT) use AzRefCount_clone to
+        // create Ref/RefMut guards, and those guards must keep the data alive.
         if !self.ptr.is_null() {
-            // SAFETY: `ptr` is non-null (checked) and came from `Box::into_raw`
-            // in `RefCount::new`; it stays alive as long as any clone exists
-            // because every clone increments `num_copies` here.
+            // SAFETY: `ptr` is non-null (checked) and came from `Box::into_raw` in
+            // `RefCount::new`; it stays alive as long as any clone exists because
+            // every clone increments `num_copies` here.
             unsafe {
                 (*self.ptr).num_copies.fetch_add(1, AtomicOrdering::SeqCst);
             }
@@ -191,39 +126,27 @@ impl Clone for RefCount {
 }
 
 impl Drop for RefCount {
-    /// Decrements the reference count when a `RefCount` clone is dropped.
-    ///
-    /// If this was the last reference (`num_copies` reaches 0), this will also
-    /// free the `RefCountInner` and call the custom destructor.
+    /// Decrements the reference count when a `RefCount` clone is dropped. If this
+    /// was the last reference (`num_copies` reaches 0), this will also free the
+    /// `RefCountInner` and call the custom destructor.
     #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     fn drop(&mut self) {
-        // Only decrement if run_destructor is true (meaning this is a clone)
-        // and the pointer is valid
+        // Only decrement if run_destructor is true (meaning this is a clone) and
+        // the pointer is valid
         if !self.run_destructor || self.ptr.is_null() {
             return;
         }
         self.run_destructor = false;
 
-        // Take the inner pointer and NULL the field before doing anything
-        // else. The C ABI reaches this drop via `AzRefCount_delete` →
-        // `drop_in_place` on C-owned struct memory, and writes through
-        // `&mut self` persist in that memory. Nulling the pointer here
-        // (mirroring the `ptr = 0` convention the AZ_REFLECT C macros use
-        // for their downcast guards) makes a SECOND delete of the same
-        // struct — easy to hit in C example failure paths, and unguarded
-        // in pre-0.2.1 copies of azul.h — a safe no-op via the null check
-        // above, instead of a double-free of the RefCountInner allocation
-        // or a read through a dangling pointer.
+        // Take the inner pointer and NULL the field before doing anything else. The
+        // C ABI reaches this drop via `AzRefCount_delete` → `drop_in_place` on
+        // C-owned struct memory, and writes through `&mut self` persist in that
+        // memory.
         let inner = self.ptr;
         self.ptr = core::ptr::null();
 
-        // Atomically decrement and get the PREVIOUS value. `checked_sub`
-        // refuses to underflow: an unmatched decrement (e.g. a C caller
-        // deleting a byte-copied Ref struct twice) becomes a no-op instead
-        // of wrapping `num_copies` to `usize::MAX` and corrupting the
-        // reference count for the rest of the process.
-        // SAFETY: `inner` is non-null (guarded above) and points to the live
-        // `RefCountInner` from `Box::into_raw`; only the atomic field is touched.
+        // Atomically decrement and get the PREVIOUS value. `checked_sub` refuses to
+        // underflow: an unmatched decrement (e.g.
         let current_copies = unsafe {
             match (*inner).num_copies.fetch_update(
                 AtomicOrdering::SeqCst,
@@ -241,7 +164,6 @@ impl Drop for RefCount {
         }
 
         // We're the last reference! Clean up.
-        // SAFETY: ptr came from Box::into_raw, and we're the last reference
         let sharing_info = unsafe { Box::from_raw(inner.cast_mut()) };
         let sharing_info = *sharing_info; // Box deallocates RefCountInner here
 
@@ -257,11 +179,11 @@ impl Drop for RefCount {
             // Call destructor even for ZSTs (may have side effects)
             (sharing_info.custom_destructor)(_dummy.as_mut_ptr().cast::<c_void>());
         } else {
-            // Reconstruct the layout used during allocation. Removed the
-            // `unsafe { Layout::from_size_align_unchecked(..) }`: these size/align
-            // were produced by a valid `Layout` in `new_c` (`layout.size()` /
-            // `layout.align()`), so the safe checked constructor always succeeds
-            // and is behaviorally identical here — no unsafe needed.
+            // Reconstruct the layout used during allocation. Removed the `unsafe {
+            // Layout::from_size_align_unchecked(..) }`: these size/align were
+            // produced by a valid `Layout` in `new_c` (`layout.size()` /
+            // `layout.align()`), so the safe checked constructor always succeeds and
+            // is behaviorally identical here - no unsafe needed.
             let layout = Layout::from_size_align(
                 sharing_info._internal_layout_size,
                 sharing_info._internal_layout_align,
@@ -271,10 +193,9 @@ impl Drop for RefCount {
             // Phase 1: Run the custom destructor
             (sharing_info.custom_destructor)(data_ptr.cast_mut());
 
-            // Phase 2: Deallocate the memory
-            // SAFETY: `data_ptr` was allocated in `new_c` (or `replace_contents`)
-            // with exactly this `layout`, and we are the last reference, so no
-            // other clone can observe the freed block.
+            // Phase 2: Deallocate the memory SAFETY: `data_ptr` was allocated in
+            // `new_c` (or `replace_contents`) with exactly this `layout`, and we are
+            // the last reference, so no other clone can observe the freed block.
             unsafe {
                 alloc::alloc::dealloc(data_ptr as *mut u8, layout);
             }
@@ -301,12 +222,9 @@ pub(crate) struct RefCountInnerDebug {
 }
 
 impl RefCount {
-    /// Creates a new `RefCount` by boxing the metadata on the heap.
-    ///
-    /// # Safety
-    ///
-    /// Safe because we're creating a new allocation with `Box::new`,
-    /// then immediately leaking it with `into_raw` to get a stable pointer.
+    /// Creates a new `RefCount` by boxing the metadata on the heap. Safe because
+    /// we're creating a new allocation with `Box::new`, then immediately leaking it
+    /// with `into_raw` to get a stable pointer.
     fn new(ref_count: RefCountInner) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(ref_count)),
@@ -314,14 +232,10 @@ impl RefCount {
         }
     }
 
-    /// Dereferences the raw pointer to access the metadata.
-    ///
-    /// # Safety
-    ///
-    /// Safe because:
-    /// - The pointer is created from `Box::into_raw`, so it's valid and properly aligned
-    /// - The lifetime is tied to `&self`, ensuring the pointer is still alive
-    /// - Reference counting ensures the data isn't freed while references exist
+    /// Dereferences the raw pointer to access the metadata. Safe because: - The
+    /// pointer is created from `Box::into_raw`, so it's valid and properly aligned -
+    /// The lifetime is tied to `&self`, ensuring the pointer is still alive -
+    /// Reference counting ensures the data isn't freed while references exist
     fn downcast(&self) -> &RefCountInner {
         assert!(!self.ptr.is_null(), "[RefCount::downcast] FATAL: self.ptr is null!");
         // SAFETY: `ptr` is non-null (asserted) and came from `Box::into_raw`; the
@@ -330,9 +244,8 @@ impl RefCount {
         unsafe { &*self.ptr }
     }
 
-    /// Creates a debug snapshot of the current reference counts.
-    ///
-    /// Loads all atomic values with `SeqCst` ordering to get a consistent view.
+    /// Creates a debug snapshot of the current reference counts. Loads all atomic
+    /// values with `SeqCst` ordering to get a consistent view.
     #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     pub(crate) fn debug_get_refcount_copied(&self) -> RefCountInnerDebug {
         let dc = self.downcast();
@@ -351,15 +264,8 @@ impl RefCount {
         }
     }
 
-    /// Runtime check: can we create a shared borrow?
-    ///
-    /// Returns `true` if there are no active mutable borrows.
-    /// Multiple shared borrows can coexist (like `&T` in Rust).
-    ///
-    /// # Memory Ordering
-    ///
-    /// Uses `SeqCst` to ensure we see the most recent state from all threads.
-    /// If another thread just released a mutable borrow, we'll see it.
+    /// Runtime check: can we create a shared borrow? Returns `true` if there are no
+    /// active mutable borrows.
     #[must_use] pub fn can_be_shared(&self) -> bool {
         self.downcast()
             .num_mutable_refs
@@ -367,52 +273,23 @@ impl RefCount {
             == 0
     }
 
-    /// Runtime check: can we create a mutable borrow?
-    ///
-    /// Returns `true` only if there are ZERO active borrows of any kind.
-    /// This enforces Rust's exclusive mutability rule (like `&mut T`).
-    ///
-    /// # Memory Ordering
-    ///
-    /// Uses `SeqCst` to ensure we see all recent borrows from all threads.
-    /// Both counters must be checked atomically to prevent races.
+    /// Runtime check: can we create a mutable borrow? Returns `true` only if there
+    /// are ZERO active borrows of any kind.
     #[must_use] pub fn can_be_shared_mut(&self) -> bool {
         let info = self.downcast();
         info.num_mutable_refs.load(AtomicOrdering::SeqCst) == 0
             && info.num_refs.load(AtomicOrdering::SeqCst) == 0
     }
 
-    /// Increments the shared borrow counter.
-    ///
-    /// Called when a `Ref<T>` is created. The `Ref::drop` will decrement it.
-    ///
-    /// # Memory Ordering
-    ///
-    /// `SeqCst` ensures this increment is visible to all threads before they
-    /// try to acquire a mutable borrow (which checks this counter).
+    /// Increments the shared borrow counter. Called when a `Ref<T>` is created.
     pub fn increase_ref(&self) {
         self.downcast()
             .num_refs
             .fetch_add(1, AtomicOrdering::SeqCst);
     }
 
-    /// Decrements the shared borrow counter.
-    ///
-    /// Called when a `Ref<T>` is dropped, indicating the borrow is released.
-    ///
-    /// # Underflow guard
-    ///
-    /// Saturates at 0: an unmatched decrement — e.g. a C caller running
-    /// `FooRef_delete` after a FAILED downcast with a pre-0.2.1 copy of
-    /// `azul.h` (whose macro did not skip the decrease), or a plain
-    /// double-delete — must not wrap `num_refs` to `usize::MAX`, which
-    /// would make `can_be_shared_mut()` return `false` for the rest of
-    /// the process (callbacks silently stop mutating state).
-    ///
-    /// # Memory Ordering
-    ///
-    /// `SeqCst` ensures this decrement is immediately visible to other threads
-    /// waiting to acquire a mutable borrow.
+    /// Decrements the shared borrow counter. Called when a `Ref<T>` is dropped,
+    /// indicating the borrow is released.
     pub fn decrease_ref(&self) {
         let _ = self.downcast().num_refs.fetch_update(
             AtomicOrdering::SeqCst,
@@ -421,36 +298,15 @@ impl RefCount {
         );
     }
 
-    /// Increments the mutable borrow counter.
-    ///
-    /// Called when a `RefMut<T>` is created. Should only succeed when this
-    /// counter and `num_refs` are both 0.
-    ///
-    /// # Memory Ordering
-    ///
-    /// `SeqCst` ensures this increment is visible to all other threads,
-    /// blocking them from acquiring any borrow (shared or mutable).
+    /// Increments the mutable borrow counter. Called when a `RefMut<T>` is created.
     pub fn increase_refmut(&self) {
         self.downcast()
             .num_mutable_refs
             .fetch_add(1, AtomicOrdering::SeqCst);
     }
 
-    /// Decrements the mutable borrow counter.
-    ///
-    /// Called when a `RefMut<T>` is dropped, releasing exclusive access.
-    ///
-    /// # Underflow guard
-    ///
-    /// Saturates at 0 (see [`Self::decrease_ref`]): a double
-    /// `FooRefMut_delete` from C must not wrap `num_mutable_refs`, which
-    /// would corrupt the runtime borrow checker and let a second thread
-    /// or timer callback obtain an aliasing mutable borrow.
-    ///
-    /// # Memory Ordering
-    ///
-    /// `SeqCst` ensures this decrement is immediately visible, allowing
-    /// other threads to acquire borrows.
+    /// Decrements the mutable borrow counter. Called when a `RefMut<T>` is dropped,
+    /// releasing exclusive access.
     pub fn decrease_refmut(&self) {
         let _ = self.downcast().num_mutable_refs.fetch_update(
             AtomicOrdering::SeqCst,
@@ -460,14 +316,9 @@ impl RefCount {
     }
 }
 
-/// RAII guard for a shared borrow of type `T` from a `RefAny`.
-///
-/// Similar to `std::cell::Ref`, this automatically decrements the borrow
-/// counter when dropped, ensuring borrows are properly released.
-///
-/// # Deref
-///
-/// Implements `Deref<Target = T>` so you can use it like `&T`.
+/// RAII guard for a shared borrow of type `T` from a `RefAny`. Similar to
+/// `std::cell::Ref`, this automatically decrements the borrow counter when dropped,
+/// ensuring borrows are properly released.
 #[derive(Debug)]
 #[repr(C)]
 pub struct Ref<'a, T> {
@@ -477,9 +328,6 @@ pub struct Ref<'a, T> {
 
 impl<T> Drop for Ref<'_, T> {
     /// Automatically releases the shared borrow when the guard goes out of scope.
-    ///
-    /// # Safety
-    ///
     /// Safe because `decrease_ref` uses atomic operations and is designed to be
     /// called exactly once per `Ref` instance.
     fn drop(&mut self) {
@@ -495,14 +343,9 @@ impl<T> core::ops::Deref for Ref<'_, T> {
     }
 }
 
-/// RAII guard for a mutable borrow of type `T` from a `RefAny`.
-///
-/// Similar to `std::cell::RefMut`, this automatically decrements the mutable
-/// borrow counter when dropped, releasing exclusive access.
-///
-/// # Deref / `DerefMut`
-///
-/// Implements both `Deref` and `DerefMut` so you can use it like `&mut T`.
+/// RAII guard for a mutable borrow of type `T` from a `RefAny`. Similar to
+/// `std::cell::RefMut`, this automatically decrements the mutable borrow counter
+/// when dropped, releasing exclusive access.
 #[derive(Debug)]
 #[repr(C)]
 pub struct RefMut<'a, T> {
@@ -512,9 +355,6 @@ pub struct RefMut<'a, T> {
 
 impl<T> Drop for RefMut<'_, T> {
     /// Automatically releases the mutable borrow when the guard goes out of scope.
-    ///
-    /// # Safety
-    ///
     /// Safe because `decrease_refmut` uses atomic operations and is designed to be
     /// called exactly once per `RefMut` instance.
     fn drop(&mut self) {
@@ -537,74 +377,29 @@ impl<T> core::ops::DerefMut for RefMut<'_, T> {
 }
 
 /// Type-erased, reference-counted smart pointer with runtime borrow checking.
-///
-/// `RefAny` is similar to `Arc<RefCell<dyn Any>>`, providing:
-/// - Type erasure (stores any `'static` type)
-/// - Reference counting (clones share the same data)
-/// - Runtime borrow checking (enforces Rust's borrowing rules at runtime)
-/// - FFI compatibility (`#[repr(C)]` and C-compatible API)
-///
-/// # Thread Safety
-///
-/// - `Send`: Can be moved between threads (heap-allocated data, atomic counters)
-/// - `Sync`: Can be shared between threads (`downcast_ref/mut` require `&mut self`)
-///
-/// # Memory Safety
-///
-/// Fixed critical UB bugs in alignment, copy count, and pointer provenance.
-/// All operations are verified with Miri to ensure absence of undefined behavior.
-///
-/// # Usage
-///
-/// ```rust
-/// # use azul_core::refany::RefAny;
-/// let data = RefAny::new(42i32);
-/// let mut data_clone = data.clone(); // shares the same heap allocation
-///
-/// // Runtime-checked downcasting with type safety
-/// if let Some(value_ref) = data_clone.downcast_ref::<i32>() {
-///     assert_eq!(*value_ref, 42);
-/// };
-///
-/// // Runtime-checked mutable borrowing
-/// if let Some(mut value_mut) = data_clone.downcast_mut::<i32>() {
-///     *value_mut = 100;
-/// };
-/// ```
+/// `RefAny` is similar to `Arc<RefCell<dyn Any>>`, providing: - Type erasure (stores
+/// any `'static` type) - Reference counting (clones share the same data) - Runtime
+/// borrow checking (enforces Rust's borrowing rules at runtime) - FFI compatibility
+/// (`#[repr(C)]` and C-compatible API) - `Send`: Can be moved between threads
+/// (heap-allocated data, atomic counters) - `Sync`: Can be shared between threads
+/// (`downcast_ref/mut` require `&mut self`) Fixed critical UB bugs in alignment,
+/// copy count, and pointer provenance.
 #[derive(Debug)]
 #[repr(C)]
 pub struct RefAny {
     /// Shared metadata: reference counts, type info, destructor, AND data pointer.
-    ///
     /// All `RefAny` clones point to the same `RefCountInner` via this field.
-    /// The data pointer is stored in `RefCountInner` so all clones see the same
-    /// pointer, even after `replace_contents()` is called.
-    ///
-    /// The `run_destructor` flag on `RefCount` controls whether dropping this
-    /// `RefAny` should decrement the reference count and potentially free memory.
     pub sharing_info: RefCount,
 
     /// Unique ID for this specific clone (root = 0, subsequent clones increment).
-    ///
     /// Used to distinguish between the original and clones for debugging.
     pub instance_id: u64,
 }
 
 // The comparison traits below are hand-written, NOT derived, and key on
-// `sharing_info` ALONE. `instance_id` is deliberately omitted:
-//
-//     // self.instance_id == other.instance_id   <-- NEVER compare this
-//
-// `instance_id` is a debug-only counter that `clone()` increments (original = 0,
-// first clone = 1, ...). Deriving equality folded it in, so a `RefAny` never
-// equaled its own clone even though both point at the same `RefCountInner` — the
-// same heap data, same refcount. Equality here means "same data", not "same
-// handle"; `sharing_info` (a pointer + flag) already distinguishes unrelated
-// instances.
-//
-// Hash/Ord must key on exactly the same fields as PartialEq or they break their
-// own contracts (equal values must hash equally; `cmp() == Equal` must imply
-// `==`), so all five delegate to `sharing_info`.
+// `sharing_info` ALONE. `instance_id` is deliberately omitted: // self.instance_id
+// == other.instance_id <-- NEVER compare this `instance_id` is a debug-only counter
+// that `clone()` increments (original = 0, first clone = 1, ...).
 impl PartialEq for RefAny {
     fn eq(&self, other: &Self) -> bool {
         self.sharing_info == other.sharing_info
@@ -638,116 +433,44 @@ impl_option!(
     [Debug, Hash, Clone, PartialEq, PartialOrd, Ord, Eq]
 );
 
-// AUDIT: unsound-but-required. These `Send`/`Sync` impls are unconditional in
-// `T`: a `!Send`/`!Sync` payload moved or shared cross-thread races its own
-// internals. This is an INTENTIONAL FFI design constraint — `RefAny` is a
-// type-erased C-ABI handle with no way to carry `T: Send + Sync` bounds across
-// the boundary, and the framework's threading model keeps a given payload on
-// one thread in practice. Left as-is per the audit; do not "fix" by adding
-// bounds (it would break the erased FFI type).
-//
-// SAFETY: RefAny is Send because:
-// - The data pointer points to heap memory (can be sent between threads)
-// - All shared state (RefCountInner) uses atomic operations
-// - No thread-local storage is used
+// AUDIT: unsound-but-required. These `Send`/`Sync` impls are unconditional in `T`:
+// a `!Send`/`!Sync` payload moved or shared cross-thread races its own internals.
 #[allow(clippy::non_send_fields_in_send_ty)] // see SAFETY note above: atomic refcount, no TLS, no cross-thread deref
 unsafe impl Send for RefAny {}
 
-// SAFETY: RefAny is Sync because:
-// - Methods on `&RefAny` (like `clone`, `get_type_id`) only use atomic operations or
-//   read immutable data, which is inherently thread-safe
-// - The runtime borrow checker (via `can_be_shared/shared_mut`) uses SeqCst atomics
-//
-// AUDIT: unsound-but-required (same intentional FFI constraint as `Send` above).
-//
-// The check-then-increment race that this note described in `downcast_ref/mut`
-// is now FIXED (both use atomic `fetch_add`+validate / `compare_exchange`
-// acquisition — see those methods). The remaining unsoundness is only the
-// unconditional-in-`T` `Sync`, which is required by the erased C-ABI type.
+// SAFETY: RefAny is Sync because: - Methods on `&RefAny` (like `clone`,
+// `get_type_id`) only use atomic operations or read immutable data, which is
+// inherently thread-safe - The runtime borrow checker (via
+// `can_be_shared/shared_mut`) uses SeqCst atomics AUDIT: unsound-but-required (same
+// intentional FFI constraint as `Send` above). The check-then-increment race that
+// this note described in `downcast_ref/mut` is now FIXED (both use atomic
+// `fetch_add`+validate / `compare_exchange` acquisition - see those methods).
 unsafe impl Sync for RefAny {}
 
 impl RefAny {
-    /// Creates a new type-erased `RefAny` containing the given value.
-    ///
-    /// This is the primary way to construct a `RefAny` from Rust code.
-    ///
-    /// # Type Safety
-    ///
-    /// Stores the `TypeId` of `T` for runtime type checking during downcasts.
-    ///
-    /// # Memory Layout
-    ///
-    /// - Allocates memory on the heap with correct size (`size_of::<T>()`) and alignment
-    ///   (`align_of::<T>()`)
-    /// - Copies the value into the heap allocation
-    /// - Forgets the original value to prevent double-drop
-    ///
-    /// # Custom Destructor
-    ///
-    /// Creates a type-specific destructor that:
-    /// 1. Copies the data from heap back to stack
-    /// 2. Calls `mem::drop` to run `T`'s destructor
-    /// 3. The heap memory is freed separately in `RefAny::drop`
-    ///
-    /// This two-phase destruction ensures proper cleanup even for complex types.
-    ///
-    /// # Safety
-    ///
-    /// Safe because:
-    /// - `mem::forget` prevents double-drop of the original value
-    /// - Type `T` and destructor `<U>` are matched at compile time
-    /// - `ptr::copy_nonoverlapping` with count=1 copies exactly one `T`
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # use azul_core::refany::RefAny;
-    /// let mut data = RefAny::new(42i32);
-    /// let value = data.downcast_ref::<i32>().unwrap();
-    /// assert_eq!(*value, 42);
-    /// ```
+    /// Creates a new type-erased `RefAny` containing the given value. This is the
+    /// primary way to construct a `RefAny` from Rust code.
     pub fn new<T: 'static>(value: T) -> Self {
-        /// Type-specific destructor that properly drops the inner value.
-        ///
-        /// # Safety
-        ///
-        /// Safe to call ONLY with a pointer that was created by `RefAny::new<U>`.
-        /// The type `U` must match the original type `T`.
-        ///
-        /// # Why Copy to Stack?
-        ///
-        /// Rust's drop glue expects a value, not a pointer. We copy the data
-        /// to the stack so `mem::drop` can run the destructor properly.
-        ///
-        /// # Critical Fix
-        ///
-        /// The third argument to `copy_nonoverlapping` is the COUNT (1 element),
-        /// not the SIZE in bytes. Using `size_of::<U>()` here would copy
-        /// `size_of::<U>()` elements, causing buffer overflow.
+        /// Type-specific destructor that properly drops the inner value. Safe to
+        /// call ONLY with a pointer that was created by `RefAny::new<U>`.
         extern "C" fn default_custom_destructor<U: 'static>(ptr: *mut c_void) {
             use core::{mem, ptr};
 
             // The actual drop glue. `U::drop` is arbitrary user code and this
-            // function is `extern "C"` (called across the FFI boundary from the
-            // C ABI teardown), so a panic escaping here would unwind across that
+            // function is `extern "C"` (called across the FFI boundary from the C
+            // ABI teardown), so a panic escaping here would unwind across that
             // boundary = UB.
-            // SAFETY: this fn is only installed by `RefAny::new::<U>`, so `ptr`
-            // points to an initialized, properly aligned `U` that no other code
-            // still references (we are in the final drop). We move it out exactly
-            // once (`count = 1`) and run its drop glue.
             let run = || unsafe {
-                // A ZST has no bytes to move, and `ptr` is not a real pointer to one:
-                // `RefAny::new` never allocates for a ZST, and `RefCount::drop`
+                // A ZST has no bytes to move, and `ptr` is not a real pointer to
+                // one: `RefAny::new` never allocates for a ZST, and `RefCount::drop`
                 // substitutes a 1-byte-aligned dummy. Feeding that to
                 // `copy_nonoverlapping` violates its "aligned and non-null"
-                // precondition (`[u64; 0]` demands align 8) — UB, and Rust's debug
+                // precondition (`[u64; 0]` demands align 8) - UB, and Rust's debug
                 // check turns it into a NON-UNWINDING abort that kills the process.
-                //
-                // A ZST has exactly one value, so conjure it directly and run its drop
-                // glue without touching `ptr` at all.
                 if size_of::<U>() == 0 {
                     // Sound for a ZST (exactly one value, touches no memory); the
-                    // size_of == 0 guard is what makes assume_init well-defined here.
+                    // size_of == 0 guard is what makes assume_init well-defined
+                    // here.
                     #[allow(clippy::uninit_assumed_init)]
                     drop(mem::MaybeUninit::<U>::uninit().assume_init());
                     return;
@@ -768,9 +491,9 @@ impl RefAny {
                 drop(stack_mem); // Runs U's Drop implementation
             };
 
-            // AUDIT: contain any panic from `U::drop` so it can't unwind across
-            // the `extern "C"` boundary. `catch_unwind` needs `std`; `no_std`
-            // builds use `panic = "abort"`, where unwinding cannot occur.
+            // AUDIT: contain any panic from `U::drop` so it can't unwind across the
+            // `extern "C"` boundary. `catch_unwind` needs `std`; `no_std` builds use
+            // `panic = "abort"`, where unwinding cannot occur.
             #[cfg(feature = "std")]
             {
                 drop(std::panic::catch_unwind(std::panic::AssertUnwindSafe(run)));
@@ -799,42 +522,8 @@ impl RefAny {
         s
     }
 
-    /// C-ABI compatible function to create a `RefAny` from raw components.
-    ///
-    /// This is the low-level constructor used by FFI bindings (C, Python, etc.).
-    ///
-    /// # Parameters
-    ///
-    /// - `ptr`: Pointer to the value to store (will be copied)
-    /// - `len`: Size of the value in bytes (`size_of::<T>()`)
-    /// - `align`: Required alignment in bytes (`align_of::<T>()`)
-    /// - `type_id`: Unique identifier for the type (for downcast safety)
-    /// - `type_name`: Human-readable type name (for debugging)
-    /// - `custom_destructor`: Function to call when the last reference is dropped
-    /// - `serialize_fn`: Function pointer for JSON serialization (0 = not set)
-    /// - `deserialize_fn`: Function pointer for JSON deserialization (0 = not set)
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure:
-    /// - `ptr` points to valid data of size `len` with alignment `align`
-    /// - `type_id` uniquely identifies the type
-    /// - `custom_destructor` correctly drops the type at `ptr`
-    /// - `len` and `align` match the actual type's layout
-    /// - If `serialize_fn != 0`, it must be a valid function pointer of type
-    ///   `extern "C" fn(RefAny) -> Json`
-    /// - If `deserialize_fn != 0`, it must be a valid function pointer of type
-    ///   `extern "C" fn(Json) -> ResultRefAnyString`
-    ///
-    /// # Zero-Sized Types
-    ///
-    /// Special case: ZSTs use a null pointer but still track the type info
-    /// and call the destructor (which may have side effects even for ZSTs).
-    ///
-    /// # Panics
-    ///
-    /// Panics if `ptr` is null while `len > 0` (a non-empty value must have a
-    /// valid backing pointer).
+    /// C-ABI compatible function to create a `RefAny` from raw components. This is
+    /// the low-level constructor used by FFI bindings (C, Python, etc.).
     #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     pub fn new_c(
         // *const T
@@ -845,7 +534,8 @@ impl RefAny {
         align: usize,
         // unique ID of the type (used for type comparison when downcasting)
         type_id: u64,
-        // name of the class such as "app::MyData", usually compiler- or macro-generated
+        // name of the class such as "app::MyData", usually compiler- or
+        // macro-generated
         type_name: AzString,
         custom_destructor: extern "C" fn(*mut c_void),
         // function pointer for JSON serialization (0 = not set)
@@ -855,8 +545,8 @@ impl RefAny {
     ) -> Self {
         use core::ptr;
 
-        // CRITICAL: Validate input pointer for non-ZST types
-        // A NULL pointer for a non-zero-sized type would cause UB when copying
+        // CRITICAL: Validate input pointer for non-ZST types A NULL pointer for a
+        // non-zero-sized type would cause UB when copying
         assert!(!(len > 0 && ptr.is_null()), 
                 "RefAny::new_c: NULL pointer passed for non-ZST type (size={}). \
                 This would cause undefined behavior. Type: {:?}",
@@ -864,25 +554,22 @@ impl RefAny {
                 type_name.as_str()
             );
 
-        // Special case: Zero-sized types
-        //
-        // Calling `alloc(Layout { size: 0, .. })` is UB, so we use a null pointer.
-        // The destructor is still called (it may have side effects even for ZSTs).
+        // Special case: Zero-sized types Calling `alloc(Layout { size: 0, .. })` is
+        // UB, so we use a null pointer.
         let (_internal_ptr, layout) = if len == 0 {
             let _dummy: [u8; 0] = [];
             (ptr::null_mut(), Layout::for_value(&_dummy))
         } else {
-            // CRITICAL FIX: Use the caller-provided alignment, not alignment of [u8]
-            //
-            // Previous bug: `Layout::for_value(&[u8])` created align=1
-            // This caused unaligned references when downcasting to types like i32 (align=4)
-            //
-            // Fixed: `Layout::from_size_align(len, align)` respects the type's alignment
+            // CRITICAL FIX: Use the caller-provided alignment, not alignment of
+            // [u8] Previous bug: `Layout::for_value(&[u8])` created align=1 This
+            // caused unaligned references when downcasting to types like i32
+            // (align=4) Fixed: `Layout::from_size_align(len, align)` respects the
+            // type's alignment
             let layout = Layout::from_size_align(len, align).expect("Failed to create layout");
 
-            // Allocate heap memory with correct alignment
-            // SAFETY: `layout` has non-zero size (this branch is `len != 0`), the
-            // required precondition for `alloc`; null return is handled below.
+            // Allocate heap memory with correct alignment SAFETY: `layout` has
+            // non-zero size (this branch is `len != 0`), the required precondition
+            // for `alloc`; null return is handled below.
             let heap_struct_as_bytes = unsafe { alloc::alloc::alloc(layout) };
 
             // Handle allocation failure (aborts the program)
@@ -890,8 +577,8 @@ impl RefAny {
                 alloc::alloc::handle_alloc_error(layout);
             }
 
-            // Copy the data byte-by-byte to the heap
-            // SAFETY: Both pointers are valid, non-overlapping, and properly aligned
+            // Copy the data byte-by-byte to the heap SAFETY: Both pointers are
+            // valid, non-overlapping, and properly aligned
             unsafe { ptr::copy_nonoverlapping(ptr as *const u8, heap_struct_as_bytes, len) };
 
             (heap_struct_as_bytes, layout)
@@ -921,41 +608,25 @@ impl RefAny {
         }
     }
 
-    /// Returns the raw data pointer for FFI downcasting.
-    ///
-    /// This is used by the `AZ_REFLECT` macros in C/C++ to access the
-    /// type-erased data pointer for downcasting operations.
-    ///
-    /// # Safety
-    ///
-    /// The returned pointer must only be dereferenced after verifying
-    /// the type ID matches the expected type. Callers are responsible
-    /// for proper type safety checks.
+    /// Returns the raw data pointer for FFI downcasting. This is used by the
+    /// `AZ_REFLECT` macros in C/C++ to access the type-erased data pointer for
+    /// downcasting operations.
     #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     #[must_use] pub fn get_data_ptr(&self) -> *const c_void {
         self.sharing_info.downcast()._internal_ptr
     }
 
     /// Returns the byte length of the type-erased payload behind
-    /// [`Self::get_data_ptr`] (`size_of::<T>()` of the stored type;
-    /// `0` for ZSTs).
+    /// [`Self::get_data_ptr`] (`size_of::<T>()` of the stored type; `0` for ZSTs).
     #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     #[must_use] pub fn get_data_len(&self) -> usize {
         self.sharing_info.downcast()._internal_len
     }
 
-    /// Checks if this is the only `RefAny` instance with no active borrows.
-    ///
-    /// Returns `true` only if:
-    /// - `num_copies == 1` (no clones exist)
-    /// - `num_refs == 0` (no shared borrows active)
-    /// - `num_mutable_refs == 0` (no mutable borrows active)
-    ///
+    /// Checks if this is the only `RefAny` instance with no active borrows. Returns
+    /// `true` only if: - `num_copies == 1` (no clones exist) - `num_refs == 0` (no
+    /// shared borrows active) - `num_mutable_refs == 0` (no mutable borrows active)
     /// Useful for checking if you have exclusive ownership.
-    ///
-    /// # Memory Ordering
-    ///
-    /// Uses `SeqCst` to ensure a consistent view across all three counters.
     pub(crate) fn has_no_copies(&self) -> bool {
         self.sharing_info
             .downcast()
@@ -976,40 +647,10 @@ impl RefAny {
                 == 0
     }
 
-    /// Attempts to downcast to a shared reference of type `U`.
-    ///
-    /// Returns `None` if:
-    /// - The stored type doesn't match `U` (type safety)
-    /// - A mutable borrow is already active (borrow checking)
-    /// - The pointer is null AND `U` is not zero-sized (uninitialized). A
-    ///   stored ZST has a null pointer *by design* (nothing is allocated) and
-    ///   downcasts successfully, via a dangling-but-aligned reference.
-    ///
-    /// # Type Safety
-    ///
-    /// Compares `type_id` at runtime before casting. This prevents casting
-    /// `*const c_void` to the wrong type, which would be immediate UB.
-    ///
-    /// # Borrow Checking
-    ///
-    /// Checks `can_be_shared()` to enforce Rust's borrowing rules:
-    /// - Multiple shared borrows are allowed
-    /// - Shared and mutable borrows cannot coexist
-    ///
-    /// # Safety
-    ///
-    /// The `unsafe` cast is safe because:
-    /// - Type ID check ensures `U` matches the stored type
-    /// - Memory was allocated with correct alignment for `U`
-    /// - Lifetime `'a` is tied to `&'a mut self`, preventing use-after-free
-    /// - Reference count is incremented atomically before returning
-    ///
-    /// # Why `&mut self`?
-    ///
-    /// Requires `&mut self` to prevent multiple threads from calling this
-    /// simultaneously on the same `RefAny`. The borrow checker enforces this.
-    /// Clones of the `RefAny` can call this independently (they share data
-    /// but have separate runtime borrow tracking).
+    /// Attempts to downcast to a shared reference of type `U`. Returns `None` if: -
+    /// The stored type doesn't match `U` (type safety) - A mutable borrow is already
+    /// active (borrow checking) - The pointer is null AND `U` is not zero-sized
+    /// (uninitialized).
     #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     #[inline]
     pub fn downcast_ref<U: 'static>(&mut self) -> Option<Ref<'_, U>> {
@@ -1022,24 +663,15 @@ impl RefAny {
             return None;
         }
 
-        // AUDIT: ATOMIC shared-borrow acquisition.
-        //
-        // `RefAny` is `Sync` and clones share one `RefCountInner`, so the old
-        // check-then-increment (`can_be_shared()` then `increase_ref()`) raced a
-        // concurrent `downcast_mut` on another clone: both could pass their
-        // pre-checks and hand out aliasing `&`/`&mut` to the same memory (UB).
-        //
-        // Fix (mirrors the `compare_exchange` discipline in `replace_contents`):
-        // increment `num_refs` FIRST, then validate that no mutable borrow is
-        // live. `SeqCst` imposes a single total order, so a writer (which CASes
-        // `num_mutable_refs` 0->1 then reads `num_refs`) and this reader (which
-        // adds to `num_refs` then reads `num_mutable_refs`) can never both
-        // succeed — at least one observes the other's write. Back the increment
-        // out on any failure path.
+        // AUDIT: ATOMIC shared-borrow acquisition. `RefAny` is `Sync` and clones
+        // share one `RefCountInner`, so the old check-then-increment
+        // (`can_be_shared()` then `increase_ref()`) raced a concurrent
+        // `downcast_mut` on another clone: both could pass their pre-checks and hand
+        // out aliasing `&`/`&mut` to the same memory (UB).
         self.sharing_info.increase_ref();
 
         if !self.sharing_info.can_be_shared() {
-            // A mutable borrow is (being) acquired — release and fail.
+            // A mutable borrow is (being) acquired - release and fail.
             self.sharing_info.decrease_ref();
             return None;
         }
@@ -1051,8 +683,8 @@ impl RefAny {
         // A null `_internal_ptr` means either an uninitialized `RefAny` or a ZST:
         // `RefAny::new_c` stores ZSTs with a null pointer (they need no backing
         // allocation). A ZST is a *valid* stored value, so the type check above is
-        // authoritative and a `&U` to a ZST dereferences no bytes — only a
-        // *non-ZST* null pointer is a genuine failure.
+        // authoritative and a `&U` to a ZST dereferences no bytes - only a *non-ZST*
+        // null pointer is a genuine failure.
         if data_ptr.is_null() && size_of::<U>() != 0 {
             self.sharing_info.decrease_ref();
             return None;
@@ -1074,40 +706,10 @@ impl RefAny {
         })
     }
 
-    /// Attempts to downcast to a mutable reference of type `U`.
-    ///
-    /// Returns `None` if:
-    /// - The stored type doesn't match `U` (type safety)
-    /// - Any borrow is already active (borrow checking)
-    /// - The pointer is null AND `U` is not zero-sized (uninitialized). A
-    ///   stored ZST has a null pointer *by design* and downcasts successfully,
-    ///   via a dangling-but-aligned reference; note that the on-update observer
-    ///   is NOT fired for a ZST (there are no bytes for it to snapshot).
-    ///
-    /// # Type Safety
-    ///
-    /// Compares `type_id` at runtime before casting, preventing UB.
-    ///
-    /// # Borrow Checking
-    ///
-    /// Checks `can_be_shared_mut()` to enforce exclusive mutability:
-    /// - No other borrows (shared or mutable) can be active
-    /// - This is Rust's `&mut T` rule, enforced at runtime
-    ///
-    /// # Safety
-    ///
-    /// The `unsafe` cast is safe because:
-    ///
-    /// - Type ID check ensures `U` matches the stored type
-    /// - Memory was allocated with correct alignment for `U`
-    /// - Borrow check ensures no other references exist
-    /// - Lifetime `'a` is tied to `&'a mut self`, preventing aliasing
-    /// - Mutable reference count is incremented atomically
-    ///
-    /// # Memory Ordering
-    ///
-    /// The `increase_refmut()` uses `SeqCst`, ensuring other threads see
-    /// this mutable borrow before they try to acquire any borrow.
+    /// Attempts to downcast to a mutable reference of type `U`. Returns `None` if:
+    /// - The stored type doesn't match `U` (type safety) - Any borrow is already
+    /// active (borrow checking) - The pointer is null AND `U` is not zero-sized
+    /// (uninitialized).
     #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     #[inline]
     pub fn downcast_mut<U: 'static>(&mut self) -> Option<RefMut<'_, U>> {
@@ -1118,13 +720,9 @@ impl RefAny {
         }
 
         // AUDIT: ATOMIC exclusive-borrow acquisition (mirror `replace_contents`).
-        //
         // The old check-then-increment (`can_be_shared_mut()` then
-        // `increase_refmut()`) raced concurrent borrows on sibling clones and
-        // could hand out an aliasing `&mut` (UB). Instead, `compare_exchange`
-        // `num_mutable_refs` 0->1 to atomically take the exclusive slot, THEN
-        // verify no shared borrow is live; release + fail otherwise. The CAS
-        // both acquires and rejects a second mutable borrow in one step.
+        // `increase_refmut()`) raced concurrent borrows on sibling clones and could
+        // hand out an aliasing `&mut` (UB).
         let inner = self.sharing_info.downcast();
         if inner
             .num_mutable_refs
@@ -1134,7 +732,7 @@ impl RefAny {
             return None;
         }
         if inner.num_refs.load(AtomicOrdering::SeqCst) != 0 {
-            // A shared borrow is live — release the exclusive slot and fail.
+            // A shared borrow is live - release the exclusive slot and fail.
             inner.num_mutable_refs.store(0, AtomicOrdering::SeqCst);
             return None;
         }
@@ -1143,10 +741,8 @@ impl RefAny {
         let data_ptr = inner._internal_ptr;
 
         // A null `_internal_ptr` is either an uninitialized `RefAny` or a ZST
-        // (stored with a null pointer; see `downcast_ref`). A non-ZST null is a
-        // real failure — release the exclusive slot and bail. For a ZST there are
-        // no bytes to observe or mutate, so skip the update observer below and
-        // hand out a dangling-but-aligned `&mut`, keeping the exclusive borrow.
+        // (stored with a null pointer; see `downcast_ref`). A non-ZST null is a real
+        // failure - release the exclusive slot and bail.
         if data_ptr.is_null() {
             if size_of::<U>() != 0 {
                 inner.num_mutable_refs.store(0, AtomicOrdering::SeqCst);
@@ -1161,22 +757,20 @@ impl RefAny {
         }
 
         // Fire the on-update observer (if registered) BEFORE handing out the
-        // mutable borrow: the callback sees the pre-mutation data + its byte
-        // length, enabling undo/redo snapshots and client/server state sync.
+        // mutable borrow: the callback sees the pre-mutation data + its byte length,
+        // enabling undo/redo snapshots and client/server state sync.
         let update_fn = inner.update_fn;
         if update_fn != 0 {
             // SAFETY: `update_fn` is non-zero (checked) and, per `set_update_fn`'s
             // contract, is a valid `extern "C" fn(*const c_void, usize)`. The
-            // round-trip goes through an int-to-pointer CAST (not a direct
-            // usize->fn transmute): a transmuted integer carries no provenance,
-            // which is UB to call (Miri rejects it); the cast re-acquires it.
+            // round-trip goes through an int-to-pointer CAST (not a direct usize->fn
+            // transmute): a transmuted integer carries no provenance, which is UB to
+            // call (Miri rejects it); the cast re-acquires it.
             let cb: extern "C" fn(*const c_void, usize) =
                 unsafe { core::mem::transmute(update_fn as *const ()) };
             let len = inner._internal_len;
-            // AUDIT: the observer is a host-provided `extern "C"` fn. A Rust
-            // panic escaping it would unwind across the FFI boundary (UB), so
-            // contain it. `catch_unwind` needs `std`; `no_std` builds use
-            // `panic = "abort"` where no unwinding can occur.
+            // AUDIT: the observer is a host-provided `extern "C"` fn. A Rust panic
+            // escaping it would unwind across the FFI boundary (UB), so contain it.
             #[cfg(feature = "std")]
             {
                 drop(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1196,22 +790,8 @@ impl RefAny {
         })
     }
 
-    /// Computes a runtime type ID from Rust's `TypeId`.
-    ///
-    /// Rust's `TypeId` is not `#[repr(C)]` and can't cross FFI boundaries.
-    /// This function converts it to a `u64` by treating it as a byte array.
-    ///
-    /// # Safety
-    ///
-    /// Safe because:
-    /// - `TypeId` is a valid type with a stable layout
-    /// - We only read from it, never write
-    /// - The slice lifetime is bounded by the function scope
-    ///
-    /// # Implementation
-    ///
-    /// Treats the `TypeId` as bytes and sums them with bit shifts to create
-    /// a unique (but not cryptographically secure) hash.
+    /// Computes a runtime type ID from Rust's `TypeId`. Rust's `TypeId` is not
+    /// `#[repr(C)]` and can't cross FFI boundaries.
     #[inline]
     fn get_type_id_static<T: 'static>() -> u64 {
         use core::{any::TypeId, mem};
@@ -1226,13 +806,11 @@ impl RefAny {
             )
         };
 
-        // AUDIT: fold ALL bytes of the `TypeId` (16 on current toolchains),
-        // not just the first 8. This u64 is the ONLY runtime type guard used by
+        // AUDIT: fold ALL bytes of the `TypeId` (16 on current toolchains), not
+        // just the first 8. This u64 is the ONLY runtime type guard used by
         // `downcast_*`; dropping the high 8 bytes let two distinct types whose
-        // `TypeId`s differ only in their upper half collide, permitting a
-        // wrong-type downcast (UB). An FxHash-style rotate+multiply mixes every
-        // byte into the result and is deterministic within a process run (which
-        // is all `TypeId` itself guarantees).
+        // `TypeId`s differ only in their upper half collide, permitting a wrong-type
+        // downcast (UB).
         struct_as_bytes.iter().fold(0u64, |hash, &b| {
             (hash.rotate_left(5) ^ u64::from(b)).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95)
         })
@@ -1253,9 +831,8 @@ impl RefAny {
         self.sharing_info.downcast().type_name.clone()
     }
 
-    /// Returns the current reference count (number of `RefAny` clones sharing this data).
-    ///
-    /// This is useful for debugging and metadata purposes.
+    /// Returns the current reference count (number of `RefAny` clones sharing this
+    /// data). This is useful for debugging and metadata purposes.
     #[must_use] pub fn get_ref_count(&self) -> usize {
         self.sharing_info
             .downcast()
@@ -1263,33 +840,25 @@ impl RefAny {
             .load(AtomicOrdering::SeqCst)
     }
 
-    /// Returns the serialize function pointer (0 = not set).
-    /// 
-    /// This is used for JSON serialization of `RefAny` contents.
+    /// Returns the serialize function pointer (0 = not set). This is used for JSON
+    /// serialization of `RefAny` contents.
     #[must_use] pub fn get_serialize_fn(&self) -> usize {
         self.sharing_info.downcast().serialize_fn
     }
 
-    /// Returns the deserialize function pointer (0 = not set).
-    /// 
-    /// This is used for JSON deserialization to create a new `RefAny`.
+    /// Returns the deserialize function pointer (0 = not set). This is used for
+    /// JSON deserialization to create a new `RefAny`.
     #[must_use] pub fn get_deserialize_fn(&self) -> usize {
         self.sharing_info.downcast().deserialize_fn
     }
 
-    /// Sets the serialize function pointer.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure the function pointer is valid and has the correct
-    /// signature: `extern "C" fn(RefAny) -> Json`
-    ///
-    /// **Known issue:** `&mut self` is exclusive to this clone, not to the shared
-    /// `RefCountInner`. Concurrent calls via different clones are a data race
-    /// because `serialize_fn` is a plain `usize`, not atomic.
+    /// Sets the serialize function pointer. The caller must ensure the function
+    /// pointer is valid and has the correct signature: `extern "C" fn(RefAny) ->
+    /// Json` **Known issue:** `&mut self` is exclusive to this clone, not to the
+    /// shared `RefCountInner`.
     pub fn set_serialize_fn(&mut self, serialize_fn: usize) {
         // FIXME: &mut self is exclusive to this clone only, not to the shared
-        // RefCountInner — concurrent calls via different clones are a data race.
+        // RefCountInner - concurrent calls via different clones are a data race.
         let inner = self.sharing_info.ptr.cast_mut();
         // SAFETY: `inner` came from `Box::into_raw` and is live (we hold `self`).
         unsafe {
@@ -1297,19 +866,13 @@ impl RefAny {
         }
     }
 
-    /// Sets the deserialize function pointer.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure the function pointer is valid and has the correct
-    /// signature: `extern "C" fn(Json) -> ResultRefAnyString`
-    ///
-    /// **Known issue:** `&mut self` is exclusive to this clone, not to the shared
-    /// `RefCountInner`. Concurrent calls via different clones are a data race
-    /// because `deserialize_fn` is a plain `usize`, not atomic.
+    /// Sets the deserialize function pointer. The caller must ensure the function
+    /// pointer is valid and has the correct signature: `extern "C" fn(Json) ->
+    /// ResultRefAnyString` **Known issue:** `&mut self` is exclusive to this clone,
+    /// not to the shared `RefCountInner`.
     pub fn set_deserialize_fn(&mut self, deserialize_fn: usize) {
         // FIXME: &mut self is exclusive to this clone only, not to the shared
-        // RefCountInner — concurrent calls via different clones are a data race.
+        // RefCountInner - concurrent calls via different clones are a data race.
         let inner = self.sharing_info.ptr.cast_mut();
         // SAFETY: `inner` came from `Box::into_raw` and is live (we hold `self`).
         unsafe {
@@ -1319,14 +882,8 @@ impl RefAny {
 
     /// Registers an on-update observer (`0` = unset). It is fired from
     /// [`Self::downcast_mut`] with the (data ptr, byte len) of the *pre-mutation*
-    /// data, just before the mutable borrow is handed out — the foundation for
+    /// data, just before the mutable borrow is handed out - the foundation for
     /// undo/redo snapshots and client/server state sync.
-    ///
-    /// # Safety
-    ///
-    /// If `update_fn != 0` it must be a valid `extern "C" fn(*const c_void, usize)`.
-    /// Same shared-`RefCountInner` caveat as [`Self::set_serialize_fn`]: `&mut self`
-    /// is exclusive to this clone, not to the shared inner.
     pub fn set_update_fn(&mut self, update_fn: usize) {
         let inner = self.sharing_info.ptr.cast_mut();
         // SAFETY: `inner` came from `Box::into_raw` and is live (we hold `self`).
@@ -1350,42 +907,8 @@ impl RefAny {
         self.get_deserialize_fn() != 0
     }
 
-    /// Replaces the contents of this `RefAny` with a new value from another `RefAny`.
-    ///
-    /// This method:
-    /// 1. Atomically acquires a mutable "lock" via `compare_exchange`
-    /// 2. Calls the destructor on the old value
-    /// 3. Deallocates the old memory
-    /// 4. Copies the new value's memory
-    /// 5. Updates metadata (`type_id`, `type_name`, destructor, serialize/deserialize fns)
-    /// 6. Updates the shared _`internal_ptr` so ALL clones see the new data
-    /// 7. Releases the lock
-    ///
-    /// Since all clones of a `RefAny` share the same `RefCountInner`, this change
-    /// will be visible to ALL clones of this `RefAny`.
-    ///
-    /// # Returns
-    ///
-    /// - `true` if the replacement was successful
-    /// - `false` if there are active borrows (would cause UB)
-    ///
-    /// # Thread Safety
-    ///
-    /// Uses `compare_exchange` to atomically acquire exclusive access, preventing
-    /// any race condition between checking for borrows and modifying the data.
-    ///
-    /// # Safety
-    ///
-    /// Safe because:
-    /// - We atomically acquire exclusive access before modifying
-    /// - The old destructor is called before deallocation
-    /// - Memory is properly allocated with correct alignment
-    /// - All metadata is updated while holding the lock
-    ///
-    /// # Panics
-    ///
-    /// Panics if a memory `Layout` for the replacement value cannot be
-    /// constructed (its size overflows `isize::MAX`).
+    /// Replaces the contents of this `RefAny` with a new value from another
+    /// `RefAny`. This method: 1.
     #[allow(clippy::used_underscore_binding)] // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     pub fn replace_contents(&mut self, new_value: Self) -> bool {
         use core::ptr;
@@ -1393,10 +916,10 @@ impl RefAny {
         let inner = self.sharing_info.ptr.cast_mut();
         
         // Atomically acquire exclusive access by setting num_mutable_refs to 1.
-        // This uses compare_exchange to ensure no race condition:
-        // - If num_mutable_refs is 0, set it to 1 (success)
-        // - If num_mutable_refs is not 0, someone else has it (fail)
-        // We also need to check num_refs == 0 atomically.
+        // This uses compare_exchange to ensure no race condition: - If
+        // num_mutable_refs is 0, set it to 1 (success) - If num_mutable_refs is not
+        // 0, someone else has it (fail) We also need to check num_refs == 0
+        // atomically.
         let inner_ref = self.sharing_info.downcast();
         
         // First, try to acquire the mutable lock
@@ -1412,20 +935,20 @@ impl RefAny {
             return false;
         }
         
-        // Now check that there are no shared references
-        // Note: We hold the mutable lock, so no new shared refs can be acquired
+        // Now check that there are no shared references Note: We hold the mutable
+        // lock, so no new shared refs can be acquired
         if inner_ref.num_refs.load(AtomicOrdering::SeqCst) != 0 {
             // Release the lock and fail
             inner_ref.num_mutable_refs.store(0, AtomicOrdering::SeqCst);
             return false;
         }
         
-        // We now have exclusive access - perform the replacement
-        // SAFETY: we hold the exclusive lock (num_mutable_refs==1, num_refs==0),
-        // so no live `Ref`/`RefMut` aliases the data; `inner` is the live
-        // `RefCountInner` from `Box::into_raw`. Old data is destructed+freed with
-        // its own stored layout before the pointer is overwritten, and the new
-        // data is freshly allocated and byte-copied.
+        // We now have exclusive access - perform the replacement SAFETY: we hold
+        // the exclusive lock (num_mutable_refs==1, num_refs==0), so no live
+        // `Ref`/`RefMut` aliases the data; `inner` is the live `RefCountInner` from
+        // `Box::into_raw`. Old data is destructed+freed with its own stored layout
+        // before the pointer is overwritten, and the new data is freshly allocated
+        // and byte-copied.
         unsafe {
             // Get old layout info before we overwrite it
             let old_ptr = (*inner)._internal_ptr;
@@ -1440,9 +963,9 @@ impl RefAny {
             }
 
             // Step 2: Deallocate old memory (if non-ZST). Use the *checked*
-            // `Layout::from_size_align` (not `_unchecked`): the stored
-            // size/align came from a valid `Layout`, so it always succeeds, and
-            // this shrinks the unchecked surface inside this unsafe block.
+            // `Layout::from_size_align` (not `_unchecked`): the stored size/align
+            // came from a valid `Layout`, so it always succeeds, and this shrinks
+            // the unchecked surface inside this unsafe block.
             if old_layout_size > 0 && !old_ptr.is_null() {
                 let old_layout = Layout::from_size_align(old_layout_size, old_layout_align)
                     .expect("replace_contents: stored old layout was invalid");
@@ -1475,8 +998,8 @@ impl RefAny {
                 heap_ptr
             };
 
-            // Step 4: Update the shared internal pointer in RefCountInner
-            // All clones will see this new pointer!
+            // Step 4: Update the shared internal pointer in RefCountInner All
+            // clones will see this new pointer!
             (*inner)._internal_ptr = allocated_ptr as *const c_void;
 
             // Step 5: Update metadata in RefCountInner
@@ -1494,26 +1017,17 @@ impl RefAny {
         // Release the mutable lock
         self.sharing_info.downcast().num_mutable_refs.store(0, AtomicOrdering::SeqCst);
 
-        // AUDIT: reclaim `new_value` instead of leaking it.
-        //
-        // The old code `mem::forget(new_value)` to stop `RefAny::drop` from
-        // running the T-destructor a SECOND time on the bytes we just copied
-        // into our own allocation — but that leaked `new_value`'s entire
-        // `RefCountInner` box AND its heap data block on every single call.
-        //
-        // Instead, neutralize `new_value`'s destructor to a no-op and let the
-        // normal refcount teardown run: it frees BOTH allocations (data block +
-        // inner box) when this was the last reference, without re-running the
-        // real T-destructor (which now lives on OUR inner, to run exactly once
-        // when `self` is finally dropped). If `new_value` still had clones, the
-        // no-op keeps them from double-dropping the shared T while their own
-        // last drop still reclaims the shared block — no double free, no leak.
+        // AUDIT: reclaim `new_value` instead of leaking it. The old code
+        // `mem::forget(new_value)` to stop `RefAny::drop` from running the
+        // T-destructor a SECOND time on the bytes we just copied into our own
+        // allocation - but that leaked `new_value`'s entire `RefCountInner` box AND
+        // its heap data block on every single call.
         #[allow(clippy::items_after_statements)]
         const extern "C" fn noop_destructor(_: *mut c_void) {}
         let new_inner = new_value.sharing_info.ptr.cast_mut();
         if !new_inner.is_null() {
-            // SAFETY: `new_inner` came from `Box::into_raw` in `RefCount::new`
-            // and is still alive (we hold `new_value`).
+            // SAFETY: `new_inner` came from `Box::into_raw` in `RefCount::new` and
+            // is still alive (we hold `new_value`).
             unsafe {
                 (*new_inner).custom_destructor = noop_destructor;
             }
@@ -1525,38 +1039,9 @@ impl RefAny {
 }
 
 impl Clone for RefAny {
-    /// Creates a new `RefAny` sharing the same heap-allocated data.
-    ///
-    /// This is cheap (just increments a counter) and is how multiple parts
-    /// of the code can hold references to the same data.
-    ///
-    /// # Reference Counting
-    ///
-    /// Atomically increments `num_copies` with `SeqCst` ordering before
-    /// creating the clone. This ensures all threads see the updated count
-    /// before the clone can be used.
-    ///
-    /// # Instance ID
-    ///
-    /// Each clone gets a unique `instance_id` based on the current copy count.
-    /// The original has `instance_id=0`, the first clone gets `1`, etc.
-    ///
-    /// # Memory Ordering
-    ///
-    /// The `fetch_add` followed by `load` both use `SeqCst`:
-    /// - `fetch_add`: Ensures the increment is visible to all threads
-    /// - `load`: Gets the updated value for the `instance_id`
-    ///
-    /// This prevents race conditions where two threads clone simultaneously
-    /// and both see the same `instance_id`.
-    ///
-    /// # Safety
-    ///
-    /// Safe because:
-    ///
-    /// - Atomic operations prevent data races
-    /// - The heap allocation remains valid (only freed when count reaches 0)
-    /// - `run_destructor` is set to `true` for all clones
+    /// Creates a new `RefAny` sharing the same heap-allocated data. This is cheap
+    /// (just increments a counter) and is how multiple parts of the code can hold
+    /// references to the same data.
     fn clone(&self) -> Self {
         // Atomically increment the reference count
         let inner = self.sharing_info.downcast();
@@ -1577,33 +1062,12 @@ impl Clone for RefAny {
 }
 
 impl Drop for RefAny {
-    /// Empty drop implementation - all cleanup is handled by `RefCount::drop`.
-    ///
-    /// When a `RefAny` is dropped, its `sharing_info: RefCount` field is automatically
-    /// dropped by Rust. The `RefCount::drop` implementation handles all cleanup:
-    ///
-    /// 1. Atomically decrements `num_copies` with `fetch_sub`
-    /// 2. If the previous value was 1 (we're the last reference):
-    ///    - Reclaims the `RefCountInner` via `Box::from_raw`
-    ///    - Calls the custom destructor to run `T::drop()`
-    ///    - Deallocates the heap memory with the stored layout
-    ///
-    /// # Why No Code Here?
-    ///
-    /// Previously, `RefAny::drop` handled cleanup, but this caused issues with the
-    /// C API where `Ref<T>` and `RefMut<T>` guards (which clone the `RefCount`) need
-    /// to keep the data alive even after the original `RefAny` is dropped.
-    ///
-    /// By moving all cleanup to `RefCount::drop`, we ensure that:
-    /// - `RefAny::clone()` creates a `RefCount` with `run_destructor = true`
-    /// - `AZ_REFLECT` macros create `Ref`/`RefMut` guards that clone `RefCount`
-    /// - Each `RefCount` drop decrements the counter
-    /// - Only the LAST drop (when `num_copies` was 1) cleans up memory
-    ///
-    /// See `RefCount::drop` for the full algorithm and safety documentation.
+    /// Empty drop implementation - all cleanup is handled by `RefCount::drop`. When
+    /// a `RefAny` is dropped, its `sharing_info: RefCount` field is automatically
+    /// dropped by Rust.
     fn drop(&mut self) {
-        // RefCount::drop handles everything automatically.
-        // The sharing_info field is dropped by Rust, triggering RefCount::drop.
+        // RefCount::drop handles everything automatically. The sharing_info field
+        // is dropped by Rust, triggering RefCount::drop.
     }
 }
 
@@ -1615,12 +1079,10 @@ mod audit_tests {
 
     static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-    // The tests below share the single `DROP_COUNT` static: each resets it to 0
-    // and then asserts an exact drop count. Under the default multi-threaded
-    // test runner they would otherwise interleave and corrupt each other's
-    // counts (a real, if test-only, isolation bug). Every `DROP_COUNT`-using
-    // test takes this lock first to serialize; it is poison-tolerant so one
-    // failing test does not cascade `.unwrap()` panics into the rest.
+    // The tests below share the single `DROP_COUNT` static: each resets it to 0 and
+    // then asserts an exact drop count. Under the default multi-threaded test runner
+    // they would otherwise interleave and corrupt each other's counts (a real, if
+    // test-only, isolation bug).
     static DROP_COUNT_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
     fn serialize_drop_count() -> std::sync::MutexGuard<'static, ()> {
         DROP_COUNT_SERIAL
@@ -1636,13 +1098,13 @@ mod audit_tests {
     }
 
     // AUDIT: exclusive borrow must be denied while a shared borrow is live and
-    // vice-versa (runtime borrow checker), and must be recoverable after the
-    // guard drops. Exercises the atomic acquire/release added to downcast_*.
+    // vice-versa (runtime borrow checker), and must be recoverable after the guard
+    // drops. Exercises the atomic acquire/release added to downcast_*.
     #[test]
     fn borrow_exclusion_and_recovery() {
-        // The runtime borrow guard lives in the *shared* refcount inner, so it
-        // is only observable across two clones (a single `RefAny` can't hold two
-        // guards at once — the methods take `&mut self`). `b` shares `a`'s inner.
+        // The runtime borrow guard lives in the *shared* refcount inner, so it is
+        // only observable across two clones (a single `RefAny` can't hold two guards
+        // at once - the methods take `&mut self`). `b` shares `a`'s inner.
         let mut a = RefAny::new(7i32);
         let mut b = a.clone();
 
@@ -1682,8 +1144,8 @@ mod audit_tests {
         );
     }
 
-    // AUDIT: replace_contents must run each stored value's destructor exactly
-    // once (old value on replace, new value on final drop) and must not leak.
+    // AUDIT: replace_contents must run each stored value's destructor exactly once
+    // (old value on replace, new value on final drop) and must not leak.
     #[test]
     fn replace_contents_drops_exactly_once() {
         let _serial = serialize_drop_count();
@@ -1704,8 +1166,8 @@ mod audit_tests {
     #[test]
     fn replace_contents_denied_while_borrowed() {
         let mut a = RefAny::new(1i32);
-        // Clone first: `r` will exclusively borrow `a`, so the sibling clone
-        // must exist beforehand. Both share the same inner RefCountInner.
+        // Clone first: `r` will exclusively borrow `a`, so the sibling clone must
+        // exist beforehand. Both share the same inner RefCountInner.
         let mut a2 = a.clone();
         let r = a.downcast_ref::<i32>().unwrap();
         // A live shared borrow (num_refs != 0) on the shared inner must block
@@ -1716,13 +1178,13 @@ mod audit_tests {
     }
 
     // ---- Miri-focused unit tests -------------------------------------------
-    // These exercise the pure-Rust memory behavior of each unsafe path so Miri
-    // can detect UB (bad provenance, misalignment, use-after-free, leaks,
-    // refcount corruption). No FFI, no threads, no OS calls; tiny allocations.
+    // These exercise the pure-Rust memory behavior of each unsafe path so Miri can
+    // detect UB (bad provenance, misalignment, use-after-free, leaks, refcount
+    // corruption). No FFI, no threads, no OS calls; tiny allocations.
 
     // MIRI: covers RefAny::new + new_c alloc/copy_nonoverlapping + downcast_ref
-    // (&*(ptr as *const U)) + the final Drop path (Box::from_raw + dealloc +
-    // custom destructor). A non-Copy heap type checks the destructor runs.
+    // (&*(ptr as *const U)) + the final Drop path (Box::from_raw + dealloc + custom
+    // destructor). A non-Copy heap type checks the destructor runs.
     #[test]
     fn miri_new_downcast_drop_roundtrip() {
         let _serial = serialize_drop_count();
@@ -1750,8 +1212,8 @@ mod audit_tests {
     }
 
     // MIRI: clone shares one RefCountInner; num_copies increments on clone and
-    // decrements on drop (RefCount::clone / RefCount::drop fetch paths). Data
-    // must survive while any clone lives and be freed exactly once at the end.
+    // decrements on drop (RefCount::clone / RefCount::drop fetch paths). Data must
+    // survive while any clone lives and be freed exactly once at the end.
     #[test]
     fn miri_clone_refcount_increment_decrement() {
         let _serial = serialize_drop_count();
@@ -1774,8 +1236,8 @@ mod audit_tests {
         assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1);
     }
 
-    // MIRI: downcast_mut hands out &mut *(ptr as *mut U); mutation must be
-    // visible through a shared clone (shared RefCountInner data pointer).
+    // MIRI: downcast_mut hands out &mut *(ptr as *mut U); mutation must be visible
+    // through a shared clone (shared RefCountInner data pointer).
     #[test]
     fn miri_downcast_mut_mutation_visible_across_clones() {
         let mut a = RefAny::new(10u32);
@@ -1789,8 +1251,8 @@ mod audit_tests {
 
     // MIRI: the runtime borrow refcount on the shared inner. Exercises
     // increase_ref/decrease_ref/increase_refmut/decrease_refmut and the
-    // can_be_shared / can_be_shared_mut predicates directly, plus the
-    // checked_sub underflow guard (decrement at zero must saturate, not wrap).
+    // can_be_shared / can_be_shared_mut predicates directly, plus the checked_sub
+    // underflow guard (decrement at zero must saturate, not wrap).
     #[test]
     fn miri_borrow_counter_transitions_and_underflow_guard() {
         let a = RefAny::new(0i32);
@@ -1819,8 +1281,8 @@ mod audit_tests {
         assert!(rc.can_be_shared_mut());
     }
 
-    // MIRI: get_type_id_static reads TypeId via from_raw_parts and folds ALL
-    // bytes. Same type -> same id (stable within a run); distinct types differ.
+    // MIRI: get_type_id_static reads TypeId via from_raw_parts and folds ALL bytes.
+    // Same type -> same id (stable within a run); distinct types differ.
     #[test]
     fn miri_type_id_static_stable_and_distinct() {
         assert_eq!(
@@ -1834,8 +1296,8 @@ mod audit_tests {
     }
 
     // MIRI: ZST payload uses a null data pointer but must still construct, clone,
-    // run its destructor exactly once, and downcast (a ZST reference reads no
-    // bytes, so a dangling-but-aligned pointer is a valid reference).
+    // run its destructor exactly once, and downcast (a ZST reference reads no bytes,
+    // so a dangling-but-aligned pointer is a valid reference).
     #[test]
     fn miri_zst_roundtrip_and_destructor() {
         let _serial = serialize_drop_count();
@@ -1857,9 +1319,9 @@ mod audit_tests {
         assert_eq!(DROP_COUNT.load(Ordering::SeqCst), 1);
     }
 
-    // MIRI: replace_contents alloc/dealloc/copy path plus the neutralized
-    // new_value destructor. Old value destructed once, new value destructed
-    // once at final drop, with no leak/double-free of either heap block.
+    // MIRI: replace_contents alloc/dealloc/copy path plus the neutralized new_value
+    // destructor. Old value destructed once, new value destructed once at final
+    // drop, with no leak/double-free of either heap block.
     #[test]
     fn miri_replace_contents_alloc_paths() {
         let _serial = serialize_drop_count();
@@ -1880,7 +1342,8 @@ mod audit_tests {
         let mut a = RefAny::new(7u8);
         assert!(a.replace_contents(RefAny::new(0x1122_3344_5566_7788u64)));
         {
-            // downcast_ref takes &mut self, so scope the guard before the next call.
+            // downcast_ref takes &mut self, so scope the guard before the next
+            // call.
             let r = a.downcast_ref::<u64>().unwrap();
             assert_eq!(*r, 0x1122_3344_5566_7788u64);
             assert_eq!((&raw const *r) as usize % core::mem::align_of::<u64>(), 0);
@@ -1889,8 +1352,8 @@ mod audit_tests {
         assert!(a.downcast_ref::<u8>().is_none());
     }
 
-    // MIRI: RefCount clone/drop in isolation keeps the inner alive until the
-    // last handle drops (Box::into_raw / Box::from_raw balance).
+    // MIRI: RefCount clone/drop in isolation keeps the inner alive until the last
+    // handle drops (Box::into_raw / Box::from_raw balance).
     #[test]
     fn miri_refcount_clone_keeps_inner_alive() {
         let a = RefAny::new(5usize);
@@ -1938,8 +1401,8 @@ mod autotest_generated {
 
     use super::*;
 
-    /// Destructor for payloads that need no drop glue (`Copy` types built via
-    /// the raw C-ABI `new_c` path).
+    /// Destructor for payloads that need no drop glue (`Copy` types built via the
+    /// raw C-ABI `new_c` path).
     extern "C" fn noop_destructor(_: *mut c_void) {}
 
     /// Store `value` in a `RefAny` and read it back out: the byte-copy into the
@@ -1972,8 +1435,8 @@ mod autotest_generated {
     }
 
     // A non-power-of-two alignment cannot form a valid `Layout`; it must panic
-    // before allocating rather than allocate with a bogus layout (which would
-    // make the matching `dealloc` in `drop` UB).
+    // before allocating rather than allocate with a bogus layout (which would make
+    // the matching `dealloc` in `drop` UB).
     #[test]
     #[should_panic(expected = "Failed to create layout")]
     fn new_c_non_power_of_two_align_panics() {
@@ -2009,8 +1472,8 @@ mod autotest_generated {
     }
 
     // len == 0 is the ZST path: NULL data pointer is legal, `align` is ignored
-    // (even a nonsensical 0), nothing is allocated, and a ZST still downcasts
-    // (via a dangling-but-aligned reference — there are no bytes to read).
+    // (even a nonsensical 0), nothing is allocated, and a ZST still downcasts (via a
+    // dangling-but-aligned reference - there are no bytes to read).
     #[test]
     fn new_c_zero_len_null_ptr_is_a_clean_zst() {
         let mut a = RefAny::new_c(
@@ -2081,8 +1544,8 @@ mod autotest_generated {
         assert!(a.sharing_info.can_be_shared_mut());
     }
 
-    // Over-alignment (align > len) is a valid `Layout`; the payload must land on
-    // an address that satisfies the requested alignment.
+    // Over-alignment (align > len) is a valid `Layout`; the payload must land on an
+    // address that satisfies the requested alignment.
     #[test]
     fn new_c_over_aligned_small_payload() {
         let value: u8 = 0x5A;
@@ -2170,9 +1633,9 @@ mod autotest_generated {
         assert_eq!(a.get_ref_count(), 1);
     }
 
-    // Large + heavily over-aligned payload: the alignment recorded at
-    // construction must be honoured by the allocation, or every downcast would
-    // hand out a misaligned reference.
+    // Large + heavily over-aligned payload: the alignment recorded at construction
+    // must be honoured by the allocation, or every downcast would hand out a
+    // misaligned reference.
     #[test]
     fn new_large_over_aligned_payload_round_trips() {
         #[repr(align(64))]
@@ -2211,7 +1674,7 @@ mod autotest_generated {
     }
 
     // Floats are copied as raw bytes, so every bit pattern (NaN payloads, signed
-    // zero, infinities) must survive unchanged — no normalization, no rounding.
+    // zero, infinities) must survive unchanged - no normalization, no rounding.
     #[test]
     fn float_extremes_round_trip_bit_exact() {
         let mut nan = RefAny::new(f64::NAN);
@@ -2240,7 +1703,7 @@ mod autotest_generated {
     }
 
     // Owned heap payloads: the value is moved in (`mem::forget` on the original)
-    // and dropped exactly once at the end — a double-drop here would be a
+    // and dropped exactly once at the end - a double-drop here would be a
     // double-free of the String/Vec buffers.
     #[test]
     fn owned_unicode_payloads_round_trip() {
@@ -2290,8 +1753,8 @@ mod autotest_generated {
         assert_eq!(a.get_serialize_fn(), 0);
         assert!(!a.can_serialize());
 
-        // The fn pointer lives in the SHARED inner, so a clone's setter is
-        // visible through the original.
+        // The fn pointer lives in the SHARED inner, so a clone's setter is visible
+        // through the original.
         let mut b = a.clone();
         b.set_serialize_fn(42);
         assert_eq!(a.get_serialize_fn(), 42);
@@ -2324,9 +1787,9 @@ mod autotest_generated {
         assert!(!a.can_deserialize());
     }
 
-    // `set_update_fn` only *stores* the address; a bogus value must round-trip
-    // and must be resettable to 0. (Deliberately no `downcast_mut` while the
-    // observer is bogus — `downcast_mut` transmutes and CALLS it.)
+    // `set_update_fn` only *stores* the address; a bogus value must round-trip and
+    // must be resettable to 0. (Deliberately no `downcast_mut` while the observer is
+    // bogus - `downcast_mut` transmutes and CALLS it.)
     #[test]
     fn set_update_fn_zero_and_extremes() {
         let mut a = RefAny::new(1u32);
@@ -2384,8 +1847,8 @@ mod autotest_generated {
         assert_eq!(*a.downcast_ref::<u32>().unwrap(), 9);
         assert_eq!(UPDATE_CALLS.load(Ordering::SeqCst), 1);
 
-        // A *denied* mutable borrow (shared borrow live on a sibling clone)
-        // must not fire it either.
+        // A *denied* mutable borrow (shared borrow live on a sibling clone) must
+        // not fire it either.
         let mut b = a.clone();
         let r = a.downcast_ref::<u32>().unwrap();
         assert!(b.downcast_mut::<u32>().is_none());
@@ -2527,7 +1990,7 @@ mod autotest_generated {
         let d3 = a.sharing_info.debug_get_refcount_copied();
         assert_eq!((d3.num_refs, d3.num_mutable_refs), (0, 0));
 
-        // The Debug impl goes through `downcast()` — it must not panic.
+        // The Debug impl goes through `downcast()` - it must not panic.
         assert!(!alloc::format!("{:?}", a.sharing_info).is_empty());
     }
 
@@ -2579,8 +2042,8 @@ mod autotest_generated {
         assert!(rc.can_be_shared());
         assert!(rc.can_be_shared_mut());
 
-        // Clones must keep the boxed inner alive; the counters must return to 1
-        // so the final drop frees it exactly once.
+        // Clones must keep the boxed inner alive; the counters must return to 1 so
+        // the final drop frees it exactly once.
         let c1 = rc.clone();
         assert_eq!(rc.debug_get_refcount_copied().num_copies, 2);
         let c2 = c1.clone();
@@ -2590,9 +2053,9 @@ mod autotest_generated {
         assert_eq!(rc.debug_get_refcount_copied().num_copies, 1);
     }
 
-    // The borrow counters must saturate at 0 instead of wrapping to usize::MAX
-    // (an unmatched `FooRef_delete` from C would otherwise permanently wedge the
-    // runtime borrow checker), and stay usable afterwards.
+    // The borrow counters must saturate at 0 instead of wrapping to usize::MAX (an
+    // unmatched `FooRef_delete` from C would otherwise permanently wedge the runtime
+    // borrow checker), and stay usable afterwards.
     #[test]
     fn borrow_counters_saturate_at_zero_and_stay_usable() {
         let mut a = RefAny::new(3i64);
@@ -2640,9 +2103,9 @@ mod autotest_generated {
 
     // ---- get_type_id_static ----
 
-    // The u64 type ID is the ONLY runtime guard against a wrong-type downcast,
-    // so distinct types must not collide (this is what folding ALL TypeId bytes
-    // buys us) and it must be stable within a process run.
+    // The u64 type ID is the ONLY runtime guard against a wrong-type downcast, so
+    // distinct types must not collide (this is what folding ALL TypeId bytes buys
+    // us) and it must be stable within a process run.
     #[test]
     fn type_id_static_is_stable_and_collision_free() {
         let ids = [
@@ -2719,8 +2182,8 @@ mod autotest_generated {
         assert_eq!(*a.downcast_ref::<u32>().unwrap(), 0x4142_4344);
 
         // sized -> ZST: the pointer goes back to null, but the ZST still downcasts
-        // via a dangling reference; each temporary guard releases its borrow slot
-        // on drop, so the exclusive slot is free again afterwards.
+        // via a dangling reference; each temporary guard releases its borrow slot on
+        // drop, so the exclusive slot is free again afterwards.
         assert!(a.replace_contents(RefAny::new(Zst)));
         assert_eq!(a.get_data_len(), 0);
         assert!(a.get_data_ptr().is_null());
@@ -2737,7 +2200,7 @@ mod autotest_generated {
         assert!(a.replace_contents(RefAny::new(2u32)));
         assert_eq!(*b.downcast_ref::<u32>().unwrap(), 2);
 
-        // The type may change too — every clone sees the new type.
+        // The type may change too - every clone sees the new type.
         assert!(a.replace_contents(RefAny::new(String::from("swapped"))));
         assert!(b.downcast_ref::<u32>().is_none());
         assert_eq!(b.downcast_ref::<String>().unwrap().as_str(), "swapped");
@@ -2814,8 +2277,8 @@ mod autotest_generated {
         drop(a); // must not propagate the panic out of the extern "C" destructor
     }
 
-    // RefAny is Send + Sync: concurrent clone/borrow/drop from several threads
-    // must leave the reference count exactly where it started.
+    // RefAny is Send + Sync: concurrent clone/borrow/drop from several threads must
+    // leave the reference count exactly where it started.
     #[cfg(feature = "std")]
     #[test]
     fn concurrent_clone_and_borrow_keeps_the_refcount_balanced() {

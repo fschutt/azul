@@ -1,8 +1,6 @@
-//! Logical and physical coordinate types for the GUI toolkit.
-//!
-//! Provides DPI-independent (`Logical*`) and pixel-level (`Physical*`) geometry
-//! types used throughout layout, rendering, windowing, and hit testing.
-//! Logical coordinates are scaled by a DPI factor to produce physical coordinates.
+//! Logical and physical coordinate types for the GUI toolkit. Provides
+//! DPI-independent (`Logical*`) and pixel-level (`Physical*`) geometry types used
+//! throughout layout, rendering, windowing, and hit testing.
 
 // Re-export DragDelta from drag module (moved in code reorganization)
 pub use crate::drag::{DragDelta, OptionDragDelta};
@@ -91,9 +89,8 @@ impl LogicalRect {
             && point.y < self.max_y()
     }
 
-    /// Same as `contains()`, but returns the (x, y) offset of the hit point
-    ///
-    /// On a regular computer this function takes ~3.2ns to run
+    /// Same as `contains()`, but returns the (x, y) offset of the hit point On a
+    /// regular computer this function takes ~3.2ns to run
     #[inline]
     #[must_use] pub fn hit_test(&self, other: &LogicalPosition) -> Option<LogicalPosition> {
         let dx_left_edge = other.x - self.min_x();
@@ -102,9 +99,9 @@ impl LogicalRect {
         let dy_bottom_edge = self.max_y() - other.y;
         // Edge semantics must match `contains`: left/top inclusive (`>= min`),
         // right/bottom exclusive (`< max`). Previously all four edges were
-        // exclusive, so a point exactly on the left/top edge hit-tested as a
-        // miss even though `contains` reported it inside — dropping/duplicating
-        // hits on shared edges between adjacent rects.
+        // exclusive, so a point exactly on the left/top edge hit-tested as a miss
+        // even though `contains` reported it inside - dropping/duplicating hits on
+        // shared edges between adjacent rects.
         if dx_left_edge >= 0.0 && dx_right_edge > 0.0 && dy_top_edge >= 0.0 && dy_bottom_edge > 0.0 {
             Some(LogicalPosition::new(dx_left_edge, dy_top_edge))
         } else {
@@ -131,11 +128,9 @@ use core::{
 
 use azul_css::props::layout::LayoutWritingMode;
 
-/// A 2D position in logical (DPI-independent) coordinates.
-// PartialEq is hand-implemented over `quantize()` (see below) so that equality
-// agrees with the quantized `Ord`/`Hash`. A derived field-wise `PartialEq`
-// compared raw f32, so `a == b` could be false while `a.cmp(b) == Equal`,
-// breaking `BTreeMap`/`HashMap` lookups keyed on these types.
+/// A 2D position in logical (DPI-independent) coordinates. PartialEq is
+/// hand-implemented over `quantize()` (see below) so that equality agrees with the
+/// quantized `Ord`/`Hash`.
 #[derive(Default, Copy, Clone)]
 #[repr(C)]
 pub struct LogicalPosition {
@@ -212,21 +207,21 @@ impl ops::Sub for LogicalPosition {
 const DECIMAL_MULTIPLIER: f32 = 1000.0;
 
 /// Quantizes an f32 coordinate to fixed-point for stable `Ord`/`Hash`/`PartialEq`
-/// (comparing raw f32 bit patterns would be unstable / non-total).
-// intentional fixed-point quantization: the truncation IS the rounding step.
+/// (comparing raw f32 bit patterns would be unstable / non-total). intentional
+/// fixed-point quantization: the truncation IS the rounding step.
 #[allow(clippy::cast_possible_truncation)]
 fn quantize(value: f32) -> i64 {
     // NaN has no meaningful position in a total order. Map it to a single fixed
-    // sentinel (`i64::MIN`) so all NaNs compare equal to each other and sort
-    // below every real value — and, critically, do NOT collide with `0.0`
-    // (the old `NaN as isize == 0` behaviour aliased NaN onto the origin).
+    // sentinel (`i64::MIN`) so all NaNs compare equal to each other and sort below
+    // every real value - and, critically, do NOT collide with `0.0` (the old `NaN as
+    // isize == 0` behaviour aliased NaN onto the origin).
     if value.is_nan() {
         return i64::MIN;
     }
     // `f32 as i64` saturates on overflow (since Rust 1.45), so an out-of-range
-    // coordinate clamps to `i64::{MIN,MAX}` instead of wrapping. `isize` was
-    // only 32-bit on wasm32, so a large coordinate overflowed there — `i64` is
-    // wide enough on every target.
+    // coordinate clamps to `i64::{MIN,MAX}` instead of wrapping. `isize` was only
+    // 32-bit on wasm32, so a large coordinate overflowed there - `i64` is wide
+    // enough on every target.
     (value * DECIMAL_MULTIPLIER) as i64
 }
 
@@ -237,7 +232,7 @@ impl_option!(
 );
 
 // PartialOrd delegates to the quantized Ord (the derived field-wise PartialOrd
-// compared raw f32 and diverged from this quantized order — a latent bug).
+// compared raw f32 and diverged from this quantized order - a latent bug).
 impl PartialOrd for LogicalPosition {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -293,9 +288,9 @@ impl LogicalPosition {
     }
 }
 
-/// A 2D size in logical (DPI-independent) coordinates.
-// PartialEq is hand-implemented over `quantize()` to agree with the quantized
-// `Ord`/`Hash` (see `LogicalPosition` for the rationale).
+/// A 2D size in logical (DPI-independent) coordinates. PartialEq is
+/// hand-implemented over `quantize()` to agree with the quantized `Ord`/`Hash` (see
+/// `LogicalPosition` for the rationale).
 #[derive(Default, Copy, Clone)]
 #[repr(C)]
 pub struct LogicalSize {
@@ -312,8 +307,8 @@ impl PartialEq for LogicalSize {
 
 impl LogicalSize {
     /// Scales the size in-place by the given DPI scale factor and returns self.
-    // Mutates in place; the returned copy is only for optional chaining, so callers
-    // may legitimately discard it (e.g. ui_solver) — #[must_use] would be wrong here.
+    /// Mutates in place; the returned copy is only for optional chaining, so callers
+    /// may legitimately discard it (e.g.
     #[allow(clippy::return_self_not_must_use)]
     pub fn scale_for_dpi(&mut self, scale_factor: f32) -> Self {
         self.width *= scale_factor;
@@ -357,7 +352,7 @@ impl_option!(
 );
 
 // PartialOrd delegates to the quantized Ord (the derived field-wise PartialOrd
-// compared raw f32 and diverged from this quantized order — a latent bug).
+// compared raw f32 and diverged from this quantized order - a latent bug).
 impl PartialOrd for LogicalSize {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -585,24 +580,18 @@ impl PhysicalSize<u32> {
     }
 }
 
-/// Marker enum documenting which coordinate space a geometric value is in.
-///
-/// This is for documentation and debugging purposes only — it does not enforce
-/// type safety at compile time. Use comments like `[CoordinateSpace::Window]`
-/// or `[CoordinateSpace::ScrollFrame]` in code to document coordinate contexts.
-///
-/// **Common bug pattern:** passing `Window`-space coordinates where
-/// `ScrollFrame`-space is expected (or vice versa). The scroll frame creates a
-/// new spatial node, so primitives must be offset by the frame origin.
+/// Marker enum documenting which coordinate space a geometric value is in. This is
+/// for documentation and debugging purposes only - it does not enforce type safety
+/// at compile time.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub enum CoordinateSpace {
-    /// Absolute coordinates from window top-left (0,0).
-    /// Layout engine output is in this space.
+    /// Absolute coordinates from window top-left (0,0). Layout engine output is in
+    /// this space.
     Window,
     
-    /// Relative to scroll frame content origin.
-    /// Transformation: `scroll_pos` = `window_pos` - `scroll_frame_origin`
+    /// Relative to scroll frame content origin. Transformation: `scroll_pos` =
+    /// `window_pos` - `scroll_frame_origin`
     ScrollFrame,
     
     /// Relative to parent node's content box origin.
@@ -617,8 +606,9 @@ pub enum CoordinateSpace {
 // Type-safe coordinate newtypes for API clarity
 // =============================================================================
 
-/// Position in screen coordinates (logical pixels, relative to primary monitor origin).
-/// On Wayland: falls back to window-local since global coords are unavailable.
+/// Position in screen coordinates (logical pixels, relative to primary monitor
+/// origin). On Wayland: falls back to window-local since global coords are
+/// unavailable.
 #[derive(Default, Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ScreenPosition {
@@ -741,8 +731,8 @@ mod tests {
         };
         assert_eq!(hash_of(&a), hash_of(&b));
 
-        // NaN equals NaN under the quantized PartialEq (i64::MIN bucket) — this
-        // is what stops the every-frame Resize loop upstream.
+        // NaN equals NaN under the quantized PartialEq (i64::MIN bucket) - this is
+        // what stops the every-frame Resize loop upstream.
         let n1 = LogicalSize::new(f32::NAN, 1.0);
         let n2 = LogicalSize::new(f32::NAN, 1.0);
         assert_eq!(n1, n2);
@@ -816,7 +806,7 @@ mod autotest_generated {
     #[test]
     fn quantize_truncates_toward_zero_below_precision() {
         // Sub-millipixel deltas collapse into the same bucket (truncation IS the
-        // documented rounding step) — and truncation is toward zero, not floor.
+        // documented rounding step) - and truncation is toward zero, not floor.
         assert_eq!(quantize(0.0004), 0);
         assert_eq!(quantize(-0.0004), 0);
         assert_eq!(quantize(1.0004), 1000);
@@ -847,8 +837,8 @@ mod autotest_generated {
     fn quantize_saturation_aliases_nan_with_the_bottom_of_the_range() {
         // KNOWN, INTENTIONAL LOSSINESS: NaN, -inf and f32::MIN all collapse onto
         // the i64::MIN bucket, so they compare Equal. This keeps Ord/Eq total and
-        // consistent (which is what the type contract needs), but callers cannot
-        // use == to distinguish "no value" (NaN) from a huge negative coordinate.
+        // consistent (which is what the type contract needs), but callers cannot use
+        // == to distinguish "no value" (NaN) from a huge negative coordinate.
         assert_eq!(quantize(f32::NAN), quantize(f32::NEG_INFINITY));
         assert_eq!(quantize(f32::NAN), quantize(f32::MIN));
         assert_eq!(
@@ -897,7 +887,7 @@ mod autotest_generated {
     fn ord_is_reflexive_and_antisymmetric_even_with_nan() {
         let grid = hostile_positions();
         for a in grid {
-            // Eq requires reflexivity — raw f32 NaN would break it.
+            // Eq requires reflexivity - raw f32 NaN would break it.
             assert_eq!(a.cmp(&a), Ordering::Equal);
             assert_eq!(a, a);
             for b in grid {
@@ -956,7 +946,7 @@ mod autotest_generated {
     #[test]
     fn logical_rect_eq_and_hash_are_quantized_through_its_fields() {
         // LogicalRect's derived PartialEq/Hash must inherit the quantized field
-        // impls — a NaN-sized rect has to be a stable HashMap key.
+        // impls - a NaN-sized rect has to be a stable HashMap key.
         let a = LogicalRect::new(
             LogicalPosition::new(f32::NAN, 1.0),
             LogicalSize::new(f32::NAN, 2.0),
@@ -1024,8 +1014,8 @@ mod autotest_generated {
         );
         assert_eq!(PhysicalSize::<u32>::zero(), PhysicalSize::new(0, 0));
 
-        // A zero rect is degenerate: it contains no point at all, not even its
-        // own origin, and it does not intersect itself.
+        // A zero rect is degenerate: it contains no point at all, not even its own
+        // origin, and it does not intersect itself.
         let z = LogicalRect::zero();
         assert!(!z.contains(LogicalPosition::zero()));
         assert!(!z.intersects(z));
@@ -1066,7 +1056,7 @@ mod autotest_generated {
                 let _ = r.max_y();
             }
         }
-        // inf + (-inf) is NaN — max_x has no guard, so it propagates NaN rather
+        // inf + (-inf) is NaN - max_x has no guard, so it propagates NaN rather
         // than panicking. Assert the defined (non-panicking) result.
         let r = LogicalRect::new(
             LogicalPosition::new(f32::INFINITY, f32::INFINITY),
@@ -1262,11 +1252,11 @@ mod autotest_generated {
 
     #[test]
     fn intersects_with_nan_rect_is_permissive_current_behavior() {
-        // DOCUMENTS A REAL QUIRK (reported, not worked around): every `<=` guard
-        // in `intersects` is false against NaN, so all four early-outs are skipped
-        // and a fully-NaN rect reports that it intersects EVERYTHING — while
-        // `contains` on the same rect correctly reports false for every point.
-        // Locked down here so a future fix has to change this deliberately.
+        // DOCUMENTS A REAL QUIRK (reported, not worked around): every `<=` guard in
+        // `intersects` is false against NaN, so all four early-outs are skipped and
+        // a fully-NaN rect reports that it intersects EVERYTHING - while `contains`
+        // on the same rect correctly reports false for every point. Locked down here
+        // so a future fix has to change this deliberately.
         let nan_rect = LogicalRect::new(
             LogicalPosition::new(f32::NAN, f32::NAN),
             LogicalSize::new(f32::NAN, f32::NAN),
@@ -1405,8 +1395,8 @@ mod autotest_generated {
             LogicalSize::new(f32::MAX, f32::INFINITY).to_physical(1.0),
             PhysicalSize::new(u32::MAX, u32::MAX)
         );
-        // x: 1e30 * 1e30 overflows f32 to +inf, then saturates at the cast.
-        // y: 0.0 * 1e30 stays 0 — saturation must not smear across components.
+        // x: 1e30 * 1e30 overflows f32 to +inf, then saturates at the cast. y: 0.0
+        // * 1e30 stays 0 - saturation must not smear across components.
         assert_eq!(
             LogicalPosition::new(1.0e30, 0.0).to_physical(1.0e30),
             PhysicalPosition::new(u32::MAX, 0)

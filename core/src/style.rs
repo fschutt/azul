@@ -1,8 +1,6 @@
-//! DOM tree to CSS style tree cascading.
-//!
-//! Implements CSS selector matching (`matches_html_element`) and cascade-info
-//! construction (`construct_html_cascade_tree`). Used by `styled_dom` and
-//! `prop_cache` to resolve which CSS rules apply to each DOM node.
+//! DOM tree to CSS style tree cascading. Implements CSS selector matching
+//! (`matches_html_element`) and cascade-info construction
+//! (`construct_html_cascade_tree`).
 
 use alloc::vec::Vec;
 
@@ -46,8 +44,8 @@ impl CascadeInfoVec {
     }
 }
 
-/// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by
-/// that element)
+/// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should
+/// be styled by that element)
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 #[must_use] pub fn matches_html_element(
     css_path: &CssPath,
@@ -63,8 +61,8 @@ impl CascadeInfoVec {
         return false;
     }
 
-    // Skip anonymous nodes - they are not part of the original DOM tree
-    // and should not participate in CSS selector matching
+    // Skip anonymous nodes - they are not part of the original DOM tree and should
+    // not participate in CSS selector matching
     if node_data[node_id].is_anonymous() {
         return false;
     }
@@ -80,9 +78,9 @@ impl CascadeInfoVec {
     // The rightmost group must match the target node directly.
     let (ref first_group, first_reason) = groups[0];
     // groups[0] is ALWAYS the subject (rightmost) group, so it is the "last content
-    // group" that an interactive pseudo (:hover/:focus/:active) attaches to — regardless
-    // of how many ancestor groups precede it. The old `groups.len() == 1` disabled
-    // :hover on the subject of every multi-group selector (e.g. `body > div:hover`).
+    // group" that an interactive pseudo (:hover/:focus/:active) attaches to -
+    // regardless of how many ancestor groups precede it. The old `groups.len() == 1`
+    // disabled :hover on the subject of every multi-group selector (e.g.
     let is_last_content_group = true;
     if !selector_group_matches(
         first_group,
@@ -95,8 +93,8 @@ impl CascadeInfoVec {
         return false;
     }
 
-    // Navigate from the target node upward/sideways through the DOM,
-    // matching each remaining selector group with its combinator.
+    // Navigate from the target node upward/sideways through the DOM, matching each
+    // remaining selector group with its combinator.
     let mut current_node = node_id;
 
     for (group_idx, (content_group, _reason)) in groups.iter().enumerate().skip(1) {
@@ -187,12 +185,10 @@ fn find_non_anonymous_parent(
     None
 }
 
-/// Find the first previous sibling of a node that the `+`/`~` combinators can target:
-/// an element, skipping anonymous boxes AND non-element (text) nodes.
-///
-/// CSS sibling combinators operate on ELEMENTS (Selectors L4 §15.2), so an intervening
-/// text node must not block `.a + .b` from reaching the preceding element. Skipping only
-/// anonymous boxes left text siblings in the way.
+/// Find the first previous sibling of a node that the `+`/`~` combinators can
+/// target: an element, skipping anonymous boxes AND non-element (text) nodes. CSS
+/// sibling combinators operate on ELEMENTS (Selectors L4 §15.2), so an intervening
+/// text node must not block `.a + .b` from reaching the preceding element.
 fn find_non_anonymous_prev_sibling(
     node_id: NodeId,
     node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
@@ -209,17 +205,10 @@ fn find_non_anonymous_prev_sibling(
 }
 
 /// A CSS group is a group of css selectors in a path that specify the rule that a
-/// certain node has to match, i.e. "div.main.foo" has to match three requirements:
-///
-/// - the node has to be of type div
-/// - the node has to have the class "main"
-/// - the node has to have the class "foo"
-///
-/// If any of these requirements are not met, the CSS block is discarded.
-///
-/// The `CssGroupIterator` splits the CSS path into semantic blocks, i.e.:
-///
-/// `"body > .foo.main > #baz"` will be split into `["body", ".foo.main", "#baz"]`
+/// certain node has to match, i.e. "div.main.foo" has to match three requirements: -
+/// the node has to be of type div - the node has to have the class "main" - the node
+/// has to have the class "foo" If any of these requirements are not met, the CSS
+/// block is discarded.
 #[derive(Debug)]
 pub struct CssGroupIterator<'a> {
     pub css_path: &'a [CssPathSelector],
@@ -287,8 +276,8 @@ impl<'a> Iterator for CssGroupIterator<'a> {
             new_idx -= 1;
         }
 
-        // NOTE: Order inside of a ContentGroup is not important
-        // for matching elements, only important for testing
+        // NOTE: Order inside of a ContentGroup is not important for matching
+        // elements, only important for testing
         #[cfg(test)]
         current_path.reverse();
 
@@ -322,10 +311,9 @@ impl<'a> Iterator for CssGroupIterator<'a> {
 
     for (_depth, parent_id) in node_depths_sorted {
         // Per CSS Selectors Level 4 §13: "Standalone text and other non-element
-        // nodes are not counted when calculating the position of an element in
-        // the list of children of its parent."
-        //
-        // We count only element siblings when computing index_in_parent.
+        // nodes are not counted when calculating the position of an element in the
+        // list of children of its parent." We count only element siblings when
+        // computing index_in_parent.
         let element_index_in_parent = parent_id
             .preceding_siblings(node_hierarchy)
             .filter(|sib_id| !node_data[*sib_id].is_text_node())
@@ -334,7 +322,7 @@ impl<'a> Iterator for CssGroupIterator<'a> {
         let parent_html_matcher = CascadeInfo {
             index_in_parent: u32::try_from(element_index_in_parent.saturating_sub(1))
                 .unwrap_or(u32::MAX),
-            // Necessary for :last selectors — find last element sibling
+            // Necessary for :last selectors - find last element sibling
             is_last_child: {
                 let mut is_last_element = true;
                 let mut next = node_hierarchy[*parent_id].next_sibling;
@@ -356,7 +344,8 @@ impl<'a> Iterator for CssGroupIterator<'a> {
         for child_id in parent_id.children(node_hierarchy) {
             let is_text = node_data[child_id].is_text_node();
 
-            // Find whether this is the last element child (skip trailing text nodes)
+            // Find whether this is the last element child (skip trailing text
+            // nodes)
             let is_last_element_child = if is_text {
                 false
             } else {
@@ -388,15 +377,14 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     NodeDataContainer { internal: nodes }
 }
 
-/// Checks whether the last selector in `path` matches the given pseudo-selector `target`.
-///
-/// Known limitation: this only inspects the final selector in the path, so compound
-/// selectors like `div:hover:first-child` may not be filtered correctly when `target`
-/// is `None` — only the very last pseudo-selector is tested.
+/// Checks whether the last selector in `path` matches the given pseudo-selector
+/// `target`. Known limitation: this only inspects the final selector in the path, so
+/// compound selectors like `div:hover:first-child` may not be filtered correctly
+/// when `target` is `None` - only the very last pseudo-selector is tested.
 #[inline]
 #[must_use] pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> bool {
-    // Helper to check if a pseudo-selector is "interactive" (requires user interaction state)
-    // vs "structural" (based on DOM structure only)
+    // Helper to check if a pseudo-selector is "interactive" (requires user
+    // interaction state) vs "structural" (based on DOM structure only)
     const fn is_interactive_pseudo(p: &CssPathPseudoSelector) -> bool {
         matches!(
             p,
@@ -415,7 +403,8 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     target.map_or_else(
         || match last {
             // Only reject interactive pseudo-selectors (hover, active, focus).
-            // Structural pseudo-selectors (nth-child, first, last) should be allowed.
+            // Structural pseudo-selectors (nth-child, first, last) should be
+            // allowed.
             CssPathSelector::PseudoSelector(p) => !is_interactive_pseudo(p),
             _ => true,
         },
@@ -423,10 +412,8 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     )
 }
 
-/// Matches a single group of CSS selectors against a DOM node.
-///
-/// Returns true if all selectors in the group match the given node.
-/// Combinator selectors (>, +, ~, space) should not appear in the group.
+/// Matches a single group of CSS selectors against a DOM node. Returns true if all
+/// selectors in the group match the given node.
 fn selector_group_matches(
     selectors: &[&CssPathSelector],
     html_node: CascadeInfo,
@@ -435,11 +422,11 @@ fn selector_group_matches(
     expected_path_ending: Option<&CssPathPseudoSelector>,
     is_last_content_group: bool,
 ) -> bool {
-    // Inline-style detection for the `Global` arm: a bare-declaration
-    // `with_css` rule is scoped to EXACTLY its owner node when the scope is
-    // pushed (`push_front_scope_for` collapses the range to `[owner, owner]`
-    // for INLINE-priority bare `*` wrappers). Such a rule is the author
-    // addressing THIS node directly — it must style a text node too.
+    // Inline-style detection for the `Global` arm: a bare-declaration `with_css`
+    // rule is scoped to EXACTLY its owner node when the scope is pushed
+    // (`push_front_scope_for` collapses the range to `[owner, owner]` for
+    // INLINE-priority bare `*` wrappers). Such a rule is the author addressing THIS
+    // node directly - it must style a text node too.
     let node_scoped_to_self = selectors.iter().any(|s| {
         matches!(s, CssPathSelector::Root(r)
             if r.start == r.end && r.start == node_id.index())
@@ -470,34 +457,26 @@ fn match_single_selector(
     use self::CssPathSelector::{Global, Root, Type, Class, Id, PseudoSelector, Attribute, DirectChildren, Children, AdjacentSibling, GeneralSibling};
 
     match selector {
-        // Per CSS, `*` matches ELEMENTS - never text nodes: letting a
-        // stylesheet's universal selector hit text nodes made
-        // `* { color: #666 }` overwrite the color a text child had just
-        // inherited from its `p { color: red }` parent. The one exception is
-        // a rule scoped to EXACTLY this node (`node_scoped_to_self`) — that
-        // is a bare-declaration `with_css` ON the text node itself, i.e.
-        // inline-style semantics: `create_text_do_not_use_without_block_level_wrapper("x").with_css("color: white")`
-        // must apply. Subtree-scoped and unscoped `*` rules keep refusing
-        // text nodes.
+        // Per CSS, `*` matches ELEMENTS - never text nodes: letting a stylesheet's
+        // universal selector hit text nodes made `* { color: #666 }` overwrite the
+        // color a text child had just inherited from its `p { color: red }` parent.
+        // The one exception is a rule scoped to EXACTLY this node
+        // (`node_scoped_to_self`) - that is a bare-declaration `with_css` ON the
+        // text node itself, i.e.
         Global => !node_data.is_text_node() || node_scoped_to_self,
         // `Root(range)` (scope marker, #47): matches any node WITHIN the subtree
         // range `[start, end]`. The range is chosen when the scope is pushed
-        // (`CssPath::push_front_scope`):
-        //  - a bare-decl `with_css` rule (`* { … }`) is scoped node-only (`[start,
-        //    start]`) → inline-style semantics: it applies to the OWNER only, so a
-        //    non-root `background` can't leak to descendants/siblings (#47 leak fix).
-        //  - a component rule with a real selector (`.menu-item`, from
-        //    `add_component_css`) is scoped to the whole subtree (`[start, end]`) so
-        //    its selector matches descendants of the owner (a menu container styling
-        //    its `.menu-item` children). Compounded with the rest of the path,
-        //    `[Root(range), Class(x)]` means "a node in range that also matches `.x`".
+        // (`CssPath::push_front_scope`): - a bare-decl `with_css` rule (`* { … }`)
+        // is scoped node-only (`[start, start]`) → inline-style semantics: it
+        // applies to the OWNER only, so a non-root `background` can't leak to
+        // descendants/siblings (#47 leak fix).
         Root(range) => range.contains(node_id.index()),
         Type(t) => node_data.get_node_type().get_path() == *t,
         Class(c) => node_data.has_class(c.as_str()),
         Id(id) => node_data.has_id(id.as_str()),
         // `:root` matches the document root element (NodeId::ZERO, the topmost
         // element). Handled here rather than in `match_pseudo_selector` because it
-        // needs `node_id`. Equivalent to `html` but with pseudo-class specificity.
+        // needs `node_id`.
         PseudoSelector(CssPathPseudoSelector::Root) => node_id.index() == 0,
         PseudoSelector(p) => {
             match_pseudo_selector(p, html_node, expected_path_ending, is_last_content_group)
@@ -507,12 +486,9 @@ fn match_single_selector(
     }
 }
 
-/// Matches an attribute selector (`[name]`, `[name="v"]`, `[name~="v"]`, ...) against a node.
-///
-/// Some attributes (notably `class`) are stored as multiple separate entries in
-/// `node_data.attributes()` rather than a single space-joined string. We collect
-/// every matching value and treat the matcher as "any value satisfies the op",
-/// so that `[class~="primary"]` matches a node with classes `foo primary bar`.
+/// Matches an attribute selector (`[name]`, `[name="v"]`, `[name~="v"]`, ...)
+/// against a node. Some attributes (notably `class`) are stored as multiple separate
+/// entries in `node_data.attributes()` rather than a single space-joined string.
 fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) -> bool {
     let name = sel.name.as_str();
     let target = sel.value.as_ref().map(azul_css::AzString::as_str);
@@ -533,7 +509,8 @@ fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) ->
             (AttributeMatchOp::Prefix, Some(t)) => !t.is_empty() && actual.starts_with(t),
             (AttributeMatchOp::Suffix, Some(t)) => !t.is_empty() && actual.ends_with(t),
             (AttributeMatchOp::Substring, Some(t)) => !t.is_empty() && actual.contains(t),
-            // Operator with a missing value (parser should reject these — be defensive).
+            // Operator with a missing value (parser should reject these - be
+            // defensive).
             (_, None) => false,
         }
     };
@@ -550,7 +527,8 @@ fn match_attribute_selector(sel: &CssAttributeSelector, node_data: &NodeData) ->
     false
 }
 
-/// Matches a pseudo-selector (:first, :last, :nth-child, :hover, etc.) against a node.
+/// Matches a pseudo-selector (:first, :last, :nth-child, :hover, etc.) against a
+/// node.
 fn match_pseudo_selector(
     pseudo: &CssPathPseudoSelector,
     html_node: CascadeInfo,
@@ -592,8 +570,8 @@ fn match_pseudo_selector(
             is_last_content_group,
         ),
         CssPathPseudoSelector::Lang(lang) => {
-            // :lang() is matched via DynamicSelector at runtime, not during CSS cascade
-            // During cascade, we just check if this is the expected ending
+            // :lang() is matched via DynamicSelector at runtime, not during CSS
+            // cascade During cascade, we just check if this is the expected ending
             if let Some(CssPathPseudoSelector::Lang(expected_lang)) = expected_path_ending {
                 return lang == expected_lang;
             }
@@ -601,7 +579,7 @@ fn match_pseudo_selector(
             false
         }
         // `:root` is matched in `match_single_selector` (it needs `node_id`), so it
-        // never reaches here — return false defensively.
+        // never reaches here - return false defensively.
         CssPathPseudoSelector::Root => false,
     }
 }
@@ -616,7 +594,8 @@ const fn match_last_child(html_node: CascadeInfo) -> bool {
     html_node.is_last_child
 }
 
-/// Matches :nth-child(n), :nth-child(even), :nth-child(odd), or :nth-child(An+B) patterns.
+/// Matches :nth-child(n), :nth-child(even), :nth-child(odd), or :nth-child(An+B)
+/// patterns.
 fn match_nth_child(html_node: CascadeInfo, pattern: &CssNthChildSelector) -> bool {
     use azul_css::css::CssNthChildPattern;
 
@@ -640,8 +619,8 @@ fn match_nth_child(html_node: CascadeInfo, pattern: &CssNthChildSelector) -> boo
     }
 }
 
-/// Matches interactive pseudo-selectors (:hover, :active, :focus).
-/// These only apply if they appear in the last content group of the CSS path.
+/// Matches interactive pseudo-selectors (:hover, :active, :focus). These only apply
+/// if they appear in the last content group of the CSS path.
 fn match_interactive_pseudo(
     pseudo: &CssPathPseudoSelector,
     expected_path_ending: Option<&CssPathPseudoSelector>,
@@ -725,18 +704,9 @@ mod autotest_generated {
         }
     }
 
-    /// The shared fixture DOM. Note node 2 is a **text node** sitting between
-    /// two element siblings — the whole point is to exercise the "text nodes
-    /// are not counted as element siblings" rule (CSS Selectors L4 §13).
-    ///
-    /// ```text
-    /// 0 body
-    /// ├── 1 div#first.a
-    /// ├── 2 "hello"          (text)
-    /// ├── 3 div.b
-    /// │   └── 4 p.inner
-    /// └── 5 div.c
-    /// ```
+    /// The shared fixture DOM. Note node 2 is a **text node** sitting between two
+    /// element siblings - the whole point is to exercise the "text nodes are not
+    /// counted as element siblings" rule (CSS Selectors L4 §13).
     fn sample_hierarchy() -> Vec<Node> {
         vec![
             node(None, None, None, Some(5)),
@@ -787,7 +757,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // CascadeInfoVec::as_container  (getter)
+    // CascadeInfoVec::as_container (getter)
     // ---------------------------------------------------------------------
 
     #[test]
@@ -869,9 +839,9 @@ mod autotest_generated {
 
         assert_eq!(groups[2].0, vec![&path[0]]);
         // NOTE: the leftmost group's `reason` is a carry-over from the previous
-        // split (there is no combinator to its left). `matches_html_element`
-        // never reads it — it uses `groups[i - 1].1` as the combinator for
-        // group `i` — so we deliberately do not assert on it here.
+        // split (there is no combinator to its left). `matches_html_element` never
+        // reads it - it uses `groups[i - 1].1` as the combinator for group `i` - so
+        // we deliberately do not assert on it here.
     }
 
     #[test]
@@ -894,7 +864,7 @@ mod autotest_generated {
 
     #[test]
     fn css_group_iterator_terminates_on_consecutive_combinators() {
-        // `.a > ~ .b` — two combinators in a row (parser should never emit this,
+        // `.a > ~ .b` - two combinators in a row (parser should never emit this,
         // but the iterator must not loop forever or drop selectors).
         let path = vec![
             CssPathSelector::Class("a".into()),
@@ -928,8 +898,8 @@ mod autotest_generated {
 
     #[test]
     fn css_group_iterator_conserves_every_non_combinator_selector_on_a_huge_path() {
-        // 10_000 selectors: `.c0 .c1 .c2 ...` — must terminate and must not
-        // lose or duplicate a single selector.
+        // 10_000 selectors: `.c0 .c1 .c2 ...` - must terminate and must not lose or
+        // duplicate a single selector.
         let mut path = Vec::new();
         for i in 0..5_000u32 {
             if i != 0 {
@@ -1079,7 +1049,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // match_nth_child  (numeric: 1-indexing, saturation, div-by-zero, overflow)
+    // match_nth_child (numeric: 1-indexing, saturation, div-by-zero, overflow)
     // ---------------------------------------------------------------------
 
     #[test]
@@ -1188,17 +1158,15 @@ mod autotest_generated {
         });
         assert!(!match_nth_child(info(0, false), &pat));
         assert!(!match_nth_child(info(1_000, false), &pat));
-        // index == u32::MAX (index_in_parent == u32::MAX - 1) is the largest
-        // index that can be formed without overflowing the `+ 1`.
+        // index == u32::MAX (index_in_parent == u32::MAX - 1) is the largest index
+        // that can be formed without overflowing the `+ 1`.
         assert!(match_nth_child(info(u32::MAX - 1, false), &pat));
     }
 
     /// BOUNDARY: `match_nth_child` computes `index_in_parent + 1` unchecked.
-    /// `index_in_parent == u32::MAX` is reachable — `construct_html_cascade_tree`
-    /// itself saturates to `u32::MAX` (`unwrap_or(u32::MAX)`), and `CascadeInfo`
-    /// is a `#[repr(C)]` struct with public fields. Debug builds therefore panic
-    /// on overflow, release builds wrap the index to 0. Assert that the wrap can
-    /// never silently produce the *wrong* answer for even/odd/number.
+    /// `index_in_parent == u32::MAX` is reachable - `construct_html_cascade_tree`
+    /// itself saturates to `u32::MAX` (`unwrap_or(u32::MAX)`), and `CascadeInfo` is
+    /// a `#[repr(C)]` struct with public fields.
     #[cfg(feature = "std")]
     #[test]
     fn match_nth_child_at_u32_max_index_never_answers_wrongly() {
@@ -1213,8 +1181,8 @@ mod autotest_generated {
             match_nth_child(info(u32::MAX, false), &CssNthChildSelector::Number(1))
         });
 
-        // debug: the overflow check fires — loud failure, acceptable.
-        // release: the index wraps to 0, which must still not flip an answer.
+        // debug: the overflow check fires - loud failure, acceptable. release: the
+        // index wraps to 0, which must still not flip an answer.
         if let Ok(v) = even {
             assert!(v, "2^32 is even");
         }
@@ -1382,8 +1350,8 @@ mod autotest_generated {
 
     #[test]
     fn match_attribute_selector_empty_target_never_matches_the_substring_family() {
-        // `[x^=""]` / `[x$=""]` / `[x*=""]` / `[x~=""]` would otherwise match
-        // every node (every string starts with / contains the empty string).
+        // `[x^=""]` / `[x$=""]` / `[x*=""]` / `[x~=""]` would otherwise match every
+        // node (every string starts with / contains the empty string).
         let nd = node_with_attrs(vec![custom("data-x", "abc")]);
         for op in [
             AttributeMatchOp::Prefix,
@@ -1565,8 +1533,8 @@ mod autotest_generated {
             true
         , false));
         // Per CSS, `*` matches ELEMENTS only. Text nodes take styling by
-        // inheritance; a universal rule hitting them directly overwrote
-        // freshly inherited values (`* { color }` vs `p { color }`).
+        // inheritance; a universal rule hitting them directly overwrote freshly
+        // inherited values (`* { color }` vs `p { color }`).
         assert!(!match_single_selector(
             &CssPathSelector::Global,
             info(u32::MAX, true),
@@ -1580,9 +1548,9 @@ mod autotest_generated {
     #[test]
     fn global_matches_a_text_node_only_when_the_rule_is_scoped_to_exactly_it() {
         // Inline-style semantics (miniword ENGINE-ISSUE 4):
-        // `create_text_do_not_use_without_block_level_wrapper("x").with_css("color: white")` produces
-        // `[Root(n..=n), Global]` — the author addressed THIS node, so the
-        // universal selector must match despite it being a text node.
+        // `create_text_do_not_use_without_block_level_wrapper("x").with_css("color:
+        // white")` produces `[Root(n..=n), Global]` - the author addressed THIS
+        // node, so the universal selector must match despite it being a text node.
         let text = NodeData::create_text_do_not_use_without_block_level_wrapper("hello");
         let nid = NodeId::new(7);
         let self_scope = CssPathSelector::Root(CssScopeRange { start: 7, end: 7 });
@@ -1594,16 +1562,16 @@ mod autotest_generated {
             "a node-only-scoped bare-decl rule must style its own text node"
         );
 
-        // Negative control 1: the SAME group on a DIFFERENT text node (the
-        // scope range excludes it) must not match.
+        // Negative control 1: the SAME group on a DIFFERENT text node (the scope
+        // range excludes it) must not match.
         assert!(
             !selector_group_matches(&group, info(0, true), &text, NodeId::new(8), None, true),
             "node-only scope must not leak to other text nodes"
         );
 
-        // Negative control 2: a SUBTREE-scoped `* { }` (stylesheet semantics,
-        // start != end) keeps refusing text nodes — the historical
-        // `* { color: #666 }` inheritance-overwrite bug must stay fixed.
+        // Negative control 2: a SUBTREE-scoped `* { }` (stylesheet semantics, start
+        // != end) keeps refusing text nodes - the historical `* { color: #666 }`
+        // inheritance-overwrite bug must stay fixed.
         let subtree_scope = CssPathSelector::Root(CssScopeRange { start: 0, end: 20 });
         let group2: Vec<&CssPathSelector> = vec![&subtree_scope, &global];
         assert!(
@@ -1620,8 +1588,8 @@ mod autotest_generated {
 
     #[test]
     fn match_single_selector_never_matches_a_combinator() {
-        // Combinators must be split out by the group iterator; if one ever
-        // reaches the matcher it must fail closed, not match everything.
+        // Combinators must be split out by the group iterator; if one ever reaches
+        // the matcher it must fail closed, not match everything.
         let div = NodeData::create_div();
         for c in [
             CssPathSelector::DirectChildren,
@@ -1753,7 +1721,7 @@ mod autotest_generated {
 
     #[test]
     fn selector_group_matches_empty_group_matches_vacuously() {
-        // This is what a dangling combinator (`.foo >`) produces — see
+        // This is what a dangling combinator (`.foo >`) produces - see
         // `css_group_iterator_yields_an_empty_group_for_a_trailing_combinator`.
         // `all()` over an empty group is `true`, so such a group matches ANY node.
         let empty: Vec<&CssPathSelector> = Vec::new();
@@ -1771,14 +1739,9 @@ mod autotest_generated {
     // find_non_anonymous_parent / find_non_anonymous_prev_sibling
     // ---------------------------------------------------------------------
 
-    /// ```text
-    /// 0 body
-    /// ├── 1 <anonymous>
-    /// │   └── 2 <anonymous>
-    /// │       └── 3 div        <- parent chain must skip 1 and 2
-    /// ├── 4 <anonymous>
-    /// └── 5 div                <- prev-sibling chain must skip 4 and 1
-    /// ```
+    /// 0 body ├── 1 <anonymous> │ └── 2 <anonymous> │ └── 3 div <- parent chain
+    /// must skip 1 and 2 ├── 4 <anonymous> └── 5 div <- prev-sibling chain must skip
+    /// 4 and 1
     fn anonymous_fixture() -> (Vec<Node>, Vec<NodeData>) {
         let hierarchy = vec![
             node(None, None, None, Some(5)),
@@ -1847,8 +1810,8 @@ mod autotest_generated {
         let h = NodeDataContainerRef::from_slice(&hier_items);
         let d = NodeDataContainerRef::from_slice(&data);
 
-        // node 5's previous siblings are 4 (anonymous) and 1 (anonymous), so
-        // there is no non-anonymous previous sibling.
+        // node 5's previous siblings are 4 (anonymous) and 1 (anonymous), so there
+        // is no non-anonymous previous sibling.
         assert_eq!(find_non_anonymous_prev_sibling(NodeId::new(5), &h, &d), None);
         // a first child has no previous sibling.
         assert_eq!(find_non_anonymous_prev_sibling(NodeId::new(1), &h, &d), None);
@@ -1863,9 +1826,9 @@ mod autotest_generated {
         let h = NodeDataContainerRef::from_slice(&hier_items);
         let d = NodeDataContainerRef::from_slice(&data);
 
-        // The text node (2) between div.a (1) and div.b (3) is SKIPPED — sibling
-        // combinators target elements only — so the previous element sibling of node 3
-        // is div.a (1), not the text node. See
+        // The text node (2) between div.a (1) and div.b (3) is SKIPPED - sibling
+        // combinators target elements only - so the previous element sibling of node
+        // 3 is div.a (1), not the text node. See
         // `matches_html_element_adjacent_sibling_skips_text_nodes`.
         assert_eq!(
             find_non_anonymous_prev_sibling(NodeId::new(3), &h, &d),
@@ -1939,7 +1902,8 @@ mod autotest_generated {
 
     #[test]
     fn construct_html_cascade_tree_ignores_trailing_text_nodes_for_is_last_child() {
-        // 0 body -> [1 div, 2 "text", 3 "text"]  => div is still the LAST element child.
+        // 0 body -> [1 div, 2 "text", 3 "text"] => div is still the LAST element
+        // child.
         let hierarchy = vec![
             node(None, None, None, Some(3)),
             node(Some(0), None, Some(2), None),
@@ -2170,11 +2134,11 @@ mod autotest_generated {
     }
 
     /// EXPECTED-RED (genuine bug, see report): `find_non_anonymous_prev_sibling`
-    /// only skips *anonymous* nodes, not *non-element* (text) nodes. CSS
-    /// Selectors L4 §15.2 defines `E + F` over element siblings only — and
+    /// only skips *anonymous* nodes, not *non-element* (text) nodes. CSS Selectors
+    /// L4 §15.2 defines `E + F` over element siblings only - and
     /// `construct_html_cascade_tree` already excludes text nodes from sibling
-    /// indexing (L4 §13) — so `div.a + div.b` must still match across the
-    /// intervening text node. Today it returns `false`.
+    /// indexing (L4 §13) - so `div.a + div.b` must still match across the
+    /// intervening text node.
     #[test]
     fn matches_html_element_adjacent_sibling_skips_text_nodes() {
         // `div.a + div.b`, with the text node 2 sitting between them.
@@ -2206,15 +2170,15 @@ mod autotest_generated {
 
     /// EXPECTED-RED (genuine bug, see report): `matches_html_element` passes
     /// `is_last_content_group = groups.len() == 1` for the SUBJECT group (the
-    /// rightmost one, which the iterator yields first), so an interactive pseudo
-    /// on the subject of any multi-group selector — `.container .btn:hover`,
-    /// `body > .btn:hover`, … — can never match. `prop_cache` reaches
-    /// `matches_html_element` with exactly this shape (`rule_ends_with(path,
-    /// Some(Hover))` → `matches_html_element(..., Some(Hover))`), so every
-    /// descendant/child `:hover` / `:active` / `:focus` rule is silently dropped.
+    /// rightmost one, which the iterator yields first), so an interactive pseudo on
+    /// the subject of any multi-group selector - `.container .btn:hover`, `body >
+    /// .btn:hover`, … - can never match. `prop_cache` reaches `matches_html_element`
+    /// with exactly this shape (`rule_ends_with(path, Some(Hover))` →
+    /// `matches_html_element(..., Some(Hover))`), so every descendant/child `:hover`
+    /// / `:active` / `:focus` rule is silently dropped.
     #[test]
     fn matches_html_element_hover_on_a_descendant_path_still_matches() {
-        // `body .a:hover` — the hover applies to the SUBJECT (node 1).
+        // `body .a:hover` - the hover applies to the SUBJECT (node 1).
         let hover_descendant = vec![
             CssPathSelector::Type(NodeTypeTag::Body),
             CssPathSelector::Children,
@@ -2242,7 +2206,7 @@ mod autotest_generated {
         ];
         assert!(matches(last, 5, None));
 
-        // div.b is the 2nd element child — the text node must not shift the index.
+        // div.b is the 2nd element child - the text node must not shift the index.
         let nth = vec![
             CssPathSelector::Class("b".into()),
             CssPathSelector::PseudoSelector(CssPathPseudoSelector::NthChild(
@@ -2262,7 +2226,7 @@ mod autotest_generated {
 
     #[test]
     fn matches_html_element_root_scope_confines_a_rule_to_its_subtree() {
-        // `[Root(3..=4), *]` — the #47 scope marker: only div.b and its child.
+        // `[Root(3..=4), *]` - the #47 scope marker: only div.b and its child.
         let scoped = vec![
             CssPathSelector::Root(CssScopeRange { start: 3, end: 4 }),
             CssPathSelector::Global,
@@ -2284,9 +2248,9 @@ mod autotest_generated {
 
     #[test]
     fn matches_html_element_with_a_dangling_combinator_does_not_panic() {
-        // `.a >` — the iterator yields an empty subject group, which matches
-        // vacuously, and then requires an `.a` parent. Node 4's parent is div.b,
-        // so this must be false; no panic either way.
+        // `.a >` - the iterator yields an empty subject group, which matches
+        // vacuously, and then requires an `.a` parent. Node 4's parent is div.b, so
+        // this must be false; no panic either way.
         let dangling = vec![
             CssPathSelector::Class("a".into()),
             CssPathSelector::DirectChildren,
@@ -2300,8 +2264,8 @@ mod autotest_generated {
 
     #[test]
     fn matches_html_element_on_a_very_long_selector_chain_terminates() {
-        // 500 `body ...` descendant groups: the ancestor scan must fail fast
-        // (there are only 3 levels in the DOM) instead of looping.
+        // 500 `body ...` descendant groups: the ancestor scan must fail fast (there
+        // are only 3 levels in the DOM) instead of looping.
         let mut path = Vec::new();
         for _ in 0..500 {
             path.push(CssPathSelector::Type(NodeTypeTag::Body));

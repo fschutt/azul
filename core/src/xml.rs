@@ -1,22 +1,6 @@
-//! XML and XHTML parsing for declarative UI definitions.
-//!
-//! This module provides comprehensive XML parsing and manipulation for Azul's XML-based
-//! UI format (`.azul` files). It supports:
-//!
-//! - **XHTML parsing**: Parse HTML-like syntax into DOM structures
-//! - **CSS extraction**: Extract `<style>` blocks and inline styles
-//! - **Component system**: Define reusable UI components with arguments
-//! - **Hot reload**: Track file changes and rebuild UI incrementally
-//! - **Error reporting**: Detailed syntax error messages with line/column info
-//!
-//! # Examples
-//!
-//! ```rust,no_run,ignore
-//! use azul_core::xml::{XmlNode, XmlParseOptions};
-//!
-//! let xml = "<div>Hello</div>";
-//! // let node = XmlNode::parse(xml)?;
-//! ```
+//! XML and XHTML parsing for declarative UI definitions. This module provides
+//! comprehensive XML parsing and manipulation for Azul's XML-based UI format
+//! (`.azul` files).
 
 use alloc::{
     boxed::Box,
@@ -51,9 +35,8 @@ use crate::{
     window::{AzStringPair, StringPairVec},
 };
 
-/// Error that can occur during XML parsing or hot-reload.
-///
-/// Stringified for error reporting; not part of the public API.
+/// Error that can occur during XML parsing or hot-reload. Stringified for error
+/// reporting; not part of the public API.
 pub type SyntaxError = String;
 
 /// Tag of an XML node, such as the "button" in `<button>Hello</button>`.
@@ -88,10 +71,12 @@ impl core::ops::Deref for XmlTagName {
     }
 }
 
-/// (Unparsed) text content of an XML node, such as the "Hello" in `<button>Hello</button>`.
+/// (Unparsed) text content of an XML node, such as the "Hello" in
+/// `<button>Hello</button>`.
 pub type XmlTextContent = OptionString;
 
-/// Attributes of an XML node, such as `["color" => "blue"]` in `<button color="blue" />`.
+/// Attributes of an XML node, such as `["color" => "blue"]` in `<button
+/// color="blue" />`.
 #[derive(Default, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct XmlAttributeMap {
@@ -159,8 +144,8 @@ impl_vec_clone!(
 );
 impl_vec_mut!(ComponentArgument, ComponentArgumentVec);
 
-/// Holds the list of arguments and whether the component accepts text content.
-/// Used by the compile pipeline to generate Rust function signatures.
+/// Holds the list of arguments and whether the component accepts text content. Used
+/// by the compile pipeline to generate Rust function signatures.
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ComponentArguments {
     pub args: ComponentArgumentVec,
@@ -172,8 +157,8 @@ type ComponentName = String;
 /// Compiled source code string for a component.
 type CompiledComponent = String;
 
-/// Universal HTML attribute names that are handled by the framework
-/// and should not be passed through to component-specific argument lists.
+/// Universal HTML attribute names that are handled by the framework and should not
+/// be passed through to component-specific argument lists.
 const DEFAULT_ARGS: [&str; 8] = [
     "id",
     "class",
@@ -202,7 +187,8 @@ pub enum XmlNodeType {
     Text,
 }
 
-/// A namespace-qualified XML name (e.g. `svg:rect` has namespace `"svg"` and local name `"rect"`).
+/// A namespace-qualified XML name (e.g. `svg:rect` has namespace `"svg"` and local
+/// name `"rect"`).
 #[repr(C)]
 #[derive(Debug)]
 pub struct XmlQualifiedName {
@@ -301,7 +287,8 @@ pub struct ExternalResource {
     pub kind: ExternalResourceKind,
     /// MIME type hint (from type attribute, file extension, or heuristics)
     pub mime_type: OptionMimeTypeHint,
-    /// The HTML element that referenced this resource (e.g., "img", "link", "script")
+    /// The HTML element that referenced this resource (e.g., "img", "link",
+    /// "script")
     pub source_element: AzString,
     /// The attribute that contained the URL (e.g., "src", "href")
     pub source_attribute: AzString,
@@ -338,17 +325,13 @@ impl_vec_clone!(
 /// AUDIT 2026-07-08: maximum XML/HTML nesting depth handled by the recursive
 /// DOM-build (`xml_node_to_dom_fast`, `xml_node_to_fast_dom`), resource-scan
 /// (iterative worklist in `scan_external_resources`) and `<body>`-lookup
-/// (`find_body_recursive`) passes. These bound descent per nesting level, so a pathologically deep
-/// document (e.g. tens of thousands of nested `<div>`s) would overflow the native
-/// stack. Beyond this depth, deeper children are ignored rather than crashing.
-/// 512 is far past any realistic hand-authored markup while staying comfortably
-/// inside the default thread stack.
+/// (`find_body_recursive`) passes. These bound descent per nesting level, so a
+/// pathologically deep document (e.g.
 const MAX_XML_NESTING_DEPTH: usize = 512;
 
 /// AUDIT 2026-07-08: maximum recursion depth for [`ComponentFieldType::parse`],
-/// which recurses through `Option<..>` / `Vec<..>` wrappers. Caps attacker
-/// strings such as `"Option<".repeat(100_000)` that would otherwise overflow the
-/// stack. 64 nested type wrappers is far beyond any real field type.
+/// which recurses through `Option<..>` / `Vec<..>` wrappers. Caps attacker strings
+/// such as `"Option<".repeat(100_000)` that would otherwise overflow the stack.
 const MAX_TYPE_PARSE_DEPTH: usize = 64;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Clone)]
@@ -358,26 +341,20 @@ pub struct Xml {
 }
 
 impl Xml {
-    /// Scan the XML/HTML document for external resource URLs.
-    ///
-    /// This function traverses the entire document tree and extracts URLs from:
-    /// - `<img src="...">` - Images
-    /// - `<link href="...">` - Stylesheets, icons, fonts
-    /// - `<script src="...">` - Scripts
-    /// - `<video src="...">`, `<source src="...">` - Video
-    /// - `<audio src="...">` - Audio
-    /// - `<a href="...">` - Links (classified as Unknown)
-    /// - CSS `url()` in style attributes
-    /// - `<style>` blocks with @import or `url()`
+    /// Scan the XML/HTML document for external resource URLs. This function
+    /// traverses the entire document tree and extracts URLs from: - `<img
+    /// src="...">` - Images - `<link href="...">` - Stylesheets, icons, fonts -
+    /// `<script src="...">` - Scripts - `<video src="...">`, `<source src="...">` -
+    /// Video - `<audio src="...">` - Audio - `<a href="...">` - Links (classified as
+    /// Unknown) - CSS `url()` in style attributes - `<style>` blocks with @import or
+    /// `url()`
     #[must_use] pub fn scan_external_resources(&self) -> ExternalResourceVec {
         let mut resources = Vec::new();
 
         // AUDIT 2026-07-08: iterative DFS with an explicit worklist. The old
-        // per-node recursion overflowed the stack on pathologically deep markup
-        // (a single-purpose scan frame is large: string lowercasing + closure +
-        // wide match). An explicit stack keeps memory on the heap; `depth` still
-        // bounds how deep we descend so unbounded input can't grow the worklist
-        // without limit.
+        // per-node recursion overflowed the stack on pathologically deep markup (a
+        // single-purpose scan frame is large: string lowercasing + closure + wide
+        // match).
         let mut stack: Vec<(&XmlNodeChild, usize)> = Vec::new();
         for child in self.root.as_ref() {
             stack.push((child, 0));
@@ -530,7 +507,8 @@ impl Xml {
             "source" => {
                 if let Some(src) = get_attr("src") {
                     let type_attr = get_attr("type");
-                    // Determine kind based on type or parent (heuristic: assume video)
+                    // Determine kind based on type or parent (heuristic: assume
+                    // video)
                     let kind = if type_attr
                         .as_ref()
                         .is_some_and(|t| t.starts_with("audio"))
@@ -635,13 +613,7 @@ impl Xml {
         // AUDIT 2026-07-08: fold to lowercase ONCE using ASCII-only folding.
         // `to_ascii_lowercase` never changes a string's byte length (only A-Z are
         // touched, multi-byte code points are left verbatim), so every byte offset
-        // into `lower` maps 1:1 onto `css`. The old code called `to_lowercase()`
-        // every iteration (O(n^2)) and then sliced the ORIGINAL `css` with an
-        // offset computed in the lowercased temporary -- for characters whose
-        // lowercase changes byte length (e.g. 'İ' U+0130, 2 bytes -> 3 bytes) that
-        // offset landed off a char boundary and panicked. Searching in `lower` and
-        // slicing `css` at the same offset also makes the `url(` / `@import` scans
-        // case-insensitive for free.
+        // into `lower` maps 1:1 onto `css`.
         let lower = css.to_ascii_lowercase();
 
         // url(...) scan (case-insensitive)
@@ -649,9 +621,9 @@ impl Xml {
         while let Some(rel) = lower[search_from..].find("url(") {
             let url_start = search_from + rel;
             let after = url_start + 4;
-            // Skip a `url(` that is the argument of an `@import` — the @import scan
-            // below emits it, correctly tagged as a Stylesheet. Without this guard the
-            // same URL is pushed twice (once here, mistagged "url()").
+            // Skip a `url(` that is the argument of an `@import` - the @import scan
+            // below emits it, correctly tagged as a Stylesheet. Without this guard
+            // the same URL is pushed twice (once here, mistagged "url()").
             if lower[..url_start].trim_end().ends_with("@import") {
                 search_from = after;
                 continue;
@@ -753,9 +725,9 @@ impl Xml {
         resource_exts.iter().any(|ext| lower.ends_with(ext))
     }
 
-    /// Guess the resource kind from URL based on file extension.
-    // `url` is lowercased into `path` below, so these literal `.ext` checks are
-    // already case-insensitive — the lint can't see the runtime lowercasing.
+    /// Guess the resource kind from URL based on file extension. `url` is
+    /// lowercased into `path` below, so these literal `.ext` checks are already
+    /// case-insensitive - the lint can't see the runtime lowercasing.
     #[allow(clippy::case_sensitive_file_extension_comparisons)]
     fn guess_kind_from_url(url: &str) -> ExternalResourceKind {
         let lower = url.to_lowercase();
@@ -1184,13 +1156,11 @@ impl fmt::Display for XmlError {
     }
 }
 
-// ============================================================================
-// New repr(C) component system
+// ============================================================================ New
+// repr(C) component system
 // ============================================================================
 
-/// Identifies a component within a library collection.
-/// e.g. collection="builtin", name="div" for the `<div>` element,
-/// or collection="shadcn", name="avatar" for a custom component.
+/// Identifies a component within a library collection. e.g.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ComponentId {
@@ -1222,7 +1192,7 @@ impl ComponentId {
 }
 
 // ============================================================================
-// Component type system — rich type descriptors for component fields
+// Component type system - rich type descriptors for component fields
 // ============================================================================
 
 /// A single argument in a callback signature.
@@ -1267,12 +1237,12 @@ impl_vec_clone!(
 pub struct ComponentCallbackSignature {
     /// Return type name, e.g. "Update"
     pub return_type: AzString,
-    /// Callback arguments (excluding the implicit `&mut RefAny` and `&mut CallbackInfo`)
+    /// Callback arguments (excluding the implicit `&mut RefAny` and `&mut
+    /// CallbackInfo`)
     pub args: ComponentCallbackArgVec,
 }
 
 /// Heap-allocated box for recursive `ComponentFieldType` (e.g. `Option<String>`).
-/// Uses raw pointer indirection to break the infinite size.
 #[repr(C)]
 pub struct ComponentFieldTypeBox {
     pub ptr: *mut ComponentFieldType,
@@ -1298,12 +1268,11 @@ impl Clone for ComponentFieldTypeBox {
 
 impl Drop for ComponentFieldTypeBox {
     fn drop(&mut self) {
-        // Null the pointer as we free it, so a *second* drop is a no-op instead
-        // of a double free. This type is a by-value payload of the
-        // `ComponentFieldType` enum, whose codegen FFI mirror gets
-        // `impl Drop { _delete }` (= drop_in_place of the real type) AND Rust
-        // field drop-glue — dropping each by-value field twice. Without this
-        // take-and-null the second drop would `Box::from_raw` a dangling pointer.
+        // Null the pointer as we free it, so a *second* drop is a no-op instead of
+        // a double free. This type is a by-value payload of the `ComponentFieldType`
+        // enum, whose codegen FFI mirror gets `impl Drop { _delete }` (=
+        // drop_in_place of the real type) AND Rust field drop-glue - dropping each
+        // by-value field twice.
         let ptr = core::mem::replace(&mut self.ptr, core::ptr::null_mut());
         if !ptr.is_null() {
             unsafe {
@@ -1365,7 +1334,6 @@ impl Hash for ComponentFieldTypeBox {
 }
 
 /// Heap-allocated box for recursive `ComponentFieldValue` (e.g. `Some(value)`).
-/// Uses raw pointer indirection to break the infinite size.
 #[repr(C)]
 pub struct ComponentFieldValueBox {
     pub ptr: *mut ComponentFieldValue,
@@ -1424,9 +1392,9 @@ impl PartialEq for ComponentFieldValueBox {
     }
 }
 
-/// Rich type descriptor for a component field.
-/// Replaces the old `AzString` type names ("String", "bool", etc.) with
-/// a structured enum that the debugger can use for type-aware editing.
+/// Rich type descriptor for a component field. Replaces the old `AzString` type
+/// names ("String", "bool", etc.) with a structured enum that the debugger can use
+/// for type-aware editing.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum ComponentFieldType {
@@ -1443,7 +1411,7 @@ pub enum ComponentFieldType {
     CssProperty,
     ImageRef,
     FontRef,
-    /// `StyledDom` slot — field name = slot name
+    /// `StyledDom` slot - field name = slot name
     StyledDom,
     /// Callback with typed signature
     Callback(ComponentCallbackSignature),
@@ -1461,18 +1429,16 @@ pub enum ComponentFieldType {
 
 impl ComponentFieldType {
     /// Parse a field type string like "String", "Option<Bool>", "Vec<I32>",
-    /// "Callback(fn(LayoutCallbackInfo) -> Dom)", "StructRef(MyStruct)" etc.
-    /// Returns `None` if the string cannot be parsed.
+    /// "Callback(fn(LayoutCallbackInfo) -> Dom)", "StructRef(MyStruct)" etc. Returns
+    /// `None` if the string cannot be parsed.
     #[must_use] pub fn parse(s: &str) -> Option<Self> {
         Self::parse_depth(s, 0)
     }
 
-    /// Depth-bounded implementation of [`parse`](Self::parse).
-    ///
-    /// AUDIT 2026-07-08: `Option<..>` / `Vec<..>` wrappers recurse once per level,
-    /// so an attacker string like `"Option<".repeat(100_000)` (with matching `>`)
-    /// overflowed the stack. Recursion is capped at [`MAX_TYPE_PARSE_DEPTH`];
-    /// beyond it, parsing fails (`None`) instead of crashing.
+    /// Depth-bounded implementation of [`parse`](Self::parse). AUDIT 2026-07-08:
+    /// `Option<..>` / `Vec<..>` wrappers recurse once per level, so an attacker
+    /// string like `"Option<".repeat(100_000)` (with matching `>`) overflowed the
+    /// stack.
     fn parse_depth(s: &str, depth: usize) -> Option<Self> {
         if depth > MAX_TYPE_PARSE_DEPTH {
             return None;
@@ -1529,12 +1495,12 @@ impl ComponentFieldType {
             return Some(Self::RefAny(AzString::from(hint)));
         }
 
-        // EnumRef(Name) — explicit
+        // EnumRef(Name) - explicit
         if let Some(name) = s.strip_prefix("EnumRef(").and_then(|r| r.strip_suffix(')')) {
             return Some(Self::EnumRef(AzString::from(name)));
         }
 
-        // StructRef(Name) — explicit
+        // StructRef(Name) - explicit
         if let Some(name) = s
             .strip_prefix("StructRef(")
             .and_then(|r| r.strip_suffix(')'))
@@ -1550,8 +1516,8 @@ impl ComponentFieldType {
         None
     }
 
-    /// Format this field type to its canonical string representation.
-    /// This is the inverse of `parse`.
+    /// Format this field type to its canonical string representation. This is the
+    /// inverse of `parse`.
     #[must_use] pub fn format(&self) -> String {
         match self {
             Self::String => "String".to_string(),
@@ -1623,8 +1589,8 @@ impl_vec_clone!(
     ComponentEnumVariantVecDestructor
 );
 
-/// A named enum model for code generation.
-/// Stored in `ComponentLibrary::enum_models`.
+/// A named enum model for code generation. Stored in
+/// `ComponentLibrary::enum_models`.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct ComponentEnumModel {
@@ -1755,8 +1721,8 @@ pub enum ComponentFieldValueSource {
     Binding(AzString),
 }
 #[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
-/// Runtime value for a component field — the "instance" counterpart
-/// to `ComponentFieldType` (which is the "class" / type descriptor).
+/// Runtime value for a component field - the "instance" counterpart to
+/// `ComponentFieldType` (which is the "class" / type descriptor).
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 #[allow(clippy::large_enum_variant)] // #[repr(C,u8)] FFI enum: boxing a variant changes the C ABI/api.json
@@ -1903,12 +1869,8 @@ impl_vec_clone!(
     ComponentDataFieldVecDestructor
 );
 
-/// A named data model (struct definition) for code generation.
-///
-/// Stored in `ComponentLibrary::data_models`. Components reference these
-/// by name in `ComponentDataField::field_type`, enabling nested/structured
-/// data models. For example, a `UserCard` component might have a field
-/// `user: UserProfile` where `UserProfile` is a `ComponentDataModel`.
+/// A named data model (struct definition) for code generation. Stored in
+/// `ComponentLibrary::data_models`.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ComponentDataModel {
@@ -1929,7 +1891,8 @@ impl ComponentDataModel {
             .find(|f| f.name.as_str() == name)
     }
 
-    /// Look up a field's default value as a string, if it exists and is a String variant.
+    /// Look up a field's default value as a string, if it exists and is a String
+    /// variant.
     #[must_use] pub fn get_default_string(&self, name: &str) -> Option<&AzString> {
         self.get_field(name).and_then(|f| match &f.default_value {
             OptionComponentDefaultValue::Some(ComponentDefaultValue::String(s)) => Some(s),
@@ -1937,8 +1900,8 @@ impl ComponentDataModel {
         })
     }
 
-    /// Clone this data model, overriding the default value for a field by name.
-    /// If the field is not found, the data model is returned unchanged.
+    /// Clone this data model, overriding the default value for a field by name. If
+    /// the field is not found, the data model is returned unchanged.
     #[must_use] pub fn with_default(mut self, name: &str, value: ComponentDefaultValue) -> Self {
         let mut fields_vec = core::mem::replace(
             &mut self.fields,
@@ -2046,9 +2009,9 @@ mod serde_impl {
         }
     }
 
-    // A 5-arm strip_prefix dispatch ladder. `option_if_let_else` (nursery)
-    // wants `map_or_else` here, which would nest five closures inside each
-    // other's else-branch — strictly less readable than the ladder.
+    // A 5-arm strip_prefix dispatch ladder. `option_if_let_else` (nursery) wants
+    // `map_or_else` here, which would nest five closures inside each other's
+    // else-branch - strictly less readable than the ladder.
     #[allow(clippy::option_if_let_else)]
     fn string_to_field_type(s: &str) -> ComponentFieldType {
         match s {
@@ -2151,7 +2114,7 @@ mod serde_impl {
     impl<'de> Deserialize<'de> for ComponentDefaultValue {
         fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
             let val = serde_json::Value::deserialize(deserializer)?;
-            // NOTE: `Value::Null` is deliberately NOT its own arm — it maps to
+            // NOTE: `Value::Null` is deliberately NOT its own arm - it maps to
             // `Self::None`, which is exactly what the catch-all below produces.
             Ok(match val {
                 serde_json::Value::Bool(b) => Self::Bool(b),
@@ -2246,12 +2209,11 @@ mod serde_impl {
 
     impl<'de> Deserialize<'de> for ComponentDataModel {
         /// A data model is a JSON **object**. This deliberately drives the
-        /// deserializer with `deserialize_map` instead of `deserialize_struct`:
-        /// the struct hint makes serde accept a *sequence* as well (the
-        /// positional encoding used by compact formats), so `from_json("[]")`
-        /// used to succeed and hand back a nameless, field-less model instead of
-        /// reporting that the input is not a data model at all. Every key stays
-        /// optional, so `{}` still deserializes to the empty model.
+        /// deserializer with `deserialize_map` instead of `deserialize_struct`: the
+        /// struct hint makes serde accept a *sequence* as well (the positional
+        /// encoding used by compact formats), so `from_json("[]")` used to succeed
+        /// and hand back a nameless, field-less model instead of reporting that the
+        /// input is not a data model at all.
         fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
             use serde::de::{IgnoredAny, MapAccess, Visitor};
 
@@ -2277,8 +2239,8 @@ mod serde_impl {
                             "name" => name = Some(map.next_value()?),
                             "description" => description = Some(map.next_value()?),
                             "fields" => fields = Some(map.next_value()?),
-                            // Unknown keys are ignored (forward compatibility),
-                            // but their values must still be consumed.
+                            // Unknown keys are ignored (forward compatibility), but
+                            // their values must still be consumed.
                             _ => {
                                 map.next_value::<IgnoredAny>()?;
                             }
@@ -2298,34 +2260,26 @@ mod serde_impl {
     }
 }
 
-// NOTE: no `pub use serde_impl::*` — the module holds only private helpers and
-// trait impls, and trait impls are in scope crate-wide (and for downstream
-// users) regardless of the defining module's visibility.
+// NOTE: no `pub use serde_impl::*` - the module holds only private helpers and
+// trait impls, and trait impls are in scope crate-wide (and for downstream users)
+// regardless of the defining module's visibility.
 
 #[cfg(feature = "serde-json")]
 impl ComponentDataModel {
-    /// Serialize this data model to a JSON string.
-    ///
-    /// # Errors
-    ///
-    /// Returns the serializer's error message if the model cannot be
-    /// represented as JSON.
+    /// Serialize this data model to a JSON string. Returns the serializer's error
+    /// message if the model cannot be represented as JSON.
     pub fn to_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(self).map_err(|e| alloc::format!("{e}"))
     }
 
-    /// Deserialize a data model from a JSON string.
-    ///
-    /// # Errors
-    ///
-    /// Returns the parser's error message if `json` is malformed or does not
-    /// match the data-model shape.
+    /// Deserialize a data model from a JSON string. Returns the parser's error
+    /// message if `json` is malformed or does not match the data-model shape.
     pub fn from_json(json: &str) -> Result<Self, String> {
         serde_json::from_str(json).map_err(|e| alloc::format!("{e}"))
     }
 }
 
-/// Source of a component definition — determines whether it can be exported
+/// Source of a component definition - determines whether it can be exported
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -2346,10 +2300,10 @@ impl ComponentSource {
     }
 }
 
-/// The target language for code compilation
-// Threaded by reference through the codegen call graph; kept non-Copy so
-// deriving Copy doesn't force trivially_copy_pass_by_ref churn across the many
-// &CompileTarget codegen callers for a perf-neutral change.
+/// The target language for code compilation Threaded by reference through the
+/// codegen call graph; kept non-Copy so deriving Copy doesn't force
+/// trivially_copy_pass_by_ref churn across the many &CompileTarget codegen callers
+/// for a perf-neutral change.
 #[allow(missing_copy_implementations)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
@@ -2376,16 +2330,16 @@ impl_result!(
     [Debug, Clone, PartialEq]
 );
 
-/// Render function type: takes component definition + data model (with current values
-/// in `default_value` fields) + component map for recursive sub-component instantiation,
-/// returns `StyledDom`.
-///
-/// The `data` parameter is typically `def.data_model` cloned and with caller-provided
-/// values substituted into the `default_value` fields.
+/// Render function type: takes component definition + data model (with current
+/// values in `default_value` fields) + component map for recursive sub-component
+/// instantiation, returns `StyledDom`. The `data` parameter is typically
+/// `def.data_model` cloned and with caller-provided values substituted into the
+/// `default_value` fields.
 pub type ComponentRenderFn =
     fn(&ComponentDef, &ComponentDataModel, &ComponentMap) -> ResultStyledDomRenderDomError;
 
-/// Compile function type: takes component definition + target language + data model, returns source code.
+/// Compile function type: takes component definition + target language + data
+/// model, returns source code.
 pub type ComponentCompileFn = fn(
     &ComponentDef,
     &CompileTarget,
@@ -2393,57 +2347,49 @@ pub type ComponentCompileFn = fn(
     indent: usize,
 ) -> ResultStringCompileError;
 
-/// Raw function pointer type that returns a single `ComponentDef` when called.
-/// Used as the `cb` field in `RegisterComponentFn`.
+/// Raw function pointer type that returns a single `ComponentDef` when called. Used
+/// as the `cb` field in `RegisterComponentFn`.
 pub type RegisterComponentFnType = extern "C" fn() -> ComponentDef;
 
-/// Callback struct for registering individual components at startup.
-///
-/// In C: pass a bare `extern "C" fn() -> ComponentDef` function pointer —
-/// it converts automatically via `From<RegisterComponentFnType>`.
-///
-/// In Python: construct this struct with `cb` set to a trampoline and
-/// `ctx` set to `Some(RefAny(...))` wrapping the Python callable.
+/// Callback struct for registering individual components at startup. In C: pass a
+/// bare `extern "C" fn() -> ComponentDef` function pointer - it converts
+/// automatically via `From<RegisterComponentFnType>`.
 #[repr(C)]
 pub struct RegisterComponentFn {
     pub cb: RegisterComponentFnType,
-    /// For FFI: stores the foreign callable (e.g., `PyFunction`).
-    /// Native Rust/C code sets this to None.
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`). Native Rust/C
+    /// code sets this to None.
     pub ctx: crate::refany::OptionRefAny,
 }
 
 impl_callback!(RegisterComponentFn, RegisterComponentFnType);
 
-/// Raw function pointer type that returns a complete `ComponentLibrary` when called.
-/// Used as the `cb` field in `RegisterComponentLibraryFn`.
+/// Raw function pointer type that returns a complete `ComponentLibrary` when
+/// called. Used as the `cb` field in `RegisterComponentLibraryFn`.
 pub type RegisterComponentLibraryFnType = extern "C" fn() -> ComponentLibrary;
 
-/// Callback struct for registering entire component libraries at startup.
-///
-/// In C: pass a bare `extern "C" fn() -> ComponentLibrary` function pointer —
-/// it converts automatically via `From<RegisterComponentLibraryFnType>`.
-///
-/// In Python: construct this struct with `cb` set to a trampoline and
-/// `ctx` set to `Some(RefAny(...))` wrapping the Python callable.
+/// Callback struct for registering entire component libraries at startup. In C:
+/// pass a bare `extern "C" fn() -> ComponentLibrary` function pointer - it converts
+/// automatically via `From<RegisterComponentLibraryFnType>`.
 #[repr(C)]
 pub struct RegisterComponentLibraryFn {
     pub cb: RegisterComponentLibraryFnType,
-    /// For FFI: stores the foreign callable (e.g., `PyFunction`).
-    /// Native Rust/C code sets this to None.
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`). Native Rust/C
+    /// code sets this to None.
     pub ctx: crate::refany::OptionRefAny,
 }
 
 impl_callback!(RegisterComponentLibraryFn, RegisterComponentLibraryFnType);
 
-/// A component definition — the "class" / "template" of a component.
-/// Can come from Rust builtins, compiled widgets, JSON, or user creation in debugger.
-///
+/// A component definition - the "class" / "template" of a component. Can come from
+/// Rust builtins, compiled widgets, JSON, or user creation in debugger.
 #[derive(Clone)]
 #[repr(C)]
 pub struct ComponentDef {
     /// Collection + name, e.g. builtin:div, shadcn:avatar
     pub id: ComponentId,
-    /// Human-readable display name, e.g. "Link" for builtin:a, "Avatar" for shadcn:avatar
+    /// Human-readable display name, e.g. "Link" for builtin:a, "Avatar" for
+    /// shadcn:avatar
     pub display_name: AzString,
     /// Markdown documentation for the component
     pub description: AzString,
@@ -2451,11 +2397,9 @@ pub struct ComponentDef {
     pub css: AzString,
     /// Where this component was defined (determines exportability)
     pub source: ComponentSource,
-    /// Unified data model: all value fields, callback slots, and child slots
-    /// in a single named struct. Code gen uses `data_model.name` as the
-    /// input struct type name (e.g. "`ButtonData`").
-    /// The `default_value` on each field doubles as the "current value" for
-    /// preview rendering — callers override defaults before calling `render_fn`.
+    /// Unified data model: all value fields, callback slots, and child slots in a
+    /// single named struct. Code gen uses `data_model.name` as the input struct type
+    /// name (e.g.
     pub data_model: ComponentDataModel,
     /// Render to live DOM
     pub render_fn: ComponentRenderFn,
@@ -2505,14 +2449,14 @@ pub struct ComponentLibrary {
     pub components: ComponentDefVec,
     /// Whether this library can be exported (false for builtin/compiled)
     pub exportable: bool,
-    /// Whether this library can be modified by the user (add/remove/edit components).
-    /// False for builtin and compiled libraries. True for user-created libraries.
+    /// Whether this library can be modified by the user (add/remove/edit
+    /// components). False for builtin and compiled libraries.
     pub modifiable: bool,
-    /// Named data model types defined by this library.
-    /// Components reference these by name in their `field_type`.
+    /// Named data model types defined by this library. Components reference these
+    /// by name in their `field_type`.
     pub data_models: ComponentDataModelVec,
-    /// Named enum types defined by this library.
-    /// Components reference these via `ComponentFieldType::EnumRef(name)`.
+    /// Named enum types defined by this library. Components reference these via
+    /// `ComponentFieldType::EnumRef(name)`.
     pub enum_models: ComponentEnumModelVec,
 }
 
@@ -2538,7 +2482,7 @@ impl_vec_clone!(
 );
 impl_vec_mut!(ComponentLibrary, ComponentLibraryVec);
 
-/// The component map — holds libraries with namespaced components.
+/// The component map - holds libraries with namespaced components.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct ComponentMap {
@@ -2547,7 +2491,8 @@ pub struct ComponentMap {
 }
 
 impl ComponentMap {
-    /// Qualified lookup: "shadcn:avatar" -> finds library "shadcn", component "avatar"
+    /// Qualified lookup: "shadcn:avatar" -> finds library "shadcn", component
+    /// "avatar"
     #[must_use] pub fn get(&self, collection: &str, name: &str) -> Option<&ComponentDef> {
         self.libraries
             .iter()
@@ -2584,26 +2529,24 @@ impl ComponentMap {
 }
 
 // ============================================================================
-// Builtin component bridge — wraps existing render/compile into ComponentDef
+// Builtin component bridge - wraps existing render/compile into ComponentDef
 // ============================================================================
 
-/// Single source of truth mapping HTML/SVG tag names to node variants.
-///
-/// Each `"tag" => Variant` entry expands to **both** a `NodeType::Variant` arm in
-/// [`tag_to_node_type`] and a `NodeTypeTag::Variant` arm in [`tag_to_node_type_tag`],
-/// so the two lookups can never drift apart. Tags whose two enums diverge —
-/// `img`, `image`, `icon` — are handled as explicit special cases inside each
-/// generated function and are intentionally absent from this table.
+/// Single source of truth mapping HTML/SVG tag names to node variants. Each `"tag"
+/// => Variant` entry expands to **both** a `NodeType::Variant` arm in
+/// [`tag_to_node_type`] and a `NodeTypeTag::Variant` arm in
+/// [`tag_to_node_type_tag`], so the two lookups can never drift apart.
 macro_rules! html_tag_node_types {
     ($($tag:literal => $variant:ident),* $(,)?) => {
-        /// Map a builtin tag name to its corresponding `NodeType`.
-        /// Falls back to `NodeType::Div` for unknown tags.
+        /// Map a builtin tag name to its corresponding `NodeType`. Falls back to
+        /// `NodeType::Div` for unknown tags.
         #[must_use] pub fn tag_to_node_type(tag: &str) -> NodeType {
             match tag {
-                // `<img>` becomes a replaced `NodeType::Image`. The `src` attribute is not
-                // available here, so a placeholder `NullImage` (0x0, empty tag) is created;
-                // `xml_node_to_dom_fast` overrides it with a `NullImage` whose `tag` carries
-                // the `src` bytes so a renderer (e.g. printpdf) can resolve the actual image.
+                // `<img>` becomes a replaced `NodeType::Image`. The `src` attribute
+                // is not available here, so a placeholder `NullImage` (0x0, empty
+                // tag) is created; `xml_node_to_dom_fast` overrides it with a
+                // `NullImage` whose `tag` carries the `src` bytes so a renderer
+                // (e.g.
                 "img" => NodeType::Image(azul_css::css::BoxOrStatic::heap(
                     crate::resources::ImageRef::null_image(
                         0,
@@ -2613,18 +2556,18 @@ macro_rules! html_tag_node_types {
                     ),
                 )),
                 // `<icon>content_copy</icon>` becomes an un-named `NodeType::Icon`;
-                // the icon SPEC is its text content, consumed by the icon
-                // resolution pass (`resolve_icons_in_styled_dom`) against the
-                // registered icon packs — exactly like a ligature icon font
-                // turns glyph text into an icon. The builders stay generic.
+                // the icon SPEC is its text content, consumed by the icon resolution
+                // pass (`resolve_icons_in_styled_dom`) against the registered icon
+                // packs - exactly like a ligature icon font turns glyph text into an
+                // icon. The builders stay generic.
                 "icon" => NodeType::Icon(azul_css::css::BoxOrStatic::heap(
                     azul_css::AzString::from_const_str(""),
                 )),
-                // `<transient-window>` starts CLOSED with every default; the
-                // parser applies `open=` / `anchor=` / `dismiss=` / `size=` /
-                // `tearoff=` onto this config afterwards (see
-                // `apply_transient_window_attrs`). Carrying the config inline is
-                // what lets a closed popup cost nothing.
+                // `<transient-window>` starts CLOSED with every default; the parser
+                // applies `open=` / `anchor=` / `dismiss=` / `size=` / `tearoff=`
+                // onto this config afterwards (see `apply_transient_window_attrs`).
+                // Carrying the config inline is what lets a closed popup cost
+                // nothing.
                 "transient-window" => NodeType::TransientWindow(
                     crate::transient::TransientWindowConfig::closed(),
                 ),
@@ -2633,12 +2576,13 @@ macro_rules! html_tag_node_types {
             }
         }
 
-        /// Map a tag name to its CSS `NodeTypeTag` for CSS matching in the compile pipeline.
-        /// Falls back to `NodeTypeTag::Div` for unknown tags.
+        /// Map a tag name to its CSS `NodeTypeTag` for CSS matching in the compile
+        /// pipeline. Falls back to `NodeTypeTag::Div` for unknown tags.
         fn tag_to_node_type_tag(tag: &str) -> NodeTypeTag {
             match tag {
                 // `img`/`image`/`icon` have no 1:1 `NodeType` equivalent (see
-                // `tag_to_node_type`), so they map to dedicated `NodeTypeTag` variants.
+                // `tag_to_node_type`), so they map to dedicated `NodeTypeTag`
+                // variants.
                 "img" | "image" => NodeTypeTag::Img,
                 "icon" => NodeTypeTag::Icon,
                 "transient-window" => NodeTypeTag::TransientWindow,
@@ -2829,8 +2773,8 @@ html_tag_node_types! {
     "base" => Base,
 }
 
-/// Default render function for builtin HTML elements.
-/// Delegates to creating a DOM node of the appropriate `NodeType`.
+/// Default render function for builtin HTML elements. Delegates to creating a DOM
+/// node of the appropriate `NodeType`.
 fn builtin_render_fn(
     def: &ComponentDef,
     data: &ComponentDataModel,
@@ -2848,8 +2792,8 @@ fn builtin_render_fn(
     r.into()
 }
 
-/// Default compile function for builtin HTML elements.
-/// Generates `Dom::create_node(NodeType::Div)` style code for the target language.
+/// Default compile function for builtin HTML elements. Generates
+/// `Dom::create_node(NodeType::Div)` style code for the target language.
 fn builtin_compile_fn(
     def: &ComponentDef,
     target: &CompileTarget,
@@ -2893,17 +2837,8 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
     );
 }
 
-/// Default render function for user-defined (JSON-imported) components.
-///
-/// Interprets the `ComponentDef` structure generically:
-/// 1. Creates a wrapper `<div>` with the component's CSS class
-/// 2. For each data field, renders content based on type:
-///    - String fields → text node with current value
-///    - Bool fields → conditional display
-///    - `StyledDom` fields → embeds the child DOM subtree
-///    - StructRef/EnumRef → recursively renders sub-components if found in `ComponentMap`
-///    - Other scalar fields → text display of the value
-/// 3. Applies the component's scoped CSS
+/// Default render function for user-defined (JSON-imported) components. Interprets
+/// the `ComponentDef` structure generically: 1.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub fn user_defined_render_fn(
     def: &ComponentDef,
@@ -2921,7 +2856,7 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
         // Get the current value from default_value
         match &field.default_value {
             OptionComponentDefaultValue::None => {
-                // Required field with no value — skip in preview
+                // Required field with no value - skip in preview
             }
             OptionComponentDefaultValue::Some(default_val) => {
                 match default_val {
@@ -2980,8 +2915,9 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
                             let sub_data = sub_comp.data_model.clone();
                             match (sub_comp.render_fn)(sub_comp, &sub_data, component_map) {
                                 ResultStyledDomRenderDomError::Ok(_styled_dom) => {
-                                    // Sub-component rendered successfully — add a placeholder
-                                    // (StyledDom cannot be directly converted back to Dom)
+                                    // Sub-component rendered successfully - add a
+                                    // placeholder (StyledDom cannot be directly
+                                    // converted back to Dom)
                                     let text = alloc::format!(
                                         "[{}:{}]",
                                         ci.library.as_str(),
@@ -3058,14 +2994,8 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
     r.into()
 }
 
-/// Default compile function for user-defined (JSON-imported) components.
-///
-/// Generates source code that creates the component's DOM structure for the
-/// target language. For each data field, emits the appropriate code:
-/// - String fields → text node creation
-/// - Scalar fields → formatted display
-/// - `ComponentInstance` → function call to sub-component's render function
-/// - `StyledDom` slots → child parameter pass-through
+/// Default compile function for user-defined (JSON-imported) components. Generates
+/// source code that creates the component's DOM structure for the target language.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub fn user_defined_compile_fn(
     def: &ComponentDef,
@@ -3237,17 +3167,8 @@ fn push_scalar_field(children: &mut Vec<Dom>, field_name: &str, value: &dyn fmt:
     r.into()
 }
 
-/// Create a `ComponentDef` for a builtin HTML element.
-///
-/// # Arguments
-/// * `tag` - HTML tag name (e.g. "button", "div")
-/// * `display_name` - Human-readable name (e.g. "Button", "Div")
-/// * `default_text` - Default text content for the preview, or `None` if the element has no text.
-///   Pass `Some("Button text")` for `<button>`, `Some("")` for text elements like `<span>` that
-///   accept text but have no meaningful default.
-/// * `css` - Component-level CSS string. For most builtin elements this is `""` because
-///   styling comes from `ua_css.rs` and the `SystemStyle`. Components that need extra
-///   styling (e.g. a future high-level button widget) can pass CSS here.
+/// Create a `ComponentDef` for a builtin HTML element. * `tag` - HTML tag name
+/// (e.g.
 fn builtin_component_def(
     tag: &str,
     display_name: &str,
@@ -3300,11 +3221,9 @@ fn data_field(
     }
 }
 
-/// Returns the tag-specific data model fields for builtin HTML elements.
-/// These are the component's "main data model" — the attributes that define
-/// what the component needs as configuration (e.g., `href` for `<a>`,
-/// `src` for `<img>`). Universal HTML attributes (id, class, style, etc.)
-/// are NOT included here — they are added separately by the debug server.
+/// Returns the tag-specific data model fields for builtin HTML elements. These are
+/// the component's "main data model" - the attributes that define what the component
+/// needs as configuration (e.g., `href` for `<a>`, `src` for `<img>`).
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
     use ComponentDefaultValue as D;
@@ -4023,11 +3942,9 @@ fn builtin_data_model(tag: &str) -> Vec<ComponentDataField> {
 }
 
 impl Default for ComponentMap {
-    /// Returns an empty `ComponentMap` with no libraries.
-    ///
-    /// Use `AppConfig::create()` (which registers the 52 builtins via
-    /// `register_builtin_components`) followed by `ComponentMap::from_libraries()`
-    /// to get a fully-populated map.
+    /// Returns an empty `ComponentMap` with no libraries. Use `AppConfig::create()`
+    /// (which registers the 52 builtins via `register_builtin_components`) followed
+    /// by `ComponentMap::from_libraries()` to get a fully-populated map.
     fn default() -> Self {
         Self {
             libraries: ComponentLibraryVec::from_const_slice(&[]),
@@ -4040,18 +3957,17 @@ impl ComponentMap {
         Self::default()
     }
 
-    /// Create a `ComponentMap` with the 52 built-in HTML element components pre-registered.
+    /// Create a `ComponentMap` with the 52 built-in HTML element components
+    /// pre-registered.
     #[must_use] pub fn with_builtin() -> Self {
         Self {
             libraries: alloc::vec![register_builtin_components()].into(),
         }
     }
 
-    /// Build a `ComponentMap` from the libraries stored in an `AppConfig`.
-    ///
-    /// The `component_libraries` field already contains builtins (registered in
-    /// `AppConfig::create()`) plus any user-added libraries.  No merging needed —
-    /// `add_component_library` / `add_component` handle insertion at registration time.
+    /// Build a `ComponentMap` from the libraries stored in an `AppConfig`. The
+    /// `component_libraries` field already contains builtins (registered in
+    /// `AppConfig::create()`) plus any user-added libraries.
     #[must_use] pub fn from_libraries(libs: &ComponentLibraryVec) -> Self {
         Self {
             libraries: libs.clone(),
@@ -4059,20 +3975,10 @@ impl ComponentMap {
     }
 }
 
-/// Convert XML attributes to a `ComponentDataModel` by cloning the component's
-/// base data model and overriding field defaults with values from the XML attributes.
-///
-/// This is the bridge between the XML parsing layer (key-value string pairs)
-/// and the typed component data model. For each field in the base model,
-/// if a matching XML attribute exists, its string value is set as the new default.
-///
-/// # Arguments
-/// * `base_model` - The component's data model template (from `ComponentDef::data_model`)
-/// * `xml_attributes` - The XML node's attribute map
-/// * `text_content` - Optional text content from child text nodes
-///
-/// # Returns
-/// A cloned `ComponentDataModel` with overridden defaults
+/// Convert XML attributes to a `ComponentDataModel` by cloning the component's base
+/// data model and overriding field defaults with values from the XML attributes.
+/// This is the bridge between the XML parsing layer (key-value string pairs) and the
+/// typed component data model.
 fn xml_attrs_to_data_model(
     base_model: &ComponentDataModel,
     xml_attributes: &XmlAttributeMap,
@@ -4098,7 +4004,7 @@ fn xml_attrs_to_data_model(
 
     model.fields = ComponentDataFieldVec::from_vec(fields_vec);
 
-    // Handle text content — set the "text" field if present
+    // Handle text content - set the "text" field if present
     if let Some(text) = text_content {
         let prepared = prepare_string(text);
         if !prepared.is_empty() {
@@ -4116,8 +4022,8 @@ fn xml_attrs_to_data_model(
 // Structural builtin components: if, for, map
 // ============================================================================
 
-/// `builtin:if` — conditional rendering.
-/// Takes `condition: Bool`, `then: StyledDom`, and optionally `else: StyledDom`.
+/// `builtin:if` - conditional rendering. Takes `condition: Bool`, `then:
+/// StyledDom`, and optionally `else: StyledDom`.
 fn builtin_if_component() -> ComponentDef {
     ComponentDef {
         id: ComponentId::builtin("if"),
@@ -4188,8 +4094,8 @@ fn builtin_if_compile_fn(
     }
 }
 
-/// `builtin:for` — iterative rendering.
-/// Takes `count: U32` (number of iterations), renders children N times.
+/// `builtin:for` - iterative rendering. Takes `count: U32` (number of iterations),
+/// renders children N times.
 fn builtin_for_component() -> ComponentDef {
     ComponentDef {
         id: ComponentId::builtin("for"),
@@ -4266,8 +4172,8 @@ fn builtin_for_compile_fn(
     }
 }
 
-/// `builtin:map` — map data to DOM.
-/// Takes `data_json: String` (JSON array) + maps each element.
+/// `builtin:map` - map data to DOM. Takes `data_json: String` (JSON array) + maps
+/// each element.
 fn builtin_map_component() -> ComponentDef {
     ComponentDef {
         id: ComponentId::builtin("map"),
@@ -4302,7 +4208,7 @@ fn builtin_map_render_fn(
     data_model: &ComponentDataModel,
     _component_map: &ComponentMap,
 ) -> ResultStyledDomRenderDomError {
-    // For now, render a placeholder — actual mapping requires callback support
+    // For now, render a placeholder - actual mapping requires callback support
     let data_str = data_model
         .fields
         .iter()
@@ -4344,14 +4250,9 @@ fn builtin_map_compile_fn(
     }
 }
 
-/// Register the 52 built-in HTML element components.
-///
-/// This is an `extern "C"` function pointer compatible with
-/// `RegisterComponentLibraryFnType`, so it can be passed directly to
-/// `AppConfig::add_component_library()`.
-///
-/// Called once during `AppConfig::create()` — the framework dogfoods
-/// its own component registration system for builtins.
+/// Register the 52 built-in HTML element components. This is an `extern "C"`
+/// function pointer compatible with `RegisterComponentLibraryFnType`, so it can be
+/// passed directly to `AppConfig::add_component_library()`.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub extern "C" fn register_builtin_components() -> ComponentLibrary {
     ComponentLibrary {
@@ -4383,7 +4284,8 @@ fn builtin_map_compile_fn(
             builtin_component_def("details", "Details", None, ""),
             builtin_component_def("summary", "Summary", Some("Details"), ""),
             builtin_component_def("dialog", "Dialog", None, ""),
-            // Headings — default text is the heading level name so preview is visible
+            // Headings - default text is the heading level name so preview is
+            // visible
             builtin_component_def("h1", "Heading 1", Some("Heading 1"), ""),
             builtin_component_def("h2", "Heading 2", Some("Heading 2"), ""),
             builtin_component_def("h3", "Heading 3", Some("Heading 3"), ""),
@@ -4495,35 +4397,21 @@ fn builtin_map_compile_fn(
     }
 }
 
-// ============================================================================
-// End new component system types
+// ============================================================================ End
+// new component system types
 // ============================================================================
 
-/// Wrapper for the XML parser - necessary to easily create a Dom from
-/// XML without putting an XML solver into `azul-core`.
+/// Wrapper for the XML parser - necessary to easily create a Dom from XML without
+/// putting an XML solver into `azul-core`.
 #[derive(Debug, Default)]
 pub struct DomXml {
     pub parsed_dom: StyledDom,
 }
 
 impl DomXml {
-    /// Convenience function, only available in tests, useful for quickly writing UI tests.
-    /// Wraps the XML string in the required `<app></app>` braces, panics if the XML couldn't be
-    /// parsed.
-    ///
-    /// ## Example
-    ///
-    /// ```rust,ignore
-    /// # use azul::dom::Dom;
-    /// # use azul::xml::DomXml;
-    /// let dom = DomXml::mock("<div id='test' />");
-    /// dom.assert_eq(Dom::create_div().with_id("test"));
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if the rendered DOM does not equal `other` (this is a test-only
-    /// assertion helper).
+    /// Convenience function, only available in tests, useful for quickly writing UI
+    /// tests. Wraps the XML string in the required `<app></app>` braces, panics if
+    /// the XML couldn't be parsed.
     #[cfg(test)]
     pub fn assert_eq(self, other: StyledDom) {
         let mut body = Dom::create_body();
@@ -4614,7 +4502,8 @@ impl_vec_clone!(XmlNodeChild, XmlNodeChildVec, XmlNodeChildVecDestructor);
 pub struct XmlNode {
     /// Type of the node
     pub node_type: XmlTagName,
-    /// Attributes of an XML node (note: not yet filtered and / or broken into function arguments!)
+    /// Attributes of an XML node (note: not yet filtered and / or broken into
+    /// function arguments!)
     pub attributes: XmlAttributeMap,
     /// Direct children of this node (can be text or element nodes)
     pub children: XmlNodeChildVec,
@@ -4688,15 +4577,15 @@ pub enum DomXmlParseError {
     NoBodyInHtml,
     /// The DOM can only have one <body> node, not multiple.
     MultipleBodyNodes,
-    /// Note: Sadly, the error type can only be a string because xmlparser
-    /// returns all errors as strings. There is an open PR to fix
-    /// this deficiency, but since the XML parsing is only needed for
-    /// hot-reloading and compiling, it doesn't matter that much.
+    /// Note: Sadly, the error type can only be a string because xmlparser returns
+    /// all errors as strings. There is an open PR to fix this deficiency, but since
+    /// the XML parsing is only needed for hot-reloading and compiling, it doesn't
+    /// matter that much.
     Xml(XmlError),
     /// Invalid hierarchy close tags, i.e `<app></p></app>`
     MalformedHierarchy(MalformedHierarchyError),
-    /// A component raised an error while rendering the DOM - holds the component name + error
-    /// string
+    /// A component raised an error while rendering the DOM - holds the component
+    /// name + error string
     RenderDom(RenderDomError),
     /// Something went wrong while parsing an XML component
     Component(ComponentParseError),
@@ -4729,7 +4618,8 @@ impl From<CssParseErrorOwned> for DomXmlParseError {
 }
 
 /// Error that can happen from the translation from XML code to Rust code -
-/// stringified, since it is only used for printing and is not exposed in the public API
+/// stringified, since it is only used for printing and is not exposed in the public
+/// API
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C, u8)]
 pub enum CompileError {
@@ -4785,13 +4675,11 @@ pub struct UselessFunctionArgumentError {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum ComponentError {
-    /// While instantiating a component, a function argument
-    /// was encountered that the component won't use or react to.
+    /// While instantiating a component, a function argument was encountered that
+    /// the component won't use or react to.
     UselessFunctionArgument(UselessFunctionArgumentError),
-    /// A certain node type can't be rendered, because the
-    /// renderer for this node is not available isn't available
-    ///
-    /// `UnknownComponent(component_name)`
+    /// A certain node type can't be rendered, because the renderer for this node is
+    /// not available isn't available `UnknownComponent(component_name)`
     UnknownComponent(AzString),
 }
 
@@ -4849,14 +4737,13 @@ pub enum ComponentParseError {
     UnnamedComponent,
     /// Argument at position `usize` is either empty or has no name
     MissingName(usize),
-    /// Argument at position `usize` with the name
-    /// `String` doesn't have a `: type`
+    /// Argument at position `usize` with the name `String` doesn't have a `: type`
     MissingType(MissingTypeError),
-    /// Component name may not contain a whitespace
-    /// (probably missing a `:` between the name and the type)
+    /// Component name may not contain a whitespace (probably missing a `:` between
+    /// the name and the type)
     WhiteSpaceInComponentName(WhiteSpaceInComponentNameError),
-    /// Component type may not contain a whitespace
-    /// (probably missing a `,` between the type and the next name)
+    /// Component type may not contain a whitespace (probably missing a `,` between
+    /// the type and the next name)
     WhiteSpaceInComponentType(WhiteSpaceInComponentTypeError),
     /// Error parsing the <style> tag / CSS
     CssError(CssParseErrorOwned),
@@ -4961,18 +4848,17 @@ impl fmt::Display for RenderDomError {
     }
 }
 
-/// Find the one and only `<body>` node, return error if
-/// there is no app node or there are multiple app nodes
+/// Find the one and only `<body>` node, return error if there is no app node or
+/// there are multiple app nodes
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
 /// Returns an error if the document has no `<html>` root node.
 pub fn get_html_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlParseError> {
     let mut html_node_iterator = root_nodes.iter().filter_map(|child| {
         if let XmlNodeChild::Element(node) = child {
-            // HTML element names are case-insensitive (ASCII). NOT normalize_casing:
-            // that inserts '_' before each uppercase letter for component-name
-            // canonicalisation, so "HTML" would become "h_t_m_l" and never match.
+            // HTML element names are case-insensitive (ASCII). NOT
+            // normalize_casing: that inserts '_' before each uppercase letter for
+            // component-name canonicalisation, so "HTML" would become "h_t_m_l" and
+            // never match.
             if node.node_type.as_str().eq_ignore_ascii_case("html") {
                 Some(node)
             } else {
@@ -4993,11 +4879,9 @@ pub fn get_html_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
     }
 }
 
-/// Find the one and only `<body>` node, return error if
-/// there is no app node or there are multiple app nodes
+/// Find the one and only `<body>` node, return error if there is no app node or
+/// there are multiple app nodes
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
 /// Returns an error if the document has no `<body>` node.
 pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlParseError> {
     fn find_body_recursive(nodes: &[XmlNodeChild], depth: usize) -> Option<&XmlNode> {
@@ -5039,14 +4923,15 @@ pub fn get_body_node(root_nodes: &[XmlNodeChild]) -> Result<&XmlNode, DomXmlPars
         return Ok(body);
     }
 
-    // If not found as direct child, search recursively (for malformed HTML like example.com)
-    // where <body> might be nested inside <head> due to missing </head> tag
+    // If not found as direct child, search recursively (for malformed HTML like
+    // example.com) where <body> might be nested inside <head> due to missing </head>
+    // tag
     find_body_recursive(root_nodes, 0).ok_or(DomXmlParseError::NoBodyInHtml)
 }
 
-/// Searches in the the `root_nodes` for a `node_type`, convenience function in order to
-/// for example find the first <blah /> node in all these nodes.
-/// This function searches recursively through the entire tree.
+/// Searches in the the `root_nodes` for a `node_type`, convenience function in
+/// order to for example find the first <blah /> node in all these nodes. This
+/// function searches recursively through the entire tree.
 fn find_node_by_type<'a>(root_nodes: &'a [XmlNodeChild], node_type: &str) -> Option<&'a XmlNode> {
     // First check direct children
     for child in root_nodes {
@@ -5077,7 +4962,8 @@ fn find_node_by_type<'a>(root_nodes: &'a [XmlNodeChild], node_type: &str) -> Opt
         .map(|s| &s.value)
 }
 
-/// Normalizes input such as `abcDef`, `AbcDef`, `abc-def` to the normalized form of `abc_def`
+/// Normalizes input such as `abcDef`, `AbcDef`, `abc-def` to the normalized form of
+/// `abc_def`
 #[must_use] pub fn normalize_casing(input: &str) -> String {
     let mut words: Vec<String> = Vec::new();
     let mut cur_str = Vec::new();
@@ -5104,8 +4990,8 @@ fn find_node_by_type<'a>(root_nodes: &'a [XmlNodeChild], node_type: &str) -> Opt
     words.join("_")
 }
 
-/// Given a root node, traverses along the hierarchy, and returns a
-/// mutable reference to the last child node of the root node
+/// Given a root node, traverses along the hierarchy, and returns a mutable
+/// reference to the last child node of the root node
 #[allow(trivial_casts)]
 pub fn get_item<'a>(hierarchy: &[usize], root_node: &'a mut XmlNode) -> Option<&'a mut XmlNode> {
     let mut hierarchy = hierarchy.to_vec();
@@ -5137,12 +5023,11 @@ fn get_item_internal<'a>(
     }
 }
 
-/// Parses an XML string and returns a `StyledDom` with the components instantiated in the
-/// `<app></app>`
+/// Parses an XML string and returns a `StyledDom` with the components instantiated
+/// in the `<app></app>`
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
-/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown component).
+/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an
+/// unknown component).
 pub fn str_to_dom<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -5153,9 +5038,8 @@ pub fn str_to_dom<'a>(
 }
 
 /// Parse XML to `StyledDom` via arena-based `FastDom` (no tree intermediary).
-///
-/// **Note**: `str_to_dom()` now delegates to this function, so you can use
-/// either one. This function is kept for backward compatibility.
+/// **Note**: `str_to_dom()` now delegates to this function, so you can use either
+/// one.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 fn str_to_dom_fast<'a>(
     root_nodes: &'a [XmlNodeChild],
@@ -5181,18 +5065,13 @@ fn str_to_dom_fast<'a>(
         .map_err(Into::into)
 }
 
-/// Parses XML nodes and returns a `Dom` with CSS stylesheets attached (but not applied).
-///
-/// Unlike `str_to_dom` which returns a fully styled `StyledDom`, this function
-/// returns an unstyled `Dom` whose `css` field carries the parsed `<style>` rules.
-/// The layout framework will apply the CSS during the cascade pass.
-///
-/// This is the correct function for building a `Dom` from XML in layout callbacks
-/// (which must return `Dom`, not `StyledDom`).
+/// Parses XML nodes and returns a `Dom` with CSS stylesheets attached (but not
+/// applied). Unlike `str_to_dom` which returns a fully styled `StyledDom`, this
+/// function returns an unstyled `Dom` whose `css` field carries the parsed `<style>`
+/// rules.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
-/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an unknown component).
+/// Returns an error if the XML cannot be parsed into a DOM (malformed markup or an
+/// unknown component).
 pub fn str_to_dom_unstyled<'a>(
     root_nodes: &'a [XmlNodeChild],
     component_map: &'a ComponentMap,
@@ -5239,8 +5118,6 @@ pub fn str_to_dom_unstyled<'a>(
 /// Parses an XML string and returns a `String`, which contains the Rust source code
 /// (i.e. it compiles the XML to valid Rust)
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
 /// Returns an error if the XML cannot be parsed or compiled to Rust code.
 pub fn str_to_rust_code<'a>(
     root_nodes: &'a [XmlNodeChild],
@@ -5284,10 +5161,10 @@ pub fn str_to_rust_code<'a>(
         .collect::<Vec<String>>()
         .join("\r\n");
 
-    // NOTE: `css_blocks` / `extra_blocks` are no longer emitted — per-node styles
+    // NOTE: `css_blocks` / `extra_blocks` are no longer emitted - per-node styles
     // are now inlined as `.with_css("..")` strings (public API) rather than as
-    // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` blocks (that API was
-    // removed in 32d44ed8a). The maps stay in the signatures for compatibility.
+    // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` blocks (that API was removed
+    // in 32d44ed8a). The maps stay in the signatures for compatibility.
     let _ = (&css_blocks, &extra_blocks);
 
     let main_func = "
@@ -5460,15 +5337,13 @@ fn parse_svg_points(pts: &str, close: bool) -> Option<crate::svg::SvgMultiPolygo
     })
 }
 
-/// Fast XML to Dom conversion that builds Dom tree directly without intermediate `StyledDom`
-/// This is O(n) instead of O(n²) for large documents
-/// Apply the shared set of XML attributes onto a single [`NodeData`] node.
-///
-/// Handles `<img src>` rebuild, `id`/`class`, `focusable`, `tabindex`, inline
-/// `style`, and SVG-shape geometry — the block that was previously duplicated
-/// verbatim between [`xml_node_to_dom_fast`] (operating on `dom.root`) and
-/// [`xml_node_to_fast_dom`] (operating on the arena `NodeData`). `component_name`
-/// must already be normalized (lowercased); the caller computes `child_inside_svg`.
+/// Fast XML to Dom conversion that builds Dom tree directly without intermediate
+/// `StyledDom` This is O(n) instead of O(n²) for large documents Apply the shared
+/// set of XML attributes onto a single [`NodeData`] node. Handles `<img src>`
+/// rebuild, `id`/`class`, `focusable`, `tabindex`, inline `style`, and SVG-shape
+/// geometry - the block that was previously duplicated verbatim between
+/// [`xml_node_to_dom_fast`] (operating on `dom.root`) and [`xml_node_to_fast_dom`]
+/// (operating on the arena `NodeData`).
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 fn apply_xml_node_attributes(
     node: &mut crate::dom::NodeData,
@@ -5479,10 +5354,9 @@ fn apply_xml_node_attributes(
     use crate::dom::{IdOrClass, NodeType, TabIndex};
 
     // `<img src="...">`: rebuild the placeholder Image node so its `NullImage`
-    // carries the `src` string (as UTF-8 bytes in `tag`). The bytes are NOT
-    // resolved here — a downstream renderer (printpdf, the compositor, ...) uses
-    // the tag to look up and embed the actual image. Optional `width`/`height`
-    // attributes set the intrinsic size used for layout (CSS still overrides).
+    // carries the `src` string (as UTF-8 bytes in `tag`). The bytes are NOT resolved
+    // here - a downstream renderer (printpdf, the compositor, ...) uses the tag to
+    // look up and embed the actual image.
     if component_name == "img" {
         if let Some(src) = xml_node.attributes.get_key("src") {
             let width = xml_node
@@ -5561,9 +5435,8 @@ fn apply_xml_node_attributes(
     // Table cell span attributes (`colspan` / `rowspan`).
     apply_cell_span_attributes(node, xml_node);
 
-    // HTML `dir` attribute → the `direction` CSS property (dir="rtl"/"ltr"). Without
-    // this, dir="rtl" (the common way to set RTL in HTML) had no effect. Appended
-    // BEFORE the inline `style` below so author style still wins on equal specificity.
+    // HTML `dir` attribute → the `direction` CSS property (dir="rtl"/"ltr").
+    // Without this, dir="rtl" (the common way to set RTL in HTML) had no effect.
     let dir_prop = xml_node.attributes.get_key("dir").and_then(|d| {
         let v = d.as_str().trim();
         if v.eq_ignore_ascii_case("rtl") {
@@ -5598,8 +5471,8 @@ fn apply_xml_node_attributes(
                 let Some(value) = s.next() else {
                     continue;
                 };
-                // Called for its side effect (writes parsed props into `attributes`);
-                // the returned value is intentionally discarded.
+                // Called for its side effect (writes parsed props into
+                // `attributes`); the returned value is intentionally discarded.
                 drop(azul_css::parser2::parse_css_declaration(
                     key.trim(),
                     value.trim(),
@@ -5670,7 +5543,8 @@ fn apply_xml_node_attributes(
                 let rx = parse_svg_float(xml_node.attributes.get_key("rx")).unwrap_or(0.0);
                 let ry = parse_svg_float(xml_node.attributes.get_key("ry")).unwrap_or(0.0);
                 if rx > 0.0 && ry > 0.0 {
-                    // Approximate ellipse with 4 cubic beziers (using rx for x-kappa, ry for y-kappa)
+                    // Approximate ellipse with 4 cubic beziers (using rx for
+                    // x-kappa, ry for y-kappa)
                     use azul_css::props::basic::{SvgCubicCurve, SvgPoint};
                     const KAPPA: f32 = 0.552_284_8;
                     let kx = rx * KAPPA;
@@ -5765,9 +5639,7 @@ fn apply_xml_node_attributes(
 
 /// Parse the HTML `colspan` / `rowspan` presentational attributes into
 /// `AttributeType`s on the node. The table layout reads them back via
-/// `get_cell_spans`. Without this the XML→DOM conversion dropped them and every
-/// cell defaulted to span 1, so `<th colspan="2">` only covered one column.
-/// Parsed unconditionally — non-cell elements simply don't carry these attributes.
+/// `get_cell_spans`.
 fn apply_cell_span_attributes(node: &mut crate::dom::NodeData, xml_node: &XmlNode) {
     let mut spans = Vec::new();
     if let Some(n) = xml_node
@@ -5793,9 +5665,9 @@ fn apply_cell_span_attributes(node: &mut crate::dom::NodeData, xml_node: &XmlNod
 
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 // component_map is threaded through the whole fast-DOM pipeline for parity with the
-// component-expanding interpreter path (see ~xml.rs:2845); this fast path never expands
-// components, so it only forwards the map into recursive calls. Removing it here would
-// cascade unused-param removals up the entire pipeline.
+// component-expanding interpreter path (see ~xml.rs:2845); this fast path never
+// expands components, so it only forwards the map into recursive calls. Removing it
+// here would cascade unused-param removals up the entire pipeline.
 #[allow(clippy::only_used_in_recursion)]
 fn xml_node_to_dom_fast<'a>(
     xml_node: &'a XmlNode,
@@ -5818,7 +5690,6 @@ fn xml_node_to_dom_fast<'a>(
     // AUDIT 2026-07-08: bound recursion depth to avoid a native stack overflow on
     // pathologically deep markup. At the cap, this node is emitted without its
     // children (truncation) rather than crashing the process.
-    // AUDIT-TODO: a worklist-based iterative builder would preserve deep subtrees.
     if depth >= MAX_XML_NESTING_DEPTH {
         return Ok(dom);
     }
@@ -5846,8 +5717,8 @@ fn xml_node_to_dom_fast<'a>(
     Ok(dom)
 }
 
-/// Builder for arena-based DOM construction (`FastDom`).
-/// Builds two parallel Vecs (hierarchy + `node_data`) in a single DFS pass.
+/// Builder for arena-based DOM construction (`FastDom`). Builds two parallel Vecs
+/// (hierarchy + `node_data`) in a single DFS pass.
 #[derive(Debug)]
 pub struct CompactDomBuilder {
     hierarchy: Vec<crate::styled_dom::NodeHierarchyItem>,
@@ -5962,7 +5833,8 @@ impl CompactDomBuilder {
 /// Convert an XML node tree into a `FastDom` (arena-based) in a single DFS pass.
 /// This is the fast path equivalent of `xml_node_to_dom_fast`.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-// See xml_node_to_dom_fast: component_map is forwarded for pipeline parity, not read here.
+// See xml_node_to_dom_fast: component_map is forwarded for pipeline parity, not
+// read here.
 #[allow(clippy::only_used_in_recursion)]
 fn xml_node_to_fast_dom<'a>(
     xml_node: &'a XmlNode,
@@ -5987,7 +5859,6 @@ fn xml_node_to_fast_dom<'a>(
     // AUDIT 2026-07-08: bound recursion depth to avoid a native stack overflow on
     // pathologically deep markup. At the cap, children are dropped (the node is
     // still opened+closed) rather than crashing the process.
-    // AUDIT-TODO: a worklist-based iterative builder would preserve deep subtrees.
     if depth < MAX_XML_NESTING_DEPTH {
         // Recursively convert children
         for child in xml_node.children.as_ref() {
@@ -6014,8 +5885,8 @@ fn xml_node_to_fast_dom<'a>(
     Ok(())
 }
 
-/// Render a DOM from an XML body node using the fast arena-based path.
-/// Builds a `FastDom` directly (no tree intermediary), then creates `StyledDom`.
+/// Render a DOM from an XML body node using the fast arena-based path. Builds a
+/// `FastDom` directly (no tree intermediary), then creates `StyledDom`.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 fn render_dom_from_body_node_fast<'a>(
     body_node: &'a XmlNode,
@@ -6027,8 +5898,7 @@ fn render_dom_from_body_node_fast<'a>(
 
     let mut builder = CompactDomBuilder::new();
 
-    // Build the HTML > Body wrapper + body content in one pass
-    // Open <html>
+    // Build the HTML > Body wrapper + body content in one pass Open <html>
     builder.open_node(NodeData::create_node(NodeType::Html));
     // Open <body> (the body_node content goes inside)
     xml_node_to_fast_dom(body_node, component_map, false, &mut builder, 0)?;
@@ -6063,7 +5933,8 @@ fn render_dom_from_body_node_fast<'a>(
     Ok(styled)
 }
 
-// render_dom_from_body_node() removed — use render_dom_from_body_node_fast() or str_to_dom()
+// render_dom_from_body_node() removed - use render_dom_from_body_node_fast() or
+// str_to_dom()
 
 fn set_stringified_attributes(
     dom_string: &mut String,
@@ -6074,8 +5945,8 @@ fn set_stringified_attributes(
     let t0 = String::from("    ").repeat(tabs);
     let t = String::from("    ").repeat(tabs + 1);
 
-    // push ids and classes as chained `.with_id("..")` / `.with_class("..")`
-    // calls (public builder API; both take `Into<AzString>`, so bare &str works).
+    // push ids and classes as chained `.with_id("..")` / `.with_class("..")` calls
+    // (public builder API; both take `Into<AzString>`, so bare &str works).
     let _ = &t;
     for id in xml_attributes
         .get_key("id")
@@ -6131,35 +6002,26 @@ fn set_stringified_attributes(
     }
 }
 
-/// Item of a split string - either a variable name (with optional format spec) or a string
+/// Item of a split string - either a variable name (with optional format spec) or a
+/// string
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum DynamicItem {
     /// A variable reference, e.g. {counter} or {counter:?} or {price:.2}
     Var {
         name: String,
-        /// Optional format specifier after the colon: "?" for debug, ".2" for precision, etc.
+        /// Optional format specifier after the colon: "?" for debug, ".2" for
+        /// precision, etc.
         format_spec: Option<String>,
     },
     Str(String),
 }
 
-/// Splits a string into formatting arguments, supporting format specifiers like `{var:?}`
-/// ```rust
-/// # use azul_core::xml::DynamicItem::*;
-/// # use azul_core::xml::split_dynamic_string;
-/// let s = "hello {a}, {b}{{ {c} }}";
-/// let split = split_dynamic_string(s);
-/// let output = vec![
-///     Str("hello ".to_string()),
-///     Var { name: "a".to_string(), format_spec: None },
-///     Str(", ".to_string()),
-///     Var { name: "b".to_string(), format_spec: None },
-///     Str("{ ".to_string()),
-///     Var { name: "c".to_string(), format_spec: None },
-///     Str(" }".to_string()),
-/// ];
-/// assert_eq!(output, split);
-/// ```
+/// Splits a string into formatting arguments, supporting format specifiers like
+/// `{var:?}` let s = "hello {a}, {b}{{ {c} }}"; let split = split_dynamic_string(s);
+/// let output = vec![ Str("hello ".to_string()), Var { name: "a".to_string(),
+/// format_spec: None }, Str(", ".to_string()), Var { name: "b".to_string(),
+/// format_spec: None }, Str("{ ".to_string()), Var { name: "c".to_string(),
+/// format_spec: None }, Str(" }".to_string()), ]; assert_eq!(output, split);
 #[must_use] pub fn split_dynamic_string(input: &str) -> Vec<DynamicItem> {
     use self::DynamicItem::{Str, Var};
 
@@ -6174,7 +6036,8 @@ pub enum DynamicItem {
         let c = input[current_idx];
         match c {
             '{' if input.get(current_idx + 1).copied() != Some('{') => {
-                // variable start, search until next closing brace or whitespace or end of string
+                // variable start, search until next closing brace or whitespace or
+                // end of string
                 let mut start_offset = 1;
                 let mut has_found_variable = false;
                 while let Some(c) = input.get(current_idx + start_offset) {
@@ -6190,20 +6053,21 @@ pub enum DynamicItem {
                     start_offset += 1;
                 }
 
-                // advance current_idx accordingly
-                // on fail, set cursor to end
-                // set last_idx accordingly
+                // advance current_idx accordingly on fail, set cursor to end set
+                // last_idx accordingly
                 if has_found_variable {
                     if last_idx != current_idx {
                         items.push(Str(input[last_idx..current_idx].iter().collect()));
                     }
 
-                    // subtract 1 from start for opening brace, one from end for closing brace
+                    // subtract 1 from start for opening brace, one from end for
+                    // closing brace
                     let var_content: String = input
                         [(current_idx + 1)..(current_idx + start_offset - 1)]
                         .iter()
                         .collect();
-                    // Split on first ':' to separate variable name from format specifier
+                    // Split on first ':' to separate variable name from format
+                    // specifier
                     let (var_name, format_spec) = if let Some(colon_pos) = var_content.find(':') {
                         let name = var_content[..colon_pos].to_string();
                         let spec = var_content[(colon_pos + 1)..].to_string();
@@ -6241,12 +6105,10 @@ pub enum DynamicItem {
     items
 }
 
-/// Combines the split string back into its original form while replacing the variables with their
-/// values
-///
-/// let variables = btreemap!{ "a" => "value1", "b" => "value2" };
-/// [Str("hello "), Var("a"), Str(", "), Var("b"), Str("{ "), Var("c"), Str(" }}")]
-/// => "hello value1, valuec{ {c} }"
+/// Combines the split string back into its original form while replacing the
+/// variables with their values let variables = btreemap!{ "a" => "value1", "b" =>
+/// "value2" }; [Str("hello "), Var("a"), Str(", "), Var("b"), Str("{ "), Var("c"),
+/// Str(" }}")] => "hello value1, valuec{ {c} }"
 fn combine_and_replace_dynamic_items(
     input: &[DynamicItem],
     variables: &ComponentArgumentVec,
@@ -6261,7 +6123,8 @@ fn combine_and_replace_dynamic_items(
                     .iter()
                     .find(|s| s.name.as_str() == variable_name)
                     .map(|q| &q.arg_type) {
-                    // Format specifiers are applied at compile time, not at runtime replacement
+                    // Format specifiers are applied at compile time, not at runtime
+                    // replacement
                     s.push_str(resolved_var);
                 } else {
                     s.push('{');
@@ -6282,32 +6145,22 @@ fn combine_and_replace_dynamic_items(
     s
 }
 
-/// Given a string and a key => value mapping, replaces parts of the string with the value, i.e.:
-///
-/// ```rust
-/// # use azul_core::xml::{format_args_dynamic, ComponentArgument, ComponentArgumentVec};
-/// # use azul_css::AzString;
-/// let variables: ComponentArgumentVec = vec![
-///     ComponentArgument { name: AzString::from("a"), arg_type: AzString::from("value1") },
-///     ComponentArgument { name: AzString::from("b"), arg_type: AzString::from("value2") },
-/// ].into();
-///
-/// let initial = "hello {a}, {b}{{ {c} }}";
-/// let expected = "hello value1, value2{ {c} }".to_string();
-/// assert_eq!(format_args_dynamic(initial, &variables), expected);
-/// ```
-///
-/// Note: the number (0, 1, etc.) is the order of the argument, it is irrelevant for
-/// runtime formatting, only important for keeping the component / function arguments
-/// in order when compiling the arguments to Rust code
+/// Given a string and a key => value mapping, replaces parts of the string with the
+/// value, i.e.: let variables: ComponentArgumentVec = vec![ ComponentArgument {
+/// name: AzString::from("a"), arg_type: AzString::from("value1") },
+/// ComponentArgument { name: AzString::from("b"), arg_type: AzString::from("value2")
+/// }, ].into(); let initial = "hello {a}, {b}{{ {c} }}"; let expected = "hello
+/// value1, value2{ {c} }".to_string(); assert_eq!(format_args_dynamic(initial,
+/// &variables), expected); Note: the number (0, 1, etc.) is the order of the
+/// argument, it is irrelevant for runtime formatting, only important for keeping the
+/// component / function arguments in order when compiling the arguments to Rust code
 #[must_use] pub fn format_args_dynamic(input: &str, variables: &ComponentArgumentVec) -> String {
     let dynamic_str_items = split_dynamic_string(input);
     combine_and_replace_dynamic_items(&dynamic_str_items, variables)
 }
 
-/// Decode a numeric character reference body (the part between `&` and `;`),
-/// e.g. `"#65"` -> `'A'`, `"#x41"` -> `'A'`. Returns `None` if it is not a valid
-/// numeric reference.
+/// Decode a numeric character reference body (the part between `&` and `;`), e.g.
+/// `"#65"` -> `'A'`, `"#x41"` -> `'A'`.
 fn decode_numeric_entity(entity: &str) -> Option<char> {
     let num = entity.strip_prefix('#')?;
     let code = if let Some(hex) = num.strip_prefix(['x', 'X']) {
@@ -6318,12 +6171,9 @@ fn decode_numeric_entity(entity: &str) -> Option<char> {
     char::from_u32(code)
 }
 
-/// Decode the common HTML/XML entities in a single left-to-right pass.
-///
-/// Handles `&lt;` `&gt;` `&amp;` `&quot;` `&apos;` and numeric references
-/// (`&#NN;` / `&#xHH;`). `&nbsp;` and any unrecognized `&...;` sequence are left
-/// verbatim. The single pass guarantees `&amp;` never double-decodes a following
-/// entity. See [`prepare_string`] for why `&nbsp;` is deliberately preserved.
+/// Decode the common HTML/XML entities in a single left-to-right pass. Handles
+/// `&lt;` `&gt;` `&amp;` `&quot;` `&apos;` and numeric references (`&#NN;` /
+/// `&#xHH;`).
 fn decode_entities(input: &str) -> String {
     // Longest handled entity body is a hex numeric ref like `#x10FFFF` (8 bytes);
     // cap the `;` search window so a stray `&` far from a `;` stays cheap.
@@ -6372,7 +6222,8 @@ fn decode_entities(input: &str) -> String {
     out
 }
 
-// NOTE: Two sequential returns count as a single return, while single returns get ignored.
+// NOTE: Two sequential returns count as a single return, while single returns get
+// ignored.
 #[must_use] pub fn prepare_string(input: &str) -> String {
     const SPACE: &str = " ";
     const RETURN: &str = "\n";
@@ -6386,10 +6237,6 @@ fn decode_entities(input: &str) -> String {
     // AUDIT 2026-07-08: previously only `&lt;`/`&gt;` were decoded. Decode the full
     // common named-entity set (`&lt;` `&gt;` `&amp;` `&quot;` `&apos;`) plus numeric
     // references (`&#NN;` decimal and `&#xHH;` hex) in a single left-to-right pass.
-    // A single pass is used deliberately so `&amp;` cannot double-decode a following
-    // entity (e.g. "&amp;lt;" -> literal "&lt;", not "<"). `&nbsp;` is intentionally
-    // left untouched here so the per-line pass below (which runs AFTER trimming) can
-    // still turn it into a space that survives leading/trailing trim.
     let input = decode_entities(input);
 
     let input_len = input.len();
@@ -6415,8 +6262,8 @@ fn decode_entities(input: &str) -> String {
     let mut target = String::with_capacity(input_len);
     for (line_idx, line) in final_lines.iter().enumerate() {
         // A joining space goes before every line EXCEPT the first (idx 0) and a
-        // paragraph break (RETURN-prefixed). The old code also skipped the LAST line,
-        // which dropped the word boundary for a soft-wrapped final line
+        // paragraph break (RETURN-prefixed). The old code also skipped the LAST
+        // line, which dropped the word boundary for a soft-wrapped final line
         // ("Hello\nworld" -> "Helloworld").
         if !(line.starts_with(RETURN) || line_idx == 0) {
             target.push_str(SPACE);
@@ -6469,7 +6316,8 @@ impl CssMatcher {
             return false;
         }
 
-        // self_matcher is only ever going to contain "Children" selectors, never "DirectChildren"
+        // self_matcher is only ever going to contain "Children" selectors, never
+        // "DirectChildren"
         let mut path_groups = CssGroupIterator::new(path.selectors.as_ref()).collect::<Vec<_>>();
         path_groups.reverse();
 
@@ -6489,17 +6337,9 @@ impl CssMatcher {
             return false;
         }
 
-        // self_groups = [ // HTML
-        //     "body",
-        //     "div.__azul_native-ribbon-container"
-        //     "div.__azul_native-ribbon-tabs"
-        //     "p.home"
-        // ]
-        //
-        // path_groups = [ // CSS
-        //     ".__azul_native-ribbon-tabs"
-        //     "div.after-tabs"
-        // ]
+        // self_groups = [ // HTML "body", "div.__azul_native-ribbon-container"
+        // "div.__azul_native-ribbon-tabs" "p.home" ] path_groups = [ // CSS
+        // ".__azul_native-ribbon-tabs" "div.after-tabs" ]
 
         // get the first path group and see if it matches anywhere in the self group
         let mut cur_selfgroup_scan = 0;
@@ -6529,8 +6369,8 @@ impl CssMatcher {
 
             match advance {
                 Some(n) => {
-                    // group was found in remaining items
-                    // advance cur_pathgroup_scan by 1 and cur_selfgroup_scan by n
+                    // group was found in remaining items advance cur_pathgroup_scan
+                    // by 1 and cur_selfgroup_scan by n
                     if cur_pathgroup_scan == path_groups.len() - 1 {
                         // last path group
                         return cur_selfgroup_scan + n == self_groups.len() - 1;
@@ -6548,8 +6388,7 @@ impl CssMatcher {
     }
 }
 
-// does p.home match div.after-tabs?
-// a: div.after-tabs
+// does p.home match div.after-tabs? a: div.after-tabs
 fn group_matches(
     a: &[&CssPathSelector],
     b: &[&CssPathSelector],
@@ -6625,8 +6464,6 @@ struct CssBlock {
 }
 
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
 /// Returns an error if the body node cannot be compiled to Rust code.
 pub fn compile_body_node_to_rust_code<'a>(
     body_node: &'a XmlNode,
@@ -6669,9 +6506,10 @@ pub fn compile_body_node_to_rust_code<'a>(
     if !css_blocks_for_this_node.is_empty() {
         // Track property types for the helper-const machinery, then emit the
         // matched declarations as an inline CSS string. (The old path emitted a
-        // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` + `.with_inline_css_props`,
-        // but that API was removed in 32d44ed8a; `.with_css(<str>)` is the
-        // current equivalent and parses pseudo blocks too.)
+        // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` +
+        // `.with_inline_css_props`, but that API was removed in 32d44ed8a;
+        // `.with_css(<str>)` is the current equivalent and parses pseudo blocks
+        // too.)
         for css_block in &css_blocks_for_this_node {
             for declaration in css_block.block.declarations.as_ref() {
                 let prop = match declaration {
@@ -6736,10 +6574,10 @@ pub fn compile_body_node_to_rust_code<'a>(
 }
 
 /// Serialize the CSS blocks matched for a node into one inline CSS string for
-/// `Dom::with_css(...)`. `with_css` parses via `Css::parse_inline`, which runs
-/// the full selector+nesting machinery, so `:hover`/`:active`/`:focus` are
-/// emitted as nested pseudo blocks and round-trip faithfully; plain rules are
-/// emitted flat as `key: value;` (via `CssProperty::key()` / `value()`).
+/// `Dom::with_css(...)`. `with_css` parses via `Css::parse_inline`, which runs the
+/// full selector+nesting machinery, so `:hover`/`:active`/`:focus` are emitted as
+/// nested pseudo blocks and round-trip faithfully; plain rules are emitted flat as
+/// `key: value;` (via `CssProperty::key()` / `value()`).
 fn css_blocks_to_inline_string(blocks: &[CssBlock]) -> String {
     fn decls_of(block: &CssBlock) -> Vec<String> {
         block
@@ -6857,7 +6695,8 @@ fn format_args_for_rust_code(input: &str) -> String {
 
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 // component_map is forwarded through the codegen recursion for parity with the
-// component-expanding path; this Rust-codegen path only threads it into recursive calls.
+// component-expanding path; this Rust-codegen path only threads it into recursive
+// calls.
 #[allow(clippy::only_used_in_recursion)]
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 fn compile_node_to_rust_code_inner(
@@ -6880,14 +6719,11 @@ fn compile_node_to_rust_code_inner(
     let node_type_tag = tag_to_node_type_tag(&component_name);
     let node_type = CssPathSelector::Type(node_type_tag);
 
-    // Emit a plain `create_node(<Tag>)` for the base node. Do NOT route through
-    // the component `compile_fn`: its Rust arm bakes inline text into a
-    // `.with_children(..)`, which the child-walk below would then OVERWRITE with
-    // a second `.with_children(..)` — silently dropping the text on any node
-    // that has BOTH text and element children. The child-walk handles ALL
-    // children (text + elements) in order, so the base node must stay childless.
-    // Interactive/data tags (Button/Input/…) whose NodeType carries data fall
-    // back to `div`, matching the C/C++/Python walkers (`safe_container_tag`).
+    // Emit a plain `create_node(<Tag>)` for the base node. Do NOT route through the
+    // component `compile_fn`: its Rust arm bakes inline text into a
+    // `.with_children(..)`, which the child-walk below would then OVERWRITE with a
+    // second `.with_children(..)` - silently dropping the text on any node that has
+    // BOTH text and element children.
     let ctor = analyze_node_ctor(&component_name, node);
     let mut dom_string = ctor.render_rust().map_or_else(|| {
         let tag = safe_container_tag(&format!("{:?}", tag_to_node_type(&component_name)));
@@ -6923,9 +6759,10 @@ fn compile_node_to_rust_code_inner(
     if !css_blocks_for_this_node.is_empty() {
         // Track property types for the helper-const machinery, then emit the
         // matched declarations as an inline CSS string. (The old path emitted a
-        // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` + `.with_inline_css_props`,
-        // but that API was removed in 32d44ed8a; `.with_css(<str>)` is the
-        // current equivalent and parses pseudo blocks too.)
+        // `const CSS_MATCH_*: NodeDataInlineCssPropertyVec` +
+        // `.with_inline_css_props`, but that API was removed in 32d44ed8a;
+        // `.with_css(<str>)` is the current equivalent and parses pseudo blocks
+        // too.)
         for css_block in &css_blocks_for_this_node {
             for declaration in css_block.block.declarations.as_ref() {
                 let prop = match declaration {
@@ -6951,8 +6788,8 @@ fn compile_node_to_rust_code_inner(
         tabs,
     );
 
-    // Text folded into the ctor (Tier A/C) is skipped, as is a `<caption>`
-    // already injected by `create_table`.
+    // Text folded into the ctor (Tier A/C) is skipped, as is a `<caption>` already
+    // injected by `create_table`.
     let mut caption_skipped = false;
     let mut children_string = node
         .children
@@ -7012,24 +6849,18 @@ fn compile_node_to_rust_code_inner(
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Generic FLUENT DOM-builder emitter (C++ / Python).
-//
-// Rust has its own dedicated walker above (`compile_*_to_rust_code`). C++ and
-// Python share this generic walker because their builder APIs are also fluent
-// (`Dom::create_*().with_css(..).with_child(..)`); only the surface tokens
-// differ, captured in `FluentSyntax`. Plain C is imperative and has its own
-// walker (`compile_*_to_c_code`).
-// ───────────────────────────────────────────────────────────────────────────
+// Generic FLUENT DOM-builder emitter (C++ / Python). Rust has its own dedicated
+// walker above (`compile_*_to_rust_code`).
 
-/// Tags with a zero-arg per-tag creator (`create_<tag>()` / `AzDom_create<Tag>()`
-/// / `create_node(NodeType::<Tag>)`). Interactive / data elements (Button, Input,
-/// Img, Select, Textarea, Label, A, Table, …) take constructor arguments, so an
-/// exported page maps them to a plain `div` container (structure preserved; the
-/// user re-wires behavior). Keep these CamelCase to match `NodeTypeTag` debug names.
+/// Tags with a zero-arg per-tag creator (`create_<tag>()` / `AzDom_create<Tag>()` /
+/// `create_node(NodeType::<Tag>)`). Interactive / data elements (Button, Input, Img,
+/// Select, Textarea, Label, A, Table, …) take constructor arguments, so an exported
+/// page maps them to a plain `div` container (structure preserved; the user re-wires
+/// behavior).
 const SAFE_CONTAINER_TAGS: &[&str] = &[
-    // These must match the real `NodeType` Debug names exactly (the lookup below is a
-    // string compare against `{:?}`). Six used to be mis-cased — "Blockquote",
-    // "Colgroup", "Figcaption", "Tbody", "Tfoot", "Thead" — so those tags silently
+    // These must match the real `NodeType` Debug names exactly (the lookup below is
+    // a string compare against `{:?}`). Six used to be mis-cased - "Blockquote",
+    // "Colgroup", "Figcaption", "Tbody", "Tfoot", "Thead" - so those tags silently
     // degraded to "Div".
     "Abbr", "Acronym", "Address", "Article", "Aside", "B", "Bdi", "Bdo", "Big",
     "BlockQuote", "Body", "Br", "Caption", "Cite", "Code", "ColGroup", "Dd",
@@ -7049,31 +6880,14 @@ fn safe_container_tag(tag_dbg: &str) -> &'static str {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// Semantic / accessibility-aware constructor selection.
-//
-// Instead of mapping every element to a plain `div`, an exported live page
-// picks the *most specific* Azul constructor so the generated app keeps the
-// page's semantics + accessibility tree:
-//
-//   • Tier A  `create_<tag>_with_text(text)` — a tag with a single text child
-//             and no element children (P, Span, H1-H6, Li, Td, Code, …).
-//   • Tier B  aria-only / void widgets (Details, Summary, Form, Canvas, Area,
-//             …) — `create_<tag>(SmallAriaInfo::label(..))` when `aria-label`
-//             is present, else `create_<tag>_no_a11y()`.
-//   • Tier C  multi-arg widgets (Button, A, Label, Input, Select, Option,
-//             Optgroup, Textarea, Table) — args pulled from HTML attributes.
-//   • Tier D  scalar-driven widgets (Progress, Meter, Dialog) — the `*_no_a11y`
-//             form with extracted numeric args (the full aria structs are
-//             complex; the NoA11y form is simplest + correct).
-//
-// Every symbol emitted here is verified to exist in `target/codegen/azul.h` (C)
-// and `azul20.hpp` (C++); anything else falls back to `safe_container_tag`
-// (`div`). The four walkers share `analyze_node_ctor` and each renders the
-// result with its own surface tokens.
-// ───────────────────────────────────────────────────────────────────────────
+// Semantic / accessibility-aware constructor selection. Instead of mapping every
+// element to a plain `div`, an exported live page picks the *most specific* Azul
+// constructor so the generated app keeps the page's semantics + accessibility tree:
+// • Tier A `create_<tag>_with_text(text)` - a tag with a single text child and no
+// element children (P, Span, H1-H6, Li, Td, Code, …).
 
-/// A single positional argument of a semantic constructor. String payloads are
-/// RAW — escaping happens at render time (matching the walkers).
+/// A single positional argument of a semantic constructor. String payloads are RAW
+/// - escaping happens at render time (matching the walkers).
 #[derive(Debug, Clone)]
 enum CtorArg {
     /// Plain string literal (`AzString` / `String` / `"…"`).
@@ -7090,34 +6904,34 @@ enum CtorArg {
 
 /// The constructor chosen for an element node.
 enum NodeCtor {
-    /// Plain container — keep each walker's existing `create_<tag>()` path.
+    /// Plain container - keep each walker's existing `create_<tag>()` path.
     Plain,
     /// A specific semantic constructor.
     Semantic {
-        /// Canonical CamelCase suffix after `create` / `AzDom_create`
-        /// (e.g. `Button`, `ButtonNoA11y`, `PWithText`, `A`, `ANoA11y`).
+        /// Canonical CamelCase suffix after `create` / `AzDom_create` (e.g.
+        /// `Button`, `ButtonNoA11y`, `PWithText`, `A`, `ANoA11y`).
         suffix: String,
         args: Vec<CtorArg>,
-        /// The node's direct text is folded into the ctor — skip text children
-        /// in the walk so it isn't emitted twice.
+        /// The node's direct text is folded into the ctor - skip text children in
+        /// the walk so it isn't emitted twice.
         consumes_text: bool,
-        /// The table aria form injects its own `<caption>` child — drop the
-        /// first literal `<caption>` element so it isn't duplicated.
+        /// The table aria form injects its own `<caption>` child - drop the first
+        /// literal `<caption>` element so it isn't duplicated.
         skip_caption: bool,
     },
 }
 
-/// Uppercase the first character (`button` → `Button`, `h1` → `H1`). HTML tags
-/// are single lowercase tokens, so this yields the exact `AzDom_create<Suffix>`
+/// Uppercase the first character (`button` → `Button`, `h1` → `H1`). HTML tags are
+/// single lowercase tokens, so this yields the exact `AzDom_create<Suffix>`
 /// spelling.
 fn cap_first(tag: &str) -> String {
     let mut c = tag.chars();
     c.next().map_or_else(String::new, |f| f.to_uppercase().collect::<String>() + c.as_str())
 }
 
-/// CamelCase → `snake_case` for the C++/Python/Rust method names
-/// (`ButtonNoA11y` → `button_no_a11y`, `PWithText` → `p_with_text`,
-/// `ANoA11y` → `a_no_a11y`, `H1WithText` → `h1_with_text`).
+/// CamelCase → `snake_case` for the C++/Python/Rust method names (`ButtonNoA11y` →
+/// `button_no_a11y`, `PWithText` → `p_with_text`, `ANoA11y` → `a_no_a11y`,
+/// `H1WithText` → `h1_with_text`).
 fn camel_to_snake(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
     let mut out = String::new();
@@ -7152,7 +6966,7 @@ fn fmt_f32_lit(f: f32) -> String {
     }
 }
 
-/// Joined, trimmed text of a node's *direct* text children (`"  Go  "` → `"Go"`).
+/// Joined, trimmed text of a node's *direct* text children (`" Go "` → `"Go"`).
 fn node_direct_text(node: &XmlNode) -> String {
     node.children
         .as_ref()
@@ -7233,7 +7047,7 @@ fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
     let has_text = !text.is_empty();
     let cap = cap_first(tag);
 
-    // Tier A — *_with_text (single text child, no element children).
+    // Tier A - *_with_text (single text child, no element children).
     if WITH_TEXT_TAGS.contains(&tag) {
         if pure_text && has_text {
             return sem(format!("{cap}WithText"), vec![CtorArg::Str(text)], true);
@@ -7242,7 +7056,7 @@ fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
     }
 
     match tag {
-        // Tier B — aria-only / void widgets.
+        // Tier B - aria-only / void widgets.
         "details" | "form" | "fieldset" | "legend" | "menu" | "output"
         | "datalist" | "canvas" | "audio" | "video" | "area" => {
             if has_aria {
@@ -7266,7 +7080,7 @@ fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
             }
         }
 
-        // Tier C — multi-arg widgets (args from HTML attributes).
+        // Tier C - multi-arg widgets (args from HTML attributes).
         "button" => {
             if has_aria {
                 sem("Button", vec![CtorArg::Str(text), CtorArg::Aria(label)], true)
@@ -7348,7 +7162,7 @@ fn analyze_node_ctor(tag: &str, node: &XmlNode) -> NodeCtor {
             }
         }
 
-        // Tier D — scalar-driven widgets (NoA11y form with extracted numbers).
+        // Tier D - scalar-driven widgets (NoA11y form with extracted numbers).
         "progress" => sem(
             "ProgressNoA11y",
             vec![
@@ -7485,9 +7299,9 @@ struct FluentSyntax {
 
 const CPP_SYNTAX: FluentSyntax = FluentSyntax {
     target: CompileTarget::Cpp,
-    // Use per-tag creators (Dom::create_div(), create_p(), create_body(), …)
-    // — `NodeType` is a tagged union, so `create_node` would need union
-    // construction; the per-tag creators exist for every common HTML element.
+    // Use per-tag creators (Dom::create_div(), create_p(), create_body(), …) -
+    // `NodeType` is a tagged union, so `create_node` would need union construction;
+    // the per-tag creators exist for every common HTML element.
     create_node: |tag| alloc::format!("Dom::create_{}()", tag.to_lowercase()),
     create_text: |s| alloc::format!("Dom::create_text_do_not_use_without_block_level_wrapper(String(\"{s}\"))"),
     with_css: |s| alloc::format!(".with_css(String(\"{s}\"))"),
@@ -7498,7 +7312,7 @@ const CPP_SYNTAX: FluentSyntax = FluentSyntax {
 
 const PYTHON_SYNTAX: FluentSyntax = FluentSyntax {
     target: CompileTarget::Python,
-    // Per-tag creators (azul.Dom.create_div(), …) — see CPP_SYNTAX note.
+    // Per-tag creators (azul.Dom.create_div(), …) - see CPP_SYNTAX note.
     create_node: |tag| alloc::format!("azul.Dom.create_{}()", tag.to_lowercase()),
     create_text: |s| alloc::format!("azul.Dom.create_text_do_not_use_without_block_level_wrapper(\"{s}\")"),
     with_css: |s| alloc::format!(".with_css(\"{s}\")"),
@@ -7510,7 +7324,8 @@ const PYTHON_SYNTAX: FluentSyntax = FluentSyntax {
 /// Walk one element node, emitting a fluent create-expression for `syntax`'s
 /// language. Mirrors `compile_node_to_rust_code_inner` but token-parameterized.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-// See compile_node_to_rust_code_inner: component_map is forwarded for codegen-path parity.
+// See compile_node_to_rust_code_inner: component_map is forwarded for codegen-path
+// parity.
 #[allow(clippy::only_used_in_recursion)]
 fn compile_node_fluent(
     node: &XmlNode,
@@ -7525,12 +7340,10 @@ fn compile_node_fluent(
     let node_type_tag = tag_to_node_type_tag(&component_name);
     let tag_dbg = alloc::format!("{:?}", tag_to_node_type(&component_name));
 
-    // Base create-expression. For an exported live page every node is a plain
-    // HTML element, so emit a per-tag creator directly via the language hooks
-    // (universal + verified) rather than the per-component `compile_fn`, whose
-    // C++/Python arms emit stale placeholder syntax (`Dom.div()` etc.).
-    // Interactive/data tags (whose creators need args) fall back to `div`. Any
-    // element text shows up as a Text child below and is handled there.
+    // Base create-expression. For an exported live page every node is a plain HTML
+    // element, so emit a per-tag creator directly via the language hooks (universal
+    // + verified) rather than the per-component `compile_fn`, whose C++/Python arms
+    // emit stale placeholder syntax (`Dom.div()` etc.).
     let ctor = analyze_node_ctor(&component_name, node);
     let mut s = ctor.render_fluent(&syntax.target).map_or_else(|| (syntax.create_node)(safe_container_tag(&tag_dbg)), |expr| expr);
 
@@ -7560,8 +7373,8 @@ fn compile_node_fluent(
         s.push_str(&(syntax.with_class)(&class.replace('\\', "\\\\").replace('"', "\\\"")));
     }
 
-    // Children (chained `.with_child(..)`). Text folded into the ctor (Tier A/C)
-    // is skipped here, as is a `<caption>` already injected by `create_table`.
+    // Children (chained `.with_child(..)`). Text folded into the ctor (Tier A/C) is
+    // skipped here, as is a `<caption>` already injected by `create_table`.
     let mut caption_skipped = false;
     for (child_idx, child) in node.children.as_ref().iter().enumerate() {
         match child {
@@ -7646,8 +7459,8 @@ fn compile_body_fluent<'a>(
     Ok(s)
 }
 
-/// Parse the page's `<style>` and seed a matcher rooted at `<body>`. Shared by
-/// the C++/Python/C entry points (mirrors the head of `str_to_rust_code`).
+/// Parse the page's `<style>` and seed a matcher rooted at `<body>`. Shared by the
+/// C++/Python/C entry points (mirrors the head of `str_to_rust_code`).
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
 fn parse_page_style_and_body(
     root_nodes: &[XmlNodeChild],
@@ -7677,8 +7490,6 @@ fn body_matcher(body_node: &XmlNode) -> CssMatcher {
 
 /// Compile a full HTML page to a compilable **C++** Azul app.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
 /// Returns an error if the XML cannot be parsed or compiled to C++ code.
 pub fn str_to_cpp_code<'a>(
     root_nodes: &'a [XmlNodeChild],
@@ -7688,7 +7499,7 @@ pub fn str_to_cpp_code<'a>(
     let render = compile_body_fluent(body_node, &CPP_SYNTAX, component_map, &global_style, body_matcher(body_node))?;
     Ok(alloc::format!(
         "// Auto-generated UI source code (C++). Build:\n\
-         //   clang++ -std=c++20 -I <azul>/target/codegen main.cpp -lazul\n\
+         // clang++ -std=c++20 -I <azul>/target/codegen main.cpp -lazul\n\
          #include \"azul20.hpp\"\n\
          using namespace azul;\n\n\
          struct Data {{}};\n\n\
@@ -7705,8 +7516,6 @@ pub fn str_to_cpp_code<'a>(
 
 /// Compile a full HTML page to a compilable **Python** Azul app.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
 /// Returns an error if the XML cannot be parsed or compiled to Python code.
 pub fn str_to_python_code<'a>(
     root_nodes: &'a [XmlNodeChild],
@@ -7731,13 +7540,11 @@ pub fn str_to_python_code<'a>(
 // ───────────────────────────────────────────────────────────────────────────
 // Imperative C emitter. C has no fluent builder: each node is a statement that
 // creates an `AzDom` local, applies css/class (by-value, returns), and pushes
-// children via `AzDom_addChild(&parent, child)`. A recursive walk emits the
-// statements bottom-up and returns the variable name holding each node.
-// ───────────────────────────────────────────────────────────────────────────
+// children via `AzDom_addChild(&parent, child)`.
 
-/// C per-tag creator suffix: `NodeTypeTag` debug name with first char kept and
-/// the rest lowercased (`Div`->`Div`, `BlockQuote`->`Blockquote`, `H1`->`H1`),
-/// matching `AzDom_create<Suffix>` in azul.h.
+/// C per-tag creator suffix: `NodeTypeTag` debug name with first char kept and the
+/// rest lowercased (`Div`->`Div`, `BlockQuote`->`Blockquote`, `H1`->`H1`), matching
+/// `AzDom_create<Suffix>` in azul.h.
 fn c_creator_suffix(tag_dbg: &str) -> String {
     let mut chars = tag_dbg.chars();
     chars.next().map_or_else(|| "Div".to_string(), |first| {
@@ -7836,8 +7643,6 @@ fn compile_node_c(
 
 /// Compile a full HTML page to a compilable **C** Azul app.
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
-/// # Errors
-///
 /// Returns an error if the XML cannot be parsed or compiled to C code.
 pub fn str_to_c_code<'a>(
     root_nodes: &'a [XmlNodeChild],
@@ -7914,20 +7719,18 @@ mod tests {
 
     #[test]
     fn test_inline_span_parsing() {
-        // This test verifies that HTML with inline spans is parsed correctly
-        // The DOM structure should preserve text nodes before, inside, and after the span
+        // This test verifies that HTML with inline spans is parsed correctly The
+        // DOM structure should preserve text nodes before, inside, and after the
+        // span
 
         let html = r#"<p>Text before <span class="highlight">inline text</span> text after.</p>"#;
 
-        // Expected DOM structure:
-        // <p>
-        //   ├─ TextNode: "Text before "
-        //   ├─ <span class="highlight">
-        //   │   └─ TextNode: "inline text"
-        //   └─ TextNode: " text after."
+        // Expected DOM structure: <p> ├─ TextNode: "Text before " ├─ <span
+        // class="highlight"> │ └─ TextNode: "inline text" └─ TextNode: " text
+        // after."
 
-        // For this test, we'll create the DOM structure manually
-        // since we're testing the parsing logic
+        // For this test, we'll create the DOM structure manually since we're
+        // testing the parsing logic
         let expected_dom = Dom::create_p().with_children(
             vec![
                 Dom::create_text_do_not_use_without_block_level_wrapper("Text before "),
@@ -7999,9 +7802,9 @@ mod tests {
     #[test]
     fn test_img_tag_becomes_image_node_with_src_tag() {
         // `<img src="cat.jpg" width="300" height="169">` must become a
-        // `NodeType::Image` whose `NullImage` carries the `src` string as its
-        // `tag` (so a renderer can resolve the bytes later), plus the declared
-        // intrinsic size.
+        // `NodeType::Image` whose `NullImage` carries the `src` string as its `tag`
+        // (so a renderer can resolve the bytes later), plus the declared intrinsic
+        // size.
         use crate::resources::DecodedImage;
         use crate::window::{AzStringPair, StringPairVec};
 
@@ -8051,10 +7854,10 @@ mod tests {
 
     #[test]
     fn test_icon_tag_builds_an_unnamed_icon_with_its_spec_as_text_child() {
-        // `<icon>content_copy</icon>`: the DOM builders stay fully generic —
-        // an un-named Icon node whose text child carries the spec. The icon
-        // RESOLUTION pass (core::icon::resolve_icons_in_styled_dom) consumes
-        // the text, exactly like a ligature icon font consumes glyph text.
+        // `<icon>content_copy</icon>`: the DOM builders stay fully generic - an
+        // un-named Icon node whose text child carries the spec. The icon RESOLUTION
+        // pass (core::icon::resolve_icons_in_styled_dom) consumes the text, exactly
+        // like a ligature icon font consumes glyph text.
         let text_form = XmlNode {
             node_type: "icon".into(),
             attributes: XmlAttributeMap::default(),
@@ -8107,8 +7910,7 @@ mod tests {
 
     /// AUDIT 2026-07-08: `extract_css_urls` used to slice the original string with
     /// a byte offset computed in a `to_lowercase()` temporary. On `'İ'` (whose
-    /// lowercase is longer in bytes) that offset was misaligned. This must no
-    /// longer panic and must still find the `@import` target.
+    /// lowercase is longer in bytes) that offset was misaligned.
     #[test]
     fn extract_css_urls_unicode_import_no_panic() {
         let mut res = Vec::new();
@@ -8143,8 +7945,8 @@ mod tests {
     }
 
     /// AUDIT 2026-07-08: the fast + tree DOM builders recurse per nesting level;
-    /// deep markup must not overflow the stack (children beyond the cap are
-    /// dropped, but the call returns `Ok`).
+    /// deep markup must not overflow the stack (children beyond the cap are dropped,
+    /// but the call returns `Ok`).
     #[test]
     fn xml_node_to_dom_fast_deep_nesting_ok() {
         let deep = nested_divs(2000);
@@ -8266,7 +8068,7 @@ mod autotest_generated {
     const LONG: usize = 200_000;
 
     // ================================================================
-    // Xml::extract_url_value  (parser)
+    // Xml::extract_url_value (parser)
     // ================================================================
 
     #[test]
@@ -8359,7 +8161,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // Xml::extract_quoted_string  (parser)
+    // Xml::extract_quoted_string (parser)
     // ================================================================
 
     #[test]
@@ -8412,7 +8214,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // Xml::parse_srcset  (parser)
+    // Xml::parse_srcset (parser)
     // ================================================================
 
     #[test]
@@ -8640,9 +8442,8 @@ mod autotest_generated {
         );
     }
 
-    // ================================================================
-    // MimeTypeHint  (constructor)
-    // ================================================================
+    // ================================================================ MimeTypeHint
+    // (constructor) ================================================================
 
     #[test]
     fn mime_type_hint_new_no_panic_and_fields_match_args() {
@@ -8676,8 +8477,8 @@ mod autotest_generated {
         );
     }
 
-    // ================================================================
-    // ComponentId  (constructor / getter)
+    // ================================================================ ComponentId
+    // (constructor / getter)
     // ================================================================
 
     #[test]
@@ -8699,13 +8500,13 @@ mod autotest_generated {
     fn component_id_qualified_name_roundtrips_through_the_map_lookup() {
         assert_eq!(ComponentId::builtin("div").qualified_name(), "builtin:div");
         assert_eq!(ComponentId::new("", "").qualified_name(), ":");
-        // A name that itself contains ':' makes the qualified name ambiguous —
-        // pin the (lossy) behavior so a change is noticed.
+        // A name that itself contains ':' makes the qualified name ambiguous - pin
+        // the (lossy) behavior so a change is noticed.
         assert_eq!(ComponentId::new("a", "b:c").qualified_name(), "a:b:c");
     }
 
     // ================================================================
-    // ComponentFieldTypeBox / ComponentFieldValueBox  (constructor / getter)
+    // ComponentFieldTypeBox / ComponentFieldValueBox (constructor / getter)
     // ================================================================
 
     #[test]
@@ -8743,7 +8544,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // ComponentFieldType::parse / parse_depth / format  (round-trip)
+    // ComponentFieldType::parse / parse_depth / format (round-trip)
     // ================================================================
 
     #[test]
@@ -8784,8 +8585,8 @@ mod autotest_generated {
 
     #[test]
     fn component_field_type_parse_leading_trailing_junk_is_rejected_or_absorbed() {
-        // Trailing junk after a known keyword falls through to the
-        // "starts uppercase => StructRef" catch-all rather than being rejected.
+        // Trailing junk after a known keyword falls through to the "starts
+        // uppercase => StructRef" catch-all rather than being rejected.
         assert_eq!(
             ComponentFieldType::parse("String;garbage"),
             Some(ComponentFieldType::StructRef(AzString::from("String;garbage")))
@@ -8968,7 +8769,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // ComponentFieldNamedValueVec::get_field / get_string  (parser-ish lookup)
+    // ComponentFieldNamedValueVec::get_field / get_string (parser-ish lookup)
     // ================================================================
 
     fn named(name: &str, v: ComponentFieldValue) -> ComponentFieldNamedValue {
@@ -9001,7 +8802,8 @@ mod autotest_generated {
     #[test]
     fn named_value_vec_get_field_empty_whitespace_garbage_unicode() {
         let v = named_vec();
-        // An empty NAME is a legal key here — it matches the field literally named "".
+        // An empty NAME is a legal key here - it matches the field literally named
+        // "".
         assert_eq!(v.get_field(""), Some(&ComponentFieldValue::U64(u64::MAX)));
         assert_eq!(v.get_field("   "), None);
         assert_eq!(v.get_field("\t\n"), None);
@@ -9167,7 +8969,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // ComponentSource / ComponentMap  (constructor / getter / lookup)
+    // ComponentSource / ComponentMap (constructor / getter / lookup)
     // ================================================================
 
     #[test]
@@ -9311,8 +9113,8 @@ mod autotest_generated {
             .all(|c| c.source == ComponentSource::Builtin));
     }
 
-    // ================================================================
-    // XmlNodeChild / XmlNode  (getter / predicate / constructor)
+    // ================================================================ XmlNodeChild
+    // / XmlNode (getter / predicate / constructor)
     // ================================================================
 
     #[test]
@@ -9493,9 +9295,10 @@ mod autotest_generated {
         assert!(find_node_by_type(&roots, "   ").is_none());
         assert!(find_node_by_type(&roots, "\u{1F600}").is_none());
         assert!(find_node_by_type(&roots, &"z".repeat(LONG)).is_none());
-        // Tag matching is ASCII case-insensitive (HTML tags are), so "DIV" matches a
-        // <div> node. (It used to compare against the normalize_casing'd tag, which was
-        // case-sensitive on the needle AND mangled uppercase tags to "d_i_v".)
+        // Tag matching is ASCII case-insensitive (HTML tags are), so "DIV" matches
+        // a <div> node. (It used to compare against the normalize_casing'd tag,
+        // which was case-sensitive on the needle AND mangled uppercase tags to
+        // "d_i_v".)
         assert!(find_node_by_type(&roots, "DIV").is_some());
     }
 
@@ -9543,7 +9346,7 @@ mod autotest_generated {
     #[test]
     fn find_attribute_compares_against_the_normalized_key() {
         // `normalize_casing` turns `aria-label` into `aria_label`, so callers must
-        // pass the NORMALIZED spelling — the raw HTML spelling does not match.
+        // pass the NORMALIZED spelling - the raw HTML spelling does not match.
         let n = node("button", &[("aria-label", "Save")], vec![]);
         assert_eq!(
             find_attribute(&n, "aria_label").map(AzString::as_str),
@@ -9592,7 +9395,7 @@ mod autotest_generated {
 
     #[test]
     fn normalize_casing_unicode_and_long_no_panic() {
-        // 'İ' (U+0130) lowercases to TWO chars — the fn must not slice bytes.
+        // 'İ' (U+0130) lowercases to TWO chars - the fn must not slice bytes.
         assert_eq!(normalize_casing("\u{130}"), "i\u{307}");
         assert_eq!(normalize_casing("\u{1F600}"), "\u{1F600}");
         assert_eq!(normalize_casing(&"a".repeat(50_000)).len(), 50_000);
@@ -9600,8 +9403,8 @@ mod autotest_generated {
         assert_eq!(normalize_casing(&"A".repeat(50_000)).len(), 50_000 * 2 - 1);
     }
 
-    // ================================================================
-    // get_item / get_item_internal
+    // ================================================================ get_item /
+    // get_item_internal
     // ================================================================
 
     #[test]
@@ -9644,7 +9447,8 @@ mod autotest_generated {
 
     #[test]
     fn get_item_deep_hierarchy_terminates() {
-        // 400 levels: deep, but bounded by the (short) hierarchy vec, not by markup.
+        // 400 levels: deep, but bounded by the (short) hierarchy vec, not by
+        // markup.
         let mut root = wrap_divs(400, node("div", &[("id", "bottom")], vec![]));
         let path = vec![0usize; 400];
         let got = get_item(&path, &mut root).expect("reaches the bottom");
@@ -9652,7 +9456,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // decode_numeric_entity  (parser)
+    // decode_numeric_entity (parser)
     // ================================================================
 
     #[test]
@@ -9775,8 +9579,8 @@ mod autotest_generated {
         assert_eq!(prepare_string(&"x".repeat(LONG)).len(), LONG);
     }
 
-    /// BUG (reported): a soft-wrapped multi-line text node loses the word break
-    /// on the FINAL line, because `prepare_string` skips the joining space when
+    /// BUG (reported): a soft-wrapped multi-line text node loses the word break on
+    /// the FINAL line, because `prepare_string` skips the joining space when
     /// `line_idx == line_len - 1`. HTML must collapse the newline into a space.
     #[test]
     fn prepare_string_joins_wrapped_lines_with_a_space() {
@@ -9788,9 +9592,8 @@ mod autotest_generated {
         assert_eq!(prepare_string("a\nb\nc"), "a b c");
     }
 
-    // ================================================================
-    // parse_bool  (parser)
-    // ================================================================
+    // ================================================================ parse_bool
+    // (parser) ================================================================
 
     #[test]
     fn parse_bool_valid_minimal_and_everything_else_is_none() {
@@ -9875,8 +9678,8 @@ mod autotest_generated {
                 DynamicItem::Str("\u{130}".to_string()),
             ]
         );
-        // The failed-variable scan advances the cursor by the amount it scanned,
-        // so this stays linear rather than quadratic.
+        // The failed-variable scan advances the cursor by the amount it scanned, so
+        // this stays linear rather than quadratic.
         let bomb = "{a".repeat(50_000);
         let out = split_dynamic_string(&bomb);
         assert!(out.len() <= 2, "a never-closed variable collapses, got {}", out.len());
@@ -9982,8 +9785,8 @@ mod autotest_generated {
         );
     }
 
-    // ================================================================
-    // cap_first / camel_to_snake / esc_lit / c_creator_suffix
+    // ================================================================ cap_first /
+    // camel_to_snake / esc_lit / c_creator_suffix
     // ================================================================
 
     #[test]
@@ -9993,7 +9796,7 @@ mod autotest_generated {
         assert_eq!(cap_first("button"), "Button");
         assert_eq!(cap_first("A"), "A", "already-uppercase is idempotent");
         assert_eq!(cap_first("\u{1F600}x"), "\u{1F600}x", "emoji has no uppercase form");
-        // 'ß' uppercases to TWO chars — the fn must not assume 1:1.
+        // 'ß' uppercases to TWO chars - the fn must not assume 1:1.
         assert_eq!(cap_first("\u{df}x"), "SSx");
         assert_eq!(cap_first(&"a".repeat(10_000)).len(), 10_000);
     }
@@ -10023,7 +9826,8 @@ mod autotest_generated {
         assert_eq!(esc_lit("plain"), "plain");
         assert_eq!(esc_lit("a\"b"), "a\\\"b");
         assert_eq!(esc_lit("a\\b"), "a\\\\b");
-        // The backslash pass must run FIRST so an escaped quote is not double-escaped.
+        // The backslash pass must run FIRST so an escaped quote is not
+        // double-escaped.
         assert_eq!(esc_lit("\\\""), "\\\\\\\"");
         assert_eq!(esc_lit("\u{1F600}"), "\u{1F600}");
     }
@@ -10060,8 +9864,9 @@ mod autotest_generated {
     /// `NodeType`/`NodeTypeTag` **debug names**, and `safe_container_tag` compares
     /// against `format!("{:?}", tag_to_node_type(tag))`. But six entries are spelled
     /// with a different inner capitalization than the actual variant, so the
-    /// comparison never matches and `<blockquote>`/`<figcaption>`/`<thead>`/`<tbody>`
-    /// /`<tfoot>`/`<colgroup>` silently compile down to a plain `div`.
+    /// comparison never matches and
+    /// `<blockquote>`/`<figcaption>`/`<thead>`/`<tbody>` /`<tfoot>`/`<colgroup>`
+    /// silently compile down to a plain `div`.
     #[test]
     fn safe_container_tag_matches_the_real_nodetype_debug_names() {
         for tag in [
@@ -10082,9 +9887,8 @@ mod autotest_generated {
         }
     }
 
-    // ================================================================
-    // fmt_f32_lit  (numeric)
-    // ================================================================
+    // ================================================================ fmt_f32_lit
+    // (numeric) ================================================================
 
     #[test]
     fn fmt_f32_lit_zero_and_negative() {
@@ -10109,9 +9913,9 @@ mod autotest_generated {
 
     #[test]
     fn fmt_f32_lit_nan_inf_produce_a_defined_result_and_do_not_panic() {
-        // NOTE: these are NOT valid Rust/C float literals — a page with
-        // `<progress value="NaN">` emits `create_progress_no_a11y(NaN, 1.0)`.
-        // Pinned so a fix (e.g. clamping to 0.0) is a visible change.
+        // NOTE: these are NOT valid Rust/C float literals - a page with `<progress
+        // value="NaN">` emits `create_progress_no_a11y(NaN, 1.0)`. Pinned so a fix
+        // (e.g.
         assert_eq!(fmt_f32_lit(f32::NAN), "NaN");
         assert_eq!(fmt_f32_lit(f32::INFINITY), "inf");
         assert_eq!(fmt_f32_lit(f32::NEG_INFINITY), "-inf");
@@ -10476,7 +10280,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // parse_svg_float / parse_svg_points  (parser / numeric)
+    // parse_svg_float / parse_svg_points (parser / numeric)
     // ================================================================
 
     #[test]
@@ -10561,7 +10365,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // CompactDomBuilder  (constructor / numeric)
+    // CompactDomBuilder (constructor / numeric)
     // ================================================================
 
     #[test]
@@ -10636,7 +10440,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // xml_node_to_dom_fast / xml_node_to_fast_dom  (numeric: depth)
+    // xml_node_to_dom_fast / xml_node_to_fast_dom (numeric: depth)
     // ================================================================
 
     #[test]
@@ -10723,7 +10527,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // set_stringified_attributes  (numeric: tabs / tabindex)
+    // set_stringified_attributes (numeric: tabs / tabindex)
     // ================================================================
 
     #[test]
@@ -10789,7 +10593,7 @@ mod autotest_generated {
 
     #[test]
     fn set_stringified_attributes_large_tab_depth_does_not_overflow() {
-        // `tabs` becomes `"    ".repeat(tabs)`; a large-but-sane nesting depth must
+        // `tabs` becomes `" ".repeat(tabs)`; a large-but-sane nesting depth must
         // stay linear and allocate without panicking.
         let mut s = String::new();
         set_stringified_attributes(&mut s, &attrs(&[("id", "x")]), &no_args(), 1_000);
@@ -10798,7 +10602,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // group_matches / CssMatcher  (numeric: indices)
+    // group_matches / CssMatcher (numeric: indices)
     // ================================================================
 
     fn refs(v: &[CssPathSelector]) -> Vec<&CssPathSelector> {
@@ -10877,7 +10681,7 @@ mod autotest_generated {
                 offset: 0,
             }),
         ))];
-        // `is_multiple_of(0)` is `self == 0` — no division by zero.
+        // `is_multiple_of(0)` is `self == 0` - no division by zero.
         assert!(group_matches(&refs(&zero), &[], 0, 0));
         assert!(!group_matches(&refs(&zero), &[], 5, 0));
 
@@ -10967,7 +10771,8 @@ mod autotest_generated {
 
     #[test]
     fn css_matcher_mismatched_bookkeeping_vec_lengths_bail_out() {
-        // `indices_in_parent` / `children_length` must be as long as the group list.
+        // `indices_in_parent` / `children_length` must be as long as the group
+        // list.
         let m = CssMatcher {
             path: vec![CssPathSelector::Type(NodeTypeTag::Body)],
             indices_in_parent: Vec::new(),
@@ -10993,8 +10798,8 @@ mod autotest_generated {
         assert_eq!(css_blocks_to_inline_string(&[]), "");
     }
 
-    // ================================================================
-    // str_to_dom / str_to_dom_unstyled / parse_page_style_and_body / body_matcher
+    // ================================================================ str_to_dom /
+    // str_to_dom_unstyled / parse_page_style_and_body / body_matcher
     // ================================================================
 
     #[test]
@@ -11184,7 +10989,7 @@ mod autotest_generated {
     }
 
     // ================================================================
-    // builtin_render_fn / builtin_compile_fn  (numeric: indent)
+    // builtin_render_fn / builtin_compile_fn (numeric: indent)
     // ================================================================
 
     #[test]
@@ -11399,8 +11204,8 @@ mod autotest_generated {
         assert_eq!(children.len(), 3);
     }
 
-    // ================================================================
-    // Structural builtins: if / for / map
+    // ================================================================ Structural
+    // builtins: if / for / map
     // ================================================================
 
     #[test]
@@ -11512,8 +11317,8 @@ mod autotest_generated {
         }
     }
 
-    // ================================================================
-    // data_field / builtin_data_model / builtin_component_def
+    // ================================================================ data_field /
+    // builtin_data_model / builtin_component_def
     // ================================================================
 
     #[test]
@@ -11645,8 +11450,7 @@ mod autotest_generated {
         );
     }
 
-    // ================================================================
-    // DomXml
+    // ================================================================ DomXml
     // ================================================================
 
     #[test]
@@ -11659,8 +11463,8 @@ mod autotest_generated {
         );
     }
 
-    // ================================================================
-    // Display impls  (serializer)
+    // ================================================================ Display
+    // impls (serializer)
     // ================================================================
 
     fn pos() -> XmlTextPos {
@@ -11724,7 +11528,7 @@ mod autotest_generated {
             let s = format!("{v}");
             assert!(!s.is_empty(), "{v:?} must render a non-empty message");
         }
-        // `char::from_u32(u32::MAX)` is None — the formatter must not unwrap it.
+        // `char::from_u32(u32::MAX)` is None - the formatter must not unwrap it.
         assert!(format!("{}", variants[2]).contains("None"));
     }
 
@@ -11884,8 +11688,8 @@ mod autotest_generated {
         }
     }
 
-    // ================================================================
-    // serde-json gated: ComponentDataModel::to_json / from_json
+    // ================================================================ serde-json
+    // gated: ComponentDataModel::to_json / from_json
     // ================================================================
 
     #[cfg(feature = "serde-json")]

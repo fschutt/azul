@@ -1,40 +1,24 @@
-//! Paged media layout primitives.
-//!
-//! Provides the [`FragmentationContext`] that the layout solver threads through to
-//! distinguish continuous (screen) from paged (print) media.
-//!
-//! For continuous media (screens), content flows into a single infinitely tall
-//! container. For paged media (print), content is laid out on a continuous canvas
-//! and afterwards sliced into fixed-size pages by the display-list slicer
-//! (`paginate_display_list_with_slicer_and_breaks` in `azul_layout::solver3::display_list`).
-//! This lets the layout engine make break decisions while respecting CSS properties
-//! like `break-before`, `break-after`, and `break-inside`.
-//!
-//! Page *decoration* (headers, footers, margin boxes, counters) lives in
-//! `azul_layout::solver3::pagination`.
+//! Paged media layout primitives. Provides the [`FragmentationContext`] that the
+//! layout solver threads through to distinguish continuous (screen) from paged
+//! (print) media.
 
 use crate::geom::LogicalSize;
 
-/// Selects how content is fragmented during layout.
-///
-/// This is the core abstraction for fragmentation support:
-/// - Screen rendering: [`Continuous`](Self::Continuous) — a single infinite container.
-/// - Print rendering: [`Paged`](Self::Paged) — a series of fixed-size page containers.
+/// Selects how content is fragmented during layout. This is the core abstraction
+/// for fragmentation support: - Screen rendering: [`Continuous`](Self::Continuous) -
+/// a single infinite container.
 #[derive(Debug, Clone, Copy)]
 pub enum FragmentationContext {
-    /// Continuous media (screen): a single, infinitely tall container.
-    ///
-    /// Used for normal screen rendering where content can scroll indefinitely;
-    /// breaks are never forced.
+    /// Continuous media (screen): a single, infinitely tall container. Used for
+    /// normal screen rendering where content can scroll indefinitely; breaks are
+    /// never forced.
     Continuous {
         /// Width of the viewport.
         width: f32,
     },
 
-    /// Paged media (print): fixed-size pages.
-    ///
-    /// Used for PDF generation and print preview. Content flows from one page to
-    /// the next when a page is full.
+    /// Paged media (print): fixed-size pages. Used for PDF generation and print
+    /// preview.
     Paged {
         /// Size of each page.
         page_size: LogicalSize,
@@ -52,9 +36,8 @@ impl FragmentationContext {
         Self::Paged { page_size }
     }
 
-    /// Get the page content height (page height for paged media).
-    ///
-    /// For continuous media, returns `f32::MAX`.
+    /// Get the page content height (page height for paged media). For continuous
+    /// media, returns `f32::MAX`.
     #[must_use] pub const fn page_content_height(&self) -> f32 {
         match self {
             Self::Continuous { .. } => f32::MAX,
@@ -68,11 +51,8 @@ impl FragmentationContext {
     }
 }
 
-/// Page margins in points.
-///
-/// Canonical paged-media margin type (formerly defined in the now-removed
-/// `crate::fragmentation` module). Re-exported from the crate root as
-/// `azul_layout::PageMargins`.
+/// Page margins in points. Canonical paged-media margin type (formerly defined in
+/// the now-removed `crate::fragmentation` module).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PageMargins {
     pub top: f32,
@@ -131,8 +111,8 @@ mod autotest_generated {
         f32::NAN,
     ];
 
-    /// Bit-exact float compare: distinguishes `0.0` from `-0.0`, and treats any
-    /// NaN as equal to any other NaN (so it can be used on the hostile list).
+    /// Bit-exact float compare: distinguishes `0.0` from `-0.0`, and treats any NaN
+    /// as equal to any other NaN (so it can be used on the hostile list).
     fn same_f32(a: f32, b: f32) -> bool {
         if a.is_nan() && b.is_nan() {
             return true;
@@ -175,8 +155,8 @@ mod autotest_generated {
         }
     }
 
-    /// The `const fn` marker is part of the public contract: a caller may put
-    /// these in a `const` item. If constness regresses, this stops compiling.
+    /// The `const fn` marker is part of the public contract: a caller may put these
+    /// in a `const` item. If constness regresses, this stops compiling.
     #[test]
     fn constructors_and_accessors_are_usable_in_const_context() {
         const CONT: FragmentationContext = FragmentationContext::new_continuous(1024.0);
@@ -200,7 +180,7 @@ mod autotest_generated {
 
     #[test]
     fn page_content_height_is_f32_max_for_every_continuous_width() {
-        // Continuous ignores `width` entirely — even NaN/inf must not leak out.
+        // Continuous ignores `width` entirely - even NaN/inf must not leak out.
         for w in HOSTILE_F32 {
             let h = FragmentationContext::new_continuous(w).page_content_height();
             assert!(
@@ -241,7 +221,7 @@ mod autotest_generated {
 
     /// `f32::MAX` is the sentinel for "infinitely tall". A paged context whose page
     /// is exactly `f32::MAX` tall is therefore indistinguishable from a continuous
-    /// one *by height alone* — `is_paged()` is the only safe discriminator.
+    /// one *by height alone* - `is_paged()` is the only safe discriminator.
     #[test]
     fn f32_max_tall_page_collides_with_continuous_sentinel_but_is_paged_disambiguates() {
         let continuous = FragmentationContext::new_continuous(595.0);
@@ -380,8 +360,8 @@ mod autotest_generated {
 
     #[test]
     fn uniform_exactly_at_the_overflow_boundary_stays_finite() {
-        // MAX/2 is exactly representable, so doubling it must land on MAX exactly
-        // — the last finite step before the overflow tested above.
+        // MAX/2 is exactly representable, so doubling it must land on MAX exactly -
+        // the last finite step before the overflow tested above.
         let edge = PageMargins::uniform(f32::MAX / 2.0);
         assert_eq!(edge.horizontal(), f32::MAX);
         assert!(edge.horizontal().is_finite());
@@ -427,10 +407,9 @@ mod autotest_generated {
 
     #[test]
     fn horizontal_sums_left_and_right_vertical_sums_top_and_bottom() {
-        // new(top, right, bottom, left) = (1, 2, 3, 4)
-        //   horizontal = left + right   = 4 + 2 = 6
-        //   vertical   = top  + bottom  = 1 + 3 = 4
-        // Distinct values, so picking the wrong pair cannot produce these sums.
+        // new(top, right, bottom, left) = (1, 2, 3, 4) horizontal = left + right =
+        // 4 + 2 = 6 vertical = top + bottom = 1 + 3 = 4 Distinct values, so picking
+        // the wrong pair cannot produce these sums.
         let m = PageMargins::new(1.0, 2.0, 3.0, 4.0);
         assert_eq!(m.horizontal(), 6.0);
         assert_eq!(m.vertical(), 4.0);
@@ -466,10 +445,8 @@ mod autotest_generated {
 
     #[test]
     fn getters_absorb_a_tiny_operand_next_to_a_huge_one_without_error() {
-        // Classic float-precision trap: 1e30 + 1.0 == 1e30. Documented, not a bug —
+        // Classic float-precision trap: 1e30 + 1.0 == 1e30. Documented, not a bug -
         // pin it so nobody "fixes" the sum into something lossier.
-        // horizontal() = left + right, vertical() = top + bottom -- so each axis has
-        // to MIX magnitudes for absorption to happen at all. (top, right, bottom, left)
         let m = PageMargins::new(1.0e30, 1.0, 1.0, 1.0e30);
         assert_eq!(m.horizontal(), 1.0e30);
         assert_eq!(m.vertical(), 1.0e30);
@@ -479,9 +456,9 @@ mod autotest_generated {
     fn getters_do_not_panic_on_any_hostile_field_combination() {
         for a in HOSTILE_F32 {
             for b in HOSTILE_F32 {
-                // new(top=a, right=b, bottom=b, left=a): both axes sum the same pair,
-                // so horizontal() and vertical() must agree bit-for-bit for every one
-                // of the 144 hostile combinations — and neither may panic.
+                // new(top=a, right=b, bottom=b, left=a): both axes sum the same
+                // pair, so horizontal() and vertical() must agree bit-for-bit for
+                // every one of the 144 hostile combinations - and neither may panic.
                 let m = PageMargins::new(a, b, b, a);
                 assert!(
                     same_f32(m.horizontal(), m.vertical()),

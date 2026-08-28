@@ -1,15 +1,5 @@
-//! POD types for the audio surface (SUPER_PLAN_2 §4 P7).
-//!
-//! Audio playback + microphone capture (rodio / cpal on the desktop;
-//! AVAudioEngine / AAudio on mobile). Capture mirrors the sensor manager (the
-//! backend pushes [`AudioFrame`]s to a process-global channel; the layout pass
-//! drains them and a callback reads them); playback queues frames to the
-//! backend. The mic permission is the existing
-//! `azul_layout::managers::permission::Capability::Microphone`.
-//!
-//! Defined in `azul-core` so the config + frame types cross the FFI without
-//! `azul-layout` (or rodio / cpal) as a dependency. For azul-meet (P8),
-//! [`AudioFrame`] is the unit captured -> sent over UDP -> played back.
+//! POD types for the audio surface . Audio playback + microphone capture (rodio /
+//! cpal on the desktop; AVAudioEngine / AAudio on mobile).
 
 use azul_css::F32Vec;
 
@@ -42,11 +32,8 @@ impl AudioConfig {
     }
 }
 
-/// A chunk of audio - interleaved `f32` samples in `[-1.0, 1.0]`.
-///
-/// For stereo
-/// the layout is `L, R, L, R, ...`. This is the unit the mic backend delivers,
-/// playback consumes, and (P8) azul-meet sends over UDP.
+/// A chunk of audio - interleaved `f32` samples in `[-1.0, 1.0]`. For stereo the
+/// layout is `L, R, L, R, ...`.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct AudioFrame {
@@ -81,8 +68,8 @@ mod autotest_generated {
 
     // --- helpers ---------------------------------------------------------
 
-    /// Build an `AudioFrame` from a channel count + owned sample vec.
-    /// `AudioFrame` derives no `Default`, so each test constructs explicitly.
+    /// Build an `AudioFrame` from a channel count + owned sample vec. `AudioFrame`
+    /// derives no `Default`, so each test constructs explicitly.
     fn frame(sample_rate: u32, channels: u16, samples: Vec<f32>) -> AudioFrame {
         AudioFrame {
             sample_rate,
@@ -101,7 +88,8 @@ mod autotest_generated {
         assert_eq!(c.channels, 2);
     }
 
-    /// no_panic: extreme integer bounds must not panic or wrap; fields are stored verbatim.
+    /// no_panic: extreme integer bounds must not panic or wrap; fields are stored
+    /// verbatim.
     #[test]
     fn config_new_extreme_args_no_panic() {
         let zero = AudioConfig::new(0, 0);
@@ -112,13 +100,15 @@ mod autotest_generated {
         assert_eq!(max.sample_rate, u32::MAX);
         assert_eq!(max.channels, u16::MAX);
 
-        // A sample_rate of 1 with a very large channel count is nonsensical but legal POD.
+        // A sample_rate of 1 with a very large channel count is nonsensical but
+        // legal POD.
         let odd = AudioConfig::new(1, u16::MAX);
         assert_eq!(odd.sample_rate, 1);
         assert_eq!(odd.channels, u16::MAX);
     }
 
-    /// invariants_hold: `const fn` is usable in a const context (compile-time evaluation).
+    /// invariants_hold: `const fn` is usable in a const context (compile-time
+    /// evaluation).
     #[test]
     fn config_new_is_const_evaluable() {
         const C: AudioConfig = AudioConfig::new(44_100, 1);
@@ -126,13 +116,15 @@ mod autotest_generated {
         assert_eq!(C.channels, 1);
     }
 
-    /// invariants_hold: the documented default equals the equivalent explicit construction.
+    /// invariants_hold: the documented default equals the equivalent explicit
+    /// construction.
     #[test]
     fn config_default_matches_new() {
         assert_eq!(AudioConfig::default(), AudioConfig::new(48_000, 1));
     }
 
-    /// invariants_hold: `Copy`/`Eq`/`Hash` are mutually consistent (equal values hash equal).
+    /// invariants_hold: `Copy`/`Eq`/`Hash` are mutually consistent (equal values
+    /// hash equal).
     #[test]
     fn config_eq_hash_consistent() {
         use core::hash::{Hash, Hasher};
@@ -169,21 +161,24 @@ mod autotest_generated {
         assert_eq!(f.frame_count(), 2);
     }
 
-    /// edge_access: channels == 0 must hit the guard and return 0, NOT divide by zero.
+    /// edge_access: channels == 0 must hit the guard and return 0, NOT divide by
+    /// zero.
     #[test]
     fn frame_count_zero_channels_no_div_by_zero() {
         let f = frame(48_000, 0, vec![0.0, 0.1, 0.2, 0.3, 0.4]);
         assert_eq!(f.frame_count(), 0);
     }
 
-    /// edge_access: zero channels with zero samples is still 0 (guard short-circuits first).
+    /// edge_access: zero channels with zero samples is still 0 (guard
+    /// short-circuits first).
     #[test]
     fn frame_count_zero_channels_empty_samples() {
         let f = frame(0, 0, Vec::new());
         assert_eq!(f.frame_count(), 0);
     }
 
-    /// edge_access: empty sample buffer yields 0 frames for any nonzero channel count.
+    /// edge_access: empty sample buffer yields 0 frames for any nonzero channel
+    /// count.
     #[test]
     fn frame_count_empty_samples() {
         assert_eq!(frame(48_000, 1, Vec::new()).frame_count(), 0);
@@ -194,14 +189,16 @@ mod autotest_generated {
         );
     }
 
-    /// edge_access: a partial trailing frame is truncated by integer division (5 / 2 == 2).
+    /// edge_access: a partial trailing frame is truncated by integer division (5 /
+    /// 2 == 2).
     #[test]
     fn frame_count_truncates_partial_frame() {
         let f = frame(48_000, 2, vec![0.0, 0.1, 0.2, 0.3, 0.4]);
         assert_eq!(f.frame_count(), 2);
     }
 
-    /// edge_access: channel count far exceeding the sample count yields 0, never underflow/panic.
+    /// edge_access: channel count far exceeding the sample count yields 0, never
+    /// underflow/panic.
     #[test]
     fn frame_count_channels_exceed_samples() {
         let f = frame(48_000, u16::MAX, vec![0.0, 1.0, -1.0]);
@@ -216,7 +213,8 @@ mod autotest_generated {
         assert_eq!(f.frame_count(), 1);
     }
 
-    /// edge_access: non-finite sample values (NaN / +-inf) do not affect the length-only math.
+    /// edge_access: non-finite sample values (NaN / +-inf) do not affect the
+    /// length-only math.
     #[test]
     fn frame_count_ignores_non_finite_samples() {
         let f = frame(
@@ -227,7 +225,8 @@ mod autotest_generated {
         assert_eq!(f.frame_count(), 2);
     }
 
-    /// edge_access: a large buffer computes without overflow and matches the plain division.
+    /// edge_access: a large buffer computes without overflow and matches the plain
+    /// division.
     #[test]
     fn frame_count_large_buffer() {
         let n = 100_000usize;
@@ -237,7 +236,8 @@ mod autotest_generated {
 
     // --- round-trip / trait invariants -----------------------------------
 
-    /// round-trip: cloning an `AudioFrame` reproduces an equal value (finite samples).
+    /// round-trip: cloning an `AudioFrame` reproduces an equal value (finite
+    /// samples).
     #[test]
     fn frame_clone_round_trip_eq() {
         let original = frame(44_100, 2, vec![0.0, 0.5, -0.5, 1.0, -1.0, 0.25]);
@@ -247,7 +247,8 @@ mod autotest_generated {
         assert_eq!(original.samples.as_ref(), cloned.samples.as_ref());
     }
 
-    /// round-trip: `Option<AudioFrame>` <-> `OptionAudioFrame` preserves the payload both ways.
+    /// round-trip: `Option<AudioFrame>` <-> `OptionAudioFrame` preserves the
+    /// payload both ways.
     #[test]
     fn option_audio_frame_round_trip() {
         let f = frame(48_000, 1, vec![0.1, 0.2, 0.3]);
@@ -261,7 +262,8 @@ mod autotest_generated {
         assert_eq!(none_unwrapped, None);
     }
 
-    /// numeric edge: `PartialEq` follows IEEE-754 — a NaN sample makes a frame unequal to its clone.
+    /// numeric edge: `PartialEq` follows IEEE-754 - a NaN sample makes a frame
+    /// unequal to its clone.
     #[test]
     fn frame_with_nan_is_not_self_equal() {
         let f = frame(48_000, 1, vec![f32::NAN]);
@@ -273,17 +275,17 @@ mod autotest_generated {
 
     // --- AudioConfig: FFI / POD layout + numeric invariants --------------
 
-    /// invariants_hold: `#[repr(C)]` layout is the one the FFI headers assume
-    /// (u32 + u16 + 2 bytes tail padding, 4-byte aligned). A silent layout
-    /// change here would corrupt every cross-language `AudioConfig`.
+    /// invariants_hold: `#[repr(C)]` layout is the one the FFI headers assume (u32
+    /// + u16 + 2 bytes tail padding, 4-byte aligned). A silent layout change here
+    /// would corrupt every cross-language `AudioConfig`.
     #[test]
     fn config_repr_c_layout_is_stable() {
         assert_eq!(core::mem::size_of::<AudioConfig>(), 8);
         assert_eq!(core::mem::align_of::<AudioConfig>(), 4);
     }
 
-    /// numeric: no field is truncated, sign-extended or swapped for any
-    /// boundary combination — `new` must store both args verbatim.
+    /// numeric: no field is truncated, sign-extended or swapped for any boundary
+    /// combination - `new` must store both args verbatim.
     #[test]
     fn config_new_no_field_truncation_sweep() {
         const RATES: [u32; 8] = [
@@ -309,7 +311,7 @@ mod autotest_generated {
         }
     }
 
-    /// invariants_hold: `new` performs no normalization — a nonsense config is
+    /// invariants_hold: `new` performs no normalization - a nonsense config is
     /// stored as given and is NOT silently coerced to the default.
     #[test]
     fn config_new_does_not_normalize() {
@@ -319,8 +321,8 @@ mod autotest_generated {
         assert_eq!(c.channels, 0);
     }
 
-    /// invariants_hold: `Copy` gives an independent value — mutating the copy
-    /// must not write through to the original.
+    /// invariants_hold: `Copy` gives an independent value - mutating the copy must
+    /// not write through to the original.
     #[test]
     fn config_copy_is_independent() {
         let original = AudioConfig::new(48_000, 2);
@@ -350,9 +352,9 @@ mod autotest_generated {
 
     // --- AudioFrame::frame_count: exhaustive invariant sweep --------------
 
-    /// invariants_hold: for every (channels, sample-count) pair,
-    /// `frame_count()` equals the integer division, never panics, and satisfies
-    /// `frame_count * channels <= len` with `len - frame_count * channels < channels`.
+    /// invariants_hold: for every (channels, sample-count) pair, `frame_count()`
+    /// equals the integer division, never panics, and satisfies `frame_count *
+    /// channels <= len` with `len - frame_count * channels < channels`.
     #[test]
     fn frame_count_division_invariant_sweep() {
         const CHANNELS: [u16; 9] = [0, 1, 2, 3, 5, 7, 8, 255, u16::MAX];
@@ -379,8 +381,8 @@ mod autotest_generated {
         }
     }
 
-    /// edge_access: the boundary around one full max-channel frame —
-    /// one sample short is 0 frames, one sample over is still 1 (truncation).
+    /// edge_access: the boundary around one full max-channel frame - one sample
+    /// short is 0 frames, one sample over is still 1 (truncation).
     #[test]
     fn frame_count_max_channel_boundaries() {
         let n = u16::MAX as usize;
@@ -394,7 +396,7 @@ mod autotest_generated {
         );
     }
 
-    /// invariants_hold: `sample_rate` is not an input to `frame_count` — the
+    /// invariants_hold: `sample_rate` is not an input to `frame_count` - the
     /// extremes must not change the result.
     #[test]
     fn frame_count_ignores_sample_rate() {
@@ -404,8 +406,8 @@ mod autotest_generated {
         }
     }
 
-    /// invariants_hold: `frame_count` is a pure read — repeated calls agree and
-    /// the sample buffer is untouched.
+    /// invariants_hold: `frame_count` is a pure read - repeated calls agree and the
+    /// sample buffer is untouched.
     #[test]
     fn frame_count_is_pure() {
         let f = frame(48_000, 2, vec![0.0, 0.1, 0.2, 0.3, 0.4, 0.5]);
@@ -420,8 +422,8 @@ mod autotest_generated {
         assert_eq!(f.samples.len(), 6);
     }
 
-    /// edge_access: a frame whose `F32Vec` is backed by a `'static` slice
-    /// (no heap allocation, `NoDestructor`) must count + drop cleanly.
+    /// edge_access: a frame whose `F32Vec` is backed by a `'static` slice (no heap
+    /// allocation, `NoDestructor`) must count + drop cleanly.
     #[test]
     fn frame_count_static_backed_samples() {
         static SAMPLES: [f32; 6] = [0.0, 0.5, -0.5, 1.0, -1.0, 0.25];
@@ -506,7 +508,8 @@ mod autotest_generated {
         assert_eq!(got, want, "clone must be bit-exact (incl. -0.0 and subnormals)");
 
         // Sanity: -0.0 == 0.0 under PartialEq but their bits differ, so a
-        // value-level compare still says equal while the bit compare above is strict.
+        // value-level compare still says equal while the bit compare above is
+        // strict.
         assert_eq!(cloned, f);
         assert_ne!(0.0_f32.to_bits(), (-0.0_f32).to_bits());
     }
@@ -521,7 +524,8 @@ mod autotest_generated {
         assert_ne!(base, frame(44_100, 2, samples.clone()));
         assert_ne!(base, frame(48_000, 1, samples.clone()));
         assert_ne!(base, frame(48_000, 2, vec![0.0, 0.5, -0.5]));
-        // Same frame_count (2) via different (channels, len) pairs is still not equal.
+        // Same frame_count (2) via different (channels, len) pairs is still not
+        // equal.
         assert_eq!(frame(48_000, 1, vec![0.0, 0.5]).frame_count(), 2);
         assert_ne!(base, frame(48_000, 1, vec![0.0, 0.5]));
     }
@@ -574,8 +578,8 @@ mod autotest_generated {
         assert!(wrapped.is_some());
     }
 
-    /// invariants_hold: `replace` returns the previous value (mem::replace semantics)
-    /// and installs the new one.
+    /// invariants_hold: `replace` returns the previous value (mem::replace
+    /// semantics) and installs the new one.
     #[test]
     fn option_audio_frame_replace_returns_previous() {
         let mut slot = OptionAudioFrame::None;
@@ -589,8 +593,8 @@ mod autotest_generated {
         assert_eq!(slot.as_ref().map(|f| f.channels), Some(2));
     }
 
-    /// edge_access: `as_mut` hands out a live borrow — mutating the samples through it
-    /// must be visible in the wrapper's `frame_count`.
+    /// edge_access: `as_mut` hands out a live borrow - mutating the samples through
+    /// it must be visible in the wrapper's `frame_count`.
     #[test]
     fn option_audio_frame_as_mut_mutation_visible() {
         let mut slot: OptionAudioFrame = Some(frame(48_000, 2, vec![0.0, 0.1, 0.2, 0.3])).into();

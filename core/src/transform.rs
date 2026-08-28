@@ -1,15 +1,6 @@
-//! 3D transform matrix computations for CSS transforms.
-//!
-//! This module implements 4x4 transformation matrices for CSS `transform` properties,
-//! including translation, rotation, scaling, skewing, and perspective. It handles conversion
-//! from CSS transform functions to hardware-accelerated matrices for WebRender.
-//!
-//! On x86_64 platforms, the module automatically detects and uses SSE/AVX instructions
-//! for optimized matrix multiplication and inversion.
-//!
-//! **NOTE**: Matrices are stored in **row-major** format (unlike some graphics APIs that
-//! use column-major). The module handles coordinate system differences between WebRender
-//! and hit-testing via the `RotationMode` enum.
+//! 3D transform matrix computations for CSS transforms. This module implements 4x4
+//! transformation matrices for CSS `transform` properties, including translation,
+//! rotation, scaling, skewing, and perspective.
 
 use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 
@@ -24,34 +15,21 @@ pub static USE_AVX: AtomicBool = AtomicBool::new(false);
 /// CPU feature detection: true if SSE instructions are available
 pub static USE_SSE: AtomicBool = AtomicBool::new(false);
 
-/// Specifies the coordinate system convention for rotations.
-///
-/// `WebRender` uses a different rotation direction than hit-testing, so transforms
-/// must be adjusted based on their use case. This enum controls whether the
-/// rotation matrix is inverted to match the expected behavior.
+/// Specifies the coordinate system convention for rotations. `WebRender` uses a
+/// different rotation direction than hit-testing, so transforms must be adjusted
+/// based on their use case.
 #[derive(Debug, Copy, Clone)]
 pub enum RotationMode {
-    /// Use rotation convention for `WebRender` (counter-clockwise, requires inversion)
+    /// Use rotation convention for `WebRender` (counter-clockwise, requires
+    /// inversion)
     ForWebRender,
     /// Use rotation convention for hit-testing (clockwise, no inversion)
     ForHitTesting,
 }
 
-/// A computed 4x4 transformation matrix in pixel space.
-///
-/// Represents the final transformation matrix for a DOM element after applying
-/// all CSS transform functions (translate, rotate, scale, etc.) and accounting
-/// for transform-origin.
-///
-/// # Memory Layout
-///
-/// Matrix is stored in **row-major** format:
-/// ```text
-/// m[0] = [m11, m12, m13, m14]
-/// m[1] = [m21, m22, m23, m24]
-/// m[2] = [m31, m32, m33, m34]
-/// m[3] = [m41, m42, m43, m44]
-/// ```
+/// A computed 4x4 transformation matrix in pixel space. Represents the final
+/// transformation matrix for a DOM element after applying all CSS transform
+/// functions (translate, rotate, scale, etc.) and accounting for transform-origin.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ComputedTransform3D {
@@ -70,9 +48,8 @@ impl ComputedTransform3D {
         ],
     };
 
-    /// Creates a new 4x4 transformation matrix with the given elements.
-    ///
-    /// Elements are specified in row-major order (m11, m12, ..., m44).
+    /// Creates a new 4x4 transformation matrix with the given elements. Elements
+    /// are specified in row-major order (m11, m12, ..., m44).
     #[must_use] pub const fn new(
         m11: f32,
         m12: f32,
@@ -101,24 +78,16 @@ impl ComputedTransform3D {
         }
     }
 
-    /// Creates a 2D transformation matrix (3D matrix with Z = 0).
-    ///
-    /// This is equivalent to the CSS `matrix()` function. The transformation
-    /// only affects the X and Y axes.
-    ///
-    /// Corresponds to `matrix(m11, m12, m21, m22, m41, m42)` in CSS.
+    /// Creates a 2D transformation matrix (3D matrix with Z = 0). This is
+    /// equivalent to the CSS `matrix()` function.
     const fn new_2d(m11: f32, m12: f32, m21: f32, m22: f32, m41: f32, m42: f32) -> Self {
         Self::new(
             m11, m12, 0.0, 0.0, m21, m22, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, m41, m42, 0.0, 1.0,
         )
     }
 
-    /// Computes the inverse of this transformation matrix.
-    ///
-    /// This function uses a standard matrix inversion algorithm. Returns the
-    /// identity matrix if the determinant is zero (singular matrix).
-    ///
-    /// NOTE: This is a relatively expensive operation.
+    /// Computes the inverse of this transformation matrix. This function uses a
+    /// standard matrix inversion algorithm.
     #[must_use]
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     pub fn inverse(&self) -> Self {
@@ -224,11 +193,7 @@ impl ComputedTransform3D {
 
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     fn determinant(&self) -> f32 {
-        // Accumulate in f64. Individual f32 products (e.g. m[0][0]*m[1][1] on a
-        // diag(1e20) matrix = 1e40) overflow to ±inf BEFORE the legitimately-zero
-        // off-diagonal factors multiply in, and inf * 0 = NaN, poisoning the whole sum.
-        // f64 has the range to hold the products; the final cast saturates a real
-        // overflow to ±inf and propagates a NaN input as NaN.
+        // Accumulate in f64. Individual f32 products (e.g.
         let m = |i: usize, j: usize| f64::from(self.m[i][j]);
         let det = m(0, 3) * m(1, 2) * m(2, 1) * m(3, 0)
             - m(0, 2) * m(1, 3) * m(2, 1) * m(3, 0)
@@ -288,32 +253,12 @@ impl ComputedTransform3D {
         percent_resolve_y: f32,
         rotation_mode: RotationMode,
     ) -> Self {
-        // Uses AVX or SSE SIMD when available on x86_64
-        //
-        // AUDIT-TODO: `USE_AVX`/`USE_SSE` are populated in `gpu.rs` from a raw
-        // CPUID leaf-1 feature bit (ECX[28] for AVX), which reports only that
-        // the CPU *implements* AVX — NOT that the OS has enabled the YMM state
-        // via XCR0 (XGETBV). On a kernel that didn't `XSETBV`-enable AVX, using
-        // these intrinsics faults with SIGILL. The robust gate is
-        // `is_x86_feature_detected!("avx")` / `("sse")`, which also checks the
-        // OS-enabled bit. That detection lives in `gpu.rs` (out of scope for
-        // this edit); consumers here rely on it having gated the flags. Prefer
-        // migrating the `gpu.rs` probe to `is_x86_feature_detected!`.
-        // CSS Transforms Level 1 §9 ("The Transform Rendering Model"):
-        //
-        //   1. The functions are MULTIPLIED left to right, so the LAST listed
-        //      function is the first one applied to a point: `translate(100px)
-        //      scale(2)` scales first, then translates - a point at (1, 0)
-        //      lands at (102, 0), not (202, 0). `a.then(b)` applies `a` first,
-        //      so each function is composed BEFORE the accumulated rest.
-        //      (This used to fold left to right - the reverse - so every
-        //      multi-function transform rendered differently than in a
-        //      browser, and `perspective() rotateX()` projected the
-        //      un-rotated plane, i.e. did nothing.)
-        //   2. The WHOLE product is applied about `transform-origin`:
-        //      `translate(origin) * M * translate(-origin)`. Wrapping happens
-        //      ONCE, here - not per component - so `scale()` and `skew()`
-        //      pivot at the origin exactly like `rotate()` does.
+        // Uses AVX or SSE SIMD when available on x86_64 AUDIT-TODO:
+        // `USE_AVX`/`USE_SSE` are populated in `gpu.rs` from a raw CPUID leaf-1
+        // feature bit (ECX[28] for AVX), which reports only that the CPU
+        // *implements* AVX - NOT that the OS has enabled the YMM state via XCR0
+        // (XGETBV). On a kernel that didn't `XSETBV`-enable AVX, using these
+        // intrinsics faults with SIGILL.
         use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
         use azul_css::props::basic::PixelValue;
         let no_origin = StyleTransformOrigin {
@@ -337,8 +282,8 @@ impl ComputedTransform3D {
                     rotation_mode,
                 );
                 // SAFETY: `use_avx` is only set when the AVX feature flag was
-                // detected (see AUDIT-TODO above), so calling the AVX intrinsics
-                // in `then_avx8` is legal on this CPU.
+                // detected (see AUDIT-TODO above), so calling the AVX intrinsics in
+                // `then_avx8` is legal on this CPU.
                 #[cfg(target_arch = "x86_64")]
                 unsafe {
                     matrix = component.then_avx8(&matrix);
@@ -354,8 +299,8 @@ impl ComputedTransform3D {
                     rotation_mode,
                 );
                 // SAFETY: `use_sse` is only set when the SSE feature flag was
-                // detected (see AUDIT-TODO above), so calling the SSE intrinsics
-                // in `then_sse` is legal on this CPU.
+                // detected (see AUDIT-TODO above), so calling the SSE intrinsics in
+                // `then_sse` is legal on this CPU.
                 #[cfg(target_arch = "x86_64")]
                 unsafe {
                     matrix = component.then_sse(&matrix);
@@ -375,8 +320,8 @@ impl ComputedTransform3D {
             }
         }
 
-        // Percentages in `transform-origin` resolve against the element's
-        // own border box (the caller passes its size as the percent basis).
+        // Percentages in `transform-origin` resolve against the element's own
+        // border box (the caller passes its size as the percent basis).
         let origin_x = transform_origin
             .x
             .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
@@ -391,8 +336,8 @@ impl ComputedTransform3D {
             .then(&Self::new_translation(origin_x, origin_y, 0.0))
     }
 
-    /// Creates a new transform from a style transform using the
-    /// parent width as a way to resolve for percentages
+    /// Creates a new transform from a style transform using the parent width as a
+    /// way to resolve for percentages
     #[allow(clippy::many_single_char_names)] // domain-standard colour/coordinate component names
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn from_style_transform(
@@ -460,7 +405,8 @@ impl ComputedTransform3D {
                         .to_pixels_internal(percent_resolve_y, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                     trans3d
                         .z
-                        // CSS has no containing block for Z-axis percentages; use X as fallback
+                        // CSS has no containing block for Z-axis percentages; use X
+                        // as fallback
                         .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE),
                 )
             }
@@ -573,12 +519,11 @@ impl ComputedTransform3D {
             SkewX(skew_x) => Self::new_skew(skew_x.to_degrees(), 0.0),
             SkewY(skew_y) => Self::new_skew(0.0, skew_y.to_degrees()),
             Perspective(px) => {
-                // CSS applies the WHOLE transform list about the
-                // transform-origin, `perspective()` included: the vanishing
-                // point sits at the origin. Building it about (0, 0) skewed a
-                // `perspective() rotateX()` tilt towards the element's
-                // top-left corner instead of keeping the centre line
-                // vertical (the map's 3D tilt leaned sideways).
+                // CSS applies the WHOLE transform list about the transform-origin,
+                // `perspective()` included: the vanishing point sits at the origin.
+                // Building it about (0, 0) skewed a `perspective() rotateX()` tilt
+                // towards the element's top-left corner instead of keeping the
+                // centre line vertical (the map's 3D tilt leaned sideways).
                 let origin_x = transform_origin
                     .x
                     .to_pixels_internal(percent_resolve_x, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
@@ -593,13 +538,9 @@ impl ComputedTransform3D {
         }
     }
 
-    /// The plane z = 0 of this transform as a 3x3 homography.
-    ///
-    /// Over `(x, y, 1)` row vectors — `[x' y' w'] = [x y 1] * H`, row-major
-    /// `[m00 m01 m03; m10 m11 m13; m30 m31 m33]` — i.e. exactly what a 2D
-    /// compositor needs to place a flat layer: the affine part plus the
-    /// perspective row. [`Self::is_plane_affine`] tells whether the
-    /// perspective row is the trivial `[0 0 1]`.
+    /// The plane z = 0 of this transform as a 3x3 homography. Over `(x, y, 1)` row
+    /// vectors - `[x' y' w'] = [x y 1] * H`, row-major `[m00 m01 m03; m10 m11 m13;
+    /// m30 m31 m33]` - i.e.
     #[must_use]
     pub const fn plane_homography(&self) -> [f32; 9] {
         [
@@ -658,8 +599,8 @@ impl ComputedTransform3D {
         )
     }
 
-    /// Create a 3d rotation transform from an angle / axis.
-    /// The supplied axis must be normalized.
+    /// Create a 3d rotation transform from an angle / axis. The supplied axis must
+    /// be normalized.
     #[must_use]
     #[inline]
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -743,7 +684,8 @@ impl ComputedTransform3D {
         Some(LogicalPosition { x: x / w, y: y / w })
     }
 
-    /// Scales the translation components of this matrix by `scale_factor` for DPI adjustment.
+    /// Scales the translation components of this matrix by `scale_factor` for DPI
+    /// adjustment.
     pub fn scale_for_dpi(&mut self, scale_factor: f32) {
         // only scale the translation, don't scale anything else
         self.m[3][0] *= scale_factor;
@@ -751,7 +693,8 @@ impl ComputedTransform3D {
         self.m[3][2] *= scale_factor;
     }
 
-    /// Multiplies this matrix by `other`, applying `other` AFTER the current matrix.
+    /// Multiplies this matrix by `other`, applying `other` AFTER the current
+    /// matrix.
     #[must_use]
     #[inline]
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
@@ -874,15 +817,13 @@ impl ComputedTransform3D {
 
     // credit: https://gist.github.com/rygorous/4172889
 
-    // linear combination:
-    // a[0] * B.row[0] + a[1] * B.row[1] + a[2] * B.row[2] + a[3] * B.row[3]
-    //
-    // SAFETY: the caller must guarantee SSE is available on this CPU (see the
-    // `use_sse` gate in `from_style_transform_vec`). Every `mem::transmute` here
-    // is a BY-VALUE `[f32; 4]` -> `__m128` conversion: both types are 16 bytes
-    // and the value is moved through a register, so no *reference* to under-
-    // aligned storage is ever formed and there is no alignment invariant to
-    // violate (unlike the AVX broadcast, which must use an unaligned load).
+    // linear combination: a[0] * B.row[0] + a[1] * B.row[1] + a[2] * B.row[2] +
+    // a[3] * B.row[3] SAFETY: the caller must guarantee SSE is available on this CPU
+    // (see the `use_sse` gate in `from_style_transform_vec`). Every `mem::transmute`
+    // here is a BY-VALUE `[f32; 4]` -> `__m128` conversion: both types are 16 bytes
+    // and the value is moved through a register, so no *reference* to under- aligned
+    // storage is ever formed and there is no alignment invariant to violate (unlike
+    // the AVX broadcast, which must use an unaligned load).
     #[cfg(target_arch = "x86_64")]
     #[inline]
     unsafe fn linear_combine_sse(a: [f32; 4], b: &Self) -> [f32; 4] { unsafe {
@@ -909,10 +850,9 @@ impl ComputedTransform3D {
         mem::transmute(result)
     }}
 
-    /// Multiplies this matrix by `other` using SSE instructions.
-    ///
-    /// SAFETY: caller must guarantee SSE is available; only forwards to
-    /// `linear_combine_sse`, whose safety contract is identical.
+    /// Multiplies this matrix by `other` using SSE instructions. SAFETY: caller
+    /// must guarantee SSE is available; only forwards to `linear_combine_sse`, whose
+    /// safety contract is identical.
     #[cfg(target_arch = "x86_64")]
     #[inline]
     unsafe fn then_sse(&self, other: &Self) -> Self { unsafe {
@@ -926,21 +866,9 @@ impl ComputedTransform3D {
         }
     }}
 
-    /// Dual linear combination using AVX instructions on YMM registers.
-    ///
-    /// AUDIT: the rows `b.m[i]` are `[f32; 4]` fields with alignment 4, but
-    /// `_mm256_broadcast_ps` takes a `&__m128` (alignment 16). Forming that
-    /// reference — `&*(ptr as *const __m128)` — from an align-4 field is
-    /// misaligned-reference UB even though the underlying `vbroadcastf128`
-    /// tolerates it. Use `_mm256_loadu2_m128`, which does an *unaligned*
-    /// 128-bit load from a raw `*const f32` and never forms a `&__m128`;
-    /// passing the same row pointer for both lanes reproduces the broadcast
-    /// (`result[127:0] = result[255:128] = row`).
-    ///
-    /// SAFETY: caller must guarantee AVX is available. Each `broadcast_row`
-    /// reads exactly 4 f32 (16 bytes) through `_mm256_loadu2_m128`, an
-    /// *unaligned* load, so the align-4 `[f32; 4]` rows are read in-bounds and
-    /// no `&__m128` (align 16) is ever formed from them.
+    /// Dual linear combination using AVX instructions on YMM registers. AUDIT: the
+    /// rows `b.m[i]` are `[f32; 4]` fields with alignment 4, but
+    /// `_mm256_broadcast_ps` takes a `&__m128` (alignment 16).
     #[cfg(target_arch = "x86_64")]
     unsafe fn linear_combine_avx8(
         a01: core::arch::x86_64::__m256,
@@ -976,13 +904,8 @@ impl ComputedTransform3D {
         result
     }}
 
-    /// Multiplies this matrix by `other` using AVX instructions.
-    ///
-    /// SAFETY: caller must guarantee AVX is available. Both `_mm256_loadu_ps`
-    /// reads and `_mm256_storeu_ps` writes are *unaligned* 8-f32 (32-byte)
-    /// accesses. `m` is `[[f32; 4]; 4]`, i.e. 16 contiguous f32 with no padding,
-    /// so `&m[0][0]..` and `&m[2][0]..` each span two full rows in-bounds; the
-    /// raw pointers come from live `self`/`out` locals, so lifetimes are valid.
+    /// Multiplies this matrix by `other` using AVX instructions. SAFETY: caller
+    /// must guarantee AVX is available.
     #[cfg(target_arch = "x86_64")]
     #[inline]
     unsafe fn then_avx8(&self, other: &Self) -> Self { unsafe {
@@ -1009,7 +932,8 @@ impl ComputedTransform3D {
         out
     }}
 
-    /// Creates a rotation matrix around the given axis, adjusted for the coordinate system.
+    /// Creates a rotation matrix around the given axis, adjusted for the coordinate
+    /// system.
     #[must_use]
     #[inline]
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -1069,9 +993,9 @@ mod audit_tests {
         }
     }
 
-    /// Naive row-major 4x4 multiply used as an independent reference for the
-    /// `then` (and hence SIMD) paths. Deliberately avoids `mul_add` so it is a
-    /// separate implementation from the code under test.
+    /// Naive row-major 4x4 multiply used as an independent reference for the `then`
+    /// (and hence SIMD) paths. Deliberately avoids `mul_add` so it is a separate
+    /// implementation from the code under test.
     fn naive_then(a: &ComputedTransform3D, b: &ComputedTransform3D) -> ComputedTransform3D {
         let mut out = ComputedTransform3D::IDENTITY;
         for r in 0..4 {
@@ -1086,9 +1010,9 @@ mod audit_tests {
         out
     }
 
-    // Miri-compatible: exercises only the safe scalar `then` against an
-    // independent naive reference. Runs everywhere, including under Miri, so the
-    // scalar anchor that the SIMD paths are compared against is itself checked.
+    // Miri-compatible: exercises only the safe scalar `then` against an independent
+    // naive reference. Runs everywhere, including under Miri, so the scalar anchor
+    // that the SIMD paths are compared against is itself checked.
     #[test]
     fn scalar_matmul_matches_reference() {
         let a = sample_a();
@@ -1102,11 +1026,7 @@ mod audit_tests {
     // AUDIT: the SSE/AVX matrix-multiply paths must agree with the scalar
     // reference. In particular this exercises `linear_combine_avx8`, whose
     // unaligned-load fix (`_mm256_loadu2_m128` instead of forming a misaligned
-    // `&__m128`) must produce identical results. Only runs the SIMD paths when
-    // the CPU (and OS) actually support the feature.
-    //
-    // `#[cfg(not(miri))]`: the AVX/SSE intrinsics cannot execute under Miri, so
-    // this test is skipped there; a native run covers it.
+    // `&__m128`) must produce identical results.
     #[cfg(not(miri))]
     #[test]
     fn simd_matmul_matches_scalar() {
@@ -1132,14 +1052,8 @@ mod audit_tests {
 
     // AUDIT regression test for the misaligned-`&__m128` bug: the AVX path reads
     // matrix rows (`[f32; 4]`, alignment 4) that are NOT guaranteed to sit on a
-    // 16-byte boundary. The earlier code formed a `&__m128` from such a row,
-    // which is misaligned-reference UB; the current code uses unaligned loads.
-    // This runs `then_avx8` on the same logical matrix placed at a 16-byte
-    // aligned address AND at that address + 4 (i.e. 4-mod-16, deliberately not
-    // 16-aligned) and asserts identical results. A sanitizer/Valgrind run over
-    // this test would fault on the pre-fix misaligned access.
-    //
-    // `#[cfg(not(miri))]`: invokes AVX intrinsics, which Miri cannot execute.
+    // 16-byte boundary. The earlier code formed a `&__m128` from such a row, which
+    // is misaligned-reference UB; the current code uses unaligned loads.
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     #[test]
     fn avx_result_independent_of_row_alignment() {
@@ -1156,9 +1070,9 @@ mod audit_tests {
         let base = buf.as_mut_ptr();
 
         // SAFETY: `aligned` lands within `buf` (align_offset < 16, then +N),
-        // `misaligned` = aligned + 4 stays in-bounds (buf has N*2+16 bytes).
-        // Both are >= 4-byte aligned (base is heap-aligned; +4 preserves that),
-        // so forming `&ComputedTransform3D` (alignment 4) from them is valid.
+        // `misaligned` = aligned + 4 stays in-bounds (buf has N*2+16 bytes). Both
+        // are >= 4-byte aligned (base is heap-aligned; +4 preserves that), so
+        // forming `&ComputedTransform3D` (alignment 4) from them is valid.
         unsafe {
             let aligned = base.add(base.align_offset(16));
             let misaligned = aligned.add(4); // 4 mod 16: not 16-aligned
@@ -1202,7 +1116,7 @@ mod autotest_generated {
 
     // ---------------------------------------------------------------- helpers
 
-    /// A matrix whose 16 entries are all `v` — the worst case for any code that
+    /// A matrix whose 16 entries are all `v` - the worst case for any code that
     /// assumes a well-formed (invertible / affine) transform.
     fn filled(v: f32) -> ComputedTransform3D {
         ComputedTransform3D { m: [[v; 4]; 4] }
@@ -1255,8 +1169,8 @@ mod autotest_generated {
         sum
     }
 
-    /// `row * B` — the reference for the SSE/AVX linear-combination kernels.
-    /// (Only reachable from the x86_64 / non-Miri tests below.)
+    /// `row * B` - the reference for the SSE/AVX linear-combination kernels. (Only
+    /// reachable from the x86_64 / non-Miri tests below.)
     #[allow(dead_code)]
     fn naive_row_combine(a: [f32; 4], b: &ComputedTransform3D) -> [f32; 4] {
         let mut out = [0.0f32; 4];
@@ -1275,8 +1189,8 @@ mod autotest_generated {
         }
     }
 
-    /// Convenience: run a single `StyleTransform` through the private builder
-    /// with a zero origin (so rotations are not wrapped in translations).
+    /// Convenience: run a single `StyleTransform` through the private builder with
+    /// a zero origin (so rotations are not wrapped in translations).
     fn build(t: &StyleTransform, px: f32, py: f32) -> ComputedTransform3D {
         ComputedTransform3D::from_style_transform(t, &origin_px(0, 0), px, py, RotationMode::ForHitTesting)
     }
@@ -1424,8 +1338,7 @@ mod autotest_generated {
         assert_eq!(t.m[0][0], 1.0);
         // determinant only sees the 1.0s and 0.0s of the linear part... except the
         // 24-term expansion also multiplies through the translation row, so a NaN
-        // offset does reach it. Assert the *actual* (defined) behaviour: NaN in,
-        // NaN out — no panic.
+        // offset does reach it.
         assert!(t.determinant().is_nan() || t.determinant() == 1.0);
     }
 
@@ -1433,8 +1346,8 @@ mod autotest_generated {
 
     #[test]
     fn a_transform_list_composes_like_css_last_function_first() {
-        // CSS: `translate(100px) scale(2)` SCALES first, then translates:
-        // (1, 0) -> (2, 0) -> (102, 0). The reversed fold gave (202, 0).
+        // CSS: `translate(100px) scale(2)` SCALES first, then translates: (1, 0) ->
+        // (2, 0) -> (102, 0). The reversed fold gave (202, 0).
         let list = [
             StyleTransform::Translate(StyleTransformTranslate2D {
                 x: PixelValue::px(100.0),
@@ -1453,9 +1366,9 @@ mod autotest_generated {
         let p = m.transform_point2d(LogicalPosition::new(1.0, 0.0)).expect("affine");
         assert!((p.x - 102.0).abs() < 1e-3 && p.y.abs() < 1e-3, "CSS order: scale then translate, got {p:?}");
 
-        // The origin wraps the WHOLE list once: `scale(2)` about the centre
-        // of a 100x100 box keeps the centre fixed and doubles distances from
-        // it - (25, 25) -> (0, 0).
+        // The origin wraps the WHOLE list once: `scale(2)` about the centre of a
+        // 100x100 box keeps the centre fixed and doubles distances from it - (25,
+        // 25) -> (0, 0).
         let centre = StyleTransformOrigin {
             x: PixelValue::const_percent(50),
             y: PixelValue::const_percent(50),
@@ -1469,10 +1382,10 @@ mod autotest_generated {
 
     #[test]
     fn perspective_is_applied_about_the_transform_origin() {
-        // The CSS idiom `perspective(500px) rotateX(60deg)` about the centre
-        // of a 200x100 box (CSS order: rotateX applies first, the projection
-        // last): the centre is fixed, and the vertical centre line STAYS
-        // vertical (a perspective about (0,0) bends it sideways).
+        // The CSS idiom `perspective(500px) rotateX(60deg)` about the centre of a
+        // 200x100 box (CSS order: rotateX applies first, the projection last): the
+        // centre is fixed, and the vertical centre line STAYS vertical (a
+        // perspective about (0,0) bends it sideways).
         let origin = StyleTransformOrigin {
             x: PixelValue::px(100.0),
             y: PixelValue::px(50.0),
@@ -1601,8 +1514,8 @@ mod autotest_generated {
     #[test]
     fn new_rotation_degenerate_zero_axis_yields_identity() {
         // The doc says the axis "must be normalized"; a zero axis is the classic
-        // caller mistake. It must not panic or produce NaN — it degenerates to
-        // the identity (every term is multiplied by an axis component).
+        // caller mistake. It must not panic or produce NaN - it degenerates to the
+        // identity (every term is multiplied by an axis component).
         let t = ComputedTransform3D::new_rotation(0.0, 0.0, 0.0, 1.234);
         assert_mat_approx(&t, &ComputedTransform3D::IDENTITY, 1e-6);
     }
@@ -1613,7 +1526,7 @@ mod autotest_generated {
         assert!(nan.m[0][0].is_nan());
         assert_eq!(nan.m[3][3], 1.0); // the constant W row survives
 
-        // sin(inf) / cos(inf) are NaN in IEEE-754 — again, no panic.
+        // sin(inf) / cos(inf) are NaN in IEEE-754 - again, no panic.
         let inf = ComputedTransform3D::new_rotation(0.0, 0.0, 1.0, f32::INFINITY);
         assert!(inf.m[0][0].is_nan());
     }
@@ -1715,9 +1628,9 @@ mod autotest_generated {
     #[test]
     fn inverse_treats_near_singular_as_singular() {
         // PRECISION HAZARD, asserted as the documented contract: the guard is
-        // `det.abs() < f32::EPSILON` (~1.19e-7), so a *perfectly invertible*
-        // uniform scale of 1e-3 (det = 1e-9) is rejected and the identity is
-        // returned instead of the true inverse (a 1000x up-scale).
+        // `det.abs() < f32::EPSILON` (~1.19e-7), so a *perfectly invertible* uniform
+        // scale of 1e-3 (det = 1e-9) is rejected and the identity is returned
+        // instead of the true inverse (a 1000x up-scale).
         let tiny = ComputedTransform3D::new_scale(1e-3, 1e-3, 1e-3);
         let det = tiny.determinant();
         assert!(det > 0.0 && det < f32::EPSILON, "det = {det} (must be a nonzero sub-EPSILON)");
@@ -1771,8 +1684,8 @@ mod autotest_generated {
     #[test]
     fn multiply_scalar_by_infinity_poisons_zero_entries_with_nan() {
         // IEEE-754: 0.0 * inf == NaN. Scaling the IDENTITY by inf therefore does
-        // NOT give an "infinitely scaled identity" — every off-diagonal 0 becomes
-        // NaN. Asserted so a future refactor cannot silently change it.
+        // NOT give an "infinitely scaled identity" - every off-diagonal 0 becomes
+        // NaN.
         let t = ComputedTransform3D::IDENTITY.multiply_scalar(f32::INFINITY);
         assert!(t.m[0][0].is_infinite());
         assert!(t.m[0][1].is_nan(), "0.0 * inf should be NaN, got {}", t.m[0][1]);
@@ -1868,7 +1781,7 @@ mod autotest_generated {
     #[test]
     fn transform_point2d_zero_w_divides_by_zero_instead_of_returning_none() {
         // BOUNDARY: the guard is `!w.is_sign_positive()`, and (+0.0) IS
-        // sign-positive — so a fully degenerate w == +0.0 slips through and the
+        // sign-positive - so a fully degenerate w == +0.0 slips through and the
         // function divides by zero, returning Some(inf, inf) rather than None.
         // Asserted as-is (no panic, defined IEEE result); flagged in the report.
         let mut t = ComputedTransform3D::IDENTITY;
@@ -1878,9 +1791,8 @@ mod autotest_generated {
         assert!(out.x.is_infinite(), "expected 1.0/0.0 = inf, got {}", out.x);
         assert!(out.y.is_infinite());
 
-        // ... whereas a w that comes out as -0.0 IS rejected, so the sign of a
-        // zero w decides between Some(inf) and None. (The whole w column must be
-        // -0.0: fma(1.0, +0.0, -0.0) would round back to +0.0.)
+        // ... whereas a w that comes out as -0.0 IS rejected, so the sign of a zero
+        // w decides between Some(inf) and None.
         let mut neg = ComputedTransform3D::IDENTITY;
         neg.m[0][3] = -0.0;
         neg.m[1][3] = -0.0;
@@ -1974,7 +1886,7 @@ mod autotest_generated {
     #[test]
     fn scale_for_dpi_by_infinity_poisons_a_zero_translation() {
         // IEEE-754: 0.0 * inf == NaN. A DPI factor of inf turns the *identity's*
-        // zero translation into NaN — assert the defined result, no panic.
+        // zero translation into NaN - assert the defined result, no panic.
         let mut t = ComputedTransform3D::IDENTITY;
         t.scale_for_dpi(f32::INFINITY);
         assert!(t.m[3][0].is_nan());
@@ -2099,8 +2011,8 @@ mod autotest_generated {
             // SAFETY: SSE availability was just checked at runtime.
             let sse = unsafe { a.then_sse(&b) };
             assert_mat_approx(&scalar, &sse, 1e-3);
-            // Identity is still a unit through the SIMD path.
-            // SAFETY: same runtime check as above.
+            // Identity is still a unit through the SIMD path. SAFETY: same runtime
+            // check as above.
             let unit = unsafe { ComputedTransform3D::IDENTITY.then_sse(&b) };
             assert_mat_approx(&unit, &b, 1e-4);
         }
@@ -2117,10 +2029,10 @@ mod autotest_generated {
     #[cfg(all(target_arch = "x86_64", not(miri)))]
     #[test]
     fn simd_paths_do_not_panic_on_extreme_matrices() {
-        // NaN/inf must flow through the intrinsics exactly like the scalar path:
-        // no trap, no panic. (Values are not compared against the scalar path
-        // because `then` fuses with mul_add while the SIMD kernels do not, and
-        // fusion legitimately changes which NaN/inf a saturating term produces.)
+        // NaN/inf must flow through the intrinsics exactly like the scalar path: no
+        // trap, no panic. (Values are not compared against the scalar path because
+        // `then` fuses with mul_add while the SIMD kernels do not, and fusion
+        // legitimately changes which NaN/inf a saturating term produces.)
         let extremes = [filled(f32::NAN), filled(f32::INFINITY), filled(1e30), filled(f32::MIN)];
         for a in &extremes {
             for b in &extremes {
@@ -2245,13 +2157,13 @@ mod autotest_generated {
             assert!(!t.m[3][0].is_nan(), "finite basis {basis} produced a NaN offset");
         }
 
-        // A NaN basis yields a NaN offset — defined, and no panic.
+        // A NaN basis yields a NaN offset - defined, and no panic.
         assert!(run(f32::NAN).m[3][0].is_nan());
 
         // HAZARD, asserted as-is: an *infinite* basis does not just give an
-        // infinite offset — `then` multiplies the identity's zero w-column by it
-        // (0.0 * inf == NaN), so the NaN spreads into the linear part as well.
-        // Same on the scalar, SSE and AVX paths.
+        // infinite offset - `then` multiplies the identity's zero w-column by it
+        // (0.0 * inf == NaN), so the NaN spreads into the linear part as well. Same
+        // on the scalar, SSE and AVX paths.
         let inf = run(f32::INFINITY);
         assert!(inf.m[0][0].is_nan(), "0.0 * inf should poison m11, got {}", inf.m[0][0]);
     }
@@ -2346,8 +2258,8 @@ mod autotest_generated {
     #[test]
     fn from_style_transform_viewport_units_resolve_to_zero() {
         // to_pixels_internal() has no viewport context and documents a 0.0 result
-        // for vw/vh/vmin/vmax — assert that (a silently-dropped translation), so
-        // a future viewport-aware fix has to update this test on purpose.
+        // for vw/vh/vmin/vmax - assert that (a silently-dropped translation), so a
+        // future viewport-aware fix has to update this test on purpose.
         let vw = PixelValue::from_metric(SizeMetric::Vw, 50.0);
         let t = build(&StyleTransform::TranslateX(vw), 1000.0, 1000.0);
         assert_eq!(t.m[3][0], 0.0);
@@ -2478,8 +2390,8 @@ mod autotest_generated {
     #[test]
     fn from_style_transform_rotate_angle_metrics_agree() {
         // 90deg == 0.25turn == 100grad. (Radians are NOT compared exactly here:
-        // FloatValue quantizes to 3 decimals, so PI/2 stores as 1.570 rad
-        // = 89.95deg — hence the looser tolerance on the rad case below.)
+        // FloatValue quantizes to 3 decimals, so PI/2 stores as 1.570 rad = 89.95deg
+        // - hence the looser tolerance on the rad case below.)
         let deg = build(&StyleTransform::Rotate(AngleValue::const_deg(90)), 0.0, 0.0);
         let turn = build(&StyleTransform::RotateZ(AngleValue::turn(0.25)), 0.0, 0.0);
         let grad = build(&StyleTransform::Rotate(AngleValue::const_grad(100)), 0.0, 0.0);
@@ -2527,7 +2439,7 @@ mod autotest_generated {
     #[test]
     fn from_style_transform_huge_angle_stays_finite() {
         // AngleValue saturates through FloatValue's isize backing, and to_degrees()
-        // wraps modulo 360 — so even a "f32::MAX degrees" rotation is well-defined.
+        // wraps modulo 360 - so even a "f32::MAX degrees" rotation is well-defined.
         let huge = build(&StyleTransform::Rotate(AngleValue::deg(f32::MAX)), 0.0, 0.0);
         assert!(all_finite(&huge), "huge angle produced inf/NaN: {huge:?}");
     }
@@ -2544,8 +2456,8 @@ mod autotest_generated {
 
     #[test]
     fn make_rotation_modes_are_mutual_inverses() {
-        // ForWebRender negates the angle, ForHitTesting does not — so composing
-        // the two about the same origin must cancel out to the identity.
+        // ForWebRender negates the angle, ForHitTesting does not - so composing the
+        // two about the same origin must cancel out to the identity.
         let origin = (100.0, 50.0);
         let wr =
             ComputedTransform3D::make_rotation(origin, 45.0, 0.0, 0.0, 1.0, RotationMode::ForWebRender);
@@ -2563,7 +2475,8 @@ mod autotest_generated {
 
     #[test]
     fn make_rotation_keeps_its_origin_fixed() {
-        // The defining property of a rotation about a point: that point does not move.
+        // The defining property of a rotation about a point: that point does not
+        // move.
         let r = ComputedTransform3D::make_rotation(
             (30.0, 40.0),
             90.0,

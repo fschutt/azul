@@ -1,16 +1,6 @@
-//! DOM Reconciliation Module
-//!
-//! This module provides the reconciliation algorithm that compares two DOM trees
-//! and generates lifecycle events. It uses stable keys and content hashing to
-//! identify moves vs. mounts/unmounts.
-//!
-//! The reconciliation strategy is:
-//! 1. **Stable Key Match:** If `.with_key()` is used, it's an absolute match (O(1)).
-//! 2. **CSS ID Match:** If no key, use the CSS ID as key.
-//! 3. **Structural Key Match:** nth-of-type-within-parent + parent's key (recursive).
-//! 4. **Hash Match (Content Match):** Check for identical `DomNodeHash`.
-//! 5. **Structural Hash Match:** For text nodes, match by structural hash (ignoring content).
-//! 6. **Fallback:** Anything not matched is a `Mount` (new) or `Unmount` (old leftovers).
+//! DOM Reconciliation Module This module provides the reconciliation algorithm that
+//! compares two DOM trees and generates lifecycle events. It uses stable keys and
+//! content hashing to identify moves vs.
 
 use alloc::{collections::BTreeMap, collections::VecDeque, string::{String, ToString}, vec::Vec};
 use core::hash::Hash;
@@ -32,12 +22,11 @@ use crate::{
 };
 
 // ============================================================================
-// NodeChangeSet — granular per-node change flags
+// NodeChangeSet - granular per-node change flags
 // ============================================================================
 
-/// Bit flags describing what changed about a node between old and new DOM.
-/// Multiple flags can be set simultaneously. Uses manual bit manipulation
-/// instead of bitflags crate to avoid adding a dependency.
+/// Bit flags describing what changed about a node between old and new DOM. Multiple
+/// flags can be set simultaneously.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct NodeChangeSet {
     pub bits: u32,
@@ -149,15 +138,14 @@ impl core::ops::BitOr for NodeChangeSet {
 pub struct ExtendedDiffResult {
     /// Original diff result (lifecycle events + node moves).
     pub diff: DiffResult,
-    /// Per-node change report for matched (moved) nodes.
-    /// Each entry: (`old_node_id`, `new_node_id`, `what_changed`).
-    /// Only contains entries for nodes that were matched.
+    /// Per-node change report for matched (moved) nodes. Each entry:
+    /// (`old_node_id`, `new_node_id`, `what_changed`).
     pub node_changes: Vec<(NodeId, NodeId, NodeChangeSet)>,
 }
 
 
-/// Compare two matched `NodeData` instances field-by-field and return
-/// a `NodeChangeSet` describing what changed.
+/// Compare two matched `NodeData` instances field-by-field and return a
+/// `NodeChangeSet` describing what changed.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub fn compute_node_changes(
     old_node: &NodeData,
@@ -212,15 +200,13 @@ pub struct ExtendedDiffResult {
         }
     }
 
-    // 4. Inline CSS properties — classify into layout-affecting vs paint-only.
-    // After the inline-vs-component unification, inline CSS is stored as a `Css`
-    // with rule blocks; iterate it via the `(property, conditions)` flat view to
-    // keep the per-property compare semantics this code was written for.
+    // 4. Inline CSS properties - classify into layout-affecting vs paint-only.
     if old_node.style != new_node.style {
         let mut has_layout = false;
         let mut has_paint = false;
 
-        // Classify a changed/added/removed property into the layout vs paint bucket.
+        // Classify a changed/added/removed property into the layout vs paint
+        // bucket.
         #[allow(clippy::items_after_statements)]
         fn mark(prop_type: CssPropertyType, has_layout: &mut bool, has_paint: &mut bool) {
             if prop_type.relayout_scope(true) == RelayoutScope::None {
@@ -230,13 +216,8 @@ pub struct ExtendedDiffResult {
             }
         }
 
-        // AUDIT: key the diff by (prop_type, conditions), NOT prop_type alone.
-        // A node can carry the same property under different conditions (e.g.
-        // `color: red` and `color: blue` scoped to `:hover`); keying by
-        // prop_type collapsed them into one map slot, so a change to one
-        // conditional variant could be silently dropped. Match each new
-        // property against an old entry with the SAME prop_type AND the same
-        // conditions, and mark any old entry left unmatched as removed.
+        // AUDIT: key the diff by (prop_type, conditions), NOT prop_type alone. A
+        // node can carry the same property under different conditions (e.g.
         let old_props: Vec<(CssPropertyType, _, _)> = old_node
             .style
             .iter_inline_properties()
@@ -322,22 +303,8 @@ pub struct ExtendedDiffResult {
     changes
 }
 
-/// Calculate the reconciliation key for a node using the priority hierarchy:
-/// 1. Explicit key (set via `.with_key()`)
-/// 2. CSS ID (set via `.with_id("my-id")`)
-/// 3. Structural key: nth-of-type-within-parent + parent's reconciliation key
-///
-/// The structural key prevents incorrect matching when nodes are inserted
-/// before existing nodes (e.g., prepending items to a list) and allows
-/// keyless nodes to be matched across frames when their logical position
-/// and type are stable (even if content changed — which then fires an
-/// `Update` lifecycle event, see `reconcile_dom`).
-///
-/// When `hierarchy` is empty (or this node has no entry), the structural
-/// key degrades to `discriminant(node_type) + classes` — parent/nth-of-type
-/// context simply drops out. This lets callers that don't track hierarchy
-/// (tests, flat-DOM scenarios) still benefit from explicit-key and CSS-ID
-/// matching without divergent behavior.
+/// Calculate the reconciliation key for a node using the priority hierarchy: 1.
+/// Explicit key (set via `.with_key()`) 2.
 #[must_use] pub fn calculate_reconciliation_key(
     node_data: &[NodeData],
     hierarchy: &[NodeHierarchyItem],
@@ -347,8 +314,8 @@ pub struct ExtendedDiffResult {
 
     let n = node_data.len();
 
-    // Terminal (parent-independent) key for a node: Priority 1 explicit key,
-    // else Priority 2 CSS ID, else `None` (structural — needs the parent chain).
+    // Terminal (parent-independent) key for a node: Priority 1 explicit key, else
+    // Priority 2 CSS ID, else `None` (structural - needs the parent chain).
     let terminal_key = |nid: NodeId| -> Option<u64> {
         let node = &node_data[nid.index()];
         // Priority 1: Explicit key
@@ -371,19 +338,10 @@ pub struct ExtendedDiffResult {
         return key;
     }
 
-    // Priority 3: structural key, computed ITERATIVELY up the parent chain.
-    //
-    // AUDIT: the previous implementation recursed once per ancestor with no
-    // depth cap and no cycle guard, so a deep DOM overflowed the stack and a
-    // corrupt (cyclic) hierarchy recursed forever — and `precompute_*` calls
-    // this once per node. Walk upward instead, bounded by the node count.
-    //
-    // Collect the structural chain from `node_id` upward. The walk stops at:
-    //   - the root (a node with no parent) — structural base is just
-    //     `discriminant + classes`,
-    //   - a terminal (explicit-key / CSS-ID) ancestor, whose key seeds the fold, or
-    //   - `n` iterations (a valid parent chain is at most `n` long, so exceeding
-    //     that means the hierarchy is cyclic/corrupt — stop).
+    // Priority 3: structural key, computed ITERATIVELY up the parent chain. AUDIT:
+    // the previous implementation recursed once per ancestor with no depth cap and
+    // no cycle guard, so a deep DOM overflowed the stack and a corrupt (cyclic)
+    // hierarchy recursed forever - and `precompute_*` calls this once per node.
     let mut chain: Vec<NodeId> = Vec::new();
     let mut seed_parent_key: Option<u64> = None;
     let mut cur = node_id;
@@ -452,11 +410,8 @@ pub struct ExtendedDiffResult {
     parent_key.unwrap_or(0)
 }
 
-/// Precompute reconciliation keys for every node in a DOM tree.
-///
-/// Called once per side (old/new) at the start of `reconcile_dom`. Returns a
-/// vector indexed by node index (`keys[node_id.index()]`) so lookup during
-/// reconciliation is O(1).
+/// Precompute reconciliation keys for every node in a DOM tree. Called once per
+/// side (old/new) at the start of `reconcile_dom`.
 #[must_use] pub fn precompute_reconciliation_keys(
     node_data: &[NodeData],
     hierarchy: &[NodeHierarchyItem],
@@ -487,30 +442,7 @@ pub struct DiffResult {
 
 
 /// Calculates the difference between two DOM frames and generates lifecycle events.
-///
-/// This is the main entry point for DOM reconciliation. It compares the old and new
-/// DOM trees and produces:
-/// - Mount events for new nodes
-/// - Unmount events for removed nodes
-/// - Resize events for nodes whose bounds changed
-/// - Update events for nodes whose logical position is stable but content changed
-///
-/// # Matching priority
-/// For every node, the reconciliation key (`calculate_reconciliation_key`) encodes
-/// Priority 1 (`.with_key()`), Priority 2 (CSS ID), and Priority 3 (structural key:
-/// nth-of-type + parent key). The tiers are then tried in order:
-///
-/// 1. **Reconciliation key** — matches logical identity, may fire Update on content change.
-/// 2. **Content hash** — exact match including content; catches pure reorders of anonymous nodes.
-/// 3. **Structural hash** — matches node type + attrs ignoring text content; for text-edit cases.
-///
-/// # Arguments
-/// * `old_node_data` / `new_node_data` - Per-node data for each frame
-/// * `old_hierarchy` / `new_hierarchy` - Parent/sibling pointers. Pass `&[]` if unavailable;
-///   the structural-key branch of the reconciliation key degrades gracefully.
-/// * `old_layout` / `new_layout` - Layout bounds used to detect Resize events
-/// * `dom_id` - The DOM identifier
-/// * `timestamp` - Current timestamp for events
+/// This is the main entry point for DOM reconciliation.
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub fn reconcile_dom(
@@ -540,20 +472,18 @@ pub struct DiffResult {
     let mut result = DiffResult::default();
 
     // --- STEP 1: INDEX THE OLD DOM ---
-    //
-    // Three tiers, in priority order:
-    //   Tier 1: reconciliation key (.with_key() / CSS ID / structural key)
-    //   Tier 2: content hash (exact node_data hash — matches pure reorders)
-    //   Tier 3: structural hash (discriminant + attrs, ignores text — matches text edits)
-    //
-    // Each tier is keyed with a `VecDeque<NodeId>` because all three can legitimately
-    // collide (two sibling divs produce the same structural key, two identical nodes
-    // produce the same content hash, etc.); we consume in document order on match.
+    // Three tiers, in priority order: Tier 1: reconciliation key (.with_key() / CSS
+    // ID / structural key) Tier 2: content hash (exact node_data hash - matches pure
+    // reorders) Tier 3: structural hash (discriminant + attrs, ignores text -
+    // matches text edits) Each tier is keyed with a `VecDeque<NodeId>` because all
+    // three can legitimately collide (two sibling divs produce the same structural
+    // key, two identical nodes produce the same content hash, etc.); we consume in
+    // document order on match.
 
     let old_rec_keys = precompute_reconciliation_keys(old_node_data, old_hierarchy);
     // AUDIT: precompute NEW keys too so the Tier-2/Tier-3 keyless tiers can be
-    // gated on parent-key agreement (see STEP 2). Also lets Tier 1 look the key
-    // up instead of recomputing it per node.
+    // gated on parent-key agreement (see STEP 2). Also lets Tier 1 look the key up
+    // instead of recomputing it per node.
     let new_rec_keys = precompute_reconciliation_keys(new_node_data, new_hierarchy);
 
     // Reconciliation key of a node's PARENT (`None` for a root or when the
@@ -590,7 +520,8 @@ pub struct DiffResult {
         let mut matched_by_rec_key = false;
         let has_explicit_key = new_node.get_key().is_some();
 
-        // Tier 1: Reconciliation key (explicit `.with_key()`, CSS ID, or structural key)
+        // Tier 1: Reconciliation key (explicit `.with_key()`, CSS ID, or structural
+        // key)
         let new_rec_key = new_rec_keys[new_idx];
         if let Some(queue) = old_by_rec_key.get_mut(&new_rec_key) {
             if let Some(old_id) = pop_first_unconsumed(queue, &old_nodes_consumed) {
@@ -600,11 +531,9 @@ pub struct DiffResult {
         }
 
         // AUDIT: parent-key of the new node. The keyless Tier-2/Tier-3 tiers are
-        // only allowed to claim an old node whose parent's reconciliation key
-        // agrees — otherwise two structurally-identical nodes under DIFFERENT
-        // parents would match and migrate focus/scroll/dataset state to an
-        // unrelated subtree. When either hierarchy is unavailable this is `None`
-        // on both sides, so the gate is a no-op (flat-DOM behavior preserved).
+        // only allowed to claim an old node whose parent's reconciliation key agrees
+        // - otherwise two structurally-identical nodes under DIFFERENT parents would
+        // match and migrate focus/scroll/dataset state to an unrelated subtree.
         let new_parent_key: Option<u64> = new_hierarchy
             .get(new_idx)
             .and_then(NodeHierarchyItem::parent_id)
@@ -615,7 +544,7 @@ pub struct DiffResult {
         // new (Mount), rather than falling through to coarser content/structural
         // tiers and silently matching an unrelated node.
         if !has_explicit_key && matched_old_id.is_none() {
-            // Tier 2: Content hash (exact match — catches pure reorders)
+            // Tier 2: Content hash (exact match - catches pure reorders)
             let hash = new_node.calculate_node_data_hash();
             if let Some(queue) = old_hashed.get_mut(&hash) {
                 if let Some(pos) = queue.iter().position(|&old_id| {
@@ -626,7 +555,7 @@ pub struct DiffResult {
                 }
             }
 
-            // Tier 3: Structural hash (text-node fallback — ignores text content)
+            // Tier 3: Structural hash (text-node fallback - ignores text content)
             if matched_old_id.is_none() {
                 let structural_hash = new_node.calculate_structural_hash();
                 if let Some(queue) = old_structural.get_mut(&structural_hash) {
@@ -643,7 +572,8 @@ pub struct DiffResult {
         // --- STEP 3: PROCESS MATCH OR MOUNT ---
 
         if let Some(old_id) = matched_old_id {
-            // FOUND A MATCH (It might be at a different index, but it's the "same" node)
+            // FOUND A MATCH (It might be at a different index, but it's the "same"
+            // node)
 
             old_nodes_consumed[old_id.index()] = true;
             result.node_moves.push(NodeMove {
@@ -672,11 +602,12 @@ pub struct DiffResult {
                 }
             }
 
-            // Fire Update when the node was matched by logical identity (reconciliation
-            // key: explicit .with_key(), CSS ID, or structural key) but its content hash
-            // differs. Tier-2/Tier-3 matches by definition don't carry an Update — a
-            // content-hash match is content-identical, and a structural-hash match is
-            // a text edit handled by cursor/text reconciliation elsewhere.
+            // Fire Update when the node was matched by logical identity
+            // (reconciliation key: explicit .with_key(), CSS ID, or structural key)
+            // but its content hash differs. Tier-2/Tier-3 matches by definition
+            // don't carry an Update - a content-hash match is content-identical, and
+            // a structural-hash match is a text edit handled by cursor/text
+            // reconciliation elsewhere.
             if matched_by_rec_key {
                 let old_hash = old_node_data[old_id.index()].calculate_node_data_hash();
                 let new_hash = new_node.calculate_node_data_hash();
@@ -769,13 +700,10 @@ fn create_lifecycle_event(
     }
 }
 
-/// The event a `<transient-window>` receives when the USER closed it — an
-/// outside click, or Escape — as opposed to the app flipping `open`.
-///
-/// Built here, next to the other lifecycle events, so it carries the same
-/// `EventSource::Lifecycle` / `EventPhase::Target` shape the dispatcher
-/// expects for a `ComponentEventFilter`. `bounds` is the popup's anchor
-/// rect in the parent, the closest thing to "where it was".
+/// The event a `<transient-window>` receives when the USER closed it - an outside
+/// click, or Escape - as opposed to the app flipping `open`. Built here, next to the
+/// other lifecycle events, so it carries the same `EventSource::Lifecycle` /
+/// `EventPhase::Target` shape the dispatcher expects for a `ComponentEventFilter`.
 #[must_use]
 pub fn create_dismiss_event(
     node_id: NodeId,
@@ -796,10 +724,8 @@ pub fn create_dismiss_event(
     )
 }
 
-/// The lifecycle event a `<transient-window>` gets on a tear-off or a dock.
-///
-/// `torn == true`: torn off its anchor (`bounds` = the toplevel's rect in the
-/// parent). `torn == false`: docked back (`bounds` = the anchor it docked onto).
+/// The lifecycle event a `<transient-window>` gets on a tear-off or a dock. `torn
+/// == true`: torn off its anchor (`bounds` = the toplevel's rect in the parent).
 #[must_use]
 pub fn create_tearoff_event(
     node_id: NodeId,
@@ -866,26 +792,9 @@ fn has_update_callback(node: &NodeData) -> bool {
     })
 }
 
-/// Migrate state (focus, scroll, etc.) from old node IDs to new node IDs.
-///
-/// This function should be called after reconciliation to update any state
-/// that references old `NodeIds` to use the new `NodeIds`.
-///
-/// # Example
-/// ```rust,ignore
-/// let diff = reconcile_dom(...);
-/// let migration_map = create_migration_map(&diff.node_moves);
-/// 
-/// // Migrate focus
-/// if let Some(current_focus) = focus_manager.focused_node {
-///     if let Some(&new_id) = migration_map.get(&current_focus) {
-///         focus_manager.focused_node = Some(new_id);
-///     } else {
-///         // Focused node was unmounted, clear focus
-///         focus_manager.focused_node = None;
-///     }
-/// }
-/// ```
+/// Migrate state (focus, scroll, etc.) from old node IDs to new node IDs. This
+/// function should be called after reconciliation to update any state that
+/// references old `NodeIds` to use the new `NodeIds`.
 #[must_use] pub fn create_migration_map(node_moves: &[NodeMove]) -> OrderedMap<NodeId, NodeId> {
     let mut map = OrderedMap::default();
     for m in node_moves {
@@ -897,34 +806,16 @@ fn has_update_callback(node: &NodeData) -> bool {
 /// Suppression tag for the image-churn lint, honored from `AZ_SUPPRESS`.
 pub const IMAGE_CHURN_SUPPRESS_TAG: &str = "image_churn";
 
-/// Re-initialisations per second above which an image node is churning.
-///
-/// A widget legitimately rebuilds its image node with a placeholder now and
-/// then — the first build after mount has no frame yet. Doing it dozens of
-/// times a second means a LIVE image is being discarded and re-awaited on every
-/// frame, which is a bug in how the node is built, not in the content.
+/// Re-initialisations per second above which an image node is churning. A widget
+/// legitimately rebuilds its image node with a placeholder now and then - the first
+/// build after mount has no frame yet.
 const IMAGE_CHURN_PER_SEC: u32 = 10;
 
 /// The framework notices, by itself, when an image node re-initialises at frame
-/// rate — and says what is almost always wrong.
-///
-/// The symptom is a video or capture node that flickers: it holds a real frame,
-/// the DOM rebuilds, the fresh node carries only a placeholder, and the live
-/// image is thrown away until the next frame arrives 16-33ms later. On a
-/// resizing window, which rebuilds continuously, that is a continuous flash.
-///
-/// The cause is almost always a missing DATASET + merge callback. Without one
-/// the reconciler cannot tell that the rebuilt node is the same widget, so it
-/// has nothing to carry forward — see `transfer_states`, which does carry the
-/// previous frame when a merge callback exists.
-///
-/// Detection lives HERE, in the reconciler, because neither DOM shows it alone:
-/// the old build has a frame, the new build has a placeholder, and only the
-/// pair reveals the churn. No user code has to opt in.
-/// Per-node churn bookkeeping: `(count, window_start, warned)`.
-///
-/// Shared with the tests so the detector can be asserted on directly, instead
-/// of only through a message on stderr that nothing can observe.
+/// rate - and says what is almost always wrong. The symptom is a video or capture
+/// node that flickers: it holds a real frame, the DOM rebuilds, the fresh node
+/// carries only a placeholder, and the live image is thrown away until the next
+/// frame arrives 16-33ms later.
 #[cfg(feature = "std")]
 type ImageChurnMap = BTreeMap<usize, (u32, std::time::Instant, bool)>;
 
@@ -965,8 +856,8 @@ fn note_image_reinitialised(node_index: usize, carried: bool) {
     }
 
     // Per node: how many times it re-initialised, when that window started, and
-    // whether we have already said so. "The time it was last updated and how
-    // much" is the whole state — no history, no allocation per event.
+    // whether we have already said so. "The time it was last updated and how much"
+    // is the whole state - no history, no allocation per event.
     let churn = image_churn_state();
     let Ok(mut map) = churn.lock() else {
         return; // a poisoned lint counter must never take the app down
@@ -1016,28 +907,8 @@ fn note_image_reinitialised(node_index: usize, carried: bool) {
 #[cfg(not(feature = "std"))]
 fn note_image_reinitialised(_node_index: usize, _carried: bool) {}
 
-/// Executes state migration between the old DOM and the new DOM based on diff results.
-///
-/// This iterates through matched nodes. If a match has BOTH a merge callback AND a dataset,
-/// it executes the callback to transfer state from the old node to the new node.
-///
-/// This must be called **before** the old DOM is dropped, because we need to access its data.
-///
-/// # Arguments
-/// * `old_node_data` - Mutable reference to the old DOM's node data (source of heavy state)
-/// * `new_node_data` - Mutable reference to the new DOM's node data (target for heavy state)
-/// * `node_moves` - The matched nodes from the reconciliation diff
-///
-/// # Example
-/// ```rust,ignore
-/// let diff_result = reconcile_dom(&old_data, &new_data, ...);
-/// 
-/// // Execute state migration BEFORE old_dom is dropped
-/// transfer_states(&mut old_data, &mut new_data, &diff_result.node_moves);
-/// 
-/// // Now safe to drop old_dom - heavy resources have been transferred
-/// drop(old_dom);
-/// ```
+/// Executes state migration between the old DOM and the new DOM based on diff
+/// results. This iterates through matched nodes.
 pub fn transfer_states(
     old_node_data: &mut [NodeData],
     new_node_data: &mut [NodeData],
@@ -1056,12 +927,10 @@ pub fn transfer_states(
 
         // 1. Check if the NEW node has requested a merge callback
         let Some(merge_callback) = new_node_data[new_idx].get_merge_callback() else {
-            // No merge callback — nothing can be carried forward. If this node
-            // is an image that just reverted to a placeholder while the old
-            // build held a real frame, that live frame is being DISCARDED, and
-            // at frame rate it is a visible flicker. This is the "forgot the
-            // dataset on a video node" case, and the framework can see it
-            // without anyone asking.
+            // No merge callback - nothing can be carried forward. If this node is
+            // an image that just reverted to a placeholder while the old build held
+            // a real frame, that live frame is being DISCARDED, and at frame rate it
+            // is a visible flicker.
             if new_node_data[new_idx].image_is_placeholder()
                 && !old_node_data[old_idx].image_is_placeholder()
             {
@@ -1070,62 +939,34 @@ pub fn transfer_states(
             continue; // No merge callback, skip
         };
 
-        // 2. Check if BOTH nodes have datasets
-        // We need to temporarily take the datasets to satisfy borrow checker
+        // 2. Check if BOTH nodes have datasets We need to temporarily take the
+        // datasets to satisfy borrow checker
         let old_dataset = old_node_data[old_idx].take_dataset();
         let new_dataset = new_node_data[new_idx].take_dataset();
 
         match (new_dataset, old_dataset) {
             (Some(new_data), Some(old_data)) => {
                 // The fresh DOM's dataset allocation. A widget builds its dataset,
-                // its VirtualView content `refany`, AND its event-callback
-                // `refany`s from clones of ONE `RefAny` — so every one shares THIS
-                // allocation (`RefAny::clone` shares `sharing_info`; only the
-                // per-clone `instance_id` differs). The merge below keeps the
-                // PERSISTENT (old) allocation (e.g. MapWidget shares its tile cache
-                // so background fetch threads keep writing into it), so every clone
-                // of the fresh one is now orphaned and must be re-pointed — or the
-                // widget fragments across two caches: the VirtualView rendered an
-                // empty clone (blank/grey tiles) while the live data sat in the
-                // dataset, and pan/zoom mutated yet a third copy. Identity = the
-                // shared `RefCountInner` pointer (`sharing_info.ptr`).
+                // its VirtualView content `refany`, AND its event-callback `refany`s
+                // from clones of ONE `RefAny` - so every one shares THIS allocation
+                // (`RefAny::clone` shares `sharing_info`; only the per-clone
+                // `instance_id` differs).
                 let orphan_alloc = new_data.sharing_info.ptr as usize;
 
-                // 3. EXECUTE THE MERGE CALLBACK
-                // The callback receives both datasets and returns the merged result
+                // 3. EXECUTE THE MERGE CALLBACK The callback receives both datasets
+                // and returns the merged result
                 let merged = (merge_callback.cb)(new_data, old_data);
 
                 // 3b. CARRY THE LIVE IMAGE FORWARD.
-                //
-                // A merge callback ran, so this is the SAME logical widget as
-                // before — the reconciler matched them and the widget asked for
-                // its state to persist. A capture widget rebuilds its node with
-                // a PLACEHOLDER every time (`Dom::create_image(null_image)`),
-                // because the fresh widget struct has no frame yet; the live
-                // frame arrives later by writeback. So on every DOM rebuild the
-                // node reverted to the placeholder and stayed there until the
-                // next frame landed ~16-33ms later.
-                //
-                // That is the flash reported when resizing a window while
-                // screensharing: "the screen flickers, like it is
-                // re-initializing". Nothing was re-initialising — the last frame
-                // was simply thrown away and re-awaited.
-                //
-                // NARROW ON PURPOSE: only when the NEW image is a null/
-                // placeholder image and the OLD one is not. An app that
-                // deliberately swaps in a real image still wins, and one that
-                // deliberately clears to a placeholder is the only case this
-                // changes — which is indistinguishable from "has not produced a
-                // frame yet" and is what the widget itself does every rebuild.
                 if new_node_data[new_idx].image_is_placeholder()
                     && !old_node_data[old_idx].image_is_placeholder()
                 {
                     if let Some(prev) = old_node_data[old_idx].get_image_ref_cloned() {
                         new_node_data[new_idx].set_image_ref(prev);
                     }
-                    // Handled — but still worth saying if it happens every
-                    // frame, because rebuilding a live image node at 60 Hz is
-                    // work nobody asked for.
+                    // Handled - but still worth saying if it happens every frame,
+                    // because rebuilding a live image node at 60 Hz is work nobody
+                    // asked for.
                     note_image_reinitialised(new_idx, true);
                 }
 
@@ -1134,12 +975,7 @@ pub fn transfer_states(
 
                 // 5. UNIFY: re-point every refany across the NEW DOM that was a
                 // clone of the now-discarded fresh dataset onto the merged result,
-                // so the whole widget reads ONE cache. Covers VirtualView content
-                // refanys + event-callback refanys + any node's dataset cloned
-                // from the same source. (Generalises the old special-case that
-                // only re-pointed a VirtualView ON the merge node itself — the
-                // MapWidget puts its VirtualView in a CHILD and its pan/zoom
-                // callbacks on the parent, which that case missed.)
+                // so the whole widget reads ONE cache.
                 repoint_orphaned_refanys(new_node_data, orphan_alloc, &merged);
             }
             (new_ds, old_ds) => {
@@ -1155,14 +991,10 @@ pub fn transfer_states(
     }
 }
 
-/// Re-point every `RefAny` across `node_data` that is a clone of the
-/// allocation `orphan_alloc` (a dataset the merge discarded) at `merged`.
-///
-/// The whole widget then reads ONE state: `VirtualView` content refanys,
-/// event callback refanys and datasets cloned from the same source. The
-/// `MapWidget` puts its `VirtualView` in a CHILD and its pan/zoom callbacks
-/// on the parent, which is why this scans the whole arena and not just the
-/// merge node.
+/// Re-point every `RefAny` across `node_data` that is a clone of the allocation
+/// `orphan_alloc` (a dataset the merge discarded) at `merged`. The whole widget then
+/// reads ONE state: `VirtualView` content refanys, event callback refanys and
+/// datasets cloned from the same source.
 fn repoint_orphaned_refanys(node_data: &mut [NodeData], orphan_alloc: usize, merged: &RefAny) {
     use crate::refany::OptionRefAny;
     if merged.sharing_info.ptr as usize == orphan_alloc {
@@ -1188,24 +1020,10 @@ fn repoint_orphaned_refanys(node_data: &mut [NodeData], orphan_alloc: usize, mer
     }
 }
 
-/// The pre-cascade fast path's half of [`transfer_states`].
-///
-/// When the fresh build's fingerprints equal the retained DOM's, the cascade
-/// is skipped and the retained `StyledDom` is kept; the fresh build's event
-/// callbacks are installed on it (they may reference new app state). That
-/// left the DATASETS behind: the fresh callbacks' `RefAny`s were clones of
-/// the fresh build's dataset, the retained node kept last frame's, and no
-/// merge callback ever ran — so a `RefreshDom` that rebuilt an identical DOM
-/// reset every stateful widget's callback state (a slider's drag died on its
-/// second move) and split the widget across two allocations, the exact
-/// fragmentation [`repoint_orphaned_refanys`] exists to prevent.
-///
-/// Same rules as `transfer_states`, with the retained node as "old" and the
-/// fresh dataset as "new": merge through the node's merge callback when it
-/// has one, otherwise the fresh dataset wins; then re-point everything on the
-/// retained DOM that was a clone of the fresh dataset at the result. Call it
-/// AFTER the fresh callbacks have been installed on `node_data`, once per
-/// fresh dataset, with `idx` the node's flattened index.
+/// The pre-cascade fast path's half of [`transfer_states`]. When the fresh build's
+/// fingerprints equal the retained DOM's, the cascade is skipped and the retained
+/// `StyledDom` is kept; the fresh build's event callbacks are installed on it (they
+/// may reference new app state).
 pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny) {
     use crate::refany::OptionRefAny;
     let Some(nd) = node_data.get_mut(idx) else {
@@ -1222,24 +1040,8 @@ pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny
     repoint_orphaned_refanys(node_data, orphan_alloc, &result);
 }
 
-/// Calculate a stable key for a contenteditable node using the hierarchy:
-///
-/// 1. **Explicit Key** - If `.with_key()` was called, use that
-/// 2. **CSS ID** - If the node has a CSS ID (e.g., `#my-editor`), hash that
-/// 3. **Structural Key** - Hash of `(nth-of-type, parent_key)` recursively
-///
-/// The structural key prevents shifting when elements are inserted before siblings.
-/// For example, in `<div><p>A</p><p contenteditable>B</p></div>`, if we insert
-/// a new `<p>` at the start, the contenteditable `<p>` becomes nth-child(3) but
-/// its nth-of-type stays stable (it's still the 2nd `<p>`).
-///
-/// # Arguments
-/// * `node_data` - All nodes in the DOM
-/// * `hierarchy` - Parent-child relationships
-/// * `node_id` - The node to calculate the key for
-///
-/// # Returns
-/// A stable u64 key for the node
+/// Calculate a stable key for a contenteditable node using the hierarchy: 1.
+/// **Explicit Key** - If `.with_key()` was called, use that 2.
 #[must_use] pub fn calculate_contenteditable_key(
     node_data: &[NodeData],
     hierarchy: &[NodeHierarchyItem],
@@ -1249,8 +1051,8 @@ pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny
 
     let n = node_data.len();
 
-    // Terminal (parent-independent) key: Priority 1 explicit key, else
-    // Priority 2 CSS ID, else `None` (structural — needs the parent chain).
+    // Terminal (parent-independent) key: Priority 1 explicit key, else Priority 2
+    // CSS ID, else `None` (structural - needs the parent chain).
     let terminal_key = |nid: NodeId| -> Option<u64> {
         let node = &node_data[nid.index()];
         // Priority 1: Explicit key (from .with_key())
@@ -1273,11 +1075,9 @@ pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny
         return key;
     }
 
-    // Priority 3: structural key, computed ITERATIVELY up the parent chain.
-    //
-    // AUDIT: replaces unbounded parent-chain recursion (stack overflow on deep
-    // DOMs, infinite recursion on a cyclic hierarchy). Same fold as the old
-    // recursion, unrolled bottom-up and bounded by the node count.
+    // Priority 3: structural key, computed ITERATIVELY up the parent chain. AUDIT:
+    // replaces unbounded parent-chain recursion (stack overflow on deep DOMs,
+    // infinite recursion on a cyclic hierarchy).
     let mut chain: Vec<NodeId> = Vec::new();
     let mut seed_parent_key: Option<u64> = None;
     let mut cur = node_id;
@@ -1298,10 +1098,10 @@ pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny
         }
     }
 
-    // Fold from the topmost ancestor down to `node_id`. Unlike the
-    // reconciliation key, the contenteditable structural key ALWAYS writes a
-    // `parent_key` (0 at the root) and an `nth_of_type` (0 at the root), so the
-    // per-level hashing is unconditional — preserve that exactly.
+    // Fold from the topmost ancestor down to `node_id`. Unlike the reconciliation
+    // key, the contenteditable structural key ALWAYS writes a `parent_key` (0 at the
+    // root) and an `nth_of_type` (0 at the root), so the per-level hashing is
+    // unconditional - preserve that exactly.
     let mut parent_key: u64 = seed_parent_key.unwrap_or(0);
     for &nid in chain.iter().rev() {
         let node = &node_data[nid.index()];
@@ -1353,40 +1153,18 @@ pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny
     parent_key
 }
 
-/// Reconcile cursor byte position when text content changes.
-///
-/// This function maps a cursor position from old text to new text, preserving
-/// the cursor's logical position as much as possible:
-///
-/// 1. If cursor is in unchanged prefix → stays at same byte offset
-/// 2. If cursor is in unchanged suffix → adjusts by length difference
-/// 3. If cursor is in changed region → places at end of new content
-///
-/// # Arguments
-/// * `old_text` - The previous text content
-/// * `new_text` - The new text content
-/// * `old_cursor_byte` - Cursor byte offset in old text
-///
-/// # Returns
-/// The reconciled cursor byte offset in new text
-///
-/// # Example
-/// ```rust,ignore
-/// let old_text = "Hello";
-/// let new_text = "Hello World";
-/// let old_cursor = 5; // cursor at end of "Hello"
-/// let new_cursor = reconcile_cursor_position(old_text, new_text, old_cursor);
-/// assert_eq!(new_cursor, 5); // cursor stays at same position (prefix unchanged)
-/// ```
+/// Reconcile cursor byte position when text content changes. This function maps a
+/// cursor position from old text to new text, preserving the cursor's logical
+/// position as much as possible: 1.
 #[must_use] pub fn reconcile_cursor_position(
     old_text: &str,
     new_text: &str,
     old_cursor_byte: usize,
 ) -> usize {
     // AUDIT: every returned offset is snapped DOWN to the nearest UTF-8 char
-    // boundary in `new_text` (and clamped to its length). The prefix/suffix
-    // scans below compare byte-by-byte and can land mid-codepoint, so a raw
-    // return value could later panic when used to slice `new_text` as a `str`.
+    // boundary in `new_text` (and clamped to its length). The prefix/suffix scans
+    // below compare byte-by-byte and can land mid-codepoint, so a raw return value
+    // could later panic when used to slice `new_text` as a `str`.
     let snap = |offset: usize| -> usize {
         let mut o = offset.min(new_text.len());
         while o > 0 && !new_text.is_char_boundary(o) {
@@ -1442,14 +1220,14 @@ pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny
         return snap(new_text.len().saturating_sub(offset_from_end));
     }
 
-    // Cursor was in the changed region - place at end of inserted content
-    // This handles insertions (cursor moves with new text) and deletions (cursor at edit point)
+    // Cursor was in the changed region - place at end of inserted content This
+    // handles insertions (cursor moves with new text) and deletions (cursor at edit
+    // point)
     snap(new_suffix_start)
 }
 
-/// Get the text content from a `NodeData` if it's a Text node.
-///
-/// Returns the text string if the node is `NodeType::Text`, otherwise `None`.
+/// Get the text content from a `NodeData` if it's a Text node. Returns the text
+/// string if the node is `NodeType::Text`, otherwise `None`.
 #[must_use] pub fn get_node_text_content(node: &NodeData) -> Option<&str> {
     if let NodeType::Text(ref text) = node.get_node_type() {
         Some(text.as_str())
@@ -1459,7 +1237,7 @@ pub fn merge_fresh_dataset(node_data: &mut [NodeData], idx: usize, fresh: RefAny
 }
 
 // ============================================================================
-// ChangeAccumulator — unifies all change input paths
+// ChangeAccumulator - unifies all change input paths
 // ============================================================================
 
 /// Text change info for cursor/selection reconciliation.
@@ -1479,15 +1257,11 @@ pub struct NodeChangeReport {
 
     /// Highest `RelayoutScope` from any CSS property that changed on this node.
     /// This is more granular than `NodeChangeSet`'s binary LAYOUT/PAINT split.
-    ///
-    /// - `None` → repaint only (color, opacity, transform)
-    /// - `IfcOnly` → reshape text in the containing IFC
-    /// - `SizingOnly` → recompute this node's intrinsic size
-    /// - `Full` → full subtree relayout (display, position, float, etc.)
     pub relayout_scope: RelayoutScope,
 
-    /// Individual CSS properties that changed (for fine-grained cache invalidation).
-    /// Empty if the change was structural (text content, node type, etc.)
+    /// Individual CSS properties that changed (for fine-grained cache
+    /// invalidation). Empty if the change was structural (text content, node type,
+    /// etc.)
     pub changed_css_properties: Vec<CssPropertyType>,
 
     /// If text content changed, the old and new text for cursor reconciliation.
@@ -1495,8 +1269,8 @@ pub struct NodeChangeReport {
 }
 
 impl NodeChangeReport {
-    /// Returns the `DirtyFlag` level needed for this change report.
-    /// Maps `RelayoutScope` + `NodeChangeSet` → a simple tri-state.
+    /// Returns the `DirtyFlag` level needed for this change report. Maps
+    /// `RelayoutScope` + `NodeChangeSet` → a simple tri-state.
     #[must_use] pub fn needs_layout(&self) -> bool {
         self.change_set.needs_layout() || self.relayout_scope > RelayoutScope::None
     }
@@ -1510,28 +1284,23 @@ impl NodeChangeReport {
     }
 }
 
-/// Unified change report that merges information from all three change paths:
-///
-/// 1. **DOM reconciliation** (`compute_node_changes` after `reconcile_dom`)
-/// 2. **CSS restyle** (`restyle_on_state_change` for hover/focus/active)
-/// 3. **Runtime edits** (`words_changed`, `css_properties_changed`, `images_changed`)
-///
-/// This is the single source of truth for "what work needs to happen this frame".
+/// Unified change report that merges information from all three change paths: 1.
+/// **DOM reconciliation** (`compute_node_changes` after `reconcile_dom`) 2.
 #[derive(Debug, Clone, Default)]
 pub struct ChangeAccumulator {
     /// Per-node change info. Key is the new-DOM `NodeId`.
     pub per_node: BTreeMap<NodeId, NodeChangeReport>,
 
-    /// Maximum `RelayoutScope` across all changed nodes.
-    /// Quick check: if this is `None`, we can skip layout entirely.
+    /// Maximum `RelayoutScope` across all changed nodes. Quick check: if this is
+    /// `None`, we can skip layout entirely.
     pub max_scope: RelayoutScope,
 
-    /// Nodes that are newly mounted (no old counterpart).
-    /// These always need full layout.
+    /// Nodes that are newly mounted (no old counterpart). These always need full
+    /// layout.
     pub mounted_nodes: Vec<NodeId>,
 
-    /// Nodes that were unmounted (no new counterpart).
-    /// Used for cleanup (remove from scroll/focus/cursor managers).
+    /// Nodes that were unmounted (no new counterpart). Used for cleanup (remove
+    /// from scroll/focus/cursor managers).
     pub unmounted_nodes: Vec<NodeId>,
 }
 
@@ -1659,11 +1428,9 @@ impl ChangeAccumulator {
         self.unmounted_nodes.push(node_id);
     }
 
-    /// Merge a `RestyleResult` (from `restyle_on_state_change()`) into this accumulator.
-    ///
-    /// This is the bridge between Path B (restyle) and the unified change pipeline.
-    /// Each `ChangedCssProperty` is classified via `relayout_scope()` to determine
-    /// whether it affects layout or only paint.
+    /// Merge a `RestyleResult` (from `restyle_on_state_change()`) into this
+    /// accumulator. This is the bridge between Path B (restyle) and the unified
+    /// change pipeline.
     pub fn merge_restyle_result(&mut self, restyle: &crate::styled_dom::RestyleResult) {
         for (node_id, changed_props) in &restyle.changed_nodes {
             for changed in changed_props {
@@ -1674,10 +1441,9 @@ impl ChangeAccumulator {
         }
     }
 
-    /// Populate this accumulator from an `ExtendedDiffResult` + the old/new DOM data.
-    ///
-    /// This converts per-node `NodeChangeSet` flags into full `NodeChangeReport`s
-    /// with `RelayoutScope` classification.
+    /// Populate this accumulator from an `ExtendedDiffResult` + the old/new DOM
+    /// data. This converts per-node `NodeChangeSet` flags into full
+    /// `NodeChangeReport`s with `RelayoutScope` classification.
     pub fn merge_extended_diff(
         &mut self,
         extended: &ExtendedDiffResult,
@@ -1750,15 +1516,16 @@ impl ChangeAccumulator {
             return RelayoutScope::Full;
         }
 
-        // IDS_AND_CLASSES → Full (conservative: class change may add layout-affecting CSS)
+        // IDS_AND_CLASSES → Full (conservative: class change may add
+        // layout-affecting CSS)
         if change_set.contains(NodeChangeSet::IDS_AND_CLASSES) {
             return RelayoutScope::Full;
         }
 
-        // INLINE_STYLE_LAYOUT → could be IfcOnly, SizingOnly, or Full
-        // We need to check individual properties for the exact scope.
-        // For now, we use SizingOnly as a conservative default since
-        // the individual property scopes were already checked in compute_node_changes.
+        // INLINE_STYLE_LAYOUT → could be IfcOnly, SizingOnly, or Full We need to
+        // check individual properties for the exact scope. For now, we use
+        // SizingOnly as a conservative default since the individual property scopes
+        // were already checked in compute_node_changes.
         if change_set.contains(NodeChangeSet::INLINE_STYLE_LAYOUT) {
             // Walk the inline CSS properties to find the max scope
             let new_node = &new_node_data[new_node_id.index()];
@@ -1800,13 +1567,9 @@ impl ChangeAccumulator {
     }
 }
 
-/// Perform a full reconciliation with change detection.
-///
-/// This combines `reconcile_dom()` + `compute_node_changes()` into a single
-/// pass that produces an `ExtendedDiffResult` with per-node change flags.
-///
-/// The `ChangeAccumulator` can then be populated from the result via
-/// `accumulator.merge_extended_diff()`.
+/// Perform a full reconciliation with change detection. This combines
+/// `reconcile_dom()` + `compute_node_changes()` into a single pass that produces an
+/// `ExtendedDiffResult` with per-node change flags.
 #[must_use] pub fn reconcile_dom_with_changes(
     old_node_data: &[NodeData],
     new_node_data: &[NodeData],
@@ -1848,20 +1611,12 @@ impl ChangeAccumulator {
 }
 
 // ============================================================================
-// NodeDataFingerprint — multi-field hash for fast change detection
+// NodeDataFingerprint - multi-field hash for fast change detection
 // ============================================================================
 
-/// Per-node hash broken into independent fields for fast change detection.
-///
-/// Instead of a single u64 hash (which loses all granularity), this stores
-/// separate hashes per field category. Comparing two fingerprints is O(1)
-/// (6 integer comparisons) and immediately tells us WHICH category changed,
-/// avoiding the more expensive `compute_node_changes()` for unchanged nodes.
-///
-/// Two-tier strategy:
-/// - **Tier 1** (this struct): O(1) per node, identifies which categories changed.
-/// - **Tier 2** (`compute_node_changes`): O(n) per changed field, does field-by-field
-///   comparison only for nodes that Tier 1 identified as changed.
+/// Per-node hash broken into independent fields for fast change detection. Instead
+/// of a single u64 hash (which loses all granularity), this stores separate hashes
+/// per field category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[derive(Default)]
 pub struct NodeDataFingerprint {
@@ -1877,17 +1632,8 @@ pub struct NodeDataFingerprint {
     pub callbacks_hash: u64,
     /// Hash of the layout-relevant attributes (contenteditable, flags)
     pub attrs_hash: u64,
-    /// Hash of the dataset's PRESENCE and TYPE — never its allocation.
-    ///
-    /// A widget's dataset is state, not layout. Most widgets allocate a fresh
-    /// `RefAny` on every build, and `RefAny` hashes by pointer, so hashing the
-    /// dataset into `attrs_hash` (which maps to `CONTENTEDITABLE`, a layout
-    /// change) made every `with_dataset` node LAYOUT-DIRTY on every
-    /// `RefreshDom`: the `TextArea` became a standalone layout root on each
-    /// callback, was re-laid-out with its `min-height` while its flex
-    /// container kept the old slot, and painted 64 px into a 36 px slot — over
-    /// the slider beneath it. A dataset change is [`NodeChangeSet::DATASET`],
-    /// which affects neither layout nor paint.
+    /// Hash of the dataset's PRESENCE and TYPE - never its allocation. A widget's
+    /// dataset is state, not layout.
     pub dataset_hash: u64,
 }
 
@@ -1914,7 +1660,7 @@ impl NodeDataFingerprint {
             h.finish()
         };
 
-        // Inline CSS hash — full CssProperty value (matches the legacy
+        // Inline CSS hash - full CssProperty value (matches the legacy
         // CssPropertyWithConditions::hash that hashed both property and the
         // condition vec length).
         let inline_css_hash = {
@@ -1953,7 +1699,7 @@ impl NodeDataFingerprint {
             h.finish()
         };
 
-        // Attributes hash — the layout-relevant ones only
+        // Attributes hash - the layout-relevant ones only
         let attrs_hash = {
             let mut h = crate::hash::DefaultHasher::new();
             node.is_contenteditable().hash(&mut h);
@@ -1985,19 +1731,14 @@ impl NodeDataFingerprint {
         }
     }
 
-    /// Returns a quick `NodeChangeSet` by comparing two fingerprints.
-    /// This is O(1) — just comparing 7 u64s.
-    ///
-    /// The result is *conservative*: if a field hash differs, we set the
-    /// broadest applicable flag. For precise classification (e.g., which
-    /// CSS properties changed and their `relayout_scope()`), the caller
-    /// should fall back to `compute_node_changes()` for changed nodes.
+    /// Returns a quick `NodeChangeSet` by comparing two fingerprints. This is O(1)
+    /// - just comparing 7 u64s.
     #[must_use] pub const fn diff(&self, other: &Self) -> NodeChangeSet {
         let mut changes = NodeChangeSet::empty();
 
         if self.content_hash != other.content_hash {
-            // Could be TEXT_CONTENT, IMAGE_CHANGED, or NODE_TYPE_CHANGED
-            // We set both TEXT_CONTENT and IMAGE_CHANGED conservatively;
+            // Could be TEXT_CONTENT, IMAGE_CHANGED, or NODE_TYPE_CHANGED We set
+            // both TEXT_CONTENT and IMAGE_CHANGED conservatively;
             // compute_node_changes() will refine this.
             changes.insert(NodeChangeSet::TEXT_CONTENT);
             changes.insert(NodeChangeSet::IMAGE_CHANGED);
@@ -2094,17 +1835,17 @@ mod audit_tests {
             (node_data, hierarchy)
         };
 
-        // A very deep linear chain: the OLD recursion overflowed the stack here.
-        // A single-node key walk is O(depth) and must complete without recursing.
+        // A very deep linear chain: the OLD recursion overflowed the stack here. A
+        // single-node key walk is O(depth) and must complete without recursing.
         let n = 100_000usize;
         let (node_data, hierarchy) = build(n);
         let _ = calculate_reconciliation_key(&node_data, &hierarchy, NodeId::new(n - 1));
         let _ = calculate_contenteditable_key(&node_data, &hierarchy, NodeId::new(n - 1));
 
         // Whole-DOM precompute calls the per-node walk once per node, so over a
-        // *linear* chain it is O(n²) — that only bites a pathological 100k-deep
-        // DOM (never a real tree). Exercise the whole-DOM path over a modest
-        // chain; correctness is covered by `reconciliation_key_single_node` and
+        // *linear* chain it is O(n²) - that only bites a pathological 100k-deep DOM
+        // (never a real tree). Exercise the whole-DOM path over a modest chain;
+        // correctness is covered by `reconciliation_key_single_node` and
         // `reconciliation_key_distinguishes_siblings`.
         let m = 2_000usize;
         let (nd, hi) = build(m);
@@ -2120,7 +1861,7 @@ mod audit_tests {
             NodeData::create_div(),
             NodeData::create_div(),
         ];
-        // node1.parent = 2, node2.parent = 1 — a cycle not involving root 0.
+        // node1.parent = 2, node2.parent = 1 - a cycle not involving root 0.
         let hierarchy = vec![
             hitem(None, None, None, None),
             hitem(Some(2), None, None, None),
@@ -2141,7 +1882,7 @@ mod audit_tests {
 
     #[test]
     fn reconciliation_key_distinguishes_siblings() {
-        // root 0 with two div children 1 and 2 — nth-of-type must differ.
+        // root 0 with two div children 1 and 2 - nth-of-type must differ.
         let node_data = vec![NodeData::create_div(); 3];
         let hierarchy = vec![
             hitem(None, None, None, Some(2)),    // root: first_child=1, last_child=2
@@ -2187,21 +1928,14 @@ mod audit_tests {
 // ============================================================================
 // Autotest: adversarial unit tests
 // ============================================================================
-//
 // Generated against the autotest task spec for `core/src/diff.rs`. Strategy per
-// category:
-//
-//   * numeric      -> 0 / MIN / MAX / overflow / NaN / saturation
-//   * "parser"-ish -> malformed, huge, boundary and unicode text input
-//                     (`reconcile_cursor_position` is the byte-offset parser here)
-//   * round-trip   -> precompute == per-node compute, fingerprint == recompute,
-//                     BitOr == BitOrAssign
-//   * getters /    -> invariants hold on default, empty and extreme instances
-//     predicates
-//
-// The module is inline (not `core/tests/`) because `has_*_callback`,
-// `create_lifecycle_event` and `ChangeAccumulator::classify_change_scope` are
-// private to this module.
+// category: * numeric -> 0 / MIN / MAX / overflow / NaN / saturation * "parser"-ish
+// -> malformed, huge, boundary and unicode text input (`reconcile_cursor_position`
+// is the byte-offset parser here) * round-trip -> precompute == per-node compute,
+// fingerprint == recompute, BitOr == BitOrAssign * getters / -> invariants hold on
+// default, empty and extreme instances predicates The module is inline (not
+// `core/tests/`) because `has_*_callback`, `create_lifecycle_event` and
+// `ChangeAccumulator::classify_change_scope` are private to this module.
 #[cfg(test)]
 mod autotest_generated {
     use super::*;
@@ -2222,8 +1956,8 @@ mod autotest_generated {
     // ---------------------------------------------------------------- helpers
 
     // `CoreCallback::cb` is a raw `usize` fn-pointer slot. `reconcile_dom` only
-    // ever inspects `CoreCallbackData::event`, never calls through the pointer,
-    // so `0` is a safe sentinel (same convention as
+    // ever inspects `CoreCallbackData::event`, never calls through the pointer, so
+    // `0` is a safe sentinel (same convention as
     // `core/tests/reconciliation/deep_reconciliation.rs`).
     fn noop_callback() -> CoreCallback {
         CoreCallback {
@@ -2315,7 +2049,7 @@ mod autotest_generated {
     ];
 
     // ========================================================================
-    // NodeChangeSet — constructor / predicates / numeric bit ops
+    // NodeChangeSet - constructor / predicates / numeric bit ops
     // ========================================================================
 
     #[test]
@@ -2337,9 +2071,9 @@ mod autotest_generated {
 
     #[test]
     fn autotest_changeset_contains_zero_is_vacuously_true() {
-        // `contains` is an ALL-bits test: `(bits & 0) == 0` holds for every
-        // value, including the empty set. Pin the semantics so a future rewrite
-        // to `(bits & flag) != 0` (an ANY-bits test) is caught.
+        // `contains` is an ALL-bits test: `(bits & 0) == 0` holds for every value,
+        // including the empty set. Pin the semantics so a future rewrite to `(bits &
+        // flag) != 0` (an ANY-bits test) is caught.
         assert!(NodeChangeSet::empty().contains(0));
         let mut s = NodeChangeSet::empty();
         s.insert(NodeChangeSet::CALLBACKS);
@@ -2395,7 +2129,7 @@ mod autotest_generated {
     #[test]
     fn autotest_changeset_undefined_high_bits_trigger_no_work() {
         // Bits outside every defined flag must not be interpreted as layout or
-        // paint work — but the set is still non-empty.
+        // paint work - but the set is still non-empty.
         let s = NodeChangeSet {
             bits: 0b1000_0000_0000_0000_0000_0000_0000_0000,
         };
@@ -2407,8 +2141,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_changeset_layout_and_paint_masks_are_disjoint() {
-        // A single flag must never mean "relayout AND repaint" — the two
-        // composite masks partition the visual flags.
+        // A single flag must never mean "relayout AND repaint" - the two composite
+        // masks partition the visual flags.
         assert_eq!(
             NodeChangeSet::AFFECTS_LAYOUT & NodeChangeSet::AFFECTS_PAINT,
             0,
@@ -2456,8 +2190,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_changeset_bitor_matches_bitorassign() {
-        // Round-trip: the two operators must agree, and BitOr must be
-        // commutative + idempotent for arbitrary (including undefined) bits.
+        // Round-trip: the two operators must agree, and BitOr must be commutative +
+        // idempotent for arbitrary (including undefined) bits.
         for (a, b) in [
             (0u32, 0u32),
             (0, u32::MAX),
@@ -2480,7 +2214,7 @@ mod autotest_generated {
     }
 
     // ========================================================================
-    // NodeChangeReport — getters / predicates
+    // NodeChangeReport - getters / predicates
     // ========================================================================
 
     #[test]
@@ -2514,14 +2248,14 @@ mod autotest_generated {
     }
 
     // ========================================================================
-    // reconcile_cursor_position — the byte-offset "parser": unicode + boundary
+    // reconcile_cursor_position - the byte-offset "parser": unicode + boundary
     // ========================================================================
 
     #[test]
     fn autotest_cursor_result_is_always_a_valid_slice_index() {
-        // The core safety invariant: whatever comes back must be <= new.len()
-        // AND land on a char boundary, or a later `&new_text[..cursor]` panics.
-        // Sweep every in-range cursor over every pair of the unicode corpus.
+        // The core safety invariant: whatever comes back must be <= new.len() AND
+        // land on a char boundary, or a later `&new_text[..cursor]` panics. Sweep
+        // every in-range cursor over every pair of the unicode corpus.
         for old in UNICODE_SAMPLES {
             for new in UNICODE_SAMPLES {
                 for cursor in 0..=old.len() {
@@ -2564,7 +2298,7 @@ mod autotest_generated {
     #[test]
     fn autotest_cursor_identical_text_clamps_to_len() {
         // Equal texts short-circuit to `snap(cursor)`, which clamps to len and
-        // snaps down to a char boundary — so even an absurd cursor is safe here.
+        // snaps down to a char boundary - so even an absurd cursor is safe here.
         assert_eq!(reconcile_cursor_position("abc", "abc", usize::MAX), 3);
         assert_eq!(reconcile_cursor_position("héllo", "héllo", usize::MAX), 6);
         // Snapping down: byte 2 is mid-'é' (bytes 1..3) -> snaps to 1.
@@ -2573,7 +2307,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_cursor_empty_sides_are_documented_constants() {
-        // Empty old  -> end of new. Empty new -> 0. Both empty -> 0 (equal-text path).
+        // Empty old -> end of new. Empty new -> 0.
         for new in UNICODE_SAMPLES {
             assert_eq!(reconcile_cursor_position("", new, 0), new.len());
             assert_eq!(reconcile_cursor_position("", new, usize::MAX), new.len());
@@ -2599,8 +2333,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_cursor_deleted_tail_clamps_into_new_text() {
-        // Pure truncation: a cursor past the end of the new text must land at
-        // the new end, never beyond it.
+        // Pure truncation: a cursor past the end of the new text must land at the
+        // new end, never beyond it.
         let old = "Hello, World";
         let new = "Hello";
         assert_eq!(reconcile_cursor_position(old, new, old.len()), new.len());
@@ -2638,24 +2372,22 @@ mod autotest_generated {
         assert!(new_u.is_char_boundary(r));
     }
 
-    // Regression test for a former underflow: `reconcile_cursor_position` used
-    // to compute `old_text.len() - old_cursor_byte` unchecked, which panicked
-    // (debug) / wrapped (release) when the caller passed a cursor byte offset
-    // PAST the end of `old_text`. Reaching it needs: old != new, both non-empty,
-    // cursor > common_prefix and cursor >= old_suffix_start — e.g.
-    // ("abc", "abd", usize::MAX). The fix uses `saturating_sub` so an
-    // out-of-range cursor clamps to the end of the new text like every other
-    // path here.
+    // Regression test for a former underflow: `reconcile_cursor_position` used to
+    // compute `old_text.len() - old_cursor_byte` unchecked, which panicked (debug) /
+    // wrapped (release) when the caller passed a cursor byte offset PAST the end of
+    // `old_text`. Reaching it needs: old != new, both non-empty, cursor >
+    // common_prefix and cursor >= old_suffix_start - e.g.
     #[test]
     fn autotest_cursor_out_of_range_cursor_must_saturate_not_underflow() {
-        // Expected: clamp to the end of the new text, exactly like every other path.
+        // Expected: clamp to the end of the new text, exactly like every other
+        // path.
         assert_eq!(reconcile_cursor_position("abc", "abd", usize::MAX), 3);
         assert_eq!(reconcile_cursor_position("abc", "abd", 99), 3);
         assert_eq!(reconcile_cursor_position("héllo", "héllx", usize::MAX), 6);
     }
 
     // ========================================================================
-    // get_node_text_content — round-trip
+    // get_node_text_content - round-trip
     // ========================================================================
 
     #[test]
@@ -2724,7 +2456,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_callback_predicates_find_target_among_many() {
-        // The target callback is last of several — `any()` must still find it.
+        // The target callback is last of several - `any()` must still find it.
         let mut n = NodeData::create_div();
         for f in [
             ComponentEventFilter::Selected,
@@ -2796,10 +2528,10 @@ mod autotest_generated {
 
     #[test]
     fn autotest_compute_changes_node_type_change_short_circuits_everything() {
-        // The documented early-return: when the discriminant changes, NOTHING
-        // else is inspected — even though these two nodes ALSO differ in
-        // classes, callbacks, inline CSS, tab index and contenteditable, and
-        // sit in different styled states.
+        // The documented early-return: when the discriminant changes, NOTHING else
+        // is inspected - even though these two nodes ALSO differ in classes,
+        // callbacks, inline CSS, tab index and contenteditable, and sit in different
+        // styled states.
         let old = NodeData::create_div();
         let new = with_cb(
             NodeData::create_text_do_not_use_without_block_level_wrapper("now a text node")
@@ -2884,7 +2616,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_compute_changes_detects_removed_property() {
-        // Regression guard for the AUDIT note at diff.rs:270 — a property that
+        // Regression guard for the AUDIT note at diff.rs:270 - a property that
         // exists only on the OLD node (i.e. was removed) must still be marked.
         let old = NodeData::create_div().with_css("color: red");
         let new = NodeData::create_div();
@@ -2977,8 +2709,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_compute_changes_image_identity_is_by_image_id() {
-        // `ImageRef` hashes its process-unique `id`: shallow clones share it,
-        // every fresh `null_image()` gets a new one.
+        // `ImageRef` hashes its process-unique `id`: shallow clones share it, every
+        // fresh `null_image()` gets a new one.
         let img = ImageRef::null_image(4, 4, RawImageFormat::RGBA8, Vec::new());
         let same = NodeData::create_image(img.clone());
         let also_same = NodeData::create_image(img.clone());
@@ -3013,7 +2745,7 @@ mod autotest_generated {
     #[test]
     fn autotest_rec_key_precompute_matches_per_node_calculation() {
         // Round-trip: the O(1)-lookup table must agree with the direct call for
-        // every node — the whole point of precomputing.
+        // every node - the whole point of precomputing.
         let node_data = vec![
             NodeData::create_div(),
             class_node("row"),
@@ -3040,8 +2772,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_rec_key_explicit_key_beats_css_id_and_node_type() {
-        // Priority 1 is absolute: it ignores the CSS ID, the classes, the node
-        // type and the position in the tree.
+        // Priority 1 is absolute: it ignores the CSS ID, the classes, the node type
+        // and the position in the tree.
         let bare = NodeData::create_div().with_key(7u32);
         let decorated = NodeData::create_text_do_not_use_without_block_level_wrapper("totally different")
             .with_key(7u32)
@@ -3097,11 +2829,8 @@ mod autotest_generated {
     #[test]
     fn autotest_rec_key_identical_leaves_under_different_parents_differ() {
         // The parent chain must be folded in, otherwise keyless nodes under
-        // unrelated parents would collide and migrate state across subtrees.
-        //
-        //   0 root
-        //   ├── 1 (#left)   ── 3 div
-        //   └── 2 (#right)  ── 4 div
+        // unrelated parents would collide and migrate state across subtrees. 0 root
+        // ├── 1 (#left) ── 3 div └── 2 (#right) ── 4 div
         let node_data = vec![
             NodeData::create_div(),
             id_node("left"),
@@ -3133,8 +2862,8 @@ mod autotest_generated {
         let b = calculate_contenteditable_key(&node_data, &[], NodeId::new(0));
         assert_eq!(a, b, "must be deterministic");
 
-        // Priority 1 is shared with the reconciliation key: for an explicitly
-        // keyed node both functions return the SAME value.
+        // Priority 1 is shared with the reconciliation key: for an explicitly keyed
+        // node both functions return the SAME value.
         assert_eq!(
             a,
             calculate_reconciliation_key(&node_data, &[], NodeId::new(0)),
@@ -3144,8 +2873,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_contenteditable_key_distinguishes_nth_of_type() {
-        // <div><p>A</p><p contenteditable>B</p></div> — the two same-type
-        // siblings must not collide (nth-of-type is folded in).
+        // <div><p>A</p><p contenteditable>B</p></div> - the two same-type siblings
+        // must not collide (nth-of-type is folded in).
         let node_data = vec![
             NodeData::create_div(),
             NodeData::create_text_do_not_use_without_block_level_wrapper("A"),
@@ -3184,8 +2913,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_reconcile_mount_and_unmount_need_a_callback_to_fire() {
-        // Without an AfterMount callback the node still mounts — it just fires
-        // no event. Same for unmount. The events are opt-in.
+        // Without an AfterMount callback the node still mounts - it just fires no
+        // event. Same for unmount.
         let silent_new = vec![NodeData::create_div()];
         let r = diff_flat(&[], &silent_new);
         assert!(r.events.is_empty(), "no callback -> no event");
@@ -3206,9 +2935,9 @@ mod autotest_generated {
 
     #[test]
     fn autotest_reconcile_node_moves_are_a_bijection() {
-        // 50 indistinguishable divs on both sides: every old node must be
-        // claimed exactly once and every new node must claim at most one old
-        // node. A queue bug (double-consume) would break this immediately.
+        // 50 indistinguishable divs on both sides: every old node must be claimed
+        // exactly once and every new node must claim at most one old node. A queue
+        // bug (double-consume) would break this immediately.
         let old: Vec<NodeData> = (0..50).map(|_| NodeData::create_div()).collect();
         let new: Vec<NodeData> = (0..50).map(|_| NodeData::create_div()).collect();
 
@@ -3255,9 +2984,9 @@ mod autotest_generated {
 
     #[test]
     fn autotest_reconcile_explicit_key_mismatch_mounts_instead_of_guessing() {
-        // The documented rule: an explicit `.with_key()` that finds no partner
-        // must NOT fall through to the content/structural tiers, even though
-        // the two nodes are otherwise byte-identical.
+        // The documented rule: an explicit `.with_key()` that finds no partner must
+        // NOT fall through to the content/structural tiers, even though the two
+        // nodes are otherwise byte-identical.
         let old = vec![with_cb(
             NodeData::create_text_do_not_use_without_block_level_wrapper("same content").with_key(1u32),
             ComponentEventFilter::BeforeUnmount,
@@ -3292,7 +3021,7 @@ mod autotest_generated {
 
         // Same key, SAME content -> no Update. Both frames must be byte-identical
         // for this: `NodeData::hash` folds in the callback events too (dom.rs:1579),
-        // so the Updated handler has to be present on BOTH sides — otherwise the
+        // so the Updated handler has to be present on BOTH sides - otherwise the
         // hashes differ for the callback alone and we'd be testing nothing.
         let stable = with_cb(
             NodeData::create_text_do_not_use_without_block_level_wrapper("v1").with_key(1u32),
@@ -3322,8 +3051,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_reconcile_missing_layout_entries_default_to_zero_rect() {
-        // Neither side has layout data: `unwrap_or(LogicalRect::zero())` means
-        // the sizes compare equal, so no Resize fires and nothing panics.
+        // Neither side has layout data: `unwrap_or(LogicalRect::zero())` means the
+        // sizes compare equal, so no Resize fires and nothing panics.
         let old = vec![NodeData::create_div()];
         let new = vec![with_cb(
             NodeData::create_div(),
@@ -3369,7 +3098,7 @@ mod autotest_generated {
 
     #[test]
     fn autotest_reconcile_resize_ignores_pure_translation() {
-        // Only `size` is compared — moving a node must not fire Resize.
+        // Only `size` is compared - moving a node must not fire Resize.
         let old = vec![NodeData::create_div()];
         let new = vec![with_cb(
             NodeData::create_div(),
@@ -3392,19 +3121,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_reconcile_nan_bounds_do_not_fire_a_resize_every_frame() {
-        // NUMERIC EDGE — the sharpest one in this file.
-        //
-        // The Resize check is `old_rect.size != new_rect.size`. With a DERIVED
-        // f32 `PartialEq` this would be catastrophic: `NaN != NaN` is true, so a
-        // node whose layout solved to NaN would be reported as "resized" on
-        // EVERY frame forever, firing an endless Resize-callback storm on a
-        // completely static layout.
-        //
-        // `LogicalSize` dodges that with a hand-written `PartialEq` that runs
-        // both operands through `geom::quantize()`, which maps every NaN to the
-        // single sentinel `i64::MIN` (geom.rs:218) — so all NaNs compare EQUAL.
-        // This test pins that: revert `LogicalSize` to `#[derive(PartialEq)]`
-        // and it goes red.
+        // NUMERIC EDGE - the sharpest one in this file. The Resize check is
+        // `old_rect.size != new_rect.size`.
         let old = vec![NodeData::create_div()];
         let new = vec![with_cb(
             NodeData::create_div(),
@@ -3498,12 +3216,7 @@ mod autotest_generated {
     #[test]
     fn autotest_reconcile_keyless_tiers_respect_the_parent_key_gate() {
         // Regression guard for the AUDIT note at diff.rs:601. Two structurally
-        // identical leaves live under DIFFERENT parents. The content-hash and
-        // structural-hash tiers must not match them across parents, or focus /
-        // scroll / dataset state migrates into an unrelated subtree.
-        //
-        // old:  0 root ── 1 (#left)  ── 2 "leaf"
-        // new:  0 root ── 1 (#right) ── 2 "leaf"
+        // identical leaves live under DIFFERENT parents.
         let old_nd = vec![
             NodeData::create_div(),
             id_node("left"),
@@ -3533,8 +3246,8 @@ mod autotest_generated {
             Instant::now(),
         );
 
-        // The leaf (index 2) must NOT be matched: its parent's reconciliation
-        // key differs (#left vs #right), so both keyless tiers are gated off.
+        // The leaf (index 2) must NOT be matched: its parent's reconciliation key
+        // differs (#left vs #right), so both keyless tiers are gated off.
         let leaf_matched = r
             .node_moves
             .iter()
@@ -3567,8 +3280,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_migration_map_duplicate_old_id_keeps_the_last_write() {
-        // The map is a BTreeMap, so a repeated old id overwrites. Pin it: a
-        // silent "first wins" flip would strand focus on a stale node.
+        // The map is a BTreeMap, so a repeated old id overwrites. Pin it: a silent
+        // "first wins" flip would strand focus on a stale node.
         let moves = vec![
             NodeMove {
                 old_node_id: NodeId::new(0),
@@ -3604,20 +3317,15 @@ mod autotest_generated {
     #[allow(dead_code)]
     struct TestState(u32);
 
-    // Keeps the PERSISTENT (old) allocation, discarding the fresh one — the
+    // Keeps the PERSISTENT (old) allocation, discarding the fresh one - the
     // real-world case (MapWidget's tile cache is written by background threads).
     extern "C" fn merge_keep_old(_new_data: RefAny, old_data: RefAny) -> RefAny {
         old_data
     }
 
-    /// The framework must NOTICE an image node re-initialising every frame,
-    /// with no cooperation from user code.
-    ///
-    /// The case this exists for: a video node built without a dataset. Each
-    /// rebuild hands back a placeholder, the live frame is discarded, and the
-    /// node flickers. Nothing in either DOM shows it — the old build has a
-    /// frame, the new one has a placeholder — so only the reconciler, which
-    /// sees the pair, can detect it.
+    /// The framework must NOTICE an image node re-initialising every frame, with no
+    /// cooperation from user code. The case this exists for: a video node built
+    /// without a dataset.
     #[test]
     fn autotest_the_reconciler_counts_an_image_node_that_reinitialises() {
         use crate::resources::{ImageRef, RawImage, RawImageData, RawImageFormat};
@@ -3636,8 +3344,8 @@ mod autotest_generated {
         let placeholder =
             || ImageRef::null_image(1, 1, RawImageFormat::BGRA8, b"ph".to_vec());
 
-        // A node index this test owns exclusively, so a parallel test cannot
-        // move the counter under it.
+        // A node index this test owns exclusively, so a parallel test cannot move
+        // the counter under it.
         const NODE: usize = 4242;
         let before = image_churn_count(NODE);
 
@@ -3646,8 +3354,8 @@ mod autotest_generated {
             old[NODE] = NodeData::create_image(real());
             let mut new = vec![NodeData::create_div(); NODE + 1];
             new[NODE] = NodeData::create_image(placeholder());
-            // NO dataset and NO merge callback — exactly the "forgot the
-            // dataset on the video node" mistake.
+            // NO dataset and NO merge callback - exactly the "forgot the dataset on
+            // the video node" mistake.
             transfer_states(
                 &mut old,
                 &mut new,
@@ -3668,8 +3376,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_transfer_states_out_of_range_moves_are_skipped() {
-        // The bounds guard must swallow a corrupt NodeMove instead of indexing
-        // out of bounds.
+        // The bounds guard must swallow a corrupt NodeMove instead of indexing out
+        // of bounds.
         let mut old = vec![NodeData::create_div()];
         let mut new = vec![NodeData::create_div()];
 
@@ -3692,24 +3400,16 @@ mod autotest_generated {
         assert!(new[0].get_dataset().is_none());
     }
 
-    /// A live capture frame must survive a DOM rebuild.
-    ///
-    /// Capture widgets rebuild their node with `ImageRef::null_image(...)`
-    /// every time — the fresh widget struct holds no frame; frames arrive later
-    /// by writeback. Without carrying the previous image across the merge, every
-    /// rebuild reverted the node to the placeholder until the next frame landed
-    /// ~16-33ms later. That is the flash seen when resizing a window while
-    /// screensharing, which looks exactly like the capture re-initialising.
+    /// A live capture frame must survive a DOM rebuild. Capture widgets rebuild
+    /// their node with `ImageRef::null_image(...)` every time - the fresh widget
+    /// struct holds no frame; frames arrive later by writeback.
     #[test]
     fn autotest_a_live_image_survives_a_rebuild_that_merges_state() {
         use crate::resources::{image_ref_get_hash, ImageRef};
 
-        // A DELIVERED frame is a raw image — capture_common::present_frame builds
-        // it with `ImageRef::new_rawimage`. The placeholder the widget rebuilds
-        // its node with is a `null_image`. That difference is exactly what the
-        // carry-forward keys on, so the fixture must use both constructors; an
-        // earlier version of this test used null_image for BOTH and failed,
-        // correctly, because there was then nothing to distinguish.
+        // A DELIVERED frame is a raw image - capture_common::present_frame builds
+        // it with `ImageRef::new_rawimage`. The placeholder the widget rebuilds its
+        // node with is a `null_image`.
         let real = ImageRef::new_rawimage(crate::resources::RawImage {
             pixels: crate::resources::RawImageData::U8(vec![1, 2, 3, 4].into()),
             width: 1,
@@ -3734,9 +3434,9 @@ mod autotest_generated {
             &[NodeMove { old_node_id: NodeId::new(0), new_node_id: NodeId::new(0) }],
         );
 
-        // Both are null images here (null_image is how the widget builds BOTH
-        // its placeholder and, in this harness, its frame), so assert on the
-        // payload that distinguishes them rather than on the flag.
+        // Both are null images here (null_image is how the widget builds BOTH its
+        // placeholder and, in this harness, its frame), so assert on the payload
+        // that distinguishes them rather than on the flag.
         let carried = new[0].get_image_ref_cloned().expect("still an image node");
         assert_eq!(
             image_ref_get_hash(&carried),
@@ -3746,12 +3446,11 @@ mod autotest_generated {
         );
     }
 
-    /// The pre-cascade skip path: fresh callbacks were installed on the
-    /// retained node, then the fresh dataset arrives. With a merge callback
-    /// the retained state wins (the widget's rule), and the fresh callbacks
-    /// must end up on the SAME allocation as the node's dataset — the
-    /// fragmentation this guards against is a callback mutating one
-    /// allocation while the next merge reads another.
+    /// The pre-cascade skip path: fresh callbacks were installed on the retained
+    /// node, then the fresh dataset arrives. With a merge callback the retained
+    /// state wins (the widget's rule), and the fresh callbacks must end up on the
+    /// SAME allocation as the node's dataset - the fragmentation this guards against
+    /// is a callback mutating one allocation while the next merge reads another.
     #[test]
     fn autotest_merge_fresh_dataset_unifies_fresh_callbacks_with_the_retained_state() {
         use crate::callbacks::{CoreCallback, CoreCallbackData};
@@ -3766,8 +3465,8 @@ mod autotest_generated {
         nodes[0].set_dataset(OptionRefAny::Some(retained));
         nodes[0].set_merge_callback(merge_keep_old as DatasetMergeCallbackType);
 
-        // The fresh build: a new dataset, and callbacks cloned from it — which
-        // the skip path installs on the retained node before merging.
+        // The fresh build: a new dataset, and callbacks cloned from it - which the
+        // skip path installs on the retained node before merging.
         let fresh = RefAny::new(TestState(0));
         let fresh_ptr = fresh.sharing_info.ptr as usize;
         nodes[0].callbacks = vec![CoreCallbackData {
@@ -3825,7 +3524,8 @@ mod autotest_generated {
             }],
         );
 
-        // No merge callback -> early `continue`, both datasets stay where they were.
+        // No merge callback -> early `continue`, both datasets stay where they
+        // were.
         assert_eq!(
             old[0].get_dataset().unwrap().sharing_info.ptr as usize,
             old_ptr,
@@ -3838,8 +3538,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_transfer_states_with_one_missing_dataset_restores_both_sides() {
-        // Merge callback present, but the OLD node has no dataset -> the
-        // `(new_ds, old_ds)` arm must put the taken dataset back.
+        // Merge callback present, but the OLD node has no dataset -> the `(new_ds,
+        // old_ds)` arm must put the taken dataset back.
         let mut old = vec![NodeData::create_div()];
         let mut new = vec![NodeData::create_div()];
         new[0].set_merge_callback(merge_keep_old as DatasetMergeCallbackType);
@@ -3866,11 +3566,11 @@ mod autotest_generated {
 
     #[test]
     fn autotest_transfer_states_repoints_orphaned_callback_refanys() {
-        // The unification rule (diff.rs:909): a widget builds its dataset AND
-        // its callback refanys from clones of ONE RefAny. When the merge keeps
-        // the OLD allocation, every clone of the FRESH one is orphaned and must
-        // be re-pointed at the merged result — otherwise the widget fragments
-        // across two caches (the MapWidget grey-tile bug).
+        // The unification rule (diff.rs:909): a widget builds its dataset AND its
+        // callback refanys from clones of ONE RefAny. When the merge keeps the OLD
+        // allocation, every clone of the FRESH one is orphaned and must be
+        // re-pointed at the merged result - otherwise the widget fragments across
+        // two caches (the MapWidget grey-tile bug).
         let fresh = RefAny::new(TestState(1));
         let fresh_ptr = fresh.sharing_info.ptr as usize;
 
@@ -3884,8 +3584,8 @@ mod autotest_generated {
             noop_callback(),
         );
 
-        // A *sibling* node whose callback also clones the fresh allocation —
-        // the generalised sweep must reach it too, not just the merge node.
+        // A *sibling* node whose callback also clones the fresh allocation - the
+        // generalised sweep must reach it too, not just the merge node.
         let mut new1 = NodeData::create_div();
         new1.add_callback(
             EventFilter::Component(ComponentEventFilter::Selected),
@@ -3920,8 +3620,8 @@ mod autotest_generated {
         // The old node's dataset was moved into the merge result.
         assert!(old[0].get_dataset().is_none());
 
-        // Both orphaned callback refanys — on the merge node AND on the sibling
-        // — must now point at the merged allocation.
+        // Both orphaned callback refanys - on the merge node AND on the sibling -
+        // must now point at the merged allocation.
         for (i, nd) in new.iter().enumerate() {
             for cb in nd.callbacks.as_ref() {
                 assert_eq!(
@@ -3995,8 +3695,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_accumulator_max_scope_is_monotone() {
-        // Once escalated, the scope must never be lowered by a later, weaker
-        // change — otherwise a Full relayout gets silently downgraded.
+        // Once escalated, the scope must never be lowered by a later, weaker change
+        // - otherwise a Full relayout gets silently downgraded.
         let mut a = ChangeAccumulator::new();
         a.add_css_change(NodeId::new(0), CssPropertyType::Display, RelayoutScope::Full);
         assert_eq!(a.max_scope, RelayoutScope::Full);
@@ -4265,8 +3965,8 @@ mod autotest_generated {
             RelayoutScope::Full,
         );
 
-        // TEXT_CONTENT (IfcOnly) wins over IMAGE_CHANGED (SizingOnly) — pinning
-        // the documented order, even though IfcOnly < SizingOnly.
+        // TEXT_CONTENT (IfcOnly) wins over IMAGE_CHANGED (SizingOnly) - pinning the
+        // documented order, even though IfcOnly < SizingOnly.
         let bits = NodeChangeSet::TEXT_CONTENT | NodeChangeSet::IMAGE_CHANGED;
         assert_eq!(
             ChangeAccumulator::classify_change_scope(NodeChangeSet { bits }, &nodes, id),
@@ -4303,8 +4003,8 @@ mod autotest_generated {
         );
 
         // No inline CSS at all (the property was REMOVED, so the new node has
-        // nothing to walk): the conservative SizingOnly fallback must kick in
-        // rather than silently reporting "no layout work".
+        // nothing to walk): the conservative SizingOnly fallback must kick in rather
+        // than silently reporting "no layout work".
         let nodes = vec![NodeData::create_div()];
         assert_eq!(
             ChangeAccumulator::classify_change_scope(
@@ -4469,11 +4169,11 @@ mod autotest_generated {
 
     #[test]
     fn a_fresh_dataset_allocation_is_not_a_layout_change() {
-        // REPORTED (TextArea bleeding into the Slider): every `with_dataset`
-        // widget allocates a fresh RefAny per build, RefAny hashes by pointer,
-        // and the dataset sat in `attrs_hash` → CONTENTEDITABLE → layout
-        // dirty on every RefreshDom. The dataset is state: same type, new
-        // allocation, IDENTICAL fingerprint.
+        // REPORTED (TextArea bleeding into the Slider): every `with_dataset` widget
+        // allocates a fresh RefAny per build, RefAny hashes by pointer, and the
+        // dataset sat in `attrs_hash` → CONTENTEDITABLE → layout dirty on every
+        // RefreshDom. The dataset is state: same type, new allocation, IDENTICAL
+        // fingerprint.
         let a = NodeDataFingerprint::compute(
             &NodeData::create_div().with_dataset(crate::refany::OptionRefAny::Some(RefAny::new(42u32))),
             None,
@@ -4486,8 +4186,8 @@ mod autotest_generated {
         assert!(a.diff(&b).is_empty());
         assert!(!a.might_affect_layout(&b));
 
-        // A dataset of another TYPE (or none) is a DATASET change — and
-        // still not a layout one.
+        // A dataset of another TYPE (or none) is a DATASET change - and still not a
+        // layout one.
         let c = NodeDataFingerprint::compute(
             &NodeData::create_div().with_dataset(crate::refany::OptionRefAny::Some(RefAny::new(String::from("x")))),
             None,
@@ -4531,8 +4231,8 @@ mod autotest_generated {
 
     #[test]
     fn autotest_fingerprint_styled_state_is_visual_but_not_layout() {
-        // The sharpest invariant of the fast path: a :hover flip must never be
-        // able to trigger relayout.
+        // The sharpest invariant of the fast path: a :hover flip must never be able
+        // to trigger relayout.
         let node = NodeData::create_div();
         let calm = StyledNodeState::default();
         let hovered = StyledNodeState {
@@ -4610,7 +4310,7 @@ mod autotest_generated {
     #[test]
     fn autotest_fingerprint_agrees_with_compute_node_changes_on_unchanged_nodes() {
         // Tier 1 (fingerprint) must never claim "changed" where Tier 2
-        // (compute_node_changes) says "unchanged" — that would defeat the whole
+        // (compute_node_changes) says "unchanged" - that would defeat the whole
         // two-tier fast path.
         let state = StyledNodeState::default();
         let samples = vec![
@@ -4648,43 +4348,21 @@ mod autotest_generated {
 // Pre-cascade DOM fingerprints (two tiers: STRUCTURE vs STYLE)
 // ============================================================================
 
-/// Two-tier fingerprints of a recursive [`crate::dom::Dom`].
-///
-/// Computed BEFORE the cascade, in the same pre-order the flattener
-/// (`convert_dom_into_compact_dom`) assigns `NodeId`s — index `i` in each Vec
-/// is flattened `NodeId(i)`.
-///
-/// WHY TWO TIERS (user directive 2026-08-08): "the start should just scan
-/// over the `NodeHierarchy` to discover anything that changed, which is
-/// iterating over a minimal array" — and css must be EXCLUDED from that
-/// first equivalence, because a stylesheet can only affect the subtree it
-/// is attached to:
-///
-/// - **structure**: hierarchy shape + node content (`node_type`, ids/classes,
-///   attributes, callback EVENT types). NO css of any kind. If this tier is
-///   equal, the old tree, its shaped text and its intrinsic caches are all
-///   reusable — and if the style tier is ALSO equal, the previous CASCADE
-///   is reusable wholesale (skip `create_from_dom` entirely).
-/// - **style**: per-node inline css + (at subtree roots that carry
-///   `.with_css()` sheets) the sheet content. A difference here with an
-///   equal structure tier means: keep the tree, re-cascade the affected
-///   subtree(s) only.
-///
-/// The per-node arrays exist so a mismatch NAMES the changed nodes (the
-/// eventual dirty-set for scoped re-cascade / word-granular text relayout);
-/// the root folds make the equal case one u64 compare per tier.
+/// Two-tier fingerprints of a recursive [`crate::dom::Dom`]. Computed BEFORE the
+/// cascade, in the same pre-order the flattener (`convert_dom_into_compact_dom`)
+/// assigns `NodeId`s - index `i` in each Vec is flattened `NodeId(i)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomFingerprints {
     /// Per-node structural hash, pre-order. Folds: `node_type` content
-    /// (image-callback nodes hash (fn ptr, `RefAny` `type_id`) — the `RefAny`
-    /// INSTANCE is rebuilt every frame by design and is transferred, not
-    /// compared; mirrors `is_layout_equivalent`), ids+classes, callback
-    /// event types, contenteditable/flags/dataset, and child COUNT (pre-order
-    /// alone cannot distinguish `[a [b] c]` from `[a [b c]]`).
+    /// (image-callback nodes hash (fn ptr, `RefAny` `type_id`) - the `RefAny`
+    /// INSTANCE is rebuilt every frame by design and is transferred, not compared;
+    /// mirrors `is_layout_equivalent`), ids+classes, callback event types,
+    /// contenteditable/flags/dataset, and child COUNT (pre-order alone cannot
+    /// distinguish `[a [b] c]` from `[a [b c]]`).
     pub structure: Vec<u64>,
-    /// Per-node style hash, pre-order: inline css properties + conditions,
-    /// plus the node's attached `.with_css()` sheets (path, declarations,
-    /// @-conditions, priority per rule).
+    /// Per-node style hash, pre-order: inline css properties + conditions, plus the
+    /// node's attached `.with_css()` sheets (path, declarations, @-conditions,
+    /// priority per rule).
     pub style: Vec<u64>,
     /// Order-sensitive fold of `structure`.
     pub structure_root: u64,
@@ -4692,34 +4370,26 @@ pub struct DomFingerprints {
     pub style_root: u64,
 }
 
-/// `RefAny` payloads collected during the fingerprint walk.
-///
-/// Transferred onto the retained DOM when the produce side is skipped. The skip path
-/// keeps last frame's `StyledDom`, but callbacks/image callbacks must use the
-/// freshly-created `RefAnys` (they may reference new app state) — same
-/// transfer `regenerate_layout`'s equivalence branch has always done, minus
-/// the cascade it used to pay to get here. Indices are flattened `NodeIds`.
+/// `RefAny` payloads collected during the fingerprint walk. Transferred onto the
+/// retained DOM when the produce side is skipped.
 #[derive(Debug, Default, Clone)]
 pub struct PreCascadeTransfers {
     /// `(flattened NodeId index, fresh image callback)` for every
     /// `NodeType::Image(DecodedImage::Callback)` node.
     pub image_callbacks: Vec<(usize, crate::callbacks::CoreImageCallback)>,
-    /// `(flattened NodeId index, fresh event callbacks)` for every node with
-    /// a non-empty callback list.
+    /// `(flattened NodeId index, fresh event callbacks)` for every node with a
+    /// non-empty callback list.
     pub callbacks: Vec<(usize, crate::callbacks::CoreCallbackDataVec)>,
-    /// `(flattened NodeId index, fresh dataset)` for every node that carries
-    /// one. Merged onto the retained DOM by [`merge_fresh_dataset`] — the
-    /// skip path's equivalent of `transfer_states` — so a widget's state
-    /// survives an identical rebuild and its callbacks (installed from
-    /// `callbacks` above) end up on the SAME allocation as its dataset.
+    /// `(flattened NodeId index, fresh dataset)` for every node that carries one.
+    /// Merged onto the retained DOM by [`merge_fresh_dataset`] - the skip path's
+    /// equivalent of `transfer_states` - so a widget's state survives an identical
+    /// rebuild and its callbacks (installed from `callbacks` above) end up on the
+    /// SAME allocation as its dataset.
     pub datasets: Vec<(usize, RefAny)>,
 }
 
-/// Walk a recursive [`crate::dom::Dom`] once, pre-order.
-///
-/// Produces both fingerprint tiers and the `RefAny` transfer list. Cost: one hash pass over
-/// node data — no cascade, no allocation proportional to anything but node
-/// count.
+/// Walk a recursive [`crate::dom::Dom`] once, pre-order. Produces both fingerprint
+/// tiers and the `RefAny` transfer list.
 #[allow(clippy::too_many_lines)] // cohesive single-pass walker; splitting adds state-threading
 #[must_use] pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTransfers) {
     use core::hash::{Hash, Hasher};
@@ -4730,7 +4400,7 @@ pub struct PreCascadeTransfers {
         use core::hash::{Hash, Hasher};
         let mut h = crate::hash::DefaultHasher::new();
 
-        // node_type content — image-callback special case (see struct doc)
+        // node_type content - image-callback special case (see struct doc)
         match node.get_node_type() {
             NodeType::Image(img) => {
                 match img.get_data() {
@@ -4740,7 +4410,7 @@ pub struct PreCascadeTransfers {
                         cb.refany.get_type_id().hash(&mut h);
                     }
                     _ => {
-                        // Raw / GPU images: ImageRef hashes by id — instance
+                        // Raw / GPU images: ImageRef hashes by id - instance
                         // identity, the same strictness is_layout_equivalent's
                         // `old_img != new_img` applies.
                         node.get_node_type().hash(&mut h);
@@ -4768,8 +4438,8 @@ pub struct PreCascadeTransfers {
             }
         }
 
-        // callback EVENT types only — the fn ptr + RefAny are transferred,
-        // not compared (is_layout_equivalent: "compare only event types")
+        // callback EVENT types only - the fn ptr + RefAny are transferred, not
+        // compared (is_layout_equivalent: "compare only event types")
         node.callbacks.as_ref().len().hash(&mut h);
         for cb in node.callbacks.as_ref() {
             cb.event.hash(&mut h);
@@ -4794,8 +4464,8 @@ pub struct PreCascadeTransfers {
             conds.as_slice().len().hash(&mut h);
         }
 
-        // Attached .with_css() sheets — subtree-scoped by construction, so
-        // they belong to THIS node's style identity.
+        // Attached .with_css() sheets - subtree-scoped by construction, so they
+        // belong to THIS node's style identity.
         dom.css.as_ref().len().hash(&mut h);
         for css in dom.css.as_ref() {
             for rule in css.rules.as_ref() {
@@ -4803,9 +4473,9 @@ pub struct PreCascadeTransfers {
                 for decl in rule.declarations.as_ref() {
                     decl.hash(&mut h);
                 }
-                // DynamicSelector carries f32 media thresholds and derives no
-                // Hash — the Debug repr is the stable identity here (rare
-                // path: only @-rule-conditioned blocks have any).
+                // DynamicSelector carries f32 media thresholds and derives no Hash
+                // - the Debug repr is the stable identity here (rare path: only
+                // @-rule-conditioned blocks have any).
                 for cond in rule.conditions.as_ref() {
                     alloc::format!("{cond:?}").hash(&mut h);
                 }

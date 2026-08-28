@@ -1,19 +1,10 @@
-//! POD types for the geolocation surface. Defined here in `azul-core`
-//! so `NodeType::GeolocationProbe(GeolocationProbeConfig)` can carry the
-//! config without `azul-layout` having to be a `azul-core` dependency.
-//!
-//! The stateful side (refcount, diff queue, latest-fix storage) lives
-//! in `azul_layout::managers::geolocation::GeolocationManager` and
-//! re-exports these types for the existing import paths.
+//! POD types for the geolocation surface. Defined here in `azul-core` so
+//! `NodeType::GeolocationProbe(GeolocationProbeConfig)` can carry the config without
+//! `azul-layout` having to be a `azul-core` dependency.
 
 /// One GPS / network-located fix. Mirrors the W3C
 /// [`GeolocationPosition`](https://www.w3.org/TR/geolocation/#position_interface)
 /// shape so the future web backend lands without API churn.
-///
-/// `accuracy_m` is the 1-sigma radius in metres. `altitude_m` /
-/// `altitude_accuracy_m` / `heading_deg` / `speed_mps` are reported as
-/// `f32::NAN` when the platform doesn't supply them — iOS / Android
-/// always supply lat/lon but the other fields depend on hardware.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct LocationFix {
@@ -23,27 +14,25 @@ pub struct LocationFix {
     pub longitude_deg: f64,
     /// 1-sigma horizontal accuracy radius in metres.
     pub accuracy_m: f32,
-    /// Altitude above the WGS-84 ellipsoid in metres. `NaN` if not
-    /// reported (the platform couldn't measure it).
+    /// Altitude above the WGS-84 ellipsoid in metres. `NaN` if not reported (the
+    /// platform couldn't measure it).
     pub altitude_m: f32,
-    /// 1-sigma altitude accuracy in metres. `NaN` if `altitude_m` is
-    /// `NaN` or the platform doesn't report it.
+    /// 1-sigma altitude accuracy in metres. `NaN` if `altitude_m` is `NaN` or the
+    /// platform doesn't report it.
     pub altitude_accuracy_m: f32,
-    /// Bearing in degrees clockwise from true north, `0..360`. `NaN`
-    /// if the device is stationary or the platform doesn't report it.
+    /// Bearing in degrees clockwise from true north, `0..360`. `NaN` if the device
+    /// is stationary or the platform doesn't report it.
     pub heading_deg: f32,
     /// Ground speed in metres per second. `NaN` if not reported.
     pub speed_mps: f32,
-    /// Monotonic timestamp in milliseconds since program start. Lets
-    /// callers detect stale fixes without depending on wall-clock time.
+    /// Monotonic timestamp in milliseconds since program start. Lets callers detect
+    /// stale fixes without depending on wall-clock time.
     pub timestamp_ms: u64,
 }
 
 // FFI Option wrapper (mirrors OptionPenState). Lets `CallbackInfo::
-// get_location_fix() -> Option<LocationFix>` cross the C ABI once the
-// matching api.json type entry + getter are registered via the autofix
-// workflow. Unused internally today; this is the no-codegen prerequisite
-// for that exposure (see MOBILE_SESSION_LOG P3.1h).
+// get_location_fix() -> Option<LocationFix>` cross the C ABI once the matching
+// api.json type entry + getter are registered via the autofix workflow.
 impl_option!(LocationFix, OptionLocationFix, [Debug, Clone, Copy, PartialEq]);
 
 impl LocationFix {
@@ -80,28 +69,26 @@ impl LocationFix {
     }
 }
 
-/// Configuration the user attaches to a `NodeType::GeolocationProbe`
-/// to tune the platform subscription. Maps to W3C `PositionOptions`
-/// (`enableHighAccuracy` + `maximumAge` + `timeout`).
+/// Configuration the user attaches to a `NodeType::GeolocationProbe` to tune the
+/// platform subscription. Maps to W3C `PositionOptions` (`enableHighAccuracy` +
+/// `maximumAge` + `timeout`).
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct GeolocationProbeConfig {
     /// `true` requests precise (GPS-driven) location. iOS maps this to
-    /// `CLLocationManager.desiredAccuracy = kCLLocationAccuracyBest`;
-    /// Android to `LocationRequest.PRIORITY_HIGH_ACCURACY`. Costs
-    /// battery — leave `false` for city-block-level apps.
+    /// `CLLocationManager.desiredAccuracy = kCLLocationAccuracyBest`; Android to
+    /// `LocationRequest.PRIORITY_HIGH_ACCURACY`.
     pub high_accuracy: bool,
-    /// Subscribe to *background* location updates. Requires extra
-    /// per-platform manifest declarations and a separate
-    /// `Capability::GeolocationBackground` permission grant. `false`
-    /// is the safe default.
+    /// Subscribe to *background* location updates. Requires extra per-platform
+    /// manifest declarations and a separate `Capability::GeolocationBackground`
+    /// permission grant.
     pub background: bool,
-    /// Reject any fix whose `accuracy_m` exceeds this radius. `0`
-    /// disables the filter — every native sample is delivered.
+    /// Reject any fix whose `accuracy_m` exceeds this radius. `0` disables the
+    /// filter - every native sample is delivered.
     pub max_accuracy_m: f32,
-    /// Minimum time between delivered updates, in milliseconds. `0`
-    /// disables throttling (every native sample is delivered;
-    /// expensive when the platform fires at 10 Hz indoors).
+    /// Minimum time between delivered updates, in milliseconds. `0` disables
+    /// throttling (every native sample is delivered; expensive when the platform
+    /// fires at 10 Hz indoors).
     pub min_interval_ms: u32,
 }
 
@@ -117,9 +104,9 @@ impl Default for GeolocationProbeConfig {
 }
 
 /// Canonical bit pattern for hashing / total-ordering / equality of an f32 config
-/// field: -0.0 and +0.0 collapse to the same value (they compare numerically
-/// equal), and every NaN maps to one canonical NaN (so a NaN is equal to — and
-/// hashes like — itself). Used by `PartialEq`, `Ord` and `Hash` so all three agree.
+/// field: -0.0 and +0.0 collapse to the same value (they compare numerically equal),
+/// and every NaN maps to one canonical NaN (so a NaN is equal to - and hashes like -
+/// itself). Used by `PartialEq`, `Ord` and `Hash` so all three agree.
 const fn canon_bits(f: f32) -> u32 {
     let bits = f.to_bits();
     if bits.trailing_zeros() >= 31 {
@@ -132,9 +119,9 @@ const fn canon_bits(f: f32) -> u32 {
 }
 
 // PartialEq / Ord / Hash are hand-written to compare `max_accuracy_m` via
-// `canon_bits` so all three agree: a derived PartialEq's raw float `==` makes a
-// NaN unequal to itself, and raw `to_bits` makes -0.0 != +0.0 — either way
-// breaking the Eq/Hash/Ord contracts that NodeType (which embeds this) relies on.
+// `canon_bits` so all three agree: a derived PartialEq's raw float `==` makes a NaN
+// unequal to itself, and raw `to_bits` makes -0.0 != +0.0 - either way breaking the
+// Eq/Hash/Ord contracts that NodeType (which embeds this) relies on.
 impl PartialEq for GeolocationProbeConfig {
     fn eq(&self, other: &Self) -> bool {
         self.high_accuracy == other.high_accuracy
@@ -154,8 +141,8 @@ impl PartialOrd for GeolocationProbeConfig {
 
 impl Ord for GeolocationProbeConfig {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        // f32 comparison via to_bits — gives a total order even with
-        // NaNs and matches NodeType::Eq + Hash requirements.
+        // f32 comparison via to_bits - gives a total order even with NaNs and
+        // matches NodeType::Eq + Hash requirements.
         (
             self.high_accuracy,
             self.background,
@@ -194,8 +181,8 @@ mod autotest_generated {
     // helpers
     // ---------------------------------------------------------------
 
-    /// A fix with every optional field *present* (no NaN anywhere), so a
-    /// test can knock out exactly one field and watch only that getter flip.
+    /// A fix with every optional field *present* (no NaN anywhere), so a test can
+    /// knock out exactly one field and watch only that getter flip.
     const fn fix_all_present() -> LocationFix {
         LocationFix {
             latitude_deg: 48.208_8,
@@ -239,8 +226,8 @@ mod autotest_generated {
 
     /// Bit-exact float identity (so `-0.0 != 0.0`), but NaN-tolerant: any NaN
     /// matches any NaN. A plain `==` would report `NaN != NaN` and make every
-    /// round-trip assertion below vacuously fail; comparing raw payload bits
-    /// would over-constrain (Rust does not guarantee NaN payload propagation).
+    /// round-trip assertion below vacuously fail; comparing raw payload bits would
+    /// over-constrain (Rust does not guarantee NaN payload propagation).
     fn same_f32(a: f32, b: f32) -> bool {
         if a.is_nan() {
             b.is_nan()
@@ -268,8 +255,8 @@ mod autotest_generated {
             && a.timestamp_ms == b.timestamp_ms
     }
 
-    /// FNV-1a — a `no_std`-safe, deterministic stand-in for `DefaultHasher`
-    /// (this crate is `no_std` without the `std` feature).
+    /// FNV-1a - a `no_std`-safe, deterministic stand-in for `DefaultHasher` (this
+    /// crate is `no_std` without the `std` feature).
     struct Fnv1a(u64);
 
     impl Fnv1a {
@@ -318,21 +305,21 @@ mod autotest_generated {
     ];
 
     // ---------------------------------------------------------------
-    // LocationFix getters — the documented contract is
-    // "NaN (and only NaN) means the platform did not report the field"
+    // LocationFix getters - the documented contract is "NaN (and only NaN) means
+    // the platform did not report the field"
     // ---------------------------------------------------------------
 
-    /// The core invariant, swept over every float class: a getter returns
-    /// `None` **iff** its backing field is NaN, and otherwise hands back the
-    /// value bit-for-bit — including infinities, subnormals and `-0.0`, which
-    /// are all "reported" values and must NOT be swallowed like NaN is.
+    /// The core invariant, swept over every float class: a getter returns `None`
+    /// **iff** its backing field is NaN, and otherwise hands back the value
+    /// bit-for-bit - including infinities, subnormals and `-0.0`, which are all
+    /// "reported" values and must NOT be swallowed like NaN is.
     #[test]
     fn getter_is_none_exactly_when_field_is_nan() {
         for bits in F32_PATTERNS {
             let v = f32::from_bits(bits);
 
-            // Each getter is exercised on a fix where *only* its own field
-            // carries the pattern, so a getter reading the wrong field is caught.
+            // Each getter is exercised on a fix where *only* its own field carries
+            // the pattern, so a getter reading the wrong field is caught.
             let mut alt = fix_all_present();
             alt.altitude_m = v;
             let mut alt_acc = fix_all_present();
@@ -375,9 +362,9 @@ mod autotest_generated {
         }
     }
 
-    /// `-0.0` is a legitimate reported value (a stationary device at sea level,
-    /// a southbound heading rounded to zero). It must survive the getter with
-    /// its sign bit intact rather than being normalised to `+0.0`.
+    /// `-0.0` is a legitimate reported value (a stationary device at sea level, a
+    /// southbound heading rounded to zero). It must survive the getter with its sign
+    /// bit intact rather than being normalised to `+0.0`.
     #[test]
     fn getters_preserve_negative_zero() {
         let mut fix = fix_all_present();
@@ -399,7 +386,7 @@ mod autotest_generated {
     }
 
     /// Infinities are not NaN, so per the documented contract they are handed
-    /// through as `Some(inf)` — the getters must not "helpfully" filter them.
+    /// through as `Some(inf)` - the getters must not "helpfully" filter them.
     #[test]
     fn getters_pass_infinities_through() {
         let mut fix = fix_all_absent();
@@ -415,8 +402,8 @@ mod autotest_generated {
     }
 
     /// The "platform reported nothing" fix, plus a saturated timestamp and
-    /// out-of-range WGS-84 coordinates: nothing here may panic, and every
-    /// optional getter must report absence.
+    /// out-of-range WGS-84 coordinates: nothing here may panic, and every optional
+    /// getter must report absence.
     #[test]
     fn getters_on_extreme_and_all_absent_fix() {
         let mut fix = fix_all_absent();
@@ -430,7 +417,7 @@ mod autotest_generated {
         assert_eq!(fix.heading(), None);
         assert_eq!(fix.speed(), None);
 
-        // Getters are `&self` — they must not have mutated the receiver.
+        // Getters are `&self` - they must not have mutated the receiver.
         assert_eq!(fix.timestamp_ms, u64::MAX);
         assert!(fix.latitude_deg == f64::MAX);
 
@@ -451,8 +438,8 @@ mod autotest_generated {
         assert_eq!(zeroed.speed(), Some(0.0));
     }
 
-    /// The getters are declared `const fn`; that is part of the public API, so
-    /// pin it — a non-const rewrite would be a silent breaking change.
+    /// The getters are declared `const fn`; that is part of the public API, so pin
+    /// it - a non-const rewrite would be a silent breaking change.
     #[test]
     fn getters_are_const_evaluable() {
         const PRESENT: LocationFix = fix_all_present();
@@ -474,10 +461,9 @@ mod autotest_generated {
     }
 
     /// `LocationFix` derives `PartialEq` over raw floats, so a fix carrying an
-    /// unreported (NaN) field is *not* equal to itself. Pinned deliberately:
-    /// the type is (correctly) not `Eq`/`Hash`, and any future use as a map key
-    /// or in a `!=`-based change check would be broken by this. Callers must
-    /// compare via the getters, as `same_fix` does.
+    /// unreported (NaN) field is *not* equal to itself. Pinned deliberately: the
+    /// type is (correctly) not `Eq`/`Hash`, and any future use as a map key or in a
+    /// `!=`-based change check would be broken by this.
     #[test]
     fn location_fix_partial_eq_is_not_reflexive_when_fields_are_absent() {
         let absent = fix_all_absent();
@@ -498,12 +484,12 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------
-    // OptionLocationFix — the FFI wrapper: encode == decode
+    // OptionLocationFix - the FFI wrapper: encode == decode
     // ---------------------------------------------------------------
 
     /// Round-trip `Option<LocationFix>` -> `OptionLocationFix` -> back, for both
-    /// variants, plus the full wrapper surface (`replace` must return the
-    /// *previous* value, `map`/`and_then` must short-circuit on `None`).
+    /// variants, plus the full wrapper surface (`replace` must return the *previous*
+    /// value, `map`/`and_then` must short-circuit on `None`).
     #[test]
     fn option_location_fix_roundtrips() {
         assert!(OptionLocationFix::default().is_none());
@@ -556,10 +542,10 @@ mod autotest_generated {
         assert_eq!(slot.as_option().expect("still Some").timestamp_ms, u64::MAX);
     }
 
-    /// The wrapper must survive the exact payload the platform layer produces
-    /// most often: a fix whose optional fields are all NaN. `PartialEq` on the
-    /// payload is useless here (NaN != NaN), so the round-trip is checked
-    /// field-wise — this is the case a naive `assert_eq!` would hide.
+    /// The wrapper must survive the exact payload the platform layer produces most
+    /// often: a fix whose optional fields are all NaN. `PartialEq` on the payload is
+    /// useless here (NaN != NaN), so the round-trip is checked field-wise - this is
+    /// the case a naive `assert_eq!` would hide.
     #[test]
     fn option_location_fix_roundtrip_survives_absent_fields() {
         let mut fix = fix_all_absent();
@@ -584,9 +570,9 @@ mod autotest_generated {
         assert!(OptionLocationFix::None == OptionLocationFix::None);
     }
 
-    /// `#[repr(C, u8)]` means the wrapper is tag + payload with no niche
-    /// packing — it must be strictly larger than the payload, or the C ABI
-    /// header generated for it would be wrong.
+    /// `#[repr(C, u8)]` means the wrapper is tag + payload with no niche packing -
+    /// it must be strictly larger than the payload, or the C ABI header generated
+    /// for it would be wrong.
     #[test]
     fn option_location_fix_is_tagged_not_niche_packed() {
         use core::mem::{align_of, size_of};
@@ -599,11 +585,11 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------
-    // GeolocationProbeConfig — Default / Ord / Hash
+    // GeolocationProbeConfig - Default / Ord / Hash
     // ---------------------------------------------------------------
 
-    /// The documented default: no high accuracy, no background, no accuracy
-    /// filter (`0` = "deliver every sample"), no throttle.
+    /// The documented default: no high accuracy, no background, no accuracy filter
+    /// (`0` = "deliver every sample"), no throttle.
     #[test]
     fn probe_config_default_is_permissive_zero() {
         let d = GeolocationProbeConfig::default();
@@ -616,9 +602,9 @@ mod autotest_generated {
         assert_eq!(d.cmp(&GeolocationProbeConfig::default()), Ordering::Equal);
     }
 
-    /// Field precedence of the hand-written `Ord`: high_accuracy, then
-    /// background, then accuracy bits, then interval. Each earlier field must
-    /// dominate *every* later one, so the loser is given maximal later fields.
+    /// Field precedence of the hand-written `Ord`: high_accuracy, then background,
+    /// then accuracy bits, then interval. Each earlier field must dominate *every*
+    /// later one, so the loser is given maximal later fields.
     #[test]
     fn probe_config_ord_field_precedence() {
         let low_but_maxed = cfg(false, true, f32::from_bits(u32::MAX), u32::MAX);
@@ -641,10 +627,10 @@ mod autotest_generated {
         );
     }
 
-    /// The ordering is over `to_bits`, NOT over numeric value: sign-magnitude
-    /// bits mean every negative accuracy sorts *above* every positive one, and
-    /// NaN sorts above +inf. Pinned because it is load-bearing (`NodeType`
-    /// dedup/sort) and because it is exactly the trap a reader assumes away.
+    /// The ordering is over `to_bits`, NOT over numeric value: sign-magnitude bits
+    /// mean every negative accuracy sorts *above* every positive one, and NaN sorts
+    /// above +inf. Pinned because it is load-bearing (`NodeType` dedup/sort) and
+    /// because it is exactly the trap a reader assumes away.
     #[test]
     fn probe_config_ord_is_bitwise_not_numeric() {
         let neg = cfg(false, false, -1.0, 0);
@@ -663,9 +649,9 @@ mod autotest_generated {
     }
 
     /// A NaN accuracy must not break the total order: `cmp` stays reflexive,
-    /// antisymmetric and transitive, and sorting a NaN-containing slice
-    /// terminates without panicking (an inconsistent comparator can make
-    /// `sort_unstable` misbehave).
+    /// antisymmetric and transitive, and sorting a NaN-containing slice terminates
+    /// without panicking (an inconsistent comparator can make `sort_unstable`
+    /// misbehave).
     #[test]
     fn probe_config_ord_is_a_total_order_with_nan() {
         let nan = cfg(false, false, f32::NAN, 7);
@@ -707,11 +693,11 @@ mod autotest_generated {
         }
     }
 
-    /// `PartialOrd` must agree with `Ord`, and — for the ordinary (finite,
-    /// non-negative) configs a user actually writes — `==`, `cmp == Equal` and
-    /// equal hashes must all coincide. This is the Eq/Ord/Hash contract holding
-    /// on the reachable domain; the two regression tests below pin the -0.0/+0.0
-    /// and NaN corners where a naive derived `PartialEq` would break it.
+    /// `PartialOrd` must agree with `Ord`, and - for the ordinary (finite,
+    /// non-negative) configs a user actually writes - `==`, `cmp == Equal` and equal
+    /// hashes must all coincide. This is the Eq/Ord/Hash contract holding on the
+    /// reachable domain; the two regression tests below pin the -0.0/+0.0 and NaN
+    /// corners where a naive derived `PartialEq` would break it.
     #[test]
     fn probe_config_eq_ord_hash_agree_on_ordinary_configs() {
         let configs = [
@@ -743,9 +729,8 @@ mod autotest_generated {
     }
 
     /// Hashing must be a pure function of the four fields, must survive NaN
-    /// (`to_bits` cannot panic), and must actually distinguish configs that
-    /// differ only in a late field — otherwise `NodeType` dedup collapses
-    /// distinct probes.
+    /// (`to_bits` cannot panic), and must actually distinguish configs that differ
+    /// only in a late field - otherwise `NodeType` dedup collapses distinct probes.
     #[test]
     fn probe_config_hash_is_stable_and_discriminating() {
         let a = cfg(true, false, 12.5, 250);
@@ -771,17 +756,15 @@ mod autotest_generated {
 
     // ---------------------------------------------------------------
     // Regression guards for Eq/Ord/Hash consistency of the f32 config field
-    // (canonicalized bits: -0.0 == +0.0, NaN == NaN). The derived PartialEq used
-    // to disagree with the hand-written Ord/Hash.
+    // (canonicalized bits: -0.0 == +0.0, NaN == NaN). The derived PartialEq used to
+    // disagree with the hand-written Ord/Hash.
     // ---------------------------------------------------------------
 
-    /// `impl Eq` + `impl Hash` promise: `a == b` implies `hash(a) == hash(b)`
-    /// and `a.cmp(&b) == Equal`. A derived `PartialEq` would compare
-    /// `max_accuracy_m` numerically (`-0.0 == 0.0`) while `Hash`/`Ord` compared
-    /// raw `to_bits` (where they differ), so a `HashMap`/`BTreeMap` keyed on a
-    /// `NodeType` carrying this config could fail to find an entry that compares
-    /// equal. The hand-written `PartialEq`/`Ord`/`Hash` all route through
-    /// `canon_bits`, keeping them consistent — this pins that.
+    /// `impl Eq` + `impl Hash` promise: `a == b` implies `hash(a) == hash(b)` and
+    /// `a.cmp(&b) == Equal`. A derived `PartialEq` would compare `max_accuracy_m`
+    /// numerically (`-0.0 == 0.0`) while `Hash`/`Ord` compared raw `to_bits` (where
+    /// they differ), so a `HashMap`/`BTreeMap` keyed on a `NodeType` carrying this
+    /// config could fail to find an entry that compares equal.
     #[test]
     fn probe_config_eq_implies_equal_hash_and_ordering() {
         let pos = cfg(false, false, 0.0, 0);
@@ -793,10 +776,9 @@ mod autotest_generated {
     }
 
     /// `impl Eq for GeolocationProbeConfig {}` asserts reflexivity. A derived
-    /// `PartialEq` comparing `max_accuracy_m` with float `==` would make a
-    /// config with a NaN accuracy unequal to itself — while `Ord` (via
-    /// `canon_bits`) reports `Equal` for the very same pair. The hand-written
-    /// `PartialEq` uses `canon_bits` too, so both agree; this pins it.
+    /// `PartialEq` comparing `max_accuracy_m` with float `==` would make a config
+    /// with a NaN accuracy unequal to itself - while `Ord` (via `canon_bits`)
+    /// reports `Equal` for the very same pair.
     #[test]
     #[allow(clippy::eq_op)]
     fn probe_config_eq_is_reflexive_with_nan() {

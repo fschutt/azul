@@ -1,14 +1,7 @@
-//! Menu system for context menus, dropdown menus, and application menus.
-//!
-//! This module provides a cross-platform menu abstraction modeled after the Windows API,
-//! supporting hierarchical menus with separators, icons, keyboard accelerators, and callbacks.
-//!
-//! # Core vs Layout Types
-//!
-//! This module uses `CoreMenuCallback` with `usize` placeholders instead of function pointers
-//! to avoid circular dependencies between `azul-core` and `azul-layout`. The actual function
-//! pointers are stored in `azul-layout` and converted via unsafe code with identical memory
-//! layout.
+//! Menu system for context menus, dropdown menus, and application menus. This
+//! module provides a cross-platform menu abstraction modeled after the Windows API,
+//! supporting hierarchical menus with separators, icons, keyboard accelerators, and
+//! callbacks.
 
 extern crate alloc;
 
@@ -27,23 +20,10 @@ use crate::{
     },
 };
 
-/// Does `combo` describe the chord the keyboard is in, with `pressed` as the
-/// key that just went down?
-///
-/// THE shared accelerator rule, used by every platform that dispatches menu
-/// accelerators itself (Windows, X11, Wayland, headless; macOS's menu bar
-/// uses `AppKit` key equivalents, its context menus this).
-///
-/// * The combo names its modifiers with the modifier keys (`LControl`,
-///   `LShift`, `LAlt`, `LWin`; the right-hand twins are equivalent) and
-///   exactly ONE non-modifier key, which must be `pressed`.
-/// * `LWin` / `RWin` mean the platform's PRIMARY shortcut modifier — Cmd on
-///   macOS, Ctrl everywhere else — so `[LWin, S]` is Cmd+S on a Mac and
-///   Ctrl+S on Windows/Linux from one definition (the MWA-A2 rule behind
-///   `KeyboardState::primary_down`). `LControl` stays the Control key on
-///   every platform.
-/// * The match is EXACT: `Ctrl+S` does not fire while Shift is also held, so
-///   `Ctrl+S` and `Ctrl+Shift+S` can coexist in one menu.
+/// Does `combo` describe the chord the keyboard is in, with `pressed` as the key
+/// that just went down? THE shared accelerator rule, used by every platform that
+/// dispatches menu accelerators itself (Windows, X11, Wayland, headless; macOS's
+/// menu bar uses `AppKit` key equivalents, its context menus this).
 #[must_use]
 pub fn accelerator_matches(
     combo: &VirtualKeyCodeCombo,
@@ -79,14 +59,14 @@ pub fn accelerator_matches(
     if cfg!(target_os = "macos") {
         want_ctrl == keyboard.ctrl_down() && want_primary == keyboard.super_down()
     } else {
-        // Ctrl IS the primary modifier here; the Super/Windows key never
-        // takes part in an application chord.
+        // Ctrl IS the primary modifier here; the Super/Windows key never takes part
+        // in an application chord.
         (want_ctrl || want_primary) == keyboard.ctrl_down() && !keyboard.super_down()
     }
 }
 
-/// Depth-first search of `items` for the first enabled entry whose
-/// accelerator matches the chord (see [`accelerator_matches`]).
+/// Depth-first search of `items` for the first enabled entry whose accelerator
+/// matches the chord (see [`accelerator_matches`]).
 fn find_accelerated_in<'a>(
     items: &'a [MenuItem],
     keyboard: &KeyboardState,
@@ -110,17 +90,9 @@ fn find_accelerated_in<'a>(
     None
 }
 
-/// Represents a menu (context menu, dropdown menu, or application menu).
-///
-/// A menu consists of a list of items that can be displayed as a popup or
-/// attached to a window's menu bar. Modeled after the Windows API for
-/// cross-platform consistency.
-///
-/// # Fields
-///
-/// * `items` - The menu items to display
-/// * `position` - Where the menu should appear (for popups)
-/// * `context_mouse_btn` - Which mouse button triggers the context menu
+/// Represents a menu (context menu, dropdown menu, or application menu). A menu
+/// consists of a list of items that can be displayed as a popup or attached to a
+/// window's menu bar.
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct Menu {
@@ -137,9 +109,9 @@ impl_option!(
 );
 
 impl Menu {
-    /// The first enabled item anywhere in this menu whose accelerator
-    /// matches the chord the keyboard is in, `pressed` being the key that
-    /// just went down. Greyed / disabled items never match.
+    /// The first enabled item anywhere in this menu whose accelerator matches the
+    /// chord the keyboard is in, `pressed` being the key that just went down. Greyed
+    /// / disabled items never match.
     #[must_use]
     pub fn find_accelerated_item<'a>(
         &'a self,
@@ -149,9 +121,8 @@ impl Menu {
         find_accelerated_in(self.items.as_ref(), keyboard, pressed)
     }
 
-    /// Creates a new menu with the given items.
-    ///
-    /// Uses default position (`AutoCursor`) and right mouse button for context menus.
+    /// Creates a new menu with the given items. Uses default position
+    /// (`AutoCursor`) and right mouse button for context menus.
     #[must_use]
     pub const fn create(items: MenuItemVec) -> Self {
         Self {
@@ -168,9 +139,8 @@ impl Menu {
         self
     }
 
-    /// Computes a 64-bit hash of this menu using the `HighwayHash` algorithm.
-    ///
-    /// This is used to detect changes in menu structure for caching and optimization.
+    /// Computes a 64-bit hash of this menu using the `HighwayHash` algorithm. This
+    /// is used to detect changes in menu structure for caching and optimization.
     #[must_use]
     pub fn get_hash(&self) -> u64 {
         use core::hash::Hasher;
@@ -180,10 +150,9 @@ impl Menu {
     }
 }
 
-/// Specifies where a popup menu should appear relative to the cursor or clicked element.
-///
-/// This positioning information is ignored for application-level menus (menu bars)
-/// and only applies to context menus and dropdowns.
+/// Specifies where a popup menu should appear relative to the cursor or clicked
+/// element. This positioning information is ignored for application-level menus
+/// (menu bars) and only applies to context menus and dropdowns.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub enum MenuPopupPosition {
@@ -205,7 +174,8 @@ pub enum MenuPopupPosition {
     RightOfHitRect,
     /// Automatically calculate position based on available screen space near cursor
     AutoCursor,
-    /// Automatically calculate position based on available screen space near clicked rect
+    /// Automatically calculate position based on available screen space near
+    /// clicked rect
     AutoHitRect,
 }
 
@@ -215,13 +185,10 @@ impl Default for MenuPopupPosition {
     }
 }
 
-/// Describes the interactive state of a menu item.
-///
-/// Menu items can be in different states that affect their appearance and behavior:
-///
-/// - Normal items are clickable and render normally
-/// - Greyed items are visually disabled (greyed out) and non-clickable
-/// - Disabled items are non-clickable but retain normal appearance
+/// Describes the interactive state of a menu item. Menu items can be in different
+/// states that affect their appearance and behavior: - Normal items are clickable
+/// and render normally - Greyed items are visually disabled (greyed out) and
+/// non-clickable - Disabled items are non-clickable but retain normal appearance
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub enum MenuItemState {
@@ -233,10 +200,9 @@ pub enum MenuItemState {
     Disabled,
 }
 #[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
-/// Represents a single item in a menu.
-///
-/// Menu items can be regular text items with labels and callbacks,
-/// visual separators, or line breaks for horizontal menu layouts.
+/// Represents a single item in a menu. Menu items can be regular text items with
+/// labels and callbacks, visual separators, or line breaks for horizontal menu
+/// layouts.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C, u8)]
 #[allow(clippy::large_enum_variant)] // #[repr(C,u8)] FFI enum: boxing a variant changes the C ABI/api.json
@@ -265,24 +231,18 @@ impl_vec_hash!(MenuItem, MenuItemVec);
 impl_vec_eq!(MenuItem, MenuItemVec);
 impl_vec_ord!(MenuItem, MenuItemVec);
 
-/// A menu item with a text label and optional features.
-///
-/// `StringMenuItem` represents a clickable menu entry that can have:
-///
-/// - A text label
-/// - An optional keyboard accelerator (e.g., Ctrl+C)
-/// - An optional callback function
-/// - An optional icon (checkbox or image)
-/// - A state (normal, greyed, or disabled)
-/// - Child menu items (for sub-menus)
+/// A menu item with a text label and optional features. `StringMenuItem` represents
+/// a clickable menu entry that can have: - A text label - An optional keyboard
+/// accelerator (e.g., Ctrl+C) - An optional callback function - An optional icon
+/// (checkbox or image) - A state (normal, greyed, or disabled) - Child menu items
+/// (for sub-menus)
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct StringMenuItem {
-    /// Label of the menu
-    /// (ex. "File", "Edit", "View")
+    /// Label of the menu (ex. "File", "Edit", "View")
     pub label: AzString,
-    /// Optional accelerator combination
-    /// (ex. "CTRL + X" = [`VirtualKeyCode::Ctrl`, `VirtualKeyCode::X`]) for keyboard shortcut
+    /// Optional accelerator combination (ex. "CTRL + X" = [`VirtualKeyCode::Ctrl`,
+    /// `VirtualKeyCode::X`]) for keyboard shortcut
     pub accelerator: OptionVirtualKeyCodeCombo,
     /// Optional callback to call
     pub callback: OptionCoreMenuCallback,
@@ -295,8 +255,8 @@ pub struct StringMenuItem {
 }
 
 impl StringMenuItem {
-    /// Creates a new menu item with the given label.
-    /// All optional fields default to `None` / `Normal`.
+    /// Creates a new menu item with the given label. All optional fields default to
+    /// `None` / `Normal`.
     #[must_use]
     pub const fn create(label: AzString) -> Self {
         Self {
@@ -325,17 +285,10 @@ impl StringMenuItem {
         self
     }
 
-    /// Attaches a callback function to this menu item.
-    ///
-    /// # Parameters
-    ///
-    /// * `data` - User data passed to the callback
-    /// * `callback` - Function pointer (as usize) to invoke when item is clicked
-    ///
-    /// # Note
-    ///
-    /// This uses `CoreCallbackType` (usize) instead of a real function pointer
-    /// to avoid circular dependencies. The conversion happens in azul-layout.
+    /// Attaches a callback function to this menu item. * `data` - User data passed
+    /// to the callback * `callback` - Function pointer (as usize) to invoke when
+    /// item is clicked This uses `CoreCallbackType` (usize) instead of a real
+    /// function pointer to avoid circular dependencies.
     #[must_use]
     pub fn with_callback<I: Into<CoreCallback>>(mut self, data: RefAny, callback: I) -> Self {
         self.callback = Some(CoreMenuCallback {
@@ -347,11 +300,8 @@ impl StringMenuItem {
     }
 }
 
-/// Optional icon displayed next to a menu item.
-///
-/// Icons can be either:
-/// - A checkbox (checked or unchecked)
-/// - A custom image (typically 16x16 pixels)
+/// Optional icon displayed next to a menu item. Icons can be either: - A checkbox
+/// (checked or unchecked) - A custom image (typically 16x16 pixels)
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C, u8)]
 pub enum MenuItemIcon {
@@ -368,26 +318,20 @@ impl_option!(
     [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
 );
 
-// Core menu callback types (usize-based placeholders)
-//
-// Similar to CoreCallback, these use usize instead of function pointers
-// to avoid circular dependencies. Will be converted to real function
-// pointers in azul-layout.
-//
-// IMPORTANT: Memory layout must be identical to the real callback types!
-// Tests for this are in azul-layout/src/callbacks.rs
+// Core menu callback types (usize-based placeholders) Similar to CoreCallback,
+// these use usize instead of function pointers to avoid circular dependencies. Will
+// be converted to real function pointers in azul-layout.
 
-/// Menu callback using usize placeholder for function pointer.
-///
-/// This type is used in `azul-core` to represent menu item callbacks without
-/// creating circular dependencies with `azul-layout`. The actual function pointer
-/// is stored as a `usize` and converted via unsafe code in `azul-layout`.
+/// Menu callback using usize placeholder for function pointer. This type is used in
+/// `azul-core` to represent menu item callbacks without creating circular
+/// dependencies with `azul-layout`.
 #[derive(Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord)]
 #[repr(C)]
 pub struct CoreMenuCallback {
     /// User data passed to the callback when the menu item is clicked
     pub refany: RefAny,
-    /// Callback function pointer stored as usize (converted to real fn pointer in azul-layout)
+    /// Callback function pointer stored as usize (converted to real fn pointer in
+    /// azul-layout)
     pub callback: CoreCallback,
 }
 
@@ -415,8 +359,8 @@ mod accelerator_contract {
             keys: VirtualKeyCodeVec::from_vec(keys.to_vec()),
         }
     }
-    /// The modifier the platform treats as "primary" (`[LWin, x]` in a
-    /// combo): Cmd on macOS, Ctrl elsewhere.
+    /// The modifier the platform treats as "primary" (`[LWin, x]` in a combo): Cmd
+    /// on macOS, Ctrl elsewhere.
     fn primary() -> K {
         if cfg!(target_os = "macos") {
             K::LWin
@@ -557,7 +501,8 @@ mod autotest_generated {
 
     #[test]
     fn menu_create_of_empty_vec_equals_default() {
-        // `create` documents AutoCursor + Right, which must agree with the derived Default.
+        // `create` documents AutoCursor + Right, which must agree with the derived
+        // Default.
         assert_eq!(Menu::create(MenuItemVec::new()), Menu::default());
         assert_eq!(
             Menu::create(MenuItemVec::new()).get_hash(),
@@ -571,7 +516,8 @@ mod autotest_generated {
         let decoded = MenuItemVec::from(source.clone()).into_library_owned_vec();
         assert_eq!(decoded, source);
 
-        // The &'static (NoDestructor) backing must decode to an owned, equal Vec as well.
+        // The &'static (NoDestructor) backing must decode to an owned, equal Vec as
+        // well.
         assert!(MenuItemVec::from_const_slice(&[])
             .into_library_owned_vec()
             .is_empty());
@@ -653,7 +599,8 @@ mod autotest_generated {
 
     #[test]
     fn menu_get_hash_distinguishes_nesting_from_flattening() {
-        // [a[b]] and [a, b] contain the same labels; a length-prefixed hash must separate them.
+        // [a[b]] and [a, b] contain the same labels; a length-prefixed hash must
+        // separate them.
         let nested = Menu::create(MenuItemVec::from_item(MenuItem::String(
             StringMenuItem::create("a".into()).with_child(item("b")),
         )));
@@ -693,7 +640,8 @@ mod autotest_generated {
 
     #[test]
     fn menu_get_hash_separates_absent_accelerator_from_empty_one() {
-        // `None` vs `Some(<empty combo>)` are different states and must not collide.
+        // `None` vs `Some(<empty combo>)` are different states and must not
+        // collide.
         let mut with_empty_combo = StringMenuItem::create("x".into());
         with_empty_combo.accelerator = Some(VirtualKeyCodeCombo {
             keys: VirtualKeyCodeVec::new(),
@@ -760,9 +708,9 @@ mod autotest_generated {
 
     #[test]
     fn menu_get_hash_survives_deeply_nested_submenus() {
-        // Hash + drop glue both recurse once per level. Depth is bounded deliberately:
-        // an unbounded depth would abort the whole test binary on stack exhaustion
-        // rather than fail one test.
+        // Hash + drop glue both recurse once per level. Depth is bounded
+        // deliberately: an unbounded depth would abort the whole test binary on
+        // stack exhaustion rather than fail one test.
         const DEPTH: usize = 200;
         let mut nested = StringMenuItem::create("leaf".into());
         for i in 0..DEPTH {
@@ -782,15 +730,10 @@ mod autotest_generated {
         assert_eq!(menu.get_hash(), cloned.get_hash());
     }
 
-    /// FIXED (was: "KNOWN HAZARD — pinned, not weakened"). `RefAny::clone()` still mints a
-    /// fresh `instance_id`, but `instance_id` is no longer part of `RefAny`'s `Hash`/`Eq` —
-    /// those now key on `sharing_info` alone (see the comment on `RefAny` in
-    /// `core/src/refany.rs`). A menu carrying a callback is therefore equal to its own
-    /// clone, and `get_hash()` — whose documented job is change detection for caching — no
-    /// longer reports "changed" for a structurally identical menu.
-    ///
-    /// The old test asserted the broken behaviour on purpose, "so that fixing `RefAny`
-    /// flips it loudly instead of silently". It did exactly that; this is the flip.
+    /// FIXED (was: "KNOWN HAZARD - pinned, not weakened"). `RefAny::clone()` still
+    /// mints a fresh `instance_id`, but `instance_id` is no longer part of
+    /// `RefAny`'s `Hash`/`Eq` - those now key on `sharing_info` alone (see the
+    /// comment on `RefAny` in `core/src/refany.rs`).
     #[test]
     fn menu_get_hash_is_stable_across_clone_with_callback() {
         let menu = Menu::create(MenuItemVec::from_item(MenuItem::String(
@@ -840,7 +783,7 @@ mod autotest_generated {
         assert_eq!(it.children.len(), 2);
         assert_eq!(labels_of(&it.children), ["New", "Open"]);
 
-        // Last call wins — it is a setter, not an appender.
+        // Last call wins - it is a setter, not an appender.
         let it = it.with_children(item_vec(&["Only"]));
         assert_eq!(it.children.len(), 1);
         assert_eq!(labels_of(&it.children), ["Only"]);
@@ -872,8 +815,8 @@ mod autotest_generated {
 
     #[test]
     fn with_child_copies_out_of_the_static_backing() {
-        // `create` seeds `children` with a NoDestructor (&'static) vec; the first push must
-        // copy out of it rather than write through the static pointer.
+        // `create` seeds `children` with a NoDestructor (&'static) vec; the first
+        // push must copy out of it rather than write through the static pointer.
         let it = StringMenuItem::create("File".into()).with_child(item("New"));
         assert_eq!(it.children.len(), 1);
         assert_eq!(labels_of(&it.children), ["New"]);
@@ -909,8 +852,9 @@ mod autotest_generated {
 
     #[test]
     fn with_child_repeated_many_times_keeps_contents() {
-        // Every call round-trips the vec through into_library_owned_vec(); a mishandled
-        // destructor tag here would surface as corruption/UAF (also exercised under Miri).
+        // Every call round-trips the vec through into_library_owned_vec(); a
+        // mishandled destructor tag here would surface as corruption/UAF (also
+        // exercised under Miri).
         const N: usize = 2_000;
         let mut it = StringMenuItem::create("root".into());
         for i in 0..N {

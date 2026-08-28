@@ -1,30 +1,23 @@
-//! Shared datatypes for azul-* crates
-//!
-//! `azul-core` provides the platform-independent core types used throughout
-//! the Azul toolkit. Key modules include [`dom`] for DOM construction,
-//! [`callbacks`] for event callback types, [`styled_dom`] for the CSSOM,
-//! and [`window`] for OS windowing abstractions.
-//!
-//! This crate depends on [`azul_css`] for CSS property definitions and is
-//! consumed by `azul-layout`, `azul-dll`, and the platform shell crates.
-//! It supports `no_std` environments via `#![cfg_attr(not(feature = "std"), no_std)]`.
+//! Shared datatypes for azul-* crates `azul-core` provides the platform-independent
+//! core types used throughout the Azul toolkit. Key modules include [`dom`] for DOM
+//! construction, [`callbacks`] for event callback types, [`styled_dom`] for the
+//! CSSOM, and [`window`] for OS windowing abstractions.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 // Lint policy: deny correctness/safety issues, warn on style
 #![deny(unused_must_use)]
 #![warn(clippy::all)]
-// Extreme-lint lockdown: all clippy groups plus opt-in rustc lints, enforced as
-// -D warnings on library code by the CI clippy job. Test builds are exempt via
+// Extreme-lint lockdown: all clippy groups plus opt-in rustc lints, enforced as -D
+// warnings on library code by the CI clippy job. Test builds are exempt via
 // cfg(not(test)) below since the set is high-noise and low-value on unit and
 // generated tests; clippy::all correctness still applies to test code.
-// (clippy::restriction wholesale + unused_results + box_pointers deliberately
-// omitted — contradictory / overwhelmingly noisy by design.)
 #![cfg_attr(not(test), warn(
     clippy::pedantic,
     clippy::nursery,
     clippy::cargo,
-    // missing_docs,  // TODO(docs): re-enable as a dedicated final docs pass; disabled
-    //                // for now so the cleanup focuses on code-quality lints, not doc debt.
+    // missing_docs, // TODO(docs): re-enable as a dedicated final docs pass;
+    // disabled // for now so the cleanup focuses on code-quality lints, not doc
+    // debt.
     missing_debug_implementations,
     missing_copy_implementations,
     unreachable_pub,
@@ -44,9 +37,9 @@
     let_underscore_drop,
 ))]
 // `multiple_crate_versions` (implied by clippy::cargo) flags transitive
-// dependency-version dups that cannot be resolved in azul's own source:
-// `syn` 1.0.x ↔ 2.0.x (the proc-macro ecosystem is mid-migration; both are
-// pulled in transitively). Documented allow — re-audit when the dep tree aligns.
+// dependency-version dups that cannot be resolved in azul's own source: `syn` 1.0.x
+// ↔ 2.0.x (the proc-macro ecosystem is mid-migration; both are pulled in
+// transitively). Documented allow - re-audit when the dep tree aligns.
 #![allow(clippy::multiple_crate_versions)]
 #![allow(
     clippy::non_canonical_partial_ord_impl,
@@ -69,8 +62,8 @@
     static_mut_refs,                       // TODO: migrate to OnceLock for Rust 2024
 )]
 
-// `extern crate` + `#[macro_use]` required for `no_std` support:
-// makes `core` and `alloc` macros available without `use` imports.
+// `extern crate` + `#[macro_use]` required for `no_std` support: makes `core` and
+// `alloc` macros available without `use` imports.
 #[macro_use]
 extern crate core;
 #[macro_use]
@@ -79,22 +72,18 @@ extern crate alloc;
 extern crate azul_css;
 
 /// Internal macros for `Vec`, `Option`, and callback boilerplate.
-///
 #[macro_use]
 pub mod macros;
 /// Debug logging system with category filtering.
 #[macro_use]
 pub mod debug;
-/// SQL database POD types — `DbValue` + `DbRows` (engine-agnostic). The
-/// `Db` handle + SQLite engine live in `azul_dll` behind `db-sqlite`.
+/// SQL database POD types - `DbValue` + `DbRows` (engine-agnostic). The `Db` handle
+/// + SQLite engine live in `azul_dll` behind `db-sqlite`.
 pub mod db;
 /// Unified `AZ_PROFILE` gate for memory and CPU profiling instrumentation.
 pub mod profile;
-/// `no_std`-friendly synchronization primitives.
-///
-/// In `std` builds these re-export the matching `std::sync` types. In
-/// `no_std` builds they provide minimal spinlock-backed equivalents
-/// implementing only the API surface azul-core relies on.
+/// `no_std`-friendly synchronization primitives. In `std` builds these re-export
+/// the matching `std::sync` types.
 pub mod sync {
     #[cfg(feature = "std")]
     pub use std::sync::OnceLock;
@@ -111,8 +100,8 @@ pub mod sync {
         const BUSY: u8 = 1;
         const READY: u8 = 2;
 
-        /// Minimal `no_std` `OnceLock` mirroring the slice of the std API used
-        /// by azul-core (`new`, `get`, `get_or_init`).
+        /// Minimal `no_std` `OnceLock` mirroring the slice of the std API used by
+        /// azul-core (`new`, `get`, `get_or_init`).
         pub struct OnceLock<T> {
             state: AtomicU8,
             value: UnsafeCell<Option<T>>,
@@ -190,13 +179,8 @@ pub mod sync {
     }
 }
 
-/// `no_std`-friendly default hasher used for change-detection hashing.
-///
-/// In `std` builds this re-exports `std::hash::DefaultHasher` so behaviour
-/// is unchanged. In `no_std` builds it provides a small deterministic
-/// `FxHasher`-style hasher implementing `core::hash::Hasher`. The values are
-/// only required to be stable within a single process run (they back diffing /
-/// change detection), not to match `std`'s `SipHash` output.
+/// `no_std`-friendly default hasher used for change-detection hashing. In `std`
+/// builds this re-exports `std::hash::DefaultHasher` so behaviour is unchanged.
 pub mod hash {
     #[cfg(feature = "std")]
     pub use std::hash::DefaultHasher;
@@ -262,37 +246,26 @@ pub mod hash {
 /// Callback types: layout, event, timer, thread, and focus handling.
 #[macro_use]
 pub mod callbacks;
-/// Host-language callback invoker registry.
-///
-/// The C-ABI surface managed-FFI bindings (Lua, Ruby, …) use to register one
-/// per-kind invoker + a single shared releaser, so callbacks can be created via
-/// `_createFromHostHandle` without the host having to generate trampolines for
-/// struct-by-value signatures their FFI library can't handle.
+/// Host-language callback invoker registry. The C-ABI surface managed-FFI bindings
+/// (Lua, Ruby, …) use to register one per-kind invoker + a single shared releaser,
+/// so callbacks can be created via `_createFromHostHandle` without the host having
+/// to generate trampolines for struct-by-value signatures their FFI library can't
+/// handle.
 #[macro_use]
 pub mod host_invoker;
-/// Accessibility types for screen-reader integration (AccessKit).
-/// DOM-morph animation.
-///
-/// Interpolation core (springs + easing), FLIP geometry, and the keyed
-/// store of in-flight animations..
+/// Accessibility types for screen-reader integration (AccessKit). DOM-morph
+/// animation.
 pub mod animation;
 pub mod a11y;
-/// Audio POD types — `AudioConfig` (stream format) + `AudioFrame` (interleaved
-/// f32 samples).
-///
-/// The unit captured from the mic, played back, and (P8) shared
-/// over UDP. Backend (rodio / cpal / AVAudioEngine / AAudio) lives dll-side.
+/// Audio POD types - `AudioConfig` (stream format) + `AudioFrame` (interleaved f32
+/// samples). The unit captured from the mic, played back, and (P8) shared over UDP.
 pub mod audio;
-/// Biometric-auth POD types — `BiometricKind` + `BiometricResult` + `BiometricPrompt`.
-///
-/// Stateful manager lives in `azul_layout::managers::biometric`.
+/// Biometric-auth POD types - `BiometricKind` + `BiometricResult` +
+/// `BiometricPrompt`. Stateful manager lives in `azul_layout::managers::biometric`.
 pub mod biometric;
-/// Camera-capture POD types — `CaptureStreamId` + `CameraConfig` +
-/// `CameraFacing` + `StreamState` + … .
-///
-/// The stateful `CameraStream` /
-/// `CameraManager` (which own the shared `ImageRef` texture) live in
-/// `azul_layout::managers::camera`.
+/// Camera-capture POD types - `CaptureStreamId` + `CameraConfig` + `CameraFacing` +
+/// `StreamState` + … . The stateful `CameraStream` / `CameraManager` (which own the
+/// shared `ImageRef` texture) live in `azul_layout::managers::camera`.
 pub mod camera;
 /// Converts `CssPropertyCache` into compact three-tier numeric cache.
 pub mod compact;
@@ -306,19 +279,15 @@ pub mod dom;
 pub mod drag;
 /// Event filtering: mouse, keyboard, window, and synthetic events.
 pub mod events;
-/// Gamepad POD types — `GamepadId` + `GamepadButton` + `GamepadAxis` +
-/// `GamepadState`.
-///
-/// Stateful manager lives in `azul_layout::managers::gamepad`.
+/// Gamepad POD types - `GamepadId` + `GamepadButton` + `GamepadAxis` +
+/// `GamepadState`. Stateful manager lives in `azul_layout::managers::gamepad`.
 pub mod gamepad;
-/// Geolocation POD types — `LocationFix` + `GeolocationProbeConfig`.
-///
-/// Stateful manager lives in `azul_layout::managers::geolocation`.
+/// Geolocation POD types - `LocationFix` + `GeolocationProbeConfig`. Stateful
+/// manager lives in `azul_layout::managers::geolocation`.
 pub mod geolocation;
 /// Logical and physical coordinate types (`LogicalSize`, `PhysicalPosition`, etc.).
 pub mod geom;
 /// OpenGL context wrappers, shader compilation, and texture cache.
-///
 pub mod gl;
 /// FXAA (Fast Approximate Anti-Aliasing) shader.
 pub mod gl_fxaa;
@@ -326,9 +295,8 @@ pub mod gl_fxaa;
 pub mod glconst;
 /// GPU value cache for CSS transforms and opacity.
 pub mod gpu;
-/// Hit-test results (which DOM nodes are under the cursor) + the type-safe
-/// hit-test tag system for compositor integration (merged from `hit_test_tag`).
-///
+/// Hit-test results (which DOM nodes are under the cursor) + the type-safe hit-test
+/// tag system for compositor integration (merged from `hit_test_tag`).
 pub mod hit_test;
 /// Icon provider system for loading icons from fonts, images, or zip packs.
 pub mod icon;
@@ -336,20 +304,16 @@ pub mod icon;
 pub mod id;
 /// JSON value types for the C API (no serde dependency).
 pub mod json;
-/// System-keyring POD types — `KeyringRequest` + `KeyringResult`.
-///
-/// Stateful manager lives in `azul_layout::managers::keyring`.
+/// System-keyring POD types - `KeyringRequest` + `KeyringResult`. Stateful manager
+/// lives in `azul_layout::managers::keyring`.
 pub mod keyring;
-/// Runtime log filtering: per-level and per-category atomics.
-///
-/// Parsed from `AZ_LOG` but changeable while the process runs. Logging is gated HERE and
-/// never by a cargo feature — see the module docs for the 2026-08-07 incident
-/// that made a compile-time gate delete the one diagnosis that was needed.
+/// Runtime log filtering: per-level and per-category atomics. Parsed from `AZ_LOG`
+/// but changeable while the process runs.
 pub mod log_filter;
 /// Menu system: context menus, dropdown menus, and menu bars.
 pub mod menu;
 /// Paged-media primitives: the `FragmentationContext` (continuous vs. paged) and
-/// `PageMargins`. The pagination/slicing logic lives in `azul_layout::solver3`.
+/// `PageMargins`.
 pub mod paged;
 /// SVG `d=""` path data parser.
 pub mod path_parser;
@@ -359,34 +323,29 @@ pub mod prop_cache;
 pub mod refany;
 /// Resource management: font/image loading, caching, and garbage collection.
 pub mod resources;
-/// Screen-capture POD types — `ScreenCaptureSource` + `ScreenCaptureConfig`.
-///
+/// Screen-capture POD types - `ScreenCaptureSource` + `ScreenCaptureConfig`.
 /// Symmetric to the camera surface (a "dumb widget" in
 /// `azul_layout::widgets::screencap`); reuses `camera`'s capture status types.
 pub mod screencap;
 /// Text selection and cursor positioning for inline content.
 pub mod selection;
-/// Motion-sensor POD types — `SensorKind` + `SensorReading`.
-///
-/// Stateful manager lives in `azul_layout::managers::sensors`.
+/// Motion-sensor POD types - `SensorKind` + `SensorReading`. Stateful manager lives
+/// in `azul_layout::managers::sensors`.
 pub mod sensors;
-/// Pointer coordinate spaces as distinct, zero-cost newtypes.
-///
-/// Window space, static layout space, border-box-local, content-box-local and
-/// scrolled content, plus the explicit ancestor-walk [`spaces::Inclusivity`].
+/// Pointer coordinate spaces as distinct, zero-cost newtypes. Window space, static
+/// layout space, border-box-local, content-box-local and scrolled content, plus the
+/// explicit ancestor-walk [`spaces::Inclusivity`].
 pub mod spaces;
 /// CSS cascade: selector matching, specificity, and property inheritance.
 pub mod style;
-/// `StyledDom` — the result of applying CSS to a DOM tree (the CSSOM).
+/// `StyledDom` - the result of applying CSS to a DOM tree (the CSSOM).
 pub mod styled_dom;
 /// SVG rendering, path tessellation, and geometric operations.
 pub mod svg;
 /// Timer, thread, and async task management.
 pub mod task;
-/// System tray / status icon POD types.
-///
-/// Icon bitmaps, category/status and the tray event kinds. The OS plumbing
-/// lives in `azul-dll` (`desktop/tray`).
+/// System tray / status icon POD types. Icon bitmaps, category/status and the tray
+/// event kinds.
 pub mod tray;
 /// 3D transform matrix computation for CSS transforms.
 pub mod transform;
@@ -396,21 +355,18 @@ pub mod ua_css;
 pub mod ui_solver;
 /// URL POD type (`Url`/`UrlParseError`); parsing gated behind the `url` feature.
 pub mod url;
-/// Video-playback POD types — `VideoConfig` (source URL + autoplay/loop).
-///
-/// Same "dumb widget" architecture (`azul_layout::widgets::video`); decoded
-/// via vk-video into the shared GL texture.
+/// Video-playback POD types - `VideoConfig` (source URL + autoplay/loop). Same
+/// "dumb widget" architecture (`azul_layout::widgets::video`); decoded via vk-video
+/// into the shared GL texture.
 pub mod video;
 /// Window configuration, input state, and platform-specific options.
 pub mod window;
 /// XML and XHTML parsing for declarative UI definitions.
 pub mod xml;
 
-/// Ordered map alias used throughout `azul-core`.
-///
-/// This is backed by `BTreeMap` (not a hash map) because the `core` crate
-/// supports `no_std`, where `HashMap` is unavailable. The webrender crates
-/// define their own `FastHashMap` using `HashMap` + `FxHasher`.
+/// Ordered map alias used throughout `azul-core`. This is backed by `BTreeMap` (not
+/// a hash map) because the `core` crate supports `no_std`, where `HashMap` is
+/// unavailable.
 pub type OrderedMap<T, U> = alloc::collections::BTreeMap<T, U>;
 pub type FastBTreeSet<T> = alloc::collections::BTreeSet<T>;
 
@@ -428,15 +384,12 @@ mod autotest_generated {
     // NOTE: `sync::OnceLock` and `hash::DefaultHasher` are *aliases*: with the
     // (default) `std` feature they re-export `std::sync::OnceLock` /
     // `std::hash::DefaultHasher`; without it they resolve to the hand-written
-    // `no_std` shims in this file. Tests below are split accordingly:
-    //   * un-gated  -> the API contract BOTH impls must satisfy,
-    //   * cfg-gated -> behaviour that is specific to one impl.
-    // `DefaultHasher::add` is private to the private `hash::nostd` module, so it
-    // is not nameable from here; `write_u64` forwards to it 1:1 and is used as
-    // the proxy for the numeric/overflow cases.
+    // `no_std` shims in this file. Tests below are split accordingly: * un-gated ->
+    // the API contract BOTH impls must satisfy, * cfg-gated -> behaviour that is
+    // specific to one impl.
 
     // ---------------------------------------------------------------
-    // OnceLock — constructor / getter invariants
+    // OnceLock - constructor / getter invariants
     // ---------------------------------------------------------------
 
     #[test]
@@ -587,12 +540,9 @@ mod autotest_generated {
     }
 
     // The `std` OnceLock documents that a panicking `f` leaves the cell
-    // *uninitialized* (and re-initializable) rather than poisoned.
-    //
-    // The `no_std` shim in this file does NOT hold this property: it leaves
-    // `state == BUSY`, so any later `get_or_init` spins forever. This test is
-    // therefore std-gated on purpose — running it under `no_std` would hang the
-    // test binary instead of failing it.
+    // *uninitialized* (and re-initializable) rather than poisoned. The `no_std` shim
+    // in this file does NOT hold this property: it leaves `state == BUSY`, so any
+    // later `get_or_init` spins forever.
     #[cfg(feature = "std")]
     #[test]
     fn oncelock_panicking_initializer_leaves_cell_reusable() {
@@ -611,7 +561,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------
-    // DefaultHasher — construction / determinism
+    // DefaultHasher - construction / determinism
     // ---------------------------------------------------------------
 
     fn hash_bytes(bytes: &[u8]) -> u64 {
@@ -673,8 +623,8 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------
-    // DefaultHasher — numeric limits / overflow (exercises the private `add`
-    // via its 1:1 forwarders `write_u64` / `write_usize` / `write_u8`)
+    // DefaultHasher - numeric limits / overflow (exercises the private `add` via
+    // its 1:1 forwarders `write_u64` / `write_usize` / `write_u8`)
     // ---------------------------------------------------------------
 
     #[test]
@@ -706,8 +656,8 @@ mod autotest_generated {
 
     #[test]
     fn hasher_repeated_max_words_do_not_overflow_panic() {
-        // Hammer the wrapping rotate/xor/multiply chain: every iteration
-        // overflows u64. Must wrap, never panic (even in a debug profile).
+        // Hammer the wrapping rotate/xor/multiply chain: every iteration overflows
+        // u64. Must wrap, never panic (even in a debug profile).
         let mut h = DefaultHasher::new();
         for _ in 0..10_000 {
             h.write_u64(u64::MAX);
@@ -737,7 +687,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------
-    // DefaultHasher — `write` chunking / boundaries / unicode
+    // DefaultHasher - `write` chunking / boundaries / unicode
     // ---------------------------------------------------------------
 
     #[test]
@@ -762,20 +712,16 @@ mod autotest_generated {
             let slice = &data[..len];
             assert_eq!(hash_bytes(slice), hash_bytes(slice), "len {len}");
         }
-        // A short slice must not collide with the same slice explicitly padded
-        // out past the next 8-byte chunk boundary.
+        // A short slice must not collide with the same slice explicitly padded out
+        // past the next 8-byte chunk boundary.
         assert_ne!(hash_bytes(&[1u8]), hash_bytes(&[1u8, 0, 0, 0, 0, 0, 0, 0, 0]));
     }
 
     // `write` must not swallow a trailing zero byte: `[1]` and `[1, 0]` are
-    // different inputs and must hash differently.
-    //
-    // The `no_std` shim FAILS this: it zero-pads the final `chunks(8)` chunk
-    // and mixes in no length, so `[1]` and `[1, 0]` both become the word
-    // `0x0000_0000_0000_0001` — a guaranteed collision for every pair of byte
-    // strings differing only in trailing zeros. Kept as a live assertion for
-    // the (default) `std` build and `ignore`d rather than weakened under
-    // `no_std`; see the autotest report.
+    // different inputs and must hash differently. The `no_std` shim FAILS this: it
+    // zero-pads the final `chunks(8)` chunk and mixes in no length, so `[1]` and
+    // `[1, 0]` both become the word `0x0000_0000_0000_0001` - a guaranteed collision
+    // for every pair of byte strings differing only in trailing zeros.
     #[cfg_attr(
         not(feature = "std"),
         ignore = "no_std DefaultHasher zero-pads without length mixing: hash([1]) == hash([1, 0])"
@@ -849,8 +795,8 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------
-    // `no_std` shim internals: exact FxHasher-style formula of the private
-    // `add`, reached through its 1:1 forwarder `write_u64`.
+    // `no_std` shim internals: exact FxHasher-style formula of the private `add`,
+    // reached through its 1:1 forwarder `write_u64`.
     // ---------------------------------------------------------------
 
     #[cfg(not(feature = "std"))]
@@ -886,9 +832,9 @@ mod autotest_generated {
     #[cfg(not(feature = "std"))]
     #[test]
     fn nostd_hasher_zero_is_an_absorbing_state() {
-        // Documented FxHasher weakness, asserted so it stays *intentional*:
-        // from a zero state, hashing zero words keeps the state at zero
-        // ((0.rotate_left(5) ^ 0) * SEED == 0).
+        // Documented FxHasher weakness, asserted so it stays *intentional*: from a
+        // zero state, hashing zero words keeps the state at zero ((0.rotate_left(5)
+        // ^ 0) * SEED == 0).
         let mut h = DefaultHasher::new();
         for _ in 0..64 {
             h.write_u64(0);
@@ -907,7 +853,8 @@ mod autotest_generated {
     #[cfg(not(feature = "std"))]
     #[test]
     fn nostd_hasher_write_empty_slice_is_a_noop() {
-        // `chunks(8)` over an empty slice yields nothing, so the state is untouched.
+        // `chunks(8)` over an empty slice yields nothing, so the state is
+        // untouched.
         let mut h = DefaultHasher::new();
         h.write(b"seed");
         let before = h.finish();
@@ -916,7 +863,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------
-    // Public type aliases — ordering / dedup invariants
+    // Public type aliases - ordering / dedup invariants
     // ---------------------------------------------------------------
 
     #[test]

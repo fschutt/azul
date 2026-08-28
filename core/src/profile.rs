@@ -1,61 +1,10 @@
-//! Unified profiling gate.
-//!
-//! Reads `AZ_PROFILE` once on first access, caches the result forever.
-//! Value is a comma-separated list of tokens; unknown tokens are ignored,
-//! whitespace is trimmed, matching is case-insensitive.
-//!
-//! Tokens:
-//! - `memory`  — heap-breakdown dumps (StyledDom, LayoutCache, text cache,
-//!               cascade maps, RSS). Printed to stderr once per frame.
-//! - `cpu`     — per-phase wall-clock timings from `Probe::span` (layout,
-//!               style, cascade, paint, callbacks, …), dumped once per
-//!               frame so stuttering frames are easy to spot.
-//! - `cascade` — narrow diagnostic for prop-cache work: top-N CSS
-//!               properties by cascade-walk count per frame.
-//! - `heap`    — phase-boundary heap probes in `regenerate_layout`
-//!               (`emit_phase_heap`). By themselves print nothing —
-//!               pair with `jsonl` + `AZ_PROFILE_OUT` to persist.
-//! - `jsonl`   — format heap probes as JSONL to the file named by
-//!               `AZ_PROFILE_OUT=<path>`. Requires `heap` to do anything.
-//! - `detail`  — opt-in to the fine-grained per-step probes inside each
-//!               phase (e.g. `rf_*` labels inside
-//!               `rust_fontconfig::request_fonts`, and the `_extra`
-//!               cache-size payloads). Layered on top of `heap`.
-//!
-//! ## Examples
-//! - `AZ_PROFILE=cpu` — per-phase CPU timings to stderr.
-//! - `AZ_PROFILE=heap,jsonl AZ_PROFILE_OUT=/tmp/run.jsonl`
-//!     → coarse phase heap probes to JSONL.
-//! - `AZ_PROFILE=heap,jsonl,detail AZ_PROFILE_OUT=/tmp/detail.jsonl`
-//!     → fine-grained (per-step) heap probes to JSONL.
-//! - `AZ_PROFILE=cpu,cascade` — both dumps simultaneously.
-//!
-//! Tokens are independent flags, not mutually exclusive modes. Unset
-//! or empty leaves every quick path silent.
-//!
-//! ## Path for jsonl output
-//! `AZ_PROFILE_OUT` is read separately (not folded into `AZ_PROFILE`
-//! because the value can contain `,` and `=` and a path is a different
-//! shape from a flag). When `jsonl` is set but `AZ_PROFILE_OUT` is
-//! unset, writers silently skip — no stderr fallback so benchmarks
-//! don't get polluted.
-//!
-//! ## Portability
-//! - **macOS / Linux**: full support. Span timings via `Instant`; RSS
-//!   checkpoints via `task_info` / `/proc/self/statm`.
-//! - **Windows**: span timings work. RSS checkpoints silently read 0
-//!   (the RSS helpers in `azul_layout::probe` are `cfg(unix)`-gated).
-//! - **WASM (`target_family = "wasm"`)**: `Instant::now()` panics on
-//!   browser WASM (no monotonic clock) and `libc::getrusage` isn't
-//!   available. The probe module detects WASM at compile time and
-//!   forces the no-op impl.
+//! Unified profiling gate. Reads `AZ_PROFILE` once on first access, caches the
+//! result forever.
 
 #[cfg(feature = "std")]
 use std::sync::OnceLock;
 
 /// Set of active `AZ_PROFILE` tokens. Parsed once from the env var.
-// independent profile toggles parsed from the env var; a bitflags type would
-// not improve this flat set of named booleans.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProfileFlags {
@@ -98,10 +47,10 @@ pub fn flags() -> ProfileFlags {
         let f = std::env::var("AZ_PROFILE")
             .map(|v| ProfileFlags::parse(&v))
             .unwrap_or_default();
-        // The announce table: a profile mode that silently emits NOTHING
-        // reads as "not looking" and has repeatedly burned real debugging
-        // time ("a zero is not a measurement"). One line, once, at the
-        // single point every mode resolves through.
+        // The announce table: a profile mode that silently emits NOTHING reads as
+        // "not looking" and has repeatedly burned real debugging time ("a zero is
+        // not a measurement"). One line, once, at the single point every mode
+        // resolves through.
         if f.heap && !f.jsonl {
             eprintln!(
                 "[azul][profile] AZ_PROFILE=heap alone emits nothing: use \
@@ -129,8 +78,8 @@ pub fn flags() -> ProfileFlags {
     ProfileFlags::default()
 }
 
-/// `AZ_PROFILE_OUT=<path>` — destination for JSONL heap probes.
-/// Returns `None` if unset. Cached on first access.
+/// `AZ_PROFILE_OUT=<path>` - destination for JSONL heap probes. Returns `None` if
+/// unset.
 #[cfg(feature = "std")]
 #[inline]
 pub fn out_path() -> Option<&'static str> {
@@ -272,9 +221,9 @@ mod autotest_generated {
         f.memory || f.cpu || f.cascade || f.heap || f.jsonl || f.detail
     }
 
-    /// Core soundness invariant: a flag can only be set if the token that
-    /// enables it literally occurs in the input (ASCII-case-insensitively).
-    /// `parse` never invents flags out of thin air.
+    /// Core soundness invariant: a flag can only be set if the token that enables
+    /// it literally occurs in the input (ASCII-case-insensitively). `parse` never
+    /// invents flags out of thin air.
     fn assert_flags_are_justified(input: &str, f: &ProfileFlags) {
         let lower = input.to_ascii_lowercase();
         if f.memory {
@@ -381,8 +330,8 @@ mod autotest_generated {
         assert!(ProfileFlags::parse("  heap ,  jsonl  ").heap);
         assert!(ProfileFlags::parse("  heap ,  jsonl  ").jsonl);
 
-        // Non-whitespace junk glued to the token is *not* stripped: the token
-        // must match exactly, so "valid;garbage" is rejected wholesale.
+        // Non-whitespace junk glued to the token is *not* stripped: the token must
+        // match exactly, so "valid;garbage" is rejected wholesale.
         assert_eq!(ProfileFlags::parse("cpu;garbage"), ProfileFlags::default());
         assert_eq!(ProfileFlags::parse("garbage;cpu"), ProfileFlags::default());
         assert_eq!(ProfileFlags::parse("'cpu'"), ProfileFlags::default());
@@ -469,8 +418,8 @@ mod autotest_generated {
         let repeated = "cpu,".repeat(250_000);
         let f = ProfileFlags::parse(&repeated);
         assert!(f.cpu);
-        // Repetition is a union, never a toggle: parsing "cpu" 250k times is
-        // the same as parsing it once.
+        // Repetition is a union, never a toggle: parsing "cpu" 250k times is the
+        // same as parsing it once.
         assert_eq!(f, ProfileFlags::parse("cpu"));
     }
 
@@ -537,8 +486,8 @@ mod autotest_generated {
 
     #[test]
     fn parse_trims_unicode_whitespace_around_ascii_tokens() {
-        // `str::trim` uses the Unicode White_Space property, so NBSP / EM SPACE
-        // / IDEOGRAPHIC SPACE are stripped just like ASCII spaces.
+        // `str::trim` uses the Unicode White_Space property, so NBSP / EM SPACE /
+        // IDEOGRAPHIC SPACE are stripped just like ASCII spaces.
         assert!(ProfileFlags::parse("\u{a0}cpu\u{a0}").cpu);
         assert!(ProfileFlags::parse("\u{2003}heap\u{2003}").heap);
         assert!(ProfileFlags::parse("\u{3000}jsonl").jsonl);
@@ -612,8 +561,8 @@ mod autotest_generated {
 
     #[test]
     fn parse_jsonl_does_not_implicitly_enable_heap() {
-        // The docs say `jsonl` "requires heap to do anything" — that dependency
-        // is *not* enforced at parse time, and this test pins that down.
+        // The docs say `jsonl` "requires heap to do anything" - that dependency is
+        // *not* enforced at parse time, and this test pins that down.
         let f = ProfileFlags::parse("jsonl");
         assert!(f.jsonl);
         assert!(!f.heap);
@@ -723,7 +672,7 @@ mod autotest_generated {
 
     #[test]
     fn flags_is_cached_and_stable_across_calls() {
-        // NOTE: the env var is deliberately *not* mutated here — `flags()` is a
+        // NOTE: the env var is deliberately *not* mutated here - `flags()` is a
         // process-wide `OnceLock` and tests run in parallel threads, so any
         // `set_var` would be both racy and useless after first access.
         let first = flags();
@@ -761,8 +710,8 @@ mod autotest_generated {
         for _ in 0..100 {
             assert_eq!(out_path(), first, "out_path() is not stable across calls");
         }
-        // If a path *is* configured it must be a real (possibly empty) &'static
-        // str handed back from the same cached allocation every time.
+        // If a path *is* configured it must be a real (possibly empty) &'static str
+        // handed back from the same cached allocation every time.
         if let Some(p) = first {
             assert_eq!(out_path().map(str::as_ptr), Some(p.as_ptr()));
         }
@@ -782,9 +731,9 @@ mod autotest_generated {
         assert!(!detail_enabled());
     }
 
-    /// Under `std`, `flags()` must agree with whatever `AZ_PROFILE` said at
-    /// first access — and, crucially, must keep agreeing even if the env var is
-    /// later changed by some other part of the process (it is cached forever).
+    /// Under `std`, `flags()` must agree with whatever `AZ_PROFILE` said at first
+    /// access - and, crucially, must keep agreeing even if the env var is later
+    /// changed by some other part of the process (it is cached forever).
     #[cfg(feature = "std")]
     #[test]
     fn std_flags_match_env_or_default_and_never_change() {
@@ -792,8 +741,8 @@ mod autotest_generated {
         let expected_now = std::env::var("AZ_PROFILE")
             .map(|v| ProfileFlags::parse(&v))
             .unwrap_or_default();
-        // The cache is filled on first access; within one test binary the env
-        // var is not mutated, so these must agree.
+        // The cache is filled on first access; within one test binary the env var
+        // is not mutated, so these must agree.
         assert_eq!(observed, expected_now);
         assert_eq!(flags(), observed);
     }

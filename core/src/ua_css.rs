@@ -1,34 +1,6 @@
-//! User-Agent Default Stylesheet for Azul
-//!
-//! This module provides the default CSS styling that browsers apply to HTML elements
-//! before any author stylesheets are processed. It ensures consistent baseline behavior
-//! across all applications.
-//!
-//! The user-agent stylesheet serves several critical functions:
-//!
-//! 1. **Prevents Layout Collapse**: Ensures root elements (`<html>`, `<body>`) have default
-//!    dimensions so that percentage-based child sizing can work correctly.
-//!
-//! 2. **Establishes Display Types**: Defines the default `display` property for all HTML elements
-//!    (e.g., `<div>` is `block`, `<span>` is `inline`).
-//!
-//! 3. **Provides Baseline Typography**: Sets reasonable defaults for font sizes, margins, and text
-//!    styling for headings, paragraphs, and other text elements.
-//!
-//! 4. **Normalizes Browser Behavior**: Incorporates principles from normalize.css to provide
-//!    consistent rendering across different platforms.
-//!
-//! # Licensing
-//!
-//! Based on principles from [normalize.css](https://github.com/necolas/normalize.css)
-//! (MIT License, Copyright Nicolas Gallagher and Jonathan Neal).
-//! This is NOT a direct copy but incorporates its principles and approach.
-//!
-//! # References
-//!
-//! - CSS 2.1 Specification: https://www.w3.org/TR/CSS21/
-//! - HTML Living Standard: https://html.spec.whatwg.org/
-//! - normalize.css: https://necolas.github.io/normalize.css/
+//! User-Agent Default Stylesheet for Azul This module provides the default CSS
+//! styling that browsers apply to HTML elements before any author stylesheets are
+//! processed. It ensures consistent baseline behavior across all applications.
 
 use azul_css::{
     css::CssPropertyValue,
@@ -104,13 +76,9 @@ static DISPLAY_INLINE: CssProperty =
 static DISPLAY_INLINE_BLOCK: CssProperty =
     CssProperty::Display(CssPropertyValue::Exact(LayoutDisplay::InlineBlock));
 
-/// display: none
-// <transient-window> UA defaults. `position: absolute; top: 100%` is the web
-// fallback in full: a closed popup is display:none, an open one is a block
-// anchored to the bottom edge of its parent. The NATIVE path does not read
-// these — it positions a real surface from the anchor edge instead — but they
-// are the same statement in two dialects, so an app that opts into neither
-// gets a popup that opens below its anchor on every target.
+/// display: none <transient-window> UA defaults. `position: absolute; top: 100%` is
+/// the web fallback in full: a closed popup is display:none, an open one is a block
+/// anchored to the bottom edge of its parent.
 static POSITION_ABSOLUTE: CssProperty = CssProperty::Position(CssPropertyValue::Exact(
     azul_css::props::layout::position::LayoutPosition::Absolute,
 ));
@@ -199,8 +167,8 @@ static MARGIN_RIGHT_ZERO: CssProperty =
         inner: PixelValue::const_px(0),
     }));
 
-// Chrome User-Agent Stylesheet: body { margin: 8px; }
-/// margin-top: 8px (Chrome UA default for body)
+// Chrome User-Agent Stylesheet: body { margin: 8px; } / margin-top: 8px (Chrome UA
+// default for body)
 static MARGIN_TOP_8PX: CssProperty =
     CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
         inner: PixelValue::const_px(8),
@@ -418,37 +386,27 @@ static HEIGHT_ZERO: CssProperty = CssProperty::Height(CssPropertyValue::Exact(La
     PixelValue::const_px(0),
 )));
 
-/// counter-reset: list-item 0 (default for <ul>, <ol>)
-/// Per CSS Lists Module Level 3, list containers automatically reset the list-item counter
+/// counter-reset: list-item 0 (default for <ul>, <ol>) Per CSS Lists Module Level
+/// 3, list containers automatically reset the list-item counter
 static COUNTER_RESET_LIST_ITEM: CssProperty =
     CssProperty::CounterReset(CssPropertyValue::Exact(CounterReset::list_item()));
 
-// CSS Fragmentation (Page Breaking) Properties
-//
-// Per CSS Fragmentation Level 3 and paged media best practices,
-// certain elements should avoid page breaks inside them
+// CSS Fragmentation (Page Breaking) Properties Per CSS Fragmentation Level 3 and
+// paged media best practices, certain elements should avoid page breaks inside them
 
-/// break-inside: avoid
-/// Used for elements that should not be split across page boundaries
-/// Applied to: h1-h6, table, thead, tbody, tfoot, figure, figcaption
+/// break-inside: avoid Used for elements that should not be split across page
+/// boundaries Applied to: h1-h6, table, thead, tbody, tfoot, figure, figcaption
 static BREAK_INSIDE_AVOID: CssProperty = CssProperty::break_inside(BreakInside::Avoid);
 
-/// break-after: avoid
-/// Avoids a page break after the element (useful for headings)
+/// break-after: avoid Avoids a page break after the element (useful for headings)
 static BREAK_AFTER_AVOID: CssProperty = CssProperty::break_after(PageBreak::Avoid);
 
-/// padding-inline-start: 40px (default for <li>)
-///
-/// Creates space for list markers in the inline-start direction (left in LTR, right in RTL)
-/// padding-inline-start: 40px for list items per CSS Lists Module Level 3
-/// Applied to <li> items to create gutter space for `::marker` pseudo-elements
-///
-/// NOTE: This should be on the list items, not the container, because:
-///
-/// 1. `::marker` pseudo-elements are children of <li>, not <ul>/<ol>
-/// 2. The marker needs to be positioned relative to the list item's content box
-/// 3. Padding on <li> creates space between the marker and the text content
-///    TODO: Change to `PaddingInlineStart` once logical property resolution is implemented
+/// padding-inline-start: 40px (default for <li>) Creates space for list markers in
+/// the inline-start direction (left in LTR, right in RTL) padding-inline-start: 40px
+/// for list items per CSS Lists Module Level 3 Applied to <li> items to create
+/// gutter space for `::marker` pseudo-elements NOTE: This should be on the list
+/// items, not the container, because: 1. `::marker` pseudo-elements are children of
+/// <li>, not <ul>/<ol> 2.
 static PADDING_INLINE_START_40PX: CssProperty =
     CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
         inner: PixelValue::const_px(40),
@@ -460,8 +418,8 @@ static TEXT_DECORATION_UNDERLINE: CssProperty = CssProperty::TextDecoration(
 );
 
 // --- Button Element Defaults ---
-// Per browser UA CSS, <button> has padding, border, and a system font size.
-// These ensure a button is visible even without author CSS.
+// Per browser UA CSS, <button> has padding, border, and a system font size. These
+// ensure a button is visible even without author CSS.
 
 /// font-size: 13px (standard button font size on macOS/Linux)
 static FONT_SIZE_13PX: CssProperty = CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
@@ -546,23 +504,9 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         inner: PixelValue::const_px(1),
     }));
 
-/// Returns the default user-agent CSS property value for a given node type and property.
-///
-/// This function provides the baseline styling that should be applied before any author
-/// styles. It ensures that elements have sensible defaults that prevent layout issues.
-///
-/// # Arguments
-///
-/// * `node_type` - The type of DOM node (e.g., `Body`, `H1`, `Div`)
-/// * `property_type` - The specific CSS property to query (e.g., `Width`, `Display`)
-///
-/// # Returns
-///
-/// `Some(CssProperty)` if a default value is defined for this combination, otherwise `None`.
-// Exhaustive (node-type, property-type) → default-value lookup table: many
-// element types share a default (e.g. all block elements → DISPLAY_BLOCK). One
-// arm per (NT, PT) case is intentional for readability; merging into giant
-// or-patterns would collapse the UA stylesheet table.
+/// Returns the default user-agent CSS property value for a given node type and
+/// property. This function provides the baseline styling that should be applied
+/// before any author styles.
 #[allow(clippy::match_same_arms)]
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use] pub fn get_ua_property(
@@ -577,30 +521,26 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
     match (node_type, property_type) {
         // Body Element - CRITICAL for preventing layout collapse
         (NT::Body, PT::Display) => Some(&DISPLAY_BLOCK),
-        // NOTE: Body does NOT have width: 100% in standard UA CSS - it inherits from ICB
-        // (NT::Body, PT::Height) => Some(&HEIGHT_100_PERCENT),
+        // NOTE: Body does NOT have width: 100% in standard UA CSS - it inherits
+        // from ICB (NT::Body, PT::Height) => Some(&HEIGHT_100_PERCENT),
         (NT::Body, PT::MarginTop) => Some(&MARGIN_TOP_8PX),
         (NT::Body, PT::MarginBottom) => Some(&MARGIN_BOTTOM_8PX),
         (NT::Body, PT::MarginLeft) => Some(&MARGIN_LEFT_8PX),
         (NT::Body, PT::MarginRight) => Some(&MARGIN_RIGHT_8PX),
 
-        // Block-level Elements
-        // NOTE: Do NOT set width: 100% here! Block elements have width: auto by default
-        // in CSS spec. width: auto for blocks means "fill available width" but it's NOT
-        // the same as width: 100%. The difference is critical for flexbox: width: auto
-        // allows flex-grow/flex-shrink to control sizing, while width: 100% prevents it.
+        // Block-level Elements NOTE: Do NOT set width: 100% here! Block elements
+        // have width: auto by default in CSS spec.
         (NT::Div, PT::Display) => Some(&DISPLAY_BLOCK),
-        // <transient-window>: see the statics' comment. `display` is resolved
-        // per node from `TransientWindowConfig::open` in the layout tree, so
-        // the UA value here is only the OPEN case's block-ness; a closed one is
-        // cut out before display is consulted.
+        // <transient-window>: see the statics' comment. `display` is resolved per
+        // node from `TransientWindowConfig::open` in the layout tree, so the UA
+        // value here is only the OPEN case's block-ness; a closed one is cut out
+        // before display is consulted.
         (NT::TransientWindow(_), PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::TransientWindow(_), PT::Position) => Some(&POSITION_ABSOLUTE),
         (NT::TransientWindow(_), PT::Top) => Some(&TOP_100_PERCENT),
         (NT::P, PT::Display) => Some(&DISPLAY_BLOCK),
-        // REMOVED - blocks have width: auto by default
-        // (NT::Div, PT::Width) => Some(&WIDTH_100_PERCENT),
-        // REMOVED - blocks have width: auto by default
+        // REMOVED - blocks have width: auto by default (NT::Div, PT::Width) =>
+        // Some(&WIDTH_100_PERCENT), REMOVED - blocks have width: auto by default
         // (NT::P, PT::Width) => Some(&WIDTH_100_PERCENT),
         (NT::P, PT::MarginTop) => Some(&MARGIN_TOP_1EM),
         (NT::P, PT::MarginBottom) => Some(&MARGIN_BOTTOM_1EM),
@@ -612,9 +552,9 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         (NT::Aside, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Nav, PT::Display) => Some(&DISPLAY_BLOCK),
 
-        // Headings - Chrome UA CSS values
-        // Per CSS Fragmentation Level 3: headings should avoid page breaks inside
-        // and after them (to keep heading with following content)
+        // Headings - Chrome UA CSS values Per CSS Fragmentation Level 3: headings
+        // should avoid page breaks inside and after them (to keep heading with
+        // following content)
         (NT::H1, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::H1, PT::FontSize) => Some(&FONT_SIZE_2EM),
         (NT::H1, PT::FontWeight) => Some(&FONT_WEIGHT_BOLD),
@@ -712,11 +652,12 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         (NT::Hr, PT::BorderTopWidth) => Some(&BORDER_TOP_WIDTH_1PX),
         (NT::Hr, PT::BorderTopColor) => Some(&BORDER_TOP_COLOR_GRAY),
 
-        // Table Elements
-        // Per CSS Fragmentation Level 3: table ROWS should avoid breaks inside
-        // Tables themselves should NOT have break-inside: avoid (they can span pages)
+        // Table Elements Per CSS Fragmentation Level 3: table ROWS should avoid
+        // breaks inside Tables themselves should NOT have break-inside: avoid (they
+        // can span pages)
         (NT::Table, PT::Display) => Some(&DISPLAY_TABLE),
-        // NOTE: Removed break-inside: avoid from Table - tables CAN break across pages
+        // NOTE: Removed break-inside: avoid from Table - tables CAN break across
+        // pages
         (NT::PageBreak, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::PageBreak, PT::BreakBefore) => Some(&BREAK_BEFORE_PAGE),
         (NT::THead, PT::Display) => Some(&DISPLAY_TABLE_HEADER_GROUP),
@@ -724,7 +665,8 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         (NT::THead, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
         (NT::TBody, PT::Display) => Some(&DISPLAY_TABLE_ROW_GROUP),
         (NT::TBody, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_MIDDLE),
-        // NOTE: Removed break-inside: avoid from TBody - tbody CAN break across pages
+        // NOTE: Removed break-inside: avoid from TBody - tbody CAN break across
+        // pages
         (NT::TFoot, PT::Display) => Some(&DISPLAY_TABLE_FOOTER_GROUP),
         (NT::TFoot, PT::VerticalAlign) => Some(&VERTICAL_ALIGN_MIDDLE),
         (NT::TFoot, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
@@ -768,9 +710,9 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         (NT::Button, PT::BorderBottomColor) => Some(&BUTTON_BORDER_BOTTOM_COLOR),
         (NT::Button, PT::BorderLeftColor) => Some(&BUTTON_BORDER_LEFT_COLOR),
         (NT::Button, PT::BorderRightColor) => Some(&BUTTON_BORDER_RIGHT_COLOR),
-        // Text nodes get I-beam cursor for text selection
-        // The cursor resolution algorithm ensures that explicit cursor properties
-        // on parent elements (e.g., cursor:pointer on button) take precedence
+        // Text nodes get I-beam cursor for text selection The cursor resolution
+        // algorithm ensures that explicit cursor properties on parent elements
+        // (e.g., cursor:pointer on button) take precedence
         (NT::Text(_), PT::Cursor) => Some(&CURSOR_TEXT),
         (NT::Select, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
         (NT::TextArea, PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
@@ -784,13 +726,11 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         (NT::Style, PT::Display) => Some(&DISPLAY_NONE),
         (NT::Link, PT::Display) => Some(&DISPLAY_NONE),
 
-        // Special Elements
-        // <br> is an inline-level element that forces a line break WITHIN the
-        // inline formatting context (HTML §4.5.28). Giving it `display: block`
-        // made `<p>text<br>more</p>` split into three stacked block boxes (an
+        // Special Elements <br> is an inline-level element that forces a line break
+        // WITHIN the inline formatting context (HTML §4.5.28). Giving it `display:
+        // block` made `<p>text<br>more</p>` split into three stacked block boxes (an
         // extra empty <br> box between two anonymous paragraphs), over-advancing
         // vertically and, inside a table cell, dropping the line after the break.
-        // As inline it is turned into a hard `LineBreak` by the IFC collectors.
         (NT::Br, PT::Display) => Some(&DISPLAY_INLINE),
         // Images are replaced elements - inline-block so they respect width/height
         (NT::Image(_), PT::Display) => Some(&DISPLAY_INLINE_BLOCK),
@@ -800,15 +740,15 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         (NT::Audio, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Canvas, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Svg, PT::Display) => Some(&DISPLAY_INLINE),
-        // VirtualView is a block-level replaced element (like div) — must be block
+        // VirtualView is a block-level replaced element (like div) - must be block
         // so it participates in flex layout (flex-grow, etc.)
         (NT::VirtualView, PT::Display) => Some(&DISPLAY_BLOCK),
-        // A VirtualView exists to virtualize scrollable content, so scrolling
-        // is its DEFAULT: `auto` gets it a scroll id (wheel target) and — via
-        // the virtual-size-aware necessity rule — a scrollbar exactly when
-        // the published `virtual_scroll_size` overflows the viewport. A VV
-        // that must NOT wheel-scroll (the map pans+zooms, the video widget)
-        // opts out explicitly with `overflow: hidden`, which both already do.
+        // A VirtualView exists to virtualize scrollable content, so scrolling is
+        // its DEFAULT: `auto` gets it a scroll id (wheel target) and - via the
+        // virtual-size-aware necessity rule - a scrollbar exactly when the published
+        // `virtual_scroll_size` overflows the viewport. A VV that must NOT
+        // wheel-scroll (the map pans+zooms, the video widget) opts out explicitly
+        // with `overflow: hidden`, which both already do.
         (NT::VirtualView, PT::OverflowX) => Some(&OVERFLOW_X_AUTO),
         (NT::VirtualView, PT::OverflowY) => Some(&OVERFLOW_Y_AUTO),
 
@@ -837,8 +777,8 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         (NT::Rtc, PT::Display) => Some(&DISPLAY_INLINE),
         (NT::Ruby, PT::Display) => Some(&DISPLAY_INLINE),
 
-        // Block Container Elements
-        // Per CSS Fragmentation Level 3: figures should avoid page breaks inside
+        // Block Container Elements Per CSS Fragmentation Level 3: figures should
+        // avoid page breaks inside
         (NT::FieldSet, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Figure, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Figure, PT::BreakInside) => Some(&BREAK_INSIDE_AVOID),
@@ -857,27 +797,20 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
         (NT::Menu, PT::Display) => Some(&DISPLAY_BLOCK),
         (NT::Dir, PT::Display) => Some(&DISPLAY_BLOCK),
 
-        // Html (root) Element
-        //
-        // In browsers, the viewport itself provides scrolling when <html> overflows.
-        // Since Azul has no separate viewport scroll mechanism, we set `height: 100%`
-        // on the <html> element so it fills the Initial Containing Block (the viewport).
-        // This constrains child elements like <body> to the viewport height, enabling
-        // overflow:scroll on <body> to create scrollable content areas.
-        //
-        // Without this, <html> has height:auto and grows to fit all content,
-        // making container_size == content_size, which results in a useless 100% scrollbar.
+        // Html (root) Element In browsers, the viewport itself provides scrolling
+        // when <html> overflows. Since Azul has no separate viewport scroll
+        // mechanism, we set `height: 100%` on the <html> element so it fills the
+        // Initial Containing Block (the viewport).
         (NT::Html, PT::Display) => Some(&DISPLAY_BLOCK),
-        // ⚠ DIAG (2026-06-02, REVERT): the lifted get_ua_property jump table mis-dispatches
-        // (Text/Button, Height) → THIS (Html, Height) arm → children wrongly get height:100%
-        // → fill parent (600) instead of content. Commenting it out tests whether removing the
-        // ONLY HEIGHT_100_PERCENT producer makes the children auto-height (confirms the chain).
-        // REAL fix = the node_type jump-table dispatch/table-mirror in the lift, not this.
-        // (NT::Html, PT::Height) => Some(&HEIGHT_100_PERCENT),
+        // ⚠ DIAG (2026-06-02, REVERT): the lifted get_ua_property jump table
+        // mis-dispatches (Text/Button, Height) → THIS (Html, Height) arm → children
+        // wrongly get height:100% → fill parent (600) instead of content. Commenting
+        // it out tests whether removing the ONLY HEIGHT_100_PERCENT producer makes
+        // the children auto-height (confirms the chain).
 
-        // Universal fallback for display property
-        // Per CSS spec, unknown/custom elements should default to inline
-        // Text nodes will be filtered out before this function is called
+        // Universal fallback for display property Per CSS spec, unknown/custom
+        // elements should default to inline Text nodes will be filtered out before
+        // this function is called
         (_, PT::Display) => Some(&DISPLAY_INLINE),
 
         // No default defined for other combinations
@@ -885,47 +818,12 @@ static BUTTON_BORDER_RIGHT_WIDTH: CssProperty =
     }
 }
 
-// ============================================================================
-// UA Scrollbar Defaults — individual CssPropertyWithConditions
-// ============================================================================
-//
-// These rules define the default scrollbar appearance per OS and theme,
-// using the same `@os` / `@theme` condition system as author CSS.
-// Each entry is a single CSS property (scrollbar-color or scrollbar-width)
-// with its conditions.  Rules are evaluated first-match-wins per property type.
-//
-// Conceptually equivalent to:
-//
-//   @os macos                { scrollbar-width: thin; }
-//   @os ios                  { scrollbar-width: thin; }
-//   @os android              { scrollbar-width: thin; }
-//   /* default */            { scrollbar-width: auto; }
-//
-//   @os macos                { -azul-scrollbar-visibility: when-scrolling; }
-//   @os ios                  { -azul-scrollbar-visibility: when-scrolling; }
-//   @os android              { -azul-scrollbar-visibility: when-scrolling; }
-//   /* default */            { -azul-scrollbar-visibility: always; }
-//
-//   @os macos                { -azul-scrollbar-fade-delay: 500ms; }
-//   @os ios                  { -azul-scrollbar-fade-delay: 500ms; }
-//   @os android              { -azul-scrollbar-fade-delay: 300ms; }
-//   /* default */            { -azul-scrollbar-fade-delay: 0; }
-//
-//   @os macos                { -azul-scrollbar-fade-duration: 200ms; }
-//   @os ios                  { -azul-scrollbar-fade-duration: 200ms; }
-//   @os android              { -azul-scrollbar-fade-duration: 150ms; }
-//   /* default */            { -azul-scrollbar-fade-duration: 0; }
-//
-//   @os macos @theme dark    { scrollbar-color: rgba(180,180,180,0.78) rgba(40,40,40,0.31); }
-//   @os macos @theme light   { scrollbar-color: rgba(80,80,80,0.78) rgba(200,200,200,0.31); }
-//   @os windows @theme dark  { scrollbar-color: #6e6e6e #202020; }
-//   @os windows @theme light { scrollbar-color: #828282 #f1f1f1; }
-//   @os ios @theme dark      { scrollbar-color: rgba(255,255,255,0.4) transparent; }
-//   @os ios @theme light     { scrollbar-color: rgba(0,0,0,0.4) transparent; }
-//   @os android @theme dark  { scrollbar-color: rgba(255,255,255,0.3) transparent; }
-//   @os android @theme light { scrollbar-color: rgba(0,0,0,0.3) transparent; }
-//   @theme dark              { scrollbar-color: #646464 #2d2d2d; }
-//   /* default */            { scrollbar-color: #c1c1c1 #f1f1f1; }
+// ============================================================================ UA
+// Scrollbar Defaults - individual CssPropertyWithConditions
+// ============================================================================ These
+// rules define the default scrollbar appearance per OS and theme, using the same
+// `@os` / `@theme` condition system as author CSS. Each entry is a single CSS
+// property (scrollbar-color or scrollbar-width) with its conditions.
 
 /// Helper to create a const `scrollbar-color` `CssProperty`.
 const fn scrollbar_color(thumb: ColorU, track: ColorU) -> CssProperty {
@@ -954,15 +852,11 @@ const fn scrollbar_fade_duration(ms: u32) -> CssProperty {
     CssProperty::ScrollbarFadeDuration(CssPropertyValue::Exact(ScrollbarFadeDuration::new(ms)))
 }
 
-/// UA scrollbar CSS properties with `@os` / `@theme` conditions.
-///
-/// Ordered most-specific first.  The evaluation function picks the
-/// first matching entry for each property type (`scrollbar-color`,
-/// `scrollbar-width`, `-azul-scrollbar-visibility`,
-/// `-azul-scrollbar-fade-delay`, `-azul-scrollbar-fade-duration`).
+/// UA scrollbar CSS properties with `@os` / `@theme` conditions. Ordered
+/// most-specific first.
 pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
-    // ── scrollbar-width per OS ──────────────────────────────────────────
-    // macOS → thin (overlay)
+    // ── scrollbar-width per OS ────────────────────────────────────────── macOS →
+    // thin (overlay)
     CssPropertyWithConditions::with_single_condition(
         scrollbar_width(LayoutScrollbarWidth::Thin),
         &[DynamicSelector::Os(OsCondition::MacOS)],
@@ -982,8 +876,8 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         scrollbar_width(LayoutScrollbarWidth::Auto),
     ),
 
-    // ── scrollbar-visibility per OS ─────────────────────────────────────
-    // macOS → overlay (show only when scrolling)
+    // ── scrollbar-visibility per OS ───────────────────────────────────── macOS →
+    // overlay (show only when scrolling)
     CssPropertyWithConditions::with_single_condition(
         scrollbar_visibility(ScrollbarVisibilityMode::WhenScrolling),
         &[DynamicSelector::Os(OsCondition::MacOS)],
@@ -1039,8 +933,8 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
         scrollbar_fade_duration(0),
     ),
 
-    // ── scrollbar-color per OS + theme ──────────────────────────────────
-    // macOS dark: light grey thumb on dark semi-transparent track
+    // ── scrollbar-color per OS + theme ────────────────────────────────── macOS
+    // dark: light grey thumb on dark semi-transparent track
     CssPropertyWithConditions::with_single_condition(
         scrollbar_color(
             ColorU { r: 180, g: 180, b: 180, a: 200 },
@@ -1121,10 +1015,9 @@ pub(crate) static UA_SCROLLBAR_CSS: &[CssPropertyWithConditions] = &[
     ),
 ];
 
-/// Resolved UA scrollbar defaults after evaluating conditions.
-///
-/// All fields are guaranteed to resolve because `UA_SCROLLBAR_CSS`
-/// contains unconditional fallback entries for every property type.
+/// Resolved UA scrollbar defaults after evaluating conditions. All fields are
+/// guaranteed to resolve because `UA_SCROLLBAR_CSS` contains unconditional fallback
+/// entries for every property type.
 #[derive(Debug, Copy, Clone)]
 pub struct ResolvedUaScrollbar {
     pub color: StyleScrollbarColor,
@@ -1134,11 +1027,8 @@ pub struct ResolvedUaScrollbar {
     pub fade_duration: ScrollbarFadeDuration,
 }
 
-/// Evaluate UA scrollbar CSS rules against a `DynamicSelectorContext`.
-///
-/// Iterates `UA_SCROLLBAR_CSS` and picks the first matching entry per
-/// property type.  Unconditional fallback entries in the table guarantee
-/// that every field resolves.
+/// Evaluate UA scrollbar CSS rules against a `DynamicSelectorContext`. Iterates
+/// `UA_SCROLLBAR_CSS` and picks the first matching entry per property type.
 #[must_use] pub fn evaluate_ua_scrollbar_css(ctx: &DynamicSelectorContext) -> ResolvedUaScrollbar {
     let mut color: Option<StyleScrollbarColor> = None;
     let mut width: Option<LayoutScrollbarWidth> = None;
@@ -1185,8 +1075,8 @@ pub struct ResolvedUaScrollbar {
         }
     }
 
-    // Unconditional `simple` entries in UA_SCROLLBAR_CSS guarantee all
-    // fields resolve; these defaults match those entries as a safety net.
+    // Unconditional `simple` entries in UA_SCROLLBAR_CSS guarantee all fields
+    // resolve; these defaults match those entries as a safety net.
     ResolvedUaScrollbar {
         color: color.unwrap_or(StyleScrollbarColor::Custom(ScrollbarColorCustom {
             thumb: ColorU { r: 193, g: 193, b: 193, a: 255 },
@@ -1216,12 +1106,12 @@ mod autotest_generated {
         NodeType::Text(BoxOrStatic::heap(AzString::from(s)))
     }
 
-    /// A VirtualView is a scroll container BY DEFAULT: `overflow: auto` on
-    /// both axes from the UA sheet, so app CSS no longer has to opt in (the
+    /// A VirtualView is a scroll container BY DEFAULT: `overflow: auto` on both
+    /// axes from the UA sheet, so app CSS no longer has to opt in (the
     /// virtual-size-aware necessity rule keeps bars away until the published
-    /// `virtual_scroll_size` actually overflows). Opt-outs stay explicit
-    /// (`overflow: hidden` — map/video); invisible-but-scrollable composes
-    /// via `scrollbar-width: none`.
+    /// `virtual_scroll_size` actually overflows). Opt-outs stay explicit (`overflow:
+    /// hidden` - map/video); invisible-but-scrollable composes via `scrollbar-width:
+    /// none`.
     #[test]
     fn virtual_view_defaults_to_overflow_auto_on_both_axes() {
         use azul_css::props::layout::LayoutOverflow;
@@ -1260,8 +1150,8 @@ mod autotest_generated {
     }
 
     /// Broad (not literally exhaustive) sample of `NodeType`, covering every
-    /// variant that has an arm in `get_ua_property` plus a spread of variants
-    /// that have none, so the catch-all arms get exercised too.
+    /// variant that has an arm in `get_ua_property` plus a spread of variants that
+    /// have none, so the catch-all arms get exercised too.
     fn sample_node_types() -> Vec<NodeType> {
         use crate::dom::NodeType as NT;
         vec![
@@ -1363,13 +1253,12 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // get_ua_property — table-wide invariants
+    // get_ua_property - table-wide invariants
     // ==================================================================
 
-    /// The single most important invariant of the lookup table: the property
-    /// that comes back must be *the property that was asked for*. A copy-paste
-    /// slip in the ~200-arm table (e.g. `(H1, MarginBottom) => &MARGIN_TOP_...`)
-    /// would silently mis-style elements; nothing else in the codebase checks it.
+    /// The single most important invariant of the lookup table: the property that
+    /// comes back must be *the property that was asked for*. A copy-paste slip in
+    /// the ~200-arm table (e.g.
     #[test]
     fn returned_property_always_has_the_requested_type() {
         for nt in sample_node_types() {
@@ -1424,8 +1313,8 @@ mod autotest_generated {
         }
     }
 
-    /// `cursor` is deliberately defined for exactly three node types; anything
-    /// else must return `None` so the cursor-resolution walk can inherit.
+    /// `cursor` is deliberately defined for exactly three node types; anything else
+    /// must return `None` so the cursor-resolution walk can inherit.
     #[test]
     fn cursor_default_exists_only_for_button_textarea_and_text() {
         for nt in sample_node_types() {
@@ -1436,7 +1325,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // get_ua_property — payload-carrying node types (unicode / huge / empty)
+    // get_ua_property - payload-carrying node types (unicode / huge / empty)
     // ==================================================================
 
     #[test]
@@ -1482,7 +1371,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // get_ua_property — specific, load-bearing defaults
+    // get_ua_property - specific, load-bearing defaults
     // ==================================================================
 
     /// Regression guard for the 2026-06-02 DIAG revert documented in the table:
@@ -1498,8 +1387,8 @@ mod autotest_generated {
         );
     }
 
-    /// `body { margin: 8px }` (Chrome UA), and crucially *no* width/height:
-    /// giving body a size would break percentage sizing of its children.
+    /// `body { margin: 8px }` (Chrome UA), and crucially *no* width/height: giving
+    /// body a size would break percentage sizing of its children.
     #[test]
     fn body_has_8px_margins_and_no_intrinsic_size() {
         assert_eq!(display_of(&NodeType::Body), LayoutDisplay::Block);
@@ -1511,7 +1400,7 @@ mod autotest_generated {
         assert!(get_ua_property(&NodeType::Body, CssPropertyType::Height).is_none());
     }
 
-    /// Block elements must have `width: auto`, not `width: 100%` — the comment in
+    /// Block elements must have `width: auto`, not `width: 100%` - the comment in
     /// the table calls this out as critical for flexbox (100% defeats flex-grow).
     #[test]
     fn block_elements_have_no_default_width() {
@@ -1550,7 +1439,7 @@ mod autotest_generated {
             .map(font_size_em)
             .collect();
 
-        // Chrome UA values — also verifies `const_em_fractional(1, 5)` really
+        // Chrome UA values - also verifies `const_em_fractional(1, 5)` really
         // encodes 1.5 (and not 1.05), which the digit-count encoding makes subtle.
         let expected = [2.0_f32, 1.5, 1.17, 1.0, 0.83, 0.67];
         for (i, (got, want)) in sizes.iter().zip(expected.iter()).enumerate() {
@@ -1584,7 +1473,8 @@ mod autotest_generated {
                 Some(&BREAK_AFTER_AVOID),
                 "{nt:?}"
             );
-            // Both margins must exist and be em-relative (they scale with font-size).
+            // Both margins must exist and be em-relative (they scale with
+            // font-size).
             for pt in [CssPropertyType::MarginTop, CssPropertyType::MarginBottom] {
                 assert!(get_ua_property(&nt, pt).is_some(), "{nt:?} is missing {pt:?}");
             }
@@ -1636,9 +1526,7 @@ mod autotest_generated {
         assert!(get_ua_property(&NodeType::Td, CssPropertyType::FontWeight).is_none());
     }
 
-    /// A button's border is symmetric. Crossed sides (e.g. `BorderLeftWidth`
-    /// answered with the *top* static) would render an asymmetric button, so
-    /// check that each side carries the value the table promises.
+    /// A button's border is symmetric. Crossed sides (e.g.
     #[test]
     fn button_border_is_symmetric_on_all_four_sides() {
         let widths = [
@@ -1675,8 +1563,8 @@ mod autotest_generated {
         assert_eq!(get_ua_property(&NodeType::Button, CssPropertyType::Cursor), Some(&CURSOR_POINTER));
     }
 
-    /// `<hr>` draws its line from the *border*, not from a height — height must
-    /// be exactly 0px, and the width exactly 100%.
+    /// `<hr>` draws its line from the *border*, not from a height - height must be
+    /// exactly 0px, and the width exactly 100%.
     #[test]
     fn hr_line_comes_from_the_border_not_from_height() {
         match get_ua_property(&NodeType::Hr, CssPropertyType::Height) {
@@ -1731,8 +1619,8 @@ mod autotest_generated {
         assert!(get_ua_property(&NodeType::I, CssPropertyType::FontWeight).is_none());
     }
 
-    // ==================================================================
-    // const scrollbar helpers — numeric round-trips / boundaries
+    // ================================================================== const
+    // scrollbar helpers - numeric round-trips / boundaries
     // ==================================================================
 
     #[test]
@@ -1773,7 +1661,7 @@ mod autotest_generated {
         assert_eq!(ZERO_DELAY, scrollbar_fade_delay(0));
     }
 
-    /// The two helpers take the same `u32` and differ only in the wrapper type —
+    /// The two helpers take the same `u32` and differ only in the wrapper type -
     /// exactly the shape a copy-paste bug likes. Assert they stay distinct.
     #[test]
     fn fade_delay_and_fade_duration_produce_distinct_property_types() {
@@ -1836,12 +1724,12 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // UA_SCROLLBAR_CSS — table shape invariants
+    // UA_SCROLLBAR_CSS - table shape invariants
     // ==================================================================
 
     /// `evaluate_ua_scrollbar_css` matches on exactly five property kinds and
-    /// silently drops everything else via `_ => {}`. A sixth property added to
-    /// the table would therefore never take effect — fail loudly here instead.
+    /// silently drops everything else via `_ => {}`. A sixth property added to the
+    /// table would therefore never take effect - fail loudly here instead.
     #[test]
     fn table_contains_only_property_kinds_the_evaluator_understands() {
         let understood = [
@@ -1879,8 +1767,8 @@ mod autotest_generated {
 
     /// The documented guarantee ("unconditional fallback entries … guarantee that
     /// every field resolves") plus the ordering rule it depends on: under
-    /// first-match-wins, an unconditional entry that is *not* last for its
-    /// property type would make every rule after it dead code.
+    /// first-match-wins, an unconditional entry that is *not* last for its property
+    /// type would make every rule after it dead code.
     #[test]
     fn each_property_type_has_exactly_one_unconditional_entry_and_it_is_last() {
         for ty in [
@@ -2007,12 +1895,12 @@ mod autotest_generated {
 
     /// `match_theme` compares by equality (except when the *condition* is
     /// `SystemPreferred`), so a context theme of `Custom(..)` / `SystemPreferred`
-    /// matches no `@theme` rule at all — every such context must still resolve a
+    /// matches no `@theme` rule at all - every such context must still resolve a
     /// colour, via the unconditional fallback.
     #[test]
     fn unrecognised_context_themes_fall_back_instead_of_failing() {
         for theme in [ThemeCondition::Custom(AzString::from("")), ThemeCondition::Custom(AzString::from("🎨")), ThemeCondition::SystemPreferred] {
-            // OS-conditioned properties still apply — only the theme rules miss.
+            // OS-conditioned properties still apply - only the theme rules miss.
             let r = evaluate_ua_scrollbar_css(&ctx(OsCondition::MacOS, theme.clone()));
             assert_eq!(r.width, LayoutScrollbarWidth::Thin, "{theme:?}");
             assert_eq!(r.visibility, ScrollbarVisibilityMode::WhenScrolling, "{theme:?}");
@@ -2039,8 +1927,8 @@ mod autotest_generated {
 
     /// Overlay scrollbars are a package deal: `thin` ⇔ `when-scrolling` ⇔ a
     /// non-zero fade delay ⇔ a non-zero fade duration. A per-OS rule added to one
-    /// group but forgotten in another would produce an overlay scrollbar that
-    /// never fades (or a classic one that does).
+    /// group but forgotten in another would produce an overlay scrollbar that never
+    /// fades (or a classic one that does).
     #[test]
     fn overlay_scrollbar_fields_stay_consistent_across_every_os_and_theme() {
         for os in all_os() {
@@ -2069,9 +1957,9 @@ mod autotest_generated {
         }
     }
 
-    /// The evaluator `break`s early once all five fields are filled. Cross-check
-    /// it against a straight first-match-wins scan with no early exit: the two
-    /// must agree for every context, or the optimisation changed the semantics.
+    /// The evaluator `break`s early once all five fields are filled. Cross-check it
+    /// against a straight first-match-wins scan with no early exit: the two must
+    /// agree for every context, or the optimisation changed the semantics.
     #[test]
     fn early_break_does_not_change_the_first_match_result() {
         for os in all_os() {

@@ -1,21 +1,14 @@
-//! POD types for the video-playback surface
-//! (SUPER_PLAN_2 §4 Priority 6 + research).
-//!
-//! Same "dumb widget" architecture as camera/screencap
-//! (`azul_layout::widgets::video::VideoWidget`): a background thread decodes
-//! the source (vk-video - GPU decode + HTTP-range fetch) and its writeback
-//! uploads each frame into the shared GL-texture `ImageRef` + recomposites.
-//! Defined here in `azul-core` so the config crosses the FFI without
-//! `azul-layout` (or vk-video) as a dependency.
-//!
-//! Unlike the camera/screencap configs this carries a `source` string, so
-//! it's `Clone` but not `Copy`.
+//! POD types for the video-playback surface . Same "dumb widget" architecture as
+//! camera/screencap (`azul_layout::widgets::video::VideoWidget`): a background
+//! thread decodes the source (vk-video - GPU decode + HTTP-range fetch) and its
+//! writeback uploads each frame into the shared GL-texture `ImageRef` +
+//! recomposites.
 
 use crate::resources::RawImageFormat;
 use crate::url::Url;
 use azul_css::{AzString, U8Vec};
 #[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
-/// Where a video widget pulls its H.264/MP4 data from — strongly typed so the
+/// Where a video widget pulls its H.264/MP4 data from - strongly typed so the
 /// decode worker matches on it directly (no `RefAny` downcast). Mirrors
 /// [`crate::screencap::ScreenCaptureSource`].
 #[repr(C, u8)]
@@ -43,15 +36,15 @@ pub struct VideoConfig {
     /// Where to load the video from (URL / file path / in-memory bytes).
     pub source: VideoSource,
     /// Seek / scrub position in seconds. Changing it across a relayout makes the
-    /// widget's merge callback tell the decode worker to seek (scrubbing
-    /// timeline) — the decoder survives relayout like the map's tile cache.
+    /// widget's merge callback tell the decode worker to seek (scrubbing timeline) -
+    /// the decoder survives relayout like the map's tile cache.
     pub timestamp: f32,
     /// Start playing automatically on mount.
     pub autoplay: bool,
     /// Restart from the beginning when the stream ends.
     pub looping: bool,
-    /// Texture format the decoder delivers. `BGRA8` is the portable default;
-    /// `Nv12` (a later `RawImageFormat` addition) is the zero-copy path.
+    /// Texture format the decoder delivers. `BGRA8` is the portable default; `Nv12`
+    /// (a later `RawImageFormat` addition) is the zero-copy path.
     pub output_format: RawImageFormat,
 }
 
@@ -77,13 +70,9 @@ impl VideoConfig {
     }
 }
 
-/// One captured or decoded frame - tightly-packed RGBA8 pixels
-/// (`width * height * 4`).
-///
-/// The unit a capture/decode worker produces, the
-/// `set_on_frame` hook hands to user code (effects / save / send), and (P8)
-/// azul-meet sends over UDP. Defined here (like [`crate::audio::AudioFrame`])
-/// so it crosses the FFI without `azul-layout` as a dependency.
+/// One captured or decoded frame - tightly-packed RGBA8 pixels (`width * height *
+/// 4`). The unit a capture/decode worker produces, the `set_on_frame` hook hands to
+/// user code (effects / save / send), and (P8) azul-meet sends over UDP.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoFrame {
@@ -109,24 +98,10 @@ impl VideoFrame {
 // FFI Option wrapper for a frame-pull hook / accessor. `copy = false` (U8Vec).
 impl_option!(VideoFrame, OptionVideoFrame, copy = false, [Clone, Debug]);
 
-/// One CONSUMER of a capture source's frames: a requested output size.
-///
-/// A camera or a screen share has many consumers of the same captured
-/// frame at once — the on-screen preview tile (sized by layout), a remote
-/// participant who asked for 500x200, a recorder at full size. The device
-/// captures ONCE, at the smallest size that covers every consumer
-/// (`azul_layout::image_scale::covering_size`), and every consumer gets its
-/// own resample of that one frame (`azul_layout::image_scale::fan_out`): the
-/// camera never captures more than the largest consumer needs, and nothing
-/// is ever sent bigger than the consumer asked for. Registered on a capture
-/// widget with `CameraWidget::with_consumer` /
-/// `ScreenCaptureWidget::with_consumer`; each cut frame is handed to the
-/// widget's `on_consumer_frame` hook as a [`ConsumerFrame`].
-///
-/// `id` is caller-chosen and handed back with every cut frame so one hook can
-/// serve many consumers ("client Bob" = 7, "the recorder" = 8). Id 0
-/// ([`FrameConsumer::PREVIEW_ID`]) is reserved for the widget's own on-screen
-/// tile, whose size follows layout.
+/// One CONSUMER of a capture source's frames: a requested output size. A camera or
+/// a screen share has many consumers of the same captured frame at once - the
+/// on-screen preview tile (sized by layout), a remote participant who asked for
+/// 500x200, a recorder at full size.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct FrameConsumer {
@@ -139,8 +114,8 @@ pub struct FrameConsumer {
 }
 
 impl FrameConsumer {
-    /// The id of the widget's own on-screen preview: its size follows the
-    /// laid-out node (device pixels), never the caller.
+    /// The id of the widget's own on-screen preview: its size follows the laid-out
+    /// node (device pixels), never the caller.
     pub const PREVIEW_ID: u32 = 0;
 
     /// A consumer `id` that wants `width` x `height` frames.
@@ -149,8 +124,8 @@ impl FrameConsumer {
         Self { id, width, height }
     }
 
-    /// `false` for a zero-sized request (skipped by the fan-out) or the
-    /// reserved preview id.
+    /// `false` for a zero-sized request (skipped by the fan-out) or the reserved
+    /// preview id.
     #[must_use]
     pub const fn is_valid(&self) -> bool {
         self.id != Self::PREVIEW_ID && self.width > 0 && self.height > 0
@@ -172,9 +147,9 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-/// A frame cut to one consumer's requested size: the [`FrameConsumer`] it
-/// was cut for (so one hook can route by `consumer.id`) and the resampled
-/// RGBA8 pixels (`consumer.width * consumer.height * 4`).
+/// A frame cut to one consumer's requested size: the [`FrameConsumer`] it was cut
+/// for (so one hook can route by `consumer.id`) and the resampled RGBA8 pixels
+/// (`consumer.width * consumer.height * 4`).
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsumerFrame {
@@ -194,10 +169,10 @@ impl ConsumerFrame {
 
 impl_option!(ConsumerFrame, OptionConsumerFrame, copy = false, [Clone, Debug]);
 
-// FFI `Vec<VideoFrame>` wrapper — the list a batch decode (`DecodedVideo`,
+// FFI `Vec<VideoFrame>` wrapper - the list a batch decode (`DecodedVideo`,
 // `dll::desktop::extra::video_codec::pipeline`) hands back across the C ABI.
-// `VideoFrame` derives Debug + Clone + PartialEq, so mirror exactly those Vec
-// trait impls (no PartialOrd: `VideoFrame` isn't `PartialOrd`).
+// `VideoFrame` derives Debug + Clone + PartialEq, so mirror exactly those Vec trait
+// impls (no PartialOrd: `VideoFrame` isn't `PartialOrd`).
 impl_vec!(VideoFrame, VideoFrameVec, VideoFrameVecDestructor, VideoFrameVecDestructorType, VideoFrameVecSlice, OptionVideoFrame);
 impl_vec_debug!(VideoFrame, VideoFrameVec);
 impl_vec_clone!(VideoFrame, VideoFrameVec, VideoFrameVecDestructor);
@@ -239,8 +214,8 @@ mod autotest_generated {
 
     // --- helpers ---------------------------------------------------------
 
-    /// Owned (`DefaultRust`-destructor) `U8Vec` — the shape a real decode
-    /// worker hands back, so clone/drop actually exercise the allocator.
+    /// Owned (`DefaultRust`-destructor) `U8Vec` - the shape a real decode worker
+    /// hands back, so clone/drop actually exercise the allocator.
     fn u8v(bytes: Vec<u8>) -> U8Vec {
         U8Vec::from_vec(bytes)
     }
@@ -249,8 +224,8 @@ mod autotest_generated {
         VideoFrame::new(width, height, u8v(bytes))
     }
 
-    /// The `bytes` of a `VideoSource::Bytes`; test-only, the other variants
-    /// are never passed here.
+    /// The `bytes` of a `VideoSource::Bytes`; test-only, the other variants are
+    /// never passed here.
     fn source_bytes(source: &VideoSource) -> &U8Vec {
         match source {
             VideoSource::Bytes(b) => b,
@@ -266,8 +241,8 @@ mod autotest_generated {
 
     // --- VideoConfig::new (constructor) ----------------------------------
 
-    /// invariants_hold: every non-source field is the documented default
-    /// (autoplay on, no loop, BGRA8, t=0) and `source` is stored verbatim.
+    /// invariants_hold: every non-source field is the documented default (autoplay
+    /// on, no loop, BGRA8, t=0) and `source` is stored verbatim.
     #[test]
     fn config_new_fields_match_args() {
         let url = Url::from_parts("https", "example.com", 443, "/movie.mp4");
@@ -280,7 +255,7 @@ mod autotest_generated {
         assert_eq!(c.output_format, RawImageFormat::BGRA8);
     }
 
-    /// invariants_hold: `new` sets ONLY `source` — every other field stays
+    /// invariants_hold: `new` sets ONLY `source` - every other field stays
     /// bit-for-bit identical to `Default`, for each of the three variants.
     #[test]
     fn config_new_only_overrides_source() {
@@ -308,7 +283,7 @@ mod autotest_generated {
     }
 
     /// unicode: a non-ASCII file path (emoji, CJK, RTL, combining marks) must
-    /// survive the `AzString` round-trip byte-for-byte — no truncation at a
+    /// survive the `AzString` round-trip byte-for-byte - no truncation at a
     /// multi-byte boundary, no re-encoding.
     #[test]
     fn config_new_unicode_file_path_roundtrip() {
@@ -325,9 +300,9 @@ mod autotest_generated {
         }
     }
 
-    /// malformed: an interior NUL and control bytes are legal in a Rust `str`
-    /// and must be preserved verbatim (any C-side truncation is the FFI layer's
-    /// problem, not this constructor's).
+    /// malformed: an interior NUL and control bytes are legal in a Rust `str` and
+    /// must be preserved verbatim (any C-side truncation is the FFI layer's problem,
+    /// not this constructor's).
     #[test]
     fn config_new_file_path_with_interior_nul_preserved() {
         let path = String::from("/tmp/a\0b\r\n\t.mp4");
@@ -343,7 +318,8 @@ mod autotest_generated {
         }
     }
 
-    /// boundary: an empty path / empty byte source must not panic and must stay empty.
+    /// boundary: an empty path / empty byte source must not panic and must stay
+    /// empty.
     #[test]
     fn config_new_empty_sources_no_panic() {
         let empty_file = VideoConfig::new(VideoSource::File(AzString::from(String::new())));
@@ -359,7 +335,7 @@ mod autotest_generated {
         assert_eq!(b.as_ref(), &[] as &[u8]);
     }
 
-    /// huge: a 1 MiB in-memory MP4 must move into the config with no copy loss —
+    /// huge: a 1 MiB in-memory MP4 must move into the config with no copy loss -
     /// check both ends of the buffer, not just the length.
     #[test]
     fn config_new_huge_bytes_source_preserved() {
@@ -377,9 +353,9 @@ mod autotest_generated {
         assert_eq!(b.get(N), None, "one past the end must be None, not UB");
     }
 
-    /// invariants_hold: `Clone` of a `Bytes` config is a DEEP copy — the clone
-    /// owns its own allocation and stays readable after the original is dropped
-    /// (a shallow copy here would be a double-free at the second drop).
+    /// invariants_hold: `Clone` of a `Bytes` config is a DEEP copy - the clone owns
+    /// its own allocation and stays readable after the original is dropped (a
+    /// shallow copy here would be a double-free at the second drop).
     #[test]
     fn config_clone_of_bytes_is_deep_and_survives_original_drop() {
         let original = VideoConfig::new(VideoSource::Bytes(u8v(vec![1, 2, 3, 4, 5])));
@@ -394,9 +370,9 @@ mod autotest_generated {
         assert_eq!(source_bytes(&cloned.source).as_ref(), &[1, 2, 3, 4, 5]);
     }
 
-    /// invariants_hold: the variants are genuinely distinct — a `File` path and
-    /// a `Url` with the same text are NOT equal, so the decode worker's match
-    /// can't be spoofed.
+    /// invariants_hold: the variants are genuinely distinct - a `File` path and a
+    /// `Url` with the same text are NOT equal, so the decode worker's match can't be
+    /// spoofed.
     #[test]
     fn config_source_variants_are_distinct() {
         let text = "https://example.com/v.mp4";
@@ -413,8 +389,8 @@ mod autotest_generated {
         assert_eq!(as_url.source, as_url.source.clone());
     }
 
-    /// numeric/limits: extreme scrub positions are stored verbatim (the POD does
-    /// no clamping) — infinities, subnormals and f32::MAX must not panic.
+    /// numeric/limits: extreme scrub positions are stored verbatim (the POD does no
+    /// clamping) - infinities, subnormals and f32::MAX must not panic.
     #[test]
     fn config_extreme_timestamps_stored_verbatim() {
         let base = VideoConfig::new(VideoSource::default());
@@ -440,8 +416,8 @@ mod autotest_generated {
 
     /// numeric/NaN: derived `PartialEq` over an f32 field means a NaN timestamp
     /// makes a config unequal to an identical config (reflexivity is broken).
-    /// Callers must not use `VideoConfig` equality to decide "did the seek
-    /// change?" if a NaN can reach `timestamp` — assert the hazard explicitly.
+    /// Callers must not use `VideoConfig` equality to decide "did the seek change?"
+    /// if a NaN can reach `timestamp` - assert the hazard explicitly.
     #[test]
     fn config_nan_timestamp_breaks_reflexive_equality() {
         let nan_a = VideoConfig {
@@ -459,7 +435,7 @@ mod autotest_generated {
         assert_eq!(fresh, fresh.clone());
     }
 
-    /// numeric: -0.0 compares EQUAL to +0.0 (IEEE), even though the bits differ —
+    /// numeric: -0.0 compares EQUAL to +0.0 (IEEE), even though the bits differ -
     /// so a config scrubbed to -0.0 is `==` to a freshly constructed one.
     #[test]
     fn config_negative_zero_timestamp_equals_default() {
@@ -476,7 +452,8 @@ mod autotest_generated {
 
     // --- VideoFrame::new (constructor) -----------------------------------
 
-    /// invariants_hold: fields match the exact args and the byte buffer round-trips.
+    /// invariants_hold: fields match the exact args and the byte buffer
+    /// round-trips.
     #[test]
     fn frame_new_fields_match_args() {
         let pixels: Vec<u8> = (0..(3 * 2 * 4)).map(|i| i as u8).collect();
@@ -529,9 +506,9 @@ mod autotest_generated {
     }
 
     /// numeric/overflow: `new` accepts u32::MAX dimensions without panicking or
-    /// touching `bytes` — it never computes `w * h * 4`. It is therefore the
-    /// CALLER that must do the size math in u128: at these dimensions the
-    /// declared buffer size overflows even u64.
+    /// touching `bytes` - it never computes `w * h * 4`. It is therefore the CALLER
+    /// that must do the size math in u128: at these dimensions the declared buffer
+    /// size overflows even u64.
     #[test]
     fn frame_new_max_dimensions_no_panic_and_size_math_overflows() {
         let f = VideoFrame::new(u32::MAX, u32::MAX, U8Vec::from_vec(Vec::new()));
@@ -554,7 +531,7 @@ mod autotest_generated {
     }
 
     /// numeric/boundary: 32768x32768 is the smallest square frame whose RGBA byte
-    /// count (2^32) no longer fits in u32 — the constructor still accepts it.
+    /// count (2^32) no longer fits in u32 - the constructor still accepts it.
     #[test]
     fn frame_new_u32_pixel_size_overflow_boundary() {
         let f = VideoFrame::new(32_768, 32_768, U8Vec::from_vec(Vec::new()));
@@ -573,10 +550,10 @@ mod autotest_generated {
         );
     }
 
-    /// invariants_hold: `new` is a pure wrapper — it does NOT enforce
-    /// `bytes.len() == width * height * 4`. A short buffer is accepted as-is, so
-    /// consumers must validate before indexing (this is the documented contract,
-    /// pinned here so a future "validating" rewrite can't land silently).
+    /// invariants_hold: `new` is a pure wrapper - it does NOT enforce `bytes.len()
+    /// == width * height * 4`. A short buffer is accepted as-is, so consumers must
+    /// validate before indexing (this is the documented contract, pinned here so a
+    /// future "validating" rewrite can't land silently).
     #[test]
     fn frame_new_does_not_validate_buffer_length() {
         let short = frame(1, 1, vec![0xAA, 0xBB, 0xCC]); // 3 B, needs 4
@@ -603,7 +580,7 @@ mod autotest_generated {
         assert_eq!(u128::from(F.bytes.len() as u64), declared_len(1, 1));
     }
 
-    /// invariants_hold: equality is field-wise — differing width, height or a
+    /// invariants_hold: equality is field-wise - differing width, height or a
     /// single differing pixel byte all compare unequal.
     #[test]
     fn frame_equality_is_fieldwise() {
@@ -615,7 +592,7 @@ mod autotest_generated {
         assert_ne!(base, frame(2, 1, vec![1, 2, 3, 4]), "truncated buffer differs");
     }
 
-    /// invariants_hold: `Clone` deep-copies the pixels — the clone outlives the
+    /// invariants_hold: `Clone` deep-copies the pixels - the clone outlives the
     /// original's drop and owns a distinct allocation.
     #[test]
     fn frame_clone_is_deep_and_survives_original_drop() {
@@ -655,7 +632,8 @@ mod autotest_generated {
         assert_eq!(OptionVideoFrame::default().into_option(), None);
     }
 
-    /// invariants_hold: `replace` returns the PREVIOUS value (mem::replace semantics).
+    /// invariants_hold: `replace` returns the PREVIOUS value (mem::replace
+    /// semantics).
     #[test]
     fn option_video_frame_replace_returns_previous() {
         let first = frame(1, 1, vec![1, 1, 1, 1]);
@@ -711,9 +689,9 @@ mod autotest_generated {
         assert_eq!(VideoFrameVec::new(), v);
     }
 
-    /// invariants_hold: a `'static`-backed (`NoDestructor`) frame list — the
-    /// const-data path across the FFI — reads back identically and its drop must
-    /// not free the static memory.
+    /// invariants_hold: a `'static`-backed (`NoDestructor`) frame list - the
+    /// const-data path across the FFI - reads back identically and its drop must not
+    /// free the static memory.
     #[test]
     fn frame_vec_from_const_slice_no_destructor() {
         static FRAMES: [VideoFrame; 2] = [

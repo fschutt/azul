@@ -1,72 +1,6 @@
-//! Generic icon provider system for Azul
-//!
-//! This module defines a generic, callback-based icon resolution infrastructure.
-//! The actual parsing/loading implementations live in `azul-layout`.
-//!
-//! # Architecture
-//!
-//! The icon system is fully generic using RefAny:
-//!
-//! 1. `IconProviderHandle` - stores icons in nested map: pack_name → (icon_name → RefAny)
-//! 2. The resolver callback turns (icon_data, original_dom) into a StyledDom
-//! 3. Differentiation between Image/Font/SVG/etc. is via RefAny::downcast
-//! 4. Supports any icon source: images, fonts, SVGs, animated icons, etc.
-//!
-//! # Resolution Flow
-//!
-//! 1. User creates Icon nodes: `Dom::create_icon("home")`
-//! 2. Before layout, `resolve_icons_in_styled_dom()` is called
-//! 3. Each Icon node is looked up across all packs (first match wins)
-//! 4. The resolver callback is invoked with the found RefAny data + original DOM
-//! 5. The callback returns a StyledDom subtree that replaces the icon node
-//!
-//! # Caching
-//!
-//! Resolution results are CACHED on the [`SharedIconProvider`], keyed by
-//! (icon spec, the original icon node's full `NodeData`, its `StyledNode`),
-//! and flushed when the `SystemStyle` changes. The engine calls
-//! `resolve_icons_in_styled_dom` on EVERY DOM regeneration — during a Wayland
-//! drag-resize that is one call per pixel of mouse movement (373 in a measured
-//! 5-second drag), and each un-cached resolution runs `StyledDom::create`'s
-//! full single-node cascade whose output is then thrown away by the host's
-//! own cascade recompute. ~66 ribbon icons × 373 regenerations ≈ 24 600
-//! throwaway cascades per drag, all yielding bit-identical results
-//!.
-//!
-//! The cache stores the resolver's output DECONSTRUCTED into exactly the
-//! fields the replacement consumes (node type, inline style, accessibility,
-//! styled node), so a hit is four field clones — no `Dom`, no `StyledDom`,
-//! no cascade, no `CssPropertyCache`, not even the single-node extraction of
-//! the original.
-//!
-//! Correctness notes:
-//! - The KEY includes the whole original `NodeData` + `StyledNode`, because a
-//!   custom resolver may read anything from `original_icon_dom` (the default
-//!   one copies inline styles and accessibility info). Same name with
-//!   different inline styles → separate entries; a hover-state flip on the
-//!   node → different `StyledNode` → re-resolve.
-//! - The icon SET and the resolver are frozen once the provider is shared
-//!   (`App::run` consumes the handle; `SharedIconProvider` exposes no
-//!   registration), so registration invalidation cannot be needed post-share.
-//! - "Animated icons" remain compatible: animation is carried by the DATA the
-//!   resolver returns (e.g. an image-callback node that animates per frame),
-//!   not by re-resolving per frame — re-resolution only ever happened on DOM
-//!   regeneration anyway.
-//!
-//! # Custom Resolvers
-//!
-//! Users can provide custom C callbacks for complete control:
-//!
-//! ```c
-//! AzStyledDom my_resolver(
-//!     AzRefAny* icon_data,           // NULL if icon not found
-//!     AzStyledDom* original_icon_dom, // Contains icon_name, styles, a11y
-//!     AzSystemStyle* system_style
-//! ) {
-//!     // Custom resolution logic - icon_data contains your registered data
-//!     return create_my_icon_dom(...);
-//! }
-//! ```
+//! Generic icon provider system for Azul This module defines a generic,
+//! callback-based icon resolution infrastructure. The actual parsing/loading
+//! implementations live in `azul-layout`.
 
 use alloc::{
     boxed::Box,
@@ -84,8 +18,8 @@ use std::sync::Mutex;
 #[cfg(not(feature = "std"))]
 use self::nostd_lock::Mutex;
 
-/// Minimal `no_std` spinlock that mirrors the slice of the `std::sync::Mutex`
-/// API actually used by this module (`new` + `lock` returning a `Result`).
+/// Minimal `no_std` spinlock that mirrors the slice of the `std::sync::Mutex` API
+/// actually used by this module (`new` + `lock` returning a `Result`).
 #[cfg(not(feature = "std"))]
 mod nostd_lock {
     use core::cell::UnsafeCell;
@@ -164,18 +98,11 @@ const FONT_ICON_DATA_TYPE_NAME: &str = "FontIconData";
 
 // Icon Resolver Callback
 
-/// Callback type for resolving icon data to a `StyledDom`.
-///
-/// Parameters:
-/// - `icon_data`: The `RefAny` data from the icon pack (cloned, or None if not found)
-/// - `original_icon_dom`: The original icon node's `StyledDom` (contains inline styles, a11y info, `icon_name`)
-/// - `system_style`: Current system style (theme, colors, etc.)
-///
-/// Returns: A `StyledDom` that will replace the icon node.
-/// The resolver should copy relevant styles from `original_icon_dom` to the result.
-/// Return an empty `StyledDom` to show a placeholder or nothing.
-///
-/// Note: `icon_name` is accessible via `original_icon_dom.node_data[0].get_node_type()` → `NodeType::Icon(name)`
+/// Callback type for resolving icon data to a `StyledDom`. Parameters: -
+/// `icon_data`: The `RefAny` data from the icon pack (cloned, or None if not found)
+/// - `original_icon_dom`: The original icon node's `StyledDom` (contains inline
+/// styles, a11y info, `icon_name`) - `system_style`: Current system style (theme,
+/// colors, etc.) Returns: A `StyledDom` that will replace the icon node.
 pub type IconResolverCallbackType = extern "C" fn(
     icon_data: OptionRefAny,
     original_icon_node: &NodeData,
@@ -196,8 +123,8 @@ pub type IconResolverCallbackType = extern "C" fn(
 /// Inner data for `IconProviderHandle` - all fields behind single mutex
 #[derive(Debug, Clone)]
 pub struct IconProviderInner {
-    /// Nested map: `pack_name` → (`icon_name` → `RefAny`)
-    /// Differentiation between Image/Font/SVG is via `RefAny::downcast`
+    /// Nested map: `pack_name` → (`icon_name` → `RefAny`) Differentiation between
+    /// Image/Font/SVG is via `RefAny::downcast`
     pub icons: BTreeMap<String, BTreeMap<String, RefAny>>,
     /// The resolver callback
     pub resolver: IconResolverCallbackType,
@@ -214,26 +141,13 @@ impl Default for IconProviderInner {
 
 // Icon Provider Handle
 
-/// Icon provider stored in `AppConfig`.
-///
-/// This is a Box<IconProviderInner> for C FFI compatibility.
-/// When `App::run()` is called, it gets converted to Arc<Mutex<IconProviderInner>>
-/// and cloned to each window.
-///
-/// Icons are stored in a nested map: `pack_name` → (`icon_name` → `RefAny`)
-/// This allows:
-/// - Multiple packs with different sources (app-images, material-icons, etc.)
-/// - Easy unregistration of entire packs
-/// - First-match-wins lookup across all packs
+/// Icon provider stored in `AppConfig`. This is a Box<IconProviderInner> for C FFI
+/// compatibility.
 #[repr(C)]
 pub struct IconProviderHandle {
     /// Boxed inner data - Box<T> is repr(C) compatible (single pointer).
     /// `ManuallyDrop` so the Box is freed ONLY by our `Drop` (gated on
-    /// `run_destructor`), never by drop-glue. The codegen Az wrapper nests an
-    /// `AzIconProviderHandle` field (in `AzAppConfig`) whose own `Drop` re-runs
-    /// `_delete` -> `drop_in_place::<IconProviderHandle>` on the SAME bytes; with
-    /// a bare `Box` the glue freed it a second time -> double free. Same
-    /// convention as `GlContextPtr` / `CssPropertyCachePtr`.
+    /// `run_destructor`), never by drop-glue.
     pub inner: ManuallyDrop<Box<IconProviderInner>>,
     pub run_destructor: bool,
 }
@@ -250,7 +164,8 @@ impl Clone for IconProviderHandle {
 impl Drop for IconProviderHandle {
     fn drop(&mut self) {
         // First drop (run_destructor still true) frees the Box and clears the flag
-        // in the shared bytes; the codegen's redundant second drop sees false -> no-op.
+        // in the shared bytes; the codegen's redundant second drop sees false ->
+        // no-op.
         if self.run_destructor {
             self.run_destructor = false;
             unsafe {
@@ -279,15 +194,10 @@ impl Default for IconProviderHandle {
 }
 
 impl IconProviderInner {
-    /// Resolves an icon SPEC to registered icon data.
-    ///
-    /// A spec is a comma-separated fallback list of entries, each either a
-    /// bare icon name (`"content_copy"`, searched across all packs in
-    /// registration order, first match wins) or a pack-qualified name
-    /// (`"material-icons:save"`, searched only in that pack). The first
-    /// entry that resolves wins, so markup can express per-platform
-    /// fallbacks: `<icon>ios:open_menu,kde:three-lines,menu</icon>`.
-    /// Icon names are case-insensitive; pack names are case-sensitive.
+    /// Resolves an icon SPEC to registered icon data. A spec is a comma-separated
+    /// fallback list of entries, each either a bare icon name (`"content_copy"`,
+    /// searched across all packs in registration order, first match wins) or a
+    /// pack-qualified name (`"material-icons:save"`, searched only in that pack).
     #[must_use] pub fn lookup_spec(&self, spec: &str) -> Option<RefAny> {
         // Verbatim first: a registered name is always found as-is (names may
         // legally contain ':', ',' or whitespace). The spec syntax below only
@@ -320,11 +230,8 @@ impl IconProviderInner {
 }
 
 impl IconProviderHandle {
-    /// Create a new empty icon provider with the default (no-op) resolver.
-    /// 
-    /// Note: The default resolver in core crate returns an empty `StyledDom`.
-    /// Use `set_resolver()` to set a proper resolver from the layout crate,
-    /// or use `with_resolver()` to create with a custom resolver.
+    /// Create a new empty icon provider with the default (no-op) resolver. Note:
+    /// The default resolver in core crate returns an empty `StyledDom`.
     #[must_use] pub fn new() -> Self {
         Self {
             inner: ManuallyDrop::new(Box::new(IconProviderInner {
@@ -346,10 +253,8 @@ impl IconProviderHandle {
         }
     }
     
-    /// Convert this handle into an Arc<Mutex<IconProviderInner>> for use in windows.
-    ///
-    /// This consumes the Box and creates an Arc. Called by `App::run()` to create
-    /// the shared icon provider that gets cloned to each window.
+    /// Convert this handle into an Arc<Mutex<IconProviderInner>> for use in
+    /// windows. This consumes the Box and creates an Arc.
     pub(crate) fn into_shared(mut self) -> Arc<Mutex<IconProviderInner>> {
         // Take the Box out and disarm our Drop so it doesn't free the moved-out
         // allocation (ManuallyDrop::take leaves `inner` logically uninitialized).
@@ -363,9 +268,8 @@ impl IconProviderHandle {
         self.inner.resolver = resolver;
     }
 
-    /// Register a single icon in a pack (creates pack if needed).
-    ///
-    /// Note: `pack_name` is case-sensitive, while `icon_name` is normalized to lowercase.
+    /// Register a single icon in a pack (creates pack if needed). Note: `pack_name`
+    /// is case-sensitive, while `icon_name` is normalized to lowercase.
     pub fn register_icon(&mut self, pack_name: &str, icon_name: &str, data: RefAny) {
         let pack = self.inner.icons
             .entry(pack_name.to_string())
@@ -388,7 +292,8 @@ impl IconProviderHandle {
         self.inner.icons.remove(pack_name);
     }
 
-    /// Look up an icon across all packs, returning the pack name and data reference (first match wins)
+    /// Look up an icon across all packs, returning the pack name and data reference
+    /// (first match wins)
     fn lookup_with_pack(&self, icon_name: &str) -> Option<(&str, &RefAny)> {
         let icon_name_lower = icon_name.to_lowercase();
         for (pack_name, pack) in &self.inner.icons {
@@ -468,36 +373,32 @@ impl IconProviderHandle {
     }
 }
 
-/// Thread-safe icon provider for use in windows.
-/// 
-/// This is created from `IconProviderHandle::into_shared()` in `App::run()`
-/// and cloned to each window.
+/// Thread-safe icon provider for use in windows. This is created from
+/// `IconProviderHandle::into_shared()` in `App::run()` and cloned to each window.
 #[derive(Debug, Clone)]
 pub struct SharedIconProvider {
     inner: Arc<Mutex<IconProviderInner>>,
-    /// Resolution cache — see the module-level `# Caching` section. Shared by
-    /// every clone of this provider (all windows), like `inner`.
+    /// Resolution cache - see the module-level `# Caching` section. Shared by every
+    /// clone of this provider (all windows), like `inner`.
     cache: Arc<Mutex<IconResolutionCache>>,
 }
 
 /// Hard cap on cached resolutions. A frame's live icon set is typically a few
 /// dozen; the cap only matters when specs vary without bound (adversarial or
-/// generated names). Policy on overflow is FLUSH-ALL: the next frame re-fills
-/// with the live set, so a pathological producer degrades to today's uncached
-/// behaviour instead of growing without limit.
+/// generated names).
 const ICON_CACHE_CAP: usize = 512;
 
 
-/// One cached resolution. `original`/`original_styled` are the KEY (together
-/// with the spec, the map key one level up); `resolution` is the value.
+/// One cached resolution. `original`/`original_styled` are the KEY (together with
+/// the spec, the map key one level up); `resolution` is the value.
 #[derive(Debug)]
 struct IconCacheEntry {
-    /// The icon node as it was BEFORE resolution. Two `<icon>` nodes with the
-    /// same spec but different inline styles resolve differently, so the node
-    /// itself is part of the key.
+    /// The icon node as it was BEFORE resolution. Two `<icon>` nodes with the same
+    /// spec but different inline styles resolve differently, so the node itself is
+    /// part of the key.
     original: NodeData,
-    /// The resolved replacement, spliced in whole. A `Dom` rather than a
-    /// flattened single node: an icon may be an arbitrary styled subtree.
+    /// The resolved replacement, spliced in whole. A `Dom` rather than a flattened
+    /// single node: an icon may be an arbitrary styled subtree.
     resolution: Dom,
 }
 
@@ -505,14 +406,14 @@ struct IconCacheEntry {
 #[derive(Debug, Default)]
 struct IconResolutionCache {
     /// The `SystemStyle` every entry was resolved under. A mismatch flushes:
-    /// resolvers read the style (theme, tint, grayscale), so entries from
-    /// another style are wrong, not merely stale.
+    /// resolvers read the style (theme, tint, grayscale), so entries from another
+    /// style are wrong, not merely stale.
     system_style: Option<SystemStyle>,
-    /// spec → entries with that spec (usually exactly one; more when the same
-    /// icon name appears with different inline styles).
+    /// spec → entries with that spec (usually exactly one; more when the same icon
+    /// name appears with different inline styles).
     entries: BTreeMap<String, Vec<IconCacheEntry>>,
-    /// Total entry count across all specs (the map holds vecs, so `len()` of
-    /// the map alone cannot enforce [`ICON_CACHE_CAP`]).
+    /// Total entry count across all specs (the map holds vecs, so `len()` of the
+    /// map alone cannot enforce [`ICON_CACHE_CAP`]).
     total: usize,
 }
 
@@ -525,9 +426,9 @@ impl SharedIconProvider {
         }
     }
 
-    /// Flush the cache if `system_style` differs from the one its entries
-    /// were resolved under. Called ONCE per `resolve_icons_in_styled_dom`
-    /// batch, not per icon, so the `SystemStyle` comparison is per-frame.
+    /// Flush the cache if `system_style` differs from the one its entries were
+    /// resolved under. Called ONCE per `resolve_icons_in_styled_dom` batch, not per
+    /// icon, so the `SystemStyle` comparison is per-frame.
     fn validate_cache_for_style(&self, system_style: &SystemStyle) {
         let Ok(mut cache) = self.cache.lock() else { return };
         match &cache.system_style {
@@ -551,8 +452,8 @@ impl SharedIconProvider {
             .find_map(|e| (e.original == *node).then(|| e.resolution.clone()))
     }
 
-    /// Insert a freshly-resolved entry, flushing everything first if the cap
-    /// is reached (see [`ICON_CACHE_CAP`]).
+    /// Insert a freshly-resolved entry, flushing everything first if the cap is
+    /// reached (see [`ICON_CACHE_CAP`]).
     fn store_resolution(&self, spec: &str, node: &NodeData, resolution: &Dom) {
         let Ok(mut cache) = self.cache.lock() else { return };
         if cache.total >= ICON_CACHE_CAP {
@@ -591,11 +492,10 @@ impl SharedIconProvider {
         resolver(lookup_result.into(), original_icon_node, system_style)
     }
 
-    /// [`Self::resolve`], memoised on `(spec, icon node)`.
-    ///
-    /// The system style is not part of the key: a change to it clears the whole
-    /// cache once per pass (`validate_cache_for_style`), which is cheaper than
-    /// carrying it in every entry.
+    /// [`Self::resolve`], memoised on `(spec, icon node)`. The system style is not
+    /// part of the key: a change to it clears the whole cache once per pass
+    /// (`validate_cache_for_style`), which is cheaper than carrying it in every
+    /// entry.
     #[must_use] fn resolve_cached(
         &self,
         original_icon_node: &NodeData,
@@ -626,59 +526,23 @@ impl SharedIconProvider {
 
 // Icon Resolution in the Dom tree
 
-/// How many times an icon may resolve to another icon before we stop.
-///
-/// Chains are legitimate - restyling an existing icon by registering a `Dom`
-/// that contains it is the obvious way to do it - but a resolver is user code,
-/// so a cycle has to terminate. Direct self-reference is caught exactly; this
-/// bounds everything longer.
+/// How many times an icon may resolve to another icon before we stop. Chains are
+/// legitimate - restyling an existing icon by registering a `Dom` that contains it
+/// is the obvious way to do it - but a resolver is user code, so a cycle has to
+/// terminate.
 const MAX_ICON_INDIRECTION: usize = 8;
 
 /// Replace every `NodeType::Icon` node in `dom` with whatever the registered
-/// resolver returns for it.
-///
-/// # Why this runs on a `Dom`, BEFORE the cascade
-///
-/// This used to run on a `StyledDom`, after the cascade, and it is worth
-/// recording why that was wrong - the shape of the old code is still visible in
-/// the git history and in several comments elsewhere.
-///
-/// A `StyledDom` is a FLAT ARENA in DFS order: a node's first child is the next
-/// index. So a replacement's children could not be attached to the icon node
-/// after the fact without inserting mid-arena and shifting every index after
-/// them. The old code therefore flattened every replacement down to its ROOT
-/// node's `node_type` / `style` / `accessibility` plus a single glyph character
-/// threaded into a text leaf, and threw the rest away - including the whole
-/// `CssPropertyCache` that the resolver's own cascade had just built. Its own
-/// comment said so: "everything else in the returned `StyledDom` ... was always
-/// discarded".
-///
-/// That cost three things:
-///
-/// * **A wasted cascade per icon**, whose result was discarded.
-/// * **Any icon that is not one node was impossible.** Registering a styled
-///   `Dom` as an icon could not work, because only the root survived.
-/// * **A stale property cache.** Rewriting a node's inline `style` after the
-///   cascade left the precomputed per-node arrays describing the PRE-resolution
-///   node. For a font icon that hid `font-family: StyleFontFamily::Ref(face)` -
-///   the only place that face is named - from font collection, so shaping fell
-///   back to a face with no glyph at the icon's private-use codepoint and drew
-///   `.notdef`. It needed an explicit cache rebuild to paper over.
-///
-/// Running on the `Dom` removes all three by construction. A `Dom` is a real
-/// tree (`root` + `children` + its own `css`), so a replacement is spliced whole;
-/// nothing is cascaded twice because the cascade has not happened yet; and there
-/// is no property cache to invalidate. An icon is now free to be an arbitrary
-/// styled subtree, which is what makes "register a `Dom` as an icon" work -
-/// including the colour it should be, which travels with the icon rather than
-/// having to be threaded through every call site as a tint parameter.
+/// resolver returns for it. This used to run on a `StyledDom`, after the cascade,
+/// and it is worth recording why that was wrong - the shape of the old code is still
+/// visible in the git history and in several comments elsewhere.
 pub fn resolve_icons_in_dom(
     dom: &mut Dom,
     provider: &SharedIconProvider,
     system_style: &SystemStyle,
 ) {
-    // A SystemStyle change (theme flip, tint, grayscale) invalidates every
-    // cached resolution. Checked once per pass, not once per icon.
+    // A SystemStyle change (theme flip, tint, grayscale) invalidates every cached
+    // resolution. Checked once per pass, not once per icon.
     provider.validate_cache_for_style(system_style);
     resolve_icons_in_dom_inner(dom, provider, system_style);
 }
@@ -690,14 +554,11 @@ fn resolve_icons_in_dom_inner(
     system_style: &SystemStyle,
 ) {
     // An icon may resolve TO another icon - registering
-    // `Dom::create_icon("favorite").with_css("color: red")` under another name
-    // is the natural way to restyle an existing icon - so this iterates rather
-    // than resolving once.
-    //
-    // Bounded two ways, because a resolver is user code and can trivially cycle:
-    // a resolution that yields the SAME spec is a self-reference and stops
-    // immediately, and any longer cycle stops at `MAX_ICON_INDIRECTION`. In both
-    // cases the node is left as-is rather than looping forever.
+    // `Dom::create_icon("favorite").with_css("color: red")` under another name is
+    // the natural way to restyle an existing icon - so this iterates rather than
+    // resolving once. Bounded two ways, because a resolver is user code and can
+    // trivially cycle: a resolution that yields the SAME spec is a self-reference
+    // and stops immediately, and any longer cycle stops at `MAX_ICON_INDIRECTION`.
     let mut seen = 0;
     while let Some(spec) = icon_spec_of(dom) {
         if seen >= MAX_ICON_INDIRECTION {
@@ -709,18 +570,8 @@ fn resolve_icons_in_dom_inner(
             break;
         }
         // The whole node is replaced, children included: an `<icon>name</icon>`
-        // carries its spec as a text child, and leaving it would render the raw
-        // spec next to the resolved icon.
-        //
-        // Its STYLESHEETS are carried forward, though. `Dom::with_css` attaches
-        // a scoped stylesheet to `Dom::css` rather than inline properties, so
-        // `Dom::create_icon("favorite").with_css("color: red")` - the natural
-        // way to register a recoloured icon - keeps the colour in `css`, not on
-        // the node. Dropping it with the node made the replacement render in the
-        // default colour and silently ignore the caller's styling.
-        //
-        // The replaced node's sheets go FIRST so the replacement's own
-        // declarations still win on conflict.
+        // carries its spec as a text child, and leaving it would render the raw spec
+        // next to the resolved icon. Its STYLESHEETS are carried forward, though.
         let mut css = dom.css.clone().into_library_owned_vec();
         let mut replacement = replacement;
         css.extend(replacement.css.clone().into_library_owned_vec());
@@ -734,12 +585,8 @@ fn resolve_icons_in_dom_inner(
     }
 }
 
-/// The icon spec for a node, or `None` if it is not an icon node.
-///
-/// An icon with an explicit non-empty name (`Dom::create_icon("x")`) uses it
-/// directly. One with an EMPTY name - the markup form `<icon>content_copy</icon>`,
-/// where the tag carries no name - derives the spec from its direct text
-/// children, exactly like a ligature icon font turns glyph text into an icon.
+/// The icon spec for a node, or `None` if it is not an icon node. An icon with an
+/// explicit non-empty name (`Dom::create_icon("x")`) uses it directly.
 fn icon_spec_of(dom: &Dom) -> Option<AzString> {
     let NodeType::Icon(name) = dom.root.get_node_type() else {
         return None;
@@ -780,8 +627,7 @@ mod autotest_generated {
     use crate::{dom::NodeDataVec, styled_dom::StyledNodeVec};
 
     // Test payloads. The names `ImageIconData` / `FontIconData` are load-bearing:
-    // `debug_lookup` sniffs `RefAny::get_type_name()` (i.e. `core::any::type_name`)
-    // for those substrings.
+    // `debug_lookup` sniffs `RefAny::get_type_name()` (i.e.
     #[derive(Debug, Clone, PartialEq)]
     struct TestIconData {
         id: u32,
@@ -835,8 +681,8 @@ mod autotest_generated {
     }
 
     // Statics for `shared_resolve_receives_icon_data_and_original_dom` ONLY.
-    // (`extern "C" fn` cannot capture, and tests run in parallel — never share
-    // one recording resolver between two tests.)
+    // (`extern "C" fn` cannot capture, and tests run in parallel - never share one
+    // recording resolver between two tests.)
     static REC_CALLS: AtomicUsize = AtomicUsize::new(0);
     static REC_SAW_DATA: AtomicBool = AtomicBool::new(false);
     static REC_SAW_ICON_NODE: AtomicBool = AtomicBool::new(false);
@@ -889,8 +735,8 @@ mod autotest_generated {
         let orig = Dom::create_div().root;
         let style = SystemStyle::default();
 
-        // The core default resolver renders nothing; azul-layout installs the
-        // real one that understands image / font / Dom icon data.
+        // The core default resolver renders nothing; azul-layout installs the real
+        // one that understands image / font / Dom icon data.
         let none = default_icon_resolver(OptionRefAny::None, &orig, &style);
         assert!(matches!(none.root.get_node_type(), NodeType::Div));
         assert!(none.children.as_ref().is_empty());
@@ -961,7 +807,8 @@ mod autotest_generated {
 
     #[test]
     fn drop_of_clones_and_originals_is_safe() {
-        // Guards the ManuallyDrop / run_destructor convention (see the type's docs).
+        // Guards the ManuallyDrop / run_destructor convention (see the type's
+        // docs).
         let mut a = IconProviderHandle::new();
         a.register_icon("p", "home", RefAny::new(TestIconData { id: 1 }));
         for _ in 0..100 {
@@ -1115,8 +962,8 @@ mod autotest_generated {
             assert!(!h.has_icon(junk));
         }
 
-        // Spec normalization: surrounding whitespace is trimmed per entry —
-        // `<icon> home </icon>` markup must resolve (ligature-font model).
+        // Spec normalization: surrounding whitespace is trimmed per entry - `<icon>
+        // home </icon>` markup must resolve (ligature-font model).
         for spec in [" home ", "home ", " home"] {
             assert!(h.lookup(spec).is_some(), "{spec:?} must resolve via spec trim");
             assert!(h.has_icon(spec));
@@ -1149,7 +996,8 @@ mod autotest_generated {
         {
             h.register_icon("p", n, RefAny::new(TestIconData { id: i as u32 }));
         }
-        // Numeric-looking names are plain string keys: no numeric parsing, no coercion.
+        // Numeric-looking names are plain string keys: no numeric parsing, no
+        // coercion.
         assert!(h.lookup("0").is_some());
         assert!(h.lookup("-0").is_some());
         assert!(h.lookup("0.0").is_none());
@@ -1186,8 +1034,9 @@ mod autotest_generated {
     #[test]
     fn lookup_of_deeply_nested_input_does_not_stack_overflow() {
         let h = IconProviderHandle::new();
-        // Lookup is a map probe, not a recursive-descent parse: depth is irrelevant,
-        // but assert it explicitly so a future parsing implementation stays flat.
+        // Lookup is a map probe, not a recursive-descent parse: depth is
+        // irrelevant, but assert it explicitly so a future parsing implementation
+        // stays flat.
         for depth in [1_000usize, 10_000, 100_000] {
             let nested = "[".repeat(depth);
             assert!(h.lookup(&nested).is_none());
@@ -1378,8 +1227,8 @@ mod autotest_generated {
         h.register_icon("p", "home", RefAny::new(TestIconData { id: 1 }));
         let shared = SharedIconProvider::from_handle(h);
 
-        // The resolver is handed the ICON NODE itself now, not a one-node
-        // StyledDom carved out of the tree.
+        // The resolver is handed the ICON NODE itself now, not a one-node StyledDom
+        // carved out of the tree.
         let icon_node = Dom::create_icon("home").root;
 
         let out = shared.resolve(&icon_node, "HOME", &SystemStyle::default());
@@ -1504,8 +1353,8 @@ mod autotest_generated {
 
     #[test]
     fn resolve_icons_in_dom_with_the_default_resolver_removes_the_icon_nodes() {
-        // The default resolver returns an empty div, so an icon with no
-        // registered data becomes that rather than staying an Icon node.
+        // The default resolver returns an empty div, so an icon with no registered
+        // data becomes that rather than staying an Icon node.
         let shared = SharedIconProvider::from_handle(IconProviderHandle::new());
         let mut dom = dom_with_icons(&["home"]);
 
@@ -1514,10 +1363,10 @@ mod autotest_generated {
         assert!(icon_paths(&dom).is_empty());
     }
 
-    /// The whole point of resolving on the tree: a replacement may be MORE than
-    /// one node, and all of it survives. The old StyledDom splice flattened
-    /// every replacement to its root plus a single glyph character, which is
-    /// why registering a `Dom` as an icon was impossible.
+    /// The whole point of resolving on the tree: a replacement may be MORE than one
+    /// node, and all of it survives. The old StyledDom splice flattened every
+    /// replacement to its root plus a single glyph character, which is why
+    /// registering a `Dom` as an icon was impossible.
     #[test]
     fn a_multi_node_replacement_is_spliced_in_whole() {
         extern "C" fn subtree_resolver(
@@ -1546,17 +1395,11 @@ mod autotest_generated {
         );
     }
 
-    /// REGRESSION: an icon that resolves to ANOTHER icon must keep the
-    /// stylesheets attached along the way.
-    ///
-    /// `Dom::with_css` attaches a scoped stylesheet to `Dom::css`, NOT inline
-    /// properties - so `Dom::create_icon("favorite").with_css("color: red")`,
-    /// the natural way to register a recoloured icon, carries the colour in
-    /// `css`. Replacing the node wholesale dropped it, and the icon rendered in
-    /// the default colour while every step reported success.
-    ///
-    /// This is the mechanism that lets an icon carry its own appearance instead
-    /// of every call site threading a tint parameter down to the renderer.
+    /// REGRESSION: an icon that resolves to ANOTHER icon must keep the stylesheets
+    /// attached along the way. `Dom::with_css` attaches a scoped stylesheet to
+    /// `Dom::css`, NOT inline properties - so
+    /// `Dom::create_icon("favorite").with_css("color: red")`, the natural way to
+    /// register a recoloured icon, carries the colour in `css`.
     #[test]
     fn stylesheets_survive_an_icon_resolving_to_another_icon() {
         extern "C" fn to_div(_d: OptionRefAny, _n: &NodeData, _s: &SystemStyle) -> Dom {
@@ -1594,13 +1437,12 @@ mod autotest_generated {
     }
 }
 
-/// Tests for the resolution CACHE — the reproduction of the per-regeneration
-/// waste (RSS_MAP_2026_08_07.md §36c) and the properties of the fix.
-///
-/// The engine calls `resolve_icons_in_styled_dom` once per DOM regeneration on
-/// a FRESH StyledDom each time (the layout callback rebuilds it), so "two
-/// frames" here means two identically-built DOMs — exactly what a drag-resize
-/// produces 373 times in five seconds.
+/// Tests for the resolution CACHE - the reproduction of the per-regeneration waste
+/// (documentation §36c) and the properties of the fix. The engine calls
+/// `resolve_icons_in_styled_dom` once per DOM regeneration on a FRESH StyledDom each
+/// time (the layout callback rebuilds it), so "two frames" here means two
+/// identically-built DOMs - exactly what a drag-resize produces 373 times in five
+/// seconds.
 #[cfg(test)]
 #[allow(clippy::float_cmp)]
 mod icon_cache_tests {
@@ -1614,8 +1456,8 @@ mod icon_cache_tests {
         id: u32,
     }
 
-    /// A body whose direct children are the named icons, so child index N is
-    /// icon N both before and after resolution.
+    /// A body whose direct children are the named icons, so child index N is icon N
+    /// both before and after resolution.
     fn dom_with_icons(names: &[&str]) -> Dom {
         let mut body = Dom::create_body();
         for n in names {
@@ -1624,9 +1466,9 @@ mod icon_cache_tests {
         body
     }
 
-    // Per-test statics: `extern "C" fn` cannot capture, and tests run in
-    // parallel — never share one counter between two tests (same convention
-    // as `autotest_generated::REC_*`).
+    // Per-test statics: `extern "C" fn` cannot capture, and tests run in parallel -
+    // never share one counter between two tests (same convention as
+    // `autotest_generated::REC_*`).
 
     static FRAME_CALLS: AtomicUsize = AtomicUsize::new(0);
     extern "C" fn frame_counting_resolver(
@@ -1638,11 +1480,10 @@ mod icon_cache_tests {
         Dom::create_div()
     }
 
-    /// THE REPRODUCTION. Before the cache, this counted one resolver call per
-    /// icon per frame — 3 icons × 2 frames = 6 calls for six bit-identical
-    /// results (scaled up in production: 66 icons × 373 regenerations in one
-    /// measured drag ≈ 24 600 calls, each running a full throwaway single-node
-    /// cascade). With the cache: ONE call, ever, for identical inputs.
+    /// THE REPRODUCTION. Before the cache, this counted one resolver call per icon
+    /// per frame - 3 icons × 2 frames = 6 calls for six bit-identical results
+    /// (scaled up in production: 66 icons × 373 regenerations in one measured drag ≈
+    /// 24 600 calls, each running a full throwaway single-node cascade).
     #[test]
     fn identical_icons_across_frames_resolve_exactly_once() {
         let mut h = IconProviderHandle::with_resolver(frame_counting_resolver);
@@ -1679,9 +1520,9 @@ mod icon_cache_tests {
         Dom::create_div()
     }
 
-    /// The resolver copies inline styles off the original node, so the same
-    /// icon NAME with different inline styles is a different resolution and
-    /// must occupy a different cache entry.
+    /// The resolver copies inline styles off the original node, so the same icon
+    /// NAME with different inline styles is a different resolution and must occupy a
+    /// different cache entry.
     #[test]
     fn distinct_inline_styles_are_distinct_cache_entries() {
         use azul_css::dynamic_selector::CssPropertyWithConditions;
@@ -1732,11 +1573,9 @@ mod icon_cache_tests {
         Dom::create_div()
     }
 
-    /// Resolvers read the SystemStyle (theme, tint, grayscale), so a style
-    /// change must flush. The policy is flush-on-change, not per-style keying:
-    /// flipping BACK re-resolves too. That trade is deliberate — a style flip
-    /// is a rare, user-visible event; keying every entry by style would bloat
-    /// every comparison for it.
+    /// Resolvers read the SystemStyle (theme, tint, grayscale), so a style change
+    /// must flush. The policy is flush-on-change, not per-style keying: flipping
+    /// BACK re-resolves too.
     #[test]
     fn system_style_change_flushes_the_cache() {
         let shared =
@@ -1786,8 +1625,8 @@ mod icon_cache_tests {
         dom
     }
 
-    /// A cache hit must produce a node BIT-IDENTICAL to what the fresh
-    /// resolver produced on frame 1 — node type, inline style, the lot.
+    /// A cache hit must produce a node BIT-IDENTICAL to what the fresh resolver
+    /// produced on frame 1 - node type, inline style, the lot.
     #[test]
     fn cached_hit_produces_an_identical_node() {
         let shared =
@@ -1849,9 +1688,9 @@ mod icon_cache_tests {
             .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("x"))
     }
 
-    /// Multi-node replacements go through the same cache, stored as a whole
-    /// `Dom` and cloned per hit - and, unlike the old arena splice, they are
-    /// spliced in ENTIRELY, children and all.
+    /// Multi-node replacements go through the same cache, stored as a whole `Dom`
+    /// and cloned per hit - and, unlike the old arena splice, they are spliced in
+    /// ENTIRELY, children and all.
     #[test]
     fn subtree_resolutions_are_cached() {
         let shared =
@@ -1888,8 +1727,8 @@ mod icon_cache_tests {
     }
 
     /// Unbounded distinct specs must not grow the cache without limit; the
-    /// flush-all overflow policy degrades to uncached behaviour, never to
-    /// unbounded memory.
+    /// flush-all overflow policy degrades to uncached behaviour, never to unbounded
+    /// memory.
     #[test]
     fn cache_is_capped_and_correct_past_the_cap() {
         let shared =
