@@ -1,8 +1,5 @@
-//! Builder function to convert CssPropertyCache → CompactLayoutCache.
-//!
-//! Called once after restyle + apply_ua_css + compute_inherited_values.
-//! Uses typed getters on CssPropertyCache (which cascade through all sources)
-//! to resolve each property for the "normal" state (all pseudo-states = false).
+//! Builder function to convert CssPropertyCache → CompactLayoutCache. Called once
+//! after restyle + apply_ua_css + compute_inherited_values.
 
 use crate::dom::{NodeData, NodeId};
 use crate::prop_cache::CssPropertyCache;
@@ -23,22 +20,8 @@ use alloc::vec::Vec;
 use crate::hash::DefaultHasher;
 
 impl CssPropertyCache {
-    /// Build a `CompactLayoutCache` from the current property cache state.
-    ///
-    /// Must be called after `restyle()`, `apply_ua_css()`, and `compute_inherited_values()`.
-    /// Resolves all layout-relevant properties for every node in the "normal" state
-    /// (no hover/active/focus) and encodes them into compact arrays.
-    ///
-    /// Tier 1/2/2b provide fast-path access for layout-hot properties.
-    /// Non-compact properties (background, transform, box-shadow, etc.) are
-    /// resolved via the slow cascade path in `get_property_slow()`.
-    ///
-    /// `prev_font_hashes` is the per-node font hash array from the previous frame.
-    /// When non-empty, each node's new `font_family_hash` is compared against the
-    /// previous value, and differing nodes are recorded in `font_dirty_nodes`.
-    /// On the first build (empty slice), ALL text nodes are marked dirty.
-    // fixed-point encoders: z-index and line-height (%×10) are range-checked
-    // against the i16 sentinel threshold before the deliberate narrowing cast.
+    /// Build a `CompactLayoutCache` from the current property cache state. Must be
+    /// called after `restyle()`, `apply_ua_css()`, and `compute_inherited_values()`.
     #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
@@ -172,7 +155,8 @@ impl CssPropertyCache {
             // Tier 2: Encode numeric dimension properties
             // =====================================================================
 
-            // Width/Height are enums: Auto | Px(PixelValue) | MinContent | MaxContent | Calc
+            // Width/Height are enums: Auto | Px(PixelValue) | MinContent |
+            // MaxContent | Calc
             if let Some(val) = self.get_width(nd, &node_id, &default_state) {
                 result.tier2_dims[i].width = encode_layout_width(val);
             }
@@ -282,10 +266,11 @@ impl CssPropertyCache {
                     match exact {
                         LayoutZIndex::Auto => result.tier2_cold[i].z_index = I16_AUTO,
                         LayoutZIndex::Integer(z) => {
-                            // Two-sided, like the line-height encoder: a large NEGATIVE z
-                            // used to fall through to `*z as i16` and WRAP positive
-                            // (-40000 -> +25536). Escape both out-of-range ends to the
-                            // sentinel (tier 3) so the real value is preserved.
+                            // Two-sided, like the line-height encoder: a large
+                            // NEGATIVE z used to fall through to `*z as i16` and
+                            // WRAP positive (-40000 -> +25536). Escape both
+                            // out-of-range ends to the sentinel (tier 3) so the real
+                            // value is preserved.
                             result.tier2_cold[i].z_index =
                                 if *z >= -32768 && *z < i32::from(I16_SENTINEL_THRESHOLD) {
                                     *z as i16
@@ -384,21 +369,14 @@ impl CssPropertyCache {
             }
 
             // Line-height. Parser convention: a NEGATIVE normalized() is an
-            // ABSOLUTE pixel line-height, a positive one a unitless multiple
-            // (or percentage) of font-size. The two need different i16
-            // scales:
-            //  - positive: multiple × 1000 (120% -> 1200; range up to ~32x)
-            //  - negative: -px × 10 (line-height: 40px -> -400; ±3276.7px)
-            // The old single ×1000 scale overflowed i16 for any absolute
-            // line-height above 32.76px, stored the SENTINEL, and the getter
-            // decoded that as "line-height: normal" - `line-height: 40px`
-            // was silently dropped on every normal-state node.
+            // ABSOLUTE pixel line-height, a positive one a unitless multiple (or
+            // percentage) of font-size.
             if let Some(val) = self.get_line_height(nd, &node_id, &default_state) {
                 if let Some(lh) = val.get_property() {
                     let n = lh.inner.normalized();
                     let stored = if n < 0.0 {
-                        // Absolute px: clamp to the representable range
-                        // instead of falling to the sentinel ("normal").
+                        // Absolute px: clamp to the representable range instead of
+                        // falling to the sentinel ("normal").
                         ((n * 10.0).round() as i32).max(-32768)
                     } else {
                         (n * 1000.0).round() as i32
@@ -428,11 +406,10 @@ impl CssPropertyCache {
         }
 
         // =====================================================================
-        // Per-node font dirty tracking (P4)
-        // Compare each node's font_family_hash against the previous frame's hash.
-        // Nodes whose hash changed are recorded in font_dirty_nodes for
-        // incremental font chain re-resolution instead of all-or-nothing.
-        // =====================================================================
+        // Per-node font dirty tracking (P4) Compare each node's font_family_hash
+        // against the previous frame's hash. Nodes whose hash changed are recorded
+        // in font_dirty_nodes for incremental font chain re-resolution instead of
+        // all-or-nothing.
         result.font_dirty_nodes.clear();
         for i in 0..node_count {
             let new_hash = result.tier2b_text[i].font_family_hash;
@@ -447,16 +424,8 @@ impl CssPropertyCache {
         result
     }
 
-    /// Build compact cache with inheritance in a single pass.
-    ///
-    /// Replaces the separate `compute_inherited_values()` + `build_compact_cache()` calls.
-    /// For each node (in DOM index order, which is pre-order = parents before children):
-    ///   1. Copy parent's compact values for INHERITABLE properties
-    ///   2. Apply this node's CSS properties on top (from `css_props` + inline + UA)
-    ///   3. Write directly to compact arrays
-    ///
-    /// This eliminates 50K Vec clones from `compute_inherited_values` and
-    /// avoids re-reading properties from 5 separate data structures.
+    /// Build compact cache with inheritance in a single pass. Replaces the separate
+    /// `compute_inherited_values()` + `build_compact_cache()` calls.
     pub fn build_compact_cache_with_inheritance(
         &self,
         node_data: &[NodeData],
@@ -466,7 +435,8 @@ impl CssPropertyCache {
         self.build_compact_cache_with_inheritance_debug(node_data, node_hierarchy, prev_font_hashes, &mut None)
     }
 
-    /// Same as `build_compact_cache_with_inheritance` but with optional debug logging.
+    /// Same as `build_compact_cache_with_inheritance` but with optional debug
+    /// logging.
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn build_compact_cache_with_inheritance_debug(
         &self,
@@ -577,31 +547,19 @@ impl CssPropertyCache {
             let node_id = NodeId::new(i);
             let nd = &node_data[i];
 
-            // Step 0: Apply UA CSS defaults first (lowest priority).
-            // Then global `*` rules override UA (higher priority).
-            // Then per-node CSS (Step 3) overrides both.
-            //
-            // CSS cascade priority: UA < author `*` < author specific < inline
+            // Step 0: Apply UA CSS defaults first (lowest priority). Then global
+            // `*` rules override UA (higher priority).
 
             // Step 1: Inherit from parent's COMPACT values (not computed_values)
             // Parent index is always < i in pre-order arena, so already computed.
-            //
             // Step 1: Inherit ONLY inheritable CSS properties from parent.
-            // Non-inheritable fields (display, position, float, overflow, box-sizing,
-            // flex-*, clear, vertical-align, writing-mode) stay at 0 (CSS initial value).
-            // They get set by UA CSS (Step 2) and author CSS (Step 3).
             let parent_id = node_hierarchy[i].parent_id();
             if let Some(pid) = parent_id {
                 let pi = pid.index();
 
                 // AUDIT: inheritance assumes a PRE-ORDER arena, i.e. a node's
                 // parent is always stored at a lower index (`pi < i`) and has
-                // therefore already been fully cascaded. A forward reference
-                // (`pi >= i`) would silently inherit that parent's still-default
-                // (all-zero) values, and an out-of-bounds `pi >= node_count`
-                // would panic. Guard against both: assert the pre-order
-                // invariant in debug builds, and skip inheritance (treat the
-                // node as a root) for any malformed reference in release builds.
+                // therefore already been fully cascaded.
                 debug_assert!(
                     pi < i,
                     "compact cascade: non-pre-order arena — node {i}'s parent {pi} \
@@ -631,8 +589,9 @@ impl CssPropertyCache {
                     d.margin_top, d.margin_bottom, d.margin_left, d.margin_right, d.width, d.height);
             }
 
-            // Step 2: Apply UA CSS defaults for this node type directly to compact values.
-            // UA defaults have lowest cascade priority — overridden by author CSS below.
+            // Step 2: Apply UA CSS defaults for this node type directly to compact
+            // values. UA defaults have lowest cascade priority - overridden by
+            // author CSS below.
             apply_ua_css_to_compact(
                 &nd.node_type,
                 &mut result.tier1_enums[i],
@@ -649,14 +608,10 @@ impl CssPropertyCache {
                     d.margin_top, d.margin_bottom, d.margin_left, d.margin_right);
             }
 
-            // Step 2.5: Apply global `*` author CSS (overrides UA, overridden by specific rules)
-            // Apply each `*` rule property individually (not bulk-assign) so we only
-            // override properties the `*` rule actually set, preserving UA CSS for others.
-            //
-            // Per CSS spec, `*` matches all ELEMENTS. Text nodes are not elements —
-            // they must only inherit from their parent. Without this check, `* { color: #666 }`
-            // would overwrite the inherited `color: red` on a Text child of `<p>`,
-            // even though `<p>` correctly got red from `p { color: red }`.
+            // Step 2.5: Apply global `*` author CSS (overrides UA, overridden by
+            // specific rules) Apply each `*` rule property individually (not
+            // bulk-assign) so we only override properties the `*` rule actually set,
+            // preserving UA CSS for others. Per CSS spec, `*` matches all ELEMENTS.
             if !nd.is_text_node() {
                 for prop in &self.global_css_props {
                     // (flag already accumulated in the has_global pre-pass)
@@ -711,17 +666,16 @@ impl CssPropertyCache {
                     d.margin_top, d.margin_bottom, d.margin_left, d.margin_right);
             }
 
-            // Scan inline CSS (node_data.style — typically 0-3 properties).
-            // Inline CSS has highest specificity — applied last to override stylesheet.
+            // Scan inline CSS (node_data.style - typically 0-3 properties). Inline
+            // CSS has highest specificity - applied last to override stylesheet.
             for (prop, conds) in nd.style.iter_inline_properties() {
                 // Apply when the conditions hold for the RESTING state:
-                // pseudo-state conditions must be Normal, and every other
-                // condition (viewport/@media, theme, OS...) is evaluated
-                // against the window's dynamic context — the same rule
-                // get_property_slow applies, so the fast path and the slow
-                // path cannot disagree about a conditional property. A
-                // non-pseudo condition also flags the cache, so the window
-                // knows a context change requires a rebuild.
+                // pseudo-state conditions must be Normal, and every other condition
+                // (viewport/@media, theme, OS...) is evaluated against the window's
+                // dynamic context - the same rule get_property_slow applies, so the
+                // fast path and the slow path cannot disagree about a conditional
+                // property. A non-pseudo condition also flags the cache, so the
+                // window knows a context change requires a rebuild.
                 let is_normal = conds.as_slice().is_empty()
                     || conds.as_slice().iter().all(|c| match c {
                         azul_css::dynamic_selector::DynamicSelector::PseudoState(s) => {
@@ -729,10 +683,10 @@ impl CssPropertyCache {
                         }
                         non_pseudo => {
                             result.has_dynamic_conditions = true;
-                            // Harvest the thresholds this condition can flip
-                            // at — the resize decision regenerates when the
-                            // window crosses one (dedup/sort happens once,
-                            // after the node loop).
+                            // Harvest the thresholds this condition can flip at -
+                            // the resize decision regenerates when the window
+                            // crosses one (dedup/sort happens once, after the node
+                            // loop).
                             {
                                 let mut w = Vec::new();
                                 let mut h = Vec::new();
@@ -755,12 +709,11 @@ impl CssPropertyCache {
                     });
                 if !is_normal { continue; }
                 result.uses_viewport_units |= css_property_uses_viewport_units(prop);
-                // Layout-critical props dispatched via single-variant `if let` (direct discriminant
-                // COMPARES, no indirect jump). apply_css_property_to_compact's ~100-arm `match` lowers
-                // to a jump table that remill mis-lifts (never reaches the right arm) — same class as the
-                // CssProperty::clone bug. With the conversion-clone fix the prop discriminant is now
-                // correct, so these compares match and apply the value; everything else falls back.
-                // (CssProperty is imported at module top.)
+                // Layout-critical props dispatched via single-variant `if let`
+                // (direct discriminant COMPARES, no indirect jump).
+                // apply_css_property_to_compact's ~100-arm `match` lowers to a jump
+                // table that remill mis-lifts (never reaches the right arm) - same
+                // class as the CssProperty::clone bug.
                 if let CssProperty::Width(v) = prop {
                     result.tier2_dims[i].width = encode_layout_width(v);
                 } else if let CssProperty::Height(v) = prop {
@@ -790,15 +743,9 @@ impl CssPropertyCache {
             }
 
             // Step 4b: user-overridden properties (runtime patches via
-            // `set_css_property` / `restyle_user_property`). The resolver
-            // consults this layer FIRST, so the compact cache must apply it
-            // LAST — the cache is a projection of the same cascade and the
-            // two must agree. Without this step a rebuilt cache resurrected
-            // the pre-patch value: `restyle_user_property` rebuilds the cache
-            // right after recording the override, and the layout fast path
-            // then read the stale display/geometry the patch had just
-            // changed. Same dispatch shape as the inline loop above (the
-            // single-variant `if let`s exist for the remill lift, see there).
+            // `set_css_property` / `restyle_user_property`). The resolver consults
+            // this layer FIRST, so the compact cache must apply it LAST - the cache
+            // is a projection of the same cascade and the two must agree.
             if let Some(user_props) = self.user_overridden_properties.get(i) {
                 for (_, prop) in user_props {
                     result.uses_viewport_units |= css_property_uses_viewport_units(prop);
@@ -833,8 +780,6 @@ impl CssPropertyCache {
             }
 
             // Resolve font-size from em/percent/pt/etc. to px.
-            // CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
-            // Pre-order traversal guarantees parent's font_size is already resolved.
             resolve_font_size_to_px(
                 &mut result.tier2_dims,
                 i,
@@ -847,12 +792,8 @@ impl CssPropertyCache {
             }
         }
 
-        // Font dirty tracking.
-        // When prev_font_hashes is empty (first build for this DOM), mark ALL
-        // text nodes dirty to force font resolution. Without this, a DOM with
-        // no explicit font-family (all hashes 0) would compare 0==0 and skip
-        // resolution, even though font-weight/font-style may differ from the
-        // cached chains of a previous DOM.
+        // Font dirty tracking. When prev_font_hashes is empty (first build for this
+        // DOM), mark ALL text nodes dirty to force font resolution.
         result.font_dirty_nodes.clear();
         let first_build = prev_font_hashes.is_empty();
         for i in 0..node_count {
@@ -864,8 +805,8 @@ impl CssPropertyCache {
         }
         result.prev_font_hashes = result.tier2b_text.iter().map(|t| t.font_family_hash).collect();
 
-        // Normalize the harvested viewport thresholds once (pushed raw per
-        // node above): sorted + deduped by bit pattern.
+        // Normalize the harvested viewport thresholds once (pushed raw per node
+        // above): sorted + deduped by bit pattern.
         result.inline_viewport_w.sort_unstable();
         result.inline_viewport_w.dedup();
         result.inline_viewport_h.sort_unstable();
@@ -879,8 +820,8 @@ impl CssPropertyCache {
 // Helpers extracted from build_compact_cache_with_inheritance_debug
 // =============================================================================
 
-/// Apply UA CSS defaults for a node type directly to compact values.
-/// UA defaults have lowest cascade priority — overridden by author CSS.
+/// Apply UA CSS defaults for a node type directly to compact values. UA defaults
+/// have lowest cascade priority - overridden by author CSS.
 fn apply_ua_css_to_compact(
     node_type: &crate::dom::NodeType,
     tier1: &mut u64,
@@ -911,10 +852,10 @@ fn apply_ua_css_to_compact(
         PT2::TextColor, PT2::LineHeight, PT2::LetterSpacing, PT2::WordSpacing,
         PT2::TextDecoration, PT2::Cursor, PT2::ListStyleType,
         // Counters: the UA sheet resets `list-item` on <ol>/<ul> so each list
-        // restarts numbering. Without these here the has_counter fast-path bit
-        // stays unset for list containers, compute_counters skips the reset, and
-        // the list-item counter runs globally (a <ul> then <ol> numbered 1,2 then
-        // 3,4 instead of restarting at 1).
+        // restarts numbering. Without these here the has_counter fast-path bit stays
+        // unset for list containers, compute_counters skips the reset, and the
+        // list-item counter runs globally (a <ul> then <ol> numbered 1,2 then 3,4
+        // instead of restarting at 1).
         PT2::CounterReset, PT2::CounterIncrement,
     ];
     for pt in UA_PROPERTY_TYPES {
@@ -926,7 +867,6 @@ fn apply_ua_css_to_compact(
 
 /// Resolve a node's font-size from relative units (em, %, rem, pt) to absolute px.
 /// CSS 2.1: inherited font-size is the COMPUTED (px) value, not the specified value.
-/// Pre-order traversal guarantees parent's `font_size` is already resolved.
 fn resolve_font_size_to_px(
     tier2_dims: &mut [CompactNodeProps],
     node_idx: usize,
@@ -941,11 +881,11 @@ fn resolve_font_size_to_px(
         _ => return,
     };
 
-    // AUDIT: pre-order arena assumed — the parent's font-size is already
-    // resolved to px only when `pid < node_idx`. Use checked `get` so an
-    // out-of-bounds parent ref cannot panic, and require `pid < node_idx` so a
-    // forward reference falls back to the 16px CSS initial value instead of
-    // reading an unresolved (still em/%) parent value.
+    // AUDIT: pre-order arena assumed - the parent's font-size is already resolved
+    // to px only when `pid < node_idx`. Use checked `get` so an out-of-bounds parent
+    // ref cannot panic, and require `pid < node_idx` so a forward reference falls
+    // back to the 16px CSS initial value instead of reading an unresolved (still
+    // em/%) parent value.
     let parent_font_size_px = parent_id
         .map_or(16.0, |pid| {
             let pi = pid.index();
@@ -968,12 +908,10 @@ fn resolve_font_size_to_px(
         SizeMetric::Em => pv.number.get() * parent_font_size_px,
         SizeMetric::Percent => pv.number.get() / 100.0 * parent_font_size_px,
         SizeMetric::Rem => {
-            // rem = the ROOT element's font size. For the root itself that is circular,
-            // so CSS resolves root rem against the 16px INITIAL value (Selectors/Values:
-            // "when specified on the root element, rem refers to the initial value").
-            // tier2_dims[0] IS the root's slot, but while resolving the root it still
-            // holds the root's own unresolved raw rem — so `html { font-size: 2rem }`
-            // computed 2*2 = 4px instead of 2*16 = 32px.
+            // rem = the ROOT element's font size. For the root itself that is
+            // circular, so CSS resolves root rem against the 16px INITIAL value
+            // (Selectors/Values: "when specified on the root element, rem refers to
+            // the initial value").
             let rem_base = if parent_id.is_none() {
                 16.0
             } else {
@@ -991,20 +929,10 @@ fn resolve_font_size_to_px(
         encode_pixel_value_u32(&azul_css::props::basic::pixel::PixelValue::px(resolved_px));
 }
 
-/// Does this property's value use a viewport-relative unit (vw/vh/vmin/vmax)?
-///
-/// Feeds `CompactLayoutCache::uses_viewport_units` from the property loops of
-/// `build_compact_cache_with_inheritance` — one call per (node, property), on
-/// data the loops are already iterating. See that field's docs for what the
-/// flag buys (solver3 skips per-resize invalidation of every inline collection
-/// for the overwhelming majority of documents that never mention a viewport
-/// unit).
-///
-/// Coverage = the pixel-carrying properties the compact cache itself encodes,
-/// which is a superset of what inline collection/measurement reads (the only
-/// consumer). `calc()` widths/heights are flagged CONSERVATIVELY without
-/// walking the AST — a false positive merely keeps the old always-invalidate
-/// behaviour.
+/// Does this property's value use a viewport-relative unit (vw/vh/vmin/vmax)? Feeds
+/// `CompactLayoutCache::uses_viewport_units` from the property loops of
+/// `build_compact_cache_with_inheritance` - one call per (node, property), on data
+/// the loops are already iterating.
 fn css_property_uses_viewport_units(prop: &CssProperty) -> bool {
     use azul_css::props::basic::length::SizeMetric;
     use azul_css::props::basic::pixel::PixelValue;
@@ -1061,12 +989,12 @@ fn css_property_uses_viewport_units(prop: &CssProperty) -> bool {
 // Direct CssProperty → compact field writer
 // =============================================================================
 
-/// Apply a single `CssProperty` directly to the compact representation.
-/// Called once per property per node — replaces the old 56+ getter approach.
+/// Apply a single `CssProperty` directly to the compact representation. Called once
+/// per property per node - replaces the old 56+ getter approach.
 #[inline]
-// The scrollbar-* and counter-* arms have identical bodies
-// (`if v.get_property().is_some() { flags |= … }`) but each variant wraps a
-// DIFFERENT value type (StyleBackgroundContentValue, LayoutScrollbarWidthValue,
+// The scrollbar-* and counter-* arms have identical bodies (`if
+// v.get_property().is_some() { flags |= … }`) but each variant wraps a DIFFERENT
+// value type (StyleBackgroundContentValue, LayoutScrollbarWidthValue,
 // StyleScrollbarColorValue, CounterResetValue, CounterIncrementValue, …), so an
 // or-pattern binding `v` cannot be expressed across them.
 #[allow(clippy::match_same_arms)]
@@ -1099,15 +1027,11 @@ fn apply_css_property_to_compact(
         CssProperty::Float(v) => set_tier1!(v, FLOAT_SHIFT, FLOAT_MASK, layout_float_to_u8),
         CssProperty::OverflowX(v) => set_tier1!(v, OVERFLOW_X_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8),
         CssProperty::OverflowY(v) => set_tier1!(v, OVERFLOW_Y_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8),
-        // +spec:overflow:17654b - overflow-block / overflow-inline resolve to
-        // the physical axis through the writing mode. Application is in
-        // declaration order (a later physical declaration overwrites the
-        // same tier1 slot and vice versa), which is exactly CSS's
-        // equal-specificity last-wins rule for logical/physical pairs. The
-        // writing mode is read from tier1 AT THIS POINT: the inherited value
-        // is already present (inheritance runs first), so only the exotic
-        // "writing-mode declared AFTER a logical overflow on the SAME node"
-        // ordering maps against the pre-declaration mode.
+        // +spec:overflow:17654b - overflow-block / overflow-inline resolve to the
+        // physical axis through the writing mode. Application is in declaration
+        // order (a later physical declaration overwrites the same tier1 slot and
+        // vice versa), which is exactly CSS's equal-specificity last-wins rule for
+        // logical/physical pairs.
         CssProperty::OverflowBlock(v) => {
             if let Some(val) = v.get_property() {
                 let wm_bits = ((*tier1 >> WRITING_MODE_SHIFT) & WRITING_MODE_MASK) as u8;
@@ -1235,8 +1159,9 @@ fn apply_css_property_to_compact(
                 match exact {
                     LayoutZIndex::Auto => cold.z_index = I16_AUTO,
                     LayoutZIndex::Integer(z) => {
-                        // Two-sided (see the tier2_cold path above): a large negative z
-                        // used to wrap positive via `*z as i16`. Escape both ends.
+                        // Two-sided (see the tier2_cold path above): a large
+                        // negative z used to wrap positive via `*z as i16`. Escape
+                        // both ends.
                         cold.z_index = if *z >= -32768 && *z < i32::from(I16_SENTINEL_THRESHOLD) {
                             *z as i16
                         } else {
@@ -1313,12 +1238,11 @@ fn apply_css_property_to_compact(
         }
         CssProperty::LineHeight(v) => {
             if let Some(lh) = v.get_property() {
-                // Split scale by SIGN (see the builder's line-height pre-pass
-                // and compact_cache.rs field doc): negative normalized =
-                // absolute px, stored as -px x 10; positive = multiple,
-                // stored x 1000. A single x1000 scale overflowed i16 for any
-                // absolute line-height above 32.76px and silently became
-                // "normal" via the sentinel.
+                // Split scale by SIGN (see the builder's line-height pre-pass and
+                // compact_cache.rs field doc): negative normalized = absolute px,
+                // stored as -px x 10; positive = multiple, stored x 1000. A single
+                // x1000 scale overflowed i16 for any absolute line-height above
+                // 32.76px and silently became "normal" via the sentinel.
                 let n = lh.inner.normalized();
                 let stored = if n < 0.0 {
                     ((n * 10.0).round() as i32).max(-32768)
@@ -1376,8 +1300,8 @@ fn apply_css_property_to_compact(
             }
         }
 
-        // has-flags: set bit whenever property is set (regardless of value).
-        // Getter uses this as a fast "is the default" bail-out.
+        // has-flags: set bit whenever property is set (regardless of value). Getter
+        // uses this as a fast "is the default" bail-out.
         CssProperty::Transform(v) => {
             if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_TRANSFORM; }
         }
@@ -1414,9 +1338,9 @@ fn apply_css_property_to_compact(
             if v.get_property().is_some() { cold.hot_flags |= HOT_FLAG_HAS_CLIP_PATH; }
         }
 
-        // Any scrollbar customisation sets the single `has_any_scrollbar_css`
-        // bit. When unset, get_scrollbar_style can bail to UA defaults without
-        // doing 8 cascade walks.
+        // Any scrollbar customisation sets the single `has_any_scrollbar_css` bit.
+        // When unset, get_scrollbar_style can bail to UA defaults without doing 8
+        // cascade walks.
         CssProperty::ScrollbarTrack(v) => {
             if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_SCROLLBAR_CSS; }
         }
@@ -1472,19 +1396,18 @@ fn apply_css_property_to_compact(
             if v.get_property().is_some() { cold.extra_flags |= EXTRA_FLAG_HAS_MIX_BLEND_MODE; }
         }
 
-        // Non-compact properties (background, etc.) — handled by get_property_slow fallback
+        // Non-compact properties (background, etc.) - handled by get_property_slow
+        // fallback
         _ => {}
     }
 }
 
-/// OR the DOM-level declared-flag for rarely-set text properties. Called once
-/// per property per node so that when a flag bit is clear, callers
-/// (e.g. `translate_to_text3_constraints`) can skip the cascade walk and use
-/// the default value — the slow walk would never find a declaration anyway.
+/// OR the DOM-level declared-flag for rarely-set text properties. Called once per
+/// property per node so that when a flag bit is clear, callers (e.g.
 const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
     // Only mark if the property value is actually "set" (not Auto/Initial/etc.).
-    // Using `get_property().is_some()` mirrors the pattern used elsewhere in
-    // this builder for has-X bits.
+    // Using `get_property().is_some()` mirrors the pattern used elsewhere in this
+    // builder for has-X bits.
     match prop {
         CssProperty::ShapeInside(v) => if v.get_property().is_some() { *flags |= DOM_HAS_SHAPE_INSIDE; }
         CssProperty::ShapeOutside(v) => if v.get_property().is_some() { *flags |= DOM_HAS_SHAPE_OUTSIDE; }
@@ -1517,9 +1440,8 @@ const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
 // Helper encoders for dimension properties
 // =============================================================================
 
-/// Encode a `GridLine` into i16: `Auto=I16_AUTO`, Line(n)=n, Span(n)=-(n).
-/// Named lines fall back to `I16_SENTINEL` (not compact-encodable).
-// const fn: the `n as i16` casts are guarded by explicit +/-32000 range checks.
+/// Encode a `GridLine` into i16: `Auto=I16_AUTO`, Line(n)=n, Span(n)=-(n). Named
+/// lines fall back to `I16_SENTINEL` (not compact-encodable).
 #[allow(clippy::cast_possible_truncation)]
 const fn encode_grid_line(line: &azul_css::props::layout::grid::GridLine) -> i16 {
     use azul_css::props::layout::grid::GridLine;
@@ -1552,8 +1474,9 @@ fn encode_layout_height<T: LayoutWidthLike>(val: &CssPropertyValue<T>) -> u32 {
     encode_layout_width(val)
 }
 
-/// Trait for types that can be encoded as compact u32 dimension values.
-/// Implemented for `LayoutWidth`, `LayoutHeight` (which are Auto|Px|MinContent|MaxContent|Calc enums).
+/// Trait for types that can be encoded as compact u32 dimension values. Implemented
+/// for `LayoutWidth`, `LayoutHeight` (which are Auto|Px|MinContent|MaxContent|Calc
+/// enums).
 trait LayoutWidthLike {
     fn encode_compact_u32(&self) -> u32;
 }
@@ -1584,7 +1507,8 @@ impl LayoutWidthLike for LayoutHeight {
     }
 }
 
-/// Encode a `CssPropertyValue` wrapping a simple `PixelValue` struct (`LayoutMinWidth`, etc.)
+/// Encode a `CssPropertyValue` wrapping a simple `PixelValue` struct
+/// (`LayoutMinWidth`, etc.)
 fn encode_pixel_prop<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> u32 {
     match val {
         CssPropertyValue::Exact(inner) => encode_pixel_value_u32(&inner.get_inner_pixel()),
@@ -1641,8 +1565,9 @@ impl_has_inner_pixel!(
     azul_css::props::style::text::StyleTabSize
 );
 
-/// Encode a `CssPropertyValue`<T> where T wraps a `PixelValue`, as i16 (×10 resolved px).
-/// Delegates to the canonical `azul_css::compact_cache::encode_css_pixel_as_i16`.
+/// Encode a `CssPropertyValue`<T> where T wraps a `PixelValue`, as i16 (×10
+/// resolved px). Delegates to the canonical
+/// `azul_css::compact_cache::encode_css_pixel_as_i16`.
 fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
     let mapped = match val {
         CssPropertyValue::Exact(inner) => CssPropertyValue::Exact(inner.get_inner_pixel()),
@@ -1660,7 +1585,8 @@ fn encode_margin_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
     encode_css_pixel_as_i16(val)
 }
 
-/// Encode `CssPropertyValue`<LayoutFlexBasis> — `LayoutFlexBasis` is Auto | Exact(PixelValue).
+/// Encode `CssPropertyValue`<LayoutFlexBasis> - `LayoutFlexBasis` is Auto |
+/// Exact(PixelValue).
 fn encode_flex_basis(val: &CssPropertyValue<LayoutFlexBasis>) -> u32 {
     match val {
         CssPropertyValue::Exact(fb) => match fb {
@@ -1719,18 +1645,13 @@ mod audit_tests {
 }
 
 // =============================================================================
-// Adversarial unit tests (autotest)
-//
-// Inline module: the encoders below (`encode_grid_line`, `encode_layout_width`,
-// `encode_pixel_prop`, `encode_css_pixel_as_i16`, `encode_margin_i16`,
-// `encode_flex_basis`, `apply_css_property_to_compact`, `apply_ua_css_to_compact`,
+// Adversarial unit tests (autotest) Inline module: the encoders below
+// (`encode_grid_line`, `encode_layout_width`, `encode_pixel_prop`,
+// `encode_css_pixel_as_i16`, `encode_margin_i16`, `encode_flex_basis`,
+// `apply_css_property_to_compact`, `apply_ua_css_to_compact`,
 // `update_dom_declared_flags`, `resolve_font_size_to_px`) are all private, so they
-// can only be exercised from inside this module.
-//
-// Focus: overflow / saturation / sentinel-aliasing / round-trip fidelity, i.e. the
-// places where a fixed-point codec silently turns one CSS value into a different
-// one instead of panicking.
-// =============================================================================
+// can only be exercised from inside this module. Focus: overflow / saturation /
+// sentinel-aliasing / round-trip fidelity, i.e.
 #[cfg(test)]
 #[allow(
     clippy::float_cmp,
@@ -1857,7 +1778,8 @@ mod autotest_generated {
         assert_eq!(encode_grid_line(&GridLine::Line(-1)), -1);
         assert_eq!(encode_grid_line(&GridLine::Line(32_000)), 32_000);
         assert_eq!(encode_grid_line(&GridLine::Line(-32_000)), -32_000);
-        // One past the guarded range: must become the sentinel, never a wrapped i16.
+        // One past the guarded range: must become the sentinel, never a wrapped
+        // i16.
         assert_eq!(encode_grid_line(&GridLine::Line(32_001)), I16_SENTINEL);
         assert_eq!(encode_grid_line(&GridLine::Line(-32_001)), I16_SENTINEL);
         assert_eq!(encode_grid_line(&GridLine::Line(i32::MAX)), I16_SENTINEL);
@@ -1988,7 +1910,7 @@ mod autotest_generated {
 
     #[test]
     fn layout_width_nan_degrades_to_zero_without_panicking() {
-        // `NaN as isize` saturates to 0, so a NaN width becomes 0px — deterministic
+        // `NaN as isize` saturates to 0, so a NaN width becomes 0px - deterministic
         // and finite, which is what the layout solver needs.
         let enc = encode_layout_width(&CssPropertyValue::Exact(LayoutWidth::Px(PixelValue::px(
             f32::NAN,
@@ -2064,18 +1986,11 @@ mod autotest_generated {
 
     #[test]
     fn pixel_prop_exact_value_never_aliases_a_semantic_sentinel() {
-        // INVARIANT: an `Exact` length may overflow to U32_SENTINEL (= "slow path"),
-        // but must never collide with a sentinel that means something *else*
-        // (auto / none / inherit / initial / min-content / max-content) — that turns
+        // INVARIANT: an `Exact` length may overflow to U32_SENTINEL (= "slow
+        // path"), but must never collide with a sentinel that means something *else*
+        // (auto / none / inherit / initial / min-content / max-content) - that turns
         // a length into a different keyword with no way to tell.
-        //
-        // `encode_pixel_value_u32` packs `value << 4 | metric`. For the raw
-        // fixed-point value -1 (i.e. -0.001) the value bits are 0xFFFF_FFF0, so any
-        // metric whose code is >= 9 (vh = 9, vmin = 10, vmax = 11) ORs straight into
-        // the sentinel band:
-        //     -0.001vh   -> 0xFFFF_FFF9 == U32_MAX_CONTENT
-        //     -0.001vmin -> 0xFFFF_FFFA == U32_MIN_CONTENT
-        //     -0.001vmax -> 0xFFFF_FFFB == U32_INITIAL
+        // `encode_pixel_value_u32` packs `value << 4 | metric`.
         for metric in [SizeMetric::Vh, SizeMetric::Vmin, SizeMetric::Vmax] {
             let pv = PixelValue::from_metric(metric, -0.001);
             let enc = encode_pixel_prop(&CssPropertyValue::Exact(LayoutMinWidth { inner: pv }));
@@ -2149,8 +2064,9 @@ mod autotest_generated {
 
     #[test]
     fn css_pixel_i16_exact_value_never_aliases_a_keyword_sentinel() {
-        // The i16 encoder range-checks *both* ends before narrowing, so — unlike the
-        // u32 path — an Exact px value can never be mistaken for auto/inherit/initial.
+        // The i16 encoder range-checks *both* ends before narrowing, so - unlike
+        // the u32 path - an Exact px value can never be mistaken for
+        // auto/inherit/initial.
         for px in [
             -3276.8f32, -100.0, -0.1, 0.0, 0.1, 100.0, 3276.3, 1.0e9, -1.0e9,
         ] {
@@ -2265,8 +2181,9 @@ mod autotest_generated {
 
     #[test]
     fn dom_flags_are_not_set_for_a_valueless_property() {
-        // `line-height: initial` / `text-indent: auto` carry no Exact payload, so the
-        // "declared" fast-path bit must stay clear (the slow walk would find nothing).
+        // `line-height: initial` / `text-indent: auto` carry no Exact payload, so
+        // the "declared" fast-path bit must stay clear (the slow walk would find
+        // nothing).
         let mut flags = 0u32;
         update_dom_declared_flags(&CssProperty::LineHeight(CssPropertyValue::Initial), &mut flags);
         update_dom_declared_flags(&CssProperty::TextIndent(CssPropertyValue::Auto), &mut flags);
@@ -2289,7 +2206,7 @@ mod autotest_generated {
     }
 
     // -------------------------------------------------------------------------
-    // apply_css_property_to_compact — tier 1 bitfield
+    // apply_css_property_to_compact - tier 1 bitfield
     // -------------------------------------------------------------------------
 
     #[test]
@@ -2359,7 +2276,7 @@ mod autotest_generated {
     }
 
     // -------------------------------------------------------------------------
-    // apply_css_property_to_compact — tier 2 dims
+    // apply_css_property_to_compact - tier 2 dims
     // -------------------------------------------------------------------------
 
     #[test]
@@ -2417,7 +2334,7 @@ mod autotest_generated {
         assert_eq!(s.dims.row_gap, 80);
         assert_eq!(s.dims.column_gap, 80);
 
-        // An `em` gap cannot be resolved without a font context — it must be left
+        // An `em` gap cannot be resolved without a font context - it must be left
         // untouched (so the slow path can handle it), not silently encoded as 2px.
         let mut em = Sink::new();
         em.apply(&CssProperty::Gap(CssPropertyValue::Exact(LayoutGap {
@@ -2428,7 +2345,7 @@ mod autotest_generated {
     }
 
     // -------------------------------------------------------------------------
-    // apply_css_property_to_compact — tier 2 cold
+    // apply_css_property_to_compact - tier 2 cold
     // -------------------------------------------------------------------------
 
     #[test]
@@ -2460,13 +2377,11 @@ mod autotest_generated {
 
     #[test]
     fn apply_z_index_large_negative_must_not_wrap_positive() {
-        // The encoder range-checks only the UPPER bound:
-        //     if *z >= I16_SENTINEL_THRESHOLD { I16_SENTINEL } else { *z as i16 }
-        // so a large negative z-index truncates instead of saturating, e.g.
-        //     z-index: -40000  ->  -40000 as i16  ==  +25536
-        // which flips the node from the very back of the stacking context to the
-        // front. Compare with the line-height encoder, which *does* check
-        // `pct_x10 >= -32768` before narrowing.
+        // The encoder range-checks only the UPPER bound: if *z >=
+        // I16_SENTINEL_THRESHOLD { I16_SENTINEL } else { *z as i16 } so a large
+        // negative z-index truncates instead of saturating, e.g. z-index: -40000 ->
+        // -40000 as i16 == +25536 which flips the node from the very back of the
+        // stacking context to the front.
         for z in [-32_769i32, -40_000, -99_999, i32::MIN] {
             let mut s = Sink::new();
             s.apply(&CssProperty::ZIndex(CssPropertyValue::Exact(
@@ -2571,7 +2486,8 @@ mod autotest_generated {
             "scrollbar-gutter cleared the has-text-decoration bit"
         );
 
-        // ...and replacing the gutter value must clear the old bits, not OR into them
+        // ...and replacing the gutter value must clear the old bits, not OR into
+        // them
         s.apply(&CssProperty::ScrollbarGutter(CssPropertyValue::Exact(
             StyleScrollbarGutter::Auto,
         )));
@@ -2597,7 +2513,7 @@ mod autotest_generated {
     }
 
     // -------------------------------------------------------------------------
-    // apply_css_property_to_compact — tier 2b text
+    // apply_css_property_to_compact - tier 2b text
     // -------------------------------------------------------------------------
 
     #[test]
@@ -2623,11 +2539,11 @@ mod autotest_generated {
         assert_eq!(s.text.line_height, 1200, "120% must encode as % x 10");
 
         // Absurd values must saturate - no wrap-around. The two signs land
-        // differently by design: a huge POSITIVE (unitless multiple) falls to
-        // the sentinel ("normal" - a 10^7x multiple is meaningless), while a
-        // huge NEGATIVE (= absolute px per the parser convention) CLAMPS to
-        // the largest representable px (-32768 = 3276.8px) instead of being
-        // silently reinterpreted as "normal".
+        // differently by design: a huge POSITIVE (unitless multiple) falls to the
+        // sentinel ("normal" - a 10^7x multiple is meaningless), while a huge
+        // NEGATIVE (= absolute px per the parser convention) CLAMPS to the largest
+        // representable px (-32768 = 3276.8px) instead of being silently
+        // reinterpreted as "normal".
         let mut big = Sink::new();
         big.apply(&line_height_prop(1.0e9f32));
         assert_eq!(
@@ -2641,8 +2557,8 @@ mod autotest_generated {
             "a huge absolute px line-height clamps instead of dropping to normal"
         );
 
-        // The split scale itself: 48px (normalized -48) stores as -480 and
-        // decodes back to 48px - the old x1000 scale overflowed at 32.76px.
+        // The split scale itself: 48px (normalized -48) stores as -480 and decodes
+        // back to 48px - the old x1000 scale overflowed at 32.76px.
         let mut px48 = Sink::new();
         px48.apply(&line_height_prop(-4800.0));
         assert_eq!(px48.text.line_height, -480, "line-height: 48px stores as -px x 10");
@@ -2664,7 +2580,8 @@ mod autotest_generated {
             "the hash must be registered in the reverse map, or consumers cannot resolve it"
         );
 
-        // Same input -> same hash (the whole dirty-tracking scheme depends on this).
+        // Same input -> same hash (the whole dirty-tracking scheme depends on
+        // this).
         let mut same = Sink::new();
         same.apply(&CssProperty::FontFamily(CssPropertyValue::Exact(arial)));
         assert_eq!(same.text.font_family_hash, h);
@@ -2752,7 +2669,8 @@ mod autotest_generated {
     fn build_compact_cache_tolerates_a_mismatched_prev_font_hash_slice() {
         let cache = CssPropertyCache::empty(3);
         let nodes = div_nodes(3);
-        // longer than node_count, shorter than node_count, and empty — none may panic
+        // longer than node_count, shorter than node_count, and empty - none may
+        // panic
         for prev in [vec![1u64, 2, 3, 4, 5, 6], vec![7u64], Vec::new()] {
             let r = cache.build_compact_cache(&nodes, &prev);
             assert_eq!(r.prev_font_hashes.len(), 3);
@@ -2818,7 +2736,8 @@ mod autotest_generated {
             &[],
         );
         assert_eq!(r.node_count(), n);
-        // font-size is inheritable: property-less children must match the root exactly.
+        // font-size is inheritable: property-less children must match the root
+        // exactly.
         assert_eq!(r.tier2_dims[1].font_size, r.tier2_dims[0].font_size);
         assert_eq!(r.tier2_dims[2].font_size, r.tier2_dims[0].font_size);
     }
@@ -2830,7 +2749,8 @@ mod autotest_generated {
         let nodes = div_nodes(n);
         let hierarchy = linear_hierarchy(n);
 
-        // Empty prev_font_hashes == first build for this DOM -> force ALL nodes dirty.
+        // Empty prev_font_hashes == first build for this DOM -> force ALL nodes
+        // dirty.
         let first = cache.build_compact_cache_with_inheritance(&nodes, &hierarchy, &[]);
         assert_eq!(first.font_dirty_nodes, vec![0, 1, 2]);
 
@@ -2842,9 +2762,9 @@ mod autotest_generated {
 
     #[test]
     fn build_with_inheritance_global_star_rules_skip_text_nodes() {
-        // Per CSS, `*` matches ELEMENTS. A text node is not an element — it may only
-        // inherit from its parent, otherwise `* { padding: 5px }` would overwrite the
-        // value a text node inherited from `<p>`.
+        // Per CSS, `*` matches ELEMENTS. A text node is not an element - it may
+        // only inherit from its parent, otherwise `* { padding: 5px }` would
+        // overwrite the value a text node inherited from `<p>`.
         let mut cache = CssPropertyCache::empty(2);
         cache
             .global_css_props
@@ -2977,11 +2897,11 @@ mod autotest_generated {
 
     #[test]
     fn resolve_font_size_root_rem_uses_the_16px_initial_value() {
-        // For the ROOT node, `tier2_dims.first()` IS the node itself — and at this
+        // For the ROOT node, `tier2_dims.first()` IS the node itself - and at this
         // point its font-size is still the *unresolved* rem value. The Rem arm then
-        // multiplies the rem factor by itself:
-        //     html { font-size: 2rem }  ->  2 * 2 = 4px   (should be 2 * 16 = 32px)
-        // Every other unit handles the no-parent case correctly via `map_or(16.0, ..)`.
+        // multiplies the rem factor by itself: html { font-size: 2rem } -> 2 * 2 =
+        // 4px (should be 2 * 16 = 32px) Every other unit handles the no-parent case
+        // correctly via `map_or(16.0, ..)`.
         let mut dims = vec![CompactNodeProps::default()];
         dims[0].font_size = encode_pixel_value_u32(&PixelValue::rem(2.0));
         resolve_font_size_to_px(&mut dims, 0, None);

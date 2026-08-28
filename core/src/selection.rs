@@ -1,48 +1,6 @@
-//! Text selection and cursor positioning for inline content.
-//!
-//! This module provides data structures for managing text cursors and selection ranges
-//! in a bidirectional (Bidi) and line-breaking aware manner. It handles:
-//!
-//! - **Grapheme cluster identification**: Unicode-aware character boundaries
-//! - **Bidi support**: Cursor movement in mixed LTR/RTL text
-//! - **Stable positions**: Selection anchors survive layout changes
-//! - **Affinity tracking**: Cursor position at leading/trailing edges
-//! - **Multi-node selection**: Browser-style selection spanning multiple DOM nodes
-//!
-//! # Architecture
-//!
-//! Text positions are represented as:
-//! - `ContentIndex`: Logical position in the original inline content array
-//! - `GraphemeClusterId`: Stable identifier for a grapheme cluster (survives reordering)
-//! - `TextCursor`: Precise cursor location with leading/trailing affinity
-//! - `SelectionRange`: Start and end cursors defining a selection
-//!
-//! Multi-node selection uses an Anchor/Focus model (W3C Selection API):
-//! - `SelectionAnchor`: Fixed point where user started selection (mousedown)
-//! - `SelectionFocus`: Movable point where selection currently ends (drag position)
-//! - `TextSelection`: Complete selection state spanning potentially multiple IFC roots
-//!
-//! # Use Cases
-//!
-//! - Text editing: Insert/delete at cursor position
-//! - Selection rendering: Highlight selected text across multiple nodes
-//! - Keyboard navigation: Move cursor by grapheme/word/line
-//! - Mouse selection: Convert pixel coordinates to text positions
-//! - Drag selection: Extend selection across multiple DOM nodes
-//!
-//! # Examples
-//!
-//! ```rust,no_run
-//! use azul_core::selection::{CursorAffinity, GraphemeClusterId, TextCursor};
-//!
-//! let cursor = TextCursor {
-//!     cluster_id: GraphemeClusterId {
-//!         source_run: 0,
-//!         start_byte_in_run: 0,
-//!     },
-//!     affinity: CursorAffinity::Leading,
-//! };
-//! ```
+//! Text selection and cursor positioning for inline content. This module provides
+//! data structures for managing text cursors and selection ranges in a bidirectional
+//! (Bidi) and line-breaking aware manner.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -52,7 +10,6 @@ use crate::dom::{DomId, DomNodeId, NodeId};
 use crate::geom::{LogicalPosition, LogicalRect};
 
 /// A stable, logical pointer to an item within the original `InlineContent` array.
-///
 /// This structure eliminates the need for string concatenation and byte-offset math
 /// by tracking both the run index and the item index within that run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -63,10 +20,9 @@ pub struct ContentIndex {
     pub item_index: u32,
 }
 
-/// A stable, logical identifier for a grapheme cluster.
-///
-/// This survives Bidi reordering and line breaking, making it ideal for tracking
-/// text positions for selection and cursor logic.
+/// A stable, logical identifier for a grapheme cluster. This survives Bidi
+/// reordering and line breaking, making it ideal for tracking text positions for
+/// selection and cursor logic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct GraphemeClusterId {
@@ -76,14 +32,16 @@ pub struct GraphemeClusterId {
     pub start_byte_in_run: u32,
 }
 
-/// Represents the logical position of the cursor *between* two grapheme clusters
-/// or at the start/end of the text.
+/// Represents the logical position of the cursor *between* two grapheme clusters or
+/// at the start/end of the text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(C)]
 pub enum CursorAffinity {
-    /// The cursor is at the leading edge of the character (left in LTR, right in RTL).
+    /// The cursor is at the leading edge of the character (left in LTR, right in
+    /// RTL).
     Leading,
-    /// The cursor is at the trailing edge of the character (right in LTR, left in RTL).
+    /// The cursor is at the trailing edge of the character (right in LTR, left in
+    /// RTL).
     Trailing,
 }
 
@@ -128,7 +86,8 @@ impl_vec_clone!(
 impl_vec_partialeq!(SelectionRange, SelectionRangeVec);
 impl_vec_partialord!(SelectionRange, SelectionRangeVec);
 
-/// A single selection, which can be either a blinking cursor or a highlighted range.
+/// A single selection, which can be either a blinking cursor or a highlighted
+/// range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum Selection {
@@ -148,21 +107,24 @@ impl_vec_clone!(Selection, SelectionVec, SelectionVecDestructor);
 impl_vec_partialeq!(Selection, SelectionVec);
 impl_vec_partialord!(Selection, SelectionVec);
 
-/// The complete selection state for a single text block, supporting multiple cursors/ranges.
+/// The complete selection state for a single text block, supporting multiple
+/// cursors/ranges.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct SelectionState {
-    /// A list of all active selections. This list is kept sorted and non-overlapping.
+    /// A list of all active selections. This list is kept sorted and
+    /// non-overlapping.
     pub selections: SelectionVec,
     /// The DOM node this selection state applies to.
     pub node_id: DomNodeId,
 }
 
 impl SelectionState {
-    /// Adds a new selection, merging it with any existing selections it overlaps with.
+    /// Adds a new selection, merging it with any existing selections it overlaps
+    /// with.
     pub fn add(&mut self, new_selection: Selection) {
-        // A full implementation would handle merging overlapping ranges.
-        // For now, we simply add and sort for simplicity.
+        // A full implementation would handle merging overlapping ranges. For now,
+        // we simply add and sort for simplicity.
         let mut selections: Vec<Selection> = self.selections.as_ref().to_vec();
         selections.push(new_selection);
         selections.sort_unstable();
@@ -184,10 +146,8 @@ impl_option!(
 // MULTI-CURSOR SUPPORT (Sublime Text style)
 // ============================================================================
 
-/// Stable identifier for a cursor/selection within a `MultiCursorState`.
-///
-/// Uses a monotonic u64 counter (not UUID) so it is `Copy` and C-API friendly.
-/// Each `SelectionId` is unique within the lifetime of the process.
+/// Stable identifier for a cursor/selection within a `MultiCursorState`. Uses a
+/// monotonic u64 counter (not UUID) so it is `Copy` and C-API friendly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct SelectionId {
@@ -202,8 +162,8 @@ impl SelectionId {
     }
 }
 
-/// Note: `Default` generates a new unique ID (increments global counter),
-/// rather than returning a zero/sentinel value.
+/// Note: `Default` generates a new unique ID (increments global counter), rather
+/// than returning a zero/sentinel value.
 impl Default for SelectionId {
     fn default() -> Self {
         Self::new()
@@ -241,29 +201,20 @@ impl_vec_debug!(IdentifiedSelection, IdentifiedSelectionVec);
 impl_vec_clone!(IdentifiedSelection, IdentifiedSelectionVec, IdentifiedSelectionVecDestructor);
 impl_vec_partialeq!(IdentifiedSelection, IdentifiedSelectionVec);
 
-/// Multi-cursor state for a contenteditable element (Sublime Text style).
-///
-/// Replaces the split `CursorManager` + `SelectionManager` pattern for text editing.
-/// Supports multiple simultaneous cursors/selections, each with a stable ID.
-///
-/// ## Invariants
-///
-/// - `selections` is sorted by position and non-overlapping.
-/// - The **primary** selection is identified by the stable `primary_id`, NOT by
-///   vector position: `merge_overlapping()` re-sorts `selections` by position,
-///   so "last index" is not the most-recently-added cursor.
-/// - After any mutation, `merge_overlapping()` is called to maintain invariants.
+/// Multi-cursor state for a contenteditable element (Sublime Text style). Replaces
+/// the split `CursorManager` + `SelectionManager` pattern for text editing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiCursorState {
     /// Sorted by position, non-overlapping. Primary is tracked via `primary_id`.
     pub selections: Vec<IdentifiedSelection>,
     /// Stable ID of the primary selection (most recently added/set). Survives the
-    /// position sort in `merge_overlapping`, which would otherwise make the
-    /// vector's last element (position-last) masquerade as the primary.
+    /// position sort in `merge_overlapping`, which would otherwise make the vector's
+    /// last element (position-last) masquerade as the primary.
     pub primary_id: SelectionId,
     /// The DOM node this multi-cursor state applies to.
     pub node_id: DomNodeId,
-    /// Stable key that survives DOM rebuilds (from `calculate_contenteditable_key`).
+    /// Stable key that survives DOM rebuilds (from
+    /// `calculate_contenteditable_key`).
     pub contenteditable_key: u64,
 }
 
@@ -282,8 +233,8 @@ impl MultiCursorState {
         }
     }
 
-    /// Add a cursor, merging if it overlaps with existing selections.
-    /// Returns the `SelectionId` of the new (or merged) cursor.
+    /// Add a cursor, merging if it overlaps with existing selections. Returns the
+    /// `SelectionId` of the new (or merged) cursor.
     #[must_use]
     pub fn add_cursor(&mut self, cursor: TextCursor) -> SelectionId {
         let id = SelectionId::new();
@@ -296,8 +247,8 @@ impl MultiCursorState {
         id
     }
 
-    /// Add a selection range, merging if it overlaps.
-    /// Returns the `SelectionId` of the new (or merged) selection.
+    /// Add a selection range, merging if it overlaps. Returns the `SelectionId` of
+    /// the new (or merged) selection.
     #[must_use]
     pub fn add_selection(&mut self, range: SelectionRange) -> SelectionId {
         let id = SelectionId::new();
@@ -324,9 +275,8 @@ impl MultiCursorState {
     }
 
     /// Get the primary selection (the most recently added/set, tracked by
-    /// `primary_id` — NOT the vector's last element, which position-sorting
-    /// reorders). Falls back to the last element if `primary_id` was somehow
-    /// lost.
+    /// `primary_id` - NOT the vector's last element, which position-sorting
+    /// reorders). Falls back to the last element if `primary_id` was somehow lost.
     #[must_use] pub fn get_primary(&self) -> Option<&IdentifiedSelection> {
         let pid = self.primary_id;
         self.selections
@@ -368,9 +318,8 @@ impl MultiCursorState {
         self.selections.iter().map(|s| s.selection).collect()
     }
 
-    /// Update selections from the result of `edit_text()`.
-    ///
-    /// Preserves existing IDs where possible (by index), assigns new IDs for extras.
+    /// Update selections from the result of `edit_text()`. Preserves existing IDs
+    /// where possible (by index), assigns new IDs for extras.
     pub fn update_from_edit_result(&mut self, new_selections: &[Selection]) {
         let old_ids: Vec<SelectionId> = self.selections.iter().map(|s| s.id).collect();
         self.selections.clear();
@@ -383,7 +332,7 @@ impl MultiCursorState {
         }
         // IDs are reassigned by index; make sure primary_id still resolves.
         self.ensure_primary_valid();
-        // Don't merge here — edit_text already returns correct positions
+        // Don't merge here - edit_text already returns correct positions
     }
 
     /// Set all selections to a single cursor (e.g., on plain click without Ctrl).
@@ -435,15 +384,16 @@ impl MultiCursorState {
             pos_a.cmp(&pos_b)
         });
 
-        // Merge overlapping: if selection[i+1] starts at or before selection[i] ends,
-        // merge them into one range (keeping the later ID as it's more recent).
+        // Merge overlapping: if selection[i+1] starts at or before selection[i]
+        // ends, merge them into one range (keeping the later ID as it's more
+        // recent).
         let mut merged: Vec<IdentifiedSelection> = Vec::with_capacity(self.selections.len());
         for sel in self.selections.drain(..) {
             if let Some(last) = merged.last_mut() {
                 let last_end = selection_end_pos(&last.selection);
                 let cur_start = selection_start_pos(&sel.selection);
                 if cur_start <= last_end {
-                    // Overlap — merge into one range covering both
+                    // Overlap - merge into one range covering both
                     let new_start = selection_start_pos(&last.selection);
                     let cur_end = selection_end_pos(&sel.selection);
                     let new_end = if cur_end > last_end { cur_end } else { last_end };
@@ -455,8 +405,8 @@ impl MultiCursorState {
                             end: new_end,
                         });
                     }
-                    // If either side of the merge — or the accumulator that has
-                    // already absorbed the primary earlier in the chain — was the
+                    // If either side of the merge - or the accumulator that has
+                    // already absorbed the primary earlier in the chain - was the
                     // primary, the merged selection inherits primary status.
                     // `last.id == new_primary` carries the primary across a 3+-link
                     // chain: without it, `new_primary` would keep pointing at an
@@ -482,14 +432,6 @@ impl MultiCursorState {
     }
 
     /// Move all cursors using a movement function. Merges collisions afterward.
-    ///
-    /// `move_fn` takes a `TextCursor` and returns the new `TextCursor` after movement.
-    /// If `extend_selection` is true, the anchor stays and only the focus moves,
-    /// creating or extending a range.
-    ///
-    /// A bare (non-extending) move over an active range COLLAPSES to the range
-    /// boundary — the arrow-key rule. Use [`Self::move_all_cursors_with`] for
-    /// steps where that is wrong (Home/End, document jumps).
     pub fn move_all_cursors(
         &mut self,
         extend_selection: bool,
@@ -498,15 +440,9 @@ impl MultiCursorState {
         self.move_all_cursors_with(extend_selection, true, move_fn);
     }
 
-    /// [`Self::move_all_cursors`], with control over what a bare move does to
-    /// an active range.
-    ///
-    /// `collapse_range_to_boundary` is the arrow-key rule: Left/Right with a
-    /// selection put the caret on the selection's edge and go no further.
-    /// Every OTHER step — Home/End, Ctrl+Home/End, a visual line, a word — is a
-    /// MOVEMENT and must be performed: collapsing them to the nearest edge is
-    /// how pressing End with text selected used to leave the caret sitting at
-    /// the end of the selection instead of the end of the line.
+    /// [`Self::move_all_cursors`], with control over what a bare move does to an
+    /// active range. `collapse_range_to_boundary` is the arrow-key rule: Left/Right
+    /// with a selection put the caret on the selection's edge and go no further.
     pub fn move_all_cursors_with(
         &mut self,
         extend_selection: bool,
@@ -543,11 +479,8 @@ impl MultiCursorState {
                         // Bare arrow with an active selection collapses the caret
                         // to the selection boundary in the arrow's direction WITHOUT
                         // advancing a character (standard editor behavior). Running
-                        // move_fn on the focus and using that as the caret would step
-                        // one unit past the edge. We don't get the arrow direction
-                        // here, so probe it: apply move_fn to the focus and compare —
-                        // a forward move collapses to the max boundary, a backward
-                        // move to the min boundary.
+                        // move_fn on the focus and using that as the caret would
+                        // step one unit past the edge.
                         let (lo, hi) = if r.start <= r.end {
                             (r.start, r.end)
                         } else {
@@ -559,8 +492,8 @@ impl MultiCursorState {
                     } else {
                         // Home / End / Ctrl+Home / Ctrl+End / a visual line step:
                         // the caret goes where the step points, measured from the
-                        // focus. The boundary collapse above would strand it on
-                        // the selection's edge instead.
+                        // focus. The boundary collapse above would strand it on the
+                        // selection's edge instead.
                         sel.selection = Selection::Cursor(move_fn(&r.end));
                     }
                 }
@@ -569,9 +502,8 @@ impl MultiCursorState {
         self.merge_overlapping();
     }
 
-    /// Remap the `NodeId` in `node_id` after DOM reconciliation.
-    ///
-    /// If the node was removed (not in the map), the multi-cursor state is cleared.
+    /// Remap the `NodeId` in `node_id` after DOM reconciliation. If the node was
+    /// removed (not in the map), the multi-cursor state is cleared.
     pub fn remap_node_ids(
         &mut self,
         dom_id: DomId,
@@ -584,7 +516,7 @@ impl MultiCursorState {
             if let Some(&new_node_id) = node_id_map.get(&old_node_id) {
                 self.node_id.node = crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(new_node_id));
             } else {
-                // Node removed — clear selections
+                // Node removed - clear selections
                 self.selections.clear();
             }
         }
@@ -615,38 +547,32 @@ fn selection_end_pos(sel: &Selection) -> TextCursor {
 // MULTI-NODE SELECTION (Browser-style Anchor/Focus model)
 // ============================================================================
 
-/// The anchor point of a text selection - where the user started selecting.
-///
-/// This is the fixed point during a drag operation. It records:
-/// - The IFC root node (where the `UnifiedLayout` lives)
-/// - The exact cursor position within that layout
-/// - The visual bounds of the anchor character (for logical rectangle calculations)
-///
-/// The anchor remains constant during a drag; only the focus moves.
+/// The anchor point of a text selection - where the user started selecting. This is
+/// the fixed point during a drag operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionAnchor {
-    /// The IFC root node ID where selection started.
-    /// This is the node that has `inline_layout_result` (e.g., `<p>`, `<div>`).
+    /// The IFC root node ID where selection started. This is the node that has
+    /// `inline_layout_result` (e.g., `<p>`, `<div>`).
     pub ifc_root_node_id: NodeId,
     
     /// The exact cursor position within the IFC's `UnifiedLayout`.
     pub cursor: TextCursor,
     
-    /// Visual bounds of the anchor character in viewport coordinates.
-    /// Used for computing the logical selection rectangle during multi-line/multi-node selection.
+    /// Visual bounds of the anchor character in viewport coordinates. Used for
+    /// computing the logical selection rectangle during multi-line/multi-node
+    /// selection.
     pub char_bounds: LogicalRect,
     
     /// The mouse position when the selection started (viewport coordinates).
     pub mouse_position: LogicalPosition,
 }
 
-/// The focus point of a text selection - where the selection currently ends.
-///
-/// This is the movable point during a drag operation. It updates on every mouse move.
+/// The focus point of a text selection - where the selection currently ends. This
+/// is the movable point during a drag operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SelectionFocus {
-    /// The IFC root node ID where selection currently ends.
-    /// May differ from anchor's IFC root during cross-node selection.
+    /// The IFC root node ID where selection currently ends. May differ from
+    /// anchor's IFC root during cross-node selection.
     pub ifc_root_node_id: NodeId,
     
     /// The exact cursor position within the IFC's `UnifiedLayout`.
@@ -656,24 +582,8 @@ pub struct SelectionFocus {
     pub mouse_position: LogicalPosition,
 }
 
-/// Complete selection state spanning potentially multiple DOM nodes.
-///
-/// This implements the W3C Selection API model with anchor/focus endpoints.
-/// The selection can span multiple IFC roots (e.g., multiple `<p>` elements).
-///
-/// ## Storage Model
-///
-/// Uses `BTreeMap<NodeId, Vec<SelectionRange>>` for O(log N) lookup during rendering.
-/// The key is the **IFC root `NodeId`**, and the value is every `SelectionRange`
-/// that IFC contributes.
-///
-/// ## Example
-///
-/// ```text
-/// <p id="1">Hello [World</p>     <- Anchor in IFC 1, partial selection
-/// <p id="2">Complete line</p>    <- InBetween, fully selected
-/// <p id="3">Partial] end</p>     <- Focus in IFC 3, partial selection
-/// ```
+/// Complete selection state spanning potentially multiple DOM nodes. This
+/// implements the W3C Selection API model with anchor/focus endpoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextSelection {
     /// The DOM this selection belongs to.
@@ -685,18 +595,12 @@ pub struct TextSelection {
     /// The focus point - where the selection currently ends (moves during drag).
     pub focus: SelectionFocus,
     
-    /// Map from IFC root `NodeId` to the `SelectionRange`s for that IFC.
-    /// This allows O(log N) lookup during rendering.
-    ///
-    /// Each `SelectionRange` contains the actual `TextCursor` positions for that IFC,
-    /// ready to be passed to `UnifiedLayout::get_selection_rects()`.
-    ///
-    /// A node carries SEVERAL ranges when a multi-cursor session selects several
-    /// occurrences in it (Ctrl+D); the ranges are disjoint and in document order.
+    /// Map from IFC root `NodeId` to the `SelectionRange`s for that IFC. This
+    /// allows O(log N) lookup during rendering.
     pub affected_nodes: BTreeMap<NodeId, Vec<SelectionRange>>,
     
-    /// Indicates whether anchor comes before focus in document order.
-    /// True = forward selection (left-to-right), False = backward selection.
+    /// Indicates whether anchor comes before focus in document order. True =
+    /// forward selection (left-to-right), False = backward selection.
     pub is_forward: bool,
 }
 
@@ -744,10 +648,8 @@ impl TextSelection {
             && self.anchor.cursor == self.focus.cursor
     }
     
-    /// Get the FIRST selection range for a specific IFC root node.
-    /// Returns `None` if this node is not part of the selection.
-    ///
-    /// A multi-range node has more; [`Self::ranges_for_node`] returns all of them.
+    /// Get the FIRST selection range for a specific IFC root node. Returns `None`
+    /// if this node is not part of the selection.
     #[must_use] pub fn get_range_for_node(&self, ifc_root_node_id: &NodeId) -> Option<&SelectionRange> {
         self.affected_nodes.get(ifc_root_node_id).and_then(|r| r.first())
     }
@@ -866,8 +768,8 @@ mod autotest_generated {
         MultiCursorState::new_with_cursor(c(byte), DomNodeId::ROOT, 0)
     }
 
-    /// A `MultiCursorState` with zero selections — "should not normally happen",
-    /// so every getter must survive it.
+    /// A `MultiCursorState` with zero selections - "should not normally happen", so
+    /// every getter must survive it.
     fn empty_state() -> MultiCursorState {
         MultiCursorState {
             selections: Vec::new(),
@@ -899,8 +801,8 @@ mod autotest_generated {
         }
     }
 
-    /// `primary_id` must always name a selection that actually exists (or the
-    /// state must be empty). A dangling `primary_id` makes `get_primary()` lie.
+    /// `primary_id` must always name a selection that actually exists (or the state
+    /// must be empty). A dangling `primary_id` makes `get_primary()` lie.
     fn assert_primary_resolves(mc: &MultiCursorState) {
         if mc.is_empty() {
             assert!(mc.get_primary().is_none());
@@ -928,7 +830,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // SelectionId::new  (constructor)
+    // SelectionId::new (constructor)
     // =====================================================================
 
     #[test]
@@ -937,8 +839,8 @@ mod autotest_generated {
         assert!(prev.inner > 0, "counter starts at 1, never the 0 sentinel");
         for _ in 0..1000 {
             let next = SelectionId::new();
-            // Other tests share the global atomic, so ids may skip — but within
-            // one thread they must be strictly increasing and never repeat.
+            // Other tests share the global atomic, so ids may skip - but within one
+            // thread they must be strictly increasing and never repeat.
             assert!(
                 next.inner > prev.inner,
                 "SelectionId counter must be strictly monotonic"
@@ -1001,7 +903,7 @@ mod autotest_generated {
             node_id: DomNodeId::ROOT,
         };
         // u32::MAX bytes, max run index, both affinities, and a *reversed* range
-        // (start logically after end — explicitly allowed by SelectionRange docs).
+        // (start logically after end - explicitly allowed by SelectionRange docs).
         st.add(Selection::Cursor(c_full(
             u32::MAX,
             u32::MAX,
@@ -1030,15 +932,15 @@ mod autotest_generated {
         };
         st.add(Selection::Range(rng(5, 5)));
         st.add(Selection::Cursor(c(5)));
-        // A zero-width Range and a Cursor are different `Selection` variants,
-        // so dedup() cannot collapse them.
+        // A zero-width Range and a Cursor are different `Selection` variants, so
+        // dedup() cannot collapse them.
         assert_eq!(st.selections.as_ref().len(), 2);
         // Cursor variant sorts before Range variant.
         assert_eq!(st.selections.as_ref()[0], Selection::Cursor(c(5)));
     }
 
     // =====================================================================
-    // MultiCursorState::new_with_cursor  (constructor)
+    // MultiCursorState::new_with_cursor (constructor)
     // =====================================================================
 
     #[test]
@@ -1107,7 +1009,7 @@ mod autotest_generated {
             Selection::Cursor(c(30)),
         ]);
         // Primary is the most recently added (byte 20), which is the *middle*
-        // element — proving primary is tracked by id, not vec position.
+        // element - proving primary is tracked by id, not vec position.
         assert_eq!(mc.get_primary().unwrap().id, last);
         assert_eq!(mc.get_primary_cursor(), Some(c(20)));
         assert_sorted_nonoverlapping(&mc);
@@ -1118,8 +1020,8 @@ mod autotest_generated {
     #[test]
     fn add_cursor_same_byte_different_affinity_does_not_merge() {
         // Leading < Trailing, so cur_start(Trailing) > last_end(Leading) and the
-        // merge condition (`cur_start <= last_end`) is false. Two carets survive
-        // at the same byte offset.
+        // merge condition (`cur_start <= last_end`) is false. Two carets survive at
+        // the same byte offset.
         let mut mc = MultiCursorState::new_with_cursor(
             c_full(0, 4, CursorAffinity::Leading),
             DomNodeId::ROOT,
@@ -1323,8 +1225,8 @@ mod autotest_generated {
         assert_eq!(mc.get_primary_cursor(), Some(c(9)));
 
         // Backwards range: the raw `end` field is returned (the *focus*), even
-        // though it is the lower position. This is deliberate — the caret sits
-        // at the focus, not at the max boundary.
+        // though it is the lower position. This is deliberate - the caret sits at
+        // the focus, not at the max boundary.
         let mut back = empty_state();
         back.set_single_range(SelectionRange {
             start: c(9),
@@ -1434,7 +1336,8 @@ mod autotest_generated {
 
     #[test]
     fn update_from_edit_result_does_not_merge_overlaps() {
-        // Documented: "Don't merge here — edit_text already returns correct positions"
+        // Documented: "Don't merge here - edit_text already returns correct
+        // positions"
         let mut mc = state(0);
         mc.update_from_edit_result(&[
             Selection::Range(rng(0, 10)),
@@ -1662,8 +1565,8 @@ mod autotest_generated {
 
     #[test]
     fn merge_overlapping_primary_inside_a_chain_still_resolves() {
-        // Three cursors that all collapse into one, plus a far-away cursor.
-        // The primary is the *first* link of the merge chain.
+        // Three cursors that all collapse into one, plus a far-away cursor. The
+        // primary is the *first* link of the merge chain.
         let mut mc = empty_state();
         let ids: Vec<SelectionId> = (0..4).map(|_| SelectionId::new()).collect();
         mc.selections = vec![
@@ -1688,11 +1591,8 @@ mod autotest_generated {
     fn merge_overlapping_primary_should_follow_its_merge_chain() {
         // Same setup as above. `merge_overlapping` records `new_primary = sel.id`
         // when the chain's head is the primary, but the head's id is then
-        // overwritten by the *next* merge, so `new_primary` points at an id that
-        // no longer exists. ensure_primary_valid() then silently adopts the
-        // vector's LAST element — the unrelated cursor at byte 100.
-        //
-        // Expected: the primary follows the merged selection it was part of (byte 0).
+        // overwritten by the *next* merge, so `new_primary` points at an id that no
+        // longer exists.
         let mut mc = empty_state();
         let ids: Vec<SelectionId> = (0..4).map(|_| SelectionId::new()).collect();
         mc.selections = vec![
@@ -1728,8 +1628,8 @@ mod autotest_generated {
 
     #[test]
     fn move_all_cursors_extend_with_no_movement_keeps_a_cursor() {
-        // `*c != new_cursor` is false -> the selection must stay a Cursor,
-        // not degenerate into a zero-width Range.
+        // `*c != new_cursor` is false -> the selection must stay a Cursor, not
+        // degenerate into a zero-width Range.
         let mut mc = state(4);
         mc.move_all_cursors(true, |cur| *cur);
         assert_eq!(mc.len(), 1);
@@ -1792,8 +1692,8 @@ mod autotest_generated {
 
     #[test]
     fn move_all_cursors_without_boundary_collapse_performs_the_step_from_the_focus() {
-        // Home over an active range: the caret goes where the step points, not
-        // to the range's near edge. `move_fn` here is "go to byte 0".
+        // Home over an active range: the caret goes where the step points, not to
+        // the range's near edge. `move_fn` here is "go to byte 0".
         let mut mc = empty_state();
         mc.set_single_range(rng(3, 9));
         mc.move_all_cursors_with(false, false, |_| c(0));
@@ -1806,8 +1706,8 @@ mod autotest_generated {
         arrow.move_all_cursors_with(false, true, |_| c(0));
         assert_eq!(arrow.selections[0].selection, Selection::Cursor(c(3)));
 
-        // End over the same range: byte 20 is past `hi`, which the boundary
-        // rule would have clamped to 9.
+        // End over the same range: byte 20 is past `hi`, which the boundary rule
+        // would have clamped to 9.
         let mut end = empty_state();
         end.set_single_range(rng(3, 9));
         end.move_all_cursors_with(false, false, |_| c(20));
@@ -1935,8 +1835,9 @@ mod autotest_generated {
 
     #[test]
     fn remap_node_ids_with_a_none_node_is_a_noop() {
-        // DomNodeId::ROOT carries NodeHierarchyItemId::NONE -> into_crate_internal()
-        // is None, so neither branch runs and the selections must survive.
+        // DomNodeId::ROOT carries NodeHierarchyItemId::NONE ->
+        // into_crate_internal() is None, so neither branch runs and the selections
+        // must survive.
         let mut mc = state(3);
         let map: BTreeMap<NodeId, NodeId> = BTreeMap::new();
         mc.remap_node_ids(DomId::ROOT_ID, &map);
@@ -1974,7 +1875,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // selection_start_pos / selection_end_pos  (private helpers)
+    // selection_start_pos / selection_end_pos (private helpers)
     // =====================================================================
 
     #[test]
@@ -2127,9 +2028,9 @@ mod autotest_generated {
 
     #[test]
     fn ranges_for_node_returns_every_range_the_node_carries() {
-        // A Ctrl+D session puts all of its occurrences on ONE node, so the
-        // carrier has to be a list — the map used to hold a single range and
-        // every occurrence but one was unexpressible.
+        // A Ctrl+D session puts all of its occurrences on ONE node, so the carrier
+        // has to be a list - the map used to hold a single range and every
+        // occurrence but one was unexpressible.
         let node = NodeId::new(3);
         let mut sel = TextSelection::new_collapsed(
             DomId::ROOT_ID,

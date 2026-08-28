@@ -1,49 +1,12 @@
-//! Runtime log filtering — atomics, not `#[cfg]`.
-//!
-//! # Why this module exists
-//!
-//! azul's platform logging used to be switchable only at COMPILE time, in two
-//! independent ways, and on 2026-08-07 both of them silently deleted the one
-//! diagnosis that was needed:
-//!
-//! * `log_*!` reached the `log` facade only under `feature = "logging"`. An app
-//!   linking azul-dll with `default-features = false` (the documented lean
-//!   `link-static` recipe) got a no-op sink.
-//! * In a `debug-server` build the same macros route into the debug server's
-//!   in-memory queue instead, which never reaches stderr at all.
-//!
-//! The result: a Wayland compositor disconnected the client mid-run, azul's
-//! dead-connection detector fired correctly, and the user saw nothing but
-//! libwayland's bare `Error sending request: Broken pipe`. A diagnostic a build
-//! flag can delete is not a diagnostic.
-//!
-//! USER RULING (2026-08-07): logging must be gated by runtime atomics, the same
-//! way perf and memory profiling are — never by a cargo feature. This module is
-//! that gate. It is always compiled, costs one relaxed atomic load per call
-//! site, and can be changed while the process runs.
-//!
-//! # Configuring it
-//!
-//! Parsed once from `AZ_LOG` on first use, then mutable at runtime:
-//!
-//! ```text
-//! AZ_LOG=debug                  every category at Debug and above (the default)
-//! AZ_LOG=off                    silence
-//! AZ_LOG=trace                  everything, including the per-frame firehose
-//! AZ_LOG=warn,+platform         Warn globally, but Platform down to Trace
-//! AZ_LOG=debug,-layout          Debug globally, but Layout silenced
-//! ```
-//!
-//! `-<category>` / `+<category>` exist because the levels alone are not a usable
-//! filter here: one three-resize run emits 482 547 `[Debug][Layout]` messages
-//! against 7 `[Debug][Platform]` ones. Asking for platform detail at Debug means
-//! writing 55 MB of layout tracing you did not want, which is slow enough to
-//! change the behaviour being measured.
+//! Runtime log filtering - atomics, not `#[cfg]`. azul's platform logging used to
+//! be switchable only at COMPILE time, in two independent ways, and on 2026-08-07
+//! both of them silently deleted the one diagnosis that was needed: * `log_*!`
+//! reached the `log` facade only under `feature = "logging"`.
 
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 
-/// Severity, ordered so `level as u8 >= threshold` is the enabled test.
-/// Mirrors `LogLevel` in the shell without depending on it.
+/// Severity, ordered so `level as u8 >= threshold` is the enabled test. Mirrors
+/// `LogLevel` in the shell without depending on it.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Level {
@@ -85,34 +48,17 @@ static CATEGORY_MASK: AtomicU32 = AtomicU32::new(u32::MAX);
 static ANY_ENABLED: AtomicBool = AtomicBool::new(false);
 /// Whether `AZ_LOG` has been parsed yet.
 static INITIALISED: AtomicBool = AtomicBool::new(false);
-/// Echo every passing record to stderr, in addition to whatever sink the build
-/// has.
-///
+/// Echo every passing record to stderr, in addition to whatever sink the build has.
 /// **ON as soon as anything asks for logging, OFF for a plain run.** Asking for
 /// debugging and getting silence is the bug this module exists to kill:
-/// `AZ_DEBUG=<port>` and `AZ_E2E=<file>` routed every record into the debug
-/// server's in-memory queue and printed nothing on the terminal, so the
-/// operator saw a blank screen and concluded logging was broken. If you turn a
-/// debug mode on, you get logs — [`crate::log_filter`] callers OR the shell's
-/// `log_gate`, which also treats an active debug server as "asked for logs".
-///
-/// It must NOT default to on for an app that asked for nothing. The default
-/// level is Debug and the Layout category alone emits 482 547 records on a
-/// three-resize run, so an unconditional echo would make every shipped azul app
-/// write ~55 MB of layout tracing to stderr on an ordinary run. That is a worse
-/// bug than the silence it fixes.
-///
-/// Set explicitly with `AZ_LOG_STDERR=1` / `AZ_LOG_STDERR=0` (0 keeps the queue
-/// for the debugger UI); `AZ_LOG=off` silences everything. Volume is a
-/// LEVEL/CATEGORY question — `AZ_LOG=debug,-layout` — not a reason to have no
-/// sink.
+/// `AZ_DEBUG=<port>` and `AZ_E2E=<file>` routed every record into the debug server's
+/// in-memory queue and printed nothing on the terminal, so the operator saw a blank
+/// screen and concluded logging was broken.
 static STDERR_ECHO: AtomicBool = AtomicBool::new(false);
 
-/// The five level switches, exposed individually.
-///
-/// Individual statics are how these are usually flipped from a debugger or a
-/// callback: `log_filter::DEBUG.store(true, ..)`.
-/// They are derived from [`MIN_LEVEL`] and kept in step by [`recompute`].
+/// The five level switches, exposed individually. Individual statics are how these
+/// are usually flipped from a debugger or a callback: `log_filter::DEBUG.store(true,
+/// ..)`.
 pub static TRACE: AtomicBool = AtomicBool::new(false);
 /// See [`TRACE`].
 pub static DEBUG: AtomicBool = AtomicBool::new(false);
@@ -173,10 +119,9 @@ pub fn category_enabled(category: Category) -> bool {
     CATEGORY_MASK.load(Ordering::Relaxed) & (1u32 << (category as u8)) != 0
 }
 
-/// Whether records at `level` in `category` should be emitted.
-///
-/// This is THE hot path — it runs before the `format!` at every one of the 700+
-/// `log_*!` call sites, so it must stay two relaxed loads and no allocation.
+/// Whether records at `level` in `category` should be emitted. This is THE hot path
+/// - it runs before the `format!` at every one of the 700+ `log_*!` call sites, so
+/// it must stay two relaxed loads and no allocation.
 #[must_use]
 pub fn enabled(category: Category, level: Level) -> bool {
     if !INITIALISED.load(Ordering::Relaxed) {
@@ -208,8 +153,8 @@ pub fn set_stderr_echo(on: bool) {
     STDERR_ECHO.store(on, Ordering::Relaxed);
 }
 
-/// Map a category name to its enum value. Accepts the spellings used in
-/// `AZ_LOG` (lowercase, no separators) — `eventloop`, `displaylist`, etc.
+/// Map a category name to its enum value. Accepts the spellings used in `AZ_LOG`
+/// (lowercase, no separators) - `eventloop`, `displaylist`, etc.
 #[must_use]
 pub fn category_from_name(name: &str) -> Option<Category> {
     Some(match name {
@@ -230,13 +175,11 @@ pub fn category_from_name(name: &str) -> Option<Category> {
     })
 }
 
-/// Parse one `AZ_LOG` value into (min level, category overrides).
-///
-/// Split out from [`init_from_env`] so it is testable without touching the
-/// process environment.
+/// Parse one `AZ_LOG` value into (min level, category overrides). Split out from
+/// [`init_from_env`] so it is testable without touching the process environment.
 #[must_use]
-// The path stays QUALIFIED: `use alloc::vec::Vec` below is in scope for the
-// BODY, not the signature, and without `std` there is no prelude `Vec`.
+// The path stays QUALIFIED: `use alloc::vec::Vec` below is in scope for the BODY,
+// not the signature, and without `std` there is no prelude `Vec`.
 // clippy::unused_qualifications sees only the std build, where it resolves.
 #[allow(unused_qualifications)]
 pub fn parse(raw: &str) -> (Option<Level>, alloc::vec::Vec<(Category, bool)>) {
@@ -284,10 +227,8 @@ pub fn init_from_env() {
     #[cfg(feature = "std")]
     {
         let raw = std::env::var("AZ_LOG").unwrap_or_default();
-        // Setting AZ_LOG AT ALL is a request to see logs, so it turns the echo
-        // on. Leaving it unset is not, which is what keeps an ordinary app run
-        // quiet. (`log_gate` additionally treats an active debug server as such
-        // a request; it can see `log_active()` and this crate cannot.)
+        // Setting AZ_LOG AT ALL is a request to see logs, so it turns the echo on.
+        // Leaving it unset is not, which is what keeps an ordinary app run quiet.
         if !raw.trim().is_empty() {
             STDERR_ECHO.store(true, Ordering::Relaxed);
         }
@@ -298,9 +239,9 @@ pub fn init_from_env() {
         for (cat, on) in overrides {
             set_category(cat, on);
         }
-        // Explicit override only. The default is ON (see STDERR_ECHO) — this
-        // exists so a build that genuinely wants the queue and nothing else can
-        // say so, not as the switch that makes logging work.
+        // Explicit override only. The default is ON (see STDERR_ECHO) - this exists
+        // so a build that genuinely wants the queue and nothing else can say so, not
+        // as the switch that makes logging work.
         if let Ok(v) = std::env::var("AZ_LOG_STDERR") {
             let v = v.trim().to_ascii_lowercase();
             let off = matches!(v.as_str(), "0" | "off" | "false" | "no" | "none");
@@ -313,8 +254,8 @@ pub fn init_from_env() {
     }
     #[cfg(not(feature = "std"))]
     {
-        // No environment to read: default to Debug so an embedder that installs
-        // a sink still gets records, matching the std default.
+        // No environment to read: default to Debug so an embedder that installs a
+        // sink still gets records, matching the std default.
         MIN_LEVEL.store(Level::Debug as u8, Ordering::Relaxed);
         recompute(Level::Debug as u8);
     }

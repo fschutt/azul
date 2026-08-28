@@ -1,12 +1,6 @@
-//! `StyledDom` — the result of applying CSS styles to a DOM tree.
-//!
-//! This module contains [`StyledDom`], which is produced by combining a [`Dom`]
-//! with a [`Css`] stylesheet via [`StyledDom::create`]. It stores the flattened
-//! node hierarchy, per-node styled states, cascade information, and the CSS
-//! property cache. Restyle operations (`restyle_nodes_hover`, etc.) allow
-//! incremental updates when pseudo-class states change at runtime.
-//!
-//! `StyledDom` is the primary input to the layout engine.
+//! `StyledDom` - the result of applying CSS styles to a DOM tree. This module
+//! contains [`StyledDom`], which is produced by combining a [`Dom`] with a [`Css`]
+//! stylesheet via [`StyledDom::create`].
 
 use alloc::{boxed::Box, collections::btree_map::BTreeMap, string::String, vec::Vec};
 use core::{
@@ -144,19 +138,17 @@ pub struct RestyleResult {
     pub needs_layout: bool,
     /// Whether display list needs regeneration (visual properties changed)
     pub needs_display_list: bool,
-    /// Whether only GPU-level properties changed (opacity, transform)
-    /// If true and `needs_display_list` is false, we can update via GPU without display list rebuild
+    /// Whether only GPU-level properties changed (opacity, transform) If true and
+    /// `needs_display_list` is false, we can update via GPU without display list
+    /// rebuild
     pub gpu_only_changes: bool,
-    /// The highest `RelayoutScope` seen across all property changes.
-    ///
-    /// This enables the IFC incremental layout optimization (Phase 2):
-    /// - `None`      → repaint only, zero layout work
-    /// - `IfcOnly`   → only the affected IFC needs re-shaping/repositioning
-    /// - `SizingOnly`→ this node's size changed, parent repositions siblings
-    /// - `Full`      → full subtree relayout
-    ///
-    /// When `max_relayout_scope <= IfcOnly`, the layout engine can skip
-    /// full `calculate_layout_for_subtree` and use the IFC fast path instead.
+    /// The highest `RelayoutScope` seen across all property changes. This enables
+    /// the IFC incremental layout optimization (Phase 2): - `None` → repaint only,
+    /// zero layout work - `IfcOnly` → only the affected IFC needs
+    /// re-shaping/repositioning - `SizingOnly`→ this node's size changed, parent
+    /// repositions siblings - `Full` → full subtree relayout When
+    /// `max_relayout_scope <= IfcOnly`, the layout engine can skip full
+    /// `calculate_layout_for_subtree` and use the IFC fast path instead.
     pub max_relayout_scope: RelayoutScope,
 }
 
@@ -181,10 +173,9 @@ impl RestyleResult {
     }
 }
 
-/// NOTE: multiple states can be active at the same time
-///
-/// Tracks all CSS pseudo-class states for a node.
-/// Each flag is independent - a node can be both :hover and :focus simultaneously.
+/// NOTE: multiple states can be active at the same time Tracks all CSS pseudo-class
+/// states for a node. Each flag is independent - a node can be both :hover and
+/// :focus simultaneously.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Hash, PartialOrd, Eq, Ord, Default)]
 pub struct StyledNodeState {
@@ -316,15 +307,16 @@ impl StyledNodeState {
     }
 }
 
-/// A styled Dom node
-// Per-DOM-node hot type passed by reference throughout the layout/style
-// pipeline; kept non-Copy on purpose so it isn't silently bulk-copied and to
-// avoid trivially_copy_pass_by_ref churn across the many &StyledNode callers.
+/// A styled Dom node Per-DOM-node hot type passed by reference throughout the
+/// layout/style pipeline; kept non-Copy on purpose so it isn't silently bulk-copied
+/// and to avoid trivially_copy_pass_by_ref churn across the many &StyledNode
+/// callers.
 #[allow(missing_copy_implementations)]
 #[repr(C)]
 #[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd)]
 pub struct StyledNode {
-    /// Current state of this styled node (used later for caching the style / layout)
+    /// Current state of this styled node (used later for caching the style /
+    /// layout)
     pub styled_node_state: StyledNodeState,
 }
 
@@ -394,12 +386,12 @@ fn test_css_styling_with_nested_divs() {
 }
 
 /// Regression test for the calc.c "frame ≥2 loses all backgrounds" bug:
-/// `recompute_inheritance_and_compact_cache()` must reproduce the
-/// `hot_flags` that `create_from_compact_dom` produced on frame 1. If the
-/// recompute path silently drops to the getters-only `build_compact_cache`
-/// variant, `HOT_FLAG_HAS_BACKGROUND` is never written, the renderer's
-/// `has_any_background()` negative fast-path returns false for every node,
-/// and every painted background vanishes on the next layout pass.
+/// `recompute_inheritance_and_compact_cache()` must reproduce the `hot_flags` that
+/// `create_from_compact_dom` produced on frame 1. If the recompute path silently
+/// drops to the getters-only `build_compact_cache` variant,
+/// `HOT_FLAG_HAS_BACKGROUND` is never written, the renderer's `has_any_background()`
+/// negative fast-path returns false for every node, and every painted background
+/// vanishes on the next layout pass.
 #[test]
 fn test_recompute_preserves_hot_flag_has_background() {
     use azul_css::compact_cache::HOT_FLAG_HAS_BACKGROUND;
@@ -431,9 +423,9 @@ fn test_recompute_preserves_hot_flag_has_background() {
         "frame 1: expected HOT_FLAG_HAS_BACKGROUND on the .painted node",
     );
 
-    // Frame 2+: simulate regenerate_layout rebuilding the compact cache.
-    // This is the path the calculator hit on every resize tick, and the
-    // one that had silently regressed to the getter-only builder.
+    // Frame 2+: simulate regenerate_layout rebuilding the compact cache. This is
+    // the path the calculator hit on every resize tick, and the one that had
+    // silently regressed to the getter-only builder.
     styled.recompute_inheritance_and_compact_cache();
 
     let any_bg_frame2 = {
@@ -492,8 +484,8 @@ impl StyleFontFamiliesHash {
         use core::hash::Hasher;
         let mut hasher = crate::hash::DefaultHasher::new();
         // Prefix with the length so that e.g. `[A, B]` and `[AB]` (or any two
-        // family lists whose concatenated element hashes coincide) cannot
-        // collide into the same cache key.
+        // family lists whose concatenated element hashes coincide) cannot collide
+        // into the same cache key.
         families.len().hash(&mut hasher);
         for f in families {
             f.hash(&mut hasher);
@@ -502,52 +494,14 @@ impl StyleFontFamiliesHash {
     }
 }
 
-/// FFI-safe representation of `Option<NodeId>` as a single `usize`.
-///
-/// # Encoding (1-based)
-///
-/// - `inner = 0` → `None` (no node)
-/// - `inner = n > 0` → `Some(NodeId(n - 1))`
-///
-/// This type exists because C/C++ cannot use Rust's `Option` type.
-/// Use [`NodeHierarchyItemId::into_crate_internal`] to decode and
-/// [`NodeHierarchyItemId::from_crate_internal`] to encode.
-///
-/// # Difference from `NodeId`
-///
-/// - **`NodeId`**: A 0-based array index. `NodeId::new(0)` refers to the first node.
-///   Use directly for array indexing: `nodes[node_id.index()]`.
-///
-/// - **`NodeHierarchyItemId`**: A 1-based encoded `Option<NodeId>`.
-///   `inner = 0` means `None`, `inner = 1` means `Some(NodeId(0))`.
-///   **Never use `inner` as an array index!** Always decode first.
-///
-/// # Warning
-///
-/// The `inner` field uses **1-based encoding**, not a direct index!
-/// Never use `inner` directly as an array index - always decode first.
-///
-/// # Example
-///
-/// ```ignore
-/// // Encoding: Option<NodeId> -> NodeHierarchyItemId
-/// let opt = NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(5)));
-/// assert_eq!(opt.into_raw(), 6);  // 5 + 1 = 6
-///
-/// // Decoding: NodeHierarchyItemId -> Option<NodeId>
-/// let decoded = opt.into_crate_internal();
-/// assert_eq!(decoded, Some(NodeId::new(5)));
-///
-/// // None case
-/// let none = NodeHierarchyItemId::NONE;
-/// assert_eq!(none.into_raw(), 0);
-/// assert_eq!(none.into_crate_internal(), None);
-/// ```
+/// FFI-safe representation of `Option<NodeId>` as a single `usize`. - `inner = 0` →
+/// `None` (no node) - `inner = n > 0` → `Some(NodeId(n - 1))` This type exists
+/// because C/C++ cannot use Rust's `Option` type.
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct NodeHierarchyItemId {
-    // Uses 1-based encoding: 0 = None, n > 0 = Some(NodeId(n-1))
-    // Do NOT use directly as an array index!
+    // Uses 1-based encoding: 0 = None, n > 0 = Some(NodeId(n-1)) Do NOT use
+    // directly as an array index!
     inner: usize,
 }
 
@@ -570,22 +524,15 @@ impl NodeHierarchyItemId {
     /// Represents `None` (no node). Encoded as `inner = 0`.
     pub const NONE: Self = Self { inner: 0 };
 
-    /// Creates an `NodeHierarchyItemId` from a raw 1-based encoded value.
-    ///
-    /// # Warning
-    ///
-    /// The value must use 1-based encoding (0 = None, n = NodeId(n-1)).
-    /// Prefer using [`NodeHierarchyItemId::from_crate_internal`] instead.
+    /// Creates an `NodeHierarchyItemId` from a raw 1-based encoded value. The value
+    /// must use 1-based encoding (0 = None, n = NodeId(n-1)).
     #[inline]
     #[must_use] pub const fn from_raw(value: usize) -> Self {
         Self { inner: value }
     }
 
-    /// Returns the raw 1-based encoded value.
-    ///
-    /// # Warning
-    ///
-    /// The returned value uses 1-based encoding. Do NOT use as an array index!
+    /// Returns the raw 1-based encoded value. The returned value uses 1-based
+    /// encoding.
     #[inline]
     #[must_use] pub const fn into_raw(&self) -> usize {
         self.inner
@@ -653,7 +600,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash]
 );
 
-/// Iterator over a DOM node's ancestor chain — see [`hierarchy_ancestors`].
+/// Iterator over a DOM node's ancestor chain - see [`hierarchy_ancestors`].
 #[derive(Debug)]
 pub struct HierarchyAncestors<'a> {
     hierarchy: &'a [NodeHierarchyItem],
@@ -678,17 +625,9 @@ impl Iterator for HierarchyAncestors<'_> {
     }
 }
 
-/// THE ancestor walk over a `NodeHierarchy` — the DOM-tree twin of
-/// `LayoutTree::ancestor_chain`.
-///
-/// Yields `node` (only when `inclusivity` says so) followed by every parent up
-/// to the root, nearest first. `inclusivity` is an argument rather than a
-/// property of the function's name because that is exactly the distinction
-/// `ScrollManager::find_scroll_parent` used to bury in a `nid != node_id`
-/// guard, where no caller could see it.
-///
-/// The walk is bounded by `hierarchy.len()`: no acyclic path can be longer, so
-/// a corrupt parent chain terminates instead of spinning.
+/// THE ancestor walk over a `NodeHierarchy` - the DOM-tree twin of
+/// `LayoutTree::ancestor_chain`. Yields `node` (only when `inclusivity` says so)
+/// followed by every parent up to the root, nearest first.
 #[inline]
 pub fn hierarchy_ancestors(
     hierarchy: &[NodeHierarchyItem],
@@ -787,8 +726,8 @@ impl NodeDataContainerRef<'_, NodeHierarchyItem> {
     #[must_use] pub fn subtree_len(&self, parent_id: NodeId) -> usize {
         let self_item_index = parent_id.index();
         let next_item_index = self[parent_id].next_sibling_id().map_or_else(|| self.len(), |s| s.index());
-        // saturating: a malformed FastDom can leave next_sibling <= parent,
-        // which would underflow-panic the subtraction.
+        // saturating: a malformed FastDom can leave next_sibling <= parent, which
+        // would underflow-panic the subtraction.
         next_item_index.saturating_sub(self_item_index).saturating_sub(1)
     }
 }
@@ -831,7 +770,8 @@ impl_vec_partialeq!(ParentWithNodeDepth, ParentWithNodeDepthVec);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 #[repr(C)]
 pub struct TagIdToNodeIdMapping {
-    // Hit-testing tag ID (not all nodes have a tag, only nodes that are hit-testable)
+    // Hit-testing tag ID (not all nodes have a tag, only nodes that are
+    // hit-testable)
     pub tag_id: TagId,
     /// Node ID of the node that has a tag
     pub node_id: NodeHierarchyItemId,
@@ -860,8 +800,8 @@ impl_vec_partialeq!(TagIdToNodeIdMapping, TagIdToNodeIdMappingVec);
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct ContentGroup {
-    /// The parent of the current node group, i.e. either the root node (0)
-    /// or the last positioned node ()
+    /// The parent of the current node group, i.e. either the root node (0) or the
+    /// last positioned node ()
     pub root: NodeHierarchyItemId,
     /// Node ids in order of drawing
     pub children: ContentGroupVec,
@@ -894,7 +834,8 @@ pub struct StyledDom {
     pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
     pub css_property_cache: CssPropertyCachePtr,
-    /// The ID of this DOM in the layout tree (for multi-DOM support with `VirtualViews`)
+    /// The ID of this DOM in the layout tree (for multi-DOM support with
+    /// `VirtualViews`)
     pub dom_id: DomId,
 }
 impl_option!(
@@ -974,8 +915,9 @@ impl StyledDom {
                 let mut inner = 0usize;
                 for nd in self.node_data.as_ref() {
                     inner += nd.get_callbacks().len() * 64; // rough per-callback
-                    // Each rule = path + decls Vec + conditions Vec + priority byte.
-                    // Approximate at 64 bytes per rule + the heap for declarations.
+                    // Each rule = path + decls Vec + conditions Vec + priority
+                    // byte. Approximate at 64 bytes per rule + the heap for
+                    // declarations.
                     inner += nd.style.rules.as_ref().len() * 64;
                 }
                 base + inner
@@ -991,12 +933,8 @@ impl StyledDom {
         }
     }
 
-    /// Creates a new `StyledDom` by applying CSS styles to a DOM tree.
-    ///
-    /// NOTE: After calling this function, the DOM will be reset to an empty DOM.
-    // This is for memory optimization, so that the DOM does not need to be cloned.
-    //
-    // The CSS will be left in-place, but will be re-ordered
+    /// Creates a new `StyledDom` by applying CSS styles to a DOM tree. NOTE: After
+    /// calling this function, the DOM will be reset to an empty DOM.
     pub fn create(dom: &mut Dom, css: Css) -> Self {
         use core::mem;
 
@@ -1016,27 +954,25 @@ impl StyledDom {
         Self::create_from_compact_dom(compact_dom, css, node_hierarchy)
     }
 
-    /// Creates a `StyledDom` from a `FastDom` (arena-based DOM).
-    ///
-    /// This skips the `convert_dom_into_compact_dom` tree→arena conversion
-    /// entirely since `FastDom` already has flat `NodeHierarchyItemVec` and
-    /// `NodeDataVec`. CSS is collected from `CssWithNodeIdVec`.
+    /// Creates a `StyledDom` from a `FastDom` (arena-based DOM). This skips the
+    /// `convert_dom_into_compact_dom` tree→arena conversion entirely since `FastDom`
+    /// already has flat `NodeHierarchyItemVec` and `NodeDataVec`.
     #[must_use] pub fn create_from_fast_dom(fast_dom: crate::dom::FastDom) -> Self {
         use azul_css::css::Css;
 
         // 1. Merge CSS from CssWithNodeIdVec into a single Css, scoping each
-        //    node-attached stylesheet to its owner's subtree (#47): push_front a
-        //    Root([owner, owner+subtree_len]) selector so inline/XML css can't leak
-        //    globally — the same scoping the recursive create_from_dom path applies
-        //    via scope_inline_css. `node_id` is the owner's flat id (0 = root).
+        // node-attached stylesheet to its owner's subtree (#47): push_front a
+        // Root([owner, owner+subtree_len]) selector so inline/XML css can't leak
+        // globally - the same scoping the recursive create_from_dom path applies via
+        // scope_inline_css.
         let mut combined_rules: Vec<azul_css::css::CssRuleBlock> = Vec::new();
         let mut combined_keyframes: Vec<azul_css::css::Keyframes> = Vec::new();
         let css_entries = fast_dom.css.into_library_owned_vec();
         {
             let hierarchy = fast_dom.node_hierarchy.as_container();
             for mut css_with_id in css_entries {
-                // Keyframes are name-global (no scoping): collect before the
-                // rules are consumed. Later definitions win at resolve time.
+                // Keyframes are name-global (no scoping): collect before the rules
+                // are consumed. Later definitions win at resolve time.
                 combined_keyframes
                     .extend(core::mem::take(&mut css_with_id.css.keyframes).into_library_owned_vec());
                 let owner = css_with_id.node_id;
@@ -1046,10 +982,9 @@ impl StyledDom {
                     owner
                 };
                 for mut rule in css_with_id.css.rules.into_library_owned_vec() {
-                    // Bare-declaration wrappers (INLINE priority) stay
-                    // node-only; a stylesheet's `* { ... }` (AUTHOR/UA
-                    // priority) scopes to the whole subtree. See
-                    // push_front_scope_for.
+                    // Bare-declaration wrappers (INLINE priority) stay node-only; a
+                    // stylesheet's `* { ... }` (AUTHOR/UA priority) scopes to the
+                    // whole subtree.
                     let node_only =
                         rule.priority >= azul_css::css::rule_priority::INLINE;
                     rule.path.push_front_scope_for(owner, end, node_only);
@@ -1065,8 +1000,8 @@ impl StyledDom {
             css
         };
 
-        // 2. Convert NodeHierarchyItemVec → NodeHierarchy (Vec<Node>)
-        //    for cascade tree computation
+        // 2. Convert NodeHierarchyItemVec → NodeHierarchy (Vec<Node>) for cascade
+        // tree computation
         let node_hierarchy_items = fast_dom.node_hierarchy;
         let nodes: Vec<Node> = node_hierarchy_items.as_ref()
             .iter()
@@ -1088,14 +1023,13 @@ impl StyledDom {
         };
 
         // 4. Delegate to create() which handles cascade, UA CSS, etc.
-        //    We need a mutable Dom to pass to create(), but we already have CompactDom.
-        //    Instead, inline the cascade logic from create() with our CompactDom.
         Self::create_from_compact_dom(compact_dom, combined_css, node_hierarchy_items)
     }
 
-    /// Internal: creates `StyledDom` from a `CompactDom` + CSS + pre-built hierarchy items.
-    /// Shared by both the Slow path (create → `convert_dom_into_compact_dom` → this)
-    /// and the Fast path (`create_from_fast_dom` → this).
+    /// Internal: creates `StyledDom` from a `CompactDom` + CSS + pre-built
+    /// hierarchy items. Shared by both the Slow path (create →
+    /// `convert_dom_into_compact_dom` → this) and the Fast path
+    /// (`create_from_fast_dom` → this).
     #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn create_from_compact_dom(
@@ -1149,17 +1083,16 @@ impl StyledDom {
         );
 
         // Retain the author stylesheet on the cache (this used to `drop(css)` to
-        // save ~500 KiB, but that made runtime-inserted nodes unstyleable: the
-        // rules were gone, so nothing could ever re-run the cascade for them —
-        // see e2e/bug-inserted-node-no-author-css.json).
+        // save ~500 KiB, but that made runtime-inserted nodes unstyleable: the rules
+        // were gone, so nothing could ever re-run the cascade for them - see
+        // e2e/bug-inserted-node-no-author-css.json).
         css_property_cache.retained_author_css = css;
 
-        // Apply UA defaults + compute inherited values so consumers that
-        // read `css_property_cache.computed_values` (the web/HTML
-        // renderer in `dll/src/web/html_render.rs`) see resolved
-        // properties. The compact cache below stores the same info in
-        // a different layout for the desktop renderer; computed_values
-        // is the "tall" form that the web renderer's CSS emitter
+        // Apply UA defaults + compute inherited values so consumers that read
+        // `css_property_cache.computed_values` (the web/HTML renderer in
+        // `dll/src/web/html_render.rs`) see resolved properties. The compact cache
+        // below stores the same info in a different layout for the desktop renderer;
+        // computed_values is the "tall" form that the web renderer's CSS emitter
         // (`emit_css_from_cache`) walks per node.
         css_property_cache.apply_ua_css(compact_dom.node_data.as_ref().internal);
         css_property_cache.compute_inherited_values(
@@ -1209,8 +1142,9 @@ impl StyledDom {
             let _ = bd;
         }
 
-        // Collect callback/dataset nodes in a single pass (avoids 3 separate 50K scans).
-        // For XHTML-parsed DOMs with no callbacks, this early-exits immediately.
+        // Collect callback/dataset nodes in a single pass (avoids 3 separate 50K
+        // scans). For XHTML-parsed DOMs with no callbacks, this early-exits
+        // immediately.
         let has_any_callbacks = compact_dom.node_data.as_ref().internal.iter()
             .any(|c| !c.get_callbacks().is_empty() || c.get_dataset().is_some());
 
@@ -1254,20 +1188,12 @@ impl StyledDom {
         styled_dom
     }
 
-    /// Creates a `StyledDom` from a recursive Dom tree with deferred CSS.
-    ///
-    /// This is the Phase 7.2 entry point: the layout callback returns a recursive
-    /// `Dom` with `css: Vec<Css>` on each node. This function:
-    ///
-    /// 1. Collects all CSS objects from the recursive tree
-    /// 2. Flattens the Dom into contiguous arrays (`CompactDom`)
-    /// 3. Merges all CSS objects and runs a single cascade pass
-    /// 4. Runs `apply_ua_css` → `compute_inherited_values` → `build_compact_cache`
-    /// 5. Generates anonymous table elements
+    /// Creates a `StyledDom` from a recursive Dom tree with deferred CSS. This is
+    /// the Phase 7.2 entry point: the layout callback returns a recursive `Dom` with
+    /// `css: Vec<Css>` on each node.
     #[must_use] pub fn create_from_dom(mut dom: Dom) -> Self {
         use azul_css::css::Css;
 
-        // #47: scope each node's inline css to its subtree BEFORE collecting, so a
         // non-root node's with_css cannot leak to the whole tree. Uses the same
         // pre-order ids the flatten (convert_dom_into_compact_dom) will assign;
         // needs estimated_total_children populated first.
@@ -1294,16 +1220,16 @@ impl StyledDom {
             css
         };
 
-        // 3. Strip CSS from all Dom nodes before flattening
-        //    (CSS is already collected, don't need it in the flat tree)
+        // 3. Strip CSS from all Dom nodes before flattening (CSS is already
+        // collected, don't need it in the flat tree)
         strip_css_from_dom(&mut dom);
 
         // 4. Use existing StyledDom::create to flatten + cascade
         Self::create(&mut dom, combined_css)
     }
 
-    /// Appends another `StyledDom` as a child to the `self.root`
-    /// without re-styling the DOM itself
+    /// Appends another `StyledDom` as a child to the `self.root` without re-styling
+    /// the DOM itself
     pub fn append_child(&mut self, other: Self) {
         let self_root_id = self.root.into_crate_internal().unwrap_or(NodeId::ZERO);
         let current_root_children_count = self_root_id
@@ -1371,8 +1297,8 @@ impl StyledDom {
         self.get_css_property_cache_mut()
             .append(other.get_css_property_cache_mut());
 
-        // Tag IDs are globally unique (AtomicUsize counter) and never collide,
-        // so we only shift node_id (which changes when DOMs are merged).
+        // Tag IDs are globally unique (AtomicUsize counter) and never collide, so
+        // we only shift node_id (which changes when DOMs are merged).
         for tag_id_node_id in &mut other.tag_ids_to_node_ids {
             tag_id_node_id.node_id.inner += self_len;
         }
@@ -1392,20 +1318,21 @@ impl StyledDom {
         self.nodes_with_datasets
             .append(&mut other.nodes_with_datasets);
 
-        // edge case: if the other StyledDom consists of only one node
-        // then it is not a parent itself
+        // edge case: if the other StyledDom consists of only one node then it is
+        // not a parent itself
         if other_len != 1 {
             for other_non_leaf_node in &mut other.non_leaf_nodes {
                 other_non_leaf_node.node_id.inner += self_len;
                 other_non_leaf_node.depth += 1;
             }
             self.non_leaf_nodes.append(&mut other.non_leaf_nodes);
-            // NOTE: Sorting deferred - call finalize_non_leaf_nodes() after all appends
+            // NOTE: Sorting deferred - call finalize_non_leaf_nodes() after all
+            // appends
         }
     }
 
-    /// Call this after all `append_child_with_index` operations are complete
-    /// to sort `non_leaf_nodes` by depth (required for correct rendering)
+    /// Call this after all `append_child_with_index` operations are complete to
+    /// sort `non_leaf_nodes` by depth (required for correct rendering)
     pub fn finalize_non_leaf_nodes(&mut self) {
         self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
     }
@@ -1442,28 +1369,15 @@ impl StyledDom {
         self
     }
 
-    /// Re-compute inherited CSS values and rebuild the compact layout cache.
-    ///
-    /// This MUST be called after `append_child()` merges multiple `StyledDom`s.
-    /// `append_child()` concatenates the CSS property caches but does NOT
-    /// re-run inheritance or rebuild the compact cache. This means:
-    ///
-    /// 1. **Broken inheritance**: Inherited properties (`color`, `font-size`,
-    ///    `direction`) from the parent DOM do not flow into appended subtrees.
-    /// 2. **Stale compact cache**: The child's tier 1/2/2b entries still reflect
-    ///    the child's isolated cascade, not the composed tree.
-    ///
-    /// Calling this method after all `append_child()` calls fixes both issues
-    /// by re-running a full depth-first inheritance pass and rebuilding the
-    /// compact cache from scratch on the composed tree.
+    /// Re-compute inherited CSS values and rebuild the compact layout cache. This
+    /// MUST be called after `append_child()` merges multiple `StyledDom`s.
     pub fn recompute_inheritance_and_compact_cache(&mut self) {
         // Use the _with_inheritance variant: it does inheritance inline (via
         // parent-compact-field copy) AND populates hot_flags via
-        // apply_css_property_to_compact.  The plain build_compact_cache would
-        // leave HOT_FLAG_HAS_BACKGROUND / HAS_CLIP_PATH / extra_flags at 0,
-        // causing renderer negative fast-paths to skip paint (regression
-        // introduced by ff059052b).  No SIGABRT risk — _with_inheritance
-        // never pushes to the flat cascaded_props storage.
+        // apply_css_property_to_compact. The plain build_compact_cache would leave
+        // HOT_FLAG_HAS_BACKGROUND / HAS_CLIP_PATH / extra_flags at 0, causing
+        // renderer negative fast-paths to skip paint (regression introduced by
+        // ff059052b).
         let prev_font_hashes: Vec<u64> = self.css_property_cache
             .downcast_mut()
             .compact_cache
@@ -1480,15 +1394,8 @@ impl StyledDom {
         self.css_property_cache.downcast_mut().compact_cache = Some(compact);
     }
 
-    /// Re-applies CSS styles to the existing DOM structure.
-    /// Grow retained author-CSS subtree scopes to cover a node just appended under
-    /// `parent`. Mount/`with_css` rules carry a `Root([start, end])` scope
-    /// (`push_front_scope`) that only matches nodes within a node's ORIGINAL subtree
-    /// range, so a node appended afterwards falls outside every scope and
-    /// `restyle_retained` cannot match it. Appending under `parent` (rightmost-spine
-    /// only, so subtrees stay contiguous in the flat arena) grows `parent`'s and its
-    /// ancestors' subtrees; bump the inclusive `end` of every scope that already
-    /// covers `parent` out to the new node.
+    /// Re-applies CSS styles to the existing DOM structure. Grow retained
+    /// author-CSS subtree scopes to cover a node just appended under `parent`.
     #[allow(clippy::similar_names)] // new_node/parent and the p/n index locals read clearly in context
     pub fn extend_author_scopes_for_appended(&mut self, new_node: NodeId, parent: NodeId) {
         use azul_css::css::CssPathSelector;
@@ -1512,16 +1419,9 @@ impl StyledDom {
         }
     }
 
-    /// Re-run the author cascade from the stylesheet retained at creation /
-    /// last `restyle` (`CssPropertyCache::retained_author_css`). Call after a
-    /// structural DOM mutation (e.g. inserting a node) so new nodes receive
-    /// author CSS; a no-op when no author stylesheet was ever attached.
-    /// The PER-TICK override channel: write `user_overridden_properties`
-    /// WITHOUT recomputing inheritance or the compact cache. Sound only when
-    /// the caller supplies the pixels itself (the transition driver patches
-    /// the display list with the interpolated value directly) — every other
-    /// caller wants [`Self::restyle_user_property`]. At t=1 the override is
-    /// removed and the (correctly cascaded) target shows through.
+    /// Re-run the author cascade from the stylesheet retained at creation / last
+    /// `restyle` (`CssPropertyCache::retained_author_css`). Call after a structural
+    /// DOM mutation (e.g.
     pub fn set_user_property_override_fast(&mut self, node_id: &NodeId, new_properties: &[CssProperty]) {
         let node_count = self.node_data.as_ref().len();
         if node_id.index() >= node_count {
@@ -1560,9 +1460,9 @@ impl StyledDom {
     }
 
     pub fn restyle(&mut self, mut css: Css) {
-        // NOTE: the tag_ids returned by `cache.restyle` here are generated from
-        // the STALE `compact_cache` (display/overflow reads) and are intentionally
-        // discarded — we regenerate them below AFTER the compact cache and
+        // NOTE: the tag_ids returned by `cache.restyle` here are generated from the
+        // STALE `compact_cache` (display/overflow reads) and are intentionally
+        // discarded - we regenerate them below AFTER the compact cache and
         // inheritance have been recomputed (audit styled_dom.rs:1404/1426).
         let _stale_tag_ids = self.css_property_cache.downcast_mut().restyle(
             &mut css,
@@ -1580,7 +1480,8 @@ impl StyledDom {
             .downcast_mut()
             .apply_ua_css(self.node_data.as_container().internal);
 
-        // Compute inherited values after restyle and apply_ua_css (resolves em, %, etc.)
+        // Compute inherited values after restyle and apply_ua_css (resolves em, %,
+        // etc.)
         self.css_property_cache
             .downcast_mut()
             .compute_inherited_values(
@@ -1591,8 +1492,7 @@ impl StyledDom {
         // The old compact_cache was built from the pre-restyle CSS. If we do not
         // rebuild it, layout-hot properties (display/overflow/background/clip,
         // resolved font sizes) keep their stale values and the restyle silently
-        // no-ops for them. Drop it, rebuild via the _with_inheritance path (which
-        // repopulates hot_flags), and invalidate the cached resolved font sizes.
+        // no-ops for them.
         let prev_font_hashes: Vec<u64> = self
             .css_property_cache
             .downcast_mut()
@@ -1614,8 +1514,8 @@ impl StyledDom {
             .downcast_mut()
             .invalidate_resolved_font_sizes();
 
-        // Regenerate tag_ids from the freshly rebuilt compact cache so the
-        // hit-test map reflects the post-restyle display/overflow values.
+        // Regenerate tag_ids from the freshly rebuilt compact cache so the hit-test
+        // map reflects the post-restyle display/overflow values.
         let new_tag_ids = self.css_property_cache.downcast_mut().generate_tag_ids(
             &self.node_data.as_container(),
             &self.node_hierarchy,
@@ -1693,7 +1593,8 @@ impl StyledDom {
         )
     }
 
-    /// Generic restyle method parameterized by the state field and pseudo-state type.
+    /// Generic restyle method parameterized by the state field and pseudo-state
+    /// type.
     fn restyle_nodes_state(
         &mut self,
         nodes: &[NodeId],
@@ -1701,10 +1602,8 @@ impl StyledDom {
         set_state: impl Fn(&mut StyledNodeState, bool),
         pseudo_state_type: azul_css::dynamic_selector::PseudoStateType,
     ) -> RestyleNodes {
-        // Drop any stale NodeIds that no longer index into this DOM (e.g. left
-        // over from a previous, larger tree). Indexing styled_nodes / node_data
-        // with an out-of-range id would panic. Filtering here keeps the
-        // downstream zip with `old_node_states` aligned.
+        // Drop any stale NodeIds that no longer index into this DOM (e.g. left over
+        // from a previous, larger tree).
         let node_count = self.node_count();
         let nodes: Vec<NodeId> = nodes
             .iter()
@@ -1816,19 +1715,9 @@ impl StyledDom {
         v.into_iter().collect()
     }
 
-    /// Unified entry point for all CSS restyle operations.
-    ///
-    /// This function synchronizes the `StyledNodeState` with runtime state
-    /// and computes which CSS properties have changed. It determines whether
-    /// layout, display list, or GPU-only updates are needed.
-    ///
-    /// # Arguments
-    /// * `focus_changes` - Nodes gaining/losing focus
-    /// * `hover_changes` - Nodes gaining/losing hover
-    /// * `active_changes` - Nodes gaining/losing active (mouse down)
-    ///
-    /// # Returns
-    /// * `RestyleResult` containing changed nodes and what needs updating
+    /// Unified entry point for all CSS restyle operations. This function
+    /// synchronizes the `StyledNodeState` with runtime state and computes which CSS
+    /// properties have changed.
     #[must_use]
     pub fn restyle_on_state_change(
         &mut self,
@@ -1852,9 +1741,7 @@ impl StyledDom {
                     // Use the granular RelayoutScope instead of the binary
                     // can_trigger_relayout(). We pass node_is_ifc_member = true
                     // conservatively: this means font/text property changes will
-                    // produce IfcOnly (rather than None). Phase 2c can refine
-                    // this by checking whether the node actually participates
-                    // in an IFC.
+                    // produce IfcOnly (rather than None).
                     let scope = prop_type.relayout_scope(/* node_is_ifc_member */ true);
 
                     // Track the highest scope seen
@@ -1933,15 +1820,10 @@ impl StyledDom {
     }
 
     /// Overrides CSS properties for a single node from user code (typically a
-    /// callback). Writes into `CssPropertyCache::user_overridden_properties`,
-    /// which `get_property_slow` / `get_property_fast` / `get_computed_value`
-    /// consult at higher priority than the static CSS cascade — making this
-    /// the fast path for animating a handful of properties per frame.
-    ///
-    /// Passing `CssProperty::Initial` for a property removes any override for
-    /// that type, restoring the cascaded value. Returns the set of
-    /// `ChangedCssProperty` entries the caller can feed into the incremental
-    /// restyle pipeline.
+    /// callback). Writes into `CssPropertyCache::user_overridden_properties`, which
+    /// `get_property_slow` / `get_property_fast` / `get_computed_value` consult at
+    /// higher priority than the static CSS cascade - making this the fast path for
+    /// animating a handful of properties per frame.
     #[must_use]
     pub fn restyle_user_property(
         &mut self,
@@ -1998,9 +1880,9 @@ impl StyledDom {
         let css_property_cache_mut = self.get_css_property_cache_mut();
 
         // user_overridden_properties is built lazily (empty after StyledDom
-        // construction). Grow to cover this node_id before indexing so the
-        // override path works on any DOM, not just ones that already have
-        // overrides from a prior mutation.
+        // construction). Grow to cover this node_id before indexing so the override
+        // path works on any DOM, not just ones that already have overrides from a
+        // prior mutation.
         if css_property_cache_mut.user_overridden_properties.len() < node_count {
             css_property_cache_mut
                 .user_overridden_properties
@@ -2024,34 +1906,13 @@ impl StyledDom {
             }
         }
 
-        // The compact cache is a precomputed per-node array that the layout
-        // getters read on their FAST PATH (`get_display`, `get_width`, ...)
-        // BEFORE consulting `user_overridden_properties`. An override that
-        // changes geometry would therefore be written, reported as changed,
-        // and then ignored by layout — which is why a runtime
-        // `display: none -> flex` patch (combobox list, popover, ribbon
-        // gallery panel) left the node at zero size and invisible.
-        //
-        // REBUILD the cache rather than merely dropping it. The builder's
-        // per-node walk applies `user_overridden_properties` as its last
-        // step, so the rebuilt cache reflects the patch — and every consumer
-        // that treats the compact cache as the source of truth keeps
-        // working. Leaving it `None` until "the next full cascade" was a
-        // trap: the font phase derives its requirements (font-stack
-        // signature, font chains, the GC keep-set) from this cache, so the
-        // very relayout that applies the patch resolved an EMPTY font world
-        // — the chain cache was replaced with nothing and the patched-in
-        // subtree's text laid out at zero size (the gallery panel opened as
-        // an 18px blank strip). Overrides are user-interaction-rate, so the
-        // rebuild is not a per-frame cost; the animation channel
-        // (colour/opacity/transform) keeps the fast path untouched.
-        // INHERITED paint props need the recompute too: a `color` override on
-        // a container is READ by its text children through the precomputed
-        // inheritance tables, so skipping the recompute left descendants at
-        // the stale colour — a colour transition on a DIV animated nothing
-        // visible (found by the css_anim_perf_transition damage law). The
-        // per-tick animation channel avoids this whole fn via
-        // `set_user_property_override_fast` + display-list patching.
+        // The compact cache is a precomputed per-node array that the layout getters
+        // read on their FAST PATH (`get_display`, `get_width`, ...) BEFORE
+        // consulting `user_overridden_properties`. An override that changes geometry
+        // would therefore be written, reported as changed, and then ignored by
+        // layout - which is why a runtime `display: none -> flex` patch (combobox
+        // list, popover, ribbon gallery panel) left the node at zero size and
+        // invisible.
         if new_properties
             .iter()
             .any(|p| p.get_type().can_trigger_relayout() || p.get_type().is_inheritable())
@@ -2068,24 +1929,11 @@ impl StyledDom {
         map
     }
 
-    /// Provide (or update) the window's `DynamicSelectorContext` — viewport
-    /// size, theme, OS, media type — for this DOM's cascade.
-    ///
-    /// Inline conditional properties (`CssPropertyWithConditions` with
-    /// viewport/@media/theme/OS selectors) evaluate against this context in
-    /// BOTH production readers: `get_property_slow` (per lookup) and the
-    /// compact-cache builder (at build time). A freshly created `StyledDom`
-    /// has NO context — non-pseudo conditions do not apply until a window
-    /// adopts the DOM and calls this, which the layout funnel
-    /// (`LayoutWindow::layout_and_generate_display_list`) does before every
-    /// pass.
-    ///
-    /// When the context actually changed AND the compact cache says some
-    /// node's resting style depends on it (`has_dynamic_conditions`), the
-    /// compact cache is rebuilt and hit-test tags are regenerated (a
-    /// condition can flip `display`, which decides which nodes carry tags).
-    /// For the common condition-free DOM a context change costs one bool
-    /// read.
+    /// Provide (or update) the window's `DynamicSelectorContext` - viewport size,
+    /// theme, OS, media type - for this DOM's cascade. Inline conditional properties
+    /// (`CssPropertyWithConditions` with viewport/@media/theme/OS selectors)
+    /// evaluate against this context in BOTH production readers: `get_property_slow`
+    /// (per lookup) and the compact-cache builder (at build time).
     pub fn set_dynamic_selector_context(
         &mut self,
         context: azul_css::dynamic_selector::DynamicSelectorContext,
@@ -2097,11 +1945,11 @@ impl StyledDom {
             }
             cache.dynamic_context = Some(Box::new(context));
         }
-        // Author-css @-rule conditions are baked at CASCADE time (restyle
-        // drops non-matching rule blocks), so a context change must re-run
-        // the author cascade — rebuilding the compact cache alone would
-        // keep the stale rule selection. Only DOMs whose stylesheet
-        // actually has conditional rules pay this.
+        // Author-css @-rule conditions are baked at CASCADE time (restyle drops
+        // non-matching rule blocks), so a context change must re-run the author
+        // cascade - rebuilding the compact cache alone would keep the stale rule
+        // selection. Only DOMs whose stylesheet actually has conditional rules pay
+        // this.
         let author_conditional = self
             .get_css_property_cache()
             .retained_author_css
@@ -2129,20 +1977,11 @@ impl StyledDom {
         }
     }
 
-    /// The viewport-size thresholds (widths, heights, logical px) at which
-    /// any conditional styling in this DOM can flip: the author
-    /// stylesheet's `@media (min-/max-width/height)` bounds plus every
-    /// inline conditional property's `ViewportWidth`/`ViewportHeight`
-    /// bounds (harvested by the compact-cache builder). Sorted, deduped.
-    ///
-    /// `None` when the compact cache has not been built yet (no styling
-    /// pass) — callers should treat that as "unknown" and fall back to a
-    /// conservative policy. The engine's resize decision uses this instead
-    /// of the old hardcoded `CSS_BREAKPOINTS` guess list, which failed both
-    /// ways: a widget breakpoint like the ribbon's 720px was not on it (so
-    /// shrinking onto the mobile layout never regenerated), and its eight
-    /// guessed thresholds fired ~66ms full regenerations on every drag
-    /// across 640/768/1024/...
+    /// The viewport-size thresholds (widths, heights, logical px) at which any
+    /// conditional styling in this DOM can flip: the author stylesheet's `@media
+    /// (min-/max-width/height)` bounds plus every inline conditional property's
+    /// `ViewportWidth`/`ViewportHeight` bounds (harvested by the compact-cache
+    /// builder). Sorted, deduped.
     #[must_use]
     pub fn viewport_breakpoints(&self) -> Option<(Vec<f32>, Vec<f32>)> {
         let cache = self.get_css_property_cache();
@@ -2157,21 +1996,11 @@ impl StyledDom {
         Some((w, h))
     }
 
-    /// Migrate runtime CSS overrides (`user_overridden_properties`) from a
-    /// previous generation's property cache onto this DOM, following the
-    /// reconciliation node matches.
-    ///
-    /// State follows node identity across a `RefreshDom` rebuild — exactly
-    /// like datasets (`diff::transfer_states`), scroll offsets and text
-    /// cursors already do. Without this, every runtime patch
-    /// (`set_css_property`) silently reverted on the next app-driven DOM
-    /// rebuild: the ribbon's collapsed band and an open combobox/gallery
-    /// panel "un-toggled" whenever any callback returned `RefreshDom` (the
-    /// ribbon's own tab-click does), because the fresh cascade knows nothing
-    /// of the old override layer.
-    ///
-    /// Rebuilds the compact cache when anything migrated, so the layout fast
-    /// path sees the carried-over values immediately.
+    /// Migrate runtime CSS overrides (`user_overridden_properties`) from a previous
+    /// generation's property cache onto this DOM, following the reconciliation node
+    /// matches. State follows node identity across a `RefreshDom` rebuild - exactly
+    /// like datasets (`diff::transfer_states`), scroll offsets and text cursors
+    /// already do.
     pub fn migrate_user_overrides_from(
         &mut self,
         old_cache: &CssPropertyCache,
@@ -2208,24 +2037,11 @@ impl StyledDom {
         }
     }
 
-    /// Reconstruct a plain [`Dom`](crate::dom::Dom) from a subtree of this
-    /// styled DOM by cloning each node's [`NodeData`](crate::dom::NodeData)
-    /// (ids/classes, inline CSS, callbacks, dataset — `RefAny`/`ImageRef`
-    /// fields are refcounted handles, so nothing heavy is copied).
-    ///
-    /// `root`: the subtree root, or `None` for the DOM's root node.
-    ///
-    /// The returned `Dom` CARRIES THE STYLESHEETS: the cascade retains the
-    /// author CSS (`CssPropertyCache::retained_author_css`), and it is
-    /// re-attached to the returned root's `css` field — re-styling the
-    /// reconstruction reproduces the on-screen cascade. For a NON-root
-    /// subtree this is an approximation: selectors that depended on
-    /// ancestors OUTSIDE the subtree (descendant combinators through cut-off
-    /// parents, `:nth-child` against removed siblings) may match differently
-    /// in the new document. When exact pixel parity matters, hand the whole
-    /// `StyledDom` clone to the consumer instead (e.g.
-    /// `Pdf::from_styled_dom_with_resources`), which skips re-cascading
-    /// entirely.
+    /// Reconstruct a plain [`Dom`](crate::dom::Dom) from a subtree of this styled
+    /// DOM by cloning each node's [`NodeData`](crate::dom::NodeData) (ids/classes,
+    /// inline CSS, callbacks, dataset - `RefAny`/`ImageRef` fields are refcounted
+    /// handles, so nothing heavy is copied). `root`: the subtree root, or `None` for
+    /// the DOM's root node.
     #[must_use] pub fn reconstruct_dom_subtree(&self, root: Option<NodeId>) -> Dom {
         use crate::dom::NodeData;
 
@@ -2245,10 +2061,9 @@ impl StyledDom {
             }
         };
 
-        // Iterative post-order: a node is folded into its parent via
-        // `add_child` (which maintains `estimated_total_children`) once all
-        // of its own children are assembled, so arbitrary depth cannot
-        // overflow the stack.
+        // Iterative post-order: a node is folded into its parent via `add_child`
+        // (which maintains `estimated_total_children`) once all of its own children
+        // are assembled, so arbitrary depth cannot overflow the stack.
         let mut result_stack: Vec<Dom> = vec![make_dom(root_id)];
         let mut visit_stack: Vec<(NodeId, Option<NodeId>)> = vec![(
             root_id,
@@ -2259,8 +2074,8 @@ impl StyledDom {
 
         while let Some((node, next_child)) = visit_stack.pop() {
             if let Some(child) = next_child {
-                // Come back to `node` for the sibling AFTER `child`,
-                // then descend into `child`.
+                // Come back to `node` for the sibling AFTER `child`, then descend
+                // into `child`.
                 let sibling = hierarchy
                     .get(child)
                     .and_then(NodeHierarchyItem::next_sibling_id);
@@ -2290,15 +2105,9 @@ impl StyledDom {
         Dom::create_div()
     }
 
-    /// Returns a HTML-formatted version of the DOM for easier debugging.
-    ///
-    /// For example, a DOM with a parent div containing a child div would return:
-    ///
-    /// ```xml,no_run,ignore
-    /// <div id="hello">
-    ///      <div id="test" />
-    /// </div>
-    /// ```
+    /// Returns a HTML-formatted version of the DOM for easier debugging. For
+    /// example, a DOM with a parent div containing a child div would return: <div
+    /// id="hello"> <div id="test" /> </div>
     #[must_use] pub fn get_html_string(&self, custom_head: &str, custom_body: &str, test_mode: bool) -> String {
         let css_property_cache = self.get_css_property_cache();
 
@@ -2351,8 +2160,8 @@ impl StyledDom {
 
         for node_id in self.node_hierarchy.as_container().linear_iter() {
             // A single-node DOM (or any node not reached as a non-leaf parent or
-            // one of their children, e.g. a lone root) has no entry here; treat
-            // its depth as 0 instead of panic-indexing the map.
+            // one of their children, e.g. a lone root) has no entry here; treat its
+            // depth as 0 instead of panic-indexing the map.
             let depth = all_node_depths.get(&node_id).copied().unwrap_or(0);
 
             let node_data = &self.node_data.as_container()[node_id];
@@ -2406,7 +2215,8 @@ impl StyledDom {
         }
     }
 
-    /// Returns nodes grouped by their rendering order (respects z-index and position).
+    /// Returns nodes grouped by their rendering order (respects z-index and
+    /// position).
     #[must_use] pub fn get_rects_in_rendering_order(&self) -> ContentGroup {
         Self::determine_rendering_order(
             self.non_leaf_nodes.as_ref(),
@@ -2417,8 +2227,8 @@ impl StyledDom {
         )
     }
 
-    /// Returns the rendering order of the items (the rendering
-    /// order doesn't have to be the original order)
+    /// Returns the rendering order of the items (the rendering order doesn't have
+    /// to be the original order)
     fn determine_rendering_order(
         non_leaf_nodes: &[ParentWithNodeDepth],
         node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
@@ -2464,10 +2274,12 @@ impl StyledDom {
 
 }
 
-/// Same as `Dom`, but arena-based for more efficient memory layout and faster traversal.
+/// Same as `Dom`, but arena-based for more efficient memory layout and faster
+/// traversal.
 #[derive(Debug, PartialEq, PartialOrd, Eq)]
 pub struct CompactDom {
-    /// The arena containing the hierarchical relationships (parent, child, sibling) of all nodes.
+    /// The arena containing the hierarchical relationships (parent, child, sibling)
+    /// of all nodes.
     pub node_hierarchy: NodeHierarchy,
     /// The arena containing the actual data (`NodeData`) for each node.
     pub node_data: NodeDataContainer<NodeData>,
@@ -2495,7 +2307,8 @@ impl From<Dom> for CompactDom {
     }
 }
 
-/// Converts a tree-based Dom into an arena-based `CompactDom` for efficient traversal.
+/// Converts a tree-based Dom into an arena-based `CompactDom` for efficient
+/// traversal.
 #[must_use] pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     // note: somehow convert this into a non-recursive form later on!
     fn convert_dom_into_compact_dom_internal(
@@ -2506,29 +2319,22 @@ impl From<Dom> for CompactDom {
         node: Node,
         cur_node_id: &mut usize,
     ) {
-        // - parent [0]
-        //    - child [1]
-        //    - child [2]
-        //        - child of child 2 [2]
-        //        - child of child 2 [4]
-        //    - child [5]
-        //    - child [6]
-        //        - child of child 4 [7]
+        // - parent [0] - child [1] - child [2] - child of child 2 [2] - child of
+        // child 2 [4] - child [5] - child [6] - child of child 4 [7]
 
         // Write node into the arena here!
         node_hierarchy[parent_node_id.index()] = node;
 
-        // MOVE the node's inline `style` AND its `extra` (NodeDataExt) box instead of relying on
-        // copy_special's `self.style.clone()` / `self.extra.clone()`. Both derived Clones lower to
-        // indirect-jump jump tables that remill mis-lifts on the web backend: CssProperty's clone
-        // comes back with discriminant 0 (drops simple inline CSS) and for COMPLEX values (AzButton's
-        // gradient; the NodeDataExt attributes Vec) the mis-lifted clone reads/writes wrong-sized data,
-        // which clobbers the adjacent `style` temporary → "memory access out of bounds" later in the
-        // cascade (StyledDom::create → restyle's inheritance loop reads the corrupted style). 2026-06-02:
-        // copy_special_moving_complex mem::takes BOTH style+extra before copy_special, so copy_special
-        // clones an EMPTY style + None extra (no broken clone runs) and restores them after. (Extra was
-        // added after the AzButton ids/classes node — which lazily allocates NodeDataExt — OOB'd even
-        // with the style-only take.) The Dom is consumed here, so the move is correct.
+        // MOVE the node's inline `style` AND its `extra` (NodeDataExt) box instead
+        // of relying on copy_special's `self.style.clone()` / `self.extra.clone()`.
+        // Both derived Clones lower to indirect-jump jump tables that remill
+        // mis-lifts on the web backend: CssProperty's clone comes back with
+        // discriminant 0 (drops simple inline CSS) and for COMPLEX values
+        // (AzButton's gradient; the NodeDataExt attributes Vec) the mis-lifted clone
+        // reads/writes wrong-sized data, which clobbers the adjacent `style`
+        // temporary → "memory access out of bounds" later in the cascade
+        // (StyledDom::create → restyle's inheritance loop reads the corrupted
+        // style).
         let copy = dom.root.copy_special_moving_complex();
 
         node_data[parent_node_id.index()] = copy;
@@ -2567,14 +2373,10 @@ impl From<Dom> for CompactDom {
             );
         }
 
-        // AUTHORITATIVE last_child. The per-child `last_child` set at construction used
-        // `child_node_id + estimated_total_children`, which is the last node of the
-        // whole SUBTREE (its deepest descendant), NOT the last DIRECT child — wrong
-        // whenever that last child has children of its own. It corrupted `last_child_id()`
-        // and, through it, append_child (which spliced onto the wrong node). The loop
-        // above already tracked `previous_sibling_id`, which now holds the real last
-        // direct child (None if there were none), so overwrite with it. This runs for
-        // every node including the root, so it also corrects the root's own computation.
+        // AUTHORITATIVE last_child. The per-child `last_child` set at construction
+        // used `child_node_id + estimated_total_children`, which is the last node of
+        // the whole SUBTREE (its deepest descendant), NOT the last DIRECT child -
+        // wrong whenever that last child has children of its own.
         node_hierarchy[parent_node_id.index()].last_child = previous_sibling_id;
     }
 
@@ -2617,13 +2419,11 @@ impl From<Dom> for CompactDom {
     }
 }
 
-/// #47: scope every node's inline css to its own subtree. Walks the tree in the
-/// SAME pre-order `convert_dom_into_compact_dom` uses to assign flat `NodeIds`, so the
-/// `[flat_id, flat_id + estimated_total_children]` range pushed onto each rule (via
-/// `CssPath::push_front_scope`) matches the ids the cascade will later see. After
-/// this, a node's `with_css`/`set_css` rules can only match nodes inside its subtree
-/// — they can no longer leak to the whole tree. `fixup_children_estimated()` must
-/// have run first so `estimated_total_children` is populated/exact.
+/// SAME pre-order `convert_dom_into_compact_dom` uses to assign flat `NodeIds`, so
+/// the `[flat_id, flat_id + estimated_total_children]` range pushed onto each rule
+/// (via `CssPath::push_front_scope`) matches the ids the cascade will later see.
+/// After this, a node's `with_css`/`set_css` rules can only match nodes inside its
+/// subtree - they can no longer leak to the whole tree.
 fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
     let start = *next_id;
     let end = start + dom.estimated_total_children;
@@ -2631,10 +2431,7 @@ fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
         for rule in css.rules.as_mut().iter_mut() {
             // Bare-decl wrappers (INLINE priority, from set_css/with_css
             // selector-less declarations) are scoped node-only so a non-root
-            // background can't leak to descendants (#47). A stylesheet's
-            // `* { ... }` (AUTHOR/UA priority) scopes to the SUBTREE - the
-            // classic `* { margin: 0 }` reset must reach every element of the
-            // mounted document, not just the mount root.
+            // background can't leak to descendants (#47). A stylesheet's `* { ...
             let node_only = rule.priority >= azul_css::css::rule_priority::INLINE;
             rule.path.push_front_scope_for(start, end, node_only);
         }
@@ -2645,9 +2442,8 @@ fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
     }
 }
 
-/// Recursively collect all CSS objects from a Dom tree (depth-first).
-/// Inner (deeper) CSS objects come first, outer (shallower) CSS objects come last.
-/// This means outer CSS has higher cascade priority when applied in order.
+/// Recursively collect all CSS objects from a Dom tree (depth-first). Inner
+/// (deeper) CSS objects come first, outer (shallower) CSS objects come last.
 fn collect_css_from_dom(dom: &Dom, out: &mut Vec<Css>) {
     // First, recurse into children (inner CSS = lower priority)
     for child in &dom.children {
@@ -2659,8 +2455,8 @@ fn collect_css_from_dom(dom: &Dom, out: &mut Vec<Css>) {
     }
 }
 
-/// Recursively strip CSS from all Dom nodes (sets css to empty vec).
-/// Called after collecting CSS so the `CompactDom` doesn't carry CSS data.
+/// Recursively strip CSS from all Dom nodes (sets css to empty vec). Called after
+/// collecting CSS so the `CompactDom` doesn't carry CSS data.
 fn strip_css_from_dom(dom: &mut Dom) {
     dom.css = Vec::new().into();
     for child in dom.children.as_mut().iter_mut() {
@@ -2741,8 +2537,8 @@ fn sort_children_by_position(
     not_absolute_children
 }
 
-// calls get_last_child() recursively until the last child of the last child of the ... has been
-// found
+// calls get_last_child() recursively until the last child of the last child of the
+// ... has been found
 fn recursive_get_last_child(
     node_id: NodeId,
     node_hierarchy: &[NodeHierarchyItem],
@@ -2757,19 +2553,12 @@ fn recursive_get_last_child(
     }
 }
 
-// ============================================================================
-// DOM TRAVERSAL FOR MULTI-NODE SELECTION
+// ============================================================================ DOM
+// TRAVERSAL FOR MULTI-NODE SELECTION
 // ============================================================================
 
-/// Determine if `node_a` comes before `node_b` in document order.
-///
-/// Document order is defined as pre-order depth-first traversal order.
-/// This is equivalent to the order nodes appear in HTML source.
-///
-/// ## Algorithm
-/// 1. Find the path from root to each node
-/// 2. Find the Lowest Common Ancestor (LCA)
-/// 3. At the divergence point, the child that appears first in sibling order comes first
+/// Determine if `node_a` comes before `node_b` in document order. Document order is
+/// defined as pre-order depth-first traversal order.
 #[must_use] pub fn is_before_in_document_order(
     hierarchy: &NodeHierarchyItemVec,
     node_a: NodeId,
@@ -2794,8 +2583,9 @@ fn recursive_get_last_child(
             let child_towards_a = path_a[i];
             let child_towards_b = path_b[i];
             
-            // A smaller NodeId index means it was created earlier in DOM construction,
-            // which means it comes first in document order for siblings
+            // A smaller NodeId index means it was created earlier in DOM
+            // construction, which means it comes first in document order for
+            // siblings
             return child_towards_a.index() < child_towards_b.index();
         }
     }
@@ -2822,18 +2612,9 @@ fn get_path_to_root(
     path
 }
 
-/// Collect all nodes between start and end (inclusive) in document order.
-///
-/// This performs a pre-order depth-first traversal starting from the root,
-/// collecting nodes once we've seen `start` and stopping at `end`.
-///
-/// ## Parameters
-/// * `hierarchy` - The node hierarchy
-/// * `start_node` - First node in document order
-/// * `end_node` - Last node in document order
-///
-/// ## Returns
-/// Vector of `NodeIds` in document order, from start to end (inclusive)
+/// Collect all nodes between start and end (inclusive) in document order. This
+/// performs a pre-order depth-first traversal starting from the root, collecting
+/// nodes once we've seen `start` and stopping at `end`.
 #[must_use] pub fn collect_nodes_in_document_order(
     hierarchy: &NodeHierarchyItemVec,
     start_node: NodeId,
@@ -2849,8 +2630,8 @@ fn get_path_to_root(
     let mut result = Vec::new();
     let mut in_range = false;
     
-    // Pre-order DFS using a stack
-    // We need to traverse in document order, which is pre-order DFS
+    // Pre-order DFS using a stack We need to traverse in document order, which is
+    // pre-order DFS
     let mut stack: Vec<NodeId> = vec![NodeId::ZERO]; // Start from root
     
     while let Some(current) = stack.pop() {
@@ -2869,8 +2650,8 @@ fn get_path_to_root(
             break;
         }
         
-        // Push children in reverse order so they pop in correct order
-        // (first child should be processed first)
+        // Push children in reverse order so they pop in correct order (first child
+        // should be processed first)
         if let Some(item) = hierarchy_container.get(current) {
             // Get first child
             if let Some(first_child) = item.first_child_id(current) {
@@ -2893,18 +2674,9 @@ fn get_path_to_root(
 }
 
 /// Check if two `StyledDom`s are structurally equivalent for layout purposes.
-///
-/// Returns `true` if the DOMs have the same structure, node types, classes,
-/// IDs, inline styles, and callback event registrations — meaning the
-/// layout output would be identical.
-///
-/// Image callback nodes are compared by function pointer and `RefAny` type ID
-/// rather than heap pointer, since each `layout()` call creates new `ImageRef`
-/// allocations even when the callback is the same.
-///
-/// This is used to short-circuit the expensive layout pipeline when the DOM
-/// hasn't actually changed (e.g., an animation timer fires but only the GL
-/// texture content changed, not the DOM structure).
+/// Returns `true` if the DOMs have the same structure, node types, classes, IDs,
+/// inline styles, and callback event registrations - meaning the layout output would
+/// be identical.
 #[must_use] pub fn is_layout_equivalent(old: &StyledDom, new: &StyledDom) -> bool {
     use crate::dom::NodeType;
     use crate::resources::DecodedImage;
@@ -2965,7 +2737,8 @@ fn get_path_to_root(
             }
         }
 
-        // Compare IDs and classes (now stored in attributes as AttributeType::Id/Class)
+        // Compare IDs and classes (now stored in attributes as
+        // AttributeType::Id/Class)
         {
             use crate::dom::AttributeType;
             let old_ids_classes: Vec<_> = old_node.attributes().as_ref().iter()
@@ -2984,8 +2757,8 @@ fn get_path_to_root(
             return false;
         }
 
-        // Compare callback event types (affects hit-test tags)
-        // We compare only event types, not function pointers or data
+        // Compare callback event types (affects hit-test tags) We compare only
+        // event types, not function pointers or data
         let old_cbs = old_node.callbacks.as_ref();
         let new_cbs = new_node.callbacks.as_ref();
         if old_cbs.len() != new_cbs.len() {
@@ -3060,8 +2833,8 @@ mod autotest_generated {
     // helpers
     // ---------------------------------------------------------------------
 
-    /// Builds a `NodeHierarchyItem` directly from the RAW (1-based) encoding:
-    /// `0` = none, `n` = `NodeId(n - 1)`.
+    /// Builds a `NodeHierarchyItem` directly from the RAW (1-based) encoding: `0` =
+    /// none, `n` = `NodeId(n - 1)`.
     const fn raw_item(parent: usize, prev: usize, next: usize, last: usize) -> NodeHierarchyItem {
         NodeHierarchyItem {
             parent,
@@ -3071,15 +2844,16 @@ mod autotest_generated {
         }
     }
 
-    /// `<body>` with `n` leaf `<div>` children, cascaded against an empty stylesheet.
-    /// Node ids are `0 = body`, `1..=n` = the children.
+    /// `<body>` with `n` leaf `<div>` children, cascaded against an empty
+    /// stylesheet. Node ids are `0 = body`, `1..=n` = the children.
     fn flat_body(n: usize) -> StyledDom {
         let children: Vec<Dom> = (0..n).map(|_| Dom::create_div()).collect();
         let mut dom = Dom::create_body().with_children(children.into());
         StyledDom::create(&mut dom, Css::empty())
     }
 
-    /// `<body> > <div> > <div>` — the last direct child of the root is itself a parent.
+    /// `<body> > <div> > <div>` - the last direct child of the root is itself a
+    /// parent.
     fn nested_body() -> StyledDom {
         let mut dom = Dom::create_body().with_children(
             vec![Dom::create_div().with_children(vec![Dom::create_div()].into())].into(),
@@ -3199,8 +2973,8 @@ mod autotest_generated {
     #[test]
     fn restyle_result_merge_of_default_is_not_the_identity_for_gpu_only() {
         // `RestyleResult::default()` has gpu_only_changes == false, and merge()
-        // AND-s that flag — so merging an EMPTY result still clears it. Pinned
-        // here because it is a genuine footgun for callers that merge in a loop.
+        // AND-s that flag - so merging an EMPTY result still clears it. Pinned here
+        // because it is a genuine footgun for callers that merge in a loop.
         let mut a = RestyleResult {
             gpu_only_changes: true,
             ..RestyleResult::default()
@@ -3607,7 +3381,7 @@ mod autotest_generated {
 
     #[test]
     fn subtree_len_saturates_on_a_malformed_backwards_next_sibling() {
-        // Node 2 claims its next sibling is node 0 — a backwards link a malformed
+        // Node 2 claims its next sibling is node 0 - a backwards link a malformed
         // FastDom can produce. The subtraction must saturate, not underflow-panic.
         let v: NodeHierarchyItemVec = vec![
             raw_item(0, 0, 0, 0),
@@ -3688,11 +3462,11 @@ mod autotest_generated {
         assert!(sd.get_styled_node_state(&NodeId::ZERO).is_normal());
     }
 
-    /// miniword ENGINE-ISSUE 4: `Dom::create_text_do_not_use_without_block_level_wrapper(..).with_css(..)` silently
-    /// dropped EVERY declaration — the bare-decl wrapper parses to
-    /// `* { .. }`, and the `Global` matcher refused text nodes even for
-    /// rules scoped to exactly that node. All four reported strings now
-    /// cascade onto the text node.
+    /// miniword ENGINE-ISSUE 4:
+    /// `Dom::create_text_do_not_use_without_block_level_wrapper(..).with_css(..)`
+    /// silently dropped EVERY declaration - the bare-decl wrapper parses to `* { ..
+    /// }`, and the `Global` matcher refused text nodes even for rules scoped to
+    /// exactly that node.
     #[test]
     fn with_css_on_a_text_node_applies_its_declarations() {
         use azul_css::props::basic::color::ColorU;
@@ -3743,10 +3517,9 @@ mod autotest_generated {
             );
         }
 
-        // Negative control: a text node WITHOUT inline css keeps taking its
-        // color by INHERITANCE (the parent's #444444 arrives via
-        // cascaded_props) — the matcher exception must not have rerouted or
-        // broken the inheritance lane.
+        // Negative control: a text node WITHOUT inline css keeps taking its color
+        // by INHERITANCE (the parent's #444444 arrives via cascaded_props) - the
+        // matcher exception must not have rerouted or broken the inheritance lane.
         let dom = crate::dom::Dom::create_body().with_child(
             crate::dom::Dom::create_div()
                 .with_css("color: #444444;")
@@ -3776,7 +3549,8 @@ mod autotest_generated {
 
     #[test]
     fn create_empties_the_source_dom() {
-        // Documented: "After calling this function, the DOM will be reset to an empty DOM."
+        // Documented: "After calling this function, the DOM will be reset to an
+        // empty DOM."
         let mut dom = Dom::create_body().with_children(vec![Dom::create_div(); 3].into());
         let sd = StyledDom::create(&mut dom, Css::empty());
         assert_eq!(sd.node_count(), 4);
@@ -3907,10 +3681,10 @@ mod autotest_generated {
         assert_eq!(h[NodeId::new(3)].next_sibling_id(), None);
     }
 
-    /// ADVERSARIAL: `append_child` reads `last_child_id()` to find the current
-    /// last sibling. If `last_child` names a *descendant* rather than the last
-    /// *direct child*, the appended root is spliced into the wrong sibling chain
-    /// and disappears from the root's children.
+    /// ADVERSARIAL: `append_child` reads `last_child_id()` to find the current last
+    /// sibling. If `last_child` names a *descendant* rather than the last *direct
+    /// child*, the appended root is spliced into the wrong sibling chain and
+    /// disappears from the root's children.
     #[test]
     fn append_child_keeps_the_root_children_reachable_for_a_nested_dom() {
         let mut base = nested_body(); // body(0) > div(1) > div(2)
@@ -4077,7 +3851,7 @@ mod autotest_generated {
     #[should_panic(expected = "index out of bounds")]
     fn get_styled_node_state_panics_on_an_out_of_range_node_id() {
         // Documents the contract: unlike restyle_nodes_*, this getter does NOT
-        // bounds-check — callers must pass an id that indexes into this DOM.
+        // bounds-check - callers must pass an id that indexes into this DOM.
         let sd = flat_body(1);
         let _ = sd.get_styled_node_state(&NodeId::new(99));
     }
@@ -4132,14 +3906,13 @@ mod autotest_generated {
         );
     }
 
-    /// A geometry patch must leave the compact cache PRESENT and already
-    /// reflecting the override. The old behaviour (drop the cache, "the next
-    /// full cascade rebuilds it") broke every consumer that derives state
-    /// from the cache during the very relayout that applies the patch: the
-    /// font phase resolved an EMPTY font world (no stack signature, no
-    /// chains, empty GC keep-set), so the patched-in subtree's text laid out
-    /// at zero size and, pre-guard, the font GC evicted every loaded font
-    /// mid-frame.
+    /// A geometry patch must leave the compact cache PRESENT and already reflecting
+    /// the override. The old behaviour (drop the cache, "the next full cascade
+    /// rebuilds it") broke every consumer that derives state from the cache during
+    /// the very relayout that applies the patch: the font phase resolved an EMPTY
+    /// font world (no stack signature, no chains, empty GC keep-set), so the
+    /// patched-in subtree's text laid out at zero size and, pre-guard, the font GC
+    /// evicted every loaded font mid-frame.
     #[test]
     fn restyle_user_property_rebuilds_the_compact_cache_with_the_patch() {
         use azul_css::props::layout::display::LayoutDisplay;
@@ -4289,7 +4062,7 @@ mod autotest_generated {
 
     #[test]
     fn get_html_string_does_not_panic_on_extreme_doms() {
-        // A single-node DOM has no non_leaf parent entry for its root — the depth
+        // A single-node DOM has no non_leaf parent entry for its root - the depth
         // lookup must fall back to 0 rather than panic-indexing the map.
         assert!(!StyledDom::default().get_html_string("", "", true).is_empty());
         assert!(!flat_body(0).get_html_string("", "", true).is_empty());
@@ -4544,7 +4317,7 @@ mod autotest_generated {
             vec![NodeId::new(1), NodeId::new(2)]
         );
 
-        // Nested: body(0) > div(1) > div(2) — pre-order is 0, 1, 2.
+        // Nested: body(0) > div(1) > div(2) - pre-order is 0, 1, 2.
         let nested = nested_body();
         assert_eq!(
             collect_nodes_in_document_order(&nested.node_hierarchy, NodeId::ZERO, NodeId::new(2)),
@@ -4554,8 +4327,8 @@ mod autotest_generated {
 
     #[test]
     fn collect_nodes_in_document_order_terminates_when_end_precedes_start() {
-        // The traversal hits `end` before it ever enters the range, so it bails
-        // out with an empty result rather than looping forever.
+        // The traversal hits `end` before it ever enters the range, so it bails out
+        // with an empty result rather than looping forever.
         let sd = flat_body(3);
         let out = collect_nodes_in_document_order(&sd.node_hierarchy, NodeId::new(2), NodeId::new(1));
         assert!(out.is_empty());
@@ -4598,7 +4371,8 @@ mod autotest_generated {
 
     #[test]
     fn is_layout_equivalent_rejects_a_different_structure() {
-        // Same node count (3), different shape: [body > div > div] vs [body > div, div]
+        // Same node count (3), different shape: [body > div > div] vs [body > div,
+        // div]
         assert!(!is_layout_equivalent(&nested_body(), &flat_body(2)));
     }
 
@@ -4641,7 +4415,8 @@ mod autotest_generated {
         assert_eq!(tree.len(), 5);
         assert!(!tree.is_empty());
 
-        // A hand-built zero-node arena is the only way to observe is_empty() == true.
+        // A hand-built zero-node arena is the only way to observe is_empty() ==
+        // true.
         let empty = CompactDom {
             node_hierarchy: NodeHierarchy {
                 internal: Vec::new(),
@@ -4677,12 +4452,12 @@ mod autotest_generated {
         }
     }
 
-    /// ADVERSARIAL: `last_child` must name the last DIRECT child — that is the
+    /// ADVERSARIAL: `last_child` must name the last DIRECT child - that is the
     /// contract `NodeHierarchyItem::last_child_id()` documents, the one
     /// `az_reverse_children` walks backwards from, and the one `append_child`
-    /// splices new siblings onto. The flat encoding computes it as
-    /// `node_id + estimated_total_children`, which is the last node of the whole
-    /// SUBTREE — those coincide only when the last direct child is a leaf.
+    /// splices new siblings onto. The flat encoding computes it as `node_id +
+    /// estimated_total_children`, which is the last node of the whole SUBTREE -
+    /// those coincide only when the last direct child is a leaf.
     #[test]
     fn convert_dom_into_compact_dom_last_child_is_the_last_direct_child() {
         // body(0) > div(1) > div(2): the body's only direct child is node 1.
@@ -4860,7 +4635,7 @@ mod autotest_generated {
     }
 
     // ---------------------------------------------------------------------
-    // hierarchy_ancestors — THE DOM ancestor walk, explicit inclusivity
+    // hierarchy_ancestors - THE DOM ancestor walk, explicit inclusivity
     // ---------------------------------------------------------------------
 
     /// 0 <- 1 <- 2 (the `parent` field is 1-based encoded: 0 = none).
@@ -4893,7 +4668,7 @@ mod autotest_generated {
         use crate::spaces::Inclusivity;
         for incl in [Inclusivity::AncestorsOnly, Inclusivity::SelfAndAncestors] {
             // An empty hierarchy has a zero budget, so nothing is yielded even
-            // self-inclusively — and, crucially, nothing is indexed.
+            // self-inclusively - and, crucially, nothing is indexed.
             assert!(walk(&[], 0, incl).is_empty());
             assert!(walk(&[], 9_999, incl).is_empty());
         }

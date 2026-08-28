@@ -1,24 +1,6 @@
-//! Callback types for the Azul UI framework.
-//!
-//! This module defines the callback infrastructure used by the event system,
-//! layout engine, and virtual view rendering. Key design patterns:
-//!
-//! - **Core vs Layout callback split**: `CoreCallbackType` and
-//!   `CoreRenderImageCallbackType` store function pointers as `usize` to avoid
-//!   circular dependencies between `azul-core` and `azul-layout`. The actual
-//!   function pointer types are defined in `azul-layout` and transmuted at
-//!   invocation time.
-//!
-//! - **FFI callable pattern**: Callback structs carry an optional
-//!   `ctx: OptionRefAny` field that holds a foreign callable (e.g. a Python
-//!   function object). The `extern "C"` trampoline stored in `cb` extracts
-//!   both the user data and the foreign callable from `RefAny` and dispatches
-//!   the call. Native Rust code sets `ctx` to `None`.
-//!
-//! - **Info structs**: `LayoutCallbackInfo`, `VirtualViewCallbackInfo`, and
-//!   the layout-side `CallbackInfo` provide read-only access to framework
-//!   resources (fonts, images, GL context, window size) during callback
-//!   invocation.
+//! Callback types for the Azul UI framework. This module defines the callback
+//! infrastructure used by the event system, layout engine, and virtual view
+//! rendering.
 
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
@@ -74,14 +56,15 @@ use crate::{
     FastBTreeSet, OrderedMap,
 };
 
-/// Specifies if the screen should be updated after the callback function has returned
+/// Specifies if the screen should be updated after the callback function has
+/// returned
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Update {
     /// The screen does not need to redraw after the callback has been called
     DoNothing,
-    /// After the callback is called, the screen needs to redraw (`layout()` function being called
-    /// again)
+    /// After the callback is called, the screen needs to redraw (`layout()`
+    /// function being called again)
     RefreshDom,
     /// The layout has to be re-calculated for all windows
     RefreshDomAllWindows,
@@ -99,39 +82,25 @@ impl Update {
 
 // -- layout callback
 
-/// Callback function pointer (has to be a function pointer in
-/// order to be compatible with C APIs later on).
-///
-/// IMPORTANT: The callback needs to deallocate the `RefAnyPtr` and `LayoutCallbackInfoPtr`,
-/// otherwise that memory is leaked. If you use the official auto-generated
-/// bindings, this is already done for you.
-///
-/// NOTE: The original callback was `fn(&self, LayoutCallbackInfo) -> Dom`
-/// which then evolved to `fn(&RefAny, LayoutCallbackInfo) -> Dom`.
-/// The indirection is necessary because of the memory management
-/// around the C API
-///
-/// The memory management across the callback boundary is handled by
-/// the caller (see `LayoutCallback` and `LayoutCallbackInfo`).
+/// Callback function pointer (has to be a function pointer in order to be
+/// compatible with C APIs later on). IMPORTANT: The callback needs to deallocate the
+/// `RefAnyPtr` and `LayoutCallbackInfoPtr`, otherwise that memory is leaked.
 pub type LayoutCallbackType = extern "C" fn(RefAny, LayoutCallbackInfo) -> Dom;
 
 extern "C" fn default_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> Dom {
     Dom::create_body()
 }
 
-/// Wrapper around the layout callback
-///
-/// For FFI languages (Python, Java, etc.), the `RefAny` contains both:
-/// - The user's application data
-/// - The callback function object from the foreign language
-///
-/// The trampoline function (stored in `cb`) knows how to extract both
-/// from the `RefAny` and invoke the foreign callback with the user data.
+/// Wrapper around the layout callback For FFI languages (Python, Java, etc.), the
+/// `RefAny` contains both: - The user's application data - The callback function
+/// object from the foreign language The trampoline function (stored in `cb`) knows
+/// how to extract both from the `RefAny` and invoke the foreign callback with the
+/// user data.
 #[repr(C)]
 pub struct LayoutCallback {
     pub cb: LayoutCallbackType,
-    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
-    /// Native Rust code sets this to None
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`) Native Rust code
+    /// sets this to None
     pub ctx: OptionRefAny,
 }
 
@@ -143,12 +112,12 @@ impl LayoutCallback {
     }
 }
 
-// Host-invoker plumbing for managed-FFI bindings (Lua, Ruby, Perl, …):
-// expands to a static `az_layout_callback_thunk` (the `cb` we hand to the
-// framework when the host calls `LayoutCallback::create_from_host_handle`),
-// an `AzLayoutCallback_createFromHostHandle` C-ABI export, plus the
-// `AzApp_setLayoutCallbackInvoker` setter the host calls once at module
-// load. See `crate::host_invoker` for the design.
+// Host-invoker plumbing for managed-FFI bindings (Lua, Ruby, Perl, …): expands to a
+// static `az_layout_callback_thunk` (the `cb` we hand to the framework when the host
+// calls `LayoutCallback::create_from_host_handle`), an
+// `AzLayoutCallback_createFromHostHandle` C-ABI export, plus the
+// `AzApp_setLayoutCallbackInvoker` setter the host calls once at module load. See
+// `crate::host_invoker` for the design.
 crate::impl_managed_callback! {
     wrapper:        LayoutCallback,
     info_ty:        LayoutCallbackInfo,
@@ -174,13 +143,13 @@ impl Default for LayoutCallback {
 
 pub type VirtualViewCallbackType = extern "C" fn(RefAny, VirtualViewCallbackInfo) -> VirtualViewReturn;
 
-/// Callback that, given a rectangle area on the screen, returns the DOM
-/// appropriate for that bounds (useful for infinite lists)
+/// Callback that, given a rectangle area on the screen, returns the DOM appropriate
+/// for that bounds (useful for infinite lists)
 #[repr(C)]
 pub struct VirtualViewCallback {
     pub cb: VirtualViewCallbackType,
-    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
-    /// Native Rust code sets this to None
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`) Native Rust code
+    /// sets this to None
     pub ctx: OptionRefAny,
 }
 impl_callback!(VirtualViewCallback, VirtualViewCallbackType);
@@ -208,21 +177,19 @@ impl VirtualViewCallback {
 }
 
 // -- caret / selection tween callbacks (system text animations)
-//
 // The framework animates the caret and the selection highlight between their
 // previous and current geometry ("tween"). The MATH of the tween is a user-
-// replaceable C-ABI function set in `AppConfig.system_animations` (defaults
-// below): the framework drives a short timer, computes the linear progress
-// `t = elapsed / configured duration`, and calls the function to obtain the
-// geometry to RENDER this frame. While a tween is in flight the caret blink
-// is suppressed (the caret stays solid while it moves).
+// replaceable C-ABI function set in `AppConfig.system_animations` (defaults below):
+// the framework drives a short timer, computes the linear progress `t = elapsed /
+// configured duration`, and calls the function to obtain the geometry to RENDER this
+// frame.
 
 /// Inputs for one caret-tween evaluation.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct CaretTweenInfo {
-    /// Caret rectangle the previous frame RENDERED (mid-flight retargets
-    /// start from the interpolated position, not the old logical one).
+    /// Caret rectangle the previous frame RENDERED (mid-flight retargets start from
+    /// the interpolated position, not the old logical one).
     pub past: LogicalRect,
     /// Caret rectangle the current layout actually wants.
     pub current: LogicalRect,
@@ -238,8 +205,8 @@ pub type CaretTweenCallbackType = extern "C" fn(RefAny, CaretTweenInfo) -> Logic
 #[repr(C)]
 pub struct CaretTweenCallback {
     pub cb: CaretTweenCallbackType,
-    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
-    /// Native Rust code sets this to None
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`) Native Rust code
+    /// sets this to None
     pub ctx: OptionRefAny,
 }
 impl_callback!(CaretTweenCallback, CaretTweenCallbackType);
@@ -253,11 +220,10 @@ impl CaretTweenCallback {
     }
 }
 
-/// Inputs for one selection-tween evaluation.
-///
-/// Carries the full PAST and CURRENT selection band geometry: all rectangles
-/// of the selection highlight, in display-list order — spanning multiple
-/// lines and, for a cross-block selection, multiple nodes.
+/// Inputs for one selection-tween evaluation. Carries the full PAST and CURRENT
+/// selection band geometry: all rectangles of the selection highlight, in
+/// display-list order - spanning multiple lines and, for a cross-block selection,
+/// multiple nodes.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SelectionTweenInfo {
@@ -269,9 +235,9 @@ pub struct SelectionTweenInfo {
     pub t: f32,
 }
 
-/// Returns the selection rectangles to render at progress `info.t`.
-/// MUST return exactly `info.current.len()` rectangles — a mismatched
-/// length makes the framework fall back to `info.current` unanimated.
+/// Returns the selection rectangles to render at progress `info.t`. MUST return
+/// exactly `info.current.len()` rectangles - a mismatched length makes the framework
+/// fall back to `info.current` unanimated.
 pub type SelectionTweenCallbackType =
     extern "C" fn(RefAny, SelectionTweenInfo) -> LogicalRectVec;
 
@@ -279,8 +245,8 @@ pub type SelectionTweenCallbackType =
 #[repr(C)]
 pub struct SelectionTweenCallback {
     pub cb: SelectionTweenCallbackType,
-    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
-    /// Native Rust code sets this to None
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`) Native Rust code
+    /// sets this to None
     pub ctx: OptionRefAny,
 }
 impl_callback!(SelectionTweenCallback, SelectionTweenCallbackType);
@@ -294,14 +260,10 @@ impl SelectionTweenCallback {
     }
 }
 
-/// Trapezoidal velocity profile: velocity ramps up HARD over the first
-/// `RAMP` of the duration, cruises at constant speed, and ramps down hard
-/// over the last `RAMP` — a `/‾‾‾\` velocity curve. In position terms:
-/// a brief quadratic ease-in, a LINEAR middle, a brief quadratic ease-out.
-/// Chosen over ease-out-cubic for the caret/selection defaults: at the
-/// very short default durations the motion should read as "barely
-/// noticeable glide", not as a spring (user directive). Analytic integral,
-/// exact — a cubic bezier cannot express the flat-velocity plateau.
+/// Trapezoidal velocity profile: velocity ramps up HARD over the first `RAMP` of
+/// the duration, cruises at constant speed, and ramps down hard over the last `RAMP`
+/// - a `/‾‾‾\` velocity curve. In position terms: a brief quadratic ease-in, a
+/// LINEAR middle, a brief quadratic ease-out.
 #[inline]
 fn trapezoid_ease(t: f32) -> f32 {
     const RAMP: f32 = 0.25;
@@ -319,9 +281,9 @@ fn trapezoid_ease(t: f32) -> f32 {
 }
 
 #[inline]
-// Plain `a + (b - a) * e`, NOT mul_add: fused multiply-add changes f32
-// results, and tween geometry must be bit-reproducible across builds (the
-// e2e corpus pins pixel-exact frames).
+// Plain `a + (b - a) * e`, NOT mul_add: fused multiply-add changes f32 results, and
+// tween geometry must be bit-reproducible across builds (the e2e corpus pins
+// pixel-exact frames).
 #[allow(clippy::suboptimal_flops)]
 fn lerp_rect(from: LogicalRect, to: LogicalRect, e: f32) -> LogicalRect {
     LogicalRect {
@@ -336,25 +298,18 @@ fn lerp_rect(from: LogicalRect, to: LogicalRect, e: f32) -> LogicalRect {
     }
 }
 
-/// Default caret tween: trapezoidal-velocity lerp of origin and size
-/// (hard rise, linear cruise, hard fall — see [`trapezoid_ease`]).
+/// Default caret tween: trapezoidal-velocity lerp of origin and size (hard rise,
+/// linear cruise, hard fall - see [`trapezoid_ease`]).
 #[must_use]
 pub extern "C" fn default_caret_tween(_data: RefAny, info: CaretTweenInfo) -> LogicalRect {
     lerp_rect(info.past, info.current, trapezoid_ease(info.t))
 }
 
-/// Default selection tween: trapezoidal-velocity lerp, rectangles paired by
-/// the LINE they sit on — not by their position in the list.
-///
-/// Index pairing broke every UPWARD extension: growing the selection upward
-/// prepends a rect, which shifts every later rect one slot, so each line lerped
-/// from the geometry of the line ABOVE it and the whole band visibly slid.
-/// Geometric pairing is stable under insertion at either end.
-///
-/// Rectangles with no counterpart on their line (a line the selection did not
-/// cover before) appear at their final geometry immediately. Each past
-/// rectangle is consumed at most once, so a line that bidi splits into several
-/// rectangles still pairs one-to-one.
+/// Default selection tween: trapezoidal-velocity lerp, rectangles paired by the
+/// LINE they sit on - not by their position in the list. Index pairing broke every
+/// UPWARD extension: growing the selection upward prepends a rect, which shifts
+/// every later rect one slot, so each line lerped from the geometry of the line
+/// ABOVE it and the whole band visibly slid.
 #[must_use]
 pub extern "C" fn default_selection_tween(
     _data: RefAny,
@@ -374,15 +329,9 @@ pub extern "C" fn default_selection_tween(
     out.into()
 }
 
-/// The not-yet-consumed `past` rectangle sitting on the same line as `cur` —
-/// the closest one vertically, ties to the earlier one — marked consumed.
-/// `None` when no past rectangle shares that line.
-///
-/// "Same line" means the vertical CENTRES are within half the shorter
-/// rectangle's height of each other: a line that shifted by a fraction of its
-/// own height is still recognised (and glides there), a different line never
-/// is. The test is a positive comparison, which NaN fails, so garbage geometry
-/// pops instead of pairing wrongly.
+/// The not-yet-consumed `past` rectangle sitting on the same line as `cur` - the
+/// closest one vertically, ties to the earlier one - marked consumed. `None` when no
+/// past rectangle shares that line.
 fn take_same_line_rect(
     past: &[LogicalRect],
     taken: &mut [bool],
@@ -409,9 +358,8 @@ fn take_same_line_rect(
     past.get(idx).copied()
 }
 
-/// Reason why a `VirtualView` callback is being invoked.
-///
-/// This helps the callback optimize its behavior based on why it's being called.
+/// Reason why a `VirtualView` callback is being invoked. This helps the callback
+/// optimize its behavior based on why it's being called.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C, u8)]
 pub enum VirtualViewCallbackReason {
@@ -444,33 +392,27 @@ pub struct VirtualViewCallbackInfo {
     pub system_fonts: *const FcFontCache,
     pub image_cache: *const ImageCache,
     pub window_theme: WindowTheme,
-    /// RECT 1 - THE CONTAINER: the `VirtualView`'s on-screen box, computed by
-    /// the framework from the outer DOM. You do not set this; you render into
-    /// it.
+    /// RECT 1 - THE CONTAINER: the `VirtualView`'s on-screen box, computed by the
+    /// framework from the outer DOM. You do not set this; you render into it.
     pub bounds: HidpiAdjustedBounds,
-    /// RECT 2 - WHAT IS CURRENTLY MATERIALIZED, in VIRTUAL space: the window
-    /// you returned last time (`origin` = where it starts in the document,
-    /// `size` = its extent). Zero-sized on the first invoke.
+    /// RECT 2 - WHAT IS CURRENTLY MATERIALIZED, in VIRTUAL space: the window you
+    /// returned last time (`origin` = where it starts in the document, `size` = its
+    /// extent). Zero-sized on the first invoke.
     pub materialized: LogicalRect,
-    /// RECT 3 - THE DOCUMENT, in VIRTUAL space: the extent you last declared,
-    /// which is what the scrollbar currently represents.
+    /// RECT 3 - THE DOCUMENT, in VIRTUAL space: the extent you last declared, which
+    /// is what the scrollbar currently represents.
     pub virtual_rect: LogicalRect,
-    /// WHERE THE USER IS LOOKING: the live scroll offset in virtual space.
-    ///
-    /// This is the input your "which slice do I render?" math keys off. It was
-    /// previously spelled `virtual_scroll_offset` and the engine hardcoded
-    /// that to zero, so apps computing a page index from it always rendered
-    /// the first page — one of the two reasons a `VirtualView` could not
-    /// scroll.
+    /// WHERE THE USER IS LOOKING: the live scroll offset in virtual space. This is
+    /// the input your "which slice do I render?" math keys off.
     pub scroll_offset: LogicalPosition,
-    /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python, etc.)
-    /// Set by the caller before invoking the callback. Native Rust callbacks have this as null.
+    /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python,
+    /// etc.) Set by the caller before invoking the callback. Native Rust callbacks
+    /// have this as null.
     callable_ptr: *const OptionRefAny,
-    /// Headless DOM measurement hook (see [`Self::measure_dom`]): a
-    /// layout-crate trampoline (a [`MeasureDomFn`] stored as an opaque
-    /// pointer, null = no hook) + its `LayoutWindow` context, injected at
-    /// invoke time. Null on paths that cannot measure (then `measure_dom`
-    /// returns zero).
+    /// Headless DOM measurement hook (see [`Self::measure_dom`]): a layout-crate
+    /// trampoline (a [`MeasureDomFn`] stored as an opaque pointer, null = no hook) +
+    /// its `LayoutWindow` context, injected at invoke time. Null on paths that
+    /// cannot measure (then `measure_dom` returns zero).
     measure_dom_fn: *const c_void,
     measure_dom_ctx: *mut c_void,
     /// Extension for future ABI stability (mutable data)
@@ -478,8 +420,8 @@ pub struct VirtualViewCallbackInfo {
 }
 
 /// Trampoline signature for [`VirtualViewCallbackInfo::measure_dom`]:
-/// `(layout_window_ctx, dom, available) -> content extent`. The `Dom` is
-/// passed by pointer and CONSUMED (moved out) by the trampoline.
+/// `(layout_window_ctx, dom, available) -> content extent`. The `Dom` is passed by
+/// pointer and CONSUMED (moved out) by the trampoline.
 pub type MeasureDomFn = extern "C" fn(*mut c_void, *mut Dom, LogicalSize) -> LogicalSize;
 
 impl Clone for VirtualViewCallbackInfo {
@@ -534,31 +476,22 @@ impl VirtualViewCallbackInfo {
         self.callable_ptr = core::ptr::from_ref::<OptionRefAny>(callable);
     }
 
-    /// Inject the headless-measure trampoline (called by the layout crate
-    /// right before the user callback is invoked).
+    /// Inject the headless-measure trampoline (called by the layout crate right
+    /// before the user callback is invoked).
     pub fn set_measure_dom_fn(&mut self, f: MeasureDomFn, ctx: *mut c_void) {
         self.measure_dom_fn = f as *const c_void;
         self.measure_dom_ctx = ctx;
     }
 
-    /// Measure a DOM headlessly: style + lay it out against `available`
-    /// constraints using the host window's fonts and system style, without
-    /// touching the live layout. Returns the union of all node bounds.
-    ///
-    /// Use a very tall `available.height` (e.g. `1_000_000.0`) to obtain a
-    /// DOM's natural height at a fixed width - the building block for
-    /// virtual-scroll sizing: measure one (or a few) item template(s), then
-    /// `virtual_scroll_size.height = item_height * item_count` and render
-    /// only the visible window of items. Each call is a full cold layout
-    /// pass, so cache measured sizes per item template.
-    ///
-    /// Returns `LogicalSize::zero()` when no measure hook was injected.
+    /// Measure a DOM headlessly: style + lay it out against `available` constraints
+    /// using the host window's fonts and system style, without touching the live
+    /// layout. Returns the union of all node bounds.
     #[must_use] pub fn measure_dom(&self, dom: Dom, available: LogicalSize) -> LogicalSize {
         if self.measure_dom_fn.is_null() {
             return LogicalSize::zero();
         }
-        // SAFETY: measure_dom_fn is only ever set via set_measure_dom_fn,
-        // which stores a valid MeasureDomFn.
+        // SAFETY: measure_dom_fn is only ever set via set_measure_dom_fn, which
+        // stores a valid MeasureDomFn.
         let f: MeasureDomFn = unsafe { core::mem::transmute(self.measure_dom_fn) };
         let mut dom = core::mem::ManuallyDrop::new(dom);
         f(self.measure_dom_ctx, core::ptr::from_mut::<Dom>(&mut dom), available)
@@ -585,55 +518,32 @@ impl VirtualViewCallbackInfo {
     }
 }
 
-/// Return value for a `VirtualView` rendering callback.
-///
-/// Contains two size/offset pairs for lazy loading and virtualization:
-///
-/// - `scroll_size` / `scroll_offset`: Size and position of actually rendered content
-/// - `virtual_scroll_size` / `virtual_scroll_offset`: Size for scrollbar representation
-///
-/// The callback is re-invoked on: initial render, parent DOM recreation, window expansion
-/// beyond `scroll_size`, or scrolling near content edges (`EDGE_THRESHOLD`, currently 200px).
-///
-/// Return `OptionDom::None` to keep the current DOM and only update scroll bounds.
+/// Return value for a `VirtualView` rendering callback. Contains two size/offset
+/// pairs for lazy loading and virtualization: - `scroll_size` / `scroll_offset`:
+/// Size and position of actually rendered content - `virtual_scroll_size` /
+/// `virtual_scroll_offset`: Size for scrollbar representation The callback is
+/// re-invoked on: initial render, parent DOM recreation, window expansion beyond
+/// `scroll_size`, or scrolling near content edges (`EDGE_THRESHOLD`, currently
+/// 200px).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct VirtualViewReturn {
-    /// The DOM with actual rendered content, or None to keep current DOM.
-    ///
-    /// - `OptionDom::Some(dom)` - Replace current content with this new DOM
-    /// - `OptionDom::None` - Keep using the previous DOM, only update scroll bounds
-    ///
+    /// The DOM with actual rendered content, or None to keep current DOM. -
+    /// `OptionDom::Some(dom)` - Replace current content with this new DOM -
+    /// `OptionDom::None` - Keep using the previous DOM, only update scroll bounds
     /// Returning `None` is an optimization when the callback determines that the
-    /// current content is sufficient (e.g., already rendered ahead of scroll position).
+    /// current content is sufficient (e.g., already rendered ahead of scroll
+    /// position).
     pub dom: OptionDom,
 
-    /// WHAT THIS CALLBACK MATERIALIZED, in VIRTUAL space.
-    ///
-    /// `origin` = where this window of content begins in the document;
-    /// `size` = how much of the document it covers.
-    ///
-    /// One rect, not a loose offset + size: they are a single fact about a
-    /// single window, and storing them apart is exactly how the origin came
-    /// to be dropped on the floor (content could not be placed, so a
-    /// `VirtualView` could never actually scroll).
-    ///
-    /// The engine places the content at
-    /// `container.origin + (materialized.origin - current_scroll_offset)`.
-    ///
-    /// **Example**: a table showing rows 10-30 at 30px each reports
-    /// `origin.y = 300`, `size.height = 600`.
+    /// WHAT THIS CALLBACK MATERIALIZED, in VIRTUAL space. `origin` = where this
+    /// window of content begins in the document; `size` = how much of the document
+    /// it covers.
     pub materialized: LogicalRect,
 
-    /// THE WHOLE DOCUMENT, in VIRTUAL space — what the scrollbar represents.
-    ///
+    /// THE WHOLE DOCUMENT, in VIRTUAL space - what the scrollbar represents.
     /// `origin` is normally zero; `size` is your current best estimate and MAY
-    /// change as work completes (e.g. a background pagination pass refining a
-    /// page count). Refining it is cheap and safe: **only the scrollbar reads
-    /// this**, so the thumb resizes and no content moves.
-    ///
-    /// **Example**: a 1000-row table reports `size.height = 30_000` even
-    /// though `materialized` covers 600px of it.
+    /// change as work completes (e.g.
     pub virtual_rect: LogicalRect,
 }
 
@@ -648,14 +558,8 @@ impl Default for VirtualViewReturn {
 }
 
 impl VirtualViewReturn {
-    /// Creates a new `VirtualViewReturn` with updated DOM content.
-    ///
-    /// Use this when the callback has rendered new content to display.
-    ///
-    /// # Arguments
-    /// - `dom` - The new DOM to render
-    /// - `materialized` - what you rendered, and where it sits in the document
-    /// - `virtual_rect` - how big the document is (scrollbar sizing)
+    /// Creates a new `VirtualViewReturn` with updated DOM content. Use this when
+    /// the callback has rendered new content to display.
     #[must_use] pub const fn with_dom(
         dom: Dom,
         materialized: LogicalRect,
@@ -668,15 +572,9 @@ impl VirtualViewReturn {
         }
     }
 
-    /// Creates a return value that keeps the current DOM unchanged.
-    ///
-    /// Use this when the callback determines that the existing content
-    /// is sufficient (e.g., already rendered ahead of scroll position).
-    /// This is an optimization to avoid rebuilding the DOM unnecessarily.
-    ///
-    /// # Arguments
-    /// - `materialized` - the window currently rendered, and where it sits
-    /// - `virtual_rect` - how big the document is (scrollbar sizing)
+    /// Creates a return value that keeps the current DOM unchanged. Use this when
+    /// the callback determines that the existing content is sufficient (e.g.,
+    /// already rendered ahead of scroll position).
     #[must_use] pub const fn keep_current(
         materialized: LogicalRect,
         virtual_rect: LogicalRect,
@@ -702,7 +600,8 @@ pub struct TimerCallbackReturn {
 }
 
 impl TimerCallbackReturn {
-    /// Creates a new `TimerCallbackReturn` with the given update and terminate flags.
+    /// Creates a new `TimerCallbackReturn` with the given update and terminate
+    /// flags.
     #[must_use] pub const fn create(should_update: Update, should_terminate: TerminateTimer) -> Self {
         Self {
             should_update,
@@ -751,17 +650,13 @@ impl Default for TimerCallbackReturn {
 
 /// Gives the `layout()` function access to the `RendererResources` and the `Window`
 /// (for querying images and fonts, as well as width / height)
-///
 #[derive(Debug)]
 #[repr(C)]
-/// Reference data container for `LayoutCallbackInfo` (all read-only fields)
-///
-/// This struct consolidates all readonly references that layout callbacks need to query state.
-/// By grouping these into a single struct, we reduce the number of parameters to
-/// `LayoutCallbackInfo::new()` from 6 to 2, making the API more maintainable and easier to extend.
-///
-/// This is pure syntax sugar - the struct lives on the stack in the caller and is passed by
-/// reference.
+/// Reference data container for `LayoutCallbackInfo` (all read-only fields) This
+/// struct consolidates all readonly references that layout callbacks need to query
+/// state. By grouping these into a single struct, we reduce the number of parameters
+/// to `LayoutCallbackInfo::new()` from 6 to 2, making the API more maintainable and
+/// easier to extend.
 pub struct LayoutCallbackInfoRefData<'a> {
     /// Allows the `layout()` function to reference image IDs
     pub image_cache: &'a ImageCache,
@@ -769,30 +664,22 @@ pub struct LayoutCallbackInfoRefData<'a> {
     pub gl_context: &'a OptionGlContextPtr,
     /// Reference to the system font cache
     pub system_fonts: &'a FcFontCache,
-    /// Platform-specific system style (colors, spacing, etc.)
-    /// Used for CSD rendering and menu windows.
+    /// Platform-specific system style (colors, spacing, etc.) Used for CSD
+    /// rendering and menu windows.
     pub system_style: Arc<SystemStyle>,
-    /// Active route match (if routing is configured).
-    /// Contains the matched pattern and extracted parameters.
+    /// Active route match (if routing is configured). Contains the matched pattern
+    /// and extracted parameters.
     pub active_route: Option<&'a crate::resources::RouteMatch>,
-    /// #28 (d): SNAPSHOT of the system's monitors, taken (locked + cloned)
-    /// by the caller right before invoking the layout callback. A snapshot —
-    /// not the live `Arc<Mutex<…>>` handle — because `azul-core` is `no_std`
-    /// (no Mutex) and the list is read-only during a layout pass anyway.
-    /// Lets `layout()` bound how much content it builds on first layout
-    /// (e.g. at most monitor-height lines / monitor-area characters), so
-    /// opening a huge file can never build an unbounded DOM.
+    /// by the caller right before invoking the layout callback. A snapshot - not
+    /// the live `Arc<Mutex<…>>` handle - because `azul-core` is `no_std` (no Mutex)
+    /// and the list is read-only during a layout pass anyway.
     pub monitors: crate::window::MonitorVec,
 }
 
-/// What triggered the current `layout()` invocation.
-///
-/// The framework re-invokes the layout callback for any change that may
-/// produce a structurally different DOM (resize across a CSS breakpoint,
-/// theme toggle, route switch, callback returning `Update::RefreshDom`).
-/// `LayoutCallbackInfo::relayout_reason()` exposes which trigger this
-/// particular call corresponds to so the callback can branch - for
-/// example, skip expensive analytics on `Resize` calls.
+/// What triggered the current `layout()` invocation. The framework re-invokes the
+/// layout callback for any change that may produce a structurally different DOM
+/// (resize across a CSS breakpoint, theme toggle, route switch, callback returning
+/// `Update::RefreshDom`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 #[derive(Default)]
@@ -802,15 +689,13 @@ pub enum RelayoutReason {
     Initial,
     /// A user callback returned `Update::RefreshDom`.
     RefreshDom,
-    /// Window size changed across a CSS breakpoint or DPI scale change.
-    /// The callback can branch on `info.window_width_*` to emit a
-    /// different tree (e.g. hamburger menu vs sidebar).
+    /// Window size changed across a CSS breakpoint or DPI scale change. The
+    /// callback can branch on `info.window_width_*` to emit a different tree (e.g.
     Resize,
     /// System theme changed (light/dark).
     ThemeChange,
-    /// `CallbackInfo::switch_route` or `set_route_param` produced a new
-    /// route match. The callback should branch on
-    /// `info.get_active_route()`.
+    /// `CallbackInfo::switch_route` or `set_route_param` produced a new route
+    /// match. The callback should branch on `info.get_active_route()`.
     RouteChange,
     /// Catch-all for relayouts that don't fit one of the above categories.
     Other,
@@ -819,39 +704,35 @@ pub enum RelayoutReason {
 
 #[repr(C)]
 pub struct LayoutCallbackInfo {
-    /// Single reference to all readonly reference data
-    /// This consolidates 4 individual parameters into 1, improving API ergonomics
+    /// Single reference to all readonly reference data This consolidates 4
+    /// individual parameters into 1, improving API ergonomics
     ref_data: *const LayoutCallbackInfoRefData<'static>,
-    /// Window size (so that apps can return a different UI depending on
-    /// the window size - mobile / desktop view). Should be later removed
-    /// in favor of "resize" handlers and @media queries.
+    /// Window size (so that apps can return a different UI depending on the window
+    /// size - mobile / desktop view). Should be later removed in favor of "resize"
+    /// handlers and @media queries.
     pub window_size: WindowSize,
     /// Registers whether the UI is dependent on the window theme
     pub theme: WindowTheme,
     /// What triggered this `layout()` call. Read via `relayout_reason()`.
     pub relayout_reason: RelayoutReason,
-    /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python, etc.)
-    /// Set by the caller before invoking the callback. Native Rust callbacks have this as null.
+    /// Pointer to the callable (`OptionRefAny`) for FFI language bindings (Python,
+    /// etc.) Set by the caller before invoking the callback. Native Rust callbacks
+    /// have this as null.
     callable_ptr: *const OptionRefAny,
     /// Extension for future ABI stability (mutable data)
     _abi_mut: *mut c_void,
 }
 
-/// One recorded window-size query made by a `layout()` callback.
-///
-/// See [`LayoutCallbackInfo::window_width_less_than`] & co. The engine replays
-/// these against a
-/// prospective new size to decide whether a resize could change the DOM at
-/// all: if no recorded answer flips (and no CSS breakpoint is crossed), the
-/// callback is provably size-stable across that resize and is not re-invoked.
+/// One recorded window-size query made by a `layout()` callback. See
+/// [`LayoutCallbackInfo::window_width_less_than`] & co.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SizeQuery {
     pub axis: SizeQueryAxis,
     pub op: SizeQueryOp,
     pub threshold_px: f32,
-    /// The answer given at recording time, evaluated against the size the
-    /// callback actually saw.
+    /// The answer given at recording time, evaluated against the size the callback
+    /// actually saw.
     pub answer: bool,
 }
 
@@ -863,20 +744,19 @@ pub enum SizeQueryAxis {
     Height,
 }
 
-/// The comparison a [`SizeQuery`] performed.
-///
-/// Four variants rather than a greater/smaller bool because the recorded
-/// operator must REPLAY EXACTLY:
-/// `window_width_less_than` is a strict `<` while `window_width_between`'s
-/// lower bound is `>=`, and collapsing either onto the other misjudges a
-/// resize landing precisely on the queried boundary — the one pixel the app
-/// explicitly said it cares about.
+/// The comparison a [`SizeQuery`] performed. Four variants rather than a
+/// greater/smaller bool because the recorded operator must REPLAY EXACTLY:
+/// `window_width_less_than` is a strict `<` while `window_width_between`'s lower
+/// bound is `>=`, and collapsing either onto the other misjudges a resize landing
+/// precisely on the queried boundary - the one pixel the app explicitly said it
+/// cares about.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizeQueryOp {
     /// `dim < threshold` (`window_width_less_than` / `window_height_less_than`)
     LessThan,
-    /// `dim > threshold` (`window_width_greater_than` / `window_height_greater_than`)
+    /// `dim > threshold` (`window_width_greater_than` /
+    /// `window_height_greater_than`)
     GreaterThan,
     /// `dim >= threshold` (the lower bound of `window_*_between`)
     GreaterOrEqual,
@@ -885,10 +765,10 @@ pub enum SizeQueryOp {
 }
 
 impl SizeQuery {
-    /// What this query would answer at `size` — compare with [`Self::answer`]
-    /// to detect a flip. MUST mirror the operators of the recording methods
-    /// exactly (see [`SizeQueryOp`]), or the engine would skip a `layout()`
-    /// re-invocation right at the boundary the app asked about.
+    /// What this query would answer at `size` - compare with [`Self::answer`] to
+    /// detect a flip. MUST mirror the operators of the recording methods exactly
+    /// (see [`SizeQueryOp`]), or the engine would skip a `layout()` re-invocation
+    /// right at the boundary the app asked about.
     #[must_use] pub fn answer_at(&self, size: LogicalSize) -> bool {
         let dim = match self.axis {
             SizeQueryAxis::Width => size.width,
@@ -909,25 +789,16 @@ impl SizeQuery {
 }
 
 /// Thread-local recorder backing the responsive helpers
-/// (`LayoutCallbackInfo::window_width_less_than` & co.).
-///
-/// A thread-local (rather than a field on the FFI-frozen `LayoutCallbackInfo`)
-/// works because the layout callback is invoked SYNCHRONOUSLY on the calling
-/// thread: the engine drains the recording immediately after the callback
-/// returns, on the same thread that made the queries.
-///
-/// Bounded, and the overflow direction matters: SILENTLY dropping queries
-/// would drop exactly the flips the engine needs to see — the UNSAFE
-/// direction, a resize skipping a `layout()` that would have branched. So the
-/// cap does not drop; it latches an `overflowed` flag that the drain reports,
-/// and the engine then treats the callback as size-dependent EVERYWHERE
-/// (every resize re-invokes it — today's behaviour, merely un-optimized).
+/// (`LayoutCallbackInfo::window_width_less_than` & co.). A thread-local (rather than
+/// a field on the FFI-frozen `LayoutCallbackInfo`) works because the layout callback
+/// is invoked SYNCHRONOUSLY on the calling thread: the engine drains the recording
+/// immediately after the callback returns, on the same thread that made the queries.
 #[cfg(feature = "std")]
 mod size_query_recorder {
     use super::SizeQuery;
 
-    /// More distinct thresholds than any real breakpoint scheme uses; a
-    /// callback exceeding this is generating them programmatically.
+    /// More distinct thresholds than any real breakpoint scheme uses; a callback
+    /// exceeding this is generating them programmatically.
     pub(super) const SIZE_QUERY_CAP: usize = 256;
 
     std::thread_local! {
@@ -946,9 +817,9 @@ mod size_query_recorder {
         });
     }
 
-    /// Drain the recording. Returns `(queries, overflowed)`; `overflowed`
-    /// means the cap was hit and the list is INCOMPLETE — treat every resize
-    /// as potentially DOM-changing.
+    /// Drain the recording. Returns `(queries, overflowed)`; `overflowed` means the
+    /// cap was hit and the list is INCOMPLETE - treat every resize as potentially
+    /// DOM-changing.
     pub(super) fn take() -> (Vec<SizeQuery>, bool) {
         RECORDED.with(|r| {
             let mut r = r.borrow_mut();
@@ -964,18 +835,15 @@ fn record_size_query(q: SizeQuery) {
     size_query_recorder::record(q);
 }
 
-/// Without `std` there is no thread-local to record into; the queries still
-/// ANSWER correctly, the engine just cannot prove size-stability and falls
-/// back to re-invoking `layout()` on breakpoint-relevant resizes (web builds
-/// are out of scope for the resize fast path).
+/// Without `std` there is no thread-local to record into; the queries still ANSWER
+/// correctly, the engine just cannot prove size-stability and falls back to
+/// re-invoking `layout()` on breakpoint-relevant resizes (web builds are out of
+/// scope for the resize fast path).
 #[cfg(not(feature = "std"))]
 fn record_size_query(_q: SizeQuery) {}
 
-/// Drain the size queries recorded since the last drain on THIS thread.
-///
-/// Call immediately after a `layout()` callback returns, on the same thread.
-/// `(queries, overflowed)` — on `overflowed == true` the list is incomplete
-/// and the caller must treat the callback as size-dependent everywhere.
+/// Drain the size queries recorded since the last drain on THIS thread. Call
+/// immediately after a `layout()` callback returns, on the same thread.
 #[cfg(feature = "std")]
 #[must_use] pub fn take_recorded_size_queries() -> (alloc::vec::Vec<SizeQuery>, bool) {
     size_query_recorder::take()
@@ -1029,8 +897,9 @@ impl LayoutCallbackInfo {
         relayout_reason: RelayoutReason,
     ) -> Self {
         Self {
-            // SAFETY: We cast away the lifetime 'a to 'static because LayoutCallbackInfo
-            // only lives for the duration of the callback, which is shorter than 'a
+            // SAFETY: We cast away the lifetime 'a to 'static because
+            // LayoutCallbackInfo only lives for the duration of the callback, which
+            // is shorter than 'a
             ref_data: core::ptr::from_ref::<LayoutCallbackInfoRefData<'a>>(ref_data)
                 as *const LayoutCallbackInfoRefData<'static>,
             window_size,
@@ -1047,21 +916,11 @@ impl LayoutCallbackInfo {
     }
 
 
-    /// Is the window's LOGICAL viewport wider than `width_px`?
-    ///
-    /// The structural-breakpoint helper: branch on this in `layout()` to
-    /// return an entirely different DOM per form factor
-    /// (`ribbon.dom_desktop()` vs `ribbon.dom_mobile()`), instead of
-    /// emitting both trees and toggling visibility with `@media` rules.
-    ///
-    /// CONTRACT: the framework re-invokes `layout()` on every window resize
-    /// (`RelayoutReason::Resize` - the regenerate path never takes the
-    /// layout-equivalence shortcut when the window size changed), so the
-    /// answer cannot go stale: crossing the breakpoint in either direction
-    /// re-runs `layout()` and the callback returns the other tree. If a
-    /// future optimization ever skips DOM regeneration on resize, it must
-    /// register the thresholds queried here and force a rebuild when one is
-    /// crossed - grep for this comment.
+    /// Is the window's LOGICAL viewport wider than `width_px`? The
+    /// structural-breakpoint helper: branch on this in `layout()` to return an
+    /// entirely different DOM per form factor (`ribbon.dom_desktop()` vs
+    /// `ribbon.dom_mobile()`), instead of emitting both trees and toggling
+    /// visibility with `@media` rules.
     #[must_use] pub fn viewport_bigger_than(&self, width_px: f32) -> bool {
         self.window_size.dimensions.width > width_px
     }
@@ -1085,20 +944,15 @@ impl LayoutCallbackInfo {
         unsafe { (*self.ref_data).system_style.clone() }
     }
 
-    /// #28 (d): snapshot of the system's monitors, taken by the caller right
-    /// before this layout pass. Empty when the platform hasn't populated
-    /// monitor info (headless, web, very early startup).
+    /// before this layout pass. Empty when the platform hasn't populated monitor
+    /// info (headless, web, very early startup).
     #[must_use] pub fn get_monitors(&self) -> crate::window::MonitorVec {
         unsafe { (*self.ref_data).monitors.clone() }
     }
 
-    /// #28 (d): the LARGEST monitor size in physical px — the safe upper
-    /// bound for "how much content could possibly be visible at once" when
-    /// the window's own monitor is not yet known at first layout. Apps use
-    /// it to bound how much content the first `layout()` builds (e.g. at
-    /// most monitor-height text lines, or monitor-width × monitor-height
-    /// characters for a single unbroken line), so opening a huge file never
-    /// builds an unbounded DOM. `None` when no monitor info is available.
+    /// bound for "how much content could possibly be visible at once" when the
+    /// window's own monitor is not yet known at first layout. Apps use it to bound
+    /// how much content the first `layout()` builds (e.g.
     #[must_use] pub fn get_max_monitor_size(&self) -> azul_css::props::basic::OptionLayoutSize {
         let monitors = unsafe { &(*self.ref_data).monitors };
         let mut best: Option<LayoutSize> = None;
@@ -1146,19 +1000,10 @@ impl LayoutCallbackInfo {
             .collect()
     }
 
-    /// The window's ALREADY-BUILT system font cache.
-    ///
-    /// `get_system_fonts` only hands back stringified name/path pairs, which
-    /// is useless to a layout callback that wants to run engine layout of
-    /// its own (paginating a document, measuring for an export). Such an app
-    /// had to call `build_font_cache()` and re-scan every font on the
-    /// machine — measured at ~5 SECONDS on the first frame, during which the
-    /// client cannot answer the compositor's configure/ping handshake and
-    /// loses its surface.
-    ///
-    /// The cache is internally `Arc<RwLock<_>>` (rust-fontconfig 4.1+), so
-    /// this clone is a handle, not a copy: the caller sees the same fonts
-    /// the window already resolved, including builder-thread additions.
+    /// The window's ALREADY-BUILT system font cache. `get_system_fonts` only hands
+    /// back stringified name/path pairs, which is useless to a layout callback that
+    /// wants to run engine layout of its own (paginating a document, measuring for
+    /// an export).
     #[must_use] pub fn get_font_cache(&self) -> FcFontCache {
         self.internal_get_system_fonts().clone()
     }
@@ -1169,45 +1014,27 @@ impl LayoutCallbackInfo {
             .cloned()
     }
 
-    /// Get the active route match (pattern + extracted parameters).
-    ///
-    /// Returns `None` if no routes are configured or no route is active.
+    /// Get the active route match (pattern + extracted parameters). Returns `None`
+    /// if no routes are configured or no route is active.
     #[must_use] pub const fn get_active_route(&self) -> Option<&crate::resources::RouteMatch> {
         unsafe { (*self.ref_data).active_route }
     }
 
     /// Get a route parameter by key (e.g. `get_route_param("id")` for `/user/:id`).
-    ///
-    /// Returns `None` if no route is active or the parameter doesn't exist.
     #[must_use] pub fn get_route_param(&self, key: &str) -> Option<&AzString> {
         self.get_active_route()?.get_param(key)
     }
 
     /// The pattern of the route this layout callback is rendering, e.g.
     /// `"/user/:id"`.
-    ///
-    /// `"/"` when the app configured no routes: an app without routing is on
-    /// the default route, so a callback that branches on the pattern always
-    /// has one string to branch on rather than an empty one.
-    ///
-    /// # C API
-    /// ```c
-    /// AzString pattern = AzLayoutCallbackInfo_getRoutePattern(&info);
-    /// ```
     #[must_use] pub fn get_route_pattern(&self) -> AzString {
         self.get_active_route()
             .map_or_else(|| AzString::from_const_str("/"), |route| route.pattern.clone())
     }
 
-    /// A route parameter by key, empty when the parameter or the route is
-    /// absent. The owned-key, owned-return form the FFI needs;
-    /// [`Self::get_route_param`] is the borrowing Rust one.
-    ///
-    /// # C API
-    /// ```c
-    /// AzString id = AzLayoutCallbackInfo_getRouteParamOrEmpty(&info,
-    ///     AzString_fromConstStr("id"));
-    /// ```
+    /// A route parameter by key, empty when the parameter or the route is absent.
+    /// The owned-key, owned-return form the FFI needs; [`Self::get_route_param`] is
+    /// the borrowing Rust one.
     #[allow(clippy::needless_pass_by_value)]
     #[must_use] pub fn get_route_param_or_empty(&self, key: AzString) -> AzString {
         self.get_route_param(key.as_str())
@@ -1215,18 +1042,9 @@ impl LayoutCallbackInfo {
             .unwrap_or_else(|| AzString::from_const_str(""))
     }
 
-    // Responsive layout helper methods.
-    //
-    // These are THE sanctioned way for `layout()` to branch on window size
-    // (mobile vs desktop DOM shapes, instead of `display:none` stacks). Every
-    // call is RECORDED, and the recording is what makes resize cheap: a resize
-    // that flips none of the recorded answers (and crosses no CSS breakpoint)
-    // provably cannot change what the callback returns through this channel,
-    // so the engine re-flows the existing DOM instead of re-invoking it
-    // (`LayoutWindow::resize_needs_full_regeneration`). Reading the size
-    // imperatively (`get_window_width()`, `info.window_size`) to branch the
-    // DOM is a bug in the app: the engine cannot see that read, so the DOM
-    // goes stale across exactly the resizes the app cared about.
+    // Responsive layout helper methods. These are THE sanctioned way for `layout()`
+    // to branch on window size (mobile vs desktop DOM shapes, instead of
+    // `display:none` stacks).
 
     #[allow(clippy::unused_self)] // C-ABI-shaped method: receiver kept for API symmetry
     fn record_width_query(&self, op: SizeQueryOp, threshold_px: f32, answer: bool) -> bool {
@@ -1251,21 +1069,21 @@ impl LayoutCallbackInfo {
     }
 
     /// Returns true if the window width is less than the given pixel value.
-    /// Recorded — see the note above these helpers.
+    /// Recorded - see the note above these helpers.
     #[must_use] pub fn window_width_less_than(&self, px: f32) -> bool {
         let answer = self.window_size.dimensions.width < px;
         self.record_width_query(SizeQueryOp::LessThan, px, answer)
     }
 
     /// Returns true if the window width is greater than the given pixel value.
-    /// Recorded — see the note above these helpers.
+    /// Recorded - see the note above these helpers.
     #[must_use] pub fn window_width_greater_than(&self, px: f32) -> bool {
         let answer = self.window_size.dimensions.width > px;
         self.record_width_query(SizeQueryOp::GreaterThan, px, answer)
     }
 
     /// Returns true if the window width is between min and max (inclusive).
-    /// Recorded as its two bounds — see the note above these helpers.
+    /// Recorded as its two bounds - see the note above these helpers.
     #[must_use] pub fn window_width_between(&self, min_px: f32, max_px: f32) -> bool {
         let width = self.window_size.dimensions.width;
         self.record_width_query(SizeQueryOp::GreaterOrEqual, min_px, width >= min_px)
@@ -1273,21 +1091,21 @@ impl LayoutCallbackInfo {
     }
 
     /// Returns true if the window height is less than the given pixel value.
-    /// Recorded — see the note above these helpers.
+    /// Recorded - see the note above these helpers.
     #[must_use] pub fn window_height_less_than(&self, px: f32) -> bool {
         let answer = self.window_size.dimensions.height < px;
         self.record_height_query(SizeQueryOp::LessThan, px, answer)
     }
 
     /// Returns true if the window height is greater than the given pixel value.
-    /// Recorded — see the note above these helpers.
+    /// Recorded - see the note above these helpers.
     #[must_use] pub fn window_height_greater_than(&self, px: f32) -> bool {
         let answer = self.window_size.dimensions.height > px;
         self.record_height_query(SizeQueryOp::GreaterThan, px, answer)
     }
 
     /// Returns true if the window height is between min and max (inclusive).
-    /// Recorded as its two bounds — see the note above these helpers.
+    /// Recorded as its two bounds - see the note above these helpers.
     #[must_use] pub fn window_height_between(&self, min_px: f32, max_px: f32) -> bool {
         let height = self.window_size.dimensions.height;
         self.record_height_query(SizeQueryOp::GreaterOrEqual, min_px, height >= min_px)
@@ -1311,10 +1129,9 @@ impl LayoutCallbackInfo {
     }
 }
 
-/// Information about the bounds of a laid-out div rectangle.
-///
-/// Necessary when invoking `VirtualViewCallbacks` and `RenderImageCallbacks`, so
-/// that they can change what their content is based on their size.
+/// Information about the bounds of a laid-out div rectangle. Necessary when
+/// invoking `VirtualViewCallbacks` and `RenderImageCallbacks`, so that they can
+/// change what their content is based on their size.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct HidpiAdjustedBounds {
@@ -1369,48 +1186,32 @@ pub struct FocusTargetPath {
 
 // -- normal callback
 
-// core callback types (usize-based placeholders)
-//
-// These types use `usize` instead of function pointers to avoid creating
-// a circular dependency between azul-core and azul-layout.
-//
-// The actual function pointers will be stored in azul-layout, which will
-// use unsafe code to transmute between usize and the real function pointers.
-//
-// IMPORTANT: The memory layout must be identical to the real types!
-//
-// Naming convention: "Core" prefix indicates these are the low-level types
+// core callback types (usize-based placeholders) These types use `usize` instead of
+// function pointers to avoid creating a circular dependency between azul-core and
+// azul-layout. The actual function pointers will be stored in azul-layout, which
+// will use unsafe code to transmute between usize and the real function pointers.
 
-/// Core callback type - uses usize instead of function pointer to avoid circular dependencies.
-///
-/// **IMPORTANT**: This is NOT actually a usize at runtime - it's a function pointer that is
-/// cast to usize for storage in the data model. When invoking the callback, this usize is
-/// unsafely cast back to the actual function pointer type:
-/// `extern "C" fn(RefAny, CallbackInfo) -> Update`
-///
-/// This design allows azul-core to store callbacks without depending on azul-layout's `CallbackInfo`
-/// type. The actual function pointer type is defined in azul-layout as `CallbackType`.
+/// Core callback type - uses usize instead of function pointer to avoid circular
+/// dependencies. **IMPORTANT**: This is NOT actually a usize at runtime - it's a
+/// function pointer that is cast to usize for storage in the data model.
 pub type CoreCallbackType = usize;
 
 /// Stores a callback as usize (actually a function pointer cast to usize)
-///
-/// **IMPORTANT**: The `cb` field stores a function pointer disguised as usize to avoid
-/// circular dependencies between azul-core and azul-layout. When creating a `CoreCallback`,
-/// you can directly assign a function pointer - Rust will implicitly cast it to usize.
-/// When invoking, the usize must be unsafely cast back to the function pointer type.
-///
-/// Must return an `Update` that denotes if the screen should be redrawn.
+/// **IMPORTANT**: The `cb` field stores a function pointer disguised as usize to
+/// avoid circular dependencies between azul-core and azul-layout. When creating a
+/// `CoreCallback`, you can directly assign a function pointer - Rust will implicitly
+/// cast it to usize.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct CoreCallback {
     pub cb: CoreCallbackType,
-    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
-    /// Native Rust code sets this to None
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`) Native Rust code
+    /// sets this to None
     pub ctx: OptionRefAny,
 }
 
-/// Allow creating `CoreCallback` from a raw function pointer (as usize)
-/// Sets callable to None (for native Rust/C usage)
+/// Allow creating `CoreCallback` from a raw function pointer (as usize) Sets
+/// callable to None (for native Rust/C usage)
 impl From<CoreCallbackType> for CoreCallback {
     fn from(cb: CoreCallbackType) -> Self {
         Self {
@@ -1481,8 +1282,8 @@ pub type CoreRenderImageCallbackType = usize;
 #[repr(C)]
 pub struct CoreRenderImageCallback {
     pub cb: CoreRenderImageCallbackType,
-    /// For FFI: stores the foreign callable (e.g., `PyFunction`)
-    /// Native Rust code sets this to None
+    /// For FFI: stores the foreign callable (e.g., `PyFunction`) Native Rust code
+    /// sets this to None
     pub ctx: OptionRefAny,
 }
 
@@ -1545,8 +1346,8 @@ mod autotest_generated {
     }
 
     /// Owns everything a `LayoutCallbackInfoRefData` borrows, so that the raw
-    /// pointer `LayoutCallbackInfo` launders to `'static` always points at
-    /// live memory for the duration of a test.
+    /// pointer `LayoutCallbackInfo` launders to `'static` always points at live
+    /// memory for the duration of a test.
     struct Fixture {
         fonts: FcFontCache,
         images: ImageCache,
@@ -1584,9 +1385,8 @@ mod autotest_generated {
         }
     }
 
-    /// #28 (d): `get_max_monitor_size` returns the LARGEST monitor by area
-    /// (the safe "how much could possibly be visible" bound for first
-    /// layout) and `None` on an empty snapshot (headless/web).
+    /// (the safe "how much could possibly be visible" bound for first layout) and
+    /// `None` on an empty snapshot (headless/web).
     #[test]
     fn max_monitor_size_is_largest_by_area_or_none() {
         use azul_css::props::basic::LayoutSize;
@@ -1669,9 +1469,9 @@ mod autotest_generated {
         Update::RefreshDomAllWindows,
     ];
 
-    /// `max_self` must be exactly the `Ord`-max of the lattice, for every one
-    /// of the 3x3 combinations (this is the whole contract, so check it
-    /// exhaustively rather than sampling).
+    /// `max_self` must be exactly the `Ord`-max of the lattice, for every one of
+    /// the 3x3 combinations (this is the whole contract, so check it exhaustively
+    /// rather than sampling).
     #[test]
     fn update_max_self_is_exhaustively_ord_max() {
         for a in ALL_UPDATES {
@@ -1708,8 +1508,8 @@ mod autotest_generated {
     }
 
     /// Applying the same set of updates in any order must converge to the same
-    /// value (commutativity/associativity of the fold), since callbacks fold
-    /// their `Update`s in nondeterministic order.
+    /// value (commutativity/associativity of the fold), since callbacks fold their
+    /// `Update`s in nondeterministic order.
     #[test]
     fn update_max_self_fold_is_order_independent() {
         for a in ALL_UPDATES {
@@ -1734,8 +1534,8 @@ mod autotest_generated {
     static ALT_LAYOUT_CALLS: AtomicUsize = AtomicUsize::new(0);
 
     // NOTE: the body must differ from `default_layout_callback`'s, otherwise
-    // identical-code-folding may merge the two symbols and the pointer
-    // inequality assertion below would compare equal addresses.
+    // identical-code-folding may merge the two symbols and the pointer inequality
+    // assertion below would compare equal addresses.
     extern "C" fn alt_layout_callback(_: RefAny, _: LayoutCallbackInfo) -> Dom {
         ALT_LAYOUT_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
         Dom::create_body()
@@ -1761,8 +1561,8 @@ mod autotest_generated {
         );
         assert_eq!(from_default, LayoutCallback::default());
 
-        // create() must actually store its argument, not silently fall back
-        // to the default callback.
+        // create() must actually store its argument, not silently fall back to the
+        // default callback.
         let from_alt = LayoutCallback::create(alt_layout_callback as LayoutCallbackType);
         assert!(from_alt.ctx.is_none());
         assert_ne!(
@@ -1889,8 +1689,8 @@ mod autotest_generated {
         let callable = OptionRefAny::Some(RefAny::new(0xDEAD_BEEF_u32));
         info.set_callable_ptr(&callable);
 
-        // repeated get_ctx() must hand out independent clones; dropping them
-        // all must not corrupt the original RefAny's refcount.
+        // repeated get_ctx() must hand out independent clones; dropping them all
+        // must not corrupt the original RefAny's refcount.
         for _ in 0..64 {
             let got = info.get_ctx();
             assert!(got.is_some());
@@ -1929,8 +1729,8 @@ mod autotest_generated {
         available: LogicalSize,
     ) -> LogicalSize {
         MEASURE_CALLS.fetch_add(1, AtomicOrdering::SeqCst);
-        // SAFETY: `measure_dom` always passes a valid, owned-but-ManuallyDrop
-        // Dom; taking it by value here is exactly the documented contract.
+        // SAFETY: `measure_dom` always passes a valid, owned-but-ManuallyDrop Dom;
+        // taking it by value here is exactly the documented contract.
         let dom = unsafe { core::ptr::read(dom) };
         drop(dom);
         if !ctx.is_null() {
@@ -1948,8 +1748,8 @@ mod autotest_generated {
         let images = ImageCache::default();
         let info = vv_info(&fonts, &images, bounds_1x1());
 
-        // zero / negative / NaN / infinite / huge available sizes must all take
-        // the null-hook early-out without panicking (and must drop the Dom).
+        // zero / negative / NaN / infinite / huge available sizes must all take the
+        // null-hook early-out without panicking (and must drop the Dom).
         for available in [
             LogicalSize::zero(),
             LogicalSize::new(-1.0, -1.0),
@@ -1977,8 +1777,8 @@ mod autotest_generated {
             core::ptr::from_mut(&mut ctx_val).cast::<c_void>(),
         );
 
-        // NOTE: `>` not `== before + 1` - other tests share this static and
-        // run in parallel, so only monotonicity is safe to assert here.
+        // NOTE: `>` not `== before + 1` - other tests share this static and run in
+        // parallel, so only monotonicity is safe to assert here.
         let before = MEASURE_CALLS.load(AtomicOrdering::SeqCst);
         let out = info.measure_dom(Dom::create_body(), LogicalSize::new(100.0, 40.0));
 
@@ -1990,8 +1790,8 @@ mod autotest_generated {
         let natural = info.measure_dom(Dom::create_body(), LogicalSize::new(320.0, 1_000_000.0));
         assert_eq!(natural, LogicalSize::new(640.0, 500_000.0));
 
-        // NaN / infinite constraints reach the hook unmodified and come back
-        // as NaN/inf rather than panicking or being clamped
+        // NaN / infinite constraints reach the hook unmodified and come back as
+        // NaN/inf rather than panicking or being clamped
         let nan = info.measure_dom(Dom::create_body(), LogicalSize::new(f32::NAN, 4.0));
         assert!(nan.width.is_nan());
         assert_eq!(nan.height, 2.0);
@@ -2025,7 +1825,8 @@ mod autotest_generated {
 
     #[test]
     fn virtual_view_return_with_dom_and_keep_current_hold_their_fields() {
-        // the window the callback rendered: 30px tall, sitting 300px down the document
+        // the window the callback rendered: 30px tall, sitting 300px down the
+        // document
         let mat = LogicalRect::new(
             LogicalPosition::new(0.0, 300.0),
             LogicalSize::new(600.0, 30.0),
@@ -2082,8 +1883,8 @@ mod autotest_generated {
         assert_eq!(n.virtual_rect.size.width, f32::MAX);
         assert_eq!(n.virtual_rect.size.height, f32::MIN_POSITIVE);
 
-        // NaN / inf: stored verbatim; NaN makes the struct unequal to itself
-        // under PartialEq, so probe the fields directly.
+        // NaN / inf: stored verbatim; NaN makes the struct unequal to itself under
+        // PartialEq, so probe the fields directly.
         let x = VirtualViewReturn::keep_current(
             LogicalRect::new(
                 LogicalPosition::new(f32::NEG_INFINITY, f32::NAN),
@@ -2160,8 +1961,8 @@ mod autotest_generated {
             TimerCallbackReturn::terminate_and_refresh_dom()
         );
 
-        // RefreshDomAllWindows is reachable through create() even though no
-        // named constructor exposes it
+        // RefreshDomAllWindows is reachable through create() even though no named
+        // constructor exposes it
         let all_windows =
             TimerCallbackReturn::create(Update::RefreshDomAllWindows, TerminateTimer::Terminate);
         assert_eq!(all_windows.should_update, Update::RefreshDomAllWindows);
@@ -2625,9 +2426,9 @@ mod autotest_generated {
     }
 
     /// `get_physical_size` funnels through `roundf(x) as u32`, which is a
-    /// *saturating* float->int cast in Rust: negatives clamp to 0, huge values
-    /// clamp to u32::MAX, NaN becomes 0. Pin that down so a future refactor to
-    /// an unchecked cast (UB) or a panicking one is caught.
+    /// *saturating* float->int cast in Rust: negatives clamp to 0, huge values clamp
+    /// to u32::MAX, NaN becomes 0. Pin that down so a future refactor to an
+    /// unchecked cast (UB) or a panicking one is caught.
     #[test]
     fn hidpi_adjusted_bounds_physical_size_saturates_on_negative_input() {
         let b = HidpiAdjustedBounds::from_bounds(
@@ -2680,8 +2481,8 @@ mod autotest_generated {
         assert_eq!(hp.height, u32::MAX);
     }
 
-    /// `DpiScaleFactor` stores its f32 in a fixed-point `isize` (x1000), so
-    /// NaN quantizes to 0 and +/-inf quantize to the isize limits. Assert the
+    /// `DpiScaleFactor` stores its f32 in a fixed-point `isize` (x1000), so NaN
+    /// quantizes to 0 and +/-inf quantize to the isize limits. Assert the
     /// *observable* consequence rather than a panic.
     #[test]
     fn hidpi_adjusted_bounds_physical_size_with_nan_and_infinite_scale() {
@@ -2740,8 +2541,8 @@ mod autotest_generated {
 
     #[test]
     fn core_callback_data_vec_as_container_on_empty_vecs_does_not_panic() {
-        // both the const-empty and the heap-empty representation must produce
-        // a valid (length-0) container - a null-ptr slice here would be UB
+        // both the const-empty and the heap-empty representation must produce a
+        // valid (length-0) container - a null-ptr slice here would be UB
         let empty = CoreCallbackDataVec::new();
         assert_eq!(empty.as_container().len(), 0);
         assert!(empty.as_container().internal.is_empty());
@@ -2789,7 +2590,7 @@ mod autotest_generated {
     }
 }
 
-/// Tests for the recorded window-size queries — the responsive helpers
+/// Tests for the recorded window-size queries - the responsive helpers
 /// (`window_width_less_than` & co.) every `layout()` should branch on, and the
 /// mechanism that lets a resize skip `layout()` when no recorded answer flips.
 #[cfg(test)]
@@ -2813,8 +2614,8 @@ mod size_query_tests {
         take_recorded_size_queries()
     }
 
-    /// Build the minimal ref-data a `LayoutCallbackInfo` needs. The queries
-    /// only read `window_size`, so everything else can be empty.
+    /// Build the minimal ref-data a `LayoutCallbackInfo` needs. The queries only
+    /// read `window_size`, so everything else can be empty.
     struct Rd {
         image_cache: crate::resources::ImageCache,
         gl: crate::gl::OptionGlContextPtr,
@@ -2857,8 +2658,8 @@ mod size_query_tests {
         assert!(info.window_height_between(0.0, 600.0));
 
         let (recorded, overflowed) = drain();
-        // between records BOTH of its bounds, so 4 single-bound calls + 2
-        // between calls = 8 queries.
+        // between records BOTH of its bounds, so 4 single-bound calls + 2 between
+        // calls = 8 queries.
         assert_eq!(recorded.len(), 8, "every call recorded; between records two bounds");
         assert!(!overflowed);
         assert_eq!(recorded[0].op, SizeQueryOp::LessThan);
@@ -2889,7 +2690,7 @@ mod size_query_tests {
         assert!(!q.flips_at(LogicalSize::new(700.0, 10.0)));
     }
 
-    /// `between` must flip on BOTH of its bounds, inclusively — the reason
+    /// `between` must flip on BOTH of its bounds, inclusively - the reason
     /// [`SizeQueryOp`] has four exact operators instead of a bool.
     #[test]
     fn between_flips_on_either_bound_with_inclusive_semantics() {

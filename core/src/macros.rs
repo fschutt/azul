@@ -1,6 +1,5 @@
-//! Utility macros for implementing common trait patterns on callback types
-//! and enum conversions (`From`, `Display`). Used by the `core`, `layout`,
-//! and `css` crates.
+//! Utility macros for implementing common trait patterns on callback types and enum
+//! conversions (`From`, `Display`). Used by the `core`, `layout`, and `css` crates.
 
 /// Implement the `From` trait for any type.
 #[macro_export]
@@ -61,9 +60,8 @@ macro_rules! impl_display {
 }
 
 /// Helper macro implementing the shared trait impls (`Display`, `Debug`, `Hash`,
-/// `PartialEq`, `Eq`, `PartialOrd`, `Ord`) for callback types.
-///
-/// Used internally by [`impl_callback!`] and [`impl_callback_simple!`].
+/// `PartialEq`, `Eq`, `PartialOrd`, `Ord`) for callback types. Used internally by
+/// [`impl_callback!`] and [`impl_callback_simple!`].
 #[macro_export]
 macro_rules! impl_callback_traits {
     ($callback_value:ident) => {
@@ -111,14 +109,10 @@ macro_rules! impl_callback_traits {
     };
 }
 
-/// Implements `Display, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord`
-/// for a callback struct with `.cb` (function pointer) and `.ctx` (`OptionRefAny`) fields.
-///
-/// Also implements `From<$callback_ty>` to create a callback from a raw function pointer.
-///
-/// For callbacks with only a `.cb` field (no `.ctx`), use [`impl_callback_simple!`] instead.
-///
-/// This is necessary to work around for <https://github.com/rust-lang/rust/issues/54508>
+/// Implements `Display, Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord` for a
+/// callback struct with `.cb` (function pointer) and `.ctx` (`OptionRefAny`) fields.
+/// Also implements `From<$callback_ty>` to create a callback from a raw function
+/// pointer.
 #[macro_export]
 macro_rules! impl_callback {
     // Version with callable field (for UI callbacks that need FFI support)
@@ -134,8 +128,8 @@ macro_rules! impl_callback {
             }
         }
 
-        /// Allow creating callback from a raw function pointer
-        /// Sets callable to None (for native Rust/C usage)
+        /// Allow creating callback from a raw function pointer Sets callable to
+        /// None (for native Rust/C usage)
         impl From<$callback_ty> for $callback_value {
             fn from(cb: $callback_ty) -> Self {
                 $callback_value {
@@ -147,10 +141,9 @@ macro_rules! impl_callback {
     };
 }
 
-/// Macro to implement callback traits for simple system callbacks (no callable field)
-///
-/// Use this for destructor callbacks, system callbacks, and other internal callbacks
-/// that don't need FFI callable support.
+/// Macro to implement callback traits for simple system callbacks (no callable
+/// field) Use this for destructor callbacks, system callbacks, and other internal
+/// callbacks that don't need FFI callable support.
 #[macro_export]
 macro_rules! impl_callback_simple {
     ($callback_value:ident) => {

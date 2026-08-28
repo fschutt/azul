@@ -1,11 +1,7 @@
-//! Debug logging types and macros for Azul.
-//!
-//! Provides [`DebugLevel`], [`DebugCategory`], and convenience macros
-//! (`log_trace!`, `log_debug!`, `log_info!`, `log_warn!`, `log_error!`)
-//! for structured logging throughout the codebase.
-//!
-//! The HTTP debug server implementation lives in
-//! `dll/src/desktop/shell2/common/debug_server.rs`.
+//! Debug logging types and macros for Azul. Provides [`DebugLevel`],
+//! [`DebugCategory`], and convenience macros (`log_trace!`, `log_debug!`,
+//! `log_info!`, `log_warn!`, `log_error!`) for structured logging throughout the
+//! codebase.
 
 /// Debug message severity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -65,11 +61,9 @@ pub enum DebugCategory {
 }
 
 
-// Convenience macros for logging with automatic category and format.
-//
-// Usage:
-//   log_debug!(logger, Layout, "Processing {} nodes", count);
-//   log_info!(logger, Window, "Window created with id {}", id);
+// Convenience macros for logging with automatic category and format. Usage:
+// log_debug!(logger, Layout, "Processing {} nodes", count); log_info!(logger,
+// Window, "Window created with id {}", id);
 
 /// Log a message at trace level
 #[macro_export]

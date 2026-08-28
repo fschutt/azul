@@ -1,49 +1,5 @@
-//! DOM-morph animation: interpolation core, FLIP geometry, and the keyed
-//! animation store.
-//!
-//! # The model
-//!
-//! Animation here is **not** a new scheduler. It compiles down to keyed timer
-//! callbacks writing into the top cascade layer (`user_overridden_properties`),
-//! exactly as the existing caret/selection tweens do. This module owns only the
-//! parts that are pure math plus the bookkeeping that has to survive across
-//! frames:
-//!
-//! * [`Spring`] / [`AnimChannel`] — how a scalar gets from `from` to `to`, with
-//!   **interruption as a first-class operation** ([`AnimChannel::retarget`]).
-//! * [`flip`] — the First/Last inversion that turns a layout change into a
-//!   composited transform, so a move costs a GPU key rather than a relayout.
-//! * [`AnimationManager`] — the keyed store. Keys are reconciliation identities,
-//!   which is what makes retargeting possible at all: A→B→C finds the in-flight
-//!   state instead of starting a second animation over the top of the first.
-//!
-//! # Why springs rather than only easing curves
-//!
-//! A cubic-bezier is a function of *normalised time*, so interrupting one and
-//! starting another discards the current velocity — the element visibly snaps.
-//! A spring integrates from the current `(value, velocity)`, so a retarget mid
-//! flight continues smoothly. That is the whole reason drag-release and
-//! rapid A→B→C feel right.
-//!
-//! `Spring` is a real `#[repr(C)]` variant of `AnimationInterpolationFunction`,
-//! so a spring is expressible in CSS and across the C ABI like any other timing
-//! function — not a Rust-only concept bolted beside one. [`SpringCurve`] lives
-//! in `azul-css` next to the enum it belongs to and is re-exported here as
-//! [`Spring`], so there is exactly one definition of a type that crosses the
-//! ABI.
-//!
-//! That variant is unlike the others in one way worth knowing: it has **no
-//! duration**, so it cannot be evaluated at a normalised `t`. Anything holding a
-//! timeline must branch on `is_spring()`; `AnimChannel` does this by dispatching
-//! on [`Interp`], which is why springs never reach [`ease`].
-//!
-//! [`SpringCurve`]: azul_css::props::basic::animation::SpringCurve
-//!
-//! # no_std
-//!
-//! `alloc` only. Note the module-level `use alloc::vec::Vec` — a body-level
-//! `use` would not be in scope for function *signatures*, which is precisely
-//! how a `--no-default-features` build was broken once already.
+//! DOM-morph animation: interpolation core, FLIP geometry, and the keyed animation
+//! store. Animation here is **not** a new scheduler.
 
 use alloc::{collections::BTreeMap, vec::Vec};
 
@@ -57,24 +13,15 @@ use crate::{
     styled_dom::NodeHierarchyItem,
 };
 
-/// Mass-spring-damper parameters.
-///
-/// Re-exported from `azul_css` so there is ONE definition: the spring is part
-/// of `AnimationInterpolationFunction`, which crosses the C ABI, and a second
-/// structurally-identical `Spring` in core would be a silent ABI trap the day
-/// one of them gained a field.
-///
-/// Integrated with semi-implicit (symplectic) Euler, which is the cheap,
-/// stable choice for interactive springs: it does not blow up at the frame
-/// rates a UI actually sees, and unlike the closed-form solution it needs no
-/// case split on the damping regime.
+/// Mass-spring-damper parameters. Re-exported from `azul_css` so there is ONE
+/// definition: the spring is part of `AnimationInterpolationFunction`, which crosses
+/// the C ABI, and a second structurally-identical `Spring` in core would be a silent
+/// ABI trap the day one of them gained a field.
 pub use azul_css::props::basic::animation::SpringCurve as Spring;
 
 
-/// How a channel is driven.
-///
-/// Wraps [`AnimationInterpolationFunction`] rather than extending it — see the
-/// module docs on the ABI.
+/// How a channel is driven. Wraps [`AnimationInterpolationFunction`] rather than
+/// extending it - see the module docs on the ABI.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Interp {
     /// Duration-based easing. Not interruptible without a visible discontinuity.
@@ -94,17 +41,15 @@ impl Default for Interp {
     }
 }
 
-/// One animated scalar.
-///
-/// Compose these for anything richer: a FLIP move is four channels (translate
-/// x/y, scale x/y), a fade is one.
+/// One animated scalar. Compose these for anything richer: a FLIP move is four
+/// channels (translate x/y, scale x/y), a fade is one.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AnimChannel {
     /// Where the value started. Re-seeded on every retarget.
     pub from: f32,
     /// Where it is heading.
     pub to: f32,
-    /// The value right now — what the caller writes into the cascade.
+    /// The value right now - what the caller writes into the cascade.
     pub current: f32,
     /// Units per second. Carried across retargets; that is the point.
     pub velocity: f32,
@@ -167,8 +112,8 @@ impl AnimChannel {
                 let linear_t = (self.elapsed_secs / duration_secs).clamp(0.0, 1.0);
                 let eased = ease(function, linear_t);
                 let previous = self.current;
-                // Explicit FP on purpose: mul_add fuses only with +fma and
-                // changes results bit-for-bit; animation sampling must stay
+                // Explicit FP on purpose: mul_add fuses only with +fma and changes
+                // results bit-for-bit; animation sampling must stay
                 // bit-reproducible. (clippy::suboptimal_flops)
                 #[allow(clippy::suboptimal_flops)]
                 {
@@ -202,12 +147,9 @@ impl AnimChannel {
         self.finished
     }
 
-    /// Aim at a new target **without losing the current value or velocity**.
-    ///
-    /// This is the operation a browser's WAAPI cannot express: there, a new
-    /// animation replaces the old one and the element jumps to the new `from`.
-    /// Here A→B→C mid-flight continues from wherever it actually is, at the
-    /// speed it is actually travelling.
+    /// Aim at a new target **without losing the current value or velocity**. This
+    /// is the operation a browser's WAAPI cannot express: there, a new animation
+    /// replaces the old one and the element jumps to the new `from`.
     pub fn retarget(&mut self, new_to: f32) {
         if (self.to - new_to).abs() < f32::EPSILON && !self.finished {
             return; // already heading there; do not restart the clock
@@ -216,14 +158,12 @@ impl AnimChannel {
         self.to = new_to;
         self.elapsed_secs = 0.0;
         self.finished = false;
-        // `velocity` is deliberately NOT reset — that is the whole feature.
+        // `velocity` is deliberately NOT reset - that is the whole feature.
     }
 }
 
-/// Evaluate a CSS easing curve at `t ∈ [0, 1]`.
-///
-/// `Ease` and the cubic-beziers use the same evaluator; the named curves are
-/// their standard control points.
+/// Evaluate a CSS easing curve at `t ∈ [0, 1]`. `Ease` and the cubic-beziers use
+/// the same evaluator; the named curves are their standard control points.
 #[must_use]
 pub fn ease(function: AnimationInterpolationFunction, t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -233,39 +173,36 @@ pub fn ease(function: AnimationInterpolationFunction, t: f32) -> f32 {
         AnimationInterpolationFunction::Ease => cubic_bezier_y(0.25, 0.1, 0.25, 1.0, t),
         AnimationInterpolationFunction::EaseIn => cubic_bezier_y(0.42, 0.0, 1.0, 1.0, t),
         AnimationInterpolationFunction::EaseOut => cubic_bezier_y(0.0, 0.0, 0.58, 1.0, t),
-        // `Spring(_)` shares the ease-in-out body ON PURPOSE: a spring has
-        // no `t` — reaching here means a caller put a spring where a
-        // duration-based curve was expected (`AnimChannel` dispatches on
-        // `Interp`, so a spring never takes this path — it integrates in
-        // `Spring::step` from its live (value, velocity)). The stand-in
-        // matches `AnimationInterpolationFunction::get_curve`, so the two
-        // disagree nowhere, and it degrades to plausible motion rather than
-        // a panic or a frozen element.
+        // `Spring(_)` shares the ease-in-out body ON PURPOSE: a spring has no `t` -
+        // reaching here means a caller put a spring where a duration-based curve was
+        // expected (`AnimChannel` dispatches on `Interp`, so a spring never takes
+        // this path - it integrates in `Spring::step` from its live (value,
+        // velocity)). The stand-in matches
+        // `AnimationInterpolationFunction::get_curve`, so the two disagree nowhere,
+        // and it degrades to plausible motion rather than a panic or a frozen
+        // element.
         AnimationInterpolationFunction::EaseInOut
         | AnimationInterpolationFunction::Spring(_) => {
             cubic_bezier_y(0.42, 0.0, 0.58, 1.0, t)
         }
-        // A CSS timing bezier is normalised to P0 = (0,0), P3 = (1,1), so only
-        // the two control points carry information.
+        // A CSS timing bezier is normalised to P0 = (0,0), P3 = (1,1), so only the
+        // two control points carry information.
         AnimationInterpolationFunction::CubicBezier(curve) => {
             cubic_bezier_y(curve.ctrl_1.x, curve.ctrl_1.y, curve.ctrl_2.x, curve.ctrl_2.y, t)
         }
     }
 }
 
-/// y of a CSS timing bezier at parameter x, with P0 = (0,0) and P3 = (1,1).
-///
-/// CSS timing functions are parameterised by x (progress), not by the curve's
-/// own parameter, so x must be inverted first. Newton converges in a couple of
-/// iterations for the well-behaved curves; the bisection fallback keeps it
-/// correct for curves with near-zero derivative.
+/// y of a CSS timing bezier at parameter x, with P0 = (0,0) and P3 = (1,1). CSS
+/// timing functions are parameterised by x (progress), not by the curve's own
+/// parameter, so x must be inverted first.
 fn cubic_bezier_y(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     const NEWTON_ITERATIONS: usize = 4;
     const BISECTION_ITERATIONS: usize = 12;
     const EPSILON: f32 = 1e-5;
 
-    // Explicit FP on purpose: mul_add fuses only with +fma and changes
-    // results bit-for-bit; easing must stay bit-reproducible across builds.
+    // Explicit FP on purpose: mul_add fuses only with +fma and changes results
+    // bit-for-bit; easing must stay bit-reproducible across builds.
     // (clippy::suboptimal_flops)
     #[allow(clippy::suboptimal_flops)]
     let bezier = |a: f32, b: f32, t: f32| {
@@ -315,12 +252,8 @@ fn cubic_bezier_y(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     bezier(y1, y2, t)
 }
 
-/// The inverted transform of a FLIP move.
-///
-/// Applied to an element already laid out at Last, it makes the element *appear*
-/// at First. Animating these four numbers to identity plays the move on the GPU
-/// with no relayout — which is why a move costs a transform key rather than a
-/// per-frame re-solve.
+/// The inverted transform of a FLIP move. Applied to an element already laid out at
+/// Last, it makes the element *appear* at First.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[repr(C)]
 pub struct FlipTransform {
@@ -349,19 +282,10 @@ impl FlipTransform {
     }
 }
 
-/// Compute the FLIP inversion from a First (pre-change) and Last (post-change) rect.
-///
-/// Degenerate Last extents fall back to scale 1 rather than producing infinities:
-/// a zero-sized target is a collapsed or not-yet-measured node, and a NaN
-/// transform would poison the display list.
-/// POSITION ONLY — a USER ruling (2026-08-17), not an omission, and also what
-/// the design doc's Move row specifies ("FLIP: transform Δ→identity"). A
-/// matched node whose size changed has already RELAYOUTED at its final size;
-/// scaling it from the old size squashes freshly laid-out content (text set
-/// for the wide layout rendered at half width) for the whole flight. Content
-/// never distorts unless the user explicitly animates CSS `transform`, which
-/// is a pure transform without relayout — there, distortion is the point.
-/// A move travels; it does not morph.
+/// Compute the FLIP inversion from a First (pre-change) and Last (post-change)
+/// rect. Degenerate Last extents fall back to scale 1 rather than producing
+/// infinities: a zero-sized target is a collapsed or not-yet-measured node, and a
+/// NaN transform would poison the display list.
 #[must_use]
 pub fn flip(first: LogicalRect, last: LogicalRect) -> FlipTransform {
     let _ = (first.size, last.size); // sizes are layout's job, not the animation's
@@ -373,10 +297,9 @@ pub fn flip(first: LogicalRect, last: LogicalRect) -> FlipTransform {
     }
 }
 
-/// Which presence class an animation belongs to.
-///
-/// These map 1:1 onto what the diff already reports: unmatched-new is Enter,
-/// unmatched-old is Exit, and a `NodeMove` pair whose geometry changed is Move.
+/// Which presence class an animation belongs to. These map 1:1 onto what the diff
+/// already reports: unmatched-new is Enter, unmatched-old is Exit, and a `NodeMove`
+/// pair whose geometry changed is Move.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimClass {
     /// Node exists in the new DOM only.
@@ -387,12 +310,10 @@ pub enum AnimClass {
     Move,
 }
 
-/// Identity of an animation across frames.
-///
-/// This is deliberately **not** a `NodeId`: node ids are array positions and are
-/// not stable across a re-produce, so keying on them would make every frame look
-/// like a fresh animation and retargeting would never fire. The reconciliation
-/// key (`.with_key()` / `#id` / structural hash) is what survives.
+/// Identity of an animation across frames. This is deliberately **not** a `NodeId`:
+/// node ids are array positions and are not stable across a re-produce, so keying on
+/// them would make every frame look like a fresh animation and retargeting would
+/// never fire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AnimKey(pub u64);
@@ -428,13 +349,9 @@ impl ActiveAnim {
         }
     }
 
-    /// An enter: SLIDE IN from `(from_x, from_y)` to identity, full opacity,
-    /// full size.
-    ///
-    /// Was fade+scale-up; changed by the same USER ruling as [`flip`]:
-    /// presence changes travel, content never distorts or ghosts. The offset
-    /// is the caller's choice — the engine default slides from the nearest
-    /// viewport edge, so a sidebar re-opens the way it left.
+    /// An enter: SLIDE IN from `(from_x, from_y)` to identity, full opacity, full
+    /// size. Was fade+scale-up; changed by the same USER ruling as [`flip`]:
+    /// presence changes travel, content never distorts or ghosts.
     #[must_use]
     pub const fn enter_slide(from_x: f32, from_y: f32, interp: Interp) -> Self {
         Self {
@@ -447,18 +364,8 @@ impl ActiveAnim {
         }
     }
 
-    /// An exit: SLIDE OUT from identity to `(to_x, to_y)`, full opacity,
-    /// full size. Only visible with exit-retention.
-    ///
-    /// Was fade+shrink-in-place; same USER ruling as [`flip`]: a departing
-    /// sidebar slides away to its edge — it does not dissolve.
-    ///
-    /// Reverse a presence animation IN FLIGHT: the channels retarget from
-    /// their CURRENT values (velocity preserved — `Channel::retarget`'s whole
-    /// feature) toward the new destination. `Exit` + a slide target turns an
-    /// entering node around; `Enter` + identity catches an exiting node
-    /// (the remount-mid-exit catch: the zombie is dropped and the LIVE node
-    /// travels home from wherever the exit had carried it).
+    /// An exit: SLIDE OUT from identity to `(to_x, to_y)`, full opacity, full size.
+    /// Only visible with exit-retention.
     pub fn retarget_presence(&mut self, class: AnimClass, to_x: f32, to_y: f32) {
         self.class = class;
         self.translate_x.retarget(to_x);
@@ -539,10 +446,7 @@ const fn channel(from: f32, to: f32, interp: Interp) -> AnimChannel {
     }
 }
 
-/// The keyed store of in-flight animations.
-///
-/// Sibling to `GpuStateManager`. Holds only what must outlive a frame; the
-/// actual writing of values happens in the layout crate, which owns the cascade.
+/// The keyed store of in-flight animations. Sibling to `GpuStateManager`.
 #[derive(Debug, Clone, Default)]
 pub struct AnimationManager {
     active: BTreeMap<AnimKey, ActiveAnim>,
@@ -567,10 +471,9 @@ impl AnimationManager {
         self.active.is_empty()
     }
 
-    /// Start a move, or **retarget** one already in flight under this key.
-    ///
-    /// This is the entry point that makes rapid A→B→C smooth: the second call
-    /// does not stack a new animation on the first, it redirects it.
+    /// Start a move, or **retarget** one already in flight under this key. This is
+    /// the entry point that makes rapid A→B→C smooth: the second call does not stack
+    /// a new animation on the first, it redirects it.
     pub fn start_or_retarget_move(&mut self, key: AnimKey, flip: FlipTransform, interp: Interp) {
         if let Some(existing) = self.active.get_mut(&key) {
             existing.retarget_move(flip);
@@ -586,12 +489,12 @@ impl AnimationManager {
             .or_insert_with(|| ActiveAnim::enter_slide(from.0, from.1, interp));
     }
 
-    /// Start an exit animation. An exit always WINS — the node is leaving, so
-    /// continuing toward a layout position it will never occupy is wrong —
-    /// but it does not RESTART: if an animation is already in flight under
-    /// this key (a node unmounted mid-enter, or mid-move), the channels
-    /// RETARGET from their current value with velocity preserved, so the
-    /// node turns around instead of snapping to its laid-out position first.
+    /// Start an exit animation. An exit always WINS - the node is leaving, so
+    /// continuing toward a layout position it will never occupy is wrong - but it
+    /// does not RESTART: if an animation is already in flight under this key (a node
+    /// unmounted mid-enter, or mid-move), the channels RETARGET from their current
+    /// value with velocity preserved, so the node turns around instead of snapping
+    /// to its laid-out position first.
     pub fn start_exit(&mut self, key: AnimKey, to: (f32, f32), interp: Interp) {
         match self.active.get_mut(&key) {
             Some(anim) => anim.retarget_presence(AnimClass::Exit, to.0, to.1),
@@ -601,7 +504,7 @@ impl AnimationManager {
         }
     }
 
-    /// Mutable access to an in-flight animation — the mid-flight-catch hook.
+    /// Mutable access to an in-flight animation - the mid-flight-catch hook.
     pub fn get_mut(&mut self, key: AnimKey) -> Option<&mut ActiveAnim> {
         self.active.get_mut(&key)
     }
@@ -612,19 +515,16 @@ impl AnimationManager {
         self.active.get(&key)
     }
 
-    /// Every in-flight animation with its key.
-    ///
-    /// The compositor needs this each frame to turn identity-keyed animation
-    /// state into per-`NodeId` GPU values; it cannot ask for keys it does not
-    /// already know about.
+    /// Every in-flight animation with its key. The compositor needs this each frame
+    /// to turn identity-keyed animation state into per-`NodeId` GPU values; it
+    /// cannot ask for keys it does not already know about.
     pub fn iter(&self) -> impl Iterator<Item = (AnimKey, &ActiveAnim)> {
         self.active.iter().map(|(k, v)| (*k, v))
     }
 
-    /// Advance every animation and drop the ones that arrived.
-    ///
-    /// Returns the keys that finished this tick, so the caller can release the
-    /// GPU keys and — for exits — drop the retained subtree exactly once.
+    /// Advance every animation and drop the ones that arrived. Returns the keys
+    /// that finished this tick, so the caller can release the GPU keys and - for
+    /// exits - drop the retained subtree exactly once.
     pub fn tick(&mut self, dt: f32) -> Vec<AnimKey> {
         let mut finished = Vec::new();
         for (key, anim) in &mut self.active {
@@ -646,27 +546,8 @@ impl AnimationManager {
 }
 
 /// Turn the diff's correspondence map into `(key, First, Last)` triples.
-///
-/// `node_moves` is what `reconcile_dom` already produced: old `NodeId` ->
-/// new `NodeId` for every node that survived the re-produce. This pairs each
-/// one with its pre-swap and post-solve geometry so [`seed_moves`] can decide
-/// what actually moved.
-///
-/// Geometry is fetched through closures rather than a map parameter because the
-/// two rects live in different crates and different *phases*: First comes from
-/// the previous frame's `LayoutCache` (still alive at the diff seam), Last from
-/// the freshly solved layout, which does not exist until well after that seam.
-/// Passing accessors lets the caller bridge that gap without core depending on
-/// the layout crate.
-///
-/// The key is the **reconciliation key**, the same identity the diff matched on
-/// — not the `NodeId`. A `NodeId` is an array position: it can change for a
-/// node that did not move, and can be reused by an unrelated node. Keying an
-/// animation store on it would make retargeting fire on the wrong element, or
-/// not at all.
-///
-/// Pairs missing either rect are dropped: a node with no previous geometry has
-/// nothing to fly from, and one with no new geometry is not on screen to fly to.
+/// `node_moves` is what `reconcile_dom` already produced: old `NodeId` -> new
+/// `NodeId` for every node that survived the re-produce.
 pub fn correspondences_from_moves<F, L>(
     node_moves: &[NodeMove],
     new_node_data: &[NodeData],
@@ -698,16 +579,8 @@ where
 }
 
 /// The `AnimKey` → current `NodeId` mapping for this frame's correspondences.
-///
-/// Animation state is keyed by reconciliation identity so it can outlive a
-/// rebuild, but the compositor writes GPU values per `NodeId`. Something has to
-/// bridge the two, and it has to be rebuilt every layout: the key is stable
-/// across rebuilds precisely because the `NodeId` is not.
-///
-/// Kept separate from [`correspondences_from_moves`] rather than folded into its
-/// return type, because the two have different lifetimes — the correspondences
-/// are consumed once at seed time, this map is read every frame until the
-/// animation settles.
+/// Animation state is keyed by reconciliation identity so it can outlive a rebuild,
+/// but the compositor writes GPU values per `NodeId`.
 #[must_use]
 pub fn anim_keys_for_moves(
     node_moves: &[NodeMove],
@@ -731,16 +604,10 @@ pub fn anim_keys_for_moves(
 }
 
 /// Seed (or retarget) a FLIP move for every correspondence whose geometry moved.
-///
-/// This is the engine entry point for Phase 1: the caller hands over the
-/// old↔new correspondences the diff already produced, paired with the First
-/// (pre-swap) and Last (post-solve) rects, and every pair that actually moved
-/// becomes a composited transform animation. Pairs that did not move are
-/// skipped — seeding an identity FLIP would allocate a GPU key and animate
-/// nothing.
-///
-/// Returns how many animations were started or retargeted, which is exactly the
-/// number of nodes that need a GPU transform key this frame.
+/// This is the engine entry point for Phase 1: the caller hands over the old↔new
+/// correspondences the diff already produced, paired with the First (pre-swap) and
+/// Last (post-solve) rects, and every pair that actually moved becomes a composited
+/// transform animation.
 pub fn seed_moves<I>(manager: &mut AnimationManager, correspondences: I, interp: Interp) -> usize
 where
     I: IntoIterator<Item = (AnimKey, LogicalRect, LogicalRect)>,
@@ -762,16 +629,16 @@ mod tests {
     use super::*;
     use crate::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
-    /// `Spring` is a real `AnimationInterpolationFunction` variant now, so it
-    /// must survive the C-ABI enum's own accessors rather than panicking or
-    /// silently answering as some other curve.
+    /// `Spring` is a real `AnimationInterpolationFunction` variant now, so it must
+    /// survive the C-ABI enum's own accessors rather than panicking or silently
+    /// answering as some other curve.
     #[test]
     fn spring_is_a_first_class_interpolation_function() {
         let f = AnimationInterpolationFunction::Spring(Spring::SNAPPY);
         assert!(f.is_spring());
         assert!(!AnimationInterpolationFunction::EaseInOut.is_spring());
-        // No duration to evaluate against: it answers as the documented
-        // ease-in-out stand-in, and `get_curve`/`ease` must not disagree.
+        // No duration to evaluate against: it answers as the documented ease-in-out
+        // stand-in, and `get_curve`/`ease` must not disagree.
         assert_eq!(f.get_curve(), AnimationInterpolationFunction::EaseInOut.get_curve());
         for t in [0.0_f32, 0.25, 0.5, 0.75, 1.0] {
             assert!((ease(f, t) - ease(AnimationInterpolationFunction::EaseInOut, t)).abs() < 1e-6);
@@ -797,12 +664,12 @@ mod tests {
 
     #[test]
     fn flip_never_scales_a_size_change() {
-        // USER ruling 2026-08-17 (was `flip_inverts_a_pure_scale`, asserting
-        // 0.5): a resized node has already RELAYOUTED at its final size, and
-        // drawing it at half scale for the flight squashes freshly laid-out
-        // content — a card growing from half-width to full-width rendered its
-        // text visibly compressed for the whole transition. Size is layout's
-        // job; the animation only travels.
+        // USER ruling 2026-08-17 (was `flip_inverts_a_pure_scale`, asserting 0.5):
+        // a resized node has already RELAYOUTED at its final size, and drawing it at
+        // half scale for the flight squashes freshly laid-out content - a card
+        // growing from half-width to full-width rendered its text visibly compressed
+        // for the whole transition. Size is layout's job; the animation only
+        // travels.
         let f = flip(rect(0.0, 0.0, 50.0, 20.0), rect(0.0, 0.0, 100.0, 40.0));
         assert_eq!(f.scale_x, 1.0);
         assert_eq!(f.scale_y, 1.0);
@@ -817,8 +684,8 @@ mod tests {
 
     #[test]
     fn flip_never_produces_a_non_finite_scale() {
-        // A collapsed target would divide by zero; the display list must never
-        // see a NaN transform.
+        // A collapsed target would divide by zero; the display list must never see
+        // a NaN transform.
         let f = flip(rect(0.0, 0.0, 10.0, 10.0), rect(0.0, 0.0, 0.0, 0.0));
         assert!(f.scale_x.is_finite() && f.scale_y.is_finite());
         assert_eq!(f.scale_x, 1.0);
@@ -841,10 +708,10 @@ mod tests {
 
     #[test]
     fn a_curve_reaches_its_target_at_the_duration() {
-        // NOTE the frame budget: 60 ticks of 1/60 sum to 0.99999994, not 1.0,
-        // so a curve legitimately lands on the frame AFTER its nominal
-        // duration. Asserting exact arrival at tick 60 would be asserting that
-        // f32 addition is exact.
+        // NOTE the frame budget: 60 ticks of 1/60 sum to 0.99999994, not 1.0, so a
+        // curve legitimately lands on the frame AFTER its nominal duration.
+        // Asserting exact arrival at tick 60 would be asserting that f32 addition is
+        // exact.
         let mut c = AnimChannel::curve(0.0, 10.0, AnimationInterpolationFunction::Linear, 1.0);
         for _ in 0..60 {
             c.tick(1.0 / 60.0);
@@ -1005,8 +872,8 @@ mod tests {
 
     #[test]
     fn an_exit_replaces_an_in_flight_move() {
-        // The node is leaving; continuing toward a layout slot it will never
-        // occupy would be wrong.
+        // The node is leaving; continuing toward a layout slot it will never occupy
+        // would be wrong.
         let mut m = AnimationManager::new();
         let key = AnimKey(3);
         let interp = Interp::Spring(Spring::SMOOTH);
@@ -1020,9 +887,9 @@ mod tests {
     #[test]
     fn the_anim_key_survives_a_node_id_change() {
         // THE property the whole store depends on. A keyed node that shifts
-        // position in the array (a sibling was prepended) must keep its
-        // identity — otherwise the second produce looks like a brand-new
-        // animation and retargeting never fires.
+        // position in the array (a sibling was prepended) must keep its identity -
+        // otherwise the second produce looks like a brand-new animation and
+        // retargeting never fires.
         use crate::dom::NodeData;
 
         let tree_a = [NodeData::create_div().with_key("hero")];
@@ -1085,8 +952,8 @@ mod tests {
 
     #[test]
     fn seed_moves_retargets_a_key_that_is_already_animating() {
-        // Two produces in quick succession must not stack two animations on
-        // one node — that is the visible "fighting" artefact.
+        // Two produces in quick succession must not stack two animations on one
+        // node - that is the visible "fighting" artefact.
         let mut m = AnimationManager::new();
         let interp = Interp::Spring(Spring::SMOOTH);
         seed_moves(

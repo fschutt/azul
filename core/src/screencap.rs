@@ -1,17 +1,8 @@
-//! POD types for the screen-capture surface
-//! (SUPER_PLAN_2 §4 Priority 6 + research/01).
-//!
-//! Symmetric to the camera surface: screen capture is a "dumb widget"
-//! (`azul_layout::widgets::screencap::ScreenCaptureWidget`) that owns a
-//! background capture thread + a GL-texture `ImageRef`, identical to the
-//! camera widget — only the *source* differs (a display / window instead of
-//! a camera). Defined here in `azul-core` so the config types cross the FFI
-//! without `azul-layout` (or ScreenCaptureKit / MediaProjection / PipeWire)
-//! as a dependency.
-//!
-//! Reuses the camera surface's generic capture status types
-//! ([`crate::camera::StreamState`], `CaptureStats`, `CaptureStreamId`,
-//! `CaptureErrorCode`) — those are capture-agnostic.
+//! POD types for the screen-capture surface . Symmetric to the camera surface:
+//! screen capture is a "dumb widget"
+//! (`azul_layout::widgets::screencap::ScreenCaptureWidget`) that owns a background
+//! capture thread + a GL-texture `ImageRef`, identical to the camera widget - only
+//! the *source* differs (a display / window instead of a camera).
 
 use crate::resources::RawImageFormat;
 
@@ -30,8 +21,8 @@ pub enum ScreenCaptureSource {
 }
 
 
-/// Requested screen-capture configuration — the input to the screencap
-/// widget. Zero `fps` means "let the backend pick its default".
+/// Requested screen-capture configuration - the input to the screencap widget. Zero
+/// `fps` means "let the backend pick its default".
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScreenCaptureConfig {
@@ -39,9 +30,9 @@ pub struct ScreenCaptureConfig {
     pub source: ScreenCaptureSource,
     /// Preferred frame rate (0 = backend default).
     pub fps: u32,
-    /// Texture format the backend should deliver. `BGRA8` is the portable
-    /// default; `Nv12` (a later `RawImageFormat` addition) is the zero-copy
-    /// path on platforms that produce it natively.
+    /// Texture format the backend should deliver. `BGRA8` is the portable default;
+    /// `Nv12` (a later `RawImageFormat` addition) is the zero-copy path on platforms
+    /// that produce it natively.
     pub output_format: RawImageFormat,
 }
 
@@ -71,8 +62,8 @@ mod autotest_generated {
 
     use super::*;
 
-    /// Representative + extreme sources: both payload boundaries (0, MAX) for
-    /// each carrying variant, so a truncating/aliasing constructor cannot pass.
+    /// Representative + extreme sources: both payload boundaries (0, MAX) for each
+    /// carrying variant, so a truncating/aliasing constructor cannot pass.
     const ALL_SOURCES: [ScreenCaptureSource; 7] = [
         ScreenCaptureSource::PrimaryDisplay,
         ScreenCaptureSource::Display(0),
@@ -94,8 +85,8 @@ mod autotest_generated {
 
     #[test]
     fn new_is_deterministic() {
-        // Same argument twice => observably identical configs (no hidden state,
-        // no backend probing at construction time).
+        // Same argument twice => observably identical configs (no hidden state, no
+        // backend probing at construction time).
         for &source in &ALL_SOURCES {
             assert_eq!(
                 ScreenCaptureConfig::new(source),
@@ -109,8 +100,8 @@ mod autotest_generated {
     #[test]
     fn new_sets_source_and_leaves_everything_else_at_default() {
         // Documented contract: "a default config for the given `source`
-        // (backend-chosen fps, BGRA8)" — so new(s) may differ from Default
-        // only in `source`.
+        // (backend-chosen fps, BGRA8)" - so new(s) may differ from Default only in
+        // `source`.
         let def = ScreenCaptureConfig::default();
         for &source in &ALL_SOURCES {
             let cfg = ScreenCaptureConfig::new(source);
@@ -141,8 +132,8 @@ mod autotest_generated {
 
     #[test]
     fn default_config_is_new_of_default_source() {
-        // The two `Default` impls (derived on the enum, hand-written on the
-        // struct) must not drift apart.
+        // The two `Default` impls (derived on the enum, hand-written on the struct)
+        // must not drift apart.
         assert_eq!(
             ScreenCaptureConfig::default(),
             ScreenCaptureConfig::new(ScreenCaptureSource::default())
@@ -212,9 +203,9 @@ mod autotest_generated {
 
     #[test]
     fn config_is_copy_and_fields_are_independently_settable() {
-        // The struct is a POD crossing the FFI: mutating a copy must not
-        // disturb the original, and overwriting `fps`/`output_format` must not
-        // corrupt the (differently aligned) `source` payload next to it.
+        // The struct is a POD crossing the FFI: mutating a copy must not disturb
+        // the original, and overwriting `fps`/`output_format` must not corrupt the
+        // (differently aligned) `source` payload next to it.
         let original = ScreenCaptureConfig::new(ScreenCaptureSource::Window(u64::MAX));
         let mut copy = original;
         copy.fps = u32::MAX;

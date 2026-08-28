@@ -1,6 +1,6 @@
 //! Hit-test result types for determining which DOM nodes are under the cursor,
-//! scroll state tracking, and pipeline/document identification. These types
-//! feed into the event dispatch system.
+//! scroll state tracking, and pipeline/document identification. These types feed
+//! into the event dispatch system.
 
 use alloc::collections::BTreeMap;
 use core::{
@@ -17,16 +17,17 @@ use crate::{
     OrderedMap,
 };
 
-/// Result of a hit test against a single DOM, containing all nodes hit
-/// by the cursor along with scroll, scrollbar, and cursor-type information.
+/// Result of a hit test against a single DOM, containing all nodes hit by the
+/// cursor along with scroll, scrollbar, and cursor-type information.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 pub struct HitTest {
     pub regular_hit_test_nodes: BTreeMap<NodeId, HitTestItem>,
     pub scroll_hit_test_nodes: BTreeMap<NodeId, ScrollHitTestItem>,
     /// Hit test results for scrollbar components.
     pub scrollbar_hit_test_nodes: BTreeMap<ScrollbarHitId, ScrollbarHitTestItem>,
-    /// Hit test results for cursor areas (text runs with cursor property).
-    /// Maps `NodeId` to (`CursorType`, `hit_depth`) - the cursor type and z-depth of the hit.
+    /// Hit test results for cursor areas (text runs with cursor property). Maps
+    /// `NodeId` to (`CursorType`, `hit_depth`) - the cursor type and z-depth of the
+    /// hit.
     pub cursor_hit_test_nodes: BTreeMap<NodeId, CursorHitTestItem>,
 }
 
@@ -75,7 +76,8 @@ pub struct ScrollbarHitTestItem {
     pub orientation: ScrollbarOrientation,
 }
 
-/// Scroll frame identifier combining a unique `u64` tag with its owning `PipelineId`.
+/// Scroll frame identifier combining a unique `u64` tag with its owning
+/// `PipelineId`.
 #[derive(Copy, Clone, Eq, Hash, PartialEq, Ord, PartialOrd)]
 #[repr(C)]
 pub struct ExternalScrollId(pub u64, pub PipelineId);
@@ -120,30 +122,24 @@ impl Default for OverflowingScrollNode {
 }
 
 /// Extra source identifier within a pipeline, allowing multiple independent
-/// subsystems to generate `PipelineId` values without collision.
-///
-/// All pipelines still share the same `IdNamespace` and `DocumentId`.
+/// subsystems to generate `PipelineId` values without collision. All pipelines still
+/// share the same `IdNamespace` and `DocumentId`.
 pub type PipelineSourceId = u32;
 
-/// Information about a scroll frame, given to the user by the framework.
-///
-/// The two rects are NOT in the same coordinate space — never subtract one
-/// origin from the other. That silent ambiguity put the scrollbar thumb
-/// partway down the track for every container not at the window origin.
-/// See `ScrollManager::get_scroll_states_for_dom` for the producer.
+/// Information about a scroll frame, given to the user by the framework. The two
+/// rects are NOT in the same coordinate space - never subtract one origin from the
+/// other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub struct ScrollPosition {
-    /// The scroll container's border box in ABSOLUTE window coordinates.
-    /// `size` is the scrollport ("how big is the parent container", so
-    /// "scroll to left edge" can be implemented); `origin` is where that
-    /// container sits on screen and is only meaningful to scroll-into-view.
+    /// The scroll container's border box in ABSOLUTE window coordinates. `size` is
+    /// the scrollport ("how big is the parent container", so "scroll to left edge"
+    /// can be implemented); `origin` is where that container sits on screen and is
+    /// only meaningful to scroll-into-view.
     pub parent_rect: LogicalRect,
     /// `size` = the scrollable content ("the union of all children", or the
-    /// `VirtualView` virtual size when one was reported).
-    /// `origin` = the SCROLL OFFSET ITSELF — distance already scrolled from
-    /// the scroll origin, normally clamped to `[0, content − container]`.
-    /// It is NOT an absolute position and NOT relative to
-    /// `parent_rect.origin`; content paints at `position − origin`.
+    /// `VirtualView` virtual size when one was reported). `origin` = the SCROLL
+    /// OFFSET ITSELF - distance already scrolled from the scroll origin, normally
+    /// clamped to `[0, content − container]`.
     pub children_rect: LogicalRect,
 }
 
@@ -209,40 +205,19 @@ impl PipelineId {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 pub struct HitTestItem {
     /// The hit point in the coordinate space of the "viewport" of the display item.
-    /// The viewport is the scroll node formed by the root reference frame of the display item's
-    /// pipeline.
+    /// The viewport is the scroll node formed by the root reference frame of the
+    /// display item's pipeline.
     pub point_in_viewport: LogicalPosition,
-    /// The hit point relative to this node's static CONTENT-box origin, with
-    /// the node's own scroll offset NOT applied.
-    ///
-    /// ## Why this space, and why it is typed
-    ///
-    /// The two hosts used to disagree here. `WebRender` reports the point
-    /// relative to the hit RECT, which azul pushes before the scroll frame —
-    /// i.e. [`BorderBoxLocal`](crate::spaces::BorderBoxLocal) — while the CPU
-    /// tester used in headless E2E subtracted `padding + border` and reported
-    /// [`ContentBoxLocal`]. Same click, two answers, differing by exactly the
-    /// node's content inset. It stayed latent only because the default
-    /// `TextInput`'s value `<p>` sets neither padding nor border; it goes live
-    /// for any padded editable.
-    ///
-    /// Both producers now emit `ContentBoxLocal`, because that is the space
-    /// the consumer that cares (`UnifiedLayout::hittest_cursor`, via
-    /// `LayoutWindow::ifc_local_point`) actually needs. Consumers wanting the
-    /// border-box-relative point the public
-    /// `CallbackInfo::get_cursor_relative_to_node` promises convert back with
-    /// [`ContentBoxLocal::to_border_box_local`].
-    ///
-    /// [`ContentBoxLocal`]: crate::spaces::ContentBoxLocal
-    /// [`ContentBoxLocal::to_border_box_local`]: crate::spaces::ContentBoxLocal::to_border_box_local
+    /// The hit point relative to this node's static CONTENT-box origin, with the
+    /// node's own scroll offset NOT applied. The two hosts used to disagree here.
     pub point_relative_to_item: crate::spaces::ContentBoxLocal,
     /// Necessary to easily get the nearest `VirtualView` node
     pub is_focusable: bool,
-    /// If this hit is a `VirtualView` node, stores the `VirtualViews` `DomId` + the origin of the `VirtualView`
+    /// If this hit is a `VirtualView` node, stores the `VirtualViews` `DomId` + the
+    /// origin of the `VirtualView`
     pub is_virtual_view_hit: Option<(DomId, LogicalPosition)>,
     /// Z-order depth from `WebRender` hit test (0 = frontmost/topmost in z-order).
-    /// Lower values are closer to the user. This preserves the ordering from
-    /// `WebRender`'s hit test results which returns items front-to-back.
+    /// Lower values are closer to the user.
     pub hit_depth: u32,
 }
 
@@ -250,19 +225,14 @@ pub struct HitTestItem {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 pub struct ScrollHitTestItem {
     /// The hit point in the coordinate space of the "viewport" of the display item.
-    /// The viewport is the scroll node formed by the root reference frame of the display item's
-    /// pipeline.
+    /// The viewport is the scroll node formed by the root reference frame of the
+    /// display item's pipeline.
     pub point_in_viewport: LogicalPosition,
-    /// The hit point relative to the container's static BORDER-box origin,
-    /// with its own scroll NOT applied — i.e. where in its scrollPORT the
-    /// pointer is.
-    ///
-    /// Deliberately a different space from [`HitTestItem::point_relative_to_item`]:
-    /// this one is about the scroll box's chrome (which edge is the pointer
-    /// near, is it over the scrollbar gutter), not about its text content, and
-    /// scroll geometry is measured against the border box everywhere else.
+    /// The hit point relative to the container's static BORDER-box origin, with its
+    /// own scroll NOT applied - i.e. where in its scrollPORT the pointer is.
     pub point_relative_to_item: crate::spaces::BorderBoxLocal,
-    /// If this hit is a `VirtualView` node, stores the `VirtualViews` `DomId` + the origin of the `VirtualView`
+    /// If this hit is a `VirtualView` node, stores the `VirtualViews` `DomId` + the
+    /// origin of the `VirtualView`
     pub scroll_node: OverflowingScrollNode,
 }
 
@@ -279,8 +249,8 @@ impl ScrollStates {
         self.0.get(scroll_id).map(ScrollState::get)
     }
 
-    /// Set the scroll amount - does not update the `entry.used_this_frame`,
-    /// since that is only relevant when we are actually querying the renderer.
+    /// Set the scroll amount - does not update the `entry.used_this_frame`, since
+    /// that is only relevant when we are actually querying the renderer.
     pub fn set_scroll_position(
         &mut self,
         node: &OverflowingScrollNode,
@@ -294,8 +264,8 @@ impl ScrollStates {
     }
 
     /// Updating (add to) the existing scroll amount does not update the
-    /// `entry.used_this_frame`, since that is only relevant when we are
-    /// actually querying the renderer.
+    /// `entry.used_this_frame`, since that is only relevant when we are actually
+    /// querying the renderer.
     pub fn scroll_node(
         &mut self,
         node: &OverflowingScrollNode,
@@ -310,12 +280,8 @@ impl ScrollStates {
     }
 }
 
-/// Compute the maximum scrollable range for a scroll node.
-///
-/// The maximum scroll offset is `content − viewport` (`child_rect − parent_rect`),
-/// clamped to `>= 0`. Previously the scroll position was clamped to the full
-/// content size, which let the content scroll entirely out of view. The returned
-/// rect keeps `child_rect.origin` and stores the max offset in `size`.
+/// Compute the maximum scrollable range for a scroll node. The maximum scroll
+/// offset is `content − viewport` (`child_rect − parent_rect`), clamped to `>= 0`.
 fn max_scroll_rect(node: &OverflowingScrollNode) -> LogicalRect {
     LogicalRect::new(
         node.child_rect.origin,
@@ -346,13 +312,9 @@ impl ScrollState {
         self.scroll_position
     }
 
-    /// Add a scroll X / Y onto the existing scroll state.
-    ///
-    /// `max_scroll_rect` is the *scroll range* rect: its size is the maximum
-    /// scrollable offset (`content − viewport`, clamped to `>= 0`), NOT the full
-    /// content size. See [`ScrollStates::scroll_node`]. Clamping via `.max(0.0)`
-    /// first also collapses any NaN input to `0.0` (`f32::max` returns the
-    /// non-NaN operand), so a NaN delta can never poison the scroll position.
+    /// Add a scroll X / Y onto the existing scroll state. `max_scroll_rect` is the
+    /// *scroll range* rect: its size is the maximum scrollable offset (`content −
+    /// viewport`, clamped to `>= 0`), NOT the full content size.
     pub fn add(&mut self, x: f32, y: f32, max_scroll_rect: &LogicalRect) {
         self.scroll_position.x = (self.scroll_position.x + x)
             .max(0.0)
@@ -362,9 +324,8 @@ impl ScrollState {
             .min(max_scroll_rect.size.height.max(0.0));
     }
 
-    /// Set the scroll state to a new position.
-    ///
-    /// `max_scroll_rect` is the *scroll range* rect (see [`ScrollState::add`]).
+    /// Set the scroll state to a new position. `max_scroll_rect` is the *scroll
+    /// range* rect (see [`ScrollState::add`]).
     pub const fn set(&mut self, x: f32, y: f32, max_scroll_rect: &LogicalRect) {
         self.scroll_position.x = x.max(0.0).min(max_scroll_rect.size.width.max(0.0));
         self.scroll_position.y = y.max(0.0).min(max_scroll_rect.size.height.max(0.0));
@@ -401,12 +362,13 @@ impl FullHitTest {
     }
 }
 
-/// Result of determining which mouse cursor icon to display based on hit-test results.
+/// Result of determining which mouse cursor icon to display based on hit-test
+/// results.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CursorTypeHitTest {
-    /// closest-node is used for determining the cursor: property
-    /// The node is guaranteed to have a non-default cursor: property,
-    /// so that the cursor icon can be set accordingly
+    /// closest-node is used for determining the cursor: property The node is
+    /// guaranteed to have a non-default cursor: property, so that the cursor icon
+    /// can be set accordingly
     pub cursor_node: Option<(DomId, NodeId)>,
     /// Mouse cursor type to set (if `cursor_node` is None, this is set to
     /// `MouseCursorType::Default`)
@@ -415,14 +377,9 @@ pub struct CursorTypeHitTest {
 
 // ============================================================================
 // Type-safe hit-test tag system (merged from the former `hit_test_tag` module).
-//
-// Encodes WebRender's ItemTag = (u64, u16): the tag *type* lives in the upper
-// byte of tag.1 (DOM node / scrollbar / selection / cursor / scroll-container),
-// keeping tag types free of bit-level conflicts. See the TAG_TYPE_* constants.
-// ============================================================================
-// ============================================================================
-// Tag Type Markers (stored in upper byte of ItemTag.1)
-// ============================================================================
+// Encodes WebRender's ItemTag = (u64, u16): the tag *type* lives in the upper byte
+// of tag.1 (DOM node / scrollbar / selection / cursor / scroll-container), keeping
+// tag types free of bit-level conflicts.
 
 /// Marker for DOM node tags (regular UI elements with callbacks, focus, etc.)
 pub const TAG_TYPE_DOM_NODE: u16 = 0x0100;
@@ -431,25 +388,19 @@ pub const TAG_TYPE_DOM_NODE: u16 = 0x0100;
 pub const TAG_TYPE_SCROLLBAR: u16 = 0x0200;
 
 /// Marker for text selection hit-test areas (determines text selection regions)
-///
-/// These are pushed for text runs to enable text selection without affecting
-/// other hit-test logic. Selection may trigger re-rendering.
-///
-/// NOTE: Text selection hit-testing currently uses `TAG_TYPE_CURSOR` (0x0400).
-/// This constant is used by the `HitTestTag::Selection` variant for encoding
-/// selection-specific tags (e.g., text run selection areas).
+/// These are pushed for text runs to enable text selection without affecting other
+/// hit-test logic. Selection may trigger re-rendering.
 pub const TAG_TYPE_SELECTION: u16 = 0x0300;
 
-/// Marker for cursor hit-test areas (determines which cursor icon to show)
-///
-/// These are separate from DOM node tags to allow efficient cursor resolution
-/// without iterating over all DOM nodes. Cursor changes never require re-rendering.
+/// Marker for cursor hit-test areas (determines which cursor icon to show) These
+/// are separate from DOM node tags to allow efficient cursor resolution without
+/// iterating over all DOM nodes. Cursor changes never require re-rendering.
 pub const TAG_TYPE_CURSOR: u16 = 0x0400;
 
-/// Marker for scroll container hit-test areas (for trackpad/wheel scrolling)
-///
-/// These identify scrollable containers even when no DOM node callbacks are registered.
-/// Scroll containers push this tag so the scroll manager can find them during wheel events.
+/// Marker for scroll container hit-test areas (for trackpad/wheel scrolling) These
+/// identify scrollable containers even when no DOM node callbacks are registered.
+/// Scroll containers push this tag so the scroll manager can find them during wheel
+/// events.
 pub const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
 
 
@@ -457,14 +408,9 @@ pub const TAG_TYPE_SCROLL_CONTAINER: u16 = 0x0500;
 // Scrollbar Component Types (stored in lower byte of ItemTag.1 for scrollbar tags)
 // ============================================================================
 
-/// Scrollbar component type identifier.
-///
-/// Each scrollable container can have up to 2 scrollbars (vertical + horizontal),
-/// and each scrollbar has 2 main hit regions (track + thumb).
-///
-/// Future extensions could add:
-/// - `UpButton`, `DownButton`, `LeftButton`, `RightButton` for scroll arrows
-/// - `PageUp`, `PageDown` for page-scroll regions
+/// Scrollbar component type identifier. Each scrollable container can have up to 2
+/// scrollbars (vertical + horizontal), and each scrollbar has 2 main hit regions
+/// (track + thumb).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum ScrollbarComponent {
@@ -476,11 +422,8 @@ pub enum ScrollbarComponent {
     HorizontalTrack = 2,
     /// The horizontal scrollbar thumb (draggable handle)
     HorizontalThumb = 3,
-    // Future: scroll arrow buttons
-    // VerticalUpButton = 4,
-    // VerticalDownButton = 5,
-    // HorizontalLeftButton = 6,
-    // HorizontalRightButton = 7,
+    // Future: scroll arrow buttons VerticalUpButton = 4, VerticalDownButton = 5,
+    // HorizontalLeftButton = 6, HorizontalRightButton = 7,
 }
 
 impl ScrollbarComponent {
@@ -501,39 +444,21 @@ impl ScrollbarComponent {
 // WebRender Hit-Test Tag (unified type-safe representation)
 // ============================================================================
 
-/// Unified, type-safe representation of a `WebRender` hit-test tag.
-///
-/// This enum represents all possible types of hit-test targets. Each variant
-/// can be encoded to and decoded from `WebRender`'s `(u64, u16)` `ItemTag` format.
-///
-/// ## Namespace Separation
-///
-/// Different tag types are kept in separate namespaces to:
-/// - Enable efficient hit-test queries (only iterate over relevant tags)
-/// - Get automatic depth sorting from `WebRender` per namespace
-/// - Prevent accidental collisions between different hit-test purposes
-///
-/// | Namespace | Purpose                              |
-/// |-----------|--------------------------------------|
-/// | 0x0100    | DOM nodes (callbacks, focus, hover)  |
-/// | 0x0200    | Scrollbar components                 |
-/// | 0x0300    | Selection areas (text selection)     |
-/// | 0x0400    | Cursor areas (cursor icon display)     |
+/// Unified, type-safe representation of a `WebRender` hit-test tag. This enum
+/// represents all possible types of hit-test targets.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum HitTestTag {
-    /// A regular DOM node (button, div, text container, etc.)
-    ///
-    /// These are nodes that have callbacks, are focusable, or have hover styles.
-    /// The `TagId` is a sequential counter assigned during DOM styling.
+    /// A regular DOM node (button, div, text container, etc.) These are nodes that
+    /// have callbacks, are focusable, or have hover styles. The `TagId` is a
+    /// sequential counter assigned during DOM styling.
     DomNode {
         /// The unique tag ID assigned to this DOM node
         tag_id: TagId,
     },
 
-    /// A scrollbar component (track or thumb)
-    ///
-    /// Each scrollable container can have up to 2 scrollbars.
-    /// The scrollbar is identified by the `DomId` and `NodeId` of the scrollable container.
+    /// A scrollbar component (track or thumb) Each scrollable container can have up
+    /// to 2 scrollbars. The scrollbar is identified by the `DomId` and `NodeId` of
+    /// the scrollable container.
     Scrollbar {
         /// The DOM that contains the scrollable container
         dom_id: DomId,
@@ -543,10 +468,9 @@ pub enum HitTestTag {
         component: ScrollbarComponent,
     },
 
-    /// A cursor hit-test area (determines which cursor icon to display)
-    ///
-    /// These are pushed separately from DOM nodes to allow efficient cursor
-    /// resolution. The cursor type is encoded in the lower byte of tag.1.
+    /// A cursor hit-test area (determines which cursor icon to display) These are
+    /// pushed separately from DOM nodes to allow efficient cursor resolution. The
+    /// cursor type is encoded in the lower byte of tag.1.
     Cursor {
         /// The DOM node this cursor area belongs to
         dom_id: DomId,
@@ -556,10 +480,9 @@ pub enum HitTestTag {
         cursor_type: CursorType,
     },
 
-    /// A text selection hit-test area
-    ///
-    /// These are pushed for text runs to enable text selection.
-    /// Separate from DOM nodes to prevent interference with other hit-testing.
+    /// A text selection hit-test area These are pushed for text runs to enable text
+    /// selection. Separate from DOM nodes to prevent interference with other
+    /// hit-testing.
     Selection {
         /// The DOM containing the text
         dom_id: DomId,
@@ -570,8 +493,8 @@ pub enum HitTestTag {
     },
 }
 
-/// Cursor type encoded in cursor hit-test tags.
-/// Stored in the lower byte of the ItemTag.1 field.
+/// Cursor type encoded in cursor hit-test tags. Stored in the lower byte of the
+/// ItemTag.1 field.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(u8)]
 pub enum CursorType {
@@ -601,9 +524,9 @@ pub enum CursorType {
 }
 
 impl CursorType {
-    /// Convert from raw u8 value
-    // Explicit u8 -> variant table documenting every discriminant; `0 => Default`
-    // intentionally mirrors the `_ => Default` fallback (the `#[default]` is 0).
+    /// Convert from raw u8 value Explicit u8 -> variant table documenting every
+    /// discriminant; `0 => Default` intentionally mirrors the `_ => Default`
+    /// fallback (the `#[default]` is 0).
     #[allow(clippy::match_same_arms)]
     #[must_use] pub const fn from_u8(value: u8) -> Self {
         match value {
@@ -634,14 +557,13 @@ impl CursorType {
 }
 
 impl HitTestTag {
-    /// Encode this tag to `WebRender`'s `ItemTag` format.
-    ///
-    /// Returns `(u64, u16)` suitable for passing to `WebRender`'s `push_hit_test`.
+    /// Encode this tag to `WebRender`'s `ItemTag` format. Returns `(u64, u16)`
+    /// suitable for passing to `WebRender`'s `push_hit_test`.
     #[must_use] pub fn to_item_tag(&self) -> (u64, u16) {
         match self {
             Self::DomNode { tag_id } => {
-                // tag.0 = TagId.inner (the sequential counter)
-                // tag.1 = TAG_TYPE_DOM_NODE marker
+                // tag.0 = TagId.inner (the sequential counter) tag.1 =
+                // TAG_TYPE_DOM_NODE marker
                 (tag_id.inner, TAG_TYPE_DOM_NODE)
             }
             Self::Scrollbar {
@@ -671,11 +593,12 @@ impl HitTestTag {
                 container_node_id,
                 text_run_index,
             } => {
-                // tag.0 = DomId (upper 16 bits) | NodeId (middle 32 bits) | text_run_index (lower 16 bits)
-                // AUDIT: mask each field to its bit width so an out-of-range DomId /
-                // NodeId can never bleed into an adjacent field (silent cross-field
-                // corruption). Masking clamps consistently in debug and release —
-                // a >16-bit DomId is absurd but must degrade gracefully, not panic.
+                // tag.0 = DomId (upper 16 bits) | NodeId (middle 32 bits) |
+                // text_run_index (lower 16 bits) AUDIT: mask each field to its bit
+                // width so an out-of-range DomId / NodeId can never bleed into an
+                // adjacent field (silent cross-field corruption). Masking clamps
+                // consistently in debug and release - a >16-bit DomId is absurd but
+                // must degrade gracefully, not panic.
                 let dom_bits = (dom_id.inner as u64) & 0xFFFF;
                 let node_bits = (container_node_id.index() as u64) & 0xFFFF_FFFF;
                 let tag_value = (dom_bits << 48)
@@ -686,9 +609,8 @@ impl HitTestTag {
         }
     }
 
-    /// Decode a `WebRender` `ItemTag` back to a typed `HitTestTag`.
-    ///
-    /// Returns `None` if the tag format is invalid or unrecognized.
+    /// Decode a `WebRender` `ItemTag` back to a typed `HitTestTag`. Returns `None`
+    /// if the tag format is invalid or unrecognized.
     #[must_use] pub fn from_item_tag(tag: (u64, u16)) -> Option<Self> {
         let (tag_value, tag_type) = tag;
 
@@ -747,9 +669,9 @@ impl HitTestTag {
                 })
             }
             _ => {
-                // Unknown tag type - could be a legacy tag or corruption
-                // For backwards compatibility, treat tags with tag_type == 0
-                // as legacy DOM node tags (old format before type markers)
+                // Unknown tag type - could be a legacy tag or corruption For
+                // backwards compatibility, treat tags with tag_type == 0 as legacy
+                // DOM node tags (old format before type markers)
                 if tag_type == 0 {
                     Some(Self::DomNode {
                         tag_id: TagId { inner: tag_value },
@@ -921,8 +843,8 @@ mod tests {
 
     #[test]
     fn test_legacy_tag_compatibility() {
-        // Old format tags had tag.1 == 0
-        // They should be treated as DOM node tags for backwards compatibility
+        // Old format tags had tag.1 == 0 They should be treated as DOM node tags
+        // for backwards compatibility
         let legacy_tag = (42u64, 0u16);
         let decoded = HitTestTag::from_item_tag(legacy_tag).unwrap();
         assert!(decoded.is_dom_node());
@@ -1051,7 +973,7 @@ mod autotest_generated {
     ];
 
     // ------------------------------------------------------------------
-    // HitTest / FullHitTest — constructors + predicates
+    // HitTest / FullHitTest - constructors + predicates
     // ------------------------------------------------------------------
 
     #[test]
@@ -1123,8 +1045,8 @@ mod autotest_generated {
         assert!(none.is_empty());
         assert!(none.focused_node.is_none());
 
-        // `is_empty()` is documented to ignore `focused_node` — a focused node
-        // must NOT make an unhovered hit test look non-empty.
+        // `is_empty()` is documented to ignore `focused_node` - a focused node must
+        // NOT make an unhovered hit test look non-empty.
         let focused = FullHitTest::empty(Some(DomNodeId::ROOT));
         assert!(focused.is_empty());
         assert!(focused.focused_node.is_some());
@@ -1135,13 +1057,13 @@ mod autotest_generated {
     fn full_hit_test_is_empty_false_once_a_dom_is_hovered() {
         let mut f = FullHitTest::empty(None);
         f.hovered_nodes.insert(DomId::ROOT_ID, HitTest::empty());
-        // NOTE: an *empty* HitTest inserted under a DomId still counts as
-        // "hovered" — `is_empty()` only looks at the outer map's length.
+        // NOTE: an *empty* HitTest inserted under a DomId still counts as "hovered"
+        // - `is_empty()` only looks at the outer map's length.
         assert!(!f.is_empty());
     }
 
     // ------------------------------------------------------------------
-    // PipelineId / DocumentId / ExternalScrollId — constructors + serializers
+    // PipelineId / DocumentId / ExternalScrollId - constructors + serializers
     // ------------------------------------------------------------------
 
     #[test]
@@ -1149,8 +1071,8 @@ mod autotest_generated {
         let a = PipelineId::new();
         let b = PipelineId::new();
         let c = PipelineId::default();
-        // The counter only ever moves forward (other tests in this binary may
-        // bump it concurrently, so assert ordering, not adjacency).
+        // The counter only ever moves forward (other tests in this binary may bump
+        // it concurrently, so assert ordering, not adjacency).
         assert!(b.0 > a.0);
         assert!(c.0 > b.0);
         assert_eq!(a.1, 0);
@@ -1192,7 +1114,7 @@ mod autotest_generated {
         let a = ExternalScrollId(7, PipelineId(1, 0));
         let b = ExternalScrollId(7, PipelineId(2, 0));
 
-        // Display/Debug only render `.0` — they are deliberately lossy, so two
+        // Display/Debug only render `.0` - they are deliberately lossy, so two
         // *different* IDs can format identically. Guard that this laxness never
         // leaks into equality/ordering (which is what BTreeMap keys rely on).
         assert_eq!(alloc::format!("{a}"), "ExternalScrollId(7)");
@@ -1212,7 +1134,7 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // max_scroll_rect — numeric edge cases
+    // max_scroll_rect - numeric edge cases
     // ------------------------------------------------------------------
 
     #[test]
@@ -1259,7 +1181,8 @@ mod autotest_generated {
         assert_eq!(both_inf.size.width, 0.0);
         assert_eq!(both_inf.size.height, 0.0);
 
-        // Infinite content over a finite viewport stays infinite (unbounded scroll).
+        // Infinite content over a finite viewport stays infinite (unbounded
+        // scroll).
         let inf = max_scroll_rect(&scroll_node_of(
             r(0.0, 0.0, 10.0, 10.0),
             r(0.0, 0.0, f32::INFINITY, f32::INFINITY),
@@ -1281,7 +1204,7 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // ScrollState — numeric (zero / negative / min-max / overflow / NaN)
+    // ScrollState - numeric (zero / negative / min-max / overflow / NaN)
     // ------------------------------------------------------------------
 
     #[test]
@@ -1345,8 +1268,8 @@ mod autotest_generated {
 
     #[test]
     fn scroll_state_set_nan_max_range_collapses_to_zero() {
-        // A NaN *range* must not leak into the position either: `NaN.max(0.0)`
-        // is 0.0, so the position clamps to 0 rather than becoming NaN.
+        // A NaN *range* must not leak into the position either: `NaN.max(0.0)` is
+        // 0.0, so the position clamps to 0 rather than becoming NaN.
         let max = r(0.0, 0.0, f32::NAN, f32::NAN);
         let mut st = ScrollState::default();
         st.set(75.0, 75.0, &max);
@@ -1417,13 +1340,13 @@ mod autotest_generated {
         };
         st.add(f32::NAN, 0.0, &max);
         // `50 + NaN == NaN`, `NaN.max(0.0) == 0.0`: the delta is discarded *and*
-        // the previously-good X position is lost. Defined, but lossy — pinned here.
+        // the previously-good X position is lost. Defined, but lossy - pinned here.
         assert_eq!(st.get().x, 0.0);
         assert_eq!(st.get().y, 50.0);
     }
 
     // ------------------------------------------------------------------
-    // ScrollStates — map behaviour
+    // ScrollStates - map behaviour
     // ------------------------------------------------------------------
 
     #[test]
@@ -1541,7 +1464,7 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // ScrollbarComponent / CursorType — from_u8 over the whole domain
+    // ScrollbarComponent / CursorType - from_u8 over the whole domain
     // ------------------------------------------------------------------
 
     #[test]
@@ -1579,7 +1502,7 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // HitTestTag — encode/decode round-trips
+    // HitTestTag - encode/decode round-trips
     // ------------------------------------------------------------------
 
     #[test]
@@ -1666,8 +1589,8 @@ mod autotest_generated {
     #[test]
     fn selection_tag_oversized_node_id_is_masked_not_bled_into_dom_id() {
         // Mirror of the DomId-overflow guard, from the other side: a
-        // container_node_id wider than 32 bits must be masked, leaving the
-        // DomId field (bits 48..64) intact.
+        // container_node_id wider than 32 bits must be masked, leaving the DomId
+        // field (bits 48..64) intact.
         let tag = HitTestTag::Selection {
             dom_id: DomId { inner: 0x00AB },
             container_node_id: NodeId::new(u32::MAX as usize),
@@ -1681,8 +1604,8 @@ mod autotest_generated {
 
     #[test]
     fn tag_namespaces_do_not_collide_on_identical_payloads() {
-        // The same numeric payload under four different type markers must decode
-        // to four different variants — that is the whole point of the namespaces.
+        // The same numeric payload under four different type markers must decode to
+        // four different variants - that is the whole point of the namespaces.
         let payload = 0x0000_0001_0000_0002u64;
         let decoded: [HitTestTag; 4] = [
             HitTestTag::from_item_tag((payload, TAG_TYPE_DOM_NODE)).unwrap(),
@@ -1702,13 +1625,13 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // HitTestTag::from_item_tag — malformed / unknown input
+    // HitTestTag::from_item_tag - malformed / unknown input
     // ------------------------------------------------------------------
 
     #[test]
     fn from_item_tag_sweeps_every_type_marker_without_panicking() {
-        // Exhaustive sweep of the upper byte x a few lower bytes: every
-        // combination must either decode or return None — never panic.
+        // Exhaustive sweep of the upper byte x a few lower bytes: every combination
+        // must either decode or return None - never panic.
         for hi in 0u16..=0xFF {
             for lo in [0u16, 1, 3, 4, 20, 21, 0xFF] {
                 let tag_type = (hi << 8) | lo;
@@ -1741,8 +1664,8 @@ mod autotest_generated {
 
     #[test]
     fn from_item_tag_unknown_cursor_byte_degrades_to_default() {
-        // Unlike scrollbars, an unknown cursor byte is *not* an error: it maps
-        // to CursorType::Default so a corrupt tag still yields a usable cursor.
+        // Unlike scrollbars, an unknown cursor byte is *not* an error: it maps to
+        // CursorType::Default so a corrupt tag still yields a usable cursor.
         for lo in [21u16, 100, 0xFF] {
             let decoded = HitTestTag::from_item_tag((0, TAG_TYPE_CURSOR | lo)).unwrap();
             assert_eq!(
@@ -1766,8 +1689,8 @@ mod autotest_generated {
 
     #[test]
     fn from_item_tag_scroll_container_marker_is_not_decodable() {
-        // TAG_TYPE_SCROLL_CONTAINER has no HitTestTag variant — it must be
-        // rejected rather than silently aliased onto another namespace.
+        // TAG_TYPE_SCROLL_CONTAINER has no HitTestTag variant - it must be rejected
+        // rather than silently aliased onto another namespace.
         assert!(HitTestTag::from_item_tag((0, TAG_TYPE_SCROLL_CONTAINER)).is_none());
         assert!(HitTestTag::from_item_tag((u64::MAX, TAG_TYPE_SCROLL_CONTAINER)).is_none());
     }
@@ -1790,10 +1713,10 @@ mod autotest_generated {
     #[cfg(target_pointer_width = "64")]
     #[test]
     fn scrollbar_encode_keeps_decoded_fields_inside_their_bit_windows() {
-        // A NodeId wider than 32 bits is absurd, but must degrade without
-        // panicking (no shift/`as` overflow) and must not produce out-of-window
-        // decoded values. NOTE: unlike `Selection`, the `Scrollbar`/`Cursor`
-        // encoders do NOT mask their fields, so such an id is lossy — see report.
+        // A NodeId wider than 32 bits is absurd, but must degrade without panicking
+        // (no shift/`as` overflow) and must not produce out-of-window decoded
+        // values. NOTE: unlike `Selection`, the `Scrollbar`/`Cursor` encoders do NOT
+        // mask their fields, so such an id is lossy - see report.
         let tag = HitTestTag::Scrollbar {
             dom_id: DomId { inner: 0 },
             node_id: NodeId::new(1usize << 32),
@@ -1810,7 +1733,7 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // HitTestTag — predicates + accessors
+    // HitTestTag - predicates + accessors
     // ------------------------------------------------------------------
 
     fn sample_tags() -> [HitTestTag; 4] {
@@ -1890,7 +1813,7 @@ mod autotest_generated {
     }
 
     // ------------------------------------------------------------------
-    // HitTestTag — Display
+    // HitTestTag - Display
     // ------------------------------------------------------------------
 
     #[test]

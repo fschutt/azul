@@ -1,17 +1,13 @@
-//! Window configuration types, input state, and platform-specific options.
-//!
-//! This module defines the core types used by the windowing system:
-//!
-//! - **Window configuration**: [`WindowSize`], [`WindowFlags`], [`WindowPosition`],
-//!   [`RendererOptions`], [`PlatformSpecificOptions`]
-//! - **Input state**: [`KeyboardState`], [`MouseState`], [`TouchState`], [`CursorPosition`]
-//! - **Monitor/display info**: [`Monitor`], [`MonitorId`], [`VideoMode`]
-//! - **Virtual key codes**: [`VirtualKeyCode`], [`ScanCode`]
-//! - **Window icons**: [`WindowIcon`], [`TaskBarIcon`]
-//! - **Platform options**: [`WindowsWindowOptions`], [`LinuxWindowOptions`],
-//!   [`MacWindowOptions`], [`WasmWindowOptions`]
-//!
-//! These types are consumed by the platform shell backends in
+//! Window configuration types, input state, and platform-specific options. This
+//! module defines the core types used by the windowing system: - **Window
+//! configuration**: [`WindowSize`], [`WindowFlags`], [`WindowPosition`],
+//! [`RendererOptions`], [`PlatformSpecificOptions`] - **Input state**:
+//! [`KeyboardState`], [`MouseState`], [`TouchState`], [`CursorPosition`] -
+//! **Monitor/display info**: [`Monitor`], [`MonitorId`], [`VideoMode`] - **Virtual
+//! key codes**: [`VirtualKeyCode`], [`ScanCode`] - **Window icons**: [`WindowIcon`],
+//! [`TaskBarIcon`] - **Platform options**: [`WindowsWindowOptions`],
+//! [`LinuxWindowOptions`], [`MacWindowOptions`], [`WasmWindowOptions`] These types
+//! are consumed by the platform shell backends in
 //! `dll/src/desktop/shell2/{windows,macos,linux}/` and by
 //! `layout/src/window_state.rs` for state management.
 
@@ -88,9 +84,9 @@ impl WindowId {
 
 static LAST_ICON_KEY: AtomicUsize = AtomicUsize::new(0);
 
-/// Key that is used for checking whether a window icon has changed -
-/// this way azul doesn't need to diff the actual bytes, just the icon key.
-/// Use `IconKey::new()` to generate a new, unique key
+/// Key that is used for checking whether a window icon has changed - this way azul
+/// doesn't need to diff the actual bytes, just the icon key. Use `IconKey::new()` to
+/// generate a new, unique key
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct IconKey {
@@ -130,10 +126,10 @@ impl Default for RendererOptions {
         Self {
             vsync: Vsync::Enabled,
             srgb: Srgb::Disabled,
-            // DontCare defers the choice to AZ_BACKEND / the desktop default,
-            // which is now CPU (software) rendering on all platforms — matching
-            // what the headless e2e tests render. GPU is re-selectable via
-            // AZ_BACKEND=gpu / AZ_BACKEND=auto or HwAcceleration::Enabled.
+            // DontCare defers the choice to AZ_BACKEND / the desktop default, which
+            // is now CPU (software) rendering on all platforms - matching what the
+            // headless e2e tests render. GPU is re-selectable via AZ_BACKEND=gpu /
+            // AZ_BACKEND=auto or HwAcceleration::Enabled.
             hw_accel: HwAcceleration::DontCare,
         }
     }
@@ -204,8 +200,8 @@ pub enum RawWindowHandle {
 }
 
 // SAFETY: RawWindowHandle contains raw pointers that are only used as opaque
-// identifiers for platform window handles. The handle values are not
-// dereferenced across threads; they are passed to platform APIs on the main thread.
+// identifiers for platform window handles. The handle values are not dereferenced
+// across threads; they are passed to platform APIs on the main thread.
 unsafe impl Send for RawWindowHandle {}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -261,11 +257,10 @@ pub struct WindowsHandle {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct WebHandle {
-    /// An ID value inserted into the data attributes of the canvas element as 'raw-handle'
-    ///
-    /// When accessing from JS, the attribute will automatically be called rawHandle. Each canvas
-    /// created by the windowing system should be assigned their own unique ID.
-    /// 0 should be reserved for invalid / null IDs.
+    /// An ID value inserted into the data attributes of the canvas element as
+    /// 'raw-handle' When accessing from JS, the attribute will automatically be
+    /// called rawHandle. Each canvas created by the windowing system should be
+    /// assigned their own unique ID.
     pub id: u32,
 }
 
@@ -326,28 +321,20 @@ pub type ScanCode = u32;
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct KeyboardState {
-    /// Currently pressed virtual keycode - **DO NOT USE THIS FOR TEXT INPUT**.
-    ///
-    /// For text input, use the `text_input` parameter in callbacks.
-    /// For example entering `à` will fire a `VirtualKeyCode::Grave`, then `VirtualKeyCode::A`,
-    /// so to correctly combine characters, the framework handles text composition internally.
+    /// Currently pressed virtual keycode - **DO NOT USE THIS FOR TEXT INPUT**. For
+    /// text input, use the `text_input` parameter in callbacks.
     pub current_virtual_keycode: OptionVirtualKeyCode,
-    /// Currently pressed virtual keycodes (READONLY) - it can happen that more than one key is
-    /// pressed
-    ///
-    /// This is essentially an "extension" of `current_scancodes` - `current_keys` stores the
-    /// characters, but what if the pressed key is not a character (such as `ArrowRight` or
-    /// `PgUp`)?
-    ///
-    /// Note that this can have an overlap, so pressing "a" on the keyboard will insert
-    /// both a `VirtualKeyCode::A` into `current_virtual_keycodes` and text input will be handled
-    /// by the framework automatically for contenteditable nodes.
+    /// Currently pressed virtual keycodes (READONLY) - it can happen that more than
+    /// one key is pressed This is essentially an "extension" of `current_scancodes`
+    /// - `current_keys` stores the characters, but what if the pressed key is not a
+    /// character (such as `ArrowRight` or `PgUp`)? Note that this can have an
+    /// overlap, so pressing "a" on the keyboard will insert both a
+    /// `VirtualKeyCode::A` into `current_virtual_keycodes` and text input will be
+    /// handled by the framework automatically for contenteditable nodes.
     pub pressed_virtual_keycodes: VirtualKeyCodeVec,
-    /// Same as `current_virtual_keycodes`, but the scancode identifies the physical key pressed,
-    /// independent of the keyboard layout. The scancode does not change if the user adjusts the
-    /// host's keyboard map. Use when the physical location of the key is more important than
-    /// the key's host GUI semantics, such as for movement controls in a first-person game
-    /// (German keyboard: Z key, UK keyboard: Y key, etc.)
+    /// Same as `current_virtual_keycodes`, but the scancode identifies the physical
+    /// key pressed, independent of the keyboard layout. The scancode does not change
+    /// if the user adjusts the host's keyboard map.
     pub pressed_scancodes: ScanCodeVec,
 }
 
@@ -365,10 +352,9 @@ impl KeyboardState {
         self.is_key_down(VirtualKeyCode::LWin) || self.is_key_down(VirtualKeyCode::RWin)
     }
     /// The platform's PRIMARY shortcut modifier: Cmd (super) on macOS, Ctrl
-    /// everywhere else (MWA-A2). Every standard editing shortcut
-    /// (copy / cut / paste / select-all / undo / redo) keys off this —
-    /// hardcoding `ctrl_down()` made Cmd+C/X/V/A/Z dead on macOS, where Cmd
-    /// arrives as LWin/super.
+    /// everywhere else (MWA-A2). Every standard editing shortcut (copy / cut / paste
+    /// / select-all / undo / redo) keys off this - hardcoding `ctrl_down()` made
+    /// Cmd+C/X/V/A/Z dead on macOS, where Cmd arrives as LWin/super.
     #[must_use] pub fn primary_down(&self) -> bool {
         if cfg!(target_os = "macos") {
             self.super_down()
@@ -383,8 +369,6 @@ impl KeyboardState {
     /// Returns `true` iff every entry of `chord` is currently active in this
     /// keyboard state. Used by accelerator/keymap registrations to evaluate
     /// shortcuts like `[Ctrl, Shift, Key(VirtualKeyCode::S)]`.
-    ///
-    /// An empty chord matches trivially.
     #[must_use] pub fn matches_accelerator(&self, chord: &[AcceleratorKey]) -> bool {
         chord.iter().all(|a| a.matches(self))
     }
@@ -441,13 +425,14 @@ impl_vec_as_hashmap!(ScanCode, ScanCodeVec);
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Eq)]
 #[repr(C)]
 pub struct MouseState {
-    /// Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)
+    /// Current mouse cursor type, set to `None` if the cursor is hidden.
+    /// (READWRITE)
     pub mouse_cursor_type: OptionMouseCursorType,
-    /// Where is the mouse cursor currently? Set to `None` if the window is not focused.
-    /// (READWRITE)
+    /// Where is the mouse cursor currently? Set to `None` if the window is not
+    /// focused.
     pub cursor_position: CursorPosition,
-    /// Is the mouse cursor locked to the current window (important for applications like games)?
-    /// (READWRITE)
+    /// Is the mouse cursor locked to the current window (important for applications
+    /// like games)? (READWRITE)
     pub is_cursor_locked: bool,
     /// Is the left mouse button down? (READONLY)
     pub left_down: bool,
@@ -518,7 +503,8 @@ pub enum ContextMenuMouseButton {
 
 
 impl MouseState {
-    /// Returns whether any mouse button (left, right or center) is currently held down
+    /// Returns whether any mouse button (left, right or center) is currently held
+    /// down
     #[must_use] pub const fn mouse_down(&self) -> bool {
         self.right_down || self.left_down || self.middle_down
     }
@@ -547,11 +533,7 @@ impl crate::events::MouseButtonState {
 }
 
 /// Result of dispatching a scroll delta into the system scroll-handling pipeline.
-///
-/// Returned by [`process_system_scroll`]. Higher layers can use the
-/// [`ScrollResult::remaining_delta`] to forward un-consumed scroll to a parent
-/// container, and [`ScrollResult::hit_scrollbar`] to distinguish scrollbar-drag
-/// scrolling from wheel-on-content scrolling for hit-testing purposes.
+/// Returned by [`process_system_scroll`].
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct ScrollResult {
@@ -559,18 +541,14 @@ pub struct ScrollResult {
     pub scrolled_nodes: usize,
     /// Delta that could not be consumed (overscroll). May be forwarded to a parent.
     pub remaining_delta: LogicalPosition,
-    /// `true` if the dispatch hit a native scrollbar (drag), `false` for wheel/touch.
+    /// `true` if the dispatch hit a native scrollbar (drag), `false` for
+    /// wheel/touch.
     pub hit_scrollbar: bool,
 }
 
 /// Dispatch a system scroll event and return a [`ScrollResult`] describing what
-/// happened.
-///
-/// This is the entry point used by headless integration tests and embedders that
-/// drive scroll programmatically. The richer per-document scroll handling lives
-/// in `LayoutWindow::process_scroll`; this helper packages a delta into a
-/// `ScrollResult` for return to callers so the result type is observable from
-/// the public API.
+/// happened. This is the entry point used by headless integration tests and
+/// embedders that drive scroll programmatically.
 #[must_use] pub fn process_system_scroll(delta: LogicalPosition, hit_scrollbar: bool) -> ScrollResult {
     let consumed = delta.x != 0.0 || delta.y != 0.0;
     ScrollResult {
@@ -604,22 +582,20 @@ impl CursorPosition {
     }
 }
 
-/// Toggles webrender debug flags (will make stuff appear on
-/// the screen that you might not want to - used for debugging purposes)
-///
-/// Every field here maps onto a `webrender::DebugFlags` bit except
-/// `show_hit_test_areas`, which is azul's own overlay. Populate it from the
-/// environment with [`DebugState::from_az_overlay_env`] — see that function for
-/// the verb list and why the hit-test overlay is no longer `debug_assertions`-only.
+/// Toggles webrender debug flags (will make stuff appear on the screen that you
+/// might not want to - used for debugging purposes) Every field here maps onto a
+/// `webrender::DebugFlags` bit except `show_hit_test_areas`, which is azul's own
+/// overlay. Populate it from the environment with
+/// [`DebugState::from_az_overlay_env`] - see that function for the verb list and why
+/// the hit-test overlay is no longer `debug_assertions`-only.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct DebugState {
-    /// Paint a translucent red rectangle over every hit-test area.
-    ///
-    /// azul's own overlay, not a webrender flag: the compositor draws it while
-    /// emitting `DisplayListItem::HitTestArea`, so it shows exactly the regions
-    /// the hit tester will actually consider — which is the question you have
-    /// when a click does nothing, or lands on the wrong node.
+    /// Paint a translucent red rectangle over every hit-test area. azul's own
+    /// overlay, not a webrender flag: the compositor draws it while emitting
+    /// `DisplayListItem::HitTestArea`, so it shows exactly the regions the hit
+    /// tester will actually consider - which is the question you have when a click
+    /// does nothing, or lands on the wrong node.
     pub show_hit_test_areas: bool,
     pub profiler_dbg: bool,
     pub render_target_dbg: bool,
@@ -652,31 +628,7 @@ pub struct DebugState {
 
 impl DebugState {
     /// Build a `DebugState` from the `AZ_OVERLAY` environment variable.
-    ///
     /// `AZ_OVERLAY` is a comma-separated list of verbs, e.g.
-    ///
-    /// ```text
-    /// AZ_OVERLAY=hit-test
-    /// AZ_OVERLAY=hit-test,overdraw,profiler
-    /// AZ_OVERLAY=list          # print the verbs and exit-code nothing
-    /// ```
-    ///
-    /// WHY THIS EXISTS: the hit-test overlay used to be `#[cfg(debug_assertions)]`
-    /// in the compositor, so a debug build painted every hit-test area red and a
-    /// release build painted none, with no way to ask for either. That is a
-    /// debug/release divergence in VISUAL OUTPUT — running hello-world showed a
-    /// red window and the reasonable first guess was "this linked the wrong
-    /// DLL". It was not. An overlay you cannot turn on when you need it, and
-    /// cannot turn off when you do not, is worse than no overlay.
-    ///
-    /// Available in RELEASE builds too, deliberately: the moment you need to see
-    /// hit-test regions or overdraw is usually on the build a user is running.
-    ///
-    /// Unknown verbs are reported and ignored rather than fatal — a typo in a
-    /// debugging aid must not stop the app you are trying to debug.
-    /// Reading the environment needs std; on `no_std` there is no environment to
-    /// read, so the overlay is simply off. `from_overlay_spec` stays available
-    /// everywhere, so a `no_std` embedder can still enable overlays explicitly.
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_az_overlay_env() -> Self {
@@ -722,7 +674,7 @@ impl DebugState {
                 "gpu-time" => s.gpu_time_queries = true,
                 "gpu-samples" => s.gpu_sample_queries = true,
                 "echo-driver" => s.echo_driver_messages = true,
-                // Diagnostic switches that DISABLE a stage — for bisecting which
+                // Diagnostic switches that DISABLE a stage - for bisecting which
                 // stage is responsible for a visual artefact.
                 "no-batching" => s.disable_batching = true,
                 "no-opaque-pass" => s.disable_opaque_pass = true,
@@ -758,8 +710,8 @@ impl DebugState {
 pub struct TouchState {
     /// Number of active touch points (kept in sync with `touch_points.len()`).
     pub num_touches: usize,
-    /// Currently active touch points (one entry per finger / stylus).
-    /// Backends update this on touch start / move / end events.
+    /// Currently active touch points (one entry per finger / stylus). Backends
+    /// update this on touch start / move / end events.
     pub touch_points: TouchPointVec,
 }
 
@@ -771,8 +723,8 @@ pub struct TouchPoint {
     pub id: u64,
     /// Current position of the touch point in logical coordinates
     pub position: LogicalPosition,
-    /// Force/pressure of the touch (0.0 = no pressure, 1.0 = maximum pressure)
-    /// Set to 0.5 if pressure is not available
+    /// Force/pressure of the touch (0.0 = no pressure, 1.0 = maximum pressure) Set
+    /// to 0.5 if pressure is not available
     pub force: f32,
 }
 
@@ -804,16 +756,13 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash]
 );
 
-/// Identifies a specific monitor/display
-///
-/// Contains both an index (for fast current-session lookup) and a stable hash
-/// (for persistence across app restarts and monitor reconfigurations).
-///
-/// - `index`: Runtime index (0-based), may change if monitors are added/removed
-/// - `hash`: Stable identifier based on monitor properties (name, size, position)
-///
-/// Applications can serialize `hash` to remember which monitor a window was on,
-/// then search for matching hash on next launch, falling back to index or PRIMARY.
+/// Identifies a specific monitor/display Contains both an index (for fast
+/// current-session lookup) and a stable hash (for persistence across app restarts
+/// and monitor reconfigurations). - `index`: Runtime index (0-based), may change if
+/// monitors are added/removed - `hash`: Stable identifier based on monitor
+/// properties (name, size, position) Applications can serialize `hash` to remember
+/// which monitor a window was on, then search for matching hash on next launch,
+/// falling back to index or PRIMARY.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(C)]
 pub struct MonitorId {
@@ -837,11 +786,9 @@ impl MonitorId {
         Self { index, hash }
     }
 
-    /// Create a stable monitor ID from monitor properties
-    ///
-    /// Uses FNV-1a hash of: name + position + size
-    /// This ensures the hash is stable across app restarts as long as
-    /// the monitor configuration doesn't change significantly
+    /// Create a stable monitor ID from monitor properties Uses FNV-1a hash of: name
+    /// + position + size This ensures the hash is stable across app restarts as long
+    /// as the monitor configuration doesn't change significantly
     #[must_use] pub fn from_properties(
         index: usize,
         name: &str,
@@ -896,7 +843,8 @@ impl_option!(
 pub struct Monitor {
     /// Unique identifier for this monitor (stable across frames)
     pub monitor_id: MonitorId,
-    /// Human-readable name (e.g., "\\.\DISPLAY1", "HDMI-1", "Built-in Retina Display")
+    /// Human-readable name (e.g., "\\.\DISPLAY1", "HDMI-1", "Built-in Retina
+    /// Display")
     pub monitor_name: OptionString,
     /// Physical size of the monitor in logical pixels
     pub size: LayoutSize,
@@ -978,13 +926,10 @@ pub enum WindowPosition {
     /// Absolute position on the virtual screen (physical px). The default for
     /// top-level windows.
     Initialized(PhysicalPositionI32),
-    /// Offset (physical px) from the PARENT window's top-left corner. Used by
-    /// child windows (menus, dropdowns, popups) together with
-    /// `WindowCreateOptions.parent_window_id`: the backend resolves the final
-    /// screen position as `parent_top_left + offset`. This is robust where
-    /// absolute screen coordinates aren't available — notably Wayland, whose
-    /// `xdg_popup` / subsurface protocol positions relative to the parent. Falls
-    /// back to absolute (`offset` from origin) if there is no parent.
+    /// Offset (physical px) from the PARENT window's top-left corner. Used by child
+    /// windows (menus, dropdowns, popups) together with
+    /// `WindowCreateOptions.parent_window_id`: the backend resolves the final screen
+    /// position as `parent_top_left + offset`.
     RelativeToParentWindow(PhysicalPositionI32),
 }
 #[allow(variant_size_differences)] // repr(C,u8) FFI enum: boxing the large variant would change the C ABI (api.json bindings); size disparity accepted
@@ -1011,8 +956,8 @@ pub struct WindowFlags {
     pub background_material: WindowBackgroundMaterial,
     /// Window type classification (Normal, Menu, Tooltip, Dialog)
     pub window_type: WindowType,
-    /// User clicked the close button (set by `WindowDelegate`, checked by event loop)
-    /// The `close_callback` can set this to false to prevent closing
+    /// User clicked the close button (set by `WindowDelegate`, checked by event
+    /// loop) The `close_callback` can set this to false to prevent closing
     pub close_requested: bool,
     /// Is the window currently visible?
     pub is_visible: bool,
@@ -1020,37 +965,34 @@ pub struct WindowFlags {
     pub is_always_on_top: bool,
     /// Whether the window is resizable
     pub is_resizable: bool,
-    /// Whether the window has focus or not (mutating this will request user attention)
+    /// Whether the window has focus or not (mutating this will request user
+    /// attention)
     pub has_focus: bool,
     /// Is smooth scrolling enabled for this window?
     pub smooth_scroll_enabled: bool,
     /// Is automatic TAB switching supported?
     pub autotab_enabled: bool,
-    /// Enable client-side decorations (custom titlebar with CSD)
-    /// Only effective when decorations == `WindowDecorations::None`
+    /// Enable client-side decorations (custom titlebar with CSD) Only effective
+    /// when decorations == `WindowDecorations::None`
     pub has_decorations: bool,
-    /// Use native menus (Win32 HMENU, macOS `NSMenu`) instead of Azul window-based menus
-    /// Default: true on Windows/macOS, false on Linux
+    /// Use native menus (Win32 HMENU, macOS `NSMenu`) instead of Azul window-based
+    /// menus Default: true on Windows/macOS, false on Linux
     pub use_native_menus: bool,
-    /// Use native context menus instead of Azul window-based context menus
-    /// Default: true on Windows/macOS, false on Linux
+    /// Use native context menus instead of Azul window-based context menus Default:
+    /// true on Windows/macOS, false on Linux
     pub use_native_context_menus: bool,
     /// Keep window above all others (even from other applications)
-    /// Platform-specific: Uses `SetWindowPos(HWND_TOPMOST)` on Windows, [`NSWindow` setLevel:] on
-    /// macOS, _`NET_WM_STATE_ABOVE` on X11, `zwlr_layer_shell` on Wayland
+    /// Platform-specific: Uses `SetWindowPos(HWND_TOPMOST)` on Windows, [`NSWindow`
+    /// setLevel:] on macOS, _`NET_WM_STATE_ABOVE` on X11, `zwlr_layer_shell` on
+    /// Wayland
     pub is_top_level: bool,
-    /// Prevent system from sleeping while window is open
-    /// Platform-specific: Uses `SetThreadExecutionState` on Windows, `IOPMAssertionCreateWithName` on
-    /// macOS, org.freedesktop.ScreenSaver.Inhibit on Linux
+    /// Prevent system from sleeping while window is open Platform-specific: Uses
+    /// `SetThreadExecutionState` on Windows, `IOPMAssertionCreateWithName` on macOS,
+    /// org.freedesktop.ScreenSaver.Inhibit on Linux
     pub prevent_system_sleep: bool,
-    /// Desired fullscreen-transition style.
-    ///
-    /// On macOS this controls whether entering/leaving fullscreen plays the
-    /// system animation (`Slow*`) or transitions immediately (`Fast*`). On
-    /// other platforms `Slow*` and `Fast*` behave identically.
-    ///
-    /// The actual current frame state still lives in [`WindowFlags::frame`]; this
-    /// field only describes how the next transition should be performed.
+    /// Desired fullscreen-transition style. On macOS this controls whether
+    /// entering/leaving fullscreen plays the system animation (`Slow*`) or
+    /// transitions immediately (`Fast*`).
     pub fullscreen_mode: FullScreenMode,
 }
 
@@ -1097,16 +1039,14 @@ pub enum WindowFrame {
 pub enum WindowDecorations {
     /// Full decorations: title bar with controls
     Normal,
-    /// No title text but controls visible (extended frame).
-    /// The application must draw its own title text.
+    /// No title text but controls visible (extended frame). The application must
+    /// draw its own title text.
     NoTitle,
-    /// Like `NoTitle`, but the framework auto-injects a `Titlebar`
-    /// at the top of the user's DOM after calling the layout callback.
-    ///
-    /// The injected titlebar reads `TitlebarMetrics` from `SystemStyle` for
-    /// correct padding around the OS-drawn window control buttons, uses the
-    /// system title font, and carries the `__azul-native-titlebar` class for
-    /// automatic window-drag activation.
+    /// Like `NoTitle`, but the framework auto-injects a `Titlebar` at the top of
+    /// the user's DOM after calling the layout callback. The injected titlebar reads
+    /// `TitlebarMetrics` from `SystemStyle` for correct padding around the OS-drawn
+    /// window control buttons, uses the system title font, and carries the
+    /// `__azul-native-titlebar` class for automatic window-drag activation.
     NoTitleAutoInject,
     /// No controls visible but title bar area present
     NoControls,
@@ -1120,18 +1060,11 @@ impl Default for WindowDecorations {
     }
 }
 
-/// Compositor blur/transparency effects for window background.
-///
-/// Anything but `Opaque` gives the window PER-PIXEL alpha on the CPU path:
-/// the frame is cleared to transparent and whatever the content leaves at
-/// alpha 0 shows the desktop through (a `border-radius` on the body makes
-/// real rounded corners; a clip mask on the body makes any shape). The
-/// window's INPUT shape follows that alpha as well - clicks on fully
-/// transparent pixels fall through to whatever is behind, on every backend
-/// (macOS does this by itself for a non-opaque window; X11 gets an `XShape`,
-/// Wayland an input region, Windows a window region). This is partial
-/// (per-pixel) transparency, not whole-window opacity; X11 without an ARGB
-/// visual falls back to `_NET_WM_WINDOW_OPACITY`, which is whole-window.
+/// Compositor blur/transparency effects for window background. Anything but
+/// `Opaque` gives the window PER-PIXEL alpha on the CPU path: the frame is cleared
+/// to transparent and whatever the content leaves at alpha 0 shows the desktop
+/// through (a `border-radius` on the body makes real rounded corners; a clip mask on
+/// the body makes any shape).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub enum WindowBackgroundMaterial {
@@ -1172,8 +1105,8 @@ impl Default for WindowFlags {
             smooth_scroll_enabled: true,
             autotab_enabled: true,
             has_decorations: false,
-            // Native menus are the default on platforms that support them (Windows/macOS)
-            // The platform layer will override this appropriately
+            // Native menus are the default on platforms that support them
+            // (Windows/macOS) The platform layer will override this appropriately
             use_native_menus: cfg!(any(target_os = "windows", target_os = "macos")),
             use_native_context_menus: cfg!(any(target_os = "windows", target_os = "macos")),
             is_top_level: false,
@@ -1243,8 +1176,8 @@ pub struct PlatformSpecificOptions {
     pub wasm_options: WasmWindowOptions,
 }
 
-// SAFETY: PlatformSpecificOptions contains raw pointers (X11Visual) that are
-// opaque platform handles, not dereferenced across threads.
+// SAFETY: PlatformSpecificOptions contains raw pointers (X11Visual) that are opaque
+// platform handles, not dereferenced across threads.
 unsafe impl Sync for PlatformSpecificOptions {}
 #[allow(clippy::non_send_fields_in_send_ty)] // opaque platform handles, not dereferenced across threads (see note above)
 unsafe impl Send for PlatformSpecificOptions {}
@@ -1252,15 +1185,16 @@ unsafe impl Send for PlatformSpecificOptions {}
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct WindowsWindowOptions {
-    /// STARTUP ONLY: Whether the window should allow drag + drop operations (default: true)
+    /// STARTUP ONLY: Whether the window should allow drag + drop operations
+    /// (default: true)
     pub allow_drag_and_drop: bool,
     /// STARTUP ONLY: Sets `WS_EX_NOREDIRECTIONBITMAP`
     pub no_redirection_bitmap: bool,
-    /// STARTUP ONLY: Window icon (decoded bytes), appears at the top right corner of the window
+    /// STARTUP ONLY: Window icon (decoded bytes), appears at the top right corner
+    /// of the window
     pub window_icon: OptionWindowIcon,
-    /// READWRITE: Taskbar icon (decoded bytes), usually 256x256x4 bytes large (`ICON_BIG`).
-    ///
-    /// Can be changed in callbacks / at runtime.
+    /// READWRITE: Taskbar icon (decoded bytes), usually 256x256x4 bytes large
+    /// (`ICON_BIG`). Can be changed in callbacks / at runtime.
     pub taskbar_icon: OptionTaskBarIcon,
     // NOTE: the old Windows-specific `parent_window: OptionHwndHandle` field was
     // removed in favor of the cross-platform `WindowCreateOptions.parent_window_id`
@@ -1285,12 +1219,13 @@ impl Default for WindowsWindowOptions {
 #[repr(C)]
 #[derive(Default)]
 pub enum XWindowType {
-    /// A desktop feature. This can include a single window containing desktop icons with the same
-    /// dimensions as the screen, allowing the desktop environment to have full control of the
-    /// desktop, without the need for proxying root window clicks.
+    /// A desktop feature. This can include a single window containing desktop icons
+    /// with the same dimensions as the screen, allowing the desktop environment to
+    /// have full control of the desktop, without the need for proxying root window
+    /// clicks.
     Desktop,
-    /// A dock or panel feature. Typically a Window Manager would keep such windows on top of all
-    /// other windows.
+    /// A dock or panel feature. Typically a Window Manager would keep such windows
+    /// on top of all other windows.
     Dock,
     /// Toolbar windows. "Torn off" from the main application.
     Toolbar,
@@ -1302,23 +1237,23 @@ pub enum XWindowType {
     Splash,
     /// This is a dialog window.
     Dialog,
-    /// A dropdown menu that usually appears when the user clicks on an item in a menu bar.
-    /// This property is typically used on override-redirect windows.
+    /// A dropdown menu that usually appears when the user clicks on an item in a
+    /// menu bar. This property is typically used on override-redirect windows.
     DropdownMenu,
     /// A popup menu that usually appears when the user right clicks on an object.
     /// This property is typically used on override-redirect windows.
     PopupMenu,
-    /// A tooltip window. Usually used to show additional information when hovering over an object
-    /// with the cursor. This property is typically used on override-redirect windows.
+    /// A tooltip window. Usually used to show additional information when hovering
+    /// over an object with the cursor.
     Tooltip,
-    /// The window is a notification.
-    /// This property is typically used on override-redirect windows.
+    /// The window is a notification. This property is typically used on
+    /// override-redirect windows.
     Notification,
-    /// This should be used on the windows that are popped up by combo boxes.
-    /// This property is typically used on override-redirect windows.
+    /// This should be used on the windows that are popped up by combo boxes. This
+    /// property is typically used on override-redirect windows.
     Combo,
-    /// This indicates the the window is being dragged.
-    /// This property is typically used on override-redirect windows.
+    /// This indicates the the window is being dragged. This property is typically
+    /// used on override-redirect windows.
     Dnd,
     /// This is a normal, top-level window.
     #[default]
@@ -1343,7 +1278,8 @@ pub enum UserAttentionType {
 }
 
 
-/// State for tracking hover and interaction with Linux window decoration elements (CSD).
+/// State for tracking hover and interaction with Linux window decoration elements
+/// (CSD).
 #[derive(Debug, Default, Copy, Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
 #[repr(C)]
 pub struct LinuxDecorationsState {
@@ -1364,37 +1300,34 @@ impl_option!(
 pub struct LinuxWindowOptions {
     pub wayland_theme: OptionWaylandTheme,
     pub window_icon: OptionWindowIcon,
-    /// Build window with `_GTK_THEME_VARIANT` hint set to the specified value. Currently only
-    /// relevant on X11. Can only be set at window creation, can't be changed in callbacks.
+    /// Build window with `_GTK_THEME_VARIANT` hint set to the specified value.
+    /// Currently only relevant on X11.
     pub x11_gtk_theme_variant: OptionString,
-    /// Build window with a given application ID. It should match the `.desktop` file distributed
-    /// with your program. Only relevant on Wayland.
-    /// Can only be set at window creation, can't be changed in callbacks.
-    ///
-    /// For details about application ID conventions, see the
-    /// [Desktop Entry Spec](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#desktop-file-id)
+    /// Build window with a given application ID. It should match the `.desktop`
+    /// file distributed with your program.
     pub wayland_app_id: OptionString,
-    /// Build window with `WM_CLASS` hint; defaults to the name of the binary. Only relevant on
-    /// X11. Can only be set at window creation, can't be changed in callbacks.
+    /// Build window with `WM_CLASS` hint; defaults to the name of the binary. Only
+    /// relevant on X11.
     pub x11_wm_classes: StringPairVec,
-    /// Build window with `_NET_WM_WINDOW_TYPE` hint; defaults to `Normal`. Only relevant on X11.
-    /// Can only be set at window creation, can't be changed in callbacks.
+    /// Build window with `_NET_WM_WINDOW_TYPE` hint; defaults to `Normal`. Only
+    /// relevant on X11.
     pub x11_window_types: XWindowTypeVec,
-    /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
+    /// (Unimplemented) - Can only be set at window creation, can't be changed in
+    /// callbacks.
     pub x11_visual: OptionX11Visual,
     /// Build window with resize increment hint. Only implemented on X11.
-    /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_resize_increments: OptionLogicalSize,
     /// Build window with base size hint. Only implemented on X11.
-    /// Can only be set at window creation, can't be changed in callbacks.
     pub x11_base_size: OptionLogicalSize,
-    /// (Unimplemented) - Can only be set at window creation, can't be changed in callbacks.
+    /// (Unimplemented) - Can only be set at window creation, can't be changed in
+    /// callbacks.
     pub x11_screen: OptionI32,
     pub request_user_attention: UserAttentionType,
-    /// X11-specific: Client-side decoration state (drag position, button hover, etc.)
+    /// X11-specific: Client-side decoration state (drag position, button hover,
+    /// etc.)
     pub x11_decorations_state: OptionLinuxDecorationsState,
-    /// Build window with override-redirect flag; defaults to false. Only relevant on X11.
-    /// Can only be set at window creation, can't be changed in callbacks.
+    /// Build window with override-redirect flag; defaults to false. Only relevant
+    /// on X11.
     pub x11_override_redirect: bool,
 }
 
@@ -1405,7 +1338,8 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-/// A key-value pair of strings, used for X11 `WM_CLASS` and other platform properties
+/// A key-value pair of strings, used for X11 `WM_CLASS` and other platform
+/// properties
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub struct AzStringPair {
@@ -1506,18 +1440,18 @@ pub struct WasmWindowOptions {
 #[repr(C)]
 #[derive(Default)]
 pub enum FullScreenMode {
-    /// - macOS: If the window is in windowed mode, transitions it slowly to fullscreen mode
-    /// - other: Does the same as `FastFullScreen`.
+    /// - macOS: If the window is in windowed mode, transitions it slowly to
+    /// fullscreen mode - other: Does the same as `FastFullScreen`.
     SlowFullScreen,
-    /// Window should immediately go into fullscreen mode (on macOS this is not the default
-    /// behaviour).
+    /// Window should immediately go into fullscreen mode (on macOS this is not the
+    /// default behaviour).
     #[default]
     FastFullScreen,
-    /// - macOS: If the window is in fullscreen mode, transitions slowly back to windowed state.
-    /// - other: Does the same as `FastWindowed`.
+    /// - macOS: If the window is in fullscreen mode, transitions slowly back to
+    /// windowed state. - other: Does the same as `FastWindowed`.
     SlowWindowed,
-    /// If the window is in fullscreen mode, will immediately go back to windowed mode (on macOS
-    /// this is not the default behaviour).
+    /// If the window is in fullscreen mode, will immediately go back to windowed
+    /// mode (on macOS this is not the default behaviour).
     FastWindowed,
 }
 
@@ -1573,23 +1507,17 @@ pub struct WaylandTheme {
     pub title_bar_font_size: f32,
 }
 
-/// The global CSS viewport breakpoints for `@media`-style conditions.
-///
-/// The dynamic-selector system evaluates against these, and they are one of
-/// the three signals the resize fast path checks: crossing any of these
-/// (on either axis) re-invokes the
-/// app's `layout()`; staying between them re-flows the existing DOM.
-///
-/// Lived in `azul-dll`'s shell (`shell2::common::CSS_BREAKPOINTS`, still
-/// re-exported there) until the headless E2E runner needed the same resize
-/// decision — the list is engine policy, not shell policy.
+/// The global CSS viewport breakpoints for `@media`-style conditions. The
+/// dynamic-selector system evaluates against these, and they are one of the three
+/// signals the resize fast path checks: crossing any of these (on either axis)
+/// re-invokes the app's `layout()`; staying between them re-flows the existing DOM.
 pub const CSS_BREAKPOINTS: &[f32] = &[320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
 pub struct WindowSize {
-    /// Width and height of the window, in logical
-    /// units (may not correspond to the physical on-screen size)
+    /// Width and height of the window, in logical units (may not correspond to the
+    /// physical on-screen size)
     pub dimensions: LogicalSize,
     /// Actual DPI value (default: 96)
     pub dpi: u32,
@@ -1620,10 +1548,10 @@ impl WindowSize {
 
     #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion
     #[must_use] pub fn get_hidpi_factor(&self) -> DpiScaleFactor {
-        // Guard against `dpi == 0` (uninitialized / misreporting platform),
-        // which would yield a 0.0 scale factor and later divide-by-zero when
-        // converting physical <-> logical sizes (`to_logical` divides by this).
-        // Fall back to the standard 96 DPI (scale 1.0).
+        // Guard against `dpi == 0` (uninitialized / misreporting platform), which
+        // would yield a 0.0 scale factor and later divide-by-zero when converting
+        // physical <-> logical sizes (`to_logical` divides by this). Fall back to
+        // the standard 96 DPI (scale 1.0).
         let dpi = if self.dpi == 0 { 96 } else { self.dpi };
         DpiScaleFactor {
             inner: FloatValue::new(dpi as f32 / 96.0),
@@ -1679,7 +1607,8 @@ impl ::core::fmt::Display for UpdateFocusWarning {
     }
 }
 
-/// Utility function for easier creation of a keymap - i.e. `[vec![Ctrl, S], my_function]`
+/// Utility function for easier creation of a keymap - i.e. `[vec![Ctrl, S],
+/// my_function]`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum AcceleratorKey {
@@ -1874,13 +1803,10 @@ pub enum VirtualKeyCode {
 }
 
 impl VirtualKeyCode {
-    /// Reconstructs a `VirtualKeyCode` from its `as u32` discriminant.
-    ///
-    /// This enum is a fieldless `#[repr(C)]` enum with no explicit discriminants,
-    /// so the discriminants are assigned sequentially in declaration order and
-    /// `VariantN as u32` round-trips through this table. Used to recover the key
-    /// of a keyboard *event* from its `key_code` (which is stored as
-    /// `VirtualKeyCode as u32`) instead of reading live keyboard state.
+    /// Reconstructs a `VirtualKeyCode` from its `as u32` discriminant. This enum is
+    /// a fieldless `#[repr(C)]` enum with no explicit discriminants, so the
+    /// discriminants are assigned sequentially in declaration order and `VariantN as
+    /// u32` round-trips through this table.
     #[must_use]
     #[allow(clippy::too_many_lines)] // exhaustive keycode match table
     pub const fn from_u32(v: u32) -> Option<Self> {
@@ -2218,32 +2144,28 @@ impl Hash for TaskBarIcon {
     }
 }
 
-/// A built-in system dialog the engine presents on the app's behalf.
-///
-/// Invoked via `CallbackInfo::invoke_system_dialog`. These dialogs are
-/// rendered by azul itself in a new window that is ALWAYS CPU-rendered — a
-/// dialog reporting a problem (possibly a GPU problem) must not depend on
-/// the GPU working.
+/// A built-in system dialog the engine presents on the app's behalf. Invoked via
+/// `CallbackInfo::invoke_system_dialog`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub enum SysDialogType {
-    /// "Report a problem": a message box (user text + optional screenshot of
-    /// the current window + optional system information) mailed to
+    /// "Report a problem": a message box (user text + optional screenshot of the
+    /// current window + optional system information) mailed to
     /// `AppConfig.report_problem`, or saved to disk when no address is set.
     ReportProblem,
-    /// "Check for updates": runs the update check on a background thread,
-    /// shows the release's Markdown changelog, and — only where the install
-    /// permits self-update and the user consents — downloads and applies it.
-    /// Package-managed installs get a "update via your package manager" note.
+    /// "Check for updates": runs the update check on a background thread, shows the
+    /// release's Markdown changelog, and - only where the install permits
+    /// self-update and the user consents - downloads and applies it. Package-managed
+    /// installs get a "update via your package manager" note.
     UpdateVersion,
-    /// "Data collection": the telemetry consent dialog. Lists EVERY
-    /// instrument the app can record with per-metric checkmarks, the four
-    /// signal switches (crashes / logs / metrics / app state on crash), and
-    /// "remember for all azul apps" (writes the machine-wide shared config).
+    /// "Data collection": the telemetry consent dialog. Lists EVERY instrument the
+    /// app can record with per-metric checkmarks, the four signal switches (crashes
+    /// / logs / metrics / app state on crash), and "remember for all azul apps"
+    /// (writes the machine-wide shared config).
     TelemetryConsent,
-    /// "Graphics check": shows what the engine's GPU probe found (vendor /
-    /// renderer / verdict) and, when GPU rendering is unusable, per-platform
-    /// driver guidance - for apps that NEED working video acceleration.
+    /// "Graphics check": shows what the engine's GPU probe found (vendor / renderer
+    /// / verdict) and, when GPU rendering is unusable, per-platform driver guidance
+    /// - for apps that NEED working video acceleration.
     GpuCheck,
 }
 
@@ -2254,8 +2176,8 @@ mod audit_tests {
 
     #[test]
     fn hidpi_factor_guards_zero_dpi() {
-        // dpi == 0 must not produce a 0.0 scale factor (later divide-by-zero
-        // in to_logical); it falls back to 96 DPI (scale 1.0).
+        // dpi == 0 must not produce a 0.0 scale factor (later divide-by-zero in
+        // to_logical); it falls back to 96 DPI (scale 1.0).
         let ws = WindowSize { dpi: 0, ..WindowSize::default() };
         let factor = ws.get_hidpi_factor().inner.get();
         assert_eq!(factor, 1.0);
@@ -2291,7 +2213,8 @@ mod autotest_generated {
 
     use super::*;
 
-    /// Highest valid `VirtualKeyCode` discriminant (`Cut`, the last declared variant).
+    /// Highest valid `VirtualKeyCode` discriminant (`Cut`, the last declared
+    /// variant).
     const LAST_VK: u32 = 162;
 
     /// Deterministic, `no_std`-safe hasher so hash/eq consistency can be checked
@@ -2336,8 +2259,8 @@ mod autotest_generated {
 
     #[test]
     fn window_id_new_is_unique_and_monotonic() {
-        // The counter is process-global and shared with other tests in this
-        // binary, so only *relative* properties may be asserted.
+        // The counter is process-global and shared with other tests in this binary,
+        // so only *relative* properties may be asserted.
         let mut ids = BTreeSet::new();
         let mut prev = WindowId::new();
         assert!(ids.insert(prev));
@@ -2658,7 +2581,8 @@ mod autotest_generated {
             assert_eq!(snapshot.left_down, l);
             assert_eq!(snapshot.right_down, r);
             assert_eq!(snapshot.middle_down, m);
-            // any_down is exactly mouse_down, and the From impl is the same snapshot.
+            // any_down is exactly mouse_down, and the From impl is the same
+            // snapshot.
             assert_eq!(snapshot.any_down(), ms.mouse_down());
             assert_eq!(crate::events::MouseButtonState::from(&ms), snapshot);
         }
@@ -2678,7 +2602,8 @@ mod autotest_generated {
         assert_eq!(r.remaining_delta, LogicalPosition::zero());
         assert!(!r.hit_scrollbar);
 
-        // -0.0 == 0.0 under IEEE-754, so a negative-zero delta must also be a no-op.
+        // -0.0 == 0.0 under IEEE-754, so a negative-zero delta must also be a
+        // no-op.
         let neg_zero = process_system_scroll(LogicalPosition::new(-0.0, -0.0), true);
         assert_eq!(neg_zero.scrolled_nodes, 0);
         assert!(neg_zero.hit_scrollbar, "hit_scrollbar is echoed verbatim");
@@ -2988,7 +2913,8 @@ mod autotest_generated {
         assert_eq!(v.get_key("inf").map(AzString::as_str), Some("inf"));
         assert!(v.get_key("nan").is_none());
 
-        // Random non-grammar bytes / control chars / deep bracket nesting: None, no panic.
+        // Random non-grammar bytes / control chars / deep bracket nesting: None, no
+        // panic.
         assert!(v.get_key("\u{0}\u{1}\u{7f}\\x\"';--").is_none());
         assert!(v.get_key(&"[".repeat(10_000)).is_none());
         assert!(v.get_key(&"{\"a\":".repeat(10_000)).is_none());
@@ -3213,7 +3139,8 @@ mod autotest_generated {
         };
         assert_eq!(nan.get_physical_size(), PhysicalSize::new(0, u32::MAX));
 
-        // f32::MAX at 4x scale overflows u32 -> saturates, never wraps to a small value.
+        // f32::MAX at 4x scale overflows u32 -> saturates, never wraps to a small
+        // value.
         let huge = WindowSize {
             dimensions: LogicalSize::new(f32::MAX, f32::MAX),
             dpi: 384,
@@ -3236,7 +3163,8 @@ mod autotest_generated {
 
     #[test]
     fn window_size_get_hidpi_factor_is_never_zero_or_negative() {
-        // A 0.0 factor would divide-by-zero in to_logical(); the getter guards dpi == 0.
+        // A 0.0 factor would divide-by-zero in to_logical(); the getter guards dpi
+        // == 0.
         for dpi in [
             0u32,
             1,

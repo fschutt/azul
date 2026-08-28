@@ -1,13 +1,10 @@
-//! Accessibility types for screen reader support.
-//!
-//! Key types:
-//! - [`AccessibilityInfo`] — full accessibility metadata for a UI element
-//! - [`SmallAriaInfo`] — lightweight alternative for common cases (label + role + description)
-//! - [`AccessibilityRole`] — element purpose (button, link, checkbox, etc.)
-//! - [`AccessibilityState`] — dynamic state (focused, checked, expanded, etc.)
-//! - [`AccessibilityAction`] — actions performable on an element (click, scroll, etc.)
-//!
-//! These types are consumed by `layout/src/managers/a11y.rs` and mapped to
+//! Accessibility types for screen reader support. Key types: -
+//! [`AccessibilityInfo`] - full accessibility metadata for a UI element -
+//! [`SmallAriaInfo`] - lightweight alternative for common cases (label + role +
+//! description) - [`AccessibilityRole`] - element purpose (button, link, checkbox,
+//! etc.) - [`AccessibilityState`] - dynamic state (focused, checked, expanded, etc.)
+//! - [`AccessibilityAction`] - actions performable on an element (click, scroll,
+//! etc.) These types are consumed by `layout/src/managers/a11y.rs` and mapped to
 //! platform accessibility backends in `dll/src/desktop/shell2/`.
 
 use alloc::vec::Vec;
@@ -21,39 +18,39 @@ use crate::{
     window::OptionVirtualKeyCodeCombo,
 };
 
-/// Holds information about a UI element for accessibility purposes (e.g., screen readers).
-/// This is a wrapper for platform-specific accessibility APIs like MSAA.
+/// Holds information about a UI element for accessibility purposes (e.g., screen
+/// readers). This is a wrapper for platform-specific accessibility APIs like MSAA.
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C)]
 pub struct AccessibilityInfo {
-    /// Get the "name" of the `IAccessible`, for example the
-    /// name of a button, checkbox or menu item. Try to use unique names
-    /// for each item in a dialog so that voice dictation software doesn't
-    /// have to deal with extra ambiguity.
+    /// Get the "name" of the `IAccessible`, for example the name of a button,
+    /// checkbox or menu item. Try to use unique names for each item in a dialog so
+    /// that voice dictation software doesn't have to deal with extra ambiguity.
     pub accessibility_name: OptionString,
-    /// Get the "value" of the `IAccessible`, for example a number in a slider,
-    /// a URL for a link, the text a user entered in a field.
+    /// Get the "value" of the `IAccessible`, for example a number in a slider, a
+    /// URL for a link, the text a user entered in a field.
     pub accessibility_value: OptionString,
     /// Optional text description providing additional context about the element.
     /// Maps to `aria-description` / accesskit's `set_description()`.
     pub description: OptionString,
     /// Optional keyboard accelerator.
     pub accelerator: OptionVirtualKeyCodeCombo,
-    /// Optional "default action" description. Only used when there is at least
-    /// one `ComponentEventFilter::DefaultAction` callback present on this node.
+    /// Optional "default action" description. Only used when there is at least one
+    /// `ComponentEventFilter::DefaultAction` callback present on this node.
     pub default_action: OptionString,
     /// Possible on/off states, such as focused, focusable, selected, selectable,
     /// visible, protected (for passwords), checked, etc.
     pub states: AccessibilityStateVec,
-    /// A list of actions the user can perform on this element.
-    /// Maps to accesskit's Action enum.
+    /// A list of actions the user can perform on this element. Maps to accesskit's
+    /// Action enum.
     pub supported_actions: AccessibilityActionVec,
     /// ID of another node that labels this one (for `aria-labelledby`).
     pub labelled_by: OptionDomNodeId,
     /// ID of another node that describes this one (for `aria-describedby`).
     pub described_by: OptionDomNodeId,
     /// Get an enumerated value representing what this `IAccessible` is used for,
-    /// for example is it a link, static text, editable text, a checkbox, or a table cell, etc.
+    /// for example is it a link, static text, editable text, a checkbox, or a table
+    /// cell, etc.
     pub role: AccessibilityRole,
     /// For live regions that update automatically (e.g., chat messages, timers).
     /// Maps to accesskit's `Live` property.
@@ -61,18 +58,9 @@ pub struct AccessibilityInfo {
 }
 
 impl AccessibilityInfo {
-    /// The common case: "this control is a X called Y".
-    ///
-    /// Exists because the struct has eleven fields and, from a binding, there
-    /// was no way to fill two of them without spelling out the other nine. A
-    /// developer who has just been told by the engine's a11y lint to name a
-    /// control should be one call away from doing it:
-    ///
-    /// ```ignore
-    /// slider.with_accessibility_info(AccessibilityInfo::named(
-    ///     "Volume", AccessibilityRole::Slider,
-    /// ))
-    /// ```
+    /// The common case: "this control is a X called Y". Exists because the struct
+    /// has eleven fields and, from a binding, there was no way to fill two of them
+    /// without spelling out the other nine.
     #[must_use]
     pub fn named(name: impl Into<AzString>, role: AccessibilityRole) -> Self {
         Self {
@@ -82,10 +70,8 @@ impl AccessibilityInfo {
         }
     }
 
-    /// A control named by ANOTHER node — the label element that already carries
-    /// the text.
-    ///
-    /// Preferred over duplicating the string: a copied name drifts the moment
+    /// A control named by ANOTHER node - the label element that already carries the
+    /// text. Preferred over duplicating the string: a copied name drifts the moment
     /// someone edits the visible label and forgets the spoken one.
     #[must_use]
     pub fn labelled_by_node(label: crate::dom::DomNodeId, role: AccessibilityRole) -> Self {
@@ -96,30 +82,11 @@ impl AccessibilityInfo {
         }
     }
 
-    /// Overlay `patch` onto `self`, taking only the fields `patch` actually
-    /// SETS — the accessibility equivalent of a struct assign/merge.
-    ///
-    /// The problem it solves: a widget declares what it knows (role, live
-    /// value, checked state) and an application knows the one thing the widget
-    /// cannot (what the control is CALLED). Replacing the struct to add a name
-    /// throws away the role and value; adding a dedicated setter per field does
-    /// not compose. This lets a caller hand over a partial declaration and keep
-    /// everything else:
-    ///
-    /// ```ignore
-    /// info.assign(&AccessibilityInfo {
-    ///     accessibility_name: Some("Volume".into()).into(),
-    ///     ..Default::default()
-    /// });
-    /// // role, value and states are untouched
-    /// ```
-    ///
-    /// "Actually sets" is defined per field, and deliberately: `None` and an
-    /// EMPTY vec mean "not specified", `AccessibilityRole::Unknown` means "not
-    /// specified" (which is exactly why Default uses it), and `is_live_region`
-    /// is only ever turned ON by a patch — a `false` in a partial struct is
-    /// indistinguishable from an unset field, so it must not clear a `true`
-    /// that the widget set on purpose.
+    /// Overlay `patch` onto `self`, taking only the fields `patch` actually SETS -
+    /// the accessibility equivalent of a struct assign/merge. The problem it solves:
+    /// a widget declares what it knows (role, live value, checked state) and an
+    /// application knows the one thing the widget cannot (what the control is
+    /// CALLED).
     #[allow(clippy::needless_pass_by_value)] // by value: crosses the FFI, where the argument arrives owned
     pub fn assign(&mut self, patch: Self) {
         if patch.accessibility_name.is_some() {
@@ -164,7 +131,7 @@ impl AccessibilityInfo {
         self
     }
 
-    /// Attach a live value — a slider's position, a progress percentage.
+    /// Attach a live value - a slider's position, a progress percentage.
     #[must_use]
     pub fn with_value(mut self, value: impl Into<AzString>) -> Self {
         self.accessibility_value = OptionString::Some(value.into());
@@ -173,26 +140,12 @@ impl AccessibilityInfo {
 }
 
 impl Default for AccessibilityInfo {
-    /// An empty declaration: no name, no value, `Unknown` role.
-    ///
-    /// Exists so the idiomatic form works — the one the engine's own a11y lint
-    /// tells developers to write:
-    ///
-    /// ```ignore
-    /// dom.with_accessibility_info(AccessibilityInfo {
-    ///     accessibility_name: Some("Mute microphone".into()).into(),
-    ///     role: AccessibilityRole::PushButton,
-    ///     ..Default::default()
-    /// })
-    /// ```
-    ///
-    /// Without it, declaring one field meant spelling out all eleven, and the
-    /// advice the lint prints did not compile.
-    ///
-    /// The default role is `Unknown` ON PURPOSE rather than something
-    /// plausible-looking: a node that reaches the accessibility tree announcing
-    /// the wrong KIND of control is worse than one that admits it does not
-    /// know, and `warn_a11y_shape` reports `Unknown` on an interactive node.
+    /// An empty declaration: no name, no value, `Unknown` role. Exists so the
+    /// idiomatic form works - the one the engine's own a11y lint tells developers to
+    /// write: dom.with_accessibility_info(AccessibilityInfo { accessibility_name:
+    /// Some("Mute microphone".into()).into(), role: AccessibilityRole::PushButton,
+    /// ..Default::default() }) Without it, declaring one field meant spelling out
+    /// all eleven, and the advice the lint prints did not compile.
     fn default() -> Self {
         Self {
             accessibility_name: OptionString::None,
@@ -210,8 +163,8 @@ impl Default for AccessibilityInfo {
     }
 }
 
-/// Actions that can be performed on an accessible element.
-/// This is a simplified version of `accesskit::Action` to avoid direct dependency in core.
+/// Actions that can be performed on an accessible element. This is a simplified
+/// version of `accesskit::Action` to avoid direct dependency in core.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum AccessibilityAction {
@@ -297,451 +250,276 @@ impl_option!(
     [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-/// Defines the element's purpose for accessibility APIs, informing assistive technologies
-/// like screen readers about the function of a UI element.
-///
-/// Each variant corresponds to a
-/// standard control type or UI structure.
-///
-/// For more details, see the [MSDN Role Constants page](https://docs.microsoft.com/en-us/windows/winauto/object-roles).
+/// Defines the element's purpose for accessibility APIs, informing assistive
+/// technologies like screen readers about the function of a UI element. Each variant
+/// corresponds to a standard control type or UI structure.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub enum AccessibilityRole {
-    /// Represents the title or caption bar of a window.
-    /// - **Purpose**: To identify the title bar containing the window title and system commands.
-    /// - **When to use**: This role is typically inserted by the operating system for standard
-    ///   windows.
-    /// - **Example**: The bar at the top of an application window displaying its name and the
-    ///   minimize, maximize, and close buttons.
+    /// Represents the title or caption bar of a window. - **Purpose**: To identify
+    /// the title bar containing the window title and system commands.
     TitleBar,
 
-    /// Represents a menu bar at the top of a window.
-    /// - **Purpose**: To contain a set of top-level menus for an application.
-    /// - **When to use**: For the main menu bar of an application, such as one containing "File,"
-    ///   "Edit," and "View."
-    /// - **Example**: The "File", "Edit", "View" menu bar at the top of a text editor.
+    /// Represents a menu bar at the top of a window. - **Purpose**: To contain a
+    /// set of top-level menus for an application.
     MenuBar,
 
-    /// Represents a vertical or horizontal scroll bar.
-    /// - **Purpose**: To enable scrolling through content that is larger than the visible area.
-    /// - **When to use**: For any scrollable region of content.
-    /// - **Example**: The bar on the side of a web page that allows the user to scroll up and
-    ///   down.
+    /// Represents a vertical or horizontal scroll bar. - **Purpose**: To enable
+    /// scrolling through content that is larger than the visible area.
     ScrollBar,
 
-    /// Represents a handle or grip used for moving or resizing.
-    /// - **Purpose**: To provide a user interface element for manipulating another element's size
-    ///   or position.
-    /// - **When to use**: For handles that allow resizing of windows, panes, or other objects.
-    /// - **Example**: The small textured area in the bottom-right corner of a window that can be
-    ///   dragged to resize it.
+    /// Represents a handle or grip used for moving or resizing. - **Purpose**: To
+    /// provide a user interface element for manipulating another element's size or
+    /// position.
     Grip,
 
-    /// Represents a system sound indicating an event.
-    /// - **Purpose**: To associate a sound with a UI event, providing an auditory cue.
-    /// - **When to use**: When a sound is the primary representation of an event.
-    /// - **Example**: A system notification sound that plays when a new message arrives.
+    /// Represents a system sound indicating an event. - **Purpose**: To associate a
+    /// sound with a UI event, providing an auditory cue.
     Sound,
 
-    /// Represents the system's mouse pointer or other pointing device.
-    /// - **Purpose**: To indicate the screen position of the user's pointing device.
-    /// - **When to use**: This role is managed by the operating system.
-    /// - **Example**: The arrow that moves on the screen as you move the mouse.
+    /// Represents the system's mouse pointer or other pointing device. -
+    /// **Purpose**: To indicate the screen position of the user's pointing device.
     Cursor,
 
-    /// Represents the text insertion point indicator.
-    /// - **Purpose**: To show the current text entry or editing position.
-    /// - **When to use**: This role is typically managed by the operating system for text input
-    ///   fields.
-    /// - **Example**: The blinking vertical line in a text box that shows where the next character
-    ///   will be typed.
+    /// Represents the text insertion point indicator. - **Purpose**: To show the
+    /// current text entry or editing position.
     Caret,
 
-    /// Represents an alert or notification.
-    /// - **Purpose**: To convey an important, non-modal message to the user.
-    /// - **When to use**: For non-intrusive notifications that do not require immediate user
-    ///   interaction.
-    /// - **Example**: A small, temporary "toast" notification that appears to confirm an action,
-    ///   like "Email sent."
+    /// Represents an alert or notification. - **Purpose**: To convey an important,
+    /// non-modal message to the user.
     Alert,
 
-    /// Represents a window frame.
-    /// - **Purpose**: To serve as the container for other objects like a title bar and client
-    ///   area.
-    /// - **When to use**: This is a fundamental role, typically managed by the windowing system.
-    /// - **Example**: The main window of any application, which contains all other UI elements.
+    /// Represents a window frame. - **Purpose**: To serve as the container for
+    /// other objects like a title bar and client area.
     Window,
 
-    /// Represents a window's client area, where the main content is displayed.
-    /// - **Purpose**: To define the primary content area of a window.
-    /// - **When to use**: For the main content region of a window. It's often the default role for
-    ///   a custom control container.
-    /// - **Example**: The area of a web browser where the web page content is rendered.
+    /// Represents a window's client area, where the main content is displayed. -
+    /// **Purpose**: To define the primary content area of a window.
     Client,
 
-    /// Represents a pop-up menu.
-    /// - **Purpose**: To display a list of `MenuItem` objects that appears when a user performs an
-    ///   action.
-    /// - **When to use**: For context menus (right-click menus) or drop-down menus.
-    /// - **Example**: The menu that appears when you right-click on a file in a file explorer.
+    /// Represents a pop-up menu. - **Purpose**: To display a list of `MenuItem`
+    /// objects that appears when a user performs an action.
     MenuPopup,
 
-    /// Represents an individual item within a menu.
-    /// - **Purpose**: To represent a single command, option, or separator within a menu.
-    /// - **When to use**: For individual options inside a `MenuBar` or `MenuPopup`.
-    /// - **Example**: The "Save" option within the "File" menu.
+    /// Represents an individual item within a menu. - **Purpose**: To represent a
+    /// single command, option, or separator within a menu.
     MenuItem,
 
-    /// Represents a small pop-up window that provides information.
-    /// - **Purpose**: To offer brief, contextual help or information about a UI element.
-    /// - **When to use**: For informational pop-ups that appear on mouse hover.
-    /// - **Example**: The small box of text that appears when you hover over a button in a
-    ///   toolbar.
+    /// Represents a small pop-up window that provides information. - **Purpose**:
+    /// To offer brief, contextual help or information about a UI element.
     Tooltip,
 
-    /// Represents the main window of an application.
-    /// - **Purpose**: To identify the top-level window of an application.
-    /// - **When to use**: For the primary window that represents the application itself.
-    /// - **Example**: The main window of a calculator or notepad application.
+    /// Represents the main window of an application. - **Purpose**: To identify the
+    /// top-level window of an application.
     Application,
 
-    /// Represents a document window within an application.
-    /// - **Purpose**: To represent a contained document, typically in a Multiple Document
-    ///   Interface (MDI) application.
-    /// - **When to use**: For individual document windows inside a larger application shell.
-    /// - **Example**: In a photo editor that allows multiple images to be open in separate
-    ///   windows, each image window would be a `Document`.
+    /// Represents a document window within an application. - **Purpose**: To
+    /// represent a contained document, typically in a Multiple Document Interface
+    /// (MDI) application.
     Document,
 
-    /// Represents a pane or a distinct section of a window.
-    /// - **Purpose**: To divide a window into visually and functionally distinct areas.
-    /// - **When to use**: For sub-regions of a window, like a navigation pane, preview pane, or
-    ///   sidebar.
-    /// - **Example**: The preview pane in an email client that shows the content of the selected
-    ///   email.
+    /// Represents a pane or a distinct section of a window. - **Purpose**: To
+    /// divide a window into visually and functionally distinct areas.
     Pane,
 
-    /// Represents a graphical chart or graph.
-    /// - **Purpose**: To display data visually in a chart format.
-    /// - **When to use**: For any type of chart, such as a bar chart, line chart, or pie chart.
-    /// - **Example**: A bar chart displaying monthly sales figures.
+    /// Represents a graphical chart or graph. - **Purpose**: To display data
+    /// visually in a chart format.
     Chart,
 
-    /// Represents a dialog box or message box.
-    /// - **Purpose**: To create a secondary window that requires user interaction before returning
-    ///   to the main application.
-    /// - **When to use**: For modal or non-modal windows that prompt the user for information or a
-    ///   response.
-    /// - **Example**: The "Open File" or "Print" dialog in most applications.
+    /// Represents a dialog box or message box. - **Purpose**: To create a secondary
+    /// window that requires user interaction before returning to the main
+    /// application.
     Dialog,
 
-    /// Represents a window's border.
-    /// - **Purpose**: To identify the border of a window, which is often used for resizing.
-    /// - **When to use**: This role is typically managed by the windowing system.
-    /// - **Example**: The decorative and functional frame around a window.
+    /// Represents a window's border. - **Purpose**: To identify the border of a
+    /// window, which is often used for resizing.
     Border,
 
-    /// Represents a group of related controls.
-    /// - **Purpose**: To logically group other objects that share a common purpose.
-    /// - **When to use**: For grouping controls like a set of radio buttons or a fieldset with a
-    ///   legend.
-    /// - **Example**: A "Settings" group box in a dialog that contains several related checkboxes.
+    /// Represents a group of related controls. - **Purpose**: To logically group
+    /// other objects that share a common purpose.
     Grouping,
 
-    /// Represents a visual separator.
-    /// - **Purpose**: To visually divide a space or a group of controls.
-    /// - **When to use**: For visual separators in menus, toolbars, or between panes.
-    /// - **Example**: The horizontal line in a menu that separates groups of related menu items.
+    /// Represents a visual separator. - **Purpose**: To visually divide a space or
+    /// a group of controls.
     Separator,
 
-    /// Represents a toolbar containing a group of controls.
-    /// - **Purpose**: To group controls, typically buttons, for quick access to frequently used
-    ///   functions.
-    /// - **When to use**: For a bar of buttons or other controls, usually at the top of a window
-    ///   or pane.
-    /// - **Example**: The toolbar at the top of a word processor with buttons for "Bold,"
-    ///   "Italic," and "Underline."
+    /// Represents a toolbar containing a group of controls. - **Purpose**: To group
+    /// controls, typically buttons, for quick access to frequently used functions.
     Toolbar,
 
-    /// Represents a status bar for displaying information.
-    /// - **Purpose**: To display status information about the current state of the application.
-    /// - **When to use**: For a bar, typically at the bottom of a window, that displays messages.
-    /// - **Example**: The bar at the bottom of a web browser that shows the loading status of a
-    ///   page.
+    /// Represents a status bar for displaying information. - **Purpose**: To
+    /// display status information about the current state of the application.
     StatusBar,
 
-    /// Represents a data table.
-    /// - **Purpose**: To present data in a two-dimensional grid of rows and columns.
-    /// - **When to use**: For grid-like data presentation.
-    /// - **Example**: A spreadsheet or a table of data in a database application.
+    /// Represents a data table. - **Purpose**: To present data in a two-dimensional
+    /// grid of rows and columns.
     Table,
 
-    /// Represents a column header in a table.
-    /// - **Purpose**: To provide a label for a column of data.
-    /// - **When to use**: For the headers of columns in a `Table`.
-    /// - **Example**: The header row in a spreadsheet with labels like "Name," "Date," and
-    ///   "Amount."
+    /// Represents a column header in a table. - **Purpose**: To provide a label for
+    /// a column of data.
     ColumnHeader,
 
-    /// Represents a row header in a table.
-    /// - **Purpose**: To provide a label for a row of data.
-    /// - **When to use**: For the headers of rows in a `Table`.
-    /// - **Example**: The numbered rows on the left side of a spreadsheet.
+    /// Represents a row header in a table. - **Purpose**: To provide a label for a
+    /// row of data.
     RowHeader,
 
-    /// Represents a full column of cells in a table.
-    /// - **Purpose**: To represent an entire column as a single accessible object.
-    /// - **When to use**: When it is useful to interact with a column as a whole.
-    /// - **Example**: The "Amount" column in a financial data table.
+    /// Represents a full column of cells in a table. - **Purpose**: To represent an
+    /// entire column as a single accessible object.
     Column,
 
-    /// Represents a full row of cells in a table.
-    /// - **Purpose**: To represent an entire row as a single accessible object.
-    /// - **When to use**: When it is useful to interact with a row as a whole.
-    /// - **Example**: A row representing a single customer's information in a customer list.
+    /// Represents a full row of cells in a table. - **Purpose**: To represent an
+    /// entire row as a single accessible object.
     Row,
 
-    /// Represents a single cell within a table.
-    /// - **Purpose**: To represent a single data point or control within a `Table`.
-    /// - **When to use**: For individual cells in a grid or table.
-    /// - **Example**: A single cell in a spreadsheet containing a specific value.
+    /// Represents a single cell within a table. - **Purpose**: To represent a
+    /// single data point or control within a `Table`.
     Cell,
 
-    /// Represents a hyperlink to a resource.
-    /// - **Purpose**: To provide a navigational link to another document or location.
-    /// - **When to use**: For text or images that, when clicked, navigate to another resource.
-    /// - **Example**: A clickable link on a web page.
+    /// Represents a hyperlink to a resource. - **Purpose**: To provide a
+    /// navigational link to another document or location.
     Link,
 
-    /// Represents a help balloon or pop-up.
-    /// - **Purpose**: To provide more detailed help information than a standard tooltip.
-    /// - **When to use**: For a pop-up that offers extended help text, often initiated by a help
-    ///   button.
-    /// - **Example**: A pop-up balloon with a paragraph of help text that appears when a user
-    ///   clicks a help icon.
+    /// Represents a help balloon or pop-up. - **Purpose**: To provide more detailed
+    /// help information than a standard tooltip.
     HelpBalloon,
 
-    /// Represents an animated, character-like graphic object.
-    /// - **Purpose**: To provide an animated agent for user assistance or entertainment.
-    /// - **When to use**: For animated characters or avatars that provide help or guidance.
-    /// - **Example**: An animated paperclip that offers tips in a word processor (e.g.,
-    ///   Microsoft's Clippy).
+    /// Represents an animated, character-like graphic object. - **Purpose**: To
+    /// provide an animated agent for user assistance or entertainment.
     Character,
 
-    /// Represents a list of items.
-    /// - **Purpose**: To contain a set of `ListItem` objects.
-    /// - **When to use**: For list boxes or similar controls that present a list of selectable
-    ///   items.
-    /// - **Example**: The list of files in a file selection dialog.
+    /// Represents a list of items. - **Purpose**: To contain a set of `ListItem`
+    /// objects.
     List,
 
-    /// Represents an individual item within a list.
-    /// - **Purpose**: To represent a single, selectable item within a `List`.
-    /// - **When to use**: For each individual item in a list box or combo box.
-    /// - **Example**: A single file name in a list of files.
+    /// Represents an individual item within a list. - **Purpose**: To represent a
+    /// single, selectable item within a `List`.
     ListItem,
 
-    /// Represents an outline or tree structure.
-    /// - **Purpose**: To display a hierarchical view of data.
-    /// - **When to use**: For tree-view controls that show nested items.
-    /// - **Example**: A file explorer's folder tree view.
+    /// Represents an outline or tree structure. - **Purpose**: To display a
+    /// hierarchical view of data.
     Outline,
 
-    /// Represents an individual item within an outline or tree.
-    /// - **Purpose**: To represent a single node (which can be a leaf or a branch) in an
-    ///   `Outline`.
-    /// - **When to use**: For each node in a tree view.
-    /// - **Example**: A single folder in a file explorer's tree view.
+    /// Represents an individual item within an outline or tree. - **Purpose**: To
+    /// represent a single node (which can be a leaf or a branch) in an `Outline`.
     OutlineItem,
 
-    /// Represents a single tab in a tabbed interface.
-    /// - **Purpose**: To provide a control for switching between different `PropertyPage` views.
-    /// - **When to use**: For the individual tabs that the user can click to switch pages.
-    /// - **Example**: The "General" and "Security" tabs in a file properties dialog.
+    /// Represents a single tab in a tabbed interface. - **Purpose**: To provide a
+    /// control for switching between different `PropertyPage` views.
     PageTab,
 
-    /// Represents the content of a page in a property sheet.
-    /// - **Purpose**: To serve as a container for the controls displayed when a `PageTab` is
-    ///   selected.
-    /// - **When to use**: For the content area associated with a specific tab.
-    /// - **Example**: The set of options displayed when the "Security" tab is active.
+    /// Represents the content of a page in a property sheet. - **Purpose**: To
+    /// serve as a container for the controls displayed when a `PageTab` is selected.
     PropertyPage,
 
-    /// Represents a visual indicator, like a slider thumb.
-    /// - **Purpose**: To visually indicate the current value or position of another control.
-    /// - **When to use**: For a sub-element that indicates status, like the thumb of a scrollbar.
-    /// - **Example**: The draggable thumb of a scrollbar that indicates the current scroll
-    ///   position.
+    /// Represents a visual indicator, like a slider thumb. - **Purpose**: To
+    /// visually indicate the current value or position of another control.
     Indicator,
 
-    /// Represents a picture or graphical image.
-    /// - **Purpose**: To display a non-interactive image.
-    /// - **When to use**: For images and icons that are purely decorative or informational.
-    /// - **Example**: A company logo displayed in an application's "About" dialog.
+    /// Represents a picture or graphical image. - **Purpose**: To display a
+    /// non-interactive image.
     Graphic,
 
-    /// Represents read-only text.
-    /// - **Purpose**: To provide a non-editable text label for another control or for displaying
-    ///   information.
-    /// - **When to use**: For text that the user cannot edit.
-    /// - **Example**: The label "Username:" next to a text input field.
+    /// Represents read-only text. - **Purpose**: To provide a non-editable text
+    /// label for another control or for displaying information.
     StaticText,
 
-    /// Represents editable text or a text area.
-    /// - **Purpose**: To allow for user text input or selection.
-    /// - **When to use**: For text input fields where the user can type.
-    /// - **Example**: A text box for entering a username or password.
+    /// Represents editable text or a text area. - **Purpose**: To allow for user
+    /// text input or selection.
     Text,
 
-    /// Represents a standard push button.
-    /// - **Purpose**: To initiate an immediate action.
-    /// - **When to use**: For standard buttons that perform an action when clicked.
-    /// - **Example**: An "OK" or "Cancel" button in a dialog.
+    /// Represents a standard push button. - **Purpose**: To initiate an immediate
+    /// action.
     PushButton,
 
-    /// Represents a check box control.
-    /// - **Purpose**: To allow the user to make a binary choice (checked or unchecked).
-    /// - **When to use**: For options that can be toggled on or off independently.
-    /// - **Example**: A "Remember me" checkbox on a login form.
+    /// Represents a check box control. - **Purpose**: To allow the user to make a
+    /// binary choice (checked or unchecked).
     CheckButton,
 
-    /// Represents a radio button.
-    /// - **Purpose**: To allow the user to select one option from a mutually exclusive group.
-    /// - **When to use**: For a choice where only one option from a `Grouping` can be selected.
-    /// - **Example**: "Male" and "Female" radio buttons for selecting gender.
+    /// Represents a radio button. - **Purpose**: To allow the user to select one
+    /// option from a mutually exclusive group.
     RadioButton,
 
-    /// Represents a combination of a text field and a drop-down list.
-    /// - **Purpose**: To allow the user to either type a value or select one from a list.
-    /// - **When to use**: For controls that offer a list of suggestions but also allow custom
-    ///   input.
-    /// - **Example**: A font selector that allows you to type a font name or choose one from a
-    ///   list.
+    /// Represents a combination of a text field and a drop-down list. -
+    /// **Purpose**: To allow the user to either type a value or select one from a
+    /// list.
     ComboBox,
 
-    /// Represents a drop-down list box.
-    /// - **Purpose**: To allow the user to select an item from a non-editable list that drops
-    ///   down.
-    /// - **When to use**: For selecting a single item from a predefined list of options.
-    /// - **Example**: A country selection drop-down menu.
+    /// Represents a drop-down list box. - **Purpose**: To allow the user to select
+    /// an item from a non-editable list that drops down.
     DropList,
 
-    /// Represents a progress bar.
-    /// - **Purpose**: To indicate the progress of a lengthy operation.
-    /// - **When to use**: To provide feedback for tasks like file downloads or installations.
-    /// - **Example**: The bar that fills up to show the progress of a file copy operation.
+    /// Represents a progress bar. - **Purpose**: To indicate the progress of a
+    /// lengthy operation.
     ProgressBar,
 
-    /// Represents a dial or knob.
-    /// - **Purpose**: To allow selecting a value from a continuous or discrete range, often
-    ///   circularly.
-    /// - **When to use**: For controls that resemble real-world dials, like a volume knob.
-    /// - **Example**: A volume control knob in a media player application.
+    /// Represents a dial or knob. - **Purpose**: To allow selecting a value from a
+    /// continuous or discrete range, often circularly.
     Dial,
 
-    /// Represents a control for entering a keyboard shortcut.
-    /// - **Purpose**: To capture a key combination from the user.
-    /// - **When to use**: In settings where users can define their own keyboard shortcuts.
-    /// - **Example**: A text field in a settings dialog where a user can press a key combination
-    ///   to assign it to a command.
+    /// Represents a control for entering a keyboard shortcut. - **Purpose**: To
+    /// capture a key combination from the user.
     HotkeyField,
 
-    /// Represents a slider for selecting a value within a range.
-    /// - **Purpose**: To allow the user to adjust a setting along a continuous or discrete range.
-    /// - **When to use**: For adjusting values like volume, brightness, or zoom level.
-    /// - **Example**: A slider to control the volume of a video.
+    /// Represents a slider for selecting a value within a range. - **Purpose**: To
+    /// allow the user to adjust a setting along a continuous or discrete range.
     Slider,
 
-    /// Represents a spin button (up/down arrows) for incrementing or decrementing a value.
-    /// - **Purpose**: To provide fine-tuned adjustment of a value, typically numeric.
-    /// - **When to use**: For controls that allow stepping through a range of values.
-    /// - **Example**: The up and down arrows next to a number input for setting the font size.
+    /// Represents a spin button (up/down arrows) for incrementing or decrementing a
+    /// value. - **Purpose**: To provide fine-tuned adjustment of a value, typically
+    /// numeric.
     SpinButton,
 
-    /// Represents a diagram or flowchart.
-    /// - **Purpose**: To represent data or relationships in a schematic form.
-    /// - **When to use**: For visual representations of structures that are not charts, like a
-    ///   database schema diagram.
-    /// - **Example**: A flowchart illustrating a business process.
+    /// Represents a diagram or flowchart. - **Purpose**: To represent data or
+    /// relationships in a schematic form.
     Diagram,
 
-    /// Represents an animation control.
-    /// - **Purpose**: To display a sequence of images or indicate an ongoing process.
-    /// - **When to use**: For animations that show that an operation is in progress.
-    /// - **Example**: The animation that plays while files are being copied.
+    /// Represents an animation control. - **Purpose**: To display a sequence of
+    /// images or indicate an ongoing process.
     Animation,
 
-    /// Represents a mathematical equation.
-    /// - **Purpose**: To display a mathematical formula in the correct format.
-    /// - **When to use**: For displaying mathematical equations.
-    /// - **Example**: A rendered mathematical equation in a scientific document editor.
+    /// Represents a mathematical equation. - **Purpose**: To display a mathematical
+    /// formula in the correct format.
     Equation,
 
-    /// Represents a button that drops down a list of items.
-    /// - **Purpose**: To combine a default action button with a list of alternative actions.
-    /// - **When to use**: For buttons that have a primary action and a secondary list of options.
-    /// - **Example**: A "Send" button with a dropdown arrow that reveals "Send and Archive."
+    /// Represents a button that drops down a list of items. - **Purpose**: To
+    /// combine a default action button with a list of alternative actions.
     ButtonDropdown,
 
-    /// Represents a button that drops down a full menu.
-    /// - **Purpose**: To provide a button that opens a menu of choices rather than performing a
-    ///   single action.
-    /// - **When to use**: When a button's primary purpose is to reveal a menu.
-    /// - **Example**: A "Tools" button that opens a menu with various tool options.
+    /// Represents a button that drops down a full menu. - **Purpose**: To provide a
+    /// button that opens a menu of choices rather than performing a single action.
     ButtonMenu,
 
-    /// Represents a button that drops down a grid for selection.
-    /// - **Purpose**: To allow selection from a two-dimensional grid of options.
-    /// - **When to use**: For buttons that open a grid-based selection UI.
-    /// - **Example**: A color picker button that opens a grid of color swatches.
+    /// Represents a button that drops down a grid for selection. - **Purpose**: To
+    /// allow selection from a two-dimensional grid of options.
     ButtonDropdownGrid,
 
-    /// Represents blank space between other objects.
-    /// - **Purpose**: To represent significant empty areas in a UI that are part of the layout.
-    /// - **When to use**: Sparingly, to signify that a large area is intentionally blank.
-    /// - **Example**: A large empty panel in a complex layout might use this role.
+    /// Represents blank space between other objects. - **Purpose**: To represent
+    /// significant empty areas in a UI that are part of the layout.
     Whitespace,
 
-    /// Represents the container for a set of tabs.
-    /// - **Purpose**: To group a set of `PageTab` elements.
-    /// - **When to use**: To act as the parent container for a row or column of tabs.
-    /// - **Example**: The entire row of tabs at the top of a properties dialog.
+    /// Represents the container for a set of tabs. - **Purpose**: To group a set of
+    /// `PageTab` elements.
     PageTabList,
 
-    /// Represents a clock control.
-    /// - **Purpose**: To display the current time.
-    /// - **When to use**: For any UI element that displays time.
-    /// - **Example**: The clock in the system tray of the operating system.
+    /// Represents a clock control. - **Purpose**: To display the current time.
     Clock,
 
-    /// Represents a button with two parts: a default action and a dropdown.
-    /// - **Purpose**: To combine a frequently used action with a set of related, less-used
-    ///   actions.
-    /// - **When to use**: When a button has a default action and other related actions available
-    ///   in a dropdown.
-    /// - **Example**: A "Save" split button where the primary part saves, and the dropdown offers
-    ///   "Save As."
+    /// Represents a button with two parts: a default action and a dropdown. -
+    /// **Purpose**: To combine a frequently used action with a set of related,
+    /// less-used actions.
     SplitButton,
 
-    /// Represents a control for entering an IP address.
-    /// - **Purpose**: To provide a specialized input field for IP addresses, often with formatting
-    ///   and validation.
-    /// - **When to use**: For dedicated IP address input fields.
-    /// - **Example**: A network configuration dialog with a field for entering a static IP
-    ///   address.
+    /// Represents a control for entering an IP address. - **Purpose**: To provide a
+    /// specialized input field for IP addresses, often with formatting and
+    /// validation.
     IpAddress,
 
-    /// Represents an element with no specific role.
-    /// - **Purpose**: To indicate an element that has no semantic meaning for accessibility.
-    /// - **When to use**: Should be used sparingly for purely decorative elements that should be
-    ///   ignored by assistive technologies.
-    /// - **Example**: A decorative graphical flourish that has no function or information to
-    ///   convey.
+    /// Represents an element with no specific role. - **Purpose**: To indicate an
+    /// element that has no semantic meaning for accessibility.
     Nothing,
 
-    /// Unknown or unspecified role.
-    /// - **Purpose**: Default fallback when no specific role is assigned.
-    /// - **When to use**: As a default value or when role information is unavailable.
+    /// Unknown or unspecified role. - **Purpose**: Default fallback when no
+    /// specific role is assigned.
     Unknown,
 }
 
@@ -751,140 +529,81 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 
-/// Defines the current state of an element for accessibility APIs (e.g., focused, checked).
-/// These states provide dynamic information to assistive technologies about the element's
-/// condition.
-///
-/// See the [MSDN State Constants page](https://docs.microsoft.com/en-us/windows/win32/winauto/object-state-constants) for more details.
+/// Defines the current state of an element for accessibility APIs (e.g., focused,
+/// checked). These states provide dynamic information to assistive technologies
+/// about the element's condition.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum AccessibilityState {
-    /// The element is unavailable and cannot be interacted with.
-    /// - **Purpose**: To indicate that a control is disabled or grayed out.
-    /// - **When to use**: For disabled buttons, non-interactive menu items, or any control that is
-    ///   temporarily non-functional.
-    /// - **Example**: A "Save" button that is disabled until the user makes changes to a document.
+    /// The element is unavailable and cannot be interacted with. - **Purpose**: To
+    /// indicate that a control is disabled or grayed out.
     Unavailable,
 
-    /// The element is selected.
-    /// - **Purpose**: To indicate that an item is currently chosen or highlighted. This is
-    ///   distinct from having focus.
-    /// - **When to use**: For selected items in a list, highlighted text, or the currently active
-    ///   tab in a tab list.
-    /// - **Example**: A file highlighted in a file explorer, or multiple selected emails in an
-    ///   inbox.
+    /// The element is selected. - **Purpose**: To indicate that an item is
+    /// currently chosen or highlighted.
     Selected,
 
-    /// The element has the keyboard focus.
-    /// - **Purpose**: To identify the single element that will receive keyboard input.
-    /// - **When to use**: For the control that is currently active and ready to be manipulated by
-    ///   the keyboard.
-    /// - **Example**: A text box with a blinking cursor, or a button with a dotted outline around
-    ///   it.
+    /// The element has the keyboard focus. - **Purpose**: To identify the single
+    /// element that will receive keyboard input.
     Focused,
 
-    /// The element is checked, toggled, or in an "on" state.
-    /// - **Purpose**: To represent checked checkboxes, selected radio buttons, and active toggles.
-    /// - **Example**: A checked "I agree" checkbox, a selected "Yes" radio button.
+    /// The element is checked, toggled, or in an "on" state. - **Purpose**: To
+    /// represent checked checkboxes, selected radio buttons, and active toggles.
     CheckedTrue,
-    /// The element is unchecked, untoggled, or in an "off" state.
-    /// - **Purpose**: To explicitly represent an unchecked checkbox or unselected radio button.
-    /// - **Example**: An unchecked checkbox that the user has not yet ticked.
+    /// The element is unchecked, untoggled, or in an "off" state. - **Purpose**: To
+    /// explicitly represent an unchecked checkbox or unselected radio button.
     CheckedFalse,
 
-    /// The element's content cannot be edited by the user.
-    /// - **Purpose**: To indicate that the element's value can be viewed and copied, but not
-    ///   modified.
-    /// - **When to use**: For display-only text fields or documents.
-    /// - **Example**: A text box displaying a license agreement that the user can scroll through
-    ///   but cannot edit.
+    /// The element's content cannot be edited by the user. - **Purpose**: To
+    /// indicate that the element's value can be viewed and copied, but not modified.
     Readonly,
 
-    /// The element is the default action in a dialog or form.
-    /// - **Purpose**: To identify the button that will be activated if the user presses the Enter
-    ///   key.
-    /// - **When to use**: For the primary confirmation button in a dialog.
-    /// - **Example**: The "OK" button in a dialog box, which often has a thicker or colored
-    ///   border.
+    /// The element is the default action in a dialog or form. - **Purpose**: To
+    /// identify the button that will be activated if the user presses the Enter key.
     Default,
 
-    /// The element is expanded, showing its child items.
-    /// - **Purpose**: To indicate that a collapsible element is currently open and its contents
-    ///   are visible.
-    /// - **When to use**: For tree view nodes, combo boxes with their lists open, or expanded
-    ///   accordion panels.
-    /// - **Example**: A folder in a file explorer's tree view that has been clicked to show its
-    ///   subfolders.
+    /// The element is expanded, showing its child items. - **Purpose**: To indicate
+    /// that a collapsible element is currently open and its contents are visible.
     Expanded,
 
-    /// The element is collapsed, hiding its child items.
-    /// - **Purpose**: To indicate that a collapsible element is closed and its contents are
-    ///   hidden.
-    /// - **When to use**: The counterpart to `Expanded` for any collapsible UI element.
-    /// - **Example**: A closed folder in a file explorer's tree view, hiding its contents.
+    /// The element is collapsed, hiding its child items. - **Purpose**: To indicate
+    /// that a collapsible element is closed and its contents are hidden.
     Collapsed,
 
-    /// The element is busy and cannot respond to user interaction.
-    /// - **Purpose**: To indicate that the element or application is performing an operation and
-    ///   is temporarily unresponsive.
-    /// - **When to use**: When an application is loading, processing data, or otherwise occupied.
-    /// - **Example**: A window that is grayed out and shows a spinning cursor while saving a large
-    ///   file.
+    /// The element is busy and cannot respond to user interaction. - **Purpose**:
+    /// To indicate that the element or application is performing an operation and is
+    /// temporarily unresponsive.
     Busy,
 
-    /// The element is not currently visible on the screen.
-    /// - **Purpose**: To indicate that an element exists but is currently scrolled out of the
-    ///   visible area.
-    /// - **When to use**: For items in a long list or a large document that are not within the
-    ///   current viewport.
-    /// - **Example**: A list item in a long dropdown that you would have to scroll down to see.
+    /// The element is not currently visible on the screen. - **Purpose**: To
+    /// indicate that an element exists but is currently scrolled out of the visible
+    /// area.
     Offscreen,
 
-    /// The element can accept keyboard focus.
-    /// - **Purpose**: To indicate that the user can navigate to this element using the keyboard
-    ///   (e.g., with the Tab key).
-    /// - **When to use**: On all interactive elements like buttons, links, and input fields,
-    ///   whether they currently have focus or not.
-    /// - **Example**: A button that can receive focus, even if it is not the currently focused
-    ///   element.
+    /// The element can accept keyboard focus. - **Purpose**: To indicate that the
+    /// user can navigate to this element using the keyboard (e.g., with the Tab
+    /// key).
     Focusable,
 
-    /// The element is a container whose children can be selected.
-    /// - **Purpose**: To indicate that the element contains items that can be chosen.
-    /// - **When to use**: On container controls like list boxes, tree views, or text spans where
-    ///   text can be highlighted.
-    /// - **Example**: A list box control is `Selectable`, while its individual list items have the
-    ///   `Selected` state when chosen.
+    /// The element is a container whose children can be selected. - **Purpose**: To
+    /// indicate that the element contains items that can be chosen.
     Selectable,
 
-    /// The element is a hyperlink.
-    /// - **Purpose**: To identify an object that navigates to another resource or location when
-    ///   activated.
-    /// - **When to use**: On any object that functions as a hyperlink.
-    /// - **Example**: Text or an image that, when clicked, opens a web page.
+    /// The element is a hyperlink. - **Purpose**: To identify an object that
+    /// navigates to another resource or location when activated.
     Linked,
 
-    /// The element is a hyperlink that has been visited.
-    /// - **Purpose**: To indicate that a hyperlink has already been followed by the user.
-    /// - **When to use**: On a `Linked` object that the user has previously activated.
-    /// - **Example**: A hyperlink on a web page that has changed color to show it has been
-    ///   visited.
+    /// The element is a hyperlink that has been visited. - **Purpose**: To indicate
+    /// that a hyperlink has already been followed by the user.
     Traversed,
 
-    /// The element allows multiple of its children to be selected at once.
-    /// - **Purpose**: To indicate that a container control supports multi-selection.
-    /// - **When to use**: On container controls like list boxes or file explorers that support
-    ///   multiple selections (e.g., with Ctrl-click).
-    /// - **Example**: A file list that allows the user to select several files at once for a copy
-    ///   operation.
+    /// The element allows multiple of its children to be selected at once. -
+    /// **Purpose**: To indicate that a container control supports multi-selection.
     Multiselectable,
 
-    /// The element contains protected content that should not be read aloud.
-    /// - **Purpose**: To prevent assistive technologies from speaking the content of a sensitive
-    ///   field.
-    /// - **When to use**: Primarily for password input fields.
-    /// - **Example**: A password text box where typed characters are masked with asterisks or
-    ///   dots.
+    /// The element contains protected content that should not be read aloud. -
+    /// **Purpose**: To prevent assistive technologies from speaking the content of a
+    /// sensitive field.
     Protected,
 }
 
@@ -907,11 +626,9 @@ impl_vec_eq!(AccessibilityState, AccessibilityStateVec);
 impl_vec_ord!(AccessibilityState, AccessibilityStateVec);
 impl_vec_hash!(AccessibilityState, AccessibilityStateVec);
 
-/// Compact accessibility information for common use cases.
-///
-/// This is a lighter-weight alternative to `AccessibilityInfo` for cases where
-/// only basic accessibility properties are needed. Developers must explicitly
-/// pass `None` if they choose not to provide accessibility information.
+/// Compact accessibility information for common use cases. This is a lighter-weight
+/// alternative to `AccessibilityInfo` for cases where only basic accessibility
+/// properties are needed.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct SmallAriaInfo {
@@ -970,10 +687,9 @@ impl SmallAriaInfo {
     }
 }
 
-/// Accessibility information for a `<progress>` indicator.
-///
-/// Mirrors HTML's `<progress value max>` plus an `indeterminate` flag for
-/// progress bars whose end is unknown. Maps to `AccessibilityRole::ProgressBar`.
+/// Accessibility information for a `<progress>` indicator. Mirrors HTML's
+/// `<progress value max>` plus an `indeterminate` flag for progress bars whose end
+/// is unknown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct ProgressAriaInfo {
@@ -983,7 +699,8 @@ pub struct ProgressAriaInfo {
     pub current_value: OptionF32,
     /// Maximum value the progress bar can reach. `None` falls back to `1.0`.
     pub max: OptionF32,
-    /// `true` for spinners / progress with no known endpoint. Overrides `current_value`.
+    /// `true` for spinners / progress with no known endpoint. Overrides
+    /// `current_value`.
     pub indeterminate: bool,
     /// Optional extended description (`aria-describedby` equivalent).
     pub description: OptionString,
@@ -1058,11 +775,9 @@ impl ProgressAriaInfo {
     }
 }
 
-/// Accessibility information for a `<meter>` gauge.
-///
-/// Unlike `<progress>`, `<meter>` always carries a known `value`/`min`/`max`
-/// triple, so those fields are required at construction time. Maps to
-/// `AccessibilityRole::Indicator`.
+/// Accessibility information for a `<meter>` gauge. Unlike `<progress>`, `<meter>`
+/// always carries a known `value`/`min`/`max` triple, so those fields are required
+/// at construction time.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct MeterAriaInfo {
@@ -1148,12 +863,9 @@ impl MeterAriaInfo {
     }
 }
 
-/// Accessibility information for a `<dialog>` element.
-///
-/// Captures the modal/non-modal distinction and a reference to a separate
-/// node that describes the dialog (`aria-describedby`). The `role` defaults
-/// to `AccessibilityRole::Dialog` but can be overridden (e.g., for alert
-/// dialogs).
+/// Accessibility information for a `<dialog>` element. Captures the modal/non-modal
+/// distinction and a reference to a separate node that describes the dialog
+/// (`aria-describedby`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct DialogAriaInfo {
@@ -1177,8 +889,8 @@ impl_option!(
 );
 
 impl DialogAriaInfo {
-    /// Creates a `DialogAriaInfo` with the given accessible label. Defaults
-    /// to a non-modal dialog with role `Dialog`.
+    /// Creates a `DialogAriaInfo` with the given accessible label. Defaults to a
+    /// non-modal dialog with role `Dialog`.
     #[must_use] pub const fn create(label: AzString) -> Self {
         Self {
             label: OptionString::Some(label),
@@ -1282,8 +994,8 @@ mod autotest_generated {
         ]
     }
 
-    // =====================================================================
-    // 1. SmallAriaInfo::label — no_panic_smoke
+    // ===================================================================== 1.
+    // SmallAriaInfo::label - no_panic_smoke
     // =====================================================================
 
     #[test]
@@ -1291,7 +1003,8 @@ mod autotest_generated {
         for s in adversarial_strings() {
             let expected = s.clone();
             let info = SmallAriaInfo::label(s);
-            // The label must round-trip verbatim and the other fields default to None.
+            // The label must round-trip verbatim and the other fields default to
+            // None.
             assert_eq!(name_str(&info.label), Some(expected.as_str()));
             assert!(info.role.is_none());
             assert!(info.description.is_none());
@@ -1304,8 +1017,8 @@ mod autotest_generated {
         assert_eq!(name_str(&info.label), Some("hello"));
     }
 
-    // =====================================================================
-    // 2. SmallAriaInfo::with_role — no_panic + invariants
+    // ===================================================================== 2.
+    // SmallAriaInfo::with_role - no_panic + invariants
     // =====================================================================
 
     fn representative_roles() -> Vec<AccessibilityRole> {
@@ -1336,8 +1049,8 @@ mod autotest_generated {
         assert_eq!(info.role, OptionAccessibilityRole::Some(AccessibilityRole::Slider));
     }
 
-    // =====================================================================
-    // 3. SmallAriaInfo::with_description — no_panic + invariants
+    // ===================================================================== 3.
+    // SmallAriaInfo::with_description - no_panic + invariants
     // =====================================================================
 
     #[test]
@@ -1352,8 +1065,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 4. SmallAriaInfo::to_full_info — basic + edge
+    // ===================================================================== 4.
+    // SmallAriaInfo::to_full_info - basic + edge
     // =====================================================================
 
     #[test]
@@ -1382,8 +1095,8 @@ mod autotest_generated {
         assert!(info.description.is_none());
     }
 
-    // =====================================================================
-    // 5. ProgressAriaInfo::create — no_panic_smoke
+    // ===================================================================== 5.
+    // ProgressAriaInfo::create - no_panic_smoke
     // =====================================================================
 
     #[test]
@@ -1400,8 +1113,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 6. ProgressAriaInfo::with_current_value — no_panic + invariants (numeric)
+    // ===================================================================== 6.
+    // ProgressAriaInfo::with_current_value - no_panic + invariants (numeric)
     // =====================================================================
 
     #[test]
@@ -1420,8 +1133,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 7. ProgressAriaInfo::with_max — no_panic + invariants (numeric)
+    // ===================================================================== 7.
+    // ProgressAriaInfo::with_max - no_panic + invariants (numeric)
     // =====================================================================
 
     #[test]
@@ -1438,8 +1151,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 8. ProgressAriaInfo::with_indeterminate — no_panic + invariants
+    // ===================================================================== 8.
+    // ProgressAriaInfo::with_indeterminate - no_panic + invariants
     // =====================================================================
 
     #[test]
@@ -1455,8 +1168,8 @@ mod autotest_generated {
         assert!(p.to_full_info().accessibility_value.is_none());
     }
 
-    // =====================================================================
-    // 9. ProgressAriaInfo::with_description — no_panic + invariants
+    // ===================================================================== 9.
+    // ProgressAriaInfo::with_description - no_panic + invariants
     // =====================================================================
 
     #[test]
@@ -1469,8 +1182,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 10. ProgressAriaInfo::to_full_info — basic + edge
+    // ===================================================================== 10.
+    // ProgressAriaInfo::to_full_info - basic + edge
     // =====================================================================
 
     #[test]
@@ -1522,8 +1235,8 @@ mod autotest_generated {
         );
     }
 
-    // =====================================================================
-    // 11. MeterAriaInfo::create — numeric (zero / min_max / negative / nan_inf)
+    // ===================================================================== 11.
+    // MeterAriaInfo::create - numeric (zero / min_max / negative / nan_inf)
     // =====================================================================
 
     #[test]
@@ -1561,8 +1274,8 @@ mod autotest_generated {
 
     #[test]
     fn meter_create_overflow_saturates_to_inf() {
-        // f32 arithmetic saturates rather than panicking; feed the saturated
-        // result straight in and confirm formatting stays defined.
+        // f32 arithmetic saturates rather than panicking; feed the saturated result
+        // straight in and confirm formatting stays defined.
         let over = f32::MAX * 2.0; // == +inf
         assert!(over.is_infinite());
         let m = MeterAriaInfo::create("o".into(), over, -over, over);
@@ -1589,8 +1302,8 @@ mod autotest_generated {
         assert!(bounds.to_full_info().accessibility_value.is_some());
     }
 
-    // =====================================================================
-    // 12-14. MeterAriaInfo::with_low / with_high / with_optimum — numeric invariants
+    // ===================================================================== 12-14.
+    // MeterAriaInfo::with_low / with_high / with_optimum - numeric invariants
     // =====================================================================
 
     #[test]
@@ -1614,8 +1327,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 15. MeterAriaInfo::with_description — no_panic + invariants
+    // ===================================================================== 15.
+    // MeterAriaInfo::with_description - no_panic + invariants
     // =====================================================================
 
     #[test]
@@ -1628,8 +1341,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 16. MeterAriaInfo::to_full_info — basic + edge
+    // ===================================================================== 16.
+    // MeterAriaInfo::to_full_info - basic + edge
     // =====================================================================
 
     #[test]
@@ -1655,8 +1368,8 @@ mod autotest_generated {
         assert_eq!(name_str(&info.accessibility_name), Some(""));
     }
 
-    // =====================================================================
-    // 17. DialogAriaInfo::create — no_panic_smoke
+    // ===================================================================== 17.
+    // DialogAriaInfo::create - no_panic_smoke
     // =====================================================================
 
     #[test]
@@ -1673,8 +1386,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 18. DialogAriaInfo::with_modal — no_panic + invariants
+    // ===================================================================== 18.
+    // DialogAriaInfo::with_modal - no_panic + invariants
     // =====================================================================
 
     #[test]
@@ -1688,8 +1401,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 19. DialogAriaInfo::with_described_by — no_panic + invariants
+    // ===================================================================== 19.
+    // DialogAriaInfo::with_described_by - no_panic + invariants
     // =====================================================================
 
     #[test]
@@ -1702,8 +1415,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 20. DialogAriaInfo::with_role — no_panic + invariants
+    // ===================================================================== 20.
+    // DialogAriaInfo::with_role - no_panic + invariants
     // =====================================================================
 
     #[test]
@@ -1720,8 +1433,8 @@ mod autotest_generated {
         assert_eq!(info.role, AccessibilityRole::Alert);
     }
 
-    // =====================================================================
-    // 21. DialogAriaInfo::with_description — no_panic + invariants
+    // ===================================================================== 21.
+    // DialogAriaInfo::with_description - no_panic + invariants
     // =====================================================================
 
     #[test]
@@ -1734,8 +1447,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // 22. DialogAriaInfo::to_full_info — basic + edge
+    // ===================================================================== 22.
+    // DialogAriaInfo::to_full_info - basic + edge
     // =====================================================================
 
     #[test]
@@ -1749,7 +1462,8 @@ mod autotest_generated {
         assert_eq!(name_str(&info.accessibility_name), Some("Confirm"));
         assert_eq!(info.role, AccessibilityRole::Alert);
         assert_eq!(name_str(&info.description), Some("Are you sure?"));
-        // The string `described_by` node-ref is NOT propagated into the DomNodeId field.
+        // The string `described_by` node-ref is NOT propagated into the DomNodeId
+        // field.
         assert!(info.described_by.is_none());
         assert!(info.labelled_by.is_none());
         assert!(info.accessibility_value.is_none());
@@ -1766,16 +1480,8 @@ mod autotest_generated {
         assert!(info.description.is_none());
     }
 
-    // #####################################################################
-    // Appended: round-trip, total-order and FFI-vec coverage.
-    //
-    // The block above exercises the 22 listed builder/getter fns. What it
-    // does NOT cover is the machinery those fns feed into: the FFI vec/option
-    // wrappers, and the `Eq`/`Ord`/`Hash` impls that `AccessibilityInfo`
-    // derives *through* f32-carrying payloads (`LogicalPosition`,
-    // `FloatValue`). Those derives are where a total-order contract can
-    // silently break, so they get the adversarial treatment here.
-    // #####################################################################
+    // Appended: round-trip, total-order and FFI-vec coverage. The block above
+    // exercises the 22 listed builder/getter fns.
 
     use core::hash::{Hash, Hasher};
 
@@ -1784,9 +1490,8 @@ mod autotest_generated {
         styled_dom::NodeHierarchyItemId,
     };
 
-    /// FNV-1a. Hand-rolled rather than `DefaultHasher` so these tests still
-    /// build when azul-core is compiled `--no-default-features` (i.e. `no_std`,
-    /// where `std::collections::hash_map` does not exist).
+    /// FNV-1a. Hand-rolled rather than `DefaultHasher` so these tests still build
+    /// when azul-core is compiled `--no-default-features` (i.e.
     struct Fnv(u64);
 
     impl Default for Fnv {
@@ -1813,10 +1518,8 @@ mod autotest_generated {
         h.finish()
     }
 
-    /// Every `AccessibilityRole`, in declaration order.
-    ///
-    /// `Ord` is derived, so declaration order *is* the sort order — the tests
-    /// below pin that. Kept in sync with the enum by `role_exhaustiveness_canary`.
+    /// Every `AccessibilityRole`, in declaration order. `Ord` is derived, so
+    /// declaration order *is* the sort order - the tests below pin that.
     fn all_roles() -> Vec<AccessibilityRole> {
         use AccessibilityRole::*;
         vec![
@@ -1841,10 +1544,10 @@ mod autotest_generated {
         ]
     }
 
-    /// Exhaustive `match`es: if a variant is added upstream without being added
-    /// to `all_roles()` / `all_states()`, this stops compiling. That is the
-    /// point — it keeps the ordering tests below honest instead of letting them
-    /// silently degrade into partial coverage.
+    /// Exhaustive `match`es: if a variant is added upstream without being added to
+    /// `all_roles()` / `all_states()`, this stops compiling. That is the point - it
+    /// keeps the ordering tests below honest instead of letting them silently
+    /// degrade into partial coverage.
     #[test]
     fn role_exhaustiveness_canary() {
         use AccessibilityRole::*;
@@ -1881,8 +1584,8 @@ mod autotest_generated {
     #[test]
     fn role_ord_is_strict_declaration_order() {
         let roles = all_roles();
-        // Strictly increasing => derived Ord follows declaration order AND the
-        // list has no duplicates.
+        // Strictly increasing => derived Ord follows declaration order AND the list
+        // has no duplicates.
         for pair in roles.windows(2) {
             assert!(
                 pair[0] < pair[1],
@@ -1916,7 +1619,7 @@ mod autotest_generated {
         for pair in states.windows(2) {
             assert!(pair[0] < pair[1], "{:?} !< {:?}", pair[0], pair[1]);
         }
-        // CheckedTrue / CheckedFalse are adjacent but must never compare equal —
+        // CheckedTrue / CheckedFalse are adjacent but must never compare equal -
         // aliasing them would make a checked and unchecked box indistinguishable.
         assert_ne!(AccessibilityState::CheckedTrue, AccessibilityState::CheckedFalse);
         assert_ne!(
@@ -1939,10 +1642,7 @@ mod autotest_generated {
         }
 
         // Stronger: no two distinct variants may collide. A collision here would
-        // let two different roles/states alias as the same HashMap key. The
-        // derive hashes the (necessarily distinct) discriminant, and FNV-1a's
-        // multiply step is invertible mod 2^64, so distinctness is guaranteed —
-        // this pins that no variant is ever given a duplicate discriminant.
+        // let two different roles/states alias as the same HashMap key.
         let role_hashes: Vec<u64> = all_roles().iter().map(hash_of).collect();
         for (i, a) in role_hashes.iter().enumerate() {
             for (j, b) in role_hashes.iter().enumerate() {
@@ -1959,7 +1659,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // AccessibilityStateVec — FFI vec round-trip
+    // AccessibilityStateVec - FFI vec round-trip
     // =====================================================================
 
     #[test]
@@ -1988,8 +1688,8 @@ mod autotest_generated {
             assert_eq!(wrapped.as_slice(), original.as_slice());
             assert_eq!(wrapped.iter().count(), original.len());
 
-            // Clone must deep-copy: equal content, and dropping the clone must
-            // not invalidate the original (both are dropped at end of scope).
+            // Clone must deep-copy: equal content, and dropping the clone must not
+            // invalidate the original (both are dropped at end of scope).
             let cloned = wrapped.clone();
             assert_eq!(cloned.as_slice(), original.as_slice());
             assert_eq!(cloned, wrapped);
@@ -2029,8 +1729,8 @@ mod autotest_generated {
 
     #[test]
     fn state_vec_from_vec_preserves_order_len_and_lookup() {
-        // The C-ABI vec is built from a Rust Vec and is then read-only — it has
-        // no push/pop. Assert the round-trip is lossless and lookups agree.
+        // The C-ABI vec is built from a Rust Vec and is then read-only - it has no
+        // push/pop. Assert the round-trip is lossless and lookups agree.
         let empty = AccessibilityStateVec::new();
         assert_eq!(empty.len(), 0);
         assert!(empty.is_empty());
@@ -2056,7 +1756,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // AccessibilityAction — payload-carrying variants
+    // AccessibilityAction - payload-carrying variants
     // =====================================================================
 
     /// One instance of every `AccessibilityAction` variant, in declaration order.
@@ -2125,7 +1825,7 @@ mod autotest_generated {
             let replace = AccessibilityAction::ReplaceSelectedText(s.clone().into());
             let set = AccessibilityAction::SetValue(s.into());
 
-            // Payload preserved verbatim — including interior NUL and lone
+            // Payload preserved verbatim - including interior NUL and lone
             // combining marks, which a C-string round-trip would truncate.
             match &replace {
                 AccessibilityAction::ReplaceSelectedText(got) => {
@@ -2180,7 +1880,7 @@ mod autotest_generated {
         assert_eq!(huge.selection_end, usize::MAX);
         assert_eq!(huge, huge);
 
-        // Inverted range (start > end) is accepted verbatim — the type does not
+        // Inverted range (start > end) is accepted verbatim - the type does not
         // normalise or clamp, so downstream consumers must not assume start<=end.
         let inverted = TextSelectionStartEnd {
             selection_start: 10,
@@ -2228,27 +1928,23 @@ mod autotest_generated {
 
     // =====================================================================
     // f32-carrying payloads: the Eq/Ord/Hash total-order contract
-    //
     // `AccessibilityAction` *derives* Eq + Ord + Hash while carrying
-    // `LogicalPosition` (two f32s) and `FloatValue`. f32 is not Eq/Ord, so
-    // those inner types must supply total impls. These tests pin the actual
-    // behaviour at NaN / inf / overflow, where a naive impl breaks the
-    // reflexivity (a == a) that HashMap and BTreeMap rely on.
-    // =====================================================================
+    // `LogicalPosition` (two f32s) and `FloatValue`. f32 is not Eq/Ord, so those
+    // inner types must supply total impls.
 
     #[test]
     fn scroll_to_point_nan_is_reflexive_and_totally_ordered() {
         let nan = AccessibilityAction::ScrollToPoint(LogicalPosition::new(f32::NAN, f32::NAN));
         let origin = AccessibilityAction::ScrollToPoint(LogicalPosition::new(0.0, 0.0));
 
-        // Reflexivity: `Eq` promises a == a. Raw f32 PartialEq would return
-        // false here and quietly corrupt any HashMap keyed on this action.
+        // Reflexivity: `Eq` promises a == a. Raw f32 PartialEq would return false
+        // here and quietly corrupt any HashMap keyed on this action.
         assert_eq!(nan, nan.clone());
         assert_eq!(hash_of(&nan), hash_of(&nan.clone()));
         assert_eq!(nan.cmp(&nan.clone()), core::cmp::Ordering::Equal);
 
-        // NaN must NOT alias onto the origin (LogicalPosition::quantize maps NaN
-        // to a dedicated i64::MIN sentinel precisely to avoid that collision).
+        // NaN must NOT alias onto the origin (LogicalPosition::quantize maps NaN to
+        // a dedicated i64::MIN sentinel precisely to avoid that collision).
         assert_ne!(nan, origin);
         assert_ne!(hash_of(&nan), hash_of(&origin));
         assert!(nan < origin, "NaN sorts below every real coordinate");
@@ -2274,9 +1970,9 @@ mod autotest_generated {
         assert_eq!(hash_of(&inf), hash_of(&inf.clone()));
         assert!(inf > finite, "+inf x-coordinate must sort above a finite one");
 
-        // Documented saturation: the fixed-point quantisation clamps, so
-        // f32::MAX and +inf land in the same bucket. Asserted so a future
-        // change to the quantiser has to consciously break this.
+        // Documented saturation: the fixed-point quantisation clamps, so f32::MAX
+        // and +inf land in the same bucket. Asserted so a future change to the
+        // quantiser has to consciously break this.
         let max = AccessibilityAction::SetScrollOffset(LogicalPosition::new(f32::MAX, f32::MAX));
         let plus_inf =
             AccessibilityAction::SetScrollOffset(LogicalPosition::new(f32::INFINITY, f32::INFINITY));
@@ -2288,8 +1984,8 @@ mod autotest_generated {
 
     #[test]
     fn set_numeric_value_float_edges_are_defined() {
-        // Representable-under-quantisation values round-trip exactly
-        // (FloatValue is fixed-point with a 1/1000 quantum).
+        // Representable-under-quantisation values round-trip exactly (FloatValue is
+        // fixed-point with a 1/1000 quantum).
         for v in [0.0_f32, 1.5, -1.5, 2.25, -3.75, 1000.0] {
             let f = FloatValue::new(v);
             assert_eq!(f.get(), v, "FloatValue must round-trip {v}");
@@ -2301,11 +1997,10 @@ mod autotest_generated {
         assert_eq!(FloatValue::new(f32::INFINITY).number(), isize::MAX);
         assert_eq!(FloatValue::new(f32::NEG_INFINITY).number(), isize::MIN);
 
-        // NOTE (reported, not a weakened assertion): FloatValue::new maps NaN to
-        // 0 via a raw `as isize` cast, so a NaN numeric value is INDISTINGUISHABLE
+        // NOTE (reported, not a weakened assertion): FloatValue::new maps NaN to 0
+        // via a raw `as isize` cast, so a NaN numeric value is INDISTINGUISHABLE
         // from 0.0. LogicalPosition::quantize explicitly fixed this same aliasing
-        // (NaN -> i64::MIN sentinel); FloatValue still has it. Pinning the current
-        // behaviour so the aliasing is visible and a fix has to update this test.
+        // (NaN -> i64::MIN sentinel); FloatValue still has it.
         assert_eq!(FloatValue::new(f32::NAN).number(), 0);
         assert_eq!(
             AccessibilityAction::SetNumericValue(FloatValue::new(f32::NAN)),
@@ -2317,13 +2012,14 @@ mod autotest_generated {
         let nan_action = AccessibilityAction::SetNumericValue(FloatValue::new(f32::NAN));
         assert_eq!(hash_of(&nan_action), hash_of(&nan_action.clone()));
 
-        // f32::MAX overflows the fixed-point scale and saturates rather than wrapping.
+        // f32::MAX overflows the fixed-point scale and saturates rather than
+        // wrapping.
         assert_eq!(FloatValue::new(f32::MAX).number(), isize::MAX);
         assert_eq!(FloatValue::new(f32::MIN).number(), isize::MIN);
     }
 
-    // =====================================================================
-    // Float -> value-string encoding: format/parse round-trip
+    // ===================================================================== Float
+    // -> value-string encoding: format/parse round-trip
     // =====================================================================
 
     #[test]
@@ -2373,8 +2069,8 @@ mod autotest_generated {
         }
     }
 
-    // =====================================================================
-    // Builder algebra: purity, idempotence, last-write-wins, order-independence
+    // ===================================================================== Builder
+    // algebra: purity, idempotence, last-write-wins, order-independence
     // =====================================================================
 
     #[test]
@@ -2402,7 +2098,7 @@ mod autotest_generated {
         assert_eq!(meter, m0, "to_full_info must not mutate MeterAriaInfo");
         assert_eq!(dialog, d0, "to_full_info must not mutate DialogAriaInfo");
 
-        // Idempotent even when the value is NaN — the AccessibilityInfo carries a
+        // Idempotent even when the value is NaN - the AccessibilityInfo carries a
         // *string* ("NaN"), which is Eq-comparable, so this holds where a raw f32
         // comparison would not.
         let nan_meter = MeterAriaInfo::create("m".into(), f32::NAN, 0.0, 1.0);
@@ -2412,7 +2108,7 @@ mod autotest_generated {
     #[test]
     fn progress_max_is_never_surfaced_in_full_info() {
         // `max` has no representation in AccessibilityInfo, so setting it to
-        // anything at all — including inf/NaN — must not perturb the conversion.
+        // anything at all - including inf/NaN - must not perturb the conversion.
         let baseline = ProgressAriaInfo::create("p".into())
             .with_current_value(0.5)
             .to_full_info();
@@ -2487,7 +2183,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // AccessibilityInfo — the fully-populated aggregate
+    // AccessibilityInfo - the fully-populated aggregate
     // =====================================================================
 
     fn full_info_fixture() -> AccessibilityInfo {
@@ -2519,15 +2215,15 @@ mod autotest_generated {
         assert_eq!(hash_of(&a), hash_of(&b));
         assert_eq!(a.cmp(&b), core::cmp::Ordering::Equal);
 
-        // The clone owns its own heap buffers — dropping it must leave `a` intact.
+        // The clone owns its own heap buffers - dropping it must leave `a` intact.
         drop(b);
         assert_eq!(a.states.len(), all_states().len());
         assert_eq!(a.supported_actions.len(), all_actions().len());
         assert_eq!(name_str(&a.accessibility_name), Some("name"));
 
-        // Perturbing any single field must break equality (no field is ignored
-        // by the derived PartialEq — a field silently dropped from the derive
-        // would let two different a11y nodes compare equal).
+        // Perturbing any single field must break equality (no field is ignored by
+        // the derived PartialEq - a field silently dropped from the derive would let
+        // two different a11y nodes compare equal).
         let mut differs = a.clone();
         differs.is_live_region = false;
         assert_ne!(a, differs);
@@ -2554,7 +2250,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // Option<T> FFI wrappers — Some/None round-trip
+    // Option<T> FFI wrappers - Some/None round-trip
     // =====================================================================
 
     #[test]
@@ -2622,9 +2318,9 @@ mod autotest_generated {
 mod assign_tests {
     use super::*;
 
-    /// A patch that sets only a NAME must leave the widget's role, value and
-    /// states intact. This is the whole contract: an app names a control, and
-    /// the slider keeps reporting where its thumb is.
+    /// A patch that sets only a NAME must leave the widget's role, value and states
+    /// intact. This is the whole contract: an app names a control, and the slider
+    /// keeps reporting where its thumb is.
     #[test]
     fn assign_takes_only_what_the_patch_sets() {
         let mut widget = AccessibilityInfo {
@@ -2652,8 +2348,8 @@ mod assign_tests {
         assert_eq!(widget.states.as_ref().len(), 1, "states must survive too");
     }
 
-    /// A patch CAN override a field the base already set — that is the point of
-    /// an override.
+    /// A patch CAN override a field the base already set - that is the point of an
+    /// override.
     #[test]
     fn assign_overrides_a_field_the_patch_does_set() {
         let mut base = AccessibilityInfo::named("Old", AccessibilityRole::PushButton);
@@ -2666,8 +2362,8 @@ mod assign_tests {
         assert!(matches!(base.role, AccessibilityRole::CheckButton));
     }
 
-    /// `is_live_region: false` in a partial struct is indistinguishable from
-    /// "not specified", so it must never clear a `true` the widget set.
+    /// `is_live_region: false` in a partial struct is indistinguishable from "not
+    /// specified", so it must never clear a `true` the widget set.
     #[test]
     fn assign_never_clears_a_live_region_flag() {
         let mut base = AccessibilityInfo {

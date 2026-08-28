@@ -1,21 +1,12 @@
-//! POD types for the SQL database surface (SUPER_PLAN_2 §4 P4.3).
-//!
-//! Engine-agnostic: the public API is SQL strings plus typed value arrays,
-//! so the engine (bundled SQLite via `rusqlite`) stays fully hidden behind
-//! the `db-sqlite` feature in `azul-dll`. The handle type (`Db`, wrapping a
-//! `rusqlite::Connection`) lives in the dll — like `App` — because it
-//! carries an engine resource; these param/result *data* types live here in
-//! `azul-core` (no engine dep) so they're always present and codegen-able.
-//!
-//! Shape: `db.execute(sql, params: DbValueVec) -> rows_affected` and
-//! `db.query(sql, params) -> DbRows`. `DbValue` maps onto SQLite's five
-//! storage classes.
+//! POD types for the SQL database surface . Engine-agnostic: the public API is SQL
+//! strings plus typed value arrays, so the engine (bundled SQLite via `rusqlite`)
+//! stays fully hidden behind the `db-sqlite` feature in `azul-dll`.
 
 use azul_css::{AzString, StringVec, U8Vec};
 
-/// A single SQL value — a bound statement parameter or a result cell.
-/// Mirrors `SQLite`'s storage classes (Null / Integer / Real / Text / Blob)
-/// but names nothing engine-specific.
+/// A single SQL value - a bound statement parameter or a result cell. Mirrors
+/// `SQLite`'s storage classes (Null / Integer / Real / Text / Blob) but names
+/// nothing engine-specific.
 #[repr(C, u8)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum DbValue {
@@ -71,9 +62,9 @@ impl_vec_clone!(DbValue, DbValueVec, DbValueVecDestructor);
 impl_vec_partialeq!(DbValue, DbValueVec);
 impl_option!(DbValue, OptionDbValue, copy = false, [Debug, Clone, PartialEq]);
 
-/// The result of `db.query(...)` — a column-named, row-major value grid.
-/// Flat (not nested vectors) for a simple FFI shape: cell `(row, col)` is
-/// `values[row * num_columns + col]`.
+/// The result of `db.query(...)` - a column-named, row-major value grid. Flat (not
+/// nested vectors) for a simple FFI shape: cell `(row, col)` is `values[row *
+/// num_columns + col]`.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct DbRows {
@@ -104,8 +95,8 @@ impl DbRows {
             return None;
         }
         // Checked so an out-of-range `row` (whose `row * cols + col` overflows
-        // usize) resolves to None instead of panicking (debug) / wrapping to a
-        // real cell (release).
+        // usize) resolves to None instead of panicking (debug) / wrapping to a real
+        // cell (release).
         let idx = row.checked_mul(cols)?.checked_add(col)?;
         self.values.as_ref().get(idx)
     }
@@ -170,12 +161,11 @@ mod tests {
 
 #[cfg(test)]
 mod autotest_generated {
-    //! Adversarial tests generated for the DB POD surface.
-    //!
-    //! Targets: malformed/ragged grids, i64/f64 extremes (MIN/MAX/NaN/±0/±inf),
-    //! Unicode + huge text, wrong-variant getters, and — the headline case —
-    //! index overflow in `DbRows::get` (`row * cols + col`), which panics under
-    //! the default overflow-checked test profile.
+    //! Adversarial tests generated for the DB POD surface. Targets:
+    //! malformed/ragged grids, i64/f64 extremes (MIN/MAX/NaN/±0/±inf), Unicode +
+    //! huge text, wrong-variant getters, and - the headline case - index overflow in
+    //! `DbRows::get` (`row * cols + col`), which panics under the default
+    //! overflow-checked test profile.
     use super::*;
 
     // ---- helpers -----------------------------------------------------------
@@ -230,8 +220,8 @@ mod autotest_generated {
 
     #[test]
     fn is_null_is_const_evaluable() {
-        // `const fn`: forcing const evaluation guards against a future body that
-        // is no longer const-safe.
+        // `const fn`: forcing const evaluation guards against a future body that is
+        // no longer const-safe.
         const NULL_IS_NULL: bool = DbValue::Null.is_null();
         const INT_IS_NULL: bool = DbValue::Integer(9).is_null();
         const _: () = assert!(NULL_IS_NULL && !INT_IS_NULL);
@@ -364,8 +354,8 @@ mod autotest_generated {
 
     #[test]
     fn num_rows_zero_columns_never_divides_by_zero() {
-        // Malformed: 0 columns but non-empty values. Documented: `0` rows,
-        // and crucially no divide-by-zero panic.
+        // Malformed: 0 columns but non-empty values. Documented: `0` rows, and
+        // crucially no divide-by-zero panic.
         let rows = DbRows {
             columns: StringVec::from_vec(vec![]),
             values: DbValueVec::from_vec(vec![DbValue::Null, DbValue::Integer(1)]),
@@ -457,10 +447,8 @@ mod autotest_generated {
     #[test]
     fn get_extreme_row_multi_column_never_yields_bogus_cell() {
         // 2-column grid: `row * cols` = usize::MAX * 2 overflows usize. Under the
-        // default overflow-checked test profile this panics; in a wrapping
-        // (release) build it must still resolve to None, never a real cell.
-        // Guard with catch_unwind so the observation is non-fatal either way.
-        // NOTE: this documents a latent overflow in `DbRows::get` — see report.
+        // default overflow-checked test profile this panics; in a wrapping (release)
+        // build it must still resolve to None, never a real cell.
         let g = grid_2x2();
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             g.get(usize::MAX, 0).cloned()
@@ -475,8 +463,8 @@ mod autotest_generated {
     fn get_largest_non_overflowing_row_is_none_not_a_panic() {
         // With `cols == 2`, the largest row whose flat index cannot overflow is
         // `usize::MAX / 2`: `row * 2 + 1 == usize::MAX` exactly. One row higher
-        // overflows (covered above); *this* one must resolve cleanly to `None` —
-        // no panic, and no wrap-around into a live cell.
+        // overflows (covered above); *this* one must resolve cleanly to `None` - no
+        // panic, and no wrap-around into a live cell.
         let row = usize::MAX / 2;
         assert_eq!(
             row.checked_mul(2).and_then(|x| x.checked_add(1)),
@@ -510,7 +498,8 @@ mod autotest_generated {
         assert_eq!(DbValue::Real(0.0), DbValue::Real(-0.0));
         assert_ne!(DbValue::Real(0.0).as_real().map(f64::to_bits), DbValue::Real(-0.0).as_real().map(f64::to_bits));
 
-        // Different storage classes never compare equal, however similar the payload.
+        // Different storage classes never compare equal, however similar the
+        // payload.
         assert_ne!(DbValue::Integer(1), DbValue::Real(1.0));
         assert_ne!(DbValue::Null, DbValue::Integer(0));
         assert_ne!(DbValue::Text(AzString::from_const_str("1")), DbValue::Integer(1));
@@ -519,7 +508,8 @@ mod autotest_generated {
             DbValue::Blob(U8Vec::from_vec(vec![b'a', b'b'])),
             "Text and Blob with identical bytes are still distinct storage classes",
         );
-        // Same variant, same payload → equal (sanity anchor for the assertions above).
+        // Same variant, same payload → equal (sanity anchor for the assertions
+        // above).
         assert_eq!(DbValue::Integer(i64::MIN), DbValue::Integer(i64::MIN));
     }
 
@@ -527,18 +517,19 @@ mod autotest_generated {
 
     #[test]
     fn blob_is_opaque_to_every_getter_and_round_trips_bit_exact() {
-        // Non-UTF-8, embedded NULs, every byte value — 70 KB of it.
+        // Non-UTF-8, embedded NULs, every byte value - 70 KB of it.
         let bytes: Vec<u8> = (0..=255u8).cycle().take(70_000).collect();
         let b = DbValue::Blob(U8Vec::from_vec(bytes.clone()));
 
-        // There is no `as_blob`, so every typed getter must decline — and a Blob
-        // is emphatically not NULL.
+        // There is no `as_blob`, so every typed getter must decline - and a Blob is
+        // emphatically not NULL.
         assert!(!b.is_null());
         assert_eq!(b.as_integer(), None);
         assert_eq!(b.as_real(), None);
         assert!(b.as_text().is_none());
 
-        // Payload survives a clone byte-for-byte (no UTF-8 validation, no truncation).
+        // Payload survives a clone byte-for-byte (no UTF-8 validation, no
+        // truncation).
         match b.clone() {
             DbValue::Blob(v) => assert_eq!(v.as_slice(), bytes.as_slice()),
             other => panic!("clone changed the variant: {other:?}"),
@@ -553,7 +544,7 @@ mod autotest_generated {
 
     // ---- round-trip: Vec<DbValue> → DbValueVec → Vec<DbValue> --------------
 
-    /// Extreme-but-comparable payloads (no NaN — it would break `assert_eq!`).
+    /// Extreme-but-comparable payloads (no NaN - it would break `assert_eq!`).
     fn extreme_values() -> Vec<DbValue> {
         vec![
             DbValue::Null,
@@ -590,7 +581,8 @@ mod autotest_generated {
 
     #[test]
     fn dbvaluevec_empty_is_safe_to_read() {
-        // A null-ptr / zero-len vec must yield an empty slice, never a deref of 0x0.
+        // A null-ptr / zero-len vec must yield an empty slice, never a deref of
+        // 0x0.
         for v in [DbValueVec::new(), DbValueVec::default(), DbValueVec::from_vec(vec![])] {
             assert_eq!(v.len(), 0);
             assert!(v.is_empty());
@@ -633,7 +625,7 @@ mod autotest_generated {
         assert_eq!(none.into_option(), None);
         assert_eq!(OptionDbValue::default().into_option(), None);
 
-        // A `Some(Null)` is NOT a `None` — the two nullities must not collapse.
+        // A `Some(Null)` is NOT a `None` - the two nullities must not collapse.
         let some_null: OptionDbValue = Some(DbValue::Null).into();
         assert!(some_null.is_some());
         assert_ne!(some_null, OptionDbValue::None);
@@ -653,8 +645,8 @@ mod autotest_generated {
         let copy = rows.clone();
         assert_eq!(copy, rows);
 
-        // A shallow (pointer-aliasing) clone would leave `copy` dangling here —
-        // and a double-free would trip on the second drop.
+        // A shallow (pointer-aliasing) clone would leave `copy` dangling here - and
+        // a double-free would trip on the second drop.
         drop(rows);
         assert_eq!(copy.num_columns(), 2);
         assert_eq!(copy.num_rows(), 1);
@@ -748,7 +740,7 @@ mod autotest_generated {
 
                 // The ragged tail: `get` reads the physically-present cells of a
                 // partial row even though `num_rows` doesn't count it, and returns
-                // None past the end. Either way — deterministic, never a panic.
+                // None past the end. Either way - deterministic, never a panic.
                 let tail = rows.num_rows();
                 for c in 0..cols_n {
                     assert_eq!(
@@ -775,7 +767,7 @@ mod autotest_generated {
                 let covered = r.checked_mul(c).expect("row×col count must not overflow");
                 assert!(covered <= len, "claims {covered} cells but only {len} exist");
                 if c > 0 {
-                    // At most one partial row may be dropped — never more.
+                    // At most one partial row may be dropped - never more.
                     assert!(len - covered < c, "dropped a whole row: cols={c} len={len}");
                 }
             }

@@ -1,8 +1,5 @@
-//! Defines the core Document Object Model (DOM) structures.
-//!
-//! This module is responsible for representing the UI as a tree of nodes,
-//! similar to the HTML DOM. It includes definitions for node types, event handling
-//! and the main `Dom` and `CompactDom` structures.
+//! Defines the core Document Object Model (DOM) structures. This module is
+//! responsible for representing the UI as a tree of nodes, similar to the HTML DOM.
 
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
@@ -165,16 +162,8 @@ impl TagId {
         t
     }
 
-    /// Creates a new, unique hit-testing tag ID.
-    /// Wraps around to 1 on overflow (0 is reserved for "no tag").
-    ///
-    /// AUDIT: the wrap is only reachable after 2^64 - 1 allocations (a process
-    /// running long enough to exhaust the counter is not realistic), but note
-    /// that on wrap the freshly-issued id could theoretically collide with a
-    /// still-live tag from very early in the process. This is left as a
-    /// documented, non-triggerable limitation rather than adding a live-tag
-    /// registry to detect collisions on every allocation. AUDIT-TODO: revisit
-    /// if `TagId` is ever narrowed below 64 bits.
+    /// Creates a new, unique hit-testing tag ID. Wraps around to 1 on overflow (0
+    /// is reserved for "no tag").
     pub fn unique() -> Self {
         loop {
             let current = TAG_ID.load(Ordering::SeqCst);
@@ -186,8 +175,8 @@ impl TagId {
     }
 }
 
-/// Same as the `TagId`, but only for scrollable nodes.
-/// This provides a typed distinction for tags associated with scrolling containers.
+/// Same as the `TagId`, but only for scrollable nodes. This provides a typed
+/// distinction for tags associated with scrolling containers.
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(C)]
 pub struct ScrollTagId {
@@ -209,8 +198,8 @@ impl ::core::fmt::Debug for ScrollTagId {
 }
 
 impl ScrollTagId {
-    /// Creates a new, unique scroll tag ID. Note that this should not
-    /// be used for identifying nodes, use the `DomNodeHash` instead.
+    /// Creates a new, unique scroll tag ID. Note that this should not be used for
+    /// identifying nodes, use the `DomNodeHash` instead.
     #[must_use] pub fn unique() -> Self {
         Self {
             inner: TagId::unique(),
@@ -226,8 +215,8 @@ pub enum ScrollbarOrientation {
     Vertical,
 }
 
-/// Calculated hash of a DOM node, used for identifying identical DOM
-/// nodes across frames for efficient diffing and state preservation.
+/// Calculated hash of a DOM node, used for identifying identical DOM nodes across
+/// frames for efficient diffing and state preservation.
 #[derive(Copy, Clone, Hash, PartialEq, Eq, Ord, PartialOrd)]
 #[repr(C)]
 pub struct DomNodeHash {
@@ -240,13 +229,12 @@ impl ::core::fmt::Debug for DomNodeHash {
     }
 }
 
-/// List of core DOM node types built into `azul`.
-/// This enum defines the building blocks of the UI, similar to HTML tags.
+/// List of core DOM node types built into `azul`. This enum defines the building
+/// blocks of the UI, similar to HTML tags.
 #[derive(Debug, Clone, PartialEq, Hash, Eq, PartialOrd, Ord)]
 #[repr(C, u8)]
 pub enum NodeType {
-    // Root and container elements
-    /// Root HTML element.
+    // Root and container elements / Root HTML element.
     Html,
     /// Document head (metadata container).
     Head,
@@ -298,8 +286,7 @@ pub enum NodeType {
     /// Dialog box or window.
     Dialog,
 
-    // List elements
-    /// Unordered list.
+    // List elements / Unordered list.
     Ul,
     /// Ordered list.
     Ol,
@@ -318,8 +305,7 @@ pub enum NodeType {
     /// Directory list (deprecated).
     Dir,
 
-    // Table elements
-    /// Table container.
+    // Table elements / Table container.
     Table,
     /// Table caption.
     Caption,
@@ -340,8 +326,7 @@ pub enum NodeType {
     /// Table column.
     Col,
 
-    // Form elements
-    /// Form container.
+    // Form elements / Form container.
     Form,
     /// Form fieldset.
     FieldSet,
@@ -370,8 +355,7 @@ pub enum NodeType {
     /// List of predefined options for input.
     DataList,
 
-    // Inline elements
-    /// Generic inline container.
+    // Inline elements / Generic inline container.
     Span,
     /// Anchor/hyperlink.
     A,
@@ -381,7 +365,8 @@ pub enum NodeType {
     Strong,
     /// Bold text (deprecated - use `Dom::create_strong()` for semantic importance).
     B,
-    /// Italic text (deprecated - use `Dom::create_em()` for emphasis or `Dom::create_cite()` for citations).
+    /// Italic text (deprecated - use `Dom::create_em()` for emphasis or
+    /// `Dom::create_cite()` for citations).
     I,
     /// Underline text.
     U,
@@ -438,8 +423,7 @@ pub enum NodeType {
     /// Machine-readable data.
     Data,
 
-    // Embedded content
-    /// Canvas for graphics.
+    // Embedded content / Canvas for graphics.
     Canvas,
     /// Embedded object.
     Object,
@@ -459,22 +443,20 @@ pub enum NodeType {
     Map,
     /// Image map area.
     Area,
-    // SVG elements — container
-    /// SVG `<svg>` root graphics container.
+    // SVG elements - container / SVG `<svg>` root graphics container.
     Svg,
     /// SVG `<g>` group element.
     SvgG,
-    /// SVG `<defs>` — reusable definitions (not rendered directly).
+    /// SVG `<defs>` - reusable definitions (not rendered directly).
     SvgDefs,
-    /// SVG `<symbol>` — like defs but with its own viewBox.
+    /// SVG `<symbol>` - like defs but with its own viewBox.
     SvgSymbol,
-    /// SVG `<use>` — references and instantiates a defs element.
+    /// SVG `<use>` - references and instantiates a defs element.
     SvgUse,
-    /// SVG `<switch>` — conditional processing.
+    /// SVG `<switch>` - conditional processing.
     SvgSwitch,
 
-    // SVG elements — shape
-    /// SVG `<path>` element.
+    // SVG elements - shape / SVG `<path>` element.
     SvgPath,
     /// SVG `<circle>` element.
     SvgCircle,
@@ -489,16 +471,14 @@ pub enum NodeType {
     /// SVG `<polyline>` element.
     SvgPolyline,
 
-    // SVG elements — text
-    /// SVG `<text>` element.
+    // SVG elements - text / SVG `<text>` element.
     SvgText(AzString),
     /// SVG `<tspan>` element.
     SvgTspan,
     /// SVG `<textPath>` element.
     SvgTextPath,
 
-    // SVG elements — paint servers
-    /// SVG `<linearGradient>` element.
+    // SVG elements - paint servers / SVG `<linearGradient>` element.
     SvgLinearGradient,
     /// SVG `<radialGradient>` element.
     SvgRadialGradient,
@@ -507,14 +487,12 @@ pub enum NodeType {
     /// SVG `<pattern>` element.
     SvgPattern,
 
-    // SVG elements — clipping / masking
-    /// SVG `<clipPath>` element.
+    // SVG elements - clipping / masking / SVG `<clipPath>` element.
     SvgClipPathElement,
     /// SVG `<mask>` element.
     SvgMask,
 
-    // SVG elements — filter
-    /// SVG `<filter>` container element.
+    // SVG elements - filter / SVG `<filter>` container element.
     SvgFilter,
     /// SVG `<feBlend>`.
     SvgFeBlend,
@@ -567,16 +545,16 @@ pub enum NodeType {
     /// SVG `<feTurbulence>`.
     SvgFeTurbulence,
 
-    // SVG elements — marker / image / foreign
-    /// SVG `<marker>` element (not the CSS `::marker` pseudo-element).
+    // SVG elements - marker / image / foreign / SVG `<marker>` element (not the CSS
+    // `::marker` pseudo-element).
     SvgMarker,
     /// SVG `<image>` element (embedded raster image in SVG).
     SvgImage(ImageRef),
     /// SVG `<foreignObject>` element.
     SvgForeignObject,
 
-    // SVG elements — descriptive / structural
-    /// SVG `<title>` element (distinct from HTML `<title>`).
+    // SVG elements - descriptive / structural / SVG `<title>` element (distinct
+    // from HTML `<title>`).
     SvgTitle,
     /// SVG `<desc>` element.
     SvgDesc,
@@ -591,8 +569,7 @@ pub enum NodeType {
     /// SVG `<script>` element (distinct from HTML `<script>`).
     SvgScript,
 
-    // SVG elements — animation
-    /// SVG `<animate>` element.
+    // SVG elements - animation / SVG `<animate>` element.
     SvgAnimate,
     /// SVG `<animateMotion>` element.
     SvgAnimateMotion,
@@ -603,8 +580,7 @@ pub enum NodeType {
     /// SVG `<mpath>` element.
     SvgMpath,
 
-    // Metadata elements
-    /// Document title.
+    // Metadata elements / Document title.
     Title,
     /// Metadata.
     Meta,
@@ -617,8 +593,7 @@ pub enum NodeType {
     /// Base URL for relative URLs.
     Base,
 
-    // Pseudo-elements (transformed into real elements)
-    /// `::before` pseudo-element.
+    // Pseudo-elements (transformed into real elements) / `::before` pseudo-element.
     Before,
     /// `::after` pseudo-element.
     After,
@@ -627,40 +602,34 @@ pub enum NodeType {
     /// `::placeholder` pseudo-element.
     Placeholder,
 
-    // Special content types
-    /// Text content, `::text`.
-    /// Uses `BoxOrStatic` to keep `NodeType` small (~16B vs ~72B with inline `AzString`)
-    /// and to allow static text references in the future.
+    // Special content types / Text content, `::text`. / Uses `BoxOrStatic` to keep
+    // `NodeType` small (~16B vs ~72B with inline `AzString`) / and to allow static
+    // text references in the future.
     Text(BoxOrStatic<AzString>),
-    /// Image element, `::image`.
-    /// Uses `BoxOrStatic` to keep `NodeType` small.
+    /// Image element, `::image`. Uses `BoxOrStatic` to keep `NodeType` small.
     Image(BoxOrStatic<ImageRef>),
-    /// `VirtualView` (embedded content) - payload stored in `NodeDataExt.virtual_view`
+    /// `VirtualView` (embedded content) - payload stored in
+    /// `NodeDataExt.virtual_view`
     VirtualView,
-    /// `<transient-window>` — a popup that is a real OS window drawn from this
-    /// node's subtree. Contributes nothing to layout while closed; when `open`
-    /// the engine materialises the children as a window anchored to the PARENT.
-    /// See `crate::transient`.
+    /// `<transient-window>` - a popup that is a real OS window drawn from this
+    /// node's subtree. Contributes nothing to layout while closed; when `open` the
+    /// engine materialises the children as a window anchored to the PARENT.
     TransientWindow(crate::transient::TransientWindowConfig),
-    /// Icon element - resolved to actual content by `IconProvider`.
-    /// The string is the icon name (e.g., "home", "settings", "search").
-    /// Uses `BoxOrStatic` to keep `NodeType` small.
+    /// Icon element - resolved to actual content by `IconProvider`. The string is
+    /// the icon name (e.g., "home", "settings", "search").
     Icon(BoxOrStatic<AzString>),
-    /// Invisible probe node that signals "this subtree needs the user's
-    /// GPS / network location". Zero-size in layout, skipped in the
-    /// display list. The `GeolocationManager` walks the styled DOM for
-    /// these at end-of-layout and starts / stops the matching native
-    /// subscription. See `SUPER_PLAN_2.md` §1.5 + research/08.
+    /// Invisible probe node that signals "this subtree needs the user's GPS /
+    /// network location". Zero-size in layout, skipped in the display list.
     GeolocationProbe(crate::geolocation::GeolocationProbeConfig),
     /// THE canonical page-break element: an empty block the UA styles with
-    /// `break-before: page`. The pagination estimator and a screen DOM
-    /// treat it identically; sibling margins collapse through it, so
-    /// materializing an estimated break does not move content. XML tag:
-    /// `<pagebreak/>`; constructor: [`Dom::create_page_break`].
+    /// `break-before: page`. The pagination estimator and a screen DOM treat it
+    /// identically; sibling margins collapse through it, so materializing an
+    /// estimated break does not move content.
     PageBreak,
 }
 
-/// Type alias: `BoxOrStatic<ImageRef>` — used by `NodeType::Image` for FFI monomorphization.
+/// Type alias: `BoxOrStatic<ImageRef>` - used by `NodeType::Image` for FFI
+/// monomorphization.
 pub type BoxOrStaticImageRef = BoxOrStatic<ImageRef>;
 
 impl_option!(NodeType, OptionNodeType, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
@@ -965,7 +934,7 @@ impl NodeType {
             Self::Track => NodeTypeTag::Track,
             Self::Map => NodeTypeTag::Map,
             Self::Area => NodeTypeTag::Area,
-            // SVG — all variants map 1:1 to NodeTypeTag
+            // SVG - all variants map 1:1 to NodeTypeTag
             Self::Svg => NodeTypeTag::Svg,
             Self::SvgG => NodeTypeTag::SvgG,
             Self::SvgDefs => NodeTypeTag::SvgDefs,
@@ -1051,10 +1020,9 @@ impl NodeType {
     }
 
     /// Returns whether this node type is a semantic HTML element that should
-    /// automatically generate an accessibility tree node.
-    ///
-    /// These are elements with inherent semantic meaning that assistive
-    /// technologies should be aware of, even without explicit ARIA attributes.
+    /// automatically generate an accessibility tree node. These are elements with
+    /// inherent semantic meaning that assistive technologies should be aware of,
+    /// even without explicit ARIA attributes.
     #[must_use] pub const fn is_semantic_for_accessibility(&self) -> bool {
         matches!(
             self,
@@ -1082,14 +1050,16 @@ impl NodeType {
 
 /// Represents the CSS formatting context for an element
 #[derive(Clone, Copy, PartialEq, Eq)]
-// [g147f az-web-lift] `#[repr(C, u8)]` forces an explicit u8 discriminant at offset 0 instead of letting
-// Rust niche-pack the other variants' discriminants into the payload variants' (Block{bool}/Float/OutOfFlow)
-// invalid byte values. The remill lift mis-decodes that niche encoding: `Block` (byte 0/1) reads correctly
-// but `Inline` (a niche value) reads as garbage → `match` falls to `_` → nested <div>text</div> dispatches
-// to layout_bfc instead of layout_ifc and its text never lays out (g147 root cause). Same fix pattern as the
-// text3 enums (InlineContent/LogicalItem/ShapedItem/FontStack/LayoutError). Harmless + correct for native.
+// [g147f az-web-lift] `#[repr(C, u8)]` forces an explicit u8 discriminant at offset
+// 0 instead of letting Rust niche-pack the other variants' discriminants into the
+// payload variants' (Block{bool}/Float/OutOfFlow) invalid byte values. The remill
+// lift mis-decodes that niche encoding: `Block` (byte 0/1) reads correctly but
+// `Inline` (a niche value) reads as garbage → `match` falls to `_` → nested
+// <div>text</div> dispatches to layout_bfc instead of layout_ifc and its text never
+// lays out (g147 root cause).
 #[repr(C, u8)]
-// +spec:display-property:844893 - block-level box establishing a new formatting context (BFC) modeled here
+// +spec:display-property:844893 - block-level box establishing a new formatting
+// context (BFC) modeled here
 pub enum FormattingContext {
     /// Block-level formatting context
     Block {
@@ -1169,28 +1139,28 @@ impl Default for FormattingContext {
 pub enum On {
     /// Mouse cursor is hovering over the element.
     MouseOver,
-    /// Mouse cursor has is over element and is pressed
-    /// (not good for "click" events - use `MouseUp` instead).
+    /// Mouse cursor has is over element and is pressed (not good for "click" events
+    /// - use `MouseUp` instead).
     MouseDown,
-    /// (Specialization of `MouseDown`). Fires only if the left mouse button
-    /// has been pressed while cursor was over the element.
+    /// (Specialization of `MouseDown`). Fires only if the left mouse button has
+    /// been pressed while cursor was over the element.
     LeftMouseDown,
-    /// (Specialization of `MouseDown`). Fires only if the middle mouse button
-    /// has been pressed while cursor was over the element.
+    /// (Specialization of `MouseDown`). Fires only if the middle mouse button has
+    /// been pressed while cursor was over the element.
     MiddleMouseDown,
-    /// (Specialization of `MouseDown`). Fires only if the right mouse button
-    /// has been pressed while cursor was over the element.
+    /// (Specialization of `MouseDown`). Fires only if the right mouse button has
+    /// been pressed while cursor was over the element.
     RightMouseDown,
     /// Mouse button has been released while cursor was over the element.
     MouseUp,
-    /// (Specialization of `MouseUp`). Fires only if the left mouse button has
-    /// been released while cursor was over the element.
+    /// (Specialization of `MouseUp`). Fires only if the left mouse button has been
+    /// released while cursor was over the element.
     LeftMouseUp,
     /// (Specialization of `MouseUp`). Fires only if the middle mouse button has
     /// been released while cursor was over the element.
     MiddleMouseUp,
-    /// (Specialization of `MouseUp`). Fires only if the right mouse button has
-    /// been released while cursor was over the element.
+    /// (Specialization of `MouseUp`). Fires only if the right mouse button has been
+    /// released while cursor was over the element.
     RightMouseUp,
     /// Mouse cursor has entered the element.
     MouseEnter,
@@ -1202,12 +1172,7 @@ pub enum On {
     /// Check `keyboard_state.current_char` to get the current pressed character.
     TextInput,
     /// A **virtual keycode** was pressed. Note: This is only the virtual keycode,
-    /// not the actual char. If you want to get the character, use `TextInput` instead.
-    /// A virtual key does not have to map to a printable character.
-    ///
-    /// You can get all currently pressed virtual keycodes in the
-    /// `keyboard_state.current_virtual_keycodes` and / or just the last keycode in the
-    /// `keyboard_state.latest_virtual_keycode`.
+    /// not the actual char.
     VirtualKeyDown,
     /// A **virtual keycode** was release. See `VirtualKeyDown` for more info.
     VirtualKeyUp,
@@ -1222,8 +1187,8 @@ pub enum On {
     /// Equivalent to `onblur`.
     FocusLost,
 
-    // Accessibility-specific events
-    /// Default action triggered by screen reader (usually same as click/activate)
+    // Accessibility-specific events / Default action triggered by screen reader
+    // (usually same as click/activate)
     Default,
     /// Element should collapse (e.g., accordion panel, tree node)
     Collapse,
@@ -1233,11 +1198,10 @@ pub enum On {
     Increment,
     /// Decrement value (e.g., number input, slider)
     Decrement,
-    /// A structural document edit (split / merge / wrap / replace…) was
-    /// recorded on (or under) this element and awaits the app's
-    /// apply-and-ack (fires once per changeset; focus-scoped, bubbles to
-    /// the contenteditable root). APPENDED at the enum tail for ABI
-    /// stability.
+    /// A structural document edit (split / merge / wrap / replace…) was recorded on
+    /// (or under) this element and awaits the app's apply-and-ack (fires once per
+    /// changeset; focus-scoped, bubbles to the contenteditable root). APPENDED at
+    /// the enum tail for ABI stability.
     DocumentEdit,
 }
 
@@ -1245,7 +1209,8 @@ pub enum On {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct VirtualViewNode {
-    /// The callback function that returns the DOM for the virtualized view's content.
+    /// The callback function that returns the DOM for the virtualized view's
+    /// content.
     pub callback: VirtualViewCallback,
     /// The application data passed to the virtualized view's layout callback.
     pub refany: RefAny,
@@ -1298,11 +1263,9 @@ pub struct AttributeNameValue {
     pub value: AzString,
 }
 
-/// Strongly-typed HTML attribute with type-safe values.
-///
-/// This enum provides a type-safe way to represent HTML attributes, ensuring that
-/// values are validated at compile-time and properly converted to their string
-/// representations at runtime.
+/// Strongly-typed HTML attribute with type-safe values. This enum provides a
+/// type-safe way to represent HTML attributes, ensuring that values are validated at
+/// compile-time and properly converted to their string representations at runtime.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C, u8)]
 pub enum AttributeType {
@@ -1560,24 +1523,22 @@ impl AttributeType {
 pub struct NodeData {
     /// `div`, `p`, `img`, etc.
     pub node_type: NodeType,
-    /// Callbacks attached to this node:
-    ///
-    /// `On::MouseUp` -> `Callback(my_button_click_handler)`
+    /// Callbacks attached to this node: `On::MouseUp` ->
+    /// `Callback(my_button_click_handler)`
     pub callbacks: CoreCallbackDataVec,
-    /// Inline style: a `Css` value that applies only to this node (implicit `:scope`).
-    /// Each rule carries conditions (@media/@os/:hover/...) and declarations; rules
-    /// produced by parsing inline strings are tagged `rule_priority::INLINE`, while
-    /// widget defaults pushed via `with_css_props` keep the same INLINE priority so
-    /// they override author CSS — preserving the cascade priority that the previous
-    /// per-property `css_props` field had.
+    /// Inline style: a `Css` value that applies only to this node (implicit
+    /// `:scope`). Each rule carries conditions (@media/@os/:hover/...) and
+    /// declarations; rules produced by parsing inline strings are tagged
+    /// `rule_priority::INLINE`, while widget defaults pushed via `with_css_props`
+    /// keep the same INLINE priority so they override author CSS - preserving the
+    /// cascade priority that the previous per-property `css_props` field had.
     pub style: azul_css::css::Css,
     /// Packed flags: `tab_index` + contenteditable + `is_anonymous`.
     pub flags: NodeFlags,
-    /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI, UA).
-    /// 8 bytes (Option<Box<T>> is pointer-sized).
+    /// Optional extra accessibility information about this DOM node (MSAA, AT-SPI,
+    /// UA). 8 bytes (Option<Box<T>> is pointer-sized).
     pub accessibility: Option<Box<AccessibilityInfo>>,
     /// Stores "extra", not commonly used data of the node: clip-mask, menus, etc.
-    ///
     /// SHOULD NOT EXPOSED IN THE API - necessary to retroactively add functionality
     /// to the node without breaking the ABI.
     extra: Option<Box<NodeDataExt>>,
@@ -1596,17 +1557,17 @@ impl Hash for NodeData {
         self.attributes().as_ref().hash(state);
         self.flags.hash(state);
 
-        // NOTE: callbacks are NOT hashed regularly, otherwise
-        // they'd cause inconsistencies because of the scroll callback
+        // NOTE: callbacks are NOT hashed regularly, otherwise they'd cause
+        // inconsistencies because of the scroll callback
         for callback in self.callbacks.as_ref() {
             callback.event.hash(state);
             callback.callback.hash(state);
             callback.refany.get_type_id().hash(state);
         }
 
-        // Hash inline CSS properties (Static declarations only — same set the
-        // legacy `css_props` field hashed). Conditions are intentionally
-        // skipped to match the previous behaviour.
+        // Hash inline CSS properties (Static declarations only - same set the
+        // legacy `css_props` field hashed). Conditions are intentionally skipped to
+        // match the previous behaviour.
         for (prop, _conds) in self.style.iter_inline_properties() {
             mem::discriminant(prop).hash(state);
         }
@@ -1630,25 +1591,21 @@ impl Hash for NodeData {
     }
 }
 
-/// Tracks which component rendered a DOM subtree.
-///
-/// When a component's `render_fn` returns a `StyledDom`, the framework stamps the
-/// root node(s) of the output with a `ComponentOrigin`. This enables:
-/// - The debugger to show a "Component Tree" alongside the DOM tree
-/// - Code generation roundtrips (rendered DOM → component invocations → code)
-/// - Clicking a DOM node to navigate to the component that produced it
+/// Tracks which component rendered a DOM subtree. When a component's `render_fn`
+/// returns a `StyledDom`, the framework stamps the root node(s) of the output with a
+/// `ComponentOrigin`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ComponentOrigin {
     /// Qualified component name, e.g. "shadcn:card", "builtin:div"
     pub component_id: AzString,
-    /// Snapshot of the data model at render time, stored as a JSON value.
-    /// The debug server can inspect typed values; the frontend serializes
-    /// them back to JSON for display and editing.
+    /// Snapshot of the data model at render time, stored as a JSON value. The debug
+    /// server can inspect typed values; the frontend serializes them back to JSON
+    /// for display and editing.
     pub data_model_json: crate::json::Json,
 }
 
-// Manual impls because Json contains f64 (no Eq/Ord/Hash derive),
-// but we need them for NodeDataExt. We compare on the Display string.
+// Manual impls because Json contains f64 (no Eq/Ord/Hash derive), but we need them
+// for NodeDataExt. We compare on the Display string.
 impl Eq for ComponentOrigin {}
 
 impl PartialOrd for ComponentOrigin {
@@ -1684,15 +1641,13 @@ impl Default for ComponentOrigin {
     }
 }
 
-/// SVG-specific data stored on a DOM node.
-///
-/// Each SVG element type stores its parsed attribute data here.
-/// Also used for raster image clip masks (legacy C API).
+/// SVG-specific data stored on a DOM node. Each SVG element type stores its parsed
+/// attribute data here.
 #[derive(Debug, Clone, PartialOrd)]
 pub enum SvgNodeData {
     /// Raster R8 image clip mask (legacy C API for chart.c style manual masks).
     ImageClipMask(ImageMask),
-    /// `<path d="...">` — resolved path geometry.
+    /// `<path d="...">` - resolved path geometry.
     Path(crate::svg::SvgMultiPolygon),
     /// `<circle cx="" cy="" r="">`.
     Circle { cx: f32, cy: f32, r: f32 },
@@ -1702,9 +1657,9 @@ pub enum SvgNodeData {
     Ellipse { cx: f32, cy: f32, rx: f32, ry: f32 },
     /// `<line x1="" y1="" x2="" y2="">`.
     Line { x1: f32, y1: f32, x2: f32, y2: f32 },
-    /// `<polygon points="">` / `<polyline points="">` — parsed point list.
+    /// `<polygon points="">` / `<polyline points="">` - parsed point list.
     PointsList { points: alloc::vec::Vec<azul_css::props::basic::SvgPoint>, closed: bool },
-    /// `<svg viewBox="" width="" height="">` — viewport attributes.
+    /// `<svg viewBox="" width="" height="">` - viewport attributes.
     ViewBox { min_x: f32, min_y: f32, width: f32, height: f32 },
     /// `<linearGradient>` attributes.
     LinearGradient { x1: f32, y1: f32, x2: f32, y2: f32 },
@@ -1719,9 +1674,8 @@ pub enum SvgNodeData {
 }
 
 // PartialEq compares f32 fields by BIT PATTERN (to_bits), mirroring the Hash impl
-// below, so a NaN coordinate is equal to itself and Eq/Hash agree. A derived PartialEq
-// used raw float `==` (NaN != NaN), breaking Eq's reflexivity for e.g. a NaN Rect —
-// and NodeType embeds this type, so the break propagated.
+// below, so a NaN coordinate is equal to itself and Eq/Hash agree. A derived
+// PartialEq used raw float `==` (NaN != NaN), breaking Eq's reflexivity for e.g.
 impl PartialEq for SvgNodeData {
     #[allow(clippy::match_same_arms, clippy::similar_names)] // SVG coord names (cx/cy/fx/fy, min_x/min_y) are domain-standard
     fn eq(&self, other: &Self) -> bool {
@@ -1820,8 +1774,8 @@ const fn svg_path_element_bits_eq(
 impl Eq for SvgNodeData {}
 
 // SvgNodeData contains f32 (svg coords) so Ord can't be derived; this Ord is
-// defined *in terms of* the derived field-wise PartialOrd (unwrap_or Equal), so
-// the two cannot disagree — the derive_ord_xor_partial_ord concern doesn't apply.
+// defined *in terms of* the derived field-wise PartialOrd (unwrap_or Equal), so the
+// two cannot disagree - the derive_ord_xor_partial_ord concern doesn't apply.
 #[allow(clippy::derive_ord_xor_partial_ord)]
 impl Ord for SvgNodeData {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
@@ -1882,7 +1836,8 @@ impl Hash for SvgNodeData {
                 rx.to_bits().hash(state); ry.to_bits().hash(state);
             }
             // Line and LinearGradient share a { x1, y1, x2, y2 } shape and hash
-            // identically (Eq still distinguishes the variants); fold the duplicate bodies.
+            // identically (Eq still distinguishes the variants); fold the duplicate
+            // bodies.
             Self::Line { x1, y1, x2, y2 } | Self::LinearGradient { x1, y1, x2, y2 } => {
                 x1.to_bits().hash(state); y1.to_bits().hash(state);
                 x2.to_bits().hash(state); y2.to_bits().hash(state);
@@ -1918,19 +1873,20 @@ impl Hash for SvgNodeData {
     }
 }
 
-/// NOTE: NOT EXPOSED IN THE API! Stores extra,
-/// not commonly used information for the `NodeData`.
-/// This helps keep the primary `NodeData` struct smaller for common cases.
+/// NOTE: NOT EXPOSED IN THE API! Stores extra, not commonly used information for
+/// the `NodeData`.
 #[repr(C)]
 #[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 pub struct NodeDataExt {
-    /// Strongly-typed HTML attributes (aria-*, href, alt, etc.)
-    /// IDs and classes are stored as `AttributeType::Id` and `AttributeType::Class` entries.
-    /// Moved from `NodeData` to save 48B for the ~95% of nodes with no attributes.
+    /// Strongly-typed HTML attributes (aria-*, href, alt, etc.) IDs and classes are
+    /// stored as `AttributeType::Id` and `AttributeType::Class` entries. Moved from
+    /// `NodeData` to save 48B for the ~95% of nodes with no attributes.
     pub attributes: AttributeTypeVec,
-    /// `VirtualView` callback data, only set when `node_type` == `NodeType::VirtualView`.
+    /// `VirtualView` callback data, only set when `node_type` ==
+    /// `NodeType::VirtualView`.
     pub virtual_view: Option<VirtualViewNode>,
-    /// `data-*` attributes for this node, useful to store UI-related data on the node itself.
+    /// `data-*` attributes for this node, useful to store UI-related data on the
+    /// node itself.
     pub dataset: Option<RefAny>,
     /// SVG-specific data or raster clip mask for this DOM node.
     pub svg_data: Option<SvgNodeData>,
@@ -1940,57 +1896,34 @@ pub struct NodeDataExt {
     pub context_menu: Option<Box<Menu>>,
     /// Stable key for reconciliation. If provided, allows the framework to track
     /// this node across frames even if its position in the array changes.
-    /// This is crucial for correct lifecycle events when lists are reordered.
     pub key: Option<u64>,
-    /// Callback to merge dataset state from a previous frame's node into the current node.
-    /// This enables heavy resource preservation (video decoders, GL textures) across frames.
+    /// Callback to merge dataset state from a previous frame's node into the
+    /// current node. This enables heavy resource preservation (video decoders, GL
+    /// textures) across frames.
     pub dataset_merge_callback: Option<DatasetMergeCallback>,
-    /// Tracks which component rendered this DOM subtree.
-    /// Set by the framework during component rendering — the root node(s) of a
-    /// component's output DOM get stamped with the component's qualified name.
-    /// Enables the debugger to reconstruct the component invocation tree from the
-    /// flat rendered DOM, and enables code generation roundtrips.
+    /// Tracks which component rendered this DOM subtree. Set by the framework
+    /// during component rendering - the root node(s) of a component's output DOM get
+    /// stamped with the component's qualified name.
     pub component_origin: Option<ComponentOrigin>,
-    /// COMPONENT-ATTACHED presence-animation functions, resolvable by NAME
-    /// from this node's `-azul-animation-in` / `-azul-animation-out` (after
-    /// stylesheet `@keyframes` — the web mechanism stays the only default
-    /// name source). This replaced the global `AppConfig` registry (USER
-    /// ruling 2026-08-17): a sidebar widget ships its fly-out next to its
-    /// own DOM, not in app-global state.
+    /// COMPONENT-ATTACHED presence-animation functions, resolvable by NAME from
+    /// this node's `-azul-animation-in` / `-azul-animation-out` (after stylesheet
+    /// `@keyframes` - the web mechanism stays the only default name source). This
+    /// replaced the global `AppConfig` registry (USER ruling 2026-08-17): a sidebar
+    /// widget ships its fly-out next to its own DOM, not in app-global state.
     pub animation_callbacks: Vec<crate::resources::AnimationFunction>,
 }
 
 /// A callback function used to merge the state of an old dataset into a new one.
-///
 /// This enables components with heavy internal state (video players, WebGL contexts)
 /// to preserve their resources across frames, while the DOM tree is recreated.
-///
-/// The callback receives both the old and new datasets as `RefAny` (cheap shallow clones)
-/// and returns the dataset that should be used for the new node.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// fn merge_video_state(new_data: RefAny, old_data: RefAny) -> RefAny {
-///     // Transfer heavy resources from old to new
-///     if let (Some(mut new), Some(old)) = (
-///         new_data.downcast_mut::<VideoState>(),
-///         old_data.downcast_ref::<VideoState>()
-///     ) {
-///         new.decoder = old.decoder.take();
-///         new.gl_texture = old.gl_texture.take();
-///     }
-///     new_data // Return the merged state
-/// }
-/// ```
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(C)]
 pub struct DatasetMergeCallback {
-    /// The function pointer that performs the merge.
-    /// Signature: `fn(new_data: RefAny, old_data: RefAny) -> RefAny`
+    /// The function pointer that performs the merge. Signature: `fn(new_data:
+    /// RefAny, old_data: RefAny) -> RefAny`
     pub cb: DatasetMergeCallbackType,
-    /// Optional callable for FFI language bindings (Python, etc.)
-    /// When set, the FFI layer can invoke this instead of `cb`.
+    /// Optional callable for FFI language bindings (Python, etc.) When set, the FFI
+    /// layer can invoke this instead of `cb`.
     pub callable: OptionRefAny,
 }
 
@@ -2003,8 +1936,8 @@ impl fmt::Debug for DatasetMergeCallback {
     }
 }
 
-/// Allow creating `DatasetMergeCallback` from a raw function pointer.
-/// This enables the `Into<DatasetMergeCallback>` pattern for Python bindings.
+/// Allow creating `DatasetMergeCallback` from a raw function pointer. This enables
+/// the `Into<DatasetMergeCallback>` pattern for Python bindings.
 impl From<DatasetMergeCallbackType> for DatasetMergeCallback {
     fn from(cb: DatasetMergeCallbackType) -> Self {
         Self {
@@ -2016,8 +1949,8 @@ impl From<DatasetMergeCallbackType> for DatasetMergeCallback {
 
 impl DatasetMergeCallback {
     /// Build from a raw `DatasetMergeCallbackType` function pointer (callable =
-    /// None). The concrete parameter is a coercion site, so callers can pass a
-    /// bare `extern "C" fn` item without an `as DatasetMergeCallbackType` cast.
+    /// None). The concrete parameter is a coercion site, so callers can pass a bare
+    /// `extern "C" fn` item without an `as DatasetMergeCallbackType` cast.
     #[must_use]
     pub fn from_ptr(cb: DatasetMergeCallbackType) -> Self {
         Self::from(cb)
@@ -2031,14 +1964,10 @@ impl_option!(
     [Debug, Clone]
 );
 
-/// Function pointer type for dataset merge callbacks.
-///
-/// Arguments:
-/// - `new_data`: The new node's dataset (shallow clone, cheap)
-/// - `old_data`: The old node's dataset (shallow clone, cheap)
-///
-/// Returns:
-/// - The `RefAny` that should be used as the dataset for the new node
+/// Function pointer type for dataset merge callbacks. Arguments: - `new_data`: The
+/// new node's dataset (shallow clone, cheap) - `old_data`: The old node's dataset
+/// (shallow clone, cheap) Returns: - The `RefAny` that should be used as the dataset
+/// for the new node
 pub type DatasetMergeCallbackType = extern "C" fn(RefAny, RefAny) -> RefAny;
 
 impl Clone for NodeData {
@@ -2081,32 +2010,29 @@ impl NodeDataVec {
     }
 }
 
-// SAFETY: All fields in NodeData are either Send (NodeType, NodeFlags, CssPropertyWithConditionsVec),
-// Arc-wrapped (RefAny), or plain data (Box<AccessibilityInfo>, Box<NodeDataExt>).
-// Function pointers (callbacks) are inherently Send. The RefAny uses atomic reference counting.
+// SAFETY: All fields in NodeData are either Send (NodeType, NodeFlags,
+// CssPropertyWithConditionsVec), Arc-wrapped (RefAny), or plain data
+// (Box<AccessibilityInfo>, Box<NodeDataExt>). Function pointers (callbacks) are
+// inherently Send.
 unsafe impl Send for NodeData {}
 
-/// Determines the behavior of an element in sequential focus navigation
-// (e.g., using the Tab key).
+/// Determines the behavior of an element in sequential focus navigation (e.g.,
+/// using the Tab key).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C, u8)]
 #[derive(Default)]
 pub enum TabIndex {
-    /// Automatic tab index, similar to simply setting `focusable = "true"` or `tabindex = 0`
-    /// (both have the effect of making the element focusable).
-    ///
-    /// Sidenote: See <https://www.w3.org/TR/html5/editing.html#sequential-focus-navigation-and-the-tabindex-attribute>
+    /// Automatic tab index, similar to simply setting `focusable = "true"` or
+    /// `tabindex = 0` (both have the effect of making the element focusable).
+    /// Sidenote: See
+    /// <https://www.w3.org/TR/html5/editing.html#sequential-focus-navigation-and-the-tabindex-attribute>
     /// for interesting notes on tabindex and accessibility
     #[default]
     Auto,
-    /// Set the tab index in relation to its parent element. I.e. if you have a list of elements,
-    /// the focusing order is restricted to the current parent.
-    ///
-    /// When pressing tab repeatedly, the focusing order will be
-    /// determined by `OverrideInParent` elements taking precedence among global order.
+    /// Set the tab index in relation to its parent element. I.e.
     OverrideInParent(u32),
-    /// Elements can be focused in callbacks, but are not accessible via
-    /// keyboard / tab navigation (-1).
+    /// Elements can be focused in callbacks, but are not accessible via keyboard /
+    /// tab navigation (-1).
     NoKeyboardFocus,
 }
 
@@ -2117,9 +2043,9 @@ impl_option!(
 );
 
 impl TabIndex {
-    /// Returns the HTML-compatible number of the `tabindex` element.
-    // const fn: TryFrom isn't const, and u32 -> isize is lossless on every
-    // supported (>= 32-bit) target, so the `as` cast cannot actually wrap here.
+    /// Returns the HTML-compatible number of the `tabindex` element. const fn:
+    /// TryFrom isn't const, and u32 -> isize is lossless on every supported (>=
+    /// 32-bit) target, so the `as` cast cannot actually wrap here.
     #[allow(clippy::cast_possible_wrap)]
     #[must_use] pub const fn get_index(&self) -> isize {
         use self::TabIndex::{Auto, OverrideInParent, NoKeyboardFocus};
@@ -2132,17 +2058,11 @@ impl TabIndex {
 }
 
 
-/// Packed representation of tab index + contenteditable flag.
-///
-/// Bit layout (32 bits):
-///   [31]     contenteditable flag (1 = true)
-///   [30:29]  `tab_index` variant:
-///              00 = None (no tab index set)
-///              01 = Auto
-///              10 = `OverrideInParent` (value in bits [28:0])
-///              11 = `NoKeyboardFocus`
-///   [28]     `is_anonymous` (1 = anonymous box for table layout)
-///   [27:0]   `OverrideInParent` value (max ~268 million)
+/// Packed representation of tab index + contenteditable flag. Bit layout (32 bits):
+/// [31] contenteditable flag (1 = true) [30:29] `tab_index` variant: 00 = None (no
+/// tab index set) 01 = Auto 10 = `OverrideInParent` (value in bits [28:0]) 11 =
+/// `NoKeyboardFocus` [28] `is_anonymous` (1 = anonymous box for table layout) [27:0]
+/// `OverrideInParent` value (max ~268 million)
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Default)]
@@ -2214,8 +2134,8 @@ impl NodeFlags {
     }
 
     pub const fn set_tab_index(&mut self, tab_index: Option<TabIndex>) {
-        // Clear tab index bits (bits 29-30) and value bits (bits 0-27)
-        // keep contenteditable bit (31) and anonymous bit (28)
+        // Clear tab index bits (bits 29-30) and value bits (bits 0-27) keep
+        // contenteditable bit (31) and anonymous bit (28)
         self.inner &= Self::CONTENTEDITABLE_BIT | Self::ANONYMOUS_BIT;
         match tab_index {
             None => { /* TAB_NONE = 0, already cleared */ }
@@ -2305,16 +2225,16 @@ impl NodeData {
         }
     }
 
-    /// Returns a reference to the node's attributes (from `NodeDataExt`).
-    /// Returns an empty slice if no attributes have been set.
+    /// Returns a reference to the node's attributes (from `NodeDataExt`). Returns
+    /// an empty slice if no attributes have been set.
     #[inline]
     #[must_use] pub fn attributes(&self) -> &AttributeTypeVec {
         static EMPTY: AttributeTypeVec = AttributeTypeVec::from_const_slice(&[]);
         self.extra.as_ref().map_or(&EMPTY, |ext| &ext.attributes)
     }
 
-    /// Returns a mutable reference to the node's attributes,
-    /// lazily allocating `NodeDataExt` if needed.
+    /// Returns a mutable reference to the node's attributes, lazily allocating
+    /// `NodeDataExt` if needed.
     #[inline]
     pub fn attributes_mut(&mut self) -> &mut AttributeTypeVec {
         &mut self.extra.get_or_insert_with(|| Box::new(NodeDataExt::default())).attributes
@@ -2344,24 +2264,8 @@ impl NodeData {
         Self::create_node(NodeType::Br)
     }
 
-    /// Creates a RAW text node - read this before using it.
-    ///
-    /// **WARNING**: azul does NOT auto-wrap raw text in an anonymous block
-    /// the way browsers do. A bare text node has NO box of its own: it gets
-    /// no rect, no clip, and no layout constraints. Every box-model CSS
-    /// property (width/height/position/overflow/background/border/padding),
-    /// every callback, every `tab_index` and every `dataset` attached to a
-    /// text node is silently INERT. This has broken shipped widgets before
-    /// (text escaping its container, click targets that never fire).
-    ///
-    /// A raw text node is only correct as the bare leaf INSIDE a block-level
-    /// wrapper that carries the styling - `p`, `div`, `h1`... Prefer the
-    /// `create_*_with_text` family (`Dom::create_p_with_text`,
-    /// `Dom::create_div_with_text`, `Dom::create_span_with_text`, ...), which
-    /// builds that shape for you. The engine also logs a warning after layout
-    /// when it finds a text node used without a containing block.
-    ///
-    /// Shorthand for `NodeData::create_node(NodeType::Text(value.into()))`.
+    /// Creates a RAW text node - read this before using it. **WARNING**: azul does
+    /// NOT auto-wrap raw text in an anonymous block the way browsers do.
     #[inline]
     pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(
         value: S,
@@ -2567,8 +2471,8 @@ impl NodeData {
         matches!(self.node_type, NodeType::VirtualView)
     }
 
-    // NOTE: Getters are used here in order to allow changing the memory allocator for the NodeData
-    // in the future (which is why the fields are all private).
+    // NOTE: Getters are used here in order to allow changing the memory allocator
+    // for the NodeData in the future (which is why the fields are all private).
 
     #[inline]
     #[must_use] pub const fn get_node_type(&self) -> &NodeType {
@@ -2586,8 +2490,8 @@ impl NodeData {
     pub fn take_dataset(&mut self) -> Option<RefAny> {
         self.extra.as_mut().and_then(|e| e.dataset.take())
     }
-    /// Returns IDs and classes as a computed `IdOrClassVec`.
-    /// Note: this allocates a new vec each time, prefer `has_id()`/`has_class()` for checks.
+    /// Returns IDs and classes as a computed `IdOrClassVec`. Note: this allocates a
+    /// new vec each time, prefer `has_id()`/`has_class()` for checks.
     #[inline]
     #[must_use] pub fn get_ids_and_classes(&self) -> IdOrClassVec {
         let v: Vec<IdOrClass> = self.attributes().as_ref().iter().filter_map(|attr| {
@@ -2613,15 +2517,15 @@ impl NodeData {
         self.extra.as_ref().and_then(|e| e.svg_data.as_ref())
     }
 
-    /// Legacy accessor for raster clip mask. Returns `Some` only for `SvgNodeData::ImageClipMask`.
+    /// Legacy accessor for raster clip mask. Returns `Some` only for
+    /// `SvgNodeData::ImageClipMask`.
     #[inline]
-    /// Is this node an image whose content is a null/placeholder image?
-    ///
-    /// Capture widgets (camera, screencapture, microphone level) build their
-    /// node with `ImageRef::null_image(...)` and fill it by writeback later, so
-    /// "placeholder" means "no frame yet" — see `diff::transfer_states`, which
-    /// uses this to keep the previous frame visible across a DOM rebuild
-    /// instead of flashing back to the placeholder.
+    /// Is this node an image whose content is a null/placeholder image? Capture
+    /// widgets (camera, screencapture, microphone level) build their node with
+    /// `ImageRef::null_image(...)` and fill it by writeback later, so "placeholder"
+    /// means "no frame yet" - see `diff::transfer_states`, which uses this to keep
+    /// the previous frame visible across a DOM rebuild instead of flashing back to
+    /// the placeholder.
     #[must_use]
     pub fn image_is_placeholder(&self) -> bool {
         match &self.node_type {
@@ -2680,9 +2584,8 @@ impl NodeData {
         self.node_type = node_type;
     }
     #[inline]
-    /// The node's component-attached animation functions (empty for the
-    /// ~100% of nodes that have none — no `extra` allocation is made by
-    /// reading).
+    /// The node's component-attached animation functions (empty for the ~100% of
+    /// nodes that have none - no `extra` allocation is made by reading).
     #[must_use]
     pub fn animation_callbacks(&self) -> &[crate::resources::AnimationFunction] {
         self.extra
@@ -2690,11 +2593,11 @@ impl NodeData {
             .map_or(&[], |e| e.animation_callbacks.as_slice())
     }
 
-    /// Attach a presence-animation function under `name`, resolvable from
-    /// this node's `-azul-animation-in` / `-azul-animation-out` after
-    /// stylesheet `@keyframes`. `callback` is the TYPE-ERASED
-    /// `azul_layout::callbacks::ZombieAnimFnType` fn pointer cast to
-    /// `usize` (the type-erased `ZombieAnimCallback.cb`).
+    /// Attach a presence-animation function under `name`, resolvable from this
+    /// node's `-azul-animation-in` / `-azul-animation-out` after stylesheet
+    /// `@keyframes`. `callback` is the TYPE-ERASED
+    /// `azul_layout::callbacks::ZombieAnimFnType` fn pointer cast to `usize` (the
+    /// type-erased `ZombieAnimCallback.cb`).
     pub fn add_animation_callback(
         &mut self,
         name: AzString,
@@ -2726,8 +2629,8 @@ impl NodeData {
         }
     }
     /// Sets the IDs and classes by converting `IdOrClassVec` entries into
-    /// `AttributeType::Id`/`AttributeType::Class` and merging them into `self.attributes`.
-    /// Any existing Id/Class attributes are removed first.
+    /// `AttributeType::Id`/`AttributeType::Class` and merging them into
+    /// `self.attributes`. Any existing Id/Class attributes are removed first.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn set_ids_and_classes(&mut self, ids_and_classes: IdOrClassVec) {
@@ -2749,27 +2652,17 @@ impl NodeData {
     pub fn set_callbacks(&mut self, callbacks: CoreCallbackDataVec) {
         self.callbacks = callbacks;
     }
-    /// Legacy: replace this node's inline style with a flat list of property+conditions.
-    /// Each entry becomes a single-declaration rule at `rule_priority::INLINE`. Prefer
-    /// `set_style` (or `with_style` / `with_css(&str)`) for new code.
+    /// Legacy: replace this node's inline style with a flat list of
+    /// property+conditions. Each entry becomes a single-declaration rule at
+    /// `rule_priority::INLINE`.
     #[inline]
     pub fn set_css_props(&mut self, css_props: CssPropertyWithConditionsVec) {
         self.style = css_props.into();
     }
-    /// Upsert one runtime-patched CSS property into this node's inline style.
-    ///
-    /// Every UNCONDITIONAL inline declaration of the same property type is
-    /// removed (a patch replaces the property's resting value), then the new
-    /// value is appended as its own unconditional rule at
-    /// `rule_priority::INLINE`. Conditional declarations (`:hover` styles,
-    /// `@media` rules) are left untouched: a runtime patch changes the
-    /// property's base value, not the node's whole style.
-    ///
-    /// The content chokepoint used to `set_css_props(vec![patch])` here,
-    /// which REPLACED the entire inline style — a gallery panel patched to
-    /// `display: flex` lost its `position: absolute; top: ...` and flowed
-    /// into the row, off-window. Remove-then-append also keeps repeated
-    /// toggles from growing the style without bound.
+    /// Upsert one runtime-patched CSS property into this node's inline style. Every
+    /// UNCONDITIONAL inline declaration of the same property type is removed (a
+    /// patch replaces the property's resting value), then the new value is appended
+    /// as its own unconditional rule at `rule_priority::INLINE`.
     pub fn upsert_inline_css_property(&mut self, prop: azul_css::props::property::CssProperty) {
         use azul_css::css::{rule_priority, CssDeclaration, CssPath, CssRuleBlock};
 
@@ -2798,8 +2691,8 @@ impl NodeData {
         });
         self.style.rules = rules.into();
     }
-    /// Replace this node's inline style with a `Css` value. The Css's rules apply only
-    /// to this node (implicit `:scope`).
+    /// Replace this node's inline style with a `Css` value. The Css's rules apply
+    /// only to this node (implicit `:scope`).
     #[inline]
     pub fn set_style(&mut self, style: azul_css::css::Css) {
         self.style = style;
@@ -2851,18 +2744,9 @@ impl NodeData {
             .context_menu = Some(Box::new(context_menu));
     }
 
-    /// Sets a stable key for this node used in reconciliation.
-    ///
-    /// This key is used to track node identity across DOM updates, enabling
-    /// the framework to distinguish between "moving" a node and "destroying/creating" one.
-    /// This is crucial for correct lifecycle events when lists are reordered.
-    ///
-    /// # Example
-    /// ```rust
-    /// # use azul_core::dom::NodeData;
-    /// # let mut node_data = NodeData::create_div();
-    /// node_data.set_key("user-123");
-    /// ```
+    /// Sets a stable key for this node used in reconciliation. This key is used to
+    /// track node identity across DOM updates, enabling the framework to distinguish
+    /// between "moving" a node and "destroying/creating" one.
     #[inline]
     pub fn set_key<K: Hash>(&mut self, key: K) {
         use core::hash::Hasher;
@@ -2879,38 +2763,9 @@ impl NodeData {
         self.extra.as_ref().and_then(|ext| ext.key)
     }
 
-    /// Sets a dataset merge callback for this node.
-    ///
-    /// The merge callback is invoked during reconciliation when a node from the
-    /// previous frame is matched with a node in the new frame. It allows heavy
-    /// resources (video decoders, GL textures, network connections) to be
-    /// transferred from the old node to the new node instead of being destroyed.
-    ///
-    /// # Type Safety
-    ///
-    /// The callback stores the `TypeId` of `T`. During execution, both the old
-    /// and new datasets must match this type, otherwise the merge is skipped.
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// struct VideoPlayer {
-    ///     url: String,
-    ///     decoder: Option<DecoderHandle>,
-    /// }
-    ///
-    /// extern "C" fn merge_video(new_data: RefAny, old_data: RefAny) -> RefAny {
-    ///     // Transfer the heavy decoder handle from old to new
-    ///     if let (Some(mut new), Some(old)) = (
-    ///         new_data.downcast_mut::<VideoPlayer>(),
-    ///         old_data.downcast_ref::<VideoPlayer>()
-    ///     ) {
-    ///         new.decoder = old.decoder.take();
-    ///     }
-    ///     new_data
-    /// }
-    ///
-    /// node_data.set_merge_callback(merge_video);
-    /// ```
+    /// Sets a dataset merge callback for this node. The merge callback is invoked
+    /// during reconciliation when a node from the previous frame is matched with a
+    /// node in the new frame.
     #[inline]
     pub fn set_merge_callback<C: Into<DatasetMergeCallback>>(&mut self, callback: C) {
         self.extra
@@ -2924,10 +2779,9 @@ impl NodeData {
         self.extra.as_ref().and_then(|ext| ext.dataset_merge_callback.clone())
     }
 
-    /// Sets the component origin for this node.
-    ///
-    /// This stamps the node with information about which component rendered it,
-    /// enabling the debugger to reconstruct the component invocation tree.
+    /// Sets the component origin for this node. This stamps the node with
+    /// information about which component rendered it, enabling the debugger to
+    /// reconstruct the component invocation tree.
     #[inline]
     pub fn set_component_origin(&mut self, origin: ComponentOrigin) {
         self.extra
@@ -2990,7 +2844,6 @@ impl NodeData {
     }
 
     /// Add a CSS property with optional conditions (hover, focus, active, etc.).
-    ///
     /// Wraps the property in a single-declaration rule at `rule_priority::INLINE`
     /// and appends it to this node's inline style.
     #[inline]
@@ -3018,28 +2871,21 @@ impl NodeData {
         DomNodeHash { inner: h }
     }
 
-    /// Calculates a structural hash for DOM reconciliation that ignores text content.
-    ///
-    /// This hash is used for matching nodes across DOM frames where the text content
-    /// may have changed (e.g., contenteditable text being edited). It hashes:
-    /// - Node type discriminant (but NOT the text content for Text nodes)
-    /// - IDs and classes
-    /// - Attributes (but NOT contenteditable state which may change with focus)
-    /// - Callback events and types
-    ///
-    /// This allows a Text("Hello") node to match Text("Hello World") during reconciliation,
-    /// preserving cursor position and selection state.
+    /// Calculates a structural hash for DOM reconciliation that ignores text
+    /// content. This hash is used for matching nodes across DOM frames where the
+    /// text content may have changed (e.g., contenteditable text being edited).
     #[must_use] pub fn calculate_structural_hash(&self) -> DomNodeHash {
         use core::hash::Hasher;
         use core::hash::Hasher as StdHasher;
 
         let mut hasher = crate::hash::DefaultHasher::new();
 
-        // Hash node type discriminant only, not content
-        // This means Text("A") and Text("B") have the same structural hash
+        // Hash node type discriminant only, not content This means Text("A") and
+        // Text("B") have the same structural hash
         mem::discriminant(&self.node_type).hash(&mut hasher);
 
-        // For VirtualView nodes, hash the callback to distinguish different virtualized views
+        // For VirtualView nodes, hash the callback to distinguish different
+        // virtualized views
         if self.node_type == NodeType::VirtualView {
             if let Some(ext) = self.extra.as_ref() {
                 if let Some(vv) = ext.virtual_view.as_ref() {
@@ -3048,11 +2894,11 @@ impl NodeData {
             }
         }
 
-        // For Image nodes, hash the image reference to distinguish different images.
-        // For callback images, hash the callback function pointer and RefAny type ID
-        // instead of the heap pointer, so that the same callback produces the same
-        // structural hash across frames (the heap pointer differs each frame because
-        // ImageRef::new() does Box::into_raw(Box::new(...))).
+        // For Image nodes, hash the image reference to distinguish different
+        // images. For callback images, hash the callback function pointer and RefAny
+        // type ID instead of the heap pointer, so that the same callback produces
+        // the same structural hash across frames (the heap pointer differs each
+        // frame because ImageRef::new() does Box::into_raw(Box::new(...))).
         if let NodeType::Image(ref img_ref) = self.node_type {
             match img_ref.get_data() {
                 crate::resources::DecodedImage::Callback(cb) => {
@@ -3068,8 +2914,8 @@ impl NodeData {
             }
         }
 
-        // Hash IDs and classes - these are structural and shouldn't change
-        // (They are now stored as AttributeType::Id / AttributeType::Class in attributes)
+        // Hash IDs and classes - these are structural and shouldn't change (They
+        // are now stored as AttributeType::Id / AttributeType::Class in attributes)
         for attr in self.attributes().as_ref() {
             match attr {
                 AttributeType::Id(s) => { 0u8.hash(&mut hasher); s.as_str().hash(&mut hasher); }
@@ -3138,7 +2984,6 @@ impl NodeData {
     }
     /// Legacy: builder-form of `set_css_props`. Each `CssPropertyWithConditions`
     /// becomes a single-declaration rule at `rule_priority::INLINE`.
-    /// Prefer `with_style(Css)` for new code.
     #[inline]
     #[must_use] pub fn with_css_props(mut self, css_props: CssPropertyWithConditionsVec) -> Self {
         self.style = css_props.into();
@@ -3151,18 +2996,9 @@ impl NodeData {
         self
     }
 
-    /// Assigns a stable key to this node for reconciliation.
-    ///
-    /// This is crucial for performance and correct state preservation when
-    /// lists of items change order or items are inserted/removed. Without keys,
-    /// the reconciliation algorithm falls back to hash-based matching.
-    ///
-    /// # Example
-    /// ```rust
-    /// # use azul_core::dom::NodeData;
-    /// NodeData::create_div()
-    ///     .with_key("user-avatar-123");
-    /// ```
+    /// Assigns a stable key to this node for reconciliation. This is crucial for
+    /// performance and correct state preservation when lists of items change order
+    /// or items are inserted/removed.
     #[inline]
     #[must_use]
     pub fn with_key<K: Hash>(mut self, key: K) -> Self {
@@ -3170,36 +3006,10 @@ impl NodeData {
         self
     }
 
-    /// Registers a callback to merge dataset state from the previous frame.
-    ///
-    /// This is used for components that maintain heavy internal state (video players,
-    /// WebGL contexts, network connections) that should not be destroyed and recreated
-    /// on every render frame.
-    ///
-    /// The callback receives both datasets as `RefAny` (cheap shallow clones) and
-    /// returns the `RefAny` that should be used for the new node.
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// struct VideoPlayer {
-    ///     url: String,
-    ///     decoder_handle: Option<DecoderHandle>,
-    /// }
-    ///
-    /// extern "C" fn merge_video(new_data: RefAny, old_data: RefAny) -> RefAny {
-    ///     if let (Some(mut new), Some(old)) = (
-    ///         new_data.downcast_mut::<VideoPlayer>(),
-    ///         old_data.downcast_ref::<VideoPlayer>()
-    ///     ) {
-    ///         new.decoder_handle = old.decoder_handle.take();
-    ///     }
-    ///     new_data
-    /// }
-    ///
-    /// NodeData::create_div()
-    ///     .with_dataset(RefAny::new(VideoPlayer::new("movie.mp4")).into())
-    ///     .with_merge_callback(merge_video)
-    /// ```
+    /// Registers a callback to merge dataset state from the previous frame. This is
+    /// used for components that maintain heavy internal state (video players, WebGL
+    /// contexts, network connections) that should not be destroyed and recreated on
+    /// every render frame.
     #[inline]
     #[must_use]
     pub fn with_merge_callback<C: Into<DatasetMergeCallback>>(mut self, callback: C) -> Self {
@@ -3207,23 +3017,8 @@ impl NodeData {
         self
     }
 
-    /// Parse and set CSS styles with full selector support.
-    ///
-    /// This is the unified API for setting inline CSS on a node. It supports:
-    /// - Simple properties: `color: red; font-size: 14px;`
-    /// - Pseudo-selectors: `:hover { background: blue; }`
-    /// - @-rules: `@os linux { font-size: 14px; }`
-    /// - Nesting: `@os linux { font-size: 14px; :hover { color: red; }}`
-    ///
-    /// # Examples
-    /// ```rust
-    /// # use azul_core::dom::NodeData;
-    /// NodeData::create_div().with_css("
-    ///     color: blue;
-    ///     :hover { color: red; }
-    ///     @os linux { font-size: 14px; }
-    /// ");
-    /// ```
+    /// Parse and set CSS styles with full selector support. This is the unified API
+    /// for setting inline CSS on a node.
     pub fn set_css(&mut self, style: &str) {
         // Parse via Css::parse_inline so the inline path goes through the same
         // selector + nesting machinery as author CSS. Rules are tagged
@@ -3262,42 +3057,34 @@ impl NodeData {
         }
     }
 
-    /// Like [`copy_special`], but MOVES the inline `style` and the `extra` (`NodeDataExt`)
-    /// box out of `self` into the returned copy instead of cloning them.
-    ///
-    /// Both the derived `Clone` for the `CssProperty` values inside `style` AND the derived
-    /// `Clone` for `Box<NodeDataExt>` (which transitively clones an `AttributeTypeVec` of
-    /// `AzString`s, menus, etc.) lower to indirect-jump jump tables that remill mis-lifts on
-    /// the web backend: the mis-lifted clone reads/writes wrong-sized data, which on the
-    /// stack clobbers the adjacent `style` temporary inside `copy_special` and produces a
-    /// "memory access out of bounds" later in the cascade (`StyledDom::create` → `restyle`'s
-    /// inheritance loop reads the corrupted `style`). Native builds are unaffected.
-    ///
-    /// `convert_dom_into_compact_dom` consumes the `Dom`, so moving these fields out is sound:
-    /// `copy_special` then clones an EMPTY style + `None` extra (no broken clone runs), and we
-    /// restore the moved-out values afterward. Mirrors the pre-existing `style`-only fix.
+    /// Like [`copy_special`], but MOVES the inline `style` and the `extra`
+    /// (`NodeDataExt`) box out of `self` into the returned copy instead of cloning
+    /// them. Both the derived `Clone` for the `CssProperty` values inside `style`
+    /// AND the derived `Clone` for `Box<NodeDataExt>` (which transitively clones an
+    /// `AttributeTypeVec` of `AzString`s, menus, etc.) lower to indirect-jump jump
+    /// tables that remill mis-lifts on the web backend: the mis-lifted clone
+    /// reads/writes wrong-sized data, which on the stack clobbers the adjacent
+    /// `style` temporary inside `copy_special` and produces a "memory access out of
+    /// bounds" later in the cascade (`StyledDom::create` → `restyle`'s inheritance
+    /// loop reads the corrupted `style`).
     pub(crate) fn copy_special_moving_complex(&mut self) -> Self {
-        // WEB-LIFT (2026-06-03): `copy_special`'s `to_library_owned_nodetype()` RECONSTRUCTS the
-        // node_type (Text/Image arms clone the boxed AzString + rebuild the variant); the lifted
-        // sret store of that data-bearing variant DROPS the whole thing (disc 177->0 AND the box
-        // ptr -> styled_dom text node_type = all-zero, box LOST). Earlier attempts to fix this
-        // "trapped" — but that was the missing `-C target-feature=-lse` build flag (LSE atomics
-        // remill can't lift), NOT this code. With -lse + the fork remill, MOVE the node_type out
-        // bitwise instead of reconstructing it: transfers the ORIGINAL box (preserving disc + the
-        // AzString) with no clone. The Dom is consumed by convert_dom_into_compact_dom so moving is
-        // sound; self.node_type becomes Div (no heap) -> dropped trivially. ptr::write avoids
-        // dropping copy's placeholder Div (whose auto-Drop disc-match could mis-lift).
+        // WEB-LIFT (2026-06-03): `copy_special`'s `to_library_owned_nodetype()`
+        // RECONSTRUCTS the node_type (Text/Image arms clone the boxed AzString +
+        // rebuild the variant); the lifted sret store of that data-bearing variant
+        // DROPS the whole thing (disc 177->0 AND the box ptr -> styled_dom text
+        // node_type = all-zero, box LOST). Earlier attempts to fix this "trapped" -
+        // but that was the missing `-C target-feature=-lse` build flag (LSE atomics
+        // remill can't lift), NOT this code.
         let taken_style = mem::take(&mut self.style);
         let taken_extra = self.extra.take();
         let taken_node_type = mem::replace(&mut self.node_type, NodeType::Div);
         let mut copy = self.copy_special();
         // SAFETY: `&raw mut copy.node_type` is aligned and points at an initialized
         // `NodeType` (the placeholder `Div` that `copy_special` reconstructed from
-        // `self.node_type`, which we replaced with `NodeType::Div` above). `ptr::write`
-        // overwrites it WITHOUT running its `Drop` — this is deliberate (the Drop
-        // mis-lifts on the web backend) and leaks nothing, because the overwritten
-        // value is a heap-free `Div`. Kept unsafe (not a plain `=` assignment)
-        // specifically to skip that Drop.
+        // `self.node_type`, which we replaced with `NodeType::Div` above).
+        // `ptr::write` overwrites it WITHOUT running its `Drop` - this is deliberate
+        // (the Drop mis-lifts on the web backend) and leaks nothing, because the
+        // overwritten value is a heap-free `Div`.
         unsafe { core::ptr::write(&raw mut copy.node_type, taken_node_type); }
         copy.style = taken_style;
         copy.extra = taken_extra;
@@ -3325,17 +3112,8 @@ impl NodeData {
     }
 
     /// Returns true if this element has "activation behavior" per HTML5 spec.
-    ///
     /// Elements with activation behavior can be activated via Enter or Space key
     /// when focused, which generates a synthetic click event.
-    ///
-    /// Per HTML5 spec, elements with activation behavior include:
-    /// - Button elements
-    /// - Input elements (submit, button, reset, checkbox, radio)
-    /// - Anchor elements with href
-    /// - Any element with a click callback (implicit activation)
-    ///
-    /// See: <https://html.spec.whatwg.org/multipage/interaction.html#activation-behavior>
     #[must_use] pub fn has_activation_behavior(&self) -> bool {
         use crate::events::{EventFilter, HoverEventFilter};
 
@@ -3344,8 +3122,8 @@ impl NodeData {
             return true;
         }
 
-        // Check for click callback (most common case for Azul)
-        // In Azul, "click" is typically LeftMouseUp
+        // Check for click callback (most common case for Azul) In Azul, "click" is
+        // typically LeftMouseUp
         let has_click_callback = self
             .get_callbacks()
             .iter()
@@ -3376,10 +3154,8 @@ impl NodeData {
         false
     }
 
-    /// Returns true if this element is currently activatable.
-    ///
-    /// An element is activatable if it has activation behavior AND is not disabled.
-    /// This checks for common disability patterns (aria-disabled, disabled attribute).
+    /// Returns true if this element is currently activatable. An element is
+    /// activatable if it has activation behavior AND is not disabled.
     #[must_use] pub fn is_activatable(&self) -> bool {
         if !self.has_activation_behavior() {
             return false;
@@ -3402,13 +3178,11 @@ impl NodeData {
         true
     }
 
-    /// Returns the tab index for this element.
-    ///
-    /// Tab index determines keyboard navigation order:
-    /// - `None`: Not in tab order (unless naturally focusable)
-    /// - `Some(-1)`: Focusable programmatically but not via Tab
-    /// - `Some(0)`: In natural tab order
-    /// - `Some(n > 0)`: In tab order with priority n (higher = later)
+    /// Returns the tab index for this element. Tab index determines keyboard
+    /// navigation order: - `None`: Not in tab order (unless naturally focusable) -
+    /// `Some(-1)`: Focusable programmatically but not via Tab - `Some(0)`: In
+    /// natural tab order - `Some(n > 0)`: In tab order with priority n (higher =
+    /// later)
     #[must_use] pub fn get_effective_tabindex(&self) -> Option<i32> {
         self.flags.get_tab_index().map_or_else(|| if self.get_callbacks().iter().any(|cb| cb.event.is_focus_callback()) {
                     Some(0)
@@ -3421,11 +3195,8 @@ impl NodeData {
                 })
     }
 
-    /// Returns the accessible label for this node.
-    ///
-    /// Priority: `aria-label` attribute > `alt` attribute > `title` attribute > None.
-    /// Does NOT include child text — the caller should collect that separately
-    /// using the DOM hierarchy.
+    /// Returns the accessible label for this node. Priority: `aria-label` attribute
+    /// > `alt` attribute > `title` attribute > None.
     #[must_use] pub fn get_accessible_label(&self) -> Option<&str> {
         for attr in self.attributes().as_ref() {
             if let AttributeType::AriaLabel(s) = attr { return Some(s.as_str()) }
@@ -3439,10 +3210,8 @@ impl NodeData {
         None
     }
 
-    /// Returns the accessible value for this node.
-    ///
-    /// Priority: `value` attribute > None.
-    /// For text inputs, this is the input's current value.
+    /// Returns the accessible value for this node. Priority: `value` attribute >
+    /// None.
     #[must_use] pub fn get_accessible_value(&self) -> Option<&str> {
         for attr in self.attributes().as_ref() {
             if let AttributeType::Value(s) = attr {
@@ -3599,11 +3368,8 @@ impl DomNodeId {
     };
 }
 
-/// The document model, similar to HTML. This is a create-only structure, you don't actually read
-/// anything back from it. It's designed for ease of construction.
-///
-/// This is the "slow" tree-based DOM. For bulk construction (XML parsing),
-/// use `FastDom` which builds flat arenas directly and skips the tree→arena conversion.
+/// The document model, similar to HTML. This is a create-only structure, you don't
+/// actually read anything back from it.
 #[repr(C)]
 #[derive(PartialEq, Clone)]
 pub struct Dom {
@@ -3611,30 +3377,17 @@ pub struct Dom {
     pub root: NodeData,
     /// The children of this DOM node.
     pub children: DomVec,
-    /// Ordered list of CSS stylesheets to apply to this DOM subtree.
-    /// Stylesheets are applied in push order during the single deferred cascade pass.
-    /// Later entries override earlier ones (higher cascade priority).
+    /// Ordered list of CSS stylesheets to apply to this DOM subtree. Stylesheets
+    /// are applied in push order during the single deferred cascade pass.
     pub css: azul_css::css::CssVec,
-    // Tracks the number of sub-children of the current children, so that
-    // the `Dom` can be converted into a `CompactDom`.
-    //
-    // AUDIT: this is a cached count that MUST equal the recursive
-    // `1-per-descendant` total of `children`. The builder methods
-    // (`add_child` / `set_children` / `with_child*` / `FromIterator`) keep it in
-    // sync, but `children` is a public field — mutating it directly desyncs this
-    // counter. A too-small value makes `convert_dom_into_compact_dom` under-allocate
-    // its arenas and panic on out-of-bounds writes. Call
-    // `fixup_children_estimated()` after any direct `children` mutation;
-    // `StyledDom::new` already does so as a safety net. Debug builds assert
-    // consistency in the builder methods (see `recompute_estimated_total_children`).
+    // Tracks the number of sub-children of the current children, so that the `Dom`
+    // can be converted into a `CompactDom`. AUDIT: this is a cached count that MUST
+    // equal the recursive `1-per-descendant` total of `children`.
     pub estimated_total_children: usize,
 }
 
-/// CSS stylesheet associated with a specific node ID in the flat arena.
-///
-/// In the tree DOM, each node carries its own `css` field. In the flat arena,
-/// we record which node a stylesheet scopes to (e.g. for `<style>` tags
-/// in different parts of the document).
+/// CSS stylesheet associated with a specific node ID in the flat arena. In the tree
+/// DOM, each node carries its own `css` field.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
 pub struct CssWithNodeId {
@@ -3653,11 +3406,6 @@ impl_vec_partialord!(CssWithNodeId, CssWithNodeIdVec);
 impl_vec_partialeq!(CssWithNodeId, CssWithNodeIdVec);
 
 /// Arena-based DOM for bulk construction (e.g. XML/XHTML parsing).
-/// The hierarchy and node data are stored in two parallel flat vectors,
-/// skipping the tree→arena conversion step entirely.
-///
-/// Use `FastDom::into_dom()` to convert to a tree-based `Dom` if needed.
-/// `StyledDom::create_from_fast_dom()` consumes this directly without conversion.
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct FastDom {
@@ -3669,8 +3417,8 @@ pub struct FastDom {
     pub css: CssWithNodeIdVec,
 }
 
-// Manual Eq/Hash/Ord impls that skip the transient `css` field,
-// since CssVec does not implement Eq/Hash/Ord.
+// Manual Eq/Hash/Ord impls that skip the transient `css` field, since CssVec does
+// not implement Eq/Hash/Ord.
 impl Eq for Dom {}
 
 impl Hash for Dom {
@@ -3713,10 +3461,7 @@ impl_vec_eq!(Dom, DomVec);
 impl_vec_hash!(Dom, DomVec);
 
 /// An empty `<body>` DOM. Used as the safe fallback return value when a layout
-/// callback cannot produce a DOM (e.g. a foreign-language binding's trampoline
-/// raised, or an app-data downcast failed). `StyledDom` is the post-cascade
-/// CSSOM; layout callbacks return an un-cascaded `Dom`, so an empty body is the
-/// natural "nothing to show" default.
+/// callback cannot produce a DOM (e.g.
 impl Default for Dom {
     fn default() -> Self {
         Self::create_body()
@@ -3749,10 +3494,8 @@ impl Dom {
 
     // Document Structure Elements
 
-    /// Creates the root HTML element.
-    ///
-    /// **Accessibility**: The `<html>` element is the root of an HTML document and should have a
-    /// `lang` attribute.
+    /// Creates the root HTML element. **Accessibility**: The `<html>` element is
+    /// the root of an HTML document and should have a `lang` attribute.
     #[inline]
     #[must_use] pub const fn create_html() -> Self {
         Self {
@@ -3763,9 +3506,8 @@ impl Dom {
         }
     }
 
-    /// Creates the document head element.
-    ///
-    /// **Accessibility**: The `<head>` contains metadata. Use `<title>` for page titles.
+    /// Creates the document head element. **Accessibility**: The `<head>` contains
+    /// metadata.
     #[inline]
     #[must_use] pub const fn create_head() -> Self {
         Self {
@@ -3786,10 +3528,8 @@ impl Dom {
         }
     }
 
-    /// Creates a generic block-level container.
-    ///
-    /// **Accessibility**: Prefer semantic elements like `<article>`, `<section>`, `<nav>` when
-    /// applicable.
+    /// Creates a generic block-level container. **Accessibility**: Prefer semantic
+    /// elements like `<article>`, `<section>`, `<nav>` when applicable.
     #[inline]
     #[must_use] pub const fn create_div() -> Self {
         Self {
@@ -3802,11 +3542,8 @@ impl Dom {
 
     // Semantic Structure Elements
 
-    /// Creates an article element.
-    ///
-    /// **Accessibility**: Represents self-contained content that could be distributed
-    /// independently. Screen readers can navigate by articles. Consider adding aria-label for
-    /// multiple articles.
+    /// Creates an article element. **Accessibility**: Represents self-contained
+    /// content that could be distributed independently.
     #[inline]
     #[must_use] pub const fn create_article() -> Self {
         Self {
@@ -3817,10 +3554,8 @@ impl Dom {
         }
     }
 
-    /// Creates a section element.
-    ///
-    /// **Accessibility**: Represents a thematic grouping of content with a heading.
-    /// Should typically have a heading (h1-h6) as a child. Consider aria-labelledby.
+    /// Creates a section element. **Accessibility**: Represents a thematic grouping
+    /// of content with a heading.
     #[inline]
     #[must_use] pub const fn create_section() -> Self {
         Self {
@@ -3831,11 +3566,8 @@ impl Dom {
         }
     }
 
-    /// Creates a navigation element.
-    ///
-    /// **Accessibility**: Represents navigation links. Screen readers can jump to navigation.
-    /// Use aria-label to distinguish multiple nav elements (e.g., "Main navigation", "Footer
-    /// links").
+    /// Creates a navigation element. **Accessibility**: Represents navigation
+    /// links.
     #[inline]
     #[must_use] pub const fn create_nav() -> Self {
         Self {
@@ -3846,10 +3578,8 @@ impl Dom {
         }
     }
 
-    /// Creates an aside element.
-    ///
-    /// **Accessibility**: Represents content tangentially related to main content (sidebars,
-    /// callouts). Screen readers announce this as complementary content.
+    /// Creates an aside element. **Accessibility**: Represents content tangentially
+    /// related to main content (sidebars, callouts).
     #[inline]
     #[must_use] pub const fn create_aside() -> Self {
         Self {
@@ -3860,10 +3590,8 @@ impl Dom {
         }
     }
 
-    /// Creates a header element.
-    ///
-    /// **Accessibility**: Represents introductory content or navigational aids.
-    /// Can be used for page headers or section headers.
+    /// Creates a header element. **Accessibility**: Represents introductory content
+    /// or navigational aids.
     #[inline]
     #[must_use] pub const fn create_header() -> Self {
         Self {
@@ -3874,10 +3602,8 @@ impl Dom {
         }
     }
 
-    /// Creates a footer element.
-    ///
-    /// **Accessibility**: Represents footer for nearest section or page.
-    /// Typically contains copyright, author info, or related links.
+    /// Creates a footer element. **Accessibility**: Represents footer for nearest
+    /// section or page.
     #[inline]
     #[must_use] pub const fn create_footer() -> Self {
         Self {
@@ -3888,11 +3614,8 @@ impl Dom {
         }
     }
 
-    /// Creates a main content element.
-    ///
-    /// **Accessibility**: Represents the dominant content. There should be only ONE main per page.
-    /// Screen readers can jump directly to main content. Do not nest inside
-    /// article/aside/footer/header/nav.
+    /// Creates a main content element. **Accessibility**: Represents the dominant
+    /// content.
     #[inline]
     #[must_use] pub const fn create_main() -> Self {
         Self {
@@ -3903,10 +3626,8 @@ impl Dom {
         }
     }
 
-    /// Creates a figure element.
-    ///
-    /// **Accessibility**: Represents self-contained content like diagrams, photos, code listings.
-    /// Use with `<figcaption>` to provide a caption. Screen readers associate caption with figure.
+    /// Creates a figure element. **Accessibility**: Represents self-contained
+    /// content like diagrams, photos, code listings.
     #[inline]
     #[must_use] pub const fn create_figure() -> Self {
         Self {
@@ -3917,10 +3638,8 @@ impl Dom {
         }
     }
 
-    /// Creates a figure caption element.
-    ///
-    /// **Accessibility**: Provides a caption for `<figure>`. Screen readers announce this as the
-    /// figure description.
+    /// Creates a figure caption element. **Accessibility**: Provides a caption for
+    /// `<figure>`.
     #[inline]
     #[must_use] pub const fn create_figcaption() -> Self {
         Self {
@@ -3934,9 +3653,8 @@ impl Dom {
     // Interactive Elements
 
     /// Creates a details disclosure element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_details`] so that screen readers announce the
-    /// disclosure widget's purpose.
+    /// Prefer [`Dom::create_details`] so that screen readers announce the disclosure
+    /// widget's purpose.
     #[inline]
     #[must_use] pub const fn create_details_no_a11y() -> Self {
         Self {
@@ -3948,21 +3666,16 @@ impl Dom {
     }
 
     /// Creates a details disclosure element with accessibility information.
-    ///
-    /// **Accessibility**: Creates a disclosure widget. Screen readers announce expanded/collapsed
-    /// state. Must contain a `<summary>` element. Keyboard accessible by default.
-    ///
-    /// Use [`Dom::create_details_no_a11y`] only as a deliberate escape hatch.
+    /// **Accessibility**: Creates a disclosure widget.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_details(aria: SmallAriaInfo) -> Self {
         Self::create_details_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates an empty summary element for details without accessibility information.
-    ///
-    /// Prefer [`Dom::create_summary`] so that screen readers can announce the
-    /// disclosure heading.
+    /// Creates an empty summary element for details without accessibility
+    /// information. Prefer [`Dom::create_summary`] so that screen readers can
+    /// announce the disclosure heading.
     #[inline]
     #[must_use] pub const fn create_summary_no_a11y() -> Self {
         Self {
@@ -3974,11 +3687,7 @@ impl Dom {
     }
 
     /// Creates an empty summary element for details with accessibility information.
-    ///
     /// **Accessibility**: The visible heading/label for `<details>`.
-    /// Must be the first child of details. Keyboard accessible (Enter/Space to toggle).
-    ///
-    /// Use [`Dom::create_summary_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_summary(aria: SmallAriaInfo) -> Self {
@@ -3986,30 +3695,24 @@ impl Dom {
     }
 
     /// Creates a summary element with text without accessibility information.
-    ///
-    /// Prefer [`Dom::create_summary_with_text`] so that screen readers
-    /// announce the disclosure heading.
+    /// Prefer [`Dom::create_summary_with_text`] so that screen readers announce the
+    /// disclosure heading.
     #[inline]
     pub fn create_summary_with_text_no_a11y<S: Into<AzString>>(text: S) -> Self {
         Self::create_summary_no_a11y().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates a summary element with text and accessibility information for details.
-    ///
-    /// **Accessibility**: The visible heading/label for `<details>`.
-    /// Must be the first child of details. Keyboard accessible (Enter/Space to toggle).
-    ///
-    /// Use [`Dom::create_summary_with_text_no_a11y`] only as a deliberate escape hatch.
+    /// Creates a summary element with text and accessibility information for
+    /// details. **Accessibility**: The visible heading/label for `<details>`.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_summary_with_text<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
         Self::create_summary_with_text_no_a11y(text).with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a dialog element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_dialog`] so that the dialog's purpose, modality,
-    /// and described-by relationship are surfaced to assistive technologies.
+    /// Creates a dialog element without accessibility information. Prefer
+    /// [`Dom::create_dialog`] so that the dialog's purpose, modality, and
+    /// described-by relationship are surfaced to assistive technologies.
     #[inline]
     #[must_use] pub const fn create_dialog_no_a11y() -> Self {
         Self {
@@ -4020,13 +3723,8 @@ impl Dom {
         }
     }
 
-    /// Creates a dialog element with accessibility information.
-    ///
-    /// **Accessibility**: Represents a modal or non-modal dialog.
-    /// When opened as modal, focus is trapped. Use aria-label or aria-labelledby.
-    /// Escape key should close modal dialogs.
-    ///
-    /// Use [`Dom::create_dialog_no_a11y`] only as a deliberate escape hatch.
+    /// Creates a dialog element with accessibility information. **Accessibility**:
+    /// Represents a modal or non-modal dialog.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_dialog(aria: DialogAriaInfo) -> Self {
@@ -4044,22 +3742,8 @@ impl Dom {
             estimated_total_children: 0,
         }
     }
-    /// Creates a RAW text node - read this before using it.
-    ///
-    /// **WARNING**: azul does NOT auto-wrap raw text in an anonymous block
-    /// the way browsers do. A bare text node has NO box of its own: it gets
-    /// no rect, no clip, and no layout constraints. Every box-model CSS
-    /// property (width/height/position/overflow/background/border/padding),
-    /// every callback, every `tab_index` and every `dataset` attached to a
-    /// text node is silently INERT. This has broken shipped widgets before
-    /// (text escaping its container, click targets that never fire).
-    ///
-    /// A raw text node is only correct as the bare leaf INSIDE a block-level
-    /// wrapper that carries the styling - `p`, `div`, `h1`... Prefer the
-    /// `create_*_with_text` family ([`Dom::create_p_with_text`],
-    /// [`Dom::create_div_with_text`], [`Dom::create_span_with_text`], ...),
-    /// which builds that shape for you. The engine also logs a warning after
-    /// layout when it finds a text node used without a containing block.
+    /// Creates a RAW text node - read this before using it. **WARNING**: azul does
+    /// NOT auto-wrap raw text in an anonymous block the way browsers do.
     #[inline]
     pub fn create_text_do_not_use_without_block_level_wrapper<S: Into<AzString>>(
         value: S,
@@ -4070,24 +3754,15 @@ impl Dom {
     #[must_use] pub fn create_image(image: ImageRef) -> Self {
         Self::create_node(NodeType::Image(BoxOrStatic::heap(image)))
     }
-    /// Creates an icon node with the given icon name.
-    ///
-    /// The icon name should match names from the icon provider (e.g., "home", "settings", "search").
-    /// Icons are resolved to actual content (font glyph, image, etc.) during `StyledDom` creation
-    /// based on the configured `IconProvider`.
-    ///
-    /// # Example
-    /// ```rust,ignore
-    /// Dom::create_icon("home")
-    ///     .with_class("nav-icon")
-    /// ```
+    /// Creates an icon node with the given icon name. The icon name should match
+    /// names from the icon provider (e.g., "home", "settings", "search").
     #[inline]
     pub fn create_icon<S: Into<AzString>>(icon_name: S) -> Self {
-        // The empty text leaf is where icon resolution writes a font icon's
-        // glyph (the node itself becomes the inline `<span>` box around it):
-        // the arena is DFS-ordered, so the leaf has to exist from the start -
-        // see `icon::resolve_icons_in_styled_dom`. `<icon>name</icon>` in
-        // markup has its spec text in that place.
+        // The empty text leaf is where icon resolution writes a font icon's glyph
+        // (the node itself becomes the inline `<span>` box around it): the arena is
+        // DFS-ordered, so the leaf has to exist from the start - see
+        // `icon::resolve_icons_in_styled_dom`. `<icon>name</icon>` in markup has its
+        // spec text in that place.
         Self::create_node(NodeType::Icon(BoxOrStatic::heap(icon_name.into())))
             .with_child(Self::create_text_do_not_use_without_block_level_wrapper(""))
     }
@@ -4097,12 +3772,11 @@ impl Dom {
         Self::create_from_data(NodeData::create_virtual_view(data, callback))
     }
 
-    /// Creates an invisible `NodeType::GeolocationProbe` node that
-    /// signals "this subtree needs the user's location". Lays out as
-    /// zero-size and is skipped in the display list - the framework
-    /// scans for it at end-of-layout and starts / stops the native
-    /// `CLLocationManager` / `LocationManager` / `geoclue`
-    /// subscription. See `SUPER_PLAN_2.md` section 1.5.
+    /// Creates an invisible `NodeType::GeolocationProbe` node that signals "this
+    /// subtree needs the user's location". Lays out as zero-size and is skipped in
+    /// the display list - the framework scans for it at end-of-layout and starts /
+    /// stops the native `CLLocationManager` / `LocationManager` / `geoclue`
+    /// subscription.
     #[inline]
     #[must_use] pub fn create_geolocation_probe(config: crate::geolocation::GeolocationProbeConfig) -> Self {
         Self::create_node(NodeType::GeolocationProbe(config))
@@ -4110,9 +3784,8 @@ impl Dom {
 
     // Semantic HTML Elements with Accessibility Guidance
 
-    /// Creates a paragraph element.
-    ///
-    /// **Accessibility**: Paragraphs provide semantic structure for screen readers.
+    /// Creates a paragraph element. **Accessibility**: Paragraphs provide semantic
+    /// structure for screen readers.
     #[inline]
     #[must_use] pub const fn create_p() -> Self {
         Self {
@@ -4123,10 +3796,8 @@ impl Dom {
         }
     }
 
-    /// Creates an empty heading level 1 element.
-    ///
-    /// **Accessibility**: Use `h1` for the main page title. There should typically be only one `h1`
-    /// per page.
+    /// Creates an empty heading level 1 element. **Accessibility**: Use `h1` for
+    /// the main page title.
     #[inline]
     #[must_use] pub const fn create_h1() -> Self {
         Self {
@@ -4137,21 +3808,15 @@ impl Dom {
         }
     }
 
-    /// Creates a heading level 1 element with text.
-    ///
-    /// **Accessibility**: Use `h1` for the main page title. There should typically be only one `h1`
-    /// per page.
-    ///
-    /// **Parameters:**
-    /// - `text`: Heading text
+    /// Creates a heading level 1 element with text. **Accessibility**: Use `h1` for
+    /// the main page title.
     #[inline]
     pub fn create_h1_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_h1().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty heading level 2 element.
-    ///
-    /// **Accessibility**: Use `h2` for major section headings under `h1`.
+    /// Creates an empty heading level 2 element. **Accessibility**: Use `h2` for
+    /// major section headings under `h1`.
     #[inline]
     #[must_use] pub const fn create_h2() -> Self {
         Self {
@@ -4162,20 +3827,15 @@ impl Dom {
         }
     }
 
-    /// Creates a heading level 2 element with text.
-    ///
-    /// **Accessibility**: Use `h2` for major section headings under `h1`.
-    ///
-    /// **Parameters:**
-    /// - `text`: Heading text
+    /// Creates a heading level 2 element with text. **Accessibility**: Use `h2` for
+    /// major section headings under `h1`.
     #[inline]
     pub fn create_h2_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_h2().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty heading level 3 element.
-    ///
-    /// **Accessibility**: Use `h3` for subsections under `h2`.
+    /// Creates an empty heading level 3 element. **Accessibility**: Use `h3` for
+    /// subsections under `h2`.
     #[inline]
     #[must_use] pub const fn create_h3() -> Self {
         Self {
@@ -4186,12 +3846,8 @@ impl Dom {
         }
     }
 
-    /// Creates a heading level 3 element with text.
-    ///
-    /// **Accessibility**: Use `h3` for subsections under `h2`.
-    ///
-    /// **Parameters:**
-    /// - `text`: Heading text
+    /// Creates a heading level 3 element with text. **Accessibility**: Use `h3` for
+    /// subsections under `h2`.
     #[inline]
     pub fn create_h3_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_h3().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4208,10 +3864,8 @@ impl Dom {
         }
     }
 
-    /// Creates a heading level 4 element with text.
-    ///
-    /// **Parameters:**
-    /// - `text`: Heading text
+    /// Creates a heading level 4 element with text. **Parameters:** - `text`:
+    /// Heading text
     #[inline]
     pub fn create_h4_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_h4().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4228,10 +3882,8 @@ impl Dom {
         }
     }
 
-    /// Creates a heading level 5 element with text.
-    ///
-    /// **Parameters:**
-    /// - `text`: Heading text
+    /// Creates a heading level 5 element with text. **Parameters:** - `text`:
+    /// Heading text
     #[inline]
     pub fn create_h5_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_h5().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4248,19 +3900,15 @@ impl Dom {
         }
     }
 
-    /// Creates a heading level 6 element with text.
-    ///
-    /// **Parameters:**
-    /// - `text`: Heading text
+    /// Creates a heading level 6 element with text. **Parameters:** - `text`:
+    /// Heading text
     #[inline]
     pub fn create_h6_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_h6().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty generic inline container (span).
-    ///
-    /// **Accessibility**: Prefer semantic elements like `strong`, `em`, `code`, etc. when
-    /// applicable.
+    /// Creates an empty generic inline container (span). **Accessibility**: Prefer
+    /// semantic elements like `strong`, `em`, `code`, etc.
     #[inline]
     #[must_use] pub const fn create_span() -> Self {
         Self {
@@ -4271,21 +3919,15 @@ impl Dom {
         }
     }
 
-    /// Creates a generic inline container (span) with text.
-    ///
-    /// **Accessibility**: Prefer semantic elements like `strong`, `em`, `code`, etc. when
-    /// applicable.
-    ///
-    /// **Parameters:**
-    /// - `text`: Span content
+    /// Creates a generic inline container (span) with text. **Accessibility**:
+    /// Prefer semantic elements like `strong`, `em`, `code`, etc.
     #[inline]
     pub fn create_span_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_span().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty strong importance element.
-    ///
-    /// **Accessibility**: Use `strong` instead of `b` for semantic meaning.
+    /// Creates an empty strong importance element. **Accessibility**: Use `strong`
+    /// instead of `b` for semantic meaning.
     #[inline]
     #[must_use] pub const fn create_strong() -> Self {
         Self {
@@ -4297,20 +3939,14 @@ impl Dom {
     }
 
     /// Creates a strongly emphasized text element with text (strong importance).
-    ///
-    /// **Accessibility**: Use `strong` instead of `b` for semantic meaning. Screen readers can
-    /// convey the importance. Use for text that has strong importance, seriousness, or urgency.
-    ///
-    /// **Parameters:**
-    /// - `text`: Text to emphasize
+    /// **Accessibility**: Use `strong` instead of `b` for semantic meaning.
     #[inline]
     pub fn create_strong_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_strong().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty emphasis element (stress emphasis).
-    ///
-    /// **Accessibility**: Use `em` instead of `i` for semantic meaning.
+    /// Creates an empty emphasis element (stress emphasis). **Accessibility**: Use
+    /// `em` instead of `i` for semantic meaning.
     #[inline]
     #[must_use] pub const fn create_em() -> Self {
         Self {
@@ -4322,114 +3958,77 @@ impl Dom {
     }
 
     /// Creates an emphasized text element with text (stress emphasis).
-    ///
-    /// **Accessibility**: Use `em` instead of `i` for semantic meaning. Screen readers can
-    /// convey the emphasis. Use for text that has stress emphasis.
-    ///
-    /// **Parameters:**
-    /// - `text`: Text to emphasize
+    /// **Accessibility**: Use `em` instead of `i` for semantic meaning.
     #[inline]
     pub fn create_em_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_em().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty code element.
-    ///
-    /// **Accessibility**: Represents a fragment of computer code.
+    /// Creates an empty code element. **Accessibility**: Represents a fragment of
+    /// computer code.
     #[inline]
     #[must_use] pub fn create_code() -> Self {
         Self::create_node(NodeType::Code)
     }
 
-    /// Creates a code/computer code element with text.
-    ///
-    /// **Accessibility**: Represents a fragment of computer code. Screen readers can identify
-    /// this as code content.
-    ///
-    /// **Parameters:**
-    /// - `code`: Code content
+    /// Creates a code/computer code element with text. **Accessibility**:
+    /// Represents a fragment of computer code.
     #[inline]
     pub fn create_code_with_text<S: Into<AzString>>(code: S) -> Self {
         Self::create_code().with_child(Self::create_text_do_not_use_without_block_level_wrapper(code))
     }
 
-    /// Creates an empty preformatted text element.
-    ///
-    /// **Accessibility**: Preserves whitespace and line breaks.
+    /// Creates an empty preformatted text element. **Accessibility**: Preserves
+    /// whitespace and line breaks.
     #[inline]
     #[must_use] pub fn create_pre() -> Self {
         Self::create_node(NodeType::Pre)
     }
 
-    /// Creates a preformatted text element with text.
-    ///
-    /// **Accessibility**: Preserves whitespace and line breaks. Useful for code blocks or
-    /// ASCII art. Screen readers will read the content as-is.
-    ///
-    /// **Parameters:**
-    /// - `text`: Preformatted content
+    /// Creates a preformatted text element with text. **Accessibility**: Preserves
+    /// whitespace and line breaks.
     #[inline]
     pub fn create_pre_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_pre().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty blockquote element.
-    ///
-    /// **Accessibility**: Represents a section quoted from another source.
+    /// Creates an empty blockquote element. **Accessibility**: Represents a section
+    /// quoted from another source.
     #[inline]
     #[must_use] pub fn create_blockquote() -> Self {
         Self::create_node(NodeType::BlockQuote)
     }
 
-    /// Creates a blockquote element with text.
-    ///
-    /// **Accessibility**: Represents a section quoted from another source. Screen readers
-    /// can identify quoted content. Consider adding a `cite` attribute.
-    ///
-    /// **Parameters:**
-    /// - `text`: Quote content
+    /// Creates a blockquote element with text. **Accessibility**: Represents a
+    /// section quoted from another source.
     #[inline]
     pub fn create_blockquote_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_blockquote().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty citation element.
-    ///
-    /// **Accessibility**: Represents a reference to a creative work.
+    /// Creates an empty citation element. **Accessibility**: Represents a reference
+    /// to a creative work.
     #[inline]
     #[must_use] pub fn create_cite() -> Self {
         Self::create_node(NodeType::Cite)
     }
 
-    /// Creates a citation element with text.
-    ///
-    /// **Accessibility**: Represents a reference to a creative work. Screen readers can
-    /// identify citations.
-    ///
-    /// **Parameters:**
-    /// - `text`: Citation text
+    /// Creates a citation element with text. **Accessibility**: Represents a
+    /// reference to a creative work.
     #[inline]
     pub fn create_cite_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_cite().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty abbreviation element.
-    ///
-    /// **Accessibility**: Represents an abbreviation or acronym. Use with a `title` attribute
-    /// to provide the full expansion for screen readers.
+    /// Creates an empty abbreviation element. **Accessibility**: Represents an
+    /// abbreviation or acronym.
     #[inline]
     #[must_use] pub fn create_abbr() -> Self {
         Self::create_node(NodeType::Abbr)
     }
 
-    /// Creates an abbreviation element with abbreviated text and a `title` expansion.
-    ///
-    /// **Accessibility**: Represents an abbreviation or acronym. The `title` attribute
-    /// provides the full expansion for screen readers.
-    ///
-    /// **Parameters:**
-    /// - `abbr_text`: Abbreviated text
-    /// - `title`: Full expansion
+    /// Creates an abbreviation element with abbreviated text and a `title`
+    /// expansion. **Accessibility**: Represents an abbreviation or acronym.
     #[inline]
     #[must_use] pub fn create_abbr_with_title(abbr_text: AzString, title: AzString) -> Self {
         Self::create_node(NodeType::Abbr)
@@ -4437,59 +4036,43 @@ impl Dom {
             .with_child(Self::create_text_do_not_use_without_block_level_wrapper(abbr_text))
     }
 
-    /// Creates an empty keyboard input element.
-    ///
-    /// **Accessibility**: Represents keyboard input or key combinations.
+    /// Creates an empty keyboard input element. **Accessibility**: Represents
+    /// keyboard input or key combinations.
     #[inline]
     #[must_use] pub fn create_kbd() -> Self {
         Self::create_node(NodeType::Kbd)
     }
 
-    /// Creates a keyboard input element with text.
-    ///
-    /// **Accessibility**: Represents keyboard input or key combinations. Screen readers can
-    /// identify keyboard instructions.
-    ///
-    /// **Parameters:**
-    /// - `text`: Keyboard instruction
+    /// Creates a keyboard input element with text. **Accessibility**: Represents
+    /// keyboard input or key combinations.
     #[inline]
     pub fn create_kbd_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_kbd().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty sample output element.
-    ///
-    /// **Accessibility**: Represents sample output from a program or computing system.
+    /// Creates an empty sample output element. **Accessibility**: Represents sample
+    /// output from a program or computing system.
     #[inline]
     #[must_use] pub fn create_samp() -> Self {
         Self::create_node(NodeType::Samp)
     }
 
-    /// Creates a sample output element with text.
-    ///
-    /// **Accessibility**: Represents sample output from a program or computing system.
-    ///
-    /// **Parameters:**
-    /// - `text`: Sample text
+    /// Creates a sample output element with text. **Accessibility**: Represents
+    /// sample output from a program or computing system.
     #[inline]
     pub fn create_samp_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_samp().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty variable element.
-    ///
-    /// **Accessibility**: Represents a variable in mathematical expressions or programming.
+    /// Creates an empty variable element. **Accessibility**: Represents a variable
+    /// in mathematical expressions or programming.
     #[inline]
     #[must_use] pub fn create_var() -> Self {
         Self::create_node(NodeType::Var)
     }
 
-    /// Creates a variable element with text.
-    ///
-    /// **Accessibility**: Represents a variable in mathematical expressions or programming.
-    ///
-    /// **Parameters:**
-    /// - `text`: Variable name
+    /// Creates a variable element with text. **Accessibility**: Represents a
+    /// variable in mathematical expressions or programming.
     #[inline]
     pub fn create_var_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_var().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4501,12 +4084,8 @@ impl Dom {
         Self::create_node(NodeType::Sub)
     }
 
-    /// Creates a subscript element with text.
-    ///
-    /// **Accessibility**: Screen readers may announce subscript formatting.
-    ///
-    /// **Parameters:**
-    /// - `text`: Subscript content
+    /// Creates a subscript element with text. **Accessibility**: Screen readers may
+    /// announce subscript formatting.
     #[inline]
     pub fn create_sub_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_sub().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4518,12 +4097,8 @@ impl Dom {
         Self::create_node(NodeType::Sup)
     }
 
-    /// Creates a superscript element with text.
-    ///
-    /// **Accessibility**: Screen readers may announce superscript formatting.
-    ///
-    /// **Parameters:**
-    /// - `text`: Superscript content
+    /// Creates a superscript element with text. **Accessibility**: Screen readers
+    /// may announce superscript formatting.
     #[inline]
     pub fn create_sup_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_sup().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4535,10 +4110,8 @@ impl Dom {
         Self::create_node(NodeType::U)
     }
 
-    /// Creates an underline text element with text.
-    ///
-    /// **Accessibility**: Screen readers typically don't announce underline formatting.
-    /// Use semantic elements when possible (e.g., `<em>` for emphasis).
+    /// Creates an underline text element with text. **Accessibility**: Screen
+    /// readers typically don't announce underline formatting.
     #[inline]
     pub fn create_u_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_u().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4550,10 +4123,8 @@ impl Dom {
         Self::create_node(NodeType::S)
     }
 
-    /// Creates a strikethrough text element with text.
-    ///
-    /// **Accessibility**: Represents text that is no longer accurate or relevant.
-    /// Consider using `<del>` for deleted content with datetime attribute.
+    /// Creates a strikethrough text element with text. **Accessibility**:
+    /// Represents text that is no longer accurate or relevant.
     #[inline]
     pub fn create_s_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_s().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4565,10 +4136,8 @@ impl Dom {
         Self::create_node(NodeType::Mark)
     }
 
-    /// Creates a marked/highlighted text element with text.
-    ///
-    /// **Accessibility**: Represents text marked for reference or notation purposes.
-    /// Screen readers may announce this as "highlighted".
+    /// Creates a marked/highlighted text element with text. **Accessibility**:
+    /// Represents text marked for reference or notation purposes.
     #[inline]
     pub fn create_mark_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_mark().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4580,10 +4149,8 @@ impl Dom {
         Self::create_node(NodeType::Del)
     }
 
-    /// Creates a deleted text element with text.
-    ///
-    /// **Accessibility**: Represents deleted content in document edits.
-    /// Use with `datetime` and `cite` attributes for edit tracking.
+    /// Creates a deleted text element with text. **Accessibility**: Represents
+    /// deleted content in document edits.
     #[inline]
     pub fn create_del_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_del().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4595,10 +4162,8 @@ impl Dom {
         Self::create_node(NodeType::Ins)
     }
 
-    /// Creates an inserted text element with text.
-    ///
-    /// **Accessibility**: Represents inserted content in document edits.
-    /// Use with `datetime` and `cite` attributes for edit tracking.
+    /// Creates an inserted text element with text. **Accessibility**: Represents
+    /// inserted content in document edits.
     #[inline]
     pub fn create_ins_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_ins().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4610,23 +4175,15 @@ impl Dom {
         Self::create_node(NodeType::Dfn)
     }
 
-    /// Creates a definition element with text.
-    ///
-    /// **Accessibility**: Represents the defining instance of a term.
-    /// Often used within a definition list or with `<abbr>`.
+    /// Creates a definition element with text. **Accessibility**: Represents the
+    /// defining instance of a term.
     #[inline]
     pub fn create_dfn_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_dfn().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates a time element.
-    ///
-    /// **Accessibility**: Represents a specific time or date.
-    /// Use `datetime` attribute for machine-readable format.
-    ///
-    /// **Parameters:**
-    /// - `text`: Human-readable time/date
-    /// - `datetime`: Optional machine-readable datetime
+    /// Creates a time element. **Accessibility**: Represents a specific time or
+    /// date.
     #[inline]
     #[must_use] pub fn create_time(text: AzString, datetime: OptionString) -> Self {
         let mut element = Self::create_node(NodeType::Time).with_child(Self::create_text_do_not_use_without_block_level_wrapper(text));
@@ -4639,17 +4196,15 @@ impl Dom {
         element
     }
 
-    /// Creates an empty bi-directional override element.
-    ///
-    /// **Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl).
+    /// Creates an empty bi-directional override element. **Accessibility**:
+    /// Overrides text direction.
     #[inline]
     #[must_use] pub fn create_bdo() -> Self {
         Self::create_node(NodeType::Bdo)
     }
 
-    /// Creates a bi-directional override element with text.
-    ///
-    /// **Accessibility**: Overrides text direction. Use `dir` attribute (ltr/rtl).
+    /// Creates a bi-directional override element with text. **Accessibility**:
+    /// Overrides text direction.
     #[inline]
     pub fn create_bdo_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_bdo().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
@@ -4657,197 +4212,155 @@ impl Dom {
 
     // Additional inline / text-level elements
 
-    /// Creates an empty bold element.
-    ///
-    /// **Accessibility**: Prefer `<strong>` for semantic emphasis. `<b>` is purely stylistic.
+    /// Creates an empty bold element. **Accessibility**: Prefer `<strong>` for
+    /// semantic emphasis.
     #[inline]
     #[must_use] pub fn create_b() -> Self {
         Self::create_node(NodeType::B)
     }
 
-    /// Creates a bold element with text.
-    ///
-    /// **Accessibility**: Prefer `<strong>` for semantic emphasis. `<b>` is purely stylistic.
-    ///
-    /// **Parameters:**
-    /// - `text`: Bold text content
+    /// Creates a bold element with text. **Accessibility**: Prefer `<strong>` for
+    /// semantic emphasis.
     #[inline]
     pub fn create_b_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_b().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty italic element.
-    ///
-    /// **Accessibility**: Prefer `<em>` for stress emphasis. `<i>` is purely stylistic.
+    /// Creates an empty italic element. **Accessibility**: Prefer `<em>` for stress
+    /// emphasis.
     #[inline]
     #[must_use] pub fn create_i() -> Self {
         Self::create_node(NodeType::I)
     }
 
-    /// Creates an italic element with text.
-    ///
-    /// **Accessibility**: Prefer `<em>` for stress emphasis. `<i>` is purely stylistic.
-    ///
-    /// **Parameters:**
-    /// - `text`: Italic text content
+    /// Creates an italic element with text. **Accessibility**: Prefer `<em>` for
+    /// stress emphasis.
     #[inline]
     pub fn create_i_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_i().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty small text element.
-    ///
-    /// **Accessibility**: Represents side-comments and small print like copyright/legal text.
+    /// Creates an empty small text element. **Accessibility**: Represents
+    /// side-comments and small print like copyright/legal text.
     #[inline]
     #[must_use] pub fn create_small() -> Self {
         Self::create_node(NodeType::Small)
     }
 
-    /// Creates a small text element with text.
-    ///
-    /// **Parameters:**
-    /// - `text`: Small text content
+    /// Creates a small text element with text. **Parameters:** - `text`: Small text
+    /// content
     #[inline]
     pub fn create_small_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_small().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty `<big>` element.
-    ///
-    /// **Note**: Deprecated in HTML5. Prefer CSS `font-size`.
+    /// Creates an empty `<big>` element. **Note**: Deprecated in HTML5.
     #[inline]
     #[must_use] pub fn create_big() -> Self {
         Self::create_node(NodeType::Big)
     }
 
-    /// Creates a `<big>` element with text.
-    ///
-    /// **Note**: Deprecated in HTML5. Prefer CSS `font-size`.
+    /// Creates a `<big>` element with text. **Note**: Deprecated in HTML5.
     #[inline]
     pub fn create_big_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_big().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty bi-directional isolate element.
-    ///
-    /// **Accessibility**: Used to isolate text whose direction is unknown,
-    /// keeping it from affecting surrounding bidi layout.
+    /// Creates an empty bi-directional isolate element. **Accessibility**: Used to
+    /// isolate text whose direction is unknown, keeping it from affecting
+    /// surrounding bidi layout.
     #[inline]
     #[must_use] pub fn create_bdi() -> Self {
         Self::create_node(NodeType::Bdi)
     }
 
-    /// Creates a bi-directional isolate element with text.
-    ///
-    /// **Accessibility**: Used to isolate text whose direction is unknown,
-    /// keeping it from affecting surrounding bidi layout.
+    /// Creates a bi-directional isolate element with text. **Accessibility**: Used
+    /// to isolate text whose direction is unknown, keeping it from affecting
+    /// surrounding bidi layout.
     #[inline]
     pub fn create_bdi_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_bdi().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty word break opportunity element.
-    ///
-    /// **Note**: `<wbr>` is a self-closing element that suggests a line-break opportunity.
-    /// It does not take text content.
+    /// Creates an empty word break opportunity element. **Note**: `<wbr>` is a
+    /// self-closing element that suggests a line-break opportunity.
     #[inline]
     #[must_use] pub fn create_wbr() -> Self {
         Self::create_node(NodeType::Wbr)
     }
 
-    /// Creates an empty ruby annotation element.
-    ///
-    /// **Accessibility**: Used for East Asian typography to provide
-    /// pronunciation/translation annotations. Wraps `<rt>`/`<rp>` children.
+    /// Creates an empty ruby annotation element. **Accessibility**: Used for East
+    /// Asian typography to provide pronunciation/translation annotations.
     #[inline]
     #[must_use] pub fn create_ruby() -> Self {
         Self::create_node(NodeType::Ruby)
     }
 
-    /// Creates an empty ruby text element.
-    ///
-    /// **Accessibility**: Pronunciation/translation annotation inside `<ruby>`.
+    /// Creates an empty ruby text element. **Accessibility**:
+    /// Pronunciation/translation annotation inside `<ruby>`.
     #[inline]
     #[must_use] pub fn create_rt() -> Self {
         Self::create_node(NodeType::Rt)
     }
 
-    /// Creates a ruby text element with text.
-    ///
-    /// **Parameters:**
-    /// - `text`: Ruby annotation content
+    /// Creates a ruby text element with text. **Parameters:** - `text`: Ruby
+    /// annotation content
     #[inline]
     pub fn create_rt_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_rt().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty ruby text container element.
-    ///
-    /// **Accessibility**: Container for ruby text annotations.
+    /// Creates an empty ruby text container element. **Accessibility**: Container
+    /// for ruby text annotations.
     #[inline]
     #[must_use] pub fn create_rtc() -> Self {
         Self::create_node(NodeType::Rtc)
     }
 
-    /// Creates an empty ruby fallback parenthesis element.
-    ///
-    /// **Accessibility**: Provides parentheses around `<rt>` for browsers without ruby support.
+    /// Creates an empty ruby fallback parenthesis element. **Accessibility**:
+    /// Provides parentheses around `<rt>` for browsers without ruby support.
     #[inline]
     #[must_use] pub fn create_rp() -> Self {
         Self::create_node(NodeType::Rp)
     }
 
-    /// Creates a ruby fallback parenthesis element with text.
-    ///
-    /// **Parameters:**
-    /// - `text`: Parenthesis text (typically "(" or ")")
+    /// Creates a ruby fallback parenthesis element with text. **Parameters:** -
+    /// `text`: Parenthesis text (typically "(" or ")")
     #[inline]
     pub fn create_rp_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_rp().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a `<data>` element binding a machine-readable value to its content.
-    ///
-    /// **Parameters:**
-    /// - `value`: Machine-readable value for the `value` attribute.
+    /// **Parameters:** - `value`: Machine-readable value for the `value` attribute.
     #[inline]
     #[must_use] pub fn create_data(value: AzString) -> Self {
         Self::create_node(NodeType::Data).with_attribute(AttributeType::Value(value))
     }
 
-    /// Creates a `<data>` element with both a machine-readable value and visible text.
-    ///
-    /// **Parameters:**
-    /// - `value`: Machine-readable value for the `value` attribute.
-    /// - `text`: Human-readable text content.
+    /// Creates a `<data>` element with both a machine-readable value and visible
+    /// text. **Parameters:** - `value`: Machine-readable value for the `value`
+    /// attribute.
     #[inline]
     #[must_use] pub fn create_data_with_text(value: AzString, text: AzString) -> Self {
         Self::create_data(value).with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an empty directory list element.
-    ///
-    /// **Note**: Deprecated in HTML5. Use `<ul>` instead.
+    /// Creates an empty directory list element. **Note**: Deprecated in HTML5.
     #[inline]
     #[must_use] pub fn create_dir() -> Self {
         Self::create_node(NodeType::Dir)
     }
 
-    /// Creates an empty SVG container element.
-    ///
-    /// **Accessibility**: Provide `aria-label` or `<title>` child for assistive tech.
+    /// Creates an empty SVG container element. **Accessibility**: Provide
+    /// `aria-label` or `<title>` child for assistive tech.
     #[inline]
     #[must_use] pub fn create_svg() -> Self {
         Self::create_node(NodeType::Svg)
     }
 
     /// Creates an anchor/hyperlink element without accessibility information.
-    ///
     /// Prefer [`Dom::create_a`] so that screen readers get a meaningful label.
-    ///
-    /// **Parameters:**
-    /// - `href`: Link destination URL
-    /// - `label`: Link text (pass `None` for image-only links with alt text)
     #[inline]
     #[must_use] pub fn create_a_no_a11y(href: AzString, label: OptionString) -> Self {
         let mut link = Self::create_node(NodeType::A).with_attribute(AttributeType::Href(href));
@@ -4857,25 +4370,16 @@ impl Dom {
         link
     }
 
-    /// Creates a button element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_button`] so that the element has a meaningful accessible
-    /// name for screen readers.
-    ///
-    /// **Parameters:**
-    /// - `text`: Button label text
+    /// Creates a button element without accessibility information. Prefer
+    /// [`Dom::create_button`] so that the element has a meaningful accessible name
+    /// for screen readers.
     #[inline]
     #[must_use] pub fn create_button_no_a11y(text: AzString) -> Self {
         Self::create_node(NodeType::Button).with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
     /// Creates a label element for form controls without accessibility information.
-    ///
     /// Prefer [`Dom::create_label`] so that screen readers get a descriptive label.
-    ///
-    /// **Parameters:**
-    /// - `for_id`: ID of the associated form control
-    /// - `text`: Label text
     #[inline]
     #[must_use] pub fn create_label_no_a11y(for_id: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::Label)
@@ -4886,15 +4390,9 @@ impl Dom {
             .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an input element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_input`] so that screen readers get a descriptive label
-    /// beyond the HTML `aria-label` attribute.
-    ///
-    /// **Parameters:**
-    /// - `input_type`: Input type (text, password, email, etc.)
-    /// - `name`: Form field name
-    /// - `label`: Accessibility label (required)
+    /// Creates an input element without accessibility information. Prefer
+    /// [`Dom::create_input`] so that screen readers get a descriptive label beyond
+    /// the HTML `aria-label` attribute.
     #[inline]
     #[must_use] pub fn create_input_no_a11y(input_type: AzString, name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::Input)
@@ -4903,14 +4401,9 @@ impl Dom {
             .with_attribute(AttributeType::AriaLabel(label))
     }
 
-    /// Creates a textarea element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_textarea`] so that screen readers get an accurate
-    /// description of the control.
-    ///
-    /// **Parameters:**
-    /// - `name`: Form field name
-    /// - `label`: Accessibility label (required)
+    /// Creates a textarea element without accessibility information. Prefer
+    /// [`Dom::create_textarea`] so that screen readers get an accurate description
+    /// of the control.
     #[inline]
     #[must_use] pub fn create_textarea_no_a11y(name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::TextArea)
@@ -4918,14 +4411,9 @@ impl Dom {
             .with_attribute(AttributeType::AriaLabel(label))
     }
 
-    /// Creates a select dropdown element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_select`] so that screen readers announce the control
+    /// Creates a select dropdown element without accessibility information. Prefer
+    /// [`Dom::create_select`] so that screen readers announce the control
     /// appropriately.
-    ///
-    /// **Parameters:**
-    /// - `name`: Form field name
-    /// - `label`: Accessibility label (required)
     #[inline]
     #[must_use] pub fn create_select_no_a11y(name: AzString, label: AzString) -> Self {
         Self::create_node(NodeType::Select)
@@ -4933,11 +4421,8 @@ impl Dom {
             .with_attribute(AttributeType::AriaLabel(label))
     }
 
-    /// Creates an option element for select dropdowns.
-    ///
-    /// **Parameters:**
-    /// - `value`: Option value
-    /// - `text`: Display text
+    /// Creates an option element for select dropdowns. **Parameters:** - `value`:
+    /// Option value - `text`: Display text
     #[inline]
     #[must_use] pub fn create_option_no_a11y(value: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::SelectOption)
@@ -4945,83 +4430,66 @@ impl Dom {
             .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates an option element for select dropdowns with accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `value`: Option value
-    /// - `text`: Display text
-    /// - `aria`: Accessibility information (description, etc.)
-    ///
-    /// Use [`Dom::create_option_no_a11y`] only as a deliberate escape hatch.
+    /// Creates an option element for select dropdowns with accessibility
+    /// information. **Parameters:** - `value`: Option value - `text`: Display text -
+    /// `aria`: Accessibility information (description, etc.) Use
+    /// [`Dom::create_option_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_option(value: AzString, text: AzString, aria: SmallAriaInfo) -> Self {
         Self::create_option_no_a11y(value, text).with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates an unordered list element.
-    ///
-    /// **Accessibility**: Screen readers announce lists and item counts, helping users
-    /// understand content structure.
+    /// Creates an unordered list element. **Accessibility**: Screen readers
+    /// announce lists and item counts, helping users understand content structure.
     #[inline]
     #[must_use] pub fn create_ul() -> Self {
         Self::create_node(NodeType::Ul)
     }
 
-    /// Creates an ordered list element.
-    ///
-    /// **Accessibility**: Screen readers announce lists and item counts, helping users
-    /// understand content structure and numbering.
+    /// Creates an ordered list element. **Accessibility**: Screen readers announce
+    /// lists and item counts, helping users understand content structure and
+    /// numbering.
     #[inline]
     #[must_use] pub fn create_ol() -> Self {
         Self::create_node(NodeType::Ol)
     }
 
-    /// Creates a list item element.
-    ///
-    /// **Accessibility**: Must be a child of `ul`, `ol`, or `menu`. Screen readers announce
-    /// list item position (e.g., "2 of 5").
+    /// Creates a list item element. **Accessibility**: Must be a child of `ul`,
+    /// `ol`, or `menu`.
     #[inline]
     #[must_use] pub fn create_li() -> Self {
         Self::create_node(NodeType::Li)
     }
 
-    /// Creates a table element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_table`] so that screen readers can announce the table's
-    /// purpose alongside its caption.
+    /// Creates a table element without accessibility information. Prefer
+    /// [`Dom::create_table`] so that screen readers can announce the table's purpose
+    /// alongside its caption.
     #[inline]
     #[must_use] pub fn create_table_no_a11y() -> Self {
         Self::create_node(NodeType::Table)
     }
 
-    /// Creates a table caption element.
-    ///
-    /// **Accessibility**: Describes the purpose of the table. Screen readers announce this first.
+    /// Creates a table caption element. **Accessibility**: Describes the purpose of
+    /// the table.
     #[inline]
     #[must_use] pub fn create_caption() -> Self {
         Self::create_node(NodeType::Caption)
     }
 
-    /// Creates a table header element.
-    ///
-    /// **Accessibility**: Groups header rows. Screen readers can navigate table structure.
+    /// Creates a table header element. **Accessibility**: Groups header rows.
     #[inline]
     #[must_use] pub fn create_thead() -> Self {
         Self::create_node(NodeType::THead)
     }
 
-    /// Creates a table body element.
-    ///
-    /// **Accessibility**: Groups body rows. Screen readers can navigate table structure.
+    /// Creates a table body element. **Accessibility**: Groups body rows.
     #[inline]
     #[must_use] pub fn create_tbody() -> Self {
         Self::create_node(NodeType::TBody)
     }
 
-    /// Creates a table footer element.
-    ///
-    /// **Accessibility**: Groups footer rows. Screen readers can navigate table structure.
+    /// Creates a table footer element. **Accessibility**: Groups footer rows.
     #[inline]
     #[must_use] pub fn create_tfoot() -> Self {
         Self::create_node(NodeType::TFoot)
@@ -5033,10 +4501,8 @@ impl Dom {
         Self::create_node(NodeType::Tr)
     }
 
-    /// Creates a table header cell element.
-    ///
-    /// **Accessibility**: Use `scope` attribute ("col" or "row") to associate headers with
-    /// data cells. Screen readers use this to announce cell context.
+    /// Creates a table header cell element. **Accessibility**: Use `scope`
+    /// attribute ("col" or "row") to associate headers with data cells.
     #[inline]
     #[must_use] pub fn create_th() -> Self {
         Self::create_node(NodeType::Th)
@@ -5048,99 +4514,75 @@ impl Dom {
         Self::create_node(NodeType::Td)
     }
 
-    /// Creates a form element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_form`] so that screen readers can announce the form's purpose.
+    /// Creates a form element without accessibility information. Prefer
+    /// [`Dom::create_form`] so that screen readers can announce the form's purpose.
     #[inline]
     #[must_use] pub fn create_form_no_a11y() -> Self {
         Self::create_node(NodeType::Form)
     }
 
-    /// Creates a form element with accessibility information.
-    ///
-    /// **Accessibility**: Group related form controls with `fieldset` and `legend`.
-    /// Provide clear labels for all inputs. Consider `aria-describedby` for instructions.
-    ///
-    /// Use [`Dom::create_form_no_a11y`] only as a deliberate escape hatch.
+    /// Creates a form element with accessibility information. **Accessibility**:
+    /// Group related form controls with `fieldset` and `legend`.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_form(aria: SmallAriaInfo) -> Self {
         Self::create_form_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a fieldset element for grouping form controls without accessibility info.
-    ///
-    /// Prefer [`Dom::create_fieldset`] so that screen readers can announce the group's purpose.
+    /// Creates a fieldset element for grouping form controls without accessibility
+    /// info. Prefer [`Dom::create_fieldset`] so that screen readers can announce the
+    /// group's purpose.
     #[inline]
     #[must_use] pub fn create_fieldset_no_a11y() -> Self {
         Self::create_node(NodeType::FieldSet)
     }
 
     /// Creates a fieldset element with accessibility information.
-    ///
-    /// **Accessibility**: Groups related form controls. Always include a `legend` as the
-    /// first child to describe the group. Screen readers announce the legend when entering
-    /// the fieldset.
-    ///
-    /// Use [`Dom::create_fieldset_no_a11y`] only as a deliberate escape hatch.
+    /// **Accessibility**: Groups related form controls.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_fieldset(aria: SmallAriaInfo) -> Self {
         Self::create_fieldset_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a legend element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_legend`] so that the legend's accessible name is explicit.
+    /// Creates a legend element without accessibility information. Prefer
+    /// [`Dom::create_legend`] so that the legend's accessible name is explicit.
     #[inline]
     #[must_use] pub fn create_legend_no_a11y() -> Self {
         Self::create_node(NodeType::Legend)
     }
 
-    /// Creates a legend element with accessibility information.
-    ///
-    /// **Accessibility**: Describes the purpose of a fieldset. Must be the first child of
-    /// a fieldset. Screen readers announce this when entering the fieldset.
-    ///
-    /// Use [`Dom::create_legend_no_a11y`] only as a deliberate escape hatch.
+    /// Creates a legend element with accessibility information. **Accessibility**:
+    /// Describes the purpose of a fieldset.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_legend(aria: SmallAriaInfo) -> Self {
         Self::create_legend_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a horizontal rule element.
-    ///
-    /// **Accessibility**: Represents a thematic break. Screen readers may announce this as
-    /// a separator. Consider using CSS borders for purely decorative lines.
+    /// Creates a horizontal rule element. **Accessibility**: Represents a thematic
+    /// break.
     #[inline]
     #[must_use] pub fn create_hr() -> Self {
         Self::create_node(NodeType::Hr)
     }
 
     /// Creates THE canonical page-break element: a zero-size block with
-    /// `break-before: page`, carrying the `__azul-native-pagebreak` class.
-    ///
-    /// This is the one break element the pagination estimator and a screen
-    /// DOM treat identically (see `pagination_to_dom_breaks` in
-    /// azul-layout): an application materializes an estimated break by
-    /// inserting this node at the returned child-index path, and the layout
-    /// of the surrounding content does not move - the element is an empty
-    /// block with no margins, borders or padding, so sibling margins keep
-    /// collapsing through it exactly as they did without it.
-    ///
-    /// The XML pipeline's `<pagebreak/>` builtin renders the equivalent
-    /// element.
+    /// `break-before: page`, carrying the `__azul-native-pagebreak` class. This is
+    /// the one break element the pagination estimator and a screen DOM treat
+    /// identically (see `pagination_to_dom_breaks` in azul-layout): an application
+    /// materializes an estimated break by inserting this node at the returned
+    /// child-index path, and the layout of the surrounding content does not move -
+    /// the element is an empty block with no margins, borders or padding, so sibling
+    /// margins keep collapsing through it exactly as they did without it.
     #[must_use] pub fn create_page_break() -> Self {
         Self::create_node(NodeType::PageBreak)
     }
 
     // Additional Element Constructors
 
-    /// Creates an address element.
-    ///
-    /// **Accessibility**: Represents contact information. Screen readers identify this
-    /// as address content.
+    /// Creates an address element. **Accessibility**: Represents contact
+    /// information.
     #[inline]
     #[must_use] pub const fn create_address() -> Self {
         Self {
@@ -5151,9 +4593,8 @@ impl Dom {
         }
     }
 
-    /// Creates a definition list element.
-    ///
-    /// **Accessibility**: Screen readers announce definition lists and their structure.
+    /// Creates a definition list element. **Accessibility**: Screen readers
+    /// announce definition lists and their structure.
     #[inline]
     #[must_use] pub const fn create_dl() -> Self {
         Self {
@@ -5164,9 +4605,8 @@ impl Dom {
         }
     }
 
-    /// Creates a definition term element.
-    ///
-    /// **Accessibility**: Must be a child of `dl`. Represents the term being defined.
+    /// Creates a definition term element. **Accessibility**: Must be a child of
+    /// `dl`.
     #[inline]
     #[must_use] pub const fn create_dt() -> Self {
         Self {
@@ -5177,9 +4617,8 @@ impl Dom {
         }
     }
 
-    /// Creates a definition description element.
-    ///
-    /// **Accessibility**: Must be a child of `dl`. Provides the definition for the term.
+    /// Creates a definition description element. **Accessibility**: Must be a child
+    /// of `dl`.
     #[inline]
     #[must_use] pub const fn create_dd() -> Self {
         Self {
@@ -5207,33 +4646,26 @@ impl Dom {
         Self::create_node(NodeType::Col).with_attribute(AttributeType::ColSpan(span))
     }
 
-    /// Creates an optgroup element for grouping select options without accessibility info.
-    ///
-    /// Prefer [`Dom::create_optgroup`] so that screen readers can announce the group's purpose.
-    ///
-    /// **Parameters:**
-    /// - `label`: Label for the option group
+    /// Creates an optgroup element for grouping select options without
+    /// accessibility info. Prefer [`Dom::create_optgroup`] so that screen readers
+    /// can announce the group's purpose.
     #[inline]
     #[must_use] pub fn create_optgroup_no_a11y(label: AzString) -> Self {
         Self::create_node(NodeType::OptGroup).with_attribute(AttributeType::AriaLabel(label))
     }
 
-    /// Creates an optgroup element for grouping select options with accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `label`: Label for the option group (visible)
-    /// - `aria`: Additional accessibility information (description, etc.)
-    ///
-    /// Use [`Dom::create_optgroup_no_a11y`] only as a deliberate escape hatch.
+    /// Creates an optgroup element for grouping select options with accessibility
+    /// information. **Parameters:** - `label`: Label for the option group (visible)
+    /// - `aria`: Additional accessibility information (description, etc.) Use
+    /// [`Dom::create_optgroup_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_optgroup(label: AzString, aria: SmallAriaInfo) -> Self {
         Self::create_optgroup_no_a11y(label).with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a quotation element.
-    ///
-    /// **Accessibility**: Represents an inline quotation.
+    /// Creates a quotation element. **Accessibility**: Represents an inline
+    /// quotation.
     #[inline]
     #[must_use] pub const fn create_q() -> Self {
         Self {
@@ -5244,9 +4676,7 @@ impl Dom {
         }
     }
 
-    /// Creates an empty acronym element.
-    ///
-    /// **Note**: Deprecated in HTML5. Consider using `create_abbr()` instead.
+    /// Creates an empty acronym element. **Note**: Deprecated in HTML5.
     #[inline]
     #[must_use] pub const fn create_acronym() -> Self {
         Self {
@@ -5257,17 +4687,14 @@ impl Dom {
         }
     }
 
-    /// Creates an acronym element with text.
-    ///
-    /// **Note**: Deprecated in HTML5. Consider using `create_abbr_with_title()` instead.
+    /// Creates an acronym element with text. **Note**: Deprecated in HTML5.
     #[inline]
     pub fn create_acronym_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_acronym().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates a menu element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_menu`] so that the menu's purpose is announced.
+    /// Creates a menu element without accessibility information. Prefer
+    /// [`Dom::create_menu`] so that the menu's purpose is announced.
     #[inline]
     #[must_use] pub const fn create_menu_no_a11y() -> Self {
         Self {
@@ -5278,21 +4705,16 @@ impl Dom {
         }
     }
 
-    /// Creates a menu element with accessibility information.
-    ///
-    /// **Accessibility**: Represents a list of commands. Similar to `<ul>` but semantic for
-    /// toolbars/menus.
-    ///
-    /// Use [`Dom::create_menu_no_a11y`] only as a deliberate escape hatch.
+    /// Creates a menu element with accessibility information. **Accessibility**:
+    /// Represents a list of commands.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_menu(aria: SmallAriaInfo) -> Self {
         Self::create_menu_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates an empty menu item element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_menuitem`] so that the menu item's purpose is announced.
+    /// Creates an empty menu item element without accessibility information. Prefer
+    /// [`Dom::create_menuitem`] so that the menu item's purpose is announced.
     #[inline]
     #[must_use] pub const fn create_menuitem_no_a11y() -> Self {
         Self {
@@ -5304,11 +4726,7 @@ impl Dom {
     }
 
     /// Creates an empty menu item element with accessibility information.
-    ///
-    /// **Accessibility**: Represents a command in a menu. Use with appropriate role/aria
-    /// attributes.
-    ///
-    /// Use [`Dom::create_menuitem_no_a11y`] only as a deliberate escape hatch.
+    /// **Accessibility**: Represents a command in a menu.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_menuitem(aria: SmallAriaInfo) -> Self {
@@ -5316,7 +4734,6 @@ impl Dom {
     }
 
     /// Creates a menu item element with text but without accessibility information.
-    ///
     /// Prefer [`Dom::create_menuitem_with_text`] so that screen readers get a
     /// distinct accessible name in addition to the visible text.
     #[inline]
@@ -5325,21 +4742,16 @@ impl Dom {
     }
 
     /// Creates a menu item element with text and accessibility information.
-    ///
-    /// **Accessibility**: Represents a command in a menu. Use with appropriate role/aria
-    /// attributes.
-    ///
-    /// Use [`Dom::create_menuitem_with_text_no_a11y`] only as a deliberate escape hatch.
+    /// **Accessibility**: Represents a command in a menu.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_menuitem_with_text<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
         Self::create_menuitem_with_text_no_a11y(text).with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates an output element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_output`] so that screen readers can announce the
-    /// computed value's purpose.
+    /// Creates an output element without accessibility information. Prefer
+    /// [`Dom::create_output`] so that screen readers can announce the computed
+    /// value's purpose.
     #[inline]
     #[must_use] pub const fn create_output_no_a11y() -> Self {
         Self {
@@ -5350,12 +4762,8 @@ impl Dom {
         }
     }
 
-    /// Creates an output element with accessibility information.
-    ///
-    /// **Accessibility**: Represents the result of a calculation or user action.
-    /// Use `for` attribute to associate with input elements. Screen readers announce updates.
-    ///
-    /// Use [`Dom::create_output_no_a11y`] only as a deliberate escape hatch.
+    /// Creates an output element with accessibility information. **Accessibility**:
+    /// Represents the result of a calculation or user action.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_output(aria: SmallAriaInfo) -> Self {
@@ -5363,12 +4771,7 @@ impl Dom {
     }
 
     /// Creates a progress indicator element without accessibility information.
-    ///
     /// Prefer [`Dom::create_progress`] so that the task being measured is announced.
-    ///
-    /// **Parameters:**
-    /// - `value`: Current progress value
-    /// - `max`: Maximum value
     #[inline]
     #[must_use] pub fn create_progress_no_a11y(value: f32, max: f32) -> Self {
         Self::create_node(NodeType::Progress)
@@ -5383,12 +4786,7 @@ impl Dom {
     }
 
     /// Creates a progress indicator element with accessibility information.
-    ///
-    /// **Accessibility**: Represents task progress. Screen readers announce progress
-    /// percentage. The `aria` value carries the label, current value, max, and an
-    /// indeterminate flag for spinners with no known endpoint.
-    ///
-    /// Use [`Dom::create_progress_no_a11y`] only as a deliberate escape hatch.
+    /// **Accessibility**: Represents task progress.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_progress(aria: ProgressAriaInfo) -> Self {
@@ -5410,14 +4808,8 @@ impl Dom {
         node.with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a meter gauge element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_meter`] so that the measurement's purpose is announced.
-    ///
-    /// **Parameters:**
-    /// - `value`: Current meter value
-    /// - `min`: Minimum value
-    /// - `max`: Maximum value
+    /// Creates a meter gauge element without accessibility information. Prefer
+    /// [`Dom::create_meter`] so that the measurement's purpose is announced.
     #[inline]
     #[must_use] pub fn create_meter_no_a11y(value: f32, min: f32, max: f32) -> Self {
         Self::create_node(NodeType::Meter)
@@ -5436,12 +4828,7 @@ impl Dom {
     }
 
     /// Creates a meter gauge element with accessibility information.
-    ///
     /// **Accessibility**: Represents a scalar measurement within a known range.
-    /// Screen readers announce the measurement. The `aria` value carries the
-    /// label plus value/min/max/low/high/optimum metadata.
-    ///
-    /// Use [`Dom::create_meter_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_meter(aria: MeterAriaInfo) -> Self {
@@ -5467,9 +4854,8 @@ impl Dom {
         node.with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a datalist element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_datalist`] so that the suggestion list's purpose is announced.
+    /// Creates a datalist element without accessibility information. Prefer
+    /// [`Dom::create_datalist`] so that the suggestion list's purpose is announced.
     #[inline]
     #[must_use] pub const fn create_datalist_no_a11y() -> Self {
         Self {
@@ -5481,11 +4867,7 @@ impl Dom {
     }
 
     /// Creates a datalist element with accessibility information.
-    ///
     /// **Accessibility**: Provides autocomplete options for inputs.
-    /// Associate with input using `list` attribute. Screen readers announce available options.
-    ///
-    /// Use [`Dom::create_datalist_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_datalist(aria: SmallAriaInfo) -> Self {
@@ -5495,9 +4877,8 @@ impl Dom {
     // Embedded Content Elements
 
     /// Creates a canvas element for graphics without accessibility information.
-    ///
-    /// Prefer [`Dom::create_canvas`] so that the canvas's purpose is announced; canvas
-    /// content is otherwise opaque to assistive technologies.
+    /// Prefer [`Dom::create_canvas`] so that the canvas's purpose is announced;
+    /// canvas content is otherwise opaque to assistive technologies.
     #[inline]
     #[must_use] pub const fn create_canvas_no_a11y() -> Self {
         Self {
@@ -5509,21 +4890,15 @@ impl Dom {
     }
 
     /// Creates a canvas element for graphics with accessibility information.
-    ///
     /// **Accessibility**: Canvas content is not accessible by default.
-    /// Always provide fallback content as children and/or detailed aria-label.
-    /// Consider using SVG for accessible graphics when possible.
-    ///
-    /// Use [`Dom::create_canvas_no_a11y`] only as a deliberate escape hatch.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_canvas(aria: SmallAriaInfo) -> Self {
         Self::create_canvas_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates an object element for embedded content.
-    ///
-    /// **Accessibility**: Provide fallback content as children. Use aria-label to describe content.
+    /// Creates an object element for embedded content. **Accessibility**: Provide
+    /// fallback content as children.
     #[inline]
     #[must_use] pub const fn create_object() -> Self {
         Self {
@@ -5534,11 +4909,8 @@ impl Dom {
         }
     }
 
-    /// Creates a param element for object parameters.
-    ///
-    /// **Parameters:**
-    /// - `name`: Parameter name
-    /// - `value`: Parameter value
+    /// Creates a param element for object parameters. **Parameters:** - `name`:
+    /// Parameter name - `value`: Parameter value
     #[inline]
     #[must_use] pub fn create_param(name: AzString, value: AzString) -> Self {
         Self::create_node(NodeType::Param)
@@ -5546,10 +4918,8 @@ impl Dom {
             .with_attribute(AttributeType::Value(value))
     }
 
-    /// Creates an embed element.
-    ///
-    /// **Accessibility**: Provide alternative content or link. Use aria-label to describe embedded
-    /// content.
+    /// Creates an embed element. **Accessibility**: Provide alternative content or
+    /// link.
     #[inline]
     #[must_use] pub const fn create_embed() -> Self {
         Self {
@@ -5560,9 +4930,8 @@ impl Dom {
         }
     }
 
-    /// Creates an audio element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_audio`] so that screen readers announce the audio's purpose.
+    /// Creates an audio element without accessibility information. Prefer
+    /// [`Dom::create_audio`] so that screen readers announce the audio's purpose.
     #[inline]
     #[must_use] pub const fn create_audio_no_a11y() -> Self {
         Self {
@@ -5573,21 +4942,16 @@ impl Dom {
         }
     }
 
-    /// Creates an audio element with accessibility information.
-    ///
-    /// **Accessibility**: Always provide controls. Use `<track>` for captions/subtitles.
-    /// Provide fallback text for unsupported browsers.
-    ///
-    /// Use [`Dom::create_audio_no_a11y`] only as a deliberate escape hatch.
+    /// Creates an audio element with accessibility information. **Accessibility**:
+    /// Always provide controls.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_audio(aria: SmallAriaInfo) -> Self {
         Self::create_audio_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a video element without accessibility information.
-    ///
-    /// Prefer [`Dom::create_video`] so that screen readers announce the video's purpose.
+    /// Creates a video element without accessibility information. Prefer
+    /// [`Dom::create_video`] so that screen readers announce the video's purpose.
     #[inline]
     #[must_use] pub const fn create_video_no_a11y() -> Self {
         Self {
@@ -5598,23 +4962,16 @@ impl Dom {
         }
     }
 
-    /// Creates a video element with accessibility information.
-    ///
-    /// **Accessibility**: Always provide controls. Use `<track>` for
-    /// captions/subtitles/descriptions. Provide fallback text. Consider providing transcript.
-    ///
-    /// Use [`Dom::create_video_no_a11y`] only as a deliberate escape hatch.
+    /// Creates a video element with accessibility information. **Accessibility**:
+    /// Always provide controls.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_video(aria: SmallAriaInfo) -> Self {
         Self::create_video_no_a11y().with_accessibility_info(aria.to_full_info())
     }
 
-    /// Creates a source element for media.
-    ///
-    /// **Parameters:**
-    /// - `src`: Media source URL
-    /// - `media_type`: MIME type (e.g., "video/mp4", "audio/ogg")
+    /// Creates a source element for media. **Parameters:** - `src`: Media source
+    /// URL - `media_type`: MIME type (e.g., "video/mp4", "audio/ogg")
     #[inline]
     #[must_use] pub fn create_source(src: AzString, media_type: AzString) -> Self {
         Self::create_node(NodeType::Source)
@@ -5625,14 +4982,8 @@ impl Dom {
             }))
     }
 
-    /// Creates a track element for media captions/subtitles.
-    ///
-    /// **Accessibility**: Essential for deaf/hard-of-hearing users and non-native speakers.
-    /// Use `kind` (subtitles/captions/descriptions), `srclang`, and `label` attributes.
-    ///
-    /// **Parameters:**
-    /// - `src`: Track file URL (`WebVTT` format)
-    /// - `kind`: Track kind ("subtitles", "captions", "descriptions", "chapters", "metadata")
+    /// Creates a track element for media captions/subtitles. **Accessibility**:
+    /// Essential for deaf/hard-of-hearing users and non-native speakers.
     #[inline]
     #[must_use] pub fn create_track(src: AzString, kind: AzString) -> Self {
         Self::create_node(NodeType::Track)
@@ -5643,9 +4994,8 @@ impl Dom {
             }))
     }
 
-    /// Creates a map element for image maps.
-    ///
-    /// **Accessibility**: Provide text alternatives. Ensure all areas have alt text.
+    /// Creates a map element for image maps. **Accessibility**: Provide text
+    /// alternatives.
     #[inline]
     #[must_use] pub const fn create_map() -> Self {
         Self {
@@ -5656,9 +5006,9 @@ impl Dom {
         }
     }
 
-    /// Creates an area element for image map regions without accessibility information.
-    ///
-    /// Prefer [`Dom::create_area`] so that screen readers can announce the region's purpose.
+    /// Creates an area element for image map regions without accessibility
+    /// information. Prefer [`Dom::create_area`] so that screen readers can announce
+    /// the region's purpose.
     #[inline]
     #[must_use] pub const fn create_area_no_a11y() -> Self {
         Self {
@@ -5669,12 +5019,9 @@ impl Dom {
         }
     }
 
-    /// Creates an area element for image map regions with accessibility information.
-    ///
-    /// **Accessibility**: Always provide `alt` text describing the region/link purpose.
-    /// Keyboard users should be able to navigate areas.
-    ///
-    /// Use [`Dom::create_area_no_a11y`] only as a deliberate escape hatch.
+    /// Creates an area element for image map regions with accessibility
+    /// information. **Accessibility**: Always provide `alt` text describing the
+    /// region/link purpose.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     #[must_use] pub fn create_area(aria: SmallAriaInfo) -> Self {
@@ -5683,26 +5030,22 @@ impl Dom {
 
     // Metadata Elements
 
-    /// Creates an empty title element for document title.
-    ///
-    /// **Accessibility**: Required for all pages. Screen readers announce this first.
+    /// Creates an empty title element for document title. **Accessibility**:
+    /// Required for all pages.
     #[inline]
     #[must_use] pub fn create_title() -> Self {
         Self::create_node(NodeType::Title)
     }
 
-    /// Creates a title element for document title with text.
-    ///
-    /// **Accessibility**: Required for all pages. Screen readers announce this first.
-    /// Should be unique and descriptive. Keep under 60 characters.
+    /// Creates a title element for document title with text. **Accessibility**:
+    /// Required for all pages.
     #[inline]
     pub fn create_title_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_title().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates a meta element.
-    ///
-    /// **Accessibility**: Use for charset, viewport, description. Crucial for proper text display.
+    /// Creates a meta element. **Accessibility**: Use for charset, viewport,
+    /// description.
     #[inline]
     #[must_use] pub const fn create_meta() -> Self {
         Self {
@@ -5713,10 +5056,8 @@ impl Dom {
         }
     }
 
-    /// Creates a link element for external resources.
-    ///
-    /// **Accessibility**: Use for stylesheets, icons, alternate versions.
-    /// Provide meaningful `title` attribute for alternate stylesheets.
+    /// Creates a link element for external resources. **Accessibility**: Use for
+    /// stylesheets, icons, alternate versions.
     #[inline]
     #[must_use] pub const fn create_link() -> Self {
         Self {
@@ -5727,10 +5068,8 @@ impl Dom {
         }
     }
 
-    /// Creates a script element.
-    ///
-    /// **Accessibility**: Ensure scripted content is accessible.
-    /// Provide noscript fallbacks for critical functionality.
+    /// Creates a script element. **Accessibility**: Ensure scripted content is
+    /// accessible.
     #[inline]
     #[must_use] pub const fn create_script() -> Self {
         Self {
@@ -5741,10 +5080,8 @@ impl Dom {
         }
     }
 
-    /// Creates an empty style element for embedded CSS.
-    ///
-    /// **Note**: In Azul, use `.with_css()` instead for styling.
-    /// This creates a `<style>` HTML element for embedded stylesheets.
+    /// Creates an empty style element for embedded CSS. **Note**: In Azul, use
+    /// `.with_css()` instead for styling.
     #[inline]
     #[must_use] pub const fn create_style() -> Self {
         Self {
@@ -5756,18 +5093,14 @@ impl Dom {
     }
 
     /// Creates a style element for embedded CSS with the given stylesheet text.
-    ///
     /// **Note**: In Azul, use `.with_css()` instead for styling.
-    /// This creates a `<style>` HTML element for embedded stylesheets.
     #[inline]
     pub fn create_style_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_style().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates a base element for document base URL.
-    ///
-    /// **Parameters:**
-    /// - `href`: Base URL for relative URLs in the document
+    /// Creates a base element for document base URL. **Parameters:** - `href`: Base
+    /// URL for relative URLs in the document
     #[inline]
     #[must_use] pub fn create_base(href: AzString) -> Self {
         Self::create_node(NodeType::Base).with_attribute(AttributeType::Href(href))
@@ -5775,13 +5108,9 @@ impl Dom {
 
     // Advanced Constructors with Parameters
 
-    /// Creates a table header cell with scope.
-    ///
-    /// **Parameters:**
-    /// - `scope`: "col", "row", "colgroup", or "rowgroup"
-    /// - `text`: Header text
-    ///
-    /// **Accessibility**: The scope attribute is crucial for associating headers with data cells.
+    /// Creates a table header cell with scope. **Parameters:** - `scope`: "col",
+    /// "row", "colgroup", or "rowgroup" - `text`: Header text **Accessibility**: The
+    /// scope attribute is crucial for associating headers with data cells.
     #[inline]
     #[must_use] pub fn create_th_with_scope(scope: AzString, text: AzString) -> Self {
         Self::create_node(NodeType::Th)
@@ -5789,69 +5118,47 @@ impl Dom {
             .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates a table data cell with text.
-    ///
-    /// **Parameters:**
-    /// - `text`: Cell content
+    /// Creates a table data cell with text. **Parameters:** - `text`: Cell content
     #[inline]
     pub fn create_td_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_td().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates a table header cell with text.
-    ///
-    /// **Parameters:**
-    /// - `text`: Header text
+    /// Creates a table header cell with text. **Parameters:** - `text`: Header text
     #[inline]
     pub fn create_th_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_th().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates a list item with text.
-    ///
-    /// **Parameters:**
-    /// - `text`: List item content
+    /// Creates a list item with text. **Parameters:** - `text`: List item content
     #[inline]
     pub fn create_li_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_li().with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates a paragraph with text.
-    ///
-    /// **Parameters:**
-    /// - `text`: Paragraph content
+    /// Creates a paragraph with text. **Parameters:** - `text`: Paragraph content
     #[inline]
     pub fn create_p_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_p()
             .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    /// Creates a generic block container (div) with text.
-    ///
-    /// The div is the box the text lives in: put your styling, callbacks and
-    /// `tab_index` on the DIV, never on the text leaf (a text node has no box
-    /// of its own - see
+    /// Creates a generic block container (div) with text. The div is the box the
+    /// text lives in: put your styling, callbacks and `tab_index` on the DIV, never
+    /// on the text leaf (a text node has no box of its own - see
     /// [`Dom::create_text_do_not_use_without_block_level_wrapper`]).
-    ///
-    /// **Parameters:**
-    /// - `text`: Div content
     #[inline]
     pub fn create_div_with_text<S: Into<AzString>>(text: S) -> Self {
         Self::create_div()
             .with_child(Self::create_text_do_not_use_without_block_level_wrapper(text))
     }
 
-    // Accessibility-Aware Constructors
-    // These constructors require explicit accessibility information.
-    // Use the `*_no_a11y` variants only as a deliberate escape hatch.
+    // Accessibility-Aware Constructors These constructors require explicit
+    // accessibility information. Use the `*_no_a11y` variants only as a deliberate
+    // escape hatch.
 
-    /// Creates a button with text content and accessibility information.
-    ///
-    /// Use [`Dom::create_button_no_a11y`] to skip the accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `text`: The visible button text
-    /// - `aria`: Accessibility information (role, description, etc.)
+    /// Creates a button with text content and accessibility information. Use
+    /// [`Dom::create_button_no_a11y`] to skip the accessibility information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_button<S: Into<AzString>>(text: S, aria: SmallAriaInfo) -> Self {
@@ -5860,15 +5167,8 @@ impl Dom {
         btn
     }
 
-    /// Creates a link (anchor) with href, text, and accessibility information.
-    ///
-    /// Use [`Dom::create_a_no_a11y`] to skip the accessibility information (e.g. for
-    /// image-only links whose accessible name comes from an `<img alt>`).
-    ///
-    /// **Parameters:**
-    /// - `href`: The link destination
-    /// - `text`: The visible link text
-    /// - `aria`: Accessibility information (expanded description, etc.)
+    /// Creates a link (anchor) with href, text, and accessibility information. Use
+    /// [`Dom::create_a_no_a11y`] to skip the accessibility information (e.g.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_a<S1: Into<AzString>, S2: Into<AzString>>(
@@ -5881,15 +5181,8 @@ impl Dom {
         link
     }
 
-    /// Creates an input element with type, name, and accessibility information.
-    ///
-    /// Use [`Dom::create_input_no_a11y`] to skip the accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `input_type`: The input type (text, password, email, etc.)
-    /// - `name`: The form field name
-    /// - `label`: Base accessibility label
-    /// - `aria`: Additional accessibility information (description, etc.)
+    /// Creates an input element with type, name, and accessibility information. Use
+    /// [`Dom::create_input_no_a11y`] to skip the accessibility information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_input<S1: Into<AzString>, S2: Into<AzString>, S3: Into<AzString>>(
@@ -5903,14 +5196,8 @@ impl Dom {
         input
     }
 
-    /// Creates a textarea with name and accessibility information.
-    ///
-    /// Use [`Dom::create_textarea_no_a11y`] to skip the accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `name`: The form field name
-    /// - `label`: Base accessibility label
-    /// - `aria`: Additional accessibility information (description, etc.)
+    /// Creates a textarea with name and accessibility information. Use
+    /// [`Dom::create_textarea_no_a11y`] to skip the accessibility information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_textarea<S1: Into<AzString>, S2: Into<AzString>>(
@@ -5923,14 +5210,8 @@ impl Dom {
         textarea
     }
 
-    /// Creates a select dropdown with name and accessibility information.
-    ///
-    /// Use [`Dom::create_select_no_a11y`] to skip the accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `name`: The form field name
-    /// - `label`: Base accessibility label
-    /// - `aria`: Additional accessibility information (description, etc.)
+    /// Creates a select dropdown with name and accessibility information. Use
+    /// [`Dom::create_select_no_a11y`] to skip the accessibility information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_select<S1: Into<AzString>, S2: Into<AzString>>(
@@ -5943,14 +5224,9 @@ impl Dom {
         select
     }
 
-    /// Creates a table with caption and accessibility information.
-    ///
-    /// Use [`Dom::create_table_no_a11y`] to skip the caption and accessibility
+    /// Creates a table with caption and accessibility information. Use
+    /// [`Dom::create_table_no_a11y`] to skip the caption and accessibility
     /// information.
-    ///
-    /// **Parameters:**
-    /// - `caption`: Table caption (visible title)
-    /// - `aria`: Accessibility information describing table purpose
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_table<S: Into<AzString>>(caption: S, aria: SmallAriaInfo) -> Self {
@@ -5960,14 +5236,9 @@ impl Dom {
         table
     }
 
-    /// Creates a label for a form control with additional accessibility information.
-    ///
-    /// Use [`Dom::create_label_no_a11y`] to skip the accessibility information.
-    ///
-    /// **Parameters:**
-    /// - `for_id`: The ID of the associated form control
-    /// - `text`: The visible label text
-    /// - `aria`: Additional accessibility information (description, etc.)
+    /// Creates a label for a form control with additional accessibility
+    /// information. Use [`Dom::create_label_no_a11y`] to skip the accessibility
+    /// information.
     #[inline]
     #[allow(clippy::needless_pass_by_value)] // owned azul C-ABI value taken by value (FFI ownership-transfer convention)
     pub fn create_label<S1: Into<AzString>, S2: Into<AzString>>(
@@ -5980,15 +5251,14 @@ impl Dom {
         label
     }
 
-    /// Parse XML/XHTML string into a DOM
-    ///
-    /// This is a simple wrapper that parses XML and converts it to a DOM.
-    /// For now, it just creates a text node with the content since full XML parsing
-    /// requires the xml feature and more complex parsing logic.
+    /// Parse XML/XHTML string into a DOM This is a simple wrapper that parses XML
+    /// and converts it to a DOM. For now, it just creates a text node with the
+    /// content since full XML parsing requires the xml feature and more complex
+    /// parsing logic.
     #[cfg(feature = "xml")]
     pub fn from_xml<S: AsRef<str>>(xml_str: S) -> Self {
-        // TODO: Implement full XML parsing
-        // For now, just create a text node showing that XML was loaded
+        // TODO: Implement full XML parsing For now, just create a text node showing
+        // that XML was loaded
         Self::create_text_do_not_use_without_block_level_wrapper(format!(
             "XML content loaded ({} bytes)",
             xml_str.as_ref().len()
@@ -6018,12 +5288,11 @@ impl Dom {
         s
     }
 
-    /// AUDIT: recompute the authoritative descendant count (1 per descendant)
-    /// from `children`, without mutating anything. Used by the debug-only
-    /// consistency assertions in the builder methods so a stale
-    /// `estimated_total_children` (from direct `children` mutation) is caught in
-    /// tests before it can under-allocate the arena in
-    /// `convert_dom_into_compact_dom`.
+    /// AUDIT: recompute the authoritative descendant count (1 per descendant) from
+    /// `children`, without mutating anything. Used by the debug-only consistency
+    /// assertions in the builder methods so a stale `estimated_total_children` (from
+    /// direct `children` mutation) is caught in tests before it can under-allocate
+    /// the arena in `convert_dom_into_compact_dom`.
     #[must_use]
     pub fn recompute_estimated_total_children(&self) -> usize {
         self.children
@@ -6034,12 +5303,12 @@ impl Dom {
 
     #[inline]
     pub fn add_child(&mut self, child: Self) {
-        // AUDIT: cheap ONE-LEVEL consistency check (O(child.children), not the
-        // full O(subtree) recompute — `add_child` is a per-child hot path, so a
-        // recursive assert would make debug DOM construction O(n^2)). Assuming
-        // grandchildren are already consistent (they are when the tree is built
-        // bottom-up), this catches a direct mutation of `child.children` that
-        // skipped `fixup_children_estimated()`.
+        // AUDIT: cheap ONE-LEVEL consistency check (O(child.children), not the full
+        // O(subtree) recompute - `add_child` is a per-child hot path, so a recursive
+        // assert would make debug DOM construction O(n^2)). Assuming grandchildren
+        // are already consistent (they are when the tree is built bottom-up), this
+        // catches a direct mutation of `child.children` that skipped
+        // `fixup_children_estimated()`.
         debug_assert_eq!(
             child.estimated_total_children,
             child
@@ -6061,9 +5330,9 @@ impl Dom {
 
     #[inline]
     pub fn set_children(&mut self, children: DomVec) {
-        // AUDIT: one-level check per child (see `add_child`) — verifies each
-        // child's own cached estimate is internally consistent before we trust
-        // it, without an O(subtree) recompute.
+        // AUDIT: one-level check per child (see `add_child`) - verifies each
+        // child's own cached estimate is internally consistent before we trust it,
+        // without an O(subtree) recompute.
         debug_assert!(
             children.iter().all(|c| c.estimated_total_children
                 == c
@@ -6092,20 +5361,15 @@ impl Dom {
         }
     }
     #[must_use] pub const fn node_count(&self) -> usize {
-        // `saturating_add`, not `+`. `estimated_total_children` is a PUBLIC
-        // field, so a caller can put `usize::MAX` in it. With `+` that is a
-        // panic in debug and a silent wrap to **0** in release — and 0 is the
-        // worst available answer, because it reads as "this DOM is empty" and
-        // every caller believes it. Saturating gives the same result for every
-        // sane value and a defined, obviously-wrong-way-up one otherwise.
+        // `saturating_add`, not `+`. `estimated_total_children` is a PUBLIC field,
+        // so a caller can put `usize::MAX` in it.
         self.estimated_total_children.saturating_add(1)
     }
 
-    /// Push a parsed `Css` onto this Dom subtree's `.css` list (the
-    /// `@scope`-like mechanism that `with_css(&str)` also feeds — a string
-    /// parses to a `Css` and lands here). The cascade selector-matches every
-    /// entry against the subtree; later pushes win at equal specificity.
-    /// This is the low-level Css-struct entry point; prefer `with_css(&str)`.
+    /// Push a parsed `Css` onto this Dom subtree's `.css` list (the `@scope`-like
+    /// mechanism that `with_css(&str)` also feeds - a string parses to a `Css` and
+    /// lands here). The cascade selector-matches every entry against the subtree;
+    /// later pushes win at equal specificity.
     pub fn add_component_css(&mut self, css: azul_css::css::Css) {
         let mut v = Vec::new().into();
         mem::swap(&mut v, &mut self.css);
@@ -6114,19 +5378,18 @@ impl Dom {
         self.css = v.into();
     }
 
-    /// Builder form of [`Self::add_component_css`]: attach a parsed
-    /// stylesheet and hand the `Dom` back, so a component builds in one
-    /// expression. `with_css(&str)` is the same thing for a string that still
-    /// has to be parsed.
+    /// Builder form of [`Self::add_component_css`]: attach a parsed stylesheet and
+    /// hand the `Dom` back, so a component builds in one expression.
+    /// `with_css(&str)` is the same thing for a string that still has to be parsed.
     #[must_use]
     pub fn with_component_css(mut self, css: azul_css::css::Css) -> Self {
         self.add_component_css(css);
         self
     }
 
-    /// Replace the subtree's entire component-level CSS list with the
-    /// provided one. Use `add_component_css` / `with_component_css` for
-    /// stacking; this is the wholesale-replace form.
+    /// Replace the subtree's entire component-level CSS list with the provided one.
+    /// Use `add_component_css` / `with_component_css` for stacking; this is the
+    /// wholesale-replace form.
     pub fn set_component_css(&mut self, css: azul_css::css::CssVec) {
         self.css = css;
     }
@@ -6214,7 +5477,7 @@ impl Dom {
         self
     }
 
-    /// Attach a presence-animation function to this node — see
+    /// Attach a presence-animation function to this node - see
     /// [`NodeData::add_animation_callback`].
     #[must_use] pub fn with_animation_callback(
         mut self,
@@ -6267,17 +5530,9 @@ impl Dom {
         self
     }
 
-    /// Assigns a stable key to the root node of this DOM for reconciliation.
-    ///
-    /// This is crucial for performance and correct state preservation when
-    /// lists of items change order or items are inserted/removed.
-    ///
-    /// # Example
-    /// ```rust
-    /// # use azul_core::dom::Dom;
-    /// Dom::create_div()
-    ///     .with_key("user-avatar-123");
-    /// ```
+    /// Assigns a stable key to the root node of this DOM for reconciliation. This
+    /// is crucial for performance and correct state preservation when lists of items
+    /// change order or items are inserted/removed.
     #[inline]
     #[must_use]
     pub fn with_key<K: Hash>(mut self, key: K) -> Self {
@@ -6285,14 +5540,10 @@ impl Dom {
         self
     }
 
-    /// Registers a callback to merge dataset state from the previous frame.
-    ///
-    /// This is used for components that maintain heavy internal state (video players,
-    /// WebGL contexts, network connections) that should not be destroyed and recreated
-    /// on every render frame.
-    ///
-    /// The callback receives both datasets as `RefAny` (cheap shallow clones) and
-    /// returns the `RefAny` that should be used for the new node.
+    /// Registers a callback to merge dataset state from the previous frame. This is
+    /// used for components that maintain heavy internal state (video players, WebGL
+    /// contexts, network connections) that should not be destroyed and recreated on
+    /// every render frame.
     #[inline]
     #[must_use]
     pub fn with_merge_callback<C: Into<DatasetMergeCallback>>(mut self, callback: C) -> Self {
@@ -6300,42 +5551,15 @@ impl Dom {
         self
     }
 
-    /// Parse and set CSS styles with full selector support.
-    ///
-    /// This is the unified API for setting inline CSS on a DOM node. It supports:
-    /// - Simple properties: `color: red; font-size: 14px;`
-    /// - Pseudo-selectors: `:hover { background: blue; }`
-    /// - @-rules: `@os linux { font-size: 14px; }`
-    /// - Nesting: `@os linux { font-size: 14px; :hover { color: red; }}`
-    ///
-    /// # Examples
-    /// ```rust
-    /// # use azul_core::dom::Dom;
-    /// // Simple inline styles
-    /// Dom::create_div().with_css("color: red; font-size: 14px;");
-    ///
-    /// // With hover and active states
-    /// Dom::create_div().with_css("
-    ///     color: blue;
-    ///     :hover { color: red; }
-    ///     :active { color: green; }
-    /// ");
-    ///
-    /// // OS-specific with nested hover
-    /// Dom::create_div().with_css("
-    ///     font-size: 12px;
-    ///     @os linux { font-size: 14px; :hover { color: red; }}
-    ///     @os windows { font-size: 13px; }
-    /// ");
-    /// ```
+    /// Parse and set CSS styles with full selector support. This is the unified API
+    /// for setting inline CSS on a DOM node.
     pub fn set_css(&mut self, style: &str) {
-        // Unified, `@scope`-like model: a CSS string parses into a `Css` struct that is
-        // pushed onto THIS Dom subtree's `.css` vec, where the cascade selector-matches
-        // it against the subtree (`collect_css_from_dom` → `CssPropertyCache::restyle`).
-        // `with_css` is the single CSS entry point — there is no separate node-only inline
-        // path, and the old `with_component_css` is folded into this. A bare-declaration
-        // string (`color: red`) parses to `* { color: red }` and so applies to the whole
-        // subtree, exactly like attaching a `@scope { :scope { ... } }` block.
+        // Unified, `@scope`-like model: a CSS string parses into a `Css` struct
+        // that is pushed onto THIS Dom subtree's `.css` vec, where the cascade
+        // selector-matches it against the subtree (`collect_css_from_dom` →
+        // `CssPropertyCache::restyle`). `with_css` is the single CSS entry point -
+        // there is no separate node-only inline path, and the old
+        // `with_component_css` is folded into this.
         self.add_component_css(azul_css::css::Css::parse_inline(style));
     }
 
@@ -6389,18 +5613,8 @@ impl Dom {
 
     #[inline]
     /// Give this node an accessible NAME, keeping whatever else it already
-    /// declares.
-    ///
-    /// This is the override an application needs and `with_accessibility_info`
-    /// cannot give it. A widget fills in what it knows — a slider's role and
-    /// live value, a checkbox's checked state — and it CANNOT know what the
-    /// control is called: only the app does. Replacing the whole struct to add
-    /// a name would discard the role and the value with it, so the control
-    /// would gain a name and stop reporting its position.
-    ///
-    /// ```ignore
-    /// Slider::new(volume).dom().with_accessibility_name("Volume")
-    /// ```
+    /// declares. This is the override an application needs and
+    /// `with_accessibility_info` cannot give it.
     #[must_use]
     pub fn with_accessibility_name<S: Into<AzString>>(self, name: S) -> Self {
         self.with_accessibility_assign(AccessibilityInfo {
@@ -6409,23 +5623,15 @@ impl Dom {
         })
     }
 
-    /// Overlay a PARTIAL accessibility declaration, keeping every field the
-    /// patch does not set.
-    ///
-    /// The general form of the two helpers around it, and the one to reach for
-    /// when setting more than one thing at once:
-    ///
-    /// ```ignore
+    /// Overlay a PARTIAL accessibility declaration, keeping every field the patch
+    /// does not set. The general form of the two helpers around it, and the one to
+    /// reach for when setting more than one thing at once:
     /// slider.dom().with_accessibility_assign(&AccessibilityInfo {
-    ///     accessibility_name: Some("Volume".into()).into(),
-    ///     description: Some("0 to 100".into()).into(),
-    ///     ..Default::default()
-    /// })
-    /// // the widget's role, live value and states all survive
-    /// ```
-    ///
-    /// See [`AccessibilityInfo::assign`] for exactly which fields count as
-    /// "set" — `None`, an empty vec and `Unknown` all mean "not specified".
+    /// accessibility_name: Some("Volume".into()).into(), description: Some("0 to
+    /// 100".into()).into(), ..Default::default() }) // the widget's role, live value
+    /// and states all survive See [`AccessibilityInfo::assign`] for exactly which
+    /// fields count as "set" - `None`, an empty vec and `Unknown` all mean "not
+    /// specified".
     #[must_use]
     pub fn with_accessibility_assign(mut self, patch: AccessibilityInfo) -> Self {
         let info = self
@@ -6437,11 +5643,9 @@ impl Dom {
         self
     }
 
-    /// Point this node at the node that already NAMES it, keeping the rest of
-    /// its declaration.
-    ///
-    /// Preferred over copying the label text: a duplicated name drifts the
-    /// moment someone edits the visible label and forgets the spoken one.
+    /// Point this node at the node that already NAMES it, keeping the rest of its
+    /// declaration. Preferred over copying the label text: a duplicated name drifts
+    /// the moment someone edits the visible label and forgets the spoken one.
     #[must_use]
     pub fn with_accessibility_labelled_by(self, label: DomNodeId) -> Self {
         self.with_accessibility_assign(AccessibilityInfo {
@@ -6562,19 +5766,20 @@ mod audit_tests {
     }
 
     // NodeData carries a manual `unsafe impl Send`. This is a compile-time
-    // assertion that the marker holds (fails to build if a non-Send field is
-    // ever added), documenting the invariant the unsafe impl relies on.
+    // assertion that the marker holds (fails to build if a non-Send field is ever
+    // added), documenting the invariant the unsafe impl relies on.
     #[test]
     fn node_data_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<NodeData>();
     }
 
-    // Exercises the `core::ptr::write` unsafe path in `copy_special_moving_complex`:
-    // the boxed Text `node_type` must be MOVED bitwise into the copy (box pointer
-    // preserved, string intact), `self.node_type` must be left as `Div`, and the
-    // moved-out `style`/`extra` must land on the copy. Small heap-only tree, so
-    // Miri can validate the raw write / box ownership transfer for UB.
+    // Exercises the `core::ptr::write` unsafe path in
+    // `copy_special_moving_complex`: the boxed Text `node_type` must be MOVED
+    // bitwise into the copy (box pointer preserved, string intact), `self.node_type`
+    // must be left as `Div`, and the moved-out `style`/`extra` must land on the
+    // copy. Small heap-only tree, so Miri can validate the raw write / box ownership
+    // transfer for UB.
     #[test]
     fn copy_special_moving_complex_moves_text_node_type() {
         let mut nd = NodeData::create_text_do_not_use_without_block_level_wrapper("hello").with_css("color: red;");
@@ -6613,11 +5818,11 @@ mod autotest_generated {
     // upsert_inline_css_property
     // ---------------------------------------------------------------------
 
-    /// The runtime-patch upsert must REPLACE the unconditional declaration of
-    /// the same type, KEEP every other inline property (the content
-    /// chokepoint used to wipe the whole inline style, so a patched panel
-    /// lost its `position: absolute`), KEEP conditional declarations, and
-    /// stay bounded under repeated toggles.
+    /// The runtime-patch upsert must REPLACE the unconditional declaration of the
+    /// same type, KEEP every other inline property (the content chokepoint used to
+    /// wipe the whole inline style, so a patched panel lost its `position:
+    /// absolute`), KEEP conditional declarations, and stay bounded under repeated
+    /// toggles.
     #[test]
     fn upsert_inline_css_property_replaces_only_the_unconditional_same_type() {
         use azul_css::dynamic_selector::{
@@ -6708,7 +5913,7 @@ mod autotest_generated {
         old_data
     }
 
-    /// A `VirtualViewCallbackType`-shaped stub. Never invoked — the tests only need
+    /// A `VirtualViewCallbackType`-shaped stub. Never invoked - the tests only need
     /// a well-typed callback to hang off a `NodeType::VirtualView` node.
     extern "C" fn virtual_view_cb(
         _data: RefAny,
@@ -6825,7 +6030,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // NodeFlags — bit-packing round-trips, boundaries, field independence
+    // NodeFlags - bit-packing round-trips, boundaries, field independence
     // =====================================================================
 
     #[test]
@@ -6869,11 +6074,11 @@ mod autotest_generated {
 
     #[test]
     fn node_flags_tab_index_above_28_bits_truncates_without_corrupting_other_flags() {
-        // AUDIT: `set_tab_index` masks the value with TAB_VALUE_MASK ((1 << 28) - 1),
-        // so any OverrideInParent >= 2^28 is SILENTLY TRUNCATED rather than rejected
-        // or saturated. That is lossy, but the safety-critical property is that the
-        // overflowing bits must not bleed into the anonymous / contenteditable /
-        // tab-variant bits. Pin both facts.
+        // AUDIT: `set_tab_index` masks the value with TAB_VALUE_MASK ((1 << 28) -
+        // 1), so any OverrideInParent >= 2^28 is SILENTLY TRUNCATED rather than
+        // rejected or saturated. That is lossy, but the safety-critical property is
+        // that the overflowing bits must not bleed into the anonymous /
+        // contenteditable / tab-variant bits.
         const OVERFLOW: u32 = 1 << 28;
         let mut f = NodeFlags::new();
         f.set_tab_index(Some(TabIndex::OverrideInParent(OVERFLOW)));
@@ -6976,8 +6181,7 @@ mod autotest_generated {
     #[test]
     fn node_flags_all_bits_set_decodes_without_panicking() {
         // Adversarial: a NodeFlags whose `inner` was never produced by the setters
-        // (e.g. deserialized from a hostile FFI caller). Every getter must still
-        // return a deterministic value instead of panicking.
+        // (e.g. deserialized from a hostile FFI caller).
         let f = NodeFlags { inner: u32::MAX };
         assert!(f.is_contenteditable());
         assert!(f.is_anonymous());
@@ -6987,8 +6191,9 @@ mod autotest_generated {
 
     #[test]
     fn node_flags_get_tab_index_is_total_over_the_tag_bits() {
-        // The `_ => None` arm of get_tab_index is unreachable (2 bits => 4 patterns,
-        // all matched). Prove every tag pattern decodes to Some/None deterministically.
+        // The `_ => None` arm of get_tab_index is unreachable (2 bits => 4
+        // patterns, all matched). Prove every tag pattern decodes to Some/None
+        // deterministically.
         for tag in 0u32..4 {
             for extra in [0u32, u32::MAX] {
                 let inner = (tag << 29) | (extra & !(0b11 << 29));
@@ -7005,7 +6210,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // TabIndex — numeric limits
+    // TabIndex - numeric limits
     // =====================================================================
 
     #[test]
@@ -7029,7 +6234,7 @@ mod autotest_generated {
     #[test]
     fn get_effective_tabindex_saturates_into_i32() {
         // Reached through NodeFlags, OverrideInParent is capped at 2^28 - 1, which
-        // always fits i32 — so the i32::MAX saturation arm is not reachable via a
+        // always fits i32 - so the i32::MAX saturation arm is not reachable via a
         // NodeData. Pin what IS reachable.
         let nd = NodeData::create_div().with_tab_index(TabIndex::OverrideInParent(u32::MAX));
         assert_eq!(nd.get_effective_tabindex(), Some((1 << 28) - 1));
@@ -7059,14 +6264,14 @@ mod autotest_generated {
         assert_eq!(nd.get_effective_tabindex(), Some(0));
     }
 
-    // =====================================================================
-    // TagId / ScrollTagId
+    // ===================================================================== TagId /
+    // ScrollTagId
     // =====================================================================
 
     #[test]
     fn tag_id_unique_never_returns_zero_and_never_repeats() {
-        // 0 is reserved for "no tag". Other tests in this binary also allocate tags,
-        // so assert distinctness rather than a specific starting value.
+        // 0 is reserved for "no tag". Other tests in this binary also allocate
+        // tags, so assert distinctness rather than a specific starting value.
         let ids: Vec<TagId> = (0..512).map(|_| TagId::unique()).collect();
         for id in &ids {
             assert_ne!(id.inner, 0, "TagId 0 is reserved for 'no tag'");
@@ -7115,7 +6320,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // AttributeType — getters / predicates / serializer invariants
+    // AttributeType - getters / predicates / serializer invariants
     // =====================================================================
 
     #[test]
@@ -7208,9 +6413,9 @@ mod autotest_generated {
 
     #[test]
     fn attribute_checked_true_and_false_are_both_boolean_and_share_a_name() {
-        // AUDIT: CheckedFalse is_boolean() == true and value() == "", so a serializer
-        // that emits boolean attrs as bare names would render `checked` for the
-        // *unchecked* state. Pinning current behaviour — see report.
+        // AUDIT: CheckedFalse is_boolean() == true and value() == "", so a
+        // serializer that emits boolean attrs as bare names would render `checked`
+        // for the *unchecked* state. Pinning current behaviour - see report.
         assert!(AttributeType::CheckedTrue.is_boolean());
         assert!(AttributeType::CheckedFalse.is_boolean());
         assert_eq!(AttributeType::CheckedTrue.name(), "checked");
@@ -7306,8 +6511,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // NodeType
-    // =====================================================================
+    // NodeType =====================================================================
 
     #[test]
     fn node_type_to_library_owned_round_trips_every_variant() {
@@ -7383,8 +6587,9 @@ mod autotest_generated {
 
     #[test]
     fn geolocation_probe_nan_is_self_equal_and_hash_consistent() {
-        // GeolocationProbeConfig gives f32 a total order via to_bits, so (unlike raw
-        // f32) NaN == NaN. Eq and Hash must agree, or NodeType breaks as a HashMap key.
+        // GeolocationProbeConfig gives f32 a total order via to_bits, so (unlike
+        // raw f32) NaN == NaN. Eq and Hash must agree, or NodeType breaks as a
+        // HashMap key.
         let cfg = crate::geolocation::GeolocationProbeConfig {
             max_accuracy_m: f32::NAN,
             ..Default::default()
@@ -7442,7 +6647,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // NodeData — attributes, ids, classes
+    // NodeData - attributes, ids, classes
     // =====================================================================
 
     #[test]
@@ -7635,7 +6840,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // NodeData — constructors
+    // NodeData - constructors
     // =====================================================================
 
     #[test]
@@ -7780,7 +6985,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // NodeData — predicates
+    // NodeData - predicates
     // =====================================================================
 
     #[test]
@@ -7811,7 +7016,8 @@ mod autotest_generated {
     fn has_context_menu_flips_only_after_set_context_menu() {
         let mut nd = NodeData::create_div();
         assert!(!nd.has_context_menu());
-        // A menu bar is a different slot and must not be mistaken for a context menu.
+        // A menu bar is a different slot and must not be mistaken for a context
+        // menu.
         nd.set_menu_bar(Menu::create(Vec::new().into()));
         assert!(
             !nd.has_context_menu(),
@@ -7923,7 +7129,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // NodeData — accessible label / value / placeholder
+    // NodeData - accessible label / value / placeholder
     // =====================================================================
 
     #[test]
@@ -7949,8 +7155,7 @@ mod autotest_generated {
         // AUDIT: the doc comment promises `aria-label > alt > title`, but the
         // implementation's second pass matches `Alt(s) | Title(s)` in a single arm,
         // so whichever appears FIRST in the attribute vec wins. With [Title, Alt]
-        // that yields "title" — contradicting the documented priority. Pinned here
-        // so a fix has to update this test deliberately. See report.
+        // that yields "title" - contradicting the documented priority.
         let mut title_first = NodeData::create_div();
         title_first.set_attributes(
             vec![
@@ -7997,14 +7202,14 @@ mod autotest_generated {
 
     #[test]
     fn get_accessible_label_returns_empty_string_not_none_for_empty_aria_label() {
-        // Boundary: an empty aria-label is still "present" — Some("") not None.
+        // Boundary: an empty aria-label is still "present" - Some("") not None.
         let mut nd = NodeData::create_div();
         nd.set_attributes(vec![AttributeType::AriaLabel("".into())].into());
         assert_eq!(nd.get_accessible_label(), Some(""));
     }
 
     // =====================================================================
-    // NodeData — dataset / key / merge callback / component origin
+    // NodeData - dataset / key / merge callback / component origin
     // =====================================================================
 
     #[test]
@@ -8026,7 +7231,8 @@ mod autotest_generated {
     #[test]
     fn set_dataset_none_clears_without_allocating_extra() {
         let mut nd = NodeData::create_div();
-        // Setting None on a node that never had a dataset must be a no-op, not a panic.
+        // Setting None on a node that never had a dataset must be a no-op, not a
+        // panic.
         nd.set_dataset(OptionRefAny::None);
         assert!(nd.get_dataset().is_none());
 
@@ -8149,7 +7355,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // NodeData — svg data / clip mask
+    // NodeData - svg data / clip mask
     // =====================================================================
 
     #[test]
@@ -8194,9 +7400,9 @@ mod autotest_generated {
 
     #[test]
     fn svg_node_data_with_nan_coords_is_self_equal_and_hash_consistent() {
-        // SvgNodeData hashes f32 via to_bits and derives Eq, so a NaN-carrying shape
-        // must be equal to (and hash like) itself, or NodeData's Hash/Eq contract
-        // breaks for SVG nodes.
+        // SvgNodeData hashes f32 via to_bits and derives Eq, so a NaN-carrying
+        // shape must be equal to (and hash like) itself, or NodeData's Hash/Eq
+        // contract breaks for SVG nodes.
         let a = SvgNodeData::Rect {
             x: f32::NAN,
             y: f32::INFINITY,
@@ -8214,7 +7420,7 @@ mod autotest_generated {
     #[test]
     fn svg_node_data_line_and_linear_gradient_are_distinct_despite_a_shared_hash_body() {
         // The Hash impl deliberately folds Line and LinearGradient into one arm, so
-        // they can hash alike — but Eq must still tell them apart.
+        // they can hash alike - but Eq must still tell them apart.
         let line = SvgNodeData::Line {
             x1: 1.0,
             y1: 2.0,
@@ -8231,7 +7437,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // NodeData — hashing
+    // NodeData - hashing
     // =====================================================================
 
     #[test]
@@ -8333,12 +7539,12 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // NodeData — Display / node_data_to_string (serializer)
+    // NodeData - Display / node_data_to_string (serializer)
     // =====================================================================
 
     #[test]
     fn node_data_to_string_is_empty_for_a_bare_node() {
-        // Private fn — only reachable from an inline test module.
+        // Private fn - only reachable from an inline test module.
         assert_eq!(node_data_to_string(&NodeData::create_div()), "");
     }
 
@@ -8374,9 +7580,9 @@ mod autotest_generated {
 
     #[test]
     fn node_data_display_does_not_panic_on_hostile_text() {
-        // NOTE: Display is a debug/inspection aid and does NOT escape markup — a text
-        // node containing `<script>` reproduces it verbatim. Assert only that it is
-        // total (no panic) and round-trips the bytes; see report.
+        // NOTE: Display is a debug/inspection aid and does NOT escape markup - a
+        // text node containing `<script>` reproduces it verbatim. Assert only that
+        // it is total (no panic) and round-trips the bytes; see report.
         for text in [
             "",
             "<script>alert(1)</script>",
@@ -8404,7 +7610,7 @@ mod autotest_generated {
     }
 
     // =====================================================================
-    // NodeData — setters / builders / swap
+    // NodeData - setters / builders / swap
     // =====================================================================
 
     #[test]
@@ -8505,8 +7711,8 @@ mod autotest_generated {
             "color: 日本語;",
         ] {
             let nd = NodeData::create_div().with_css(style);
-            // The only contract for malformed input is "don't panic"; whether a rule
-            // survives parsing is the CSS parser's business.
+            // The only contract for malformed input is "don't panic"; whether a
+            // rule survives parsing is the CSS parser's business.
             let _ = nd.get_style().rules.as_ref().len();
         }
     }
@@ -8560,8 +7766,8 @@ mod autotest_generated {
         assert!(v.as_container().internal[0].is_node_type(NodeType::Span));
     }
 
-    // =====================================================================
-    // Dom — child bookkeeping
+    // ===================================================================== Dom -
+    // child bookkeeping
     // =====================================================================
 
     #[test]
@@ -8665,12 +7871,9 @@ mod autotest_generated {
         assert_eq!(d.node_count(), 1, "node_count is safe again after fixup");
     }
 
-    // `estimated_total_children` is a public field, so `usize::MAX` is
-    // reachable. This used to be `#[cfg(debug_assertions)] #[should_panic]`,
-    // pinning "panics in debug, wraps to 0 in release" — i.e. pinning a
-    // divergence where the release answer was the dangerous one (0 reads as
-    // "empty DOM"). `node_count` saturates now, so assert the SAME defined
-    // answer in both configurations, and assert it is not the empty-DOM value.
+    // `estimated_total_children` is a public field, so `usize::MAX` is reachable.
+    // This used to be `#[cfg(debug_assertions)] #[should_panic]`, pinning "panics in
+    // debug, wraps to 0 in release" - i.e.
     #[test]
     fn dom_node_count_saturates_on_a_corrupted_max_estimate() {
         let mut d = Dom::create_div();
@@ -8693,9 +7896,8 @@ mod autotest_generated {
         assert!(d.root.is_node_type(NodeType::Div));
     }
 
-    // =====================================================================
-    // Dom — builders
-    // =====================================================================
+    // ===================================================================== Dom -
+    // builders =====================================================================
 
     #[test]
     fn dom_with_id_and_with_class_apply_to_the_root() {
@@ -8792,8 +7994,8 @@ mod autotest_generated {
         assert!(s.contains("estimated_total_children"));
     }
 
-    // =====================================================================
-    // DomId / DomNodeId
+    // ===================================================================== DomId /
+    // DomNodeId
     // =====================================================================
 
     #[test]

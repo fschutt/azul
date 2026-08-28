@@ -1,13 +1,12 @@
-//! Resource management types for the application.
-//!
-//! This module contains the core types for managing application resources:
-//! - `AppConfig`: application-level configuration (logging, fonts, routes, components)
-//! - `ImageRef` / `ImageRefHash`: reference-counted decoded image handles
-//! - `FontKey` / `FontInstanceKey` / `ImageKey`: renderer-scoped resource keys
-//! - `RendererResources`: per-window font/image registry with frame-based GC
-//! - `RawImage`: CPU-side pixel data with format conversion to BGRA8
-//! - `build_add_font_resource_updates` / `build_add_image_resource_updates`:
-//!   diff current frame against registered resources and produce WebRender updates
+//! Resource management types for the application. This module contains the core
+//! types for managing application resources: - `AppConfig`: application-level
+//! configuration (logging, fonts, routes, components) - `ImageRef` / `ImageRefHash`:
+//! reference-counted decoded image handles - `FontKey` / `FontInstanceKey` /
+//! `ImageKey`: renderer-scoped resource keys - `RendererResources`: per-window
+//! font/image registry with frame-based GC - `RawImage`: CPU-side pixel data with
+//! format conversion to BGRA8 - `build_add_font_resource_updates` /
+//! `build_add_image_resource_updates`: diff current frame against registered
+//! resources and produce WebRender updates
 
 #[cfg(not(feature = "std"))]
 use alloc::string::ToString;
@@ -55,11 +54,9 @@ use crate::{
     FastBTreeSet, OrderedMap,
 };
 
-/// Selects which image layer of an element a node-image update applies to.
-///
-/// Used by `CallbackInfo::change_node_image` to distinguish between replacing an
-/// element's CSS `background` image and replacing its main content image (e.g. an
-/// animated GL texture re-rendered on resize).
+/// Selects which image layer of an element a node-image update applies to. Used by
+/// `CallbackInfo::change_node_image` to distinguish between replacing an element's
+/// CSS `background` image and replacing its main content image (e.g.
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
 pub enum UpdateImageType {
@@ -88,25 +85,21 @@ impl DpiScaleFactor {
 #[repr(C)]
 #[derive(Default)]
 pub enum AppTerminationBehavior {
-    /// Return control to `main()` when all windows are closed (if platform supports it).
-    /// On macOS, this exits the `NSApplication` run loop and returns to `main()`.
-    /// This is useful if you want to clean up resources or restart the event loop.
+    /// Return control to `main()` when all windows are closed (if platform supports
+    /// it). On macOS, this exits the `NSApplication` run loop and returns to
+    /// `main()`.
     ReturnToMain,
-    /// Keep the application running even when all windows are closed.
-    /// This is the standard macOS behavior (app stays in dock until explicitly quit).
+    /// Keep the application running even when all windows are closed. This is the
+    /// standard macOS behavior (app stays in dock until explicitly quit).
     RunForever,
-    /// Immediately terminate the process when all windows are closed.
-    /// Calls `std::process::exit(0)`.
+    /// Immediately terminate the process when all windows are closed. Calls
+    /// `std::process::exit(0)`.
     #[default]
     EndProcess,
 }
 
 
 /// An email address, e.g. a support mailbox problem reports go to.
-///
-/// Deliberately a thin wrapper (no RFC 5322 validation): the address is
-/// app-configured, not user input, and the SMTP layer reports a bad one
-/// loudly at send time.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct EmailAddress {
@@ -127,29 +120,27 @@ impl EmailAddress {
     }
 }
 
-/// Requested update behaviour.
-///
-/// The EFFECTIVE behaviour is this clamped by what the installation permits:
-/// a package-managed binary (dpkg-owned, `/usr`, snap, flatpak,
-/// `WindowsApps`) NEVER self-updates — `SelfUpdate` degrades to
+/// Requested update behaviour. The EFFECTIVE behaviour is this clamped by what the
+/// installation permits: a package-managed binary (dpkg-owned, `/usr`, snap,
+/// flatpak, `WindowsApps`) NEVER self-updates - `SelfUpdate` degrades to
 /// `NotifyOnly` there ("update via your package manager").
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(C)]
 pub enum UpdateMode {
-    /// Check, notify, and — after the user consents — download and swap the
-    /// binary. Staging may happen in the background; INSTALLING never does.
+    /// Check, notify, and - after the user consents - download and swap the binary.
+    /// Staging may happen in the background; INSTALLING never does.
     SelfUpdate,
-    /// Check and notify only ("new version available"); installing is the
-    /// user's / packager's job. The mode packagers should ship.
+    /// Check and notify only ("new version available"); installing is the user's /
+    /// packager's job. The mode packagers should ship.
     #[default]
     NotifyOnly,
     /// Never check for updates.
     Disabled,
 }
 
-/// Update configuration, part of [`AppConfig`]. With `manifest_url` unset
-/// every check reports an error naming this field — nothing phones home
-/// unless the app points it somewhere.
+/// Update configuration, part of [`AppConfig`]. With `manifest_url` unset every
+/// check reports an error naming this field - nothing phones home unless the app
+/// points it somewhere.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct UpdateSettings {
@@ -164,24 +155,21 @@ pub struct UpdateSettings {
     /// Directory-safe application name; keys the updater's state directory
     /// (`{data_dir}/{app_name}/update-state.json`) and the staging area.
     pub app_name: AzString,
-    /// RESERVED: the build's date, compiled in by the APP (e.g. a build
-    /// script stamping `env!("BUILD_DATE")`). The engine only carries it —
-    /// into telemetry resources, crash dumps and update checks.
+    /// RESERVED: the build's date, compiled in by the APP (e.g. a build script
+    /// stamping `env!("BUILD_DATE")`).
     pub build_date: AzString,
-    /// RESERVED: the build's VCS tag (or commit), compiled in by the APP.
-    /// Same carriage as `build_date`.
+    /// RESERVED: the build's VCS tag (or commit), compiled in by the APP. Same
+    /// carriage as `build_date`.
     pub build_tag: AzString,
-    /// The RELEASE CHANNEL this binary follows: `stable` (the default when
-    /// empty), `beta`, `nightly`, or whatever names the publisher uses.
-    /// Compiled in, so a nightly build cannot be talked onto the stable
-    /// track by a manifest: the binary decides which channel it reads, the
-    /// publisher decides what is in it.
+    /// The RELEASE CHANNEL this binary follows: `stable` (the default when empty),
+    /// `beta`, `nightly`, or whatever names the publisher uses. Compiled in, so a
+    /// nightly build cannot be talked onto the stable track by a manifest: the
+    /// binary decides which channel it reads, the publisher decides what is in it.
     pub channel: AzString,
-    /// Base64 minisign ROOT public key, compiled in by the APP. Non-empty
-    /// arms the update SIGNATURE CHAIN: the manifest must then carry a
-    /// root-signed signing-key statement and an artifact signature, and an
-    /// unsigned release is a hard error instead of a fallback. Empty (the
-    /// default) = digest verification only.
+    /// Base64 minisign ROOT public key, compiled in by the APP. Non-empty arms the
+    /// update SIGNATURE CHAIN: the manifest must then carry a root-signed
+    /// signing-key statement and an artifact signature, and an unsigned release is a
+    /// hard error instead of a fallback.
     pub root_public_key: AzString,
 }
 
@@ -200,8 +188,8 @@ impl Default for UpdateSettings {
     }
 }
 
-/// A named font bundled with the application (name + raw bytes).
-/// The name is used to reference the font in CSS (e.g. `font-family: "MyFont"`).
+/// A named font bundled with the application (name + raw bytes). The name is used
+/// to reference the font in CSS (e.g.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct NamedFont {
@@ -234,14 +222,8 @@ impl_vec_ord!(NamedFont, NamedFontVec);
 impl_vec_hash!(NamedFont, NamedFontVec);
 impl_vec_clone!(NamedFont, NamedFontVec, NamedFontVecDestructor);
 
-/// Descriptor for a font that the layout engine currently has loaded in its
-/// font cache.
-///
-/// Returned by `CallbackInfo::get_loaded_fonts()`. The `font_hash` field is
-/// the same `u64` carried by `DisplayListItem::Text` glyph runs, so a callback
-/// can correlate a loaded font with the text runs that use it and then fetch
-/// the raw bytes via `CallbackInfo::get_loaded_font_bytes(font_hash)` (e.g. to
-/// embed every font the layout actually used into a generated PDF).
+/// Descriptor for a font that the layout engine currently has loaded in its font
+/// cache. Returned by `CallbackInfo::get_loaded_fonts()`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct LoadedFont {
@@ -249,15 +231,14 @@ pub struct LoadedFont {
     /// `DisplayListItem::Text` glyph runs. Use this to look up the bytes with
     /// `CallbackInfo::get_loaded_font_bytes`.
     pub font_hash: u64,
-    /// PostScript / family name from the font's `name` table, or an empty
-    /// string if the font did not provide one.
+    /// PostScript / family name from the font's `name` table, or an empty string if
+    /// the font did not provide one.
     pub family_name: AzString,
     /// Total number of glyphs in the font (from the `maxp` table).
     pub num_glyphs: u32,
     /// `true` if the source font bytes are retained and can be retrieved with
     /// `CallbackInfo::get_loaded_font_bytes(font_hash)`. Fonts loaded on the
-    /// production (lazy mmap) path retain their bytes; some test-only fonts do
-    /// not.
+    /// production (lazy mmap) path retain their bytes; some test-only fonts do not.
     pub has_bytes: bool,
 }
 
@@ -294,45 +275,20 @@ impl_vec_clone!(LoadedFont, LoadedFontVec, LoadedFontVecDestructor);
 #[repr(C, u8)]
 #[derive(Default)]
 pub enum FontLoadingConfig {
-    /// Load all system fonts (default behavior, can be slow on systems with many fonts)
+    /// Load all system fonts (default behavior, can be slow on systems with many
+    /// fonts)
     #[default]
     LoadAllSystemFonts,
-    /// Only load fonts for specific families (faster startup).
-    /// Generic families like "sans-serif" are automatically expanded to OS-specific fonts.
+    /// Only load fonts for specific families (faster startup). Generic families
+    /// like "sans-serif" are automatically expanded to OS-specific fonts.
     LoadOnlyFamilies(StringVec),
     /// Don't load any system fonts, only use bundled fonts
     BundledFontsOnly,
 }
 
 
-/// Mock environment for CSS evaluation.
-/// 
-/// Allows overriding auto-detected system properties for testing and development.
-/// Any field set to `None` will use the auto-detected value.
-/// Any field set to `Some(...)` will override the auto-detected value.
-/// 
-/// # Example
-/// ```rust
-/// # use azul_core::resources::CssMockEnvironment;
-/// use azul_css::dynamic_selector::{
-///     OsCondition, ThemeCondition, OsVersion,
-///     OptionOsCondition, OptionThemeCondition, OptionOsVersion,
-/// };
-/// 
-/// // Mock a Linux dark theme environment on any platform
-/// let mock = CssMockEnvironment {
-///     os: OptionOsCondition::Some(OsCondition::Linux),
-///     theme: OptionThemeCondition::Some(ThemeCondition::Dark),
-///     ..Default::default()
-/// };
-/// 
-/// // Mock Windows XP for retro testing
-/// let mock = CssMockEnvironment {
-///     os: OptionOsCondition::Some(OsCondition::Windows),
-///     os_version: OptionOsVersion::Some(OsVersion::WIN_XP),
-///     ..Default::default()
-/// };
-/// ```
+/// Mock environment for CSS evaluation. Allows overriding auto-detected system
+/// properties for testing and development.
 #[derive(Debug, Clone, Default)]
 #[repr(C)]
 pub struct CssMockEnvironment {
@@ -346,8 +302,8 @@ pub struct CssMockEnvironment {
     pub os: azul_css::dynamic_selector::OptionOsCondition,
     /// Override the Linux desktop environment (only applies when os = Linux)
     pub desktop_env: azul_css::dynamic_selector::OptionLinuxDesktopEnv,
-    /// Override viewport dimensions (for @media queries)
-    /// Only use for testing - normally set by window size
+    /// Override viewport dimensions (for @media queries) Only use for testing -
+    /// normally set by window size
     pub viewport_width: azul_css::OptionF32,
     pub viewport_height: azul_css::OptionF32,
     /// Override the reduced motion preference
@@ -444,22 +400,9 @@ impl_option!(
     [Debug, Clone]
 );
 
-/// A route mapping a URL pattern to a layout callback.
-///
-/// Routes are cross-platform: on desktop, switching routes swaps the
-/// active layout callback and triggers `RefreshDom`. On web, it also
-/// calls `history.pushState()` for browser navigation.
-///
-/// # Pattern syntax
-///
-/// - `"/"` — exact root
-/// - `"/about"` — exact path
-/// - `"/user/:id"` — parameterized segment, `/user/42` yields `id = "42"`
-///
-/// # C API
-/// ```c
-/// AzAppConfig_addRoute(&config, AzString_fromConstStr("/user/:id"), layout_user);
-/// ```
+/// A route mapping a URL pattern to a layout callback. Routes are cross-platform:
+/// on desktop, switching routes swaps the active layout callback and triggers
+/// `RefreshDom`.
 #[repr(C)]
 pub struct Route {
     /// URL pattern (e.g. `"/"`, `"/about"`, `"/user/:id"`)
@@ -498,10 +441,8 @@ impl_vec_partialord!(Route, RouteVec);
 impl_vec_ord!(Route, RouteVec);
 impl_vec_hash!(Route, RouteVec);
 
-/// Result of matching a URL against a route pattern.
-///
-/// Stores the matched pattern and any extracted parameters.
-/// Available to layout callbacks via `LayoutCallbackInfo::get_route_param()`.
+/// Result of matching a URL against a route pattern. Stores the matched pattern and
+/// any extracted parameters.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct RouteMatch {
@@ -520,14 +461,8 @@ impl RouteMatch {
 
 impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
-/// Match a URL path against a route pattern, extracting parameters.
-///
-/// Returns `Some(RouteMatch)` with extracted params on match, `None` otherwise.
-///
-/// # Examples
-/// - pattern `"/user/:id"`, path `"/user/42"` → `Some(RouteMatch { params: [("id","42")] })`
-/// - pattern `"/"`, path `"/"` → `Some(RouteMatch { params: [] })`
-/// - pattern `"/about"`, path `"/settings"` → `None`
+/// Match a URL path against a route pattern, extracting parameters. Returns
+/// `Some(RouteMatch)` with extracted params on match, `None` otherwise.
 #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
 #[must_use] pub fn match_route(pattern: &str, path: &str) -> Option<RouteMatch> {
     let pat_segs: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
@@ -555,50 +490,43 @@ impl_option!(RouteMatch, OptionRouteMatch, copy = false, [Debug, Clone, PartialE
     })
 }
 
-/// The ZOMBIE-SPECIFIC half of what a native animation function receives.
-///
-/// The other half is a full [`TimerCallbackInfo`] (USER ruling 2026-08-17),
-/// so a callback can also reach the LIVE dom, queue changes, read momentum,
-/// measure any node… full customizability, not a keyhole.
-///
-/// The pointers here are BORROWED for the duration of the call — a function
-/// may walk the retained tree (e.g. measure its own component's text
-/// mid-exit) but must not store them: for an exit the tree is the retained
-/// zombie frame, freed when the animation completes.
+/// The ZOMBIE-SPECIFIC half of what a native animation function receives. The other
+/// half is a full [`TimerCallbackInfo`] (USER ruling 2026-08-17), so a callback can
+/// also reach the LIVE dom, queue changes, read momentum, measure any node… full
+/// customizability, not a keyhole.
 #[derive(Debug)]
 #[repr(C)]
 pub struct ZombieAnimInfo {
-    /// The `StyledDom` the ANIMATED node lives in — the retained tree for
-    /// exits, the live tree for enters. Never null during a call. (The live
-    /// dom is separately reachable through the `TimerCallbackInfo`.)
+    /// The `StyledDom` the ANIMATED node lives in - the retained tree for exits,
+    /// the live tree for enters. Never null during a call.
     pub styled_dom: *const crate::styled_dom::StyledDom,
     /// The animated node's index in THAT tree.
     pub node_id: u64,
-    /// The node's rect in logical px: the retained rect for exits, the
-    /// solved rect for enters.
+    /// The node's rect in logical px: the retained rect for exits, the solved rect
+    /// for enters.
     pub rect: LogicalRect,
     /// The viewport the tree was laid out in.
     pub viewport: LogicalRect,
     pub dpi_factor: f32,
-    /// RAW LINEAR progress 0..=1. The engine does NOT pre-apply easing for
-    /// native functions: the DECLARED timing arrives in `timing` below, and
-    /// the callback owns the math — apply it via `AnimationTiming::evaluate`
-    /// or substitute its own curve entirely.
+    /// RAW LINEAR progress 0..=1. The engine does NOT pre-apply easing for native
+    /// functions: the DECLARED timing arrives in `timing` below, and the callback
+    /// owns the math - apply it via `AnimationTiming::evaluate` or substitute its
+    /// own curve entirely.
     pub t: f32,
-    /// The timing the CSS requested (`ease`, `spring`, a
-    /// `cubic-bezier(...)` point list, …).
+    /// The timing the CSS requested (`ease`, `spring`, a `cubic-bezier(...)` point
+    /// list, …).
     pub timing: azul_css::props::basic::animation::AnimationTiming,
-    /// The animation's velocity ENTERING this frame, logical px/s — the
-    /// derivative of the previous two samples (one-frame lag; zero on the
-    /// first frame and for enter/live tracks today). The read half of the
-    /// momentum API for native functions: reversing with continuity means
-    /// producing frames that start at this speed.
+    /// The animation's velocity ENTERING this frame, logical px/s - the derivative
+    /// of the previous two samples (one-frame lag; zero on the first frame and for
+    /// enter/live tracks today). The read half of the momentum API for native
+    /// functions: reversing with continuity means producing frames that start at
+    /// this speed.
     pub velocity_x: f32,
     pub velocity_y: f32,
 }
 
-/// One frame of a native presence animation, returned by a
-/// the zombie animation callback. Absolute values, not deltas.
+/// One frame of a native presence animation, returned by a the zombie animation
+/// callback. Absolute values, not deltas.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct ZombieFrame {
@@ -607,9 +535,8 @@ pub struct ZombieFrame {
     pub translate_y: f32,
     /// 0.0 skips the node entirely this frame.
     pub opacity: f32,
-    /// Absolute painted width in logical px (left-anchored narrowing for
-    /// exits; the live layout already owns the vacated space). `None` keeps
-    /// the full width. Ignored for enters (live width is layout's job).
+    /// Absolute painted width in logical px (left-anchored narrowing for exits; the
+    /// live layout already owns the vacated space). `None` keeps the full width.
     pub width: azul_css::OptionF32,
     /// Clip the exit to its frozen rect so the motion cannot paint over
     /// neighbouring components. Ignored for enters.
@@ -628,16 +555,15 @@ impl Default for ZombieFrame {
     }
 }
 
-// TYPE-ERASED `extern "C"` entry point of a native presence animation:
-// stored as `usize` for the same reason as `crate::callbacks::CoreCallback` —
-// the REAL signature takes a `&mut TimerCallbackInfo` (full live-dom access,
-// USER ruling 2026-08-17), and that type lives in `azul-layout`, above this
-// crate. azul-layout defines the typed alias and casts on invocation:
-// `extern "C" fn(&mut RefAny, &mut TimerCallbackInfo, &ZombieAnimInfo) -> ZombieFrame`
-// (Erased alias removed: the PUBLIC `ZombieAnimCallbackType` name now
-// belongs to the GENERATED typed fn-pointer emitted from `ZombieAnimCallback`'s
-// callback_typedef in api.json — two same-name exports collided in codegen.
-// Internally the erasure is just `usize`.)
+// TYPE-ERASED `extern "C"` entry point of a native presence animation: stored as
+// `usize` for the same reason as `crate::callbacks::CoreCallback` - the REAL
+// signature takes a `&mut TimerCallbackInfo` (full live-dom access, USER ruling
+// 2026-08-17), and that type lives in `azul-layout`, above this crate. azul-layout
+// defines the typed alias and casts on invocation: `extern "C" fn(&mut RefAny, &mut
+// TimerCallbackInfo, &ZombieAnimInfo) -> ZombieFrame` (Erased alias removed: the
+// PUBLIC `ZombieAnimCallbackType` name now belongs to the GENERATED typed fn-pointer
+// emitted from `ZombieAnimCallback`'s callback_typedef in api.json - two same-name
+// exports collided in codegen.
 
 /// The type-erased component animation callback (a fn pointer as `usize`).
 #[repr(C)]
@@ -673,14 +599,10 @@ impl Ord for ZombieAnimCallback {
     }
 }
 
-/// A COMPONENT-ATTACHED native animation function.
-///
-/// Lives on the node's own `NodeData` (USER ruling 2026-08-17 — a sidebar
-/// widget ships its fly-out next to its own DOM, not in app-global state;
-/// the global `AppConfig` registry this replaced was "a bit unclean").
-/// Resolvable by NAME from that node's `-azul-animation-in` /
-/// `-azul-animation-out`, AFTER stylesheet `@keyframes` — the web mechanism
-/// stays the only default name source.
+/// A COMPONENT-ATTACHED native animation function. Lives on the node's own
+/// `NodeData` (USER ruling 2026-08-17 - a sidebar widget ships its fly-out next to
+/// its own DOM, not in app-global state; the global `AppConfig` registry this
+/// replaced was "a bit unclean").
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct AnimationFunction {
@@ -690,61 +612,52 @@ pub struct AnimationFunction {
     pub data: RefAny,
 }
 
-/// Configuration of the SYSTEM-driven animations: physics-based scrolling
-/// and the caret / selection tweens. Lives on [`AppConfig`] so a platform or
-/// application can tune the feel without rebuilding azul.
-///
-/// The scroll physics override is applied ON TOP of the platform-discovered
-/// [`SystemStyle`] at `App::create` time (`None` keeps the per-platform
-/// preset). The tween slots always apply; set a duration to `0` to disable
-/// that tween (the caret / selection then jumps, the classic behavior).
+/// Configuration of the SYSTEM-driven animations: physics-based scrolling and the
+/// caret / selection tweens. Lives on [`AppConfig`] so a platform or application can
+/// tune the feel without rebuilding azul.
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct SystemAnimations {
-    // Field order: decreasing alignment (8-aligned callbacks/RefAny first,
-    // then the 4-aligned option/durations, bool last) — the autofix padding
-    // lint enforces this, and the api.json struct_fields order must match
-    // (the field-order lint enforces THAT).
-    /// The caret tween MATH: called every animation frame with the past /
-    /// current caret rectangles and linear progress `t`; returns the
-    /// rectangle to render. Default: ease-out cubic lerp.
+    // Field order: decreasing alignment (8-aligned callbacks/RefAny first, then the
+    // 4-aligned option/durations, bool last) - the autofix padding lint enforces
+    // this, and the api.json struct_fields order must match (the field-order lint
+    // enforces THAT). / The caret tween MATH: called every animation frame with the
+    // past / / current caret rectangles and linear progress `t`; returns the /
+    // rectangle to render.
     pub caret_tween: crate::callbacks::CaretTweenCallback,
-    /// The selection tween MATH: called every animation frame with the
-    /// past / current selection band rectangles and linear progress `t`;
-    /// returns the rectangles to render (must match the current count).
-    /// Default: ease-out cubic lerp, rectangles paired by index.
+    /// The selection tween MATH: called every animation frame with the past /
+    /// current selection band rectangles and linear progress `t`; returns the
+    /// rectangles to render (must match the current count). Default: ease-out cubic
+    /// lerp, rectangles paired by index.
     pub selection_tween: crate::callbacks::SelectionTweenCallback,
     /// User data passed to `caret_tween` on every invocation.
     pub caret_tween_data: RefAny,
     /// User data passed to `selection_tween` on every invocation.
     pub selection_tween_data: RefAny,
 
-    /// Overrides `SystemStyle.scroll_physics` (momentum, overscroll /
-    /// rubber-band, wheel-vs-trackpad curves). `None` = platform default.
+    /// Overrides `SystemStyle.scroll_physics` (momentum, overscroll / rubber-band,
+    /// wheel-vs-trackpad curves). `None` = platform default.
     pub scroll_physics: OptionScrollPhysics,
     /// Duration of the caret-move tween in ms. `0` disables the tween.
-    /// While the tween runs, caret blinking is suppressed (caret stays
-    /// solid while it moves).
     pub caret_tween_duration_ms: u32,
     /// Duration of the selection tween in ms. `0` disables the tween.
     pub selection_tween_duration_ms: u32,
-    /// Focus-ring glide duration in ms (ledger #29). `0` (the DEFAULT)
-    /// disables the ring entirely — no visual change for existing apps;
-    /// an app that opts in gets a focus outline that GLIDES between
-    /// focused elements using the `caret_tween` interpolator (the ring is
-    /// suppressed while a text-editing session owns focus — there the
-    /// caret is the indicator).
+    /// Focus-ring glide duration in ms (ledger #29). `0` (the DEFAULT) disables the
+    /// ring entirely - no visual change for existing apps; an app that opts in gets
+    /// a focus outline that GLIDES between focused elements using the `caret_tween`
+    /// interpolator (the ring is suppressed while a text-editing session owns focus
+    /// - there the caret is the indicator).
     pub focus_ring_duration_ms: u32,
-    /// Whether "scroll the caret into view" glides via the scroll-physics
-    /// spring (true, the Word feel) or jumps instantly (false — also what
+    /// Whether "scroll the caret into view" glides via the scroll-physics spring
+    /// (true, the Word feel) or jumps instantly (false - also what
     /// [`Self::disabled`] sets, keeping e2e screenshots deterministic).
     pub caret_scroll_glide: bool,
 }
 
 impl SystemAnimations {
-    /// All system animations disabled: no scroll-physics override, tween
-    /// durations 0 (caret / selection jump). Test drivers and deterministic
-    /// harnesses use this so screenshots never catch geometry mid-glide.
+    /// All system animations disabled: no scroll-physics override, tween durations
+    /// 0 (caret / selection jump). Test drivers and deterministic harnesses use this
+    /// so screenshots never catch geometry mid-glide.
     #[must_use] pub fn disabled() -> Self {
         Self {
             caret_tween_duration_ms: 0,
@@ -760,8 +673,8 @@ impl Default for SystemAnimations {
     fn default() -> Self {
         Self {
             scroll_physics: OptionScrollPhysics::None,
-            // Barely noticeable by design (user directive): a short glide,
-            // not an animation the eye waits for.
+            // Barely noticeable by design (user directive): a short glide, not an
+            // animation the eye waits for.
             caret_tween_duration_ms: 60,
             caret_tween: crate::callbacks::CaretTweenCallback::create(
                 crate::callbacks::default_caret_tween,
@@ -773,95 +686,73 @@ impl Default for SystemAnimations {
             ),
             selection_tween_data: RefAny::new(()),
             caret_scroll_glide: true,
-            // Opt-in: 0 = no ring (existing apps unchanged). The Word app
-            // enables it at hookup.
+            // Opt-in: 0 = no ring (existing apps unchanged). The Word app enables
+            // it at hookup.
             focus_ring_duration_ms: 0,
         }
     }
 }
 
-/// Configuration for optional features, such as whether to enable logging or panic hooks
+/// Configuration for optional features, such as whether to enable logging or panic
+/// hooks
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct AppConfig {
-    /// If enabled, logs error and info messages.
-    ///
-    /// Default is `LevelFilter::Error` to log all errors by default
+    /// If enabled, logs error and info messages. Default is `LevelFilter::Error` to
+    /// log all errors by default
     pub log_level: AppLogLevel,
-    /// If the app crashes / panics, a window with a message box pops up.
-    /// Setting this to `false` disables the popup box.
+    /// If the app crashes / panics, a window with a message box pops up. Setting
+    /// this to `false` disables the popup box.
     pub enable_visual_panic_hook: bool,
-    /// If this is set to `true` (the default), a backtrace + error information
-    /// gets logged to stdout and the logging file (only if logging is enabled).
+    /// If this is set to `true` (the default), a backtrace + error information gets
+    /// logged to stdout and the logging file (only if logging is enabled).
     pub enable_logging_on_panic: bool,
-    /// Determines what happens when all windows are closed.
-    /// Default: `EndProcess` (terminate when last window closes).
+    /// Determines what happens when all windows are closed. Default: `EndProcess`
+    /// (terminate when last window closes).
     pub termination_behavior: AppTerminationBehavior,
-    /// Icon provider for the application.
-    /// Register icons here before calling `App::run()`.
-    /// Each window will clone this provider (cheap, Arc-based).
+    /// Icon provider for the application. Register icons here before calling
+    /// `App::run()`.
     pub icon_provider: crate::icon::IconProviderHandle,
-    /// Fonts bundled with the application.
-    /// These fonts are loaded into memory and take priority over system fonts.
+    /// Fonts bundled with the application. These fonts are loaded into memory and
+    /// take priority over system fonts.
     pub bundled_fonts: NamedFontVec,
-    /// Configuration for how system fonts should be loaded.
-    /// Default: `LoadAllSystemFonts` (scan all system fonts at startup)
+    /// Configuration for how system fonts should be loaded. Default:
+    /// `LoadAllSystemFonts` (scan all system fonts at startup)
     pub font_loading: FontLoadingConfig,
-    /// Optional mock environment for CSS evaluation.
-    /// 
-    /// When set, this overrides the auto-detected system properties (OS, theme, etc.)
-    /// for CSS @-rules and dynamic selectors. This is useful for:
-    /// - Testing OS-specific styles on a different platform
-    /// - Screenshot testing with consistent environment
-    /// - Previewing how the app looks on different systems
-    /// 
-    /// Default: None (use auto-detected system properties)
+    /// Optional mock environment for CSS evaluation. When set, this overrides the
+    /// auto-detected system properties (OS, theme, etc.) for CSS @-rules and dynamic
+    /// selectors.
     pub mock_css_environment: OptionCssMockEnvironment,
-    /// System style detected at startup (theme, colors, fonts, etc.)
-    /// 
-    /// This is detected once at `AppConfig::create()` and passed to all windows.
-    /// You can override this after creation to use a custom system style,
-    /// for example to test how your app looks on a different platform.
+    /// System style detected at startup (theme, colors, fonts, etc.) This is
+    /// detected once at `AppConfig::create()` and passed to all windows. You can
+    /// override this after creation to use a custom system style, for example to
+    /// test how your app looks on a different platform.
     pub system_style: SystemStyle,
-    /// Component libraries registered at startup.
-    ///
-    /// Use `add_component()` to register individual components, or
-    /// `add_component_library()` to register entire libraries.
-    /// User-registered (and built-in) component libraries.
-    ///
-    /// The 52 built-in HTML elements are automatically registered by
-    /// `AppConfig::create()` via `register_builtin_components`.
-    /// Additional libraries can be added with `add_component_library`.
+    /// Component libraries registered at startup. Use `add_component()` to register
+    /// individual components, or `add_component_library()` to register entire
+    /// libraries.
     pub component_libraries: ComponentLibraryVec,
-    /// Registered routes mapping URL patterns to layout callbacks.
-    ///
-    /// Cross-platform: on desktop, the active route determines which layout
-    /// callback runs. On web, routes map to HTTP endpoints and browser URLs.
-    ///
-    /// The first route (or `"/"`) is the default. Use `add_route()` to register.
+    /// Registered routes mapping URL patterns to layout callbacks. Cross-platform:
+    /// on desktop, the active route determines which layout callback runs.
     pub routes: RouteVec,
-    /// System-animation configuration (scroll physics override, caret /
-    /// selection tween hooks). See [`SystemAnimations`].
+    /// System-animation configuration (scroll physics override, caret / selection
+    /// tween hooks). See [`SystemAnimations`].
     pub system_animations: SystemAnimations,
-    /// Handler for E2E ops the engine does not implement, letting a scenario
-    /// drive application-level actions ("now load the document") that the
-    /// engine cannot express on the app's behalf.
-    ///
-    /// The default recognises nothing, so a scenario naming a custom op fails
-    /// unless the app installed a handler.
+    /// Handler for E2E ops the engine does not implement, letting a scenario drive
+    /// application-level actions ("now load the document") that the engine cannot
+    /// express on the app's behalf. The default recognises nothing, so a scenario
+    /// naming a custom op fails unless the app installed a handler.
     pub custom_e2e_op: crate::events::CustomE2eOpCallback,
-    /// Update configuration: manifest URL, requested mode, the running
-    /// version. Drives `CallbackInfo::check_for_updates` and the
-    /// `SysDialogType::UpdateVersion` dialog. Default: no manifest (checks
-    /// disabled), `NotifyOnly`.
+    /// Update configuration: manifest URL, requested mode, the running version.
+    /// Drives `CallbackInfo::check_for_updates` and the
+    /// `SysDialogType::UpdateVersion` dialog.
     pub updates: UpdateSettings,
-    /// URL of the app's changelog in Markdown. The `UpdateVersion` dialog
-    /// shows it before installing when a release carries no changelog link
-    /// of its own.
+    /// URL of the app's changelog in Markdown. The `UpdateVersion` dialog shows it
+    /// before installing when a release carries no changelog link of its own.
     pub changelog_md: azul_css::OptionString,
-    /// Support mailbox that problem reports (`SysDialogType::ReportProblem`)
-    /// and manual crash reports go to. None = the `ReportProblem` dialog saves
-    /// reports to disk instead of mailing them.
+    /// Support mailbox that problem reports (`SysDialogType::ReportProblem`) and
+    /// manual crash reports go to. None = the `ReportProblem` dialog saves reports
+    /// to disk instead of mailing them.
     pub report_problem: OptionEmailAddress,
 }
 
@@ -890,10 +781,10 @@ impl AppConfig {
             changelog_md: azul_css::OptionString::None,
             report_problem: OptionEmailAddress::None,
         };
-        // Dogfood: register the 52 built-in HTML elements via the
-        // same `add_component_library` API that users call.
-        // Annotated binding coerces the fn item to the fn-pointer type that
-        // `Into<RegisterComponentLibraryFn>` is implemented for (no `as` cast).
+        // Dogfood: register the 52 built-in HTML elements via the same
+        // `add_component_library` API that users call. Annotated binding coerces the
+        // fn item to the fn-pointer type that `Into<RegisterComponentLibraryFn>` is
+        // implemented for (no `as` cast).
         let register_builtin: crate::xml::RegisterComponentLibraryFnType =
             crate::xml::register_builtin_components;
         s.add_component_library(
@@ -903,38 +794,20 @@ impl AppConfig {
         s
     }
     
-    /// Create config with a mock CSS environment for testing
-    /// 
-    /// This allows you to simulate how your app would look on a different OS,
-    /// with a different theme, language, or accessibility settings.
-    /// 
-    /// # Example
-    /// ```rust
-    /// # use azul_core::resources::{AppConfig, CssMockEnvironment};
-    /// # use azul_css::dynamic_selector::{OsCondition, OptionOsCondition, ThemeCondition, OptionThemeCondition};
-    /// let config = AppConfig::create()
-    ///     .with_mock_environment(CssMockEnvironment {
-    ///         os: OptionOsCondition::Some(OsCondition::Linux),
-    ///         theme: OptionThemeCondition::Some(ThemeCondition::Dark),
-    ///         ..Default::default()
-    ///     });
-    /// ```
+    /// Create config with a mock CSS environment for testing This allows you to
+    /// simulate how your app would look on a different OS, with a different theme,
+    /// language, or accessibility settings. let config = AppConfig::create()
+    /// .with_mock_environment(CssMockEnvironment { os:
+    /// OptionOsCondition::Some(OsCondition::Linux), theme:
+    /// OptionThemeCondition::Some(ThemeCondition::Dark), ..Default::default() });
     #[must_use] pub fn with_mock_environment(mut self, env: CssMockEnvironment) -> Self {
         self.mock_css_environment = OptionCssMockEnvironment::Some(env);
         self
     }
 
-    /// Register a single component into a named library.
-    ///
-    /// Calls `register_fn` immediately and adds the returned `ComponentDef`
-    /// to the library named `library`. If no library with that name exists,
-    /// a new one is created. If a component with the same `id.name` already
-    /// exists in the library, it is replaced.
-    ///
-    /// # C API
-    /// ```c
-    /// AzAppConfig_addComponent(&config, AzString_fromConstStr("mylib"), my_register_fn);
-    /// ```
+    /// Register a single component into a named library. Calls `register_fn`
+    /// immediately and adds the returned `ComponentDef` to the library named
+    /// `library`.
     pub fn add_component<R: Into<RegisterComponentFn>>(&mut self, library: AzString, register_fn: R) {
         let register_fn = register_fn.into();
         let component = (register_fn.cb)();
@@ -966,17 +839,8 @@ impl AppConfig {
         self.component_libraries = ComponentLibraryVec::from_vec(libs);
     }
 
-    /// Register an entire component library.
-    ///
-    /// Calls `register_fn` immediately and adds the returned
-    /// `ComponentLibrary` to the config. Uses `name` as the library name
-    /// (overriding whatever the function sets). If a library with the same
-    /// name already exists, it is replaced wholesale.
-    ///
-    /// # C API
-    /// ```c
-    /// AzAppConfig_addComponentLibrary(&config, AzString_fromConstStr("vendor"), my_lib_fn);
-    /// ```
+    /// Register an entire component library. Calls `register_fn` immediately and
+    /// adds the returned `ComponentLibrary` to the config.
     pub fn add_component_library<R: Into<RegisterComponentLibraryFn>>(&mut self, name: AzString, register_fn: R) {
         let register_fn = register_fn.into();
         let mut library = (register_fn.cb)();
@@ -993,16 +857,8 @@ impl AppConfig {
         self.component_libraries = ComponentLibraryVec::from_vec(libs);
     }
 
-    /// Register a route mapping a URL pattern to a layout callback.
-    ///
-    /// On web: each route becomes an HTTP endpoint. On desktop: the first
-    /// route (or `"/"`) is the initial layout, and `CallbackInfo::switch_route()`
-    /// swaps the active callback.
-    ///
-    /// # C API
-    /// ```c
-    /// AzAppConfig_addRoute(&config, AzString_fromConstStr("/user/:id"), layout_user);
-    /// ```
+    /// Register a route mapping a URL pattern to a layout callback. On web: each
+    /// route becomes an HTTP endpoint.
     pub fn add_route<P: Into<AzString>, L: Into<LayoutCallback>>(&mut self, pattern: P, layout_fn: L) {
         let route = Route {
             pattern: pattern.into(),
@@ -1019,9 +875,8 @@ impl AppConfig {
         self.routes = RouteVec::from_vec(routes);
     }
 
-    /// Find the route matching a given URL path.
-    ///
-    /// Returns the matched `Route` and a `RouteMatch` with extracted parameters.
+    /// Find the route matching a given URL path. Returns the matched `Route` and a
+    /// `RouteMatch` with extracted parameters.
     #[must_use] pub fn match_route_for_path(&self, path: &str) -> Option<(&Route, RouteMatch)> {
         for route in self.routes.as_ref() {
             if let Some(m) = match_route(route.pattern.as_str(), path) {
@@ -1059,15 +914,11 @@ pub struct ImageDescriptor {
     pub width: usize,
     pub height: usize,
     /// The number of bytes from the start of one row to the next. If non-None,
-    /// `compute_stride` will return this value, otherwise it returns
-    /// `width * bpp`. Different source of images have different alignment
-    /// constraints for rows, so the stride isn't always equal to width * bpp.
+    /// `compute_stride` will return this value, otherwise it returns `width * bpp`.
     pub stride: OptionI32,
-    /// Offset in bytes of the first pixel of this image in its backing buffer.
-    /// This is used for tiling, wherein `WebRender` extracts chunks of input images
-    /// in order to cache, manipulate, and render them individually. This offset
-    /// tells the texture upload machinery where to find the bytes to upload for
-    /// this tile. Non-tiled images generally set this to zero.
+    /// Offset in bytes of the first pixel of this image in its backing buffer. This
+    /// is used for tiling, wherein `WebRender` extracts chunks of input images in
+    /// order to cache, manipulate, and render them individually.
     pub offset: i32,
     /// Various bool flags related to this descriptor.
     pub flags: ImageDescriptorFlags,
@@ -1077,14 +928,12 @@ pub struct ImageDescriptor {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct ImageDescriptorFlags {
-    /// Whether this image is opaque, or has an alpha channel. Avoiding blending
-    /// for opaque surfaces is an important optimization.
+    /// Whether this image is opaque, or has an alpha channel. Avoiding blending for
+    /// opaque surfaces is an important optimization.
     pub is_opaque: bool,
-    /// Whether to allow the driver to automatically generate mipmaps. If images
-    /// are already downscaled appropriately, mipmap generation can be wasted
-    /// work, and cause performance problems on some cards/drivers.
-    ///
-    /// See <https://github.com/servo/webrender/pull/2555>/
+    /// Whether to allow the driver to automatically generate mipmaps. If images are
+    /// already downscaled appropriately, mipmap generation can be wasted work, and
+    /// cause performance problems on some cards/drivers.
     pub allow_mipmaps: bool,
 }
 
@@ -1175,12 +1024,12 @@ impl FontInstanceKey {
     }
 }
 
-// NOTE: This type should NOT be exposed in the API!
-// The only public functions are the constructors
+// NOTE: This type should NOT be exposed in the API! The only public functions are
+// the constructors
 #[derive(Debug)]
 pub enum DecodedImage {
-    /// Image that has a reserved key, but no data, i.e it is not yet rendered
-    /// or there was an error during rendering
+    /// Image that has a reserved key, but no data, i.e it is not yet rendered or
+    /// there was an error during rendering
     NullImage {
         width: usize,
         height: usize,
@@ -1194,10 +1043,7 @@ pub enum DecodedImage {
     Raw((ImageDescriptor, ImageData)),
     // Same as `Texture`, but rendered AFTER the layout has been done
     Callback(CoreImageCallback),
-    // YUVImage(...)
-    // VulkanSurface(...)
-    // MetalSurface(...),
-    // DirectXSurface(...)
+    // YUVImage(...) VulkanSurface(...) MetalSurface(...), DirectXSurface(...)
 }
 
 #[derive(Debug)]
@@ -1205,21 +1051,18 @@ pub enum DecodedImage {
 pub struct ImageRef {
     /// Shared pointer to an opaque implementation of the decoded image
     pub data: *const DecodedImage,
-    /// How many copies does this image have (if 0, the font data will be deleted on drop)
+    /// How many copies does this image have (if 0, the font data will be deleted on
+    /// drop)
     pub copies: *const AtomicUsize,
-    /// Process-unique, monotonically-assigned identity of the *decoded image*
-    /// (see [`ImageRefHash`]). Shared by shallow clones (they are the same
-    /// image), fresh for [`ImageRef::deep_copy`] and every `new_*` (a
-    /// different image). Unlike the old `data`-pointer identity this is drawn
-    /// from a never-reused counter, so freeing an image and reusing its heap
-    /// address can never make a *new* image collide with a stale key — the
-    /// prerequisite for image GC (see resources.rs `image_ref_get_hash`).
+    /// Process-unique, monotonically-assigned identity of the *decoded image* (see
+    /// [`ImageRefHash`]). Shared by shallow clones (they are the same image), fresh
+    /// for [`ImageRef::deep_copy`] and every `new_*` (a different image).
     pub id: u64,
     pub run_destructor: bool,
 }
 
-/// Never-reused source of [`ImageRef::id`]. Starts at 1 so `id == 0` can flag
-/// an un-initialised / raw-reconstructed handle.
+/// Never-reused source of [`ImageRef::id`]. Starts at 1 so `id == 0` can flag an
+/// un-initialised / raw-reconstructed handle.
 static IMAGE_REF_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[must_use]
@@ -1249,10 +1092,10 @@ impl_option!(
 impl ImageRef {
     /// If *copies = 1, returns the internal image data
     #[must_use] pub fn into_inner(self) -> Option<DecodedImage> {
-        // SAFETY: `data`/`copies` are non-null heap allocations from `Box::into_raw`
-        // in `new()` (never mutated afterwards). When `copies == 1` we are the sole
-        // owner, so reclaiming both Boxes and `forget`-ing `self` transfers ownership
-        // without a double free / running the destructor twice.
+        // SAFETY: `data`/`copies` are non-null heap allocations from
+        // `Box::into_raw` in `new()` (never mutated afterwards). When `copies == 1`
+        // we are the sole owner, so reclaiming both Boxes and `forget`-ing `self`
+        // transfers ownership without a double free / running the destructor twice.
         unsafe {
             if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
                 let data = Box::from_raw(self.data.cast_mut());
@@ -1273,12 +1116,14 @@ impl ImageRef {
     }
 
     #[must_use] pub fn get_image_callback(&self) -> Option<&CoreImageCallback> {
-        // SAFETY: `copies` is a non-null, live allocation for the lifetime of `&self`.
+        // SAFETY: `copies` is a non-null, live allocation for the lifetime of
+        // `&self`.
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
             return None; // not safe: shared, so no exclusive borrow of the data
         }
 
-        // SAFETY: `data` is a non-null, live `Box` allocation; borrow tied to `&self`.
+        // SAFETY: `data` is a non-null, live `Box` allocation; borrow tied to
+        // `&self`.
         match unsafe { &*self.data } {
             DecodedImage::Callback(gl_texture_callback) => Some(gl_texture_callback),
             _ => None,
@@ -1286,7 +1131,8 @@ impl ImageRef {
     }
 
     pub fn get_image_callback_mut(&mut self) -> Option<&mut CoreImageCallback> {
-        // SAFETY: `copies` is a non-null, live allocation for the lifetime of `&self`.
+        // SAFETY: `copies` is a non-null, live allocation for the lifetime of
+        // `&self`.
         if unsafe { self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) != Some(1) } {
             return None; // not safe: shared, so a &mut would alias other clones' data
         }
@@ -1313,17 +1159,17 @@ impl ImageRef {
                 format: *format,
                 tag: tag.clone(),
             },
-            // NOTE: textures cannot be deep-copied yet (since the OpenGL calls for that
-            // are missing from the trait), so calling clone() on a GL texture will result in an
-            // empty image
+            // NOTE: textures cannot be deep-copied yet (since the OpenGL calls for
+            // that are missing from the trait), so calling clone() on a GL texture
+            // will result in an empty image
             DecodedImage::Gl(tex) => DecodedImage::NullImage {
                 width: tex.size.width as usize,
                 height: tex.size.height as usize,
                 format: tex.format,
                 tag: Vec::new(),
             },
-            // WARNING: the data may still be a U8Vec<'static> - the data may still not be
-            // actually cloned. The data only gets cloned on a write operation
+            // WARNING: the data may still be a U8Vec<'static> - the data may still
+            // not be actually cloned. The data only gets cloned on a write operation
             DecodedImage::Raw((descriptor, data)) => {
                 DecodedImage::Raw((*descriptor, data.clone()))
             }
@@ -1355,8 +1201,8 @@ impl ImageRef {
             DecodedImage::Raw((image_descriptor, image_data)) => Some(RawImage {
                 pixels: match image_data {
                     ImageData::Raw(shared_data) => {
-                        // Clone the SharedRawImageData (increments ref count),
-                        // then try to extract or convert to U8Vec
+                        // Clone the SharedRawImageData (increments ref count), then
+                        // try to extract or convert to U8Vec
                         let data_clone = shared_data.clone();
                         data_clone.into_inner().map_or_else(|| RawImageData::U8(shared_data.as_ref().to_vec().into()), RawImageData::U8)
                     }
@@ -1372,8 +1218,8 @@ impl ImageRef {
         }
     }
 
-    /// Get raw bytes from the image as a slice
-    /// Returns None if this is not a Raw image or if it's an External image
+    /// Get raw bytes from the image as a slice Returns None if this is not a Raw
+    /// image or if it's an External image
     #[must_use] pub fn get_bytes(&self) -> Option<&[u8]> {
         match self.get_data() {
             DecodedImage::Raw((_, image_data)) => match image_data {
@@ -1384,8 +1230,8 @@ impl ImageRef {
         }
     }
 
-    /// Get a pointer to the raw bytes for debugging/profiling purposes
-    /// Returns a unique pointer for this `ImageRef`'s data
+    /// Get a pointer to the raw bytes for debugging/profiling purposes Returns a
+    /// unique pointer for this `ImageRef`'s data
     #[must_use] pub fn get_bytes_ptr(&self) -> *const u8 {
         match self.get_data() {
             DecodedImage::Raw((_, image_data)) => match image_data {
@@ -1457,10 +1303,10 @@ impl ImageRef {
 unsafe impl Send for ImageRef {}
 unsafe impl Sync for ImageRef {}
 
-// Identity is the never-reused `id`, NOT the `data` pointer: two shallow
-// clones of one image share an `id` (equal); distinct images (incl. a
-// `deep_copy`) get distinct ids; a freed image's id is never handed to a
-// later image, so a reused heap address can't forge equality.
+// Identity is the never-reused `id`, NOT the `data` pointer: two shallow clones of
+// one image share an `id` (equal); distinct images (incl. a `deep_copy`) get
+// distinct ids; a freed image's id is never handed to a later image, so a reused
+// heap address can't forge equality.
 impl PartialEq for ImageRef {
     fn eq(&self, rhs: &Self) -> bool {
         self.id == rhs.id
@@ -1492,8 +1338,8 @@ impl Hash for ImageRef {
 
 impl Clone for ImageRef {
     fn clone(&self) -> Self {
-        // SAFETY: `copies` is a non-null, live `AtomicUsize` allocation shared by all
-        // clones; the atomic increment balances the `fetch_sub` in `Drop`.
+        // SAFETY: `copies` is a non-null, live `AtomicUsize` allocation shared by
+        // all clones; the atomic increment balances the `fetch_sub` in `Drop`.
         unsafe {
             self.copies
                 .as_ref()
@@ -1511,9 +1357,9 @@ impl Clone for ImageRef {
 impl Drop for ImageRef {
     fn drop(&mut self) {
         self.run_destructor = false;
-        // SAFETY: `data`/`copies` are non-null, live `Box` allocations shared by all
-        // clones. `fetch_sub` returns the pre-decrement count, so `== 1` means this is
-        // the last owner; only then do we reclaim both Boxes exactly once.
+        // SAFETY: `data`/`copies` are non-null, live `Box` allocations shared by
+        // all clones. `fetch_sub` returns the pre-decrement count, so `== 1` means
+        // this is the last owner; only then do we reclaim both Boxes exactly once.
         unsafe {
             let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
             if copies == 1 {
@@ -1525,22 +1371,20 @@ impl Drop for ImageRef {
 }
 
 #[must_use] pub const fn image_ref_get_hash(ir: &ImageRef) -> ImageRefHash {
-    // The identity is the never-reused `id`, not the freeable `data` pointer
-    // (see the `id` field docs). This is what makes an ImageKey safe to
-    // DeleteImage: once an image is dropped its id is retired forever, so a
-    // future image that reuses the same heap address gets a *different* key
-    // and is registered/uploaded correctly instead of aliasing the stale one.
+    // The identity is the never-reused `id`, not the freeable `data` pointer (see
+    // the `id` field docs). This is what makes an ImageKey safe to DeleteImage: once
+    // an image is dropped its id is retired forever, so a future image that reuses
+    // the same heap address gets a *different* key and is registered/uploaded
+    // correctly instead of aliasing the stale one.
     ImageRefHash {
         inner: ir.id,
     }
 }
 
-/// Convert a stable `ImageRefHash` directly to an `ImageKey`.
-///
-/// `ImageKey.key` is a `u64` and `ImageRefHash.inner` is the `ImageRef` `id`
-/// (a `u64` counter) stored in a `usize`; on a 32-bit host that truncates the
-/// top 32 bits, which is fine — a run would need 4 billion live images for the
-/// low 32 bits to collide.
+/// Convert a stable `ImageRefHash` directly to an `ImageKey`. `ImageKey.key` is a
+/// `u64` and `ImageRefHash.inner` is the `ImageRef` `id` (a `u64` counter) stored in
+/// a `usize`; on a 32-bit host that truncates the top 32 bits, which is fine - a run
+/// would need 4 billion live images for the low 32 bits to collide.
 #[must_use] pub const fn image_ref_hash_to_image_key(hash: ImageRefHash, namespace: IdNamespace) -> ImageKey {
     ImageKey {
         namespace,
@@ -1553,18 +1397,16 @@ impl Drop for ImageRef {
 }
 
 /// Stores the resources for the application, such as fonts, images and cached
-/// texts, also clipboard strings
-///
-/// Images and fonts can be references across window contexts (not yet tested,
-/// but should work).
+/// texts, also clipboard strings Images and fonts can be references across window
+/// contexts (not yet tested, but should work).
 #[derive(Debug)]
 #[derive(Default)]
 pub struct ImageCache {
-    /// The `AzString` is the string used in the CSS, i.e. `url("my_image`") = "`my_image`" -> ImageId(4)
-    ///
-    /// NOTE: This is the only map that is modifiable by the user and that has to be manually
-    /// managed all other maps are library-internal only and automatically delete their
-    /// resources once they aren't needed anymore
+    /// The `AzString` is the string used in the CSS, i.e. `url("my_image`") =
+    /// "`my_image`" -> ImageId(4) NOTE: This is the only map that is modifiable by
+    /// the user and that has to be manually managed all other maps are
+    /// library-internal only and automatically delete their resources once they
+    /// aren't needed anymore
     pub image_id_map: OrderedMap<AzString, ImageRef>,
 }
 
@@ -1659,44 +1501,38 @@ impl RendererResourcesTrait for RendererResources {
 }
 
 /// Renderer resources that manage font, image and font instance keys.
-/// `RendererResources` are local to each renderer / window, since the
-/// keys are not shared across renderers
-///
-/// The resources are automatically managed, meaning that they each new frame
-/// (signified by `start_frame_gc` and `end_frame_gc`)
+/// `RendererResources` are local to each renderer / window, since the keys are not
+/// shared across renderers The resources are automatically managed, meaning that
+/// they each new frame (signified by `start_frame_gc` and `end_frame_gc`)
 #[derive(Default)]
 pub struct RendererResources {
     /// All image keys currently active in the `RenderApi`
     pub currently_registered_images: OrderedMap<ImageRefHash, ResolvedImage>,
     /// Reverse lookup: `ImageKey` -> `ImageRefHash` for display list translation
     pub image_key_map: OrderedMap<ImageKey, ImageRefHash>,
-    /// Image GC bookkeeping: last epoch (as `u32`) each registered image was
-    /// seen referenced by a display list. An image absent for more than
-    /// `IMAGE_GC_KEEP_EPOCHS` frames is `DeleteImage`d and evicted — this is
-    /// what stops the unbounded texture growth of a window that swaps images
-    /// every frame (video / capture / animated charts). Safe because
-    /// `ImageRefHash` is now a never-reused id, not a freeable pointer.
+    /// Image GC bookkeeping: last epoch (as `u32`) each registered image was seen
+    /// referenced by a display list. An image absent for more than
+    /// `IMAGE_GC_KEEP_EPOCHS` frames is `DeleteImage`d and evicted - this is what
+    /// stops the unbounded texture growth of a window that swaps images every frame
+    /// (video / capture / animated charts).
     pub image_last_seen_epoch: OrderedMap<ImageRefHash, u32>,
     /// All font keys currently active in the `RenderApi`
     pub currently_registered_fonts:
         OrderedMap<FontKey, (FontRef, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>)>,
-    /// Fonts registered on the last frame
-    ///
-    /// Fonts differ from images in that regard that we can't immediately
-    /// delete them on a new frame, instead we have to delete them on "current frame + 1"
-    /// This is because when the frame is being built, we do not know
-    /// whether the font will actually be successfully loaded
+    /// Fonts registered on the last frame Fonts differ from images in that regard
+    /// that we can't immediately delete them on a new frame, instead we have to
+    /// delete them on "current frame + 1" This is because when the frame is being
+    /// built, we do not know whether the font will actually be successfully loaded
     pub last_frame_registered_fonts:
         OrderedMap<FontKey, OrderedMap<(Au, DpiScaleFactor), FontInstanceKey>>,
-    /// Map from the calculated families vec (`["Arial", "Helvetica"]`)
-    /// to the final loaded font that could be loaded
-    /// (in this case "Arial" on Windows and "Helvetica" on Mac,
-    /// because the fonts are loaded in fallback-order)
+    /// Map from the calculated families vec (`["Arial", "Helvetica"]`) to the final
+    /// loaded font that could be loaded (in this case "Arial" on Windows and
+    /// "Helvetica" on Mac, because the fonts are loaded in fallback-order)
     pub font_families_map: OrderedMap<StyleFontFamiliesHash, StyleFontFamilyHash>,
     /// Same as `AzString` -> `ImageId`, but for fonts, i.e. "Roboto" -> FontId(9)
     pub font_id_map: OrderedMap<StyleFontFamilyHash, FontKey>,
-    /// Direct mapping from font hash (from `FontRef`) to `FontKey`
-    /// TODO: This should become part of `SharedFontRegistry`
+    /// Direct mapping from font hash (from `FontRef`) to `FontKey` TODO: This
+    /// should become part of `SharedFontRegistry`
     pub font_hash_map: OrderedMap<u64, FontKey>,
 }
 
@@ -1747,13 +1583,8 @@ impl RendererResources {
         styled_node_state: &StyledNodeState,
         dpi_scale: f32,
     ) -> Option<FontInstanceKey> {
-        // Convert font size to StyleFontSize.
-        //
-        // `font_size_px as isize` saturates +inf / f32::MAX to isize::MAX (and
-        // -inf / -f32::MAX to isize::MIN). `const_px` then multiplies by 1000
-        // (FP_PRECISION_MULTIPLIER) inside `FloatValue::const_new`, which would
-        // overflow. Clamp to the range that survives that multiply so an absurd
-        // size misses cleanly instead of panicking.
+        // Convert font size to StyleFontSize. `font_size_px as isize` saturates
+        // +inf / f32::MAX to isize::MAX (and -inf / -f32::MAX to isize::MIN).
         let font_size_isize =
             (font_size_px as isize).clamp(isize::MIN / 1000, isize::MAX / 1000);
         let font_size = StyleFontSize {
@@ -1790,36 +1621,13 @@ impl RendererResources {
         instances.get(&(font_size_au, dpi_scale)).copied()
     }
 
-    // Delete all font family hashes that do not have a font key anymore
-    //
-    // AUDIT-TODO (font GC, resources.rs font leak — 2026-07-08):
-    // Fonts and font instances are currently NEVER garbage-collected. This helper
-    // only prunes `font_id_map` / `font_families_map` entries whose `FontKey` has
-    // *already* vanished from `currently_registered_fonts` — but nothing ever
-    // removes fonts from `currently_registered_fonts` in the first place, and this
-    // helper itself has no callers. No `DeleteFont` / `DeleteFontInstance`
-    // `ResourceUpdate` is ever emitted, so WebRender font memory grows unbounded
-    // when an app cycles fonts (font pickers, editors, live CSS).
-    //
-    // To wire a real font GC mirroring the image GC (see `dll/.../wr_translate2.rs`
-    // `garbage_collect_images` + `image_last_seen_epoch`), the following are needed
-    // and MUST be done together (do not half-implement):
-    //   1. Add `font_last_seen_epoch: OrderedMap<FontKey, u32>` (and, if instance-
-    //      level GC is wanted, per-`FontInstanceKey` epochs) to `RendererResources`.
-    //   2. In the display-list build (dll crate), after resolving each glyph run's
-    //      `FontInstanceKey`, mark the owning `FontKey` (and instance) seen at the
-    //      current epoch — exactly as images are marked in the image GC.
-    //   3. Add a `garbage_collect_fonts(&mut self, now, keep_epochs, updates)` that,
-    //      for every `FontKey` unseen for > keep_epochs frames, emits
-    //      `DeleteFontInstance` for each of its instances then `DeleteFont`, and
-    //      evicts the key from `currently_registered_fonts`, `font_hash_map`,
-    //      `last_frame_registered_fonts`, and `font_id_map`/`font_families_map`
-    //      (via this helper). Respect the "delete on current frame + 1" rule already
-    //      documented on `last_frame_registered_fonts`.
-    //   4. Call it once per frame from the same site as the image GC.
-    // Left as a TODO because steps 2 and 4 are cross-crate (dll) and cannot be
-    // implemented from `azul-core` alone; adding a GC method here without a caller
-    // would just be more dead code.
+    // Delete all font family hashes that do not have a font key anymore AUDIT-TODO
+    // (font GC, resources.rs font leak - 2026-07-08): Fonts and font instances are
+    // currently NEVER garbage-collected. This helper only prunes `font_id_map` /
+    // `font_families_map` entries whose `FontKey` has *already* vanished from
+    // `currently_registered_fonts` - but nothing ever removes fonts from
+    // `currently_registered_fonts` in the first place, and this helper itself has no
+    // callers.
     #[allow(dead_code)]
     fn remove_font_families_with_zero_references(&mut self) {
         let font_family_to_delete = self
@@ -1857,15 +1665,9 @@ impl RendererResources {
 }
 
 // Result returned from rerender_image_callback() - should be used as:
-//
-// ```rust
-// txn.update_image(
-//     wr_translate_image_key(key),
-//     wr_translate_image_descriptor(descriptor),
-//     wr_translate_image_data(data),
-//     &WrImageDirtyRect::All,
-// );
-// ```
+// txn.update_image( wr_translate_image_key(key),
+// wr_translate_image_descriptor(descriptor), wr_translate_image_data(data),
+// &WrImageDirtyRect::All, );
 #[derive(Debug, Clone)]
 pub struct UpdateImageResult {
     pub key_to_update: ImageKey,
@@ -1880,10 +1682,10 @@ pub struct GlTextureCache {
     pub hashes: BTreeMap<(DomId, NodeId, ImageRefHash), ImageRefHash>,
 }
 
-// necessary so the display list can be built in parallel
-// SAFETY: only the raw pointers inside the contained `ImageRefHash`/key maps are
-// non-`Send`-inferring; every stored value is a plain POD id/descriptor with no
-// interior aliasing, so moving the cache to another thread is sound.
+// necessary so the display list can be built in parallel SAFETY: only the raw
+// pointers inside the contained `ImageRefHash`/key maps are non-`Send`-inferring;
+// every stored value is a plain POD id/descriptor with no interior aliasing, so
+// moving the cache to another thread is sound.
 unsafe impl Send for GlTextureCache {}
 
 impl GlTextureCache {
@@ -1895,24 +1697,10 @@ impl GlTextureCache {
         }
     }
 
-    /// Updates a given texture
-    ///
-    /// This is called when a texture needs to be re-rendered (e.g., on resize or animation frame).
-    /// It updates the texture in the `WebRender` external image cache and updates the internal
-    /// descriptor to reflect the new size.
-    ///
-    /// # Arguments
-    ///
-    /// * `dom_id` - The DOM ID containing the texture
-    /// * `node_id` - The node ID of the image element
-    /// * `document_id` - The `WebRender` document ID
-    /// * `epoch` - The current frame epoch
-    /// * `new_texture` - The new texture to use
-    /// * `insert_into_active_gl_textures_fn` - Function to insert the texture into the cache
-    ///
-    /// # Returns
-    ///
-    /// The `ExternalImageId` if successful, None if the texture wasn't found in the cache
+    /// Updates a given texture This is called when a texture needs to be
+    /// re-rendered (e.g., on resize or animation frame). It updates the texture in
+    /// the `WebRender` external image cache and updates the internal descriptor to
+    /// reflect the new size.
     pub fn update_texture(
         &mut self,
         dom_id: DomId,
@@ -2048,11 +1836,9 @@ pub struct RawImage {
     pub tag: U8Vec,
 }
 
-/// A soft round brush for the painting API.
-///
-/// The same parameters drive the CPU
-/// rasterizer ([`RawImage::paint_dot`]) and the GPU brush shader, so a stroke
-/// looks identical whether it lands on a `RawImage` or a `Texture`.
+/// A soft round brush for the painting API. The same parameters drive the CPU
+/// rasterizer ([`RawImage::paint_dot`]) and the GPU brush shader, so a stroke looks
+/// identical whether it lands on a `RawImage` or a `Texture`.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Brush {
@@ -2060,14 +1846,13 @@ pub struct Brush {
     pub color: ColorU,
     /// Brush radius in pixels.
     pub radius: f32,
-    /// Edge hardness, `0.0` (fully feathered) .. `1.0` (hard edge). Opaque out
-    /// to `hardness * radius`, then a smooth falloff to zero at the edge.
+    /// Edge hardness, `0.0` (fully feathered) .. `1.0` (hard edge).
     pub hardness: f32,
     /// Per-dab opacity multiplier, `0.0`..`1.0`. Values < 1 let overlapping dabs
     /// build up smoothly (the "metaball"-like blend).
     pub flow: f32,
-    /// Spacing between stamped dabs along a stroke, as a fraction of `radius`
-    /// (e.g. `0.25` = a dab every quarter-radius). Smaller = smoother + slower.
+    /// Spacing between stamped dabs along a stroke, as a fraction of `radius` (e.g.
+    /// `0.25` = a dab every quarter-radius).
     pub spacing: f32,
 }
 
@@ -2084,11 +1869,8 @@ impl Brush {
     }
 }
 
-/// Brush dab coverage: `1.0` at the dab center, smoothly `0.0` at its edge.
-///
-/// `t` is `distance / radius` in `[0, 1]`; `hardness` in `[0, 1]`. Single source
-/// of truth for the dab profile -- the GPU brush shader computes the identical
-/// `1 - smoothstep(hardness, 1, t)` so CPU and GPU strokes match.
+/// Brush dab coverage: `1.0` at the dab center, smoothly `0.0` at its edge. `t` is
+/// `distance / radius` in `[0, 1]`; `hardness` in `[0, 1]`.
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[inline]
 #[must_use] pub fn brush_dab_coverage(t: f32, hardness: f32) -> f32 {
@@ -2102,7 +1884,6 @@ impl RawImage {
     /// CPU painting: stamp one brush dab centered at (`cx`, `cy`) in pixel
     /// coordinates, alpha-over compositing a radial-falloff disc. Only 8-bit
     /// `RGBA8`/`BGRA8` images are painted (other formats are left untouched).
-    /// This is the CPU mirror of the GPU brush shader.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[allow(clippy::cast_possible_wrap)] // image/graphics: bounded pixel/colour casts
@@ -2147,8 +1928,8 @@ impl RawImage {
                 }
                 let idx = ((y * w + x) as usize) * 4;
                 // `width`/`height` are public and may exceed the actual buffer;
-                // trust the buffer, not the claimed dimensions, so a mismatch
-                // skips the pixel instead of indexing out of bounds.
+                // trust the buffer, not the claimed dimensions, so a mismatch skips
+                // the pixel instead of indexing out of bounds.
                 if idx + 4 > buf.len() {
                     continue;
                 }
@@ -2176,9 +1957,9 @@ impl RawImage {
         let dx = x1 - x0;
         let dy = y1 - y0;
         let len = dx.hypot(dy);
-        // A non-finite length (infinite / NaN endpoint) would make `n` saturate
-        // to i32::MAX and the `for i in 0..=n` loop run ~2.1 billion times. Bail
-        // rather than spin: an infinite segment has no finite dabs to stamp.
+        // A non-finite length (infinite / NaN endpoint) would make `n` saturate to
+        // i32::MAX and the `for i in 0..=n` loop run ~2.1 billion times. Bail rather
+        // than spin: an infinite segment has no finite dabs to stamp.
         if !len.is_finite() {
             return;
         }
@@ -2196,9 +1977,7 @@ impl RawImage {
 }
 
 /// Multiplies the RGB channels of a single 4-byte BGRA/RGBA pixel by its alpha.
-///
-/// From webrender/wrench. These are slow. Gecko's gfx/2d/Swizzle.cpp has better
-/// versions.
+/// From webrender/wrench.
 #[inline]
 #[allow(clippy::cast_possible_truncation)] // image/graphics: bounded pixel/colour/dimension/unit casts
 fn premultiply_alpha(array: &mut [u8]) {
@@ -2236,7 +2015,8 @@ impl RawImage {
         }
     }
 
-    /// Allocates a width * height, single-channel mask, used for drawing CPU image masks
+    /// Allocates a width * height, single-channel mask, used for drawing CPU image
+    /// masks
     #[allow(clippy::cast_sign_loss)] // image/graphics: bounded pixel/colour/dimension/unit casts
     #[must_use] pub fn allocate_mask(size: LayoutSize) -> Self {
         Self {
@@ -2251,11 +2031,9 @@ impl RawImage {
         }
     }
 
-    /// Encodes a `RawImage` as BGRA8 bytes and premultiplies it if the alpha is not premultiplied
-    ///
-    /// Returns None if the width * height * BPP does not match
-    ///
-    /// TODO: autovectorization fails spectacularly, need to manually optimize!
+    /// Encodes a `RawImage` as BGRA8 bytes and premultiplies it if the alpha is not
+    /// premultiplied Returns None if the width * height * BPP does not match TODO:
+    /// autovectorization fails spectacularly, need to manually optimize!
     #[must_use] pub fn into_loaded_image_source(self) -> Option<(ImageData, ImageDescriptor)> {
         let Self {
             width,
@@ -2273,12 +2051,7 @@ impl RawImage {
         // …and neither is one whose BYTE count overflows. Every `load_*` below
         // scales this pixel count by its channel count (2, 3 or 4) to validate the
         // input buffer, and allocates a 4-byte-per-pixel BGRA output buffer, so a
-        // pixel count that cannot survive `* 4` cannot describe a real image
-        // either. Without this guard those multiplies wrapped in release (an empty
-        // buffer then *validated* as a 2^31 x 2^31 image) and panicked in debug —
-        // and because the callers are `extern "C"` widget callbacks, that panic is
-        // a non-unwinding ABORT that `catch_unwind` cannot contain. One check here
-        // covers all 20 multiplication sites.
+        // pixel count that cannot survive `* 4` cannot describe a real image either.
         expected_len.checked_mul(FOUR_BPP)?;
 
         let (bytes, data_format, is_opaque): (U8Vec, RawImageFormat, bool) = match data_format {
@@ -2350,9 +2123,9 @@ impl RawImage {
         Some((image_data, image_descriptor))
     }
 
-    /// Keep R8 data as-is — `WebRender` supports R8 natively. This is important for
+    /// Keep R8 data as-is - `WebRender` supports R8 natively. This is important for
     /// image mask clips which need the single-channel data (white=visible,
-    /// black=clipped). Stays in `R8` format; never opaque.
+    /// black=clipped).
     fn load_r8(pixels: RawImageData, expected_len: usize) -> Option<(U8Vec, bool)> {
         let pixels = pixels.get_u8_vec()?;
 
@@ -2438,8 +2211,8 @@ impl RawImage {
 
         let mut is_opaque = true;
 
-        // TODO: check that this function is SIMD optimized
-        // no extra allocation necessary, but swizzling
+        // TODO: check that this function is SIMD optimized no extra allocation
+        // necessary, but swizzling
         if premultiplied_alpha {
             for rgba in pixels.chunks_exact_mut(4) {
                 let (r, gba) = rgba.split_first_mut()?;
@@ -2817,9 +2590,9 @@ pub struct FontInstancePlatformOptions {
     pub hinting: FontHinting,
 }
 
-// Mobile targets — empty platform-options struct keeps the
-// `FontInstanceOptions { platform_options: Option<...>, .. }` field
-// well-typed without inheriting Linux's freetype-specific tunables.
+// Mobile targets - empty platform-options struct keeps the `FontInstanceOptions {
+// platform_options: Option<...>, .. }` field well-typed without inheriting Linux's
+// freetype-specific tunables.
 #[cfg(any(target_os = "android", target_os = "ios"))]
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct FontInstancePlatformOptions {
@@ -2875,11 +2648,8 @@ pub struct SyntheticItalics {
 }
 
 
-/// Reference-counted wrapper around raw image bytes (`U8Vec`).
-/// This allows sharing image data between azul-core and webrender without cloning.
-///
-/// Similar to `ImageRef` but specifically for raw byte data, avoiding the overhead
-/// of the full `DecodedImage` enum when we just need the bytes.
+/// Reference-counted wrapper around raw image bytes (`U8Vec`). This allows sharing
+/// image data between azul-core and webrender without cloning.
 #[derive(Debug)]
 #[repr(C)]
 pub struct SharedRawImageData {
@@ -2903,8 +2673,8 @@ impl SharedRawImageData {
 
     /// Get a reference to the underlying bytes
     #[must_use] pub fn as_ref(&self) -> &[u8] {
-        // SAFETY: `data` is a non-null, live `Box<U8Vec>` owned by this handle (and its
-        // clones) until the last copy drops; the borrow is tied to `&self`.
+        // SAFETY: `data` is a non-null, live `Box<U8Vec>` owned by this handle (and
+        // its clones) until the last copy drops; the borrow is tied to `&self`.
         unsafe { (*self.data).as_ref() }
     }
 
@@ -2930,12 +2700,13 @@ impl SharedRawImageData {
         self.len() == 0
     }
 
-    /// Try to extract the `U8Vec` if this is the only reference
-    /// Returns None if there are other references
+    /// Try to extract the `U8Vec` if this is the only reference Returns None if
+    /// there are other references
     #[must_use] pub fn into_inner(self) -> Option<U8Vec> {
-        // SAFETY: `data`/`copies` are non-null heap allocations from `Box::into_raw` in
-        // `new()`. When `copies == 1` we are the sole owner, so reclaiming both Boxes
-        // and `forget`-ing `self` transfers ownership without a double free.
+        // SAFETY: `data`/`copies` are non-null heap allocations from
+        // `Box::into_raw` in `new()`. When `copies == 1` we are the sole owner, so
+        // reclaiming both Boxes and `forget`-ing `self` transfers ownership without
+        // a double free.
         unsafe {
             if self.copies.as_ref().map(|m| m.load(AtomicOrdering::SeqCst)) == Some(1) {
                 let data = Box::from_raw(self.data.cast_mut());
@@ -2956,8 +2727,8 @@ unsafe impl Sync for SharedRawImageData {}
 
 impl Clone for SharedRawImageData {
     fn clone(&self) -> Self {
-        // SAFETY: `copies` is a non-null, live `AtomicUsize` shared by all clones; the
-        // atomic increment balances the `fetch_sub` in `Drop`.
+        // SAFETY: `copies` is a non-null, live `AtomicUsize` shared by all clones;
+        // the atomic increment balances the `fetch_sub` in `Drop`.
         unsafe {
             self.copies
                 .as_ref()
@@ -2975,8 +2746,8 @@ impl Drop for SharedRawImageData {
     fn drop(&mut self) {
         self.run_destructor = false;
         // SAFETY: `data`/`copies` are non-null, live `Box`es shared by all clones.
-        // `fetch_sub` returns the pre-decrement count, so `== 1` means we are the last
-        // owner; only then do we reclaim both Boxes exactly once.
+        // `fetch_sub` returns the pre-decrement count, so `== 1` means we are the
+        // last owner; only then do we reclaim both Boxes exactly once.
         unsafe {
             let copies = (*self.copies).fetch_sub(1, AtomicOrdering::SeqCst);
             if copies == 1 {
@@ -3021,8 +2792,9 @@ impl Hash for SharedRawImageData {
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(C, u8)]
 pub enum ImageData {
-    /// A simple series of bytes, provided by the embedding and owned by `WebRender`.
-    /// The format is stored out-of-band, currently in `ImageDescriptor`.
+    /// A simple series of bytes, provided by the embedding and owned by
+    /// `WebRender`. The format is stored out-of-band, currently in
+    /// `ImageDescriptor`.
     Raw(SharedRawImageData),
     /// An image owned by the embedding, and referenced by `WebRender`. This may
     /// take the form of a texture or a heap-allocated buffer.
@@ -3039,9 +2811,8 @@ pub enum ExternalImageType {
     Buffer,
 }
 
-/// An arbitrary identifier for an external image provided by the
-/// application. It must be a unique identifier for each external
-/// image.
+/// An arbitrary identifier for an external image provided by the application. It
+/// must be a unique identifier for each external image.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct ExternalImageId {
@@ -3151,17 +2922,10 @@ pub struct OwnedGlyphBoundingBox {
 pub enum ImageBufferKind {
     /// Standard texture. This maps to `GL_TEXTURE_2D` in OpenGL.
     Texture2D = 0,
-    /// Rectangle texture. This maps to `GL_TEXTURE_RECTANGLE` in OpenGL. This
-    /// is similar to a standard texture, with a few subtle differences
-    /// (no mipmaps, non-power-of-two dimensions, different coordinate space)
-    /// that make it useful for representing the kinds of textures we use
-    /// in `WebRender`. See <https://www.khronos.org/opengl/wiki/Rectangle_Texture>
-    /// for background on Rectangle textures.
+    /// Rectangle texture. This maps to `GL_TEXTURE_RECTANGLE` in OpenGL.
     TextureRect = 1,
-    /// External texture. This maps to `GL_TEXTURE_EXTERNAL_OES` in OpenGL, which
-    /// is an extension. This is used for image formats that OpenGL doesn't
-    /// understand, particularly YUV. See
-    /// <https://www.khronos.org/registry/OpenGL/extensions/OES/OES_EGL_image_external.txt>
+    /// External texture. This maps to `GL_TEXTURE_EXTERNAL_OES` in OpenGL, which is
+    /// an extension.
     TextureExternal = 2,
 }
 
@@ -3171,8 +2935,8 @@ pub enum ImageBufferKind {
 pub struct ExternalImageData {
     /// The identifier of this external image, provided by the embedding.
     pub id: ExternalImageId,
-    /// For multi-plane images (i.e. YUV), indicates the plane of the
-    /// original image that this struct represents. 0 for single-plane images.
+    /// For multi-plane images (i.e. YUV), indicates the plane of the original image
+    /// that this struct represents.
     pub channel_index: u8,
     /// Storage format identifier.
     pub image_type: ExternalImageType,
@@ -3213,8 +2977,8 @@ pub struct UpdateImage {
     pub dirty_rect: ImageDirtyRect,
 }
 
-/// Message to add a font to `WebRender`.
-/// Contains a reference to the parsed font data.
+/// Message to add a font to `WebRender`. Contains a reference to the parsed font
+/// data.
 #[derive(Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct AddFont {
     pub key: FontKey,
@@ -3267,9 +3031,8 @@ impl Default for Epoch {
 }
 
 impl Epoch {
-    // prevent raw access to the .inner field so that
-    // you can grep the codebase for .increment() to see
-    // exactly where the epoch is being incremented
+    // prevent raw access to the .inner field so that you can grep the codebase for
+    // .increment() to see exactly where the epoch is being incremented
     #[must_use] pub const fn new() -> Self {
         Self { inner: 0 }
     }
@@ -3280,8 +3043,8 @@ impl Epoch {
         self.inner
     }
 
-    // We don't want the epoch to increase to u32::MAX, since
-    // u32::MAX represents an invalid epoch, which could confuse webrender
+    // We don't want the epoch to increase to u32::MAX, since u32::MAX represents an
+    // invalid epoch, which could confuse webrender
     pub const fn increment(&mut self) {
         use core::u32;
         const MAX_ID: u32 = u32::MAX - 1;
@@ -3377,9 +3140,7 @@ pub type ParseFontFn = fn(LoadedFontSource) -> Option<FontRef>; // = Option<Box<
 pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture, ExternalImageId);
 
 /// Compute the deterministic `ExternalImageId` that the OpenGL texture cache uses
-/// for a texture bound to a specific DOM node.
-///
-/// The same `(DomId, NodeId)` always
+/// for a texture bound to a specific DOM node. The same `(DomId, NodeId)` always
 /// maps to the same `ExternalImageId`, so cached display lists keep working across
 /// frames.
 #[must_use] pub fn texture_external_image_id(dom_id: DomId, node_id: NodeId) -> ExternalImageId {
@@ -3401,14 +3162,12 @@ pub type GlStoreImageFn = fn(DocumentId, Epoch, Texture, ExternalImageId);
     }
 }
 
-/// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s of
-/// which fonts / instances are currently not in the `current_registered_fonts` and
-/// need to be added.
-///
-/// Deleting fonts can only be done after the entire frame has finished drawing,
-/// otherwise (if removing fonts would happen after every DOM) we'd constantly
-/// add-and-remove fonts after every `VirtualViewCallback`, which would cause a lot of
-/// I/O waiting.
+/// Given the fonts of the current frame, returns `AddFont` and `AddFontInstance`s
+/// of which fonts / instances are currently not in the `current_registered_fonts`
+/// and need to be added. Deleting fonts can only be done after the entire frame has
+/// finished drawing, otherwise (if removing fonts would happen after every DOM) we'd
+/// constantly add-and-remove fonts after every `VirtualViewCallback`, which would
+/// cause a lot of I/O waiting.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 pub fn build_add_font_resource_updates(
     renderer_resources: &mut RendererResources,
@@ -3485,22 +3244,20 @@ pub fn build_add_font_resource_updates(
 
         match im_font_id {
             ImmediateFontId::Resolved((font_family_hash, font_id)) => {
-                // nothing to do, font is already added,
-                // just insert the missing font instances
+                // nothing to do, font is already added, just insert the missing
+                // font instances
                 for font_size in font_sizes {
                     insert_font_instances!(*font_family_hash, *font_id, *font_size);
                 }
             }
             ImmediateFontId::Unresolved(style_font_families) => {
-                // If the font is already loaded during the current frame,
-                // do not attempt to load it again
-                //
-                // This prevents duplicated loading for fonts in different orders, i.e.
-                // - vec!["Times New Roman", "serif"] and
-                // - vec!["sans", "Times New Roman"]
-                // ... will resolve to the same font instead of creating two fonts
+                // If the font is already loaded during the current frame, do not
+                // attempt to load it again This prevents duplicated loading for
+                // fonts in different orders, i.e. - vec!["Times New Roman", "serif"]
+                // and - vec!["sans", "Times New Roman"] ...
 
-                // If there is no font key, that means there's also no font instances
+                // If there is no font key, that means there's also no font
+                // instances
                 let mut font_family_hash = None;
                 let font_families_hash = StyleFontFamiliesHash::new(style_font_families.as_ref());
 
@@ -3544,7 +3301,8 @@ pub fn build_add_font_resource_updates(
                     Some(s) => s,
                 };
 
-                // Generate a new font key, store the mapping between hash and font key
+                // Generate a new font key, store the mapping between hash and font
+                // key
                 let font_key = FontKey::unique(id_namespace);
                 let add_font_msg = AddFontMsg::Font(font_key, font_family_hash, font_ref);
 
@@ -3567,21 +3325,13 @@ pub fn build_add_font_resource_updates(
     resource_updates
 }
 
-/// Given the images of the current frame, returns `AddImage`s of
-/// which image keys are currently not in the `current_registered_images` and
-/// need to be added.
-///
-/// Returns Vec<(`ImageRefHash`, `AddImageMsg`)> where:
-/// - `ImageRefHash`: Stable hash of the `ImageRef` pointer
-/// - `AddImageMsg`: Message to add the image to `WebRender`
-///
-/// The `ImageKey` in `AddImageMsg` is generated directly from the `ImageRefHash` using
-/// `image_ref_hash_to_image_key()`, so no separate mapping table is needed.
-///
-/// Deleting images can only be done after the entire frame has finished drawing,
-/// otherwise (if removing images would happen after every DOM) we'd constantly
-/// add-and-remove images after every `VirtualViewCallback`, which would cause a lot of
-/// I/O waiting.
+/// Given the images of the current frame, returns `AddImage`s of which image keys
+/// are currently not in the `current_registered_images` and need to be added.
+/// Returns Vec<(`ImageRefHash`, `AddImageMsg`)> where: - `ImageRefHash`: Stable hash
+/// of the `ImageRef` pointer - `AddImageMsg`: Message to add the image to
+/// `WebRender` The `ImageKey` in `AddImageMsg` is generated directly from the
+/// `ImageRefHash` using `image_ref_hash_to_image_key()`, so no separate mapping
+/// table is needed.
 #[allow(unused_variables)]
 pub fn build_add_image_resource_updates(
     renderer_resources: &RendererResources,
@@ -3603,8 +3353,8 @@ pub fn build_add_image_resource_updates(
                 return None;
             }
 
-            // NOTE: The image_ref.clone() is a shallow clone,
-            // does not actually clone the data
+            // NOTE: The image_ref.clone() is a shallow clone, does not actually
+            // clone the data
             match image_ref.get_data() {
                 DecodedImage::Gl(texture) => {
                     let descriptor = texture.get_descriptor();
@@ -3649,19 +3399,19 @@ pub fn build_add_image_resource_updates(
                         }),
                     ))
                 }
-                // NullImage has nothing to upload; texture callbacks are handled after
-                // layout is done.
+                // NullImage has nothing to upload; texture callbacks are handled
+                // after layout is done.
                 DecodedImage::NullImage { .. } | DecodedImage::Callback(_) => None,
             }
         })
         .collect()
 }
 
-/// Submits the `AddFont`, `AddFontInstance` and `AddImage` resources to the `RenderApi`.
-///
-/// Extends `currently_registered_images` and `currently_registered_fonts` by the
-/// `last_frame_image_keys` and `last_frame_font_keys`, so that we don't lose track of
-/// what font and image keys are currently in the API.
+/// Submits the `AddFont`, `AddFontInstance` and `AddImage` resources to the
+/// `RenderApi`. Extends `currently_registered_images` and
+/// `currently_registered_fonts` by the `last_frame_image_keys` and
+/// `last_frame_font_keys`, so that we don't lose track of what font and image keys
+/// are currently in the API.
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 pub fn add_resources(
     renderer_resources: &mut RendererResources,
@@ -3704,7 +3454,8 @@ pub fn add_resources(
                     .entry(fk)
                     .or_insert_with(|| (font_ref.clone(), OrderedMap::default()));
 
-                // CRITICAL: Map font_hash to FontKey so we can look it up during rendering
+                // CRITICAL: Map font_hash to FontKey so we can look it up during
+                // rendering
                 renderer_resources
                     .font_hash_map
                     .insert(font_ref.get_hash(), fk);
@@ -3734,16 +3485,16 @@ mod tests {
         // Half of u16::MAX should land at ~half of u8::MAX.
         let mid = normalize_u16(u16::MAX / 2);
         assert!((126..=128).contains(&mid), "midpoint normalized to {mid}");
-        // Previously `(65535/i)*255` produced near-white garbage for small i;
-        // a small input must now map to a small output.
+        // Previously `(65535/i)*255` produced near-white garbage for small i; a
+        // small input must now map to a small output.
         assert_eq!(normalize_u16(256), 0);
         assert_eq!(normalize_u16(257), 1);
     }
 
     #[test]
     fn load_bgra8_rejects_wrong_length() {
-        // premultiplied branch: buffer shorter than expected must be rejected,
-        // not silently accepted (previously missing length guard).
+        // premultiplied branch: buffer shorter than expected must be rejected, not
+        // silently accepted (previously missing length guard).
         let short = RawImageData::U8(vec![0u8; 4 * 3].into()); // 3 px worth
         assert!(RawImage::load_bgra8(short, 4, true).is_none());
 
@@ -3780,14 +3531,16 @@ mod tests {
         assert_eq!(img, c); // same id -> shallow clone
         // Two live copies: sole-owner extraction must fail (and `c` drops cleanly).
         assert!(c.into_inner().is_none());
-        // Back to one owner: extraction now succeeds, forgetting `self` without leak.
+        // Back to one owner: extraction now succeeds, forgetting `self` without
+        // leak.
         assert!(img.into_inner().is_some());
     }
 
     #[test]
     fn imageref_deep_copy_has_distinct_identity() {
-        // deep_copy allocates a fresh backing Box + fresh id -> not equal, independent
-        // drop (Miri would flag any shared/double-freed allocation here).
+        // deep_copy allocates a fresh backing Box + fresh id -> not equal,
+        // independent drop (Miri would flag any shared/double-freed allocation
+        // here).
         let img = ImageRef::null_image(4, 4, RawImageFormat::RGBA8, vec![1]);
         let d = img.deep_copy();
         assert_ne!(img, d);
@@ -3798,8 +3551,8 @@ mod tests {
 
     #[test]
     fn imageref_last_drop_frees_once() {
-        // Clone then drop both: the refcount path must free the two Boxes exactly once
-        // on the final drop. Under Miri a double free / leak fails the test.
+        // Clone then drop both: the refcount path must free the two Boxes exactly
+        // once on the final drop. Under Miri a double free / leak fails the test.
         let img = ImageRef::null_image(1, 1, RawImageFormat::R8, Vec::new());
         let c = img.clone();
         drop(img);
@@ -3808,8 +3561,8 @@ mod tests {
 
     #[test]
     fn imageref_get_callback_none_for_non_callback_and_when_shared() {
-        // `get_image_callback` derefs both `copies` and `data`; a NullImage yields None,
-        // and a shared (copies != 1) handle also yields None.
+        // `get_image_callback` derefs both `copies` and `data`; a NullImage yields
+        // None, and a shared (copies != 1) handle also yields None.
         let img = ImageRef::null_image(1, 1, RawImageFormat::R8, Vec::new());
         assert!(img.get_image_callback().is_none());
         let c = img.clone();
@@ -3830,8 +3583,8 @@ mod tests {
 
     #[test]
     fn shared_raw_image_data_clone_shares_alloc() {
-        // Clone shares the backing Box (ptr-equal) and refcount; `into_inner` refuses
-        // while a second copy lives, and succeeds once sole owner.
+        // Clone shares the backing Box (ptr-equal) and refcount; `into_inner`
+        // refuses while a second copy lives, and succeeds once sole owner.
         let s = SharedRawImageData::new(vec![1u8, 2, 3, 4].into());
         let c = s.clone();
         assert_eq!(s, c); // ptr::eq on the shared `data`
@@ -3843,7 +3596,8 @@ mod tests {
 
     #[test]
     fn shared_raw_image_data_last_drop_frees_once() {
-        // Refcounted drop must free both Boxes exactly once; Miri flags UB otherwise.
+        // Refcounted drop must free both Boxes exactly once; Miri flags UB
+        // otherwise.
         let s = SharedRawImageData::new(vec![0u8; 8].into());
         let c = s.clone();
         drop(s);
@@ -3878,9 +3632,9 @@ mod autotest_generated {
     // ---------------------------------------------------------------------
 
     /// A `FontRef` whose `parsed` pointer addresses a `'static` byte and whose
-    /// destructor is a no-op, so nothing is freed on drop. Sound because
-    /// `FontRef`'s `Hash`/`get_hash` only read the never-reused `id` and never
-    /// dereference `parsed`.
+    /// destructor is a no-op, so nothing is freed on drop. Sound because `FontRef`'s
+    /// `Hash`/`get_hash` only read the never-reused `id` and never dereference
+    /// `parsed`.
     fn dummy_font_ref() -> FontRef {
         static DUMMY_FONT_DATA: u8 = 0;
         extern "C" fn dummy_destructor(_: *mut core::ffi::c_void) {}
@@ -3962,8 +3716,8 @@ mod autotest_generated {
 
     #[test]
     fn match_route_whitespace_only_is_not_trimmed() {
-        // Whitespace is NOT trimmed: it is an ordinary (opaque) path segment,
-        // so it only matches itself. Deterministic, no panic.
+        // Whitespace is NOT trimmed: it is an ordinary (opaque) path segment, so it
+        // only matches itself. Deterministic, no panic.
         assert!(match_route("   ", "   ").is_some());
         assert!(match_route("   ", "\t\n").is_none());
         assert!(match_route("/ ", "/").is_none()); // " " is a real segment
@@ -4144,7 +3898,8 @@ mod autotest_generated {
         config.add_route(AzString::from_const_str("/dup"), cb);
         assert_eq!(config.routes.as_ref().len(), 1, "same pattern must replace");
 
-        // First matching route wins: a catch-all registered first shadows later routes.
+        // First matching route wins: a catch-all registered first shadows later
+        // routes.
         let mut config = AppConfig::create();
         config.add_route(AzString::from_const_str("/:anything"), cb);
         config.add_route(AzString::from_const_str("/about"), cb);
@@ -4439,8 +4194,8 @@ mod autotest_generated {
 
     #[test]
     fn brush_dab_coverage_hardness_limits_never_divide_by_zero() {
-        // hardness == 1.0 would make (1 - edge0) == 0; the 1e-4 floor prevents
-        // a division by zero -> a hard (but finite) edge instead of inf/NaN.
+        // hardness == 1.0 would make (1 - edge0) == 0; the 1e-4 floor prevents a
+        // division by zero -> a hard (but finite) edge instead of inf/NaN.
         assert_eq!(brush_dab_coverage(0.5, 1.0), 1.0);
         assert!(brush_dab_coverage(1.0, 1.0).is_finite());
         assert_eq!(brush_dab_coverage(1.0, 1.0), 1.0); // exactly at edge0 -> x == 0
@@ -4592,8 +4347,8 @@ mod autotest_generated {
         e.increment();
         assert_eq!(e.into_u32(), 0, "MAX-1 must wrap to 0, never to u32::MAX");
 
-        // An epoch that somehow starts AT u32::MAX saturates (fixpoint) instead
-        // of wrapping or overflow-panicking - deterministic, no UB.
+        // An epoch that somehow starts AT u32::MAX saturates (fixpoint) instead of
+        // wrapping or overflow-panicking - deterministic, no UB.
         let mut e = Epoch::from(u32::MAX);
         e.increment();
         assert_eq!(e.into_u32(), u32::MAX);
@@ -4631,8 +4386,8 @@ mod autotest_generated {
         );
     }
 
-    // =====================================================================
-    // KEYS: uniqueness / namespace preservation / hash->key derivation
+    // ===================================================================== KEYS:
+    // uniqueness / namespace preservation / hash->key derivation
     // =====================================================================
 
     #[test]
@@ -4706,8 +4461,8 @@ mod autotest_generated {
         );
     }
 
-    // =====================================================================
-    // GETTERS / PREDICATES: RawImageData
+    // ===================================================================== GETTERS
+    // / PREDICATES: RawImageData
     // =====================================================================
 
     #[test]
@@ -4739,14 +4494,14 @@ mod autotest_generated {
         assert!(RawImageData::F32(vec![9.0f32].into()).get_u16_vec().is_none());
     }
 
-    // =====================================================================
-    // NUMERIC / ROUND-TRIP: RawImage::load_* format conversions
+    // ===================================================================== NUMERIC
+    // / ROUND-TRIP: RawImage::load_* format conversions
     // =====================================================================
 
     #[test]
     fn load_fns_reject_wrong_payload_type() {
-        // Every loader demands a specific RawImageData variant; a mismatch is
-        // None (never a panic / never garbage pixels).
+        // Every loader demands a specific RawImageData variant; a mismatch is None
+        // (never a panic / never garbage pixels).
         let u16_1px = || RawImageData::U16(vec![0u16; 4].into());
         let f32_1px = || RawImageData::F32(vec![0.0f32; 4].into());
         let u8_1px = || RawImageData::U8(vec![0u8; 4].into());
@@ -4911,8 +4666,8 @@ mod autotest_generated {
 
     #[test]
     fn load_f32_formats_saturate_on_out_of_range_nan_and_inf() {
-        // The f32 -> u8 cast is saturating: >1.0 -> 255, <0.0 -> 0, NaN -> 0.
-        // (This is the whole "HDR pixel with a garbage float" attack surface.)
+        // The f32 -> u8 cast is saturating: >1.0 -> 255, <0.0 -> 0, NaN -> 0. (This
+        // is the whole "HDR pixel with a garbage float" attack surface.)
         let (bytes, is_opaque) = RawImage::load_rgbf32(
             RawImageData::F32(vec![2.0f32, -1.0, f32::NAN].into()),
             1,
@@ -4983,10 +4738,10 @@ mod autotest_generated {
             .iter()
             .all(|b| *b == 0));
 
-        // Negative sizes: the BUFFER is clamped to 0 (no huge alloc, no panic),
-        // but the width/height FIELDS keep the wrapped `as usize` value, so the
-        // returned RawImage is internally inconsistent. Callers must not feed a
-        // negative LayoutSize in. (Buffer-side safety is what matters here.)
+        // Negative sizes: the BUFFER is clamped to 0 (no huge alloc, no panic), but
+        // the width/height FIELDS keep the wrapped `as usize` value, so the returned
+        // RawImage is internally inconsistent. Callers must not feed a negative
+        // LayoutSize in.
         let mask = RawImage::allocate_mask(LayoutSize::new(-4, 4));
         assert_eq!(
             mask.pixels.get_u8_vec_ref().map(|v| v.len()),
@@ -4998,8 +4753,8 @@ mod autotest_generated {
 
     #[test]
     fn raw_image_mask_round_trips_as_r8() {
-        // A mask must stay single-channel R8 through the encoder (clip masks
-        // break if it silently becomes BGRA8).
+        // A mask must stay single-channel R8 through the encoder (clip masks break
+        // if it silently becomes BGRA8).
         let mask = RawImage::allocate_mask(LayoutSize::new(2, 2));
         let (data, descriptor) = mask.into_loaded_image_source().expect("consistent mask");
         assert_eq!(descriptor.format, RawImageFormat::R8);
@@ -5080,8 +4835,8 @@ mod autotest_generated {
         assert!(ImageRef::new_rawimage(wrong_type).is_none());
     }
 
-    // =====================================================================
-    // GETTERS / PREDICATES: ImageRef
+    // ===================================================================== GETTERS
+    // / PREDICATES: ImageRef
     // =====================================================================
 
     #[test]
@@ -5138,8 +4893,8 @@ mod autotest_generated {
 
     #[test]
     fn image_ref_callback_accessors() {
-        // CoreRenderImageCallbackType is a usize placeholder, so 0 is a valid
-        // (if inert) callback token.
+        // CoreRenderImageCallbackType is a usize placeholder, so 0 is a valid (if
+        // inert) callback token.
         let mut img = ImageRef::callback(0usize, RefAny::new(123u32));
         assert!(img.is_callback());
         assert!(!img.is_null_image());
@@ -5154,8 +4909,8 @@ mod autotest_generated {
         assert!(img.get_image_callback().is_some());
         assert!(img.get_image_callback_mut().is_some());
 
-        // While a second handle is alive, aliasing &mut would be unsound, so
-        // BOTH accessors must refuse.
+        // While a second handle is alive, aliasing &mut would be unsound, so BOTH
+        // accessors must refuse.
         let clone = img.clone();
         assert!(img.get_image_callback().is_none());
         assert!(img.get_image_callback_mut().is_none());
@@ -5285,8 +5040,8 @@ mod autotest_generated {
         assert!(rr.font_id_map.is_empty());
         assert!(rr.font_families_map.is_empty());
 
-        // A family whose FontKey is NOT registered gets pruned; the families
-        // map entry pointing at it is pruned too.
+        // A family whose FontKey is NOT registered gets pruned; the families map
+        // entry pointing at it is pruned too.
         let family = StyleFontFamily::System(AzString::from_const_str("Arial"));
         let family_hash = StyleFontFamilyHash::new(&family);
         let families_hash = StyleFontFamiliesHash::new(core::slice::from_ref(&family));
@@ -5299,8 +5054,8 @@ mod autotest_generated {
 
     #[test]
     fn get_font_instance_key_for_text_is_none_on_empty_resources_for_all_sane_sizes() {
-        // No fonts registered -> every lookup misses, whatever the size / DPI.
-        // (0, negative and NaN sizes must not panic on the way to the miss.)
+        // No fonts registered -> every lookup misses, whatever the size / DPI. (0,
+        // negative and NaN sizes must not panic on the way to the miss.)
         let rr = RendererResources::default();
         let cache = CssPropertyCache::default();
         let node = NodeData::default();
@@ -5320,10 +5075,10 @@ mod autotest_generated {
 
     #[test]
     fn bug_get_font_instance_key_for_text_overflow_panics_on_infinite_font_size() {
-        // `font_size_px as isize` saturates to isize::MAX for +inf / f32::MAX,
-        // and FloatValue::const_new then computes `isize::MAX * 1000`, which
-        // panics with "attempt to multiply with overflow" under the (default)
-        // dev-profile overflow checks. A miss (None) is the correct behaviour.
+        // `font_size_px as isize` saturates to isize::MAX for +inf / f32::MAX, and
+        // FloatValue::const_new then computes `isize::MAX * 1000`, which panics with
+        // "attempt to multiply with overflow" under the (default) dev-profile
+        // overflow checks. A miss (None) is the correct behaviour.
         let rr = RendererResources::default();
         let cache = CssPropertyCache::default();
         let node = NodeData::default();
@@ -5377,8 +5132,8 @@ mod autotest_generated {
 
     #[test]
     fn build_add_font_resource_updates_skips_unloadable_fonts() {
-        // A family that cannot be loaded (missing file) must not register
-        // anything - it is retried next frame, not half-registered.
+        // A family that cannot be loaded (missing file) must not register anything
+        // - it is retried next frame, not half-registered.
         let mut rr = RendererResources::default();
         let mut fonts = OrderedMap::new();
         let mut sizes = FastBTreeSet::new();
@@ -5765,16 +5520,16 @@ mod autotest_generated {
         let idx = (4 + 1) * 4;
         assert_eq!(&px[idx..idx + 4], &[255, 0, 0, 255]);
 
-        // A NaN hardness makes the coverage NaN; the `a <= 0.0` check is false
-        // for NaN, so the blend runs with a NaN alpha -- the `.clamp(0, 255)`
-        // on the result keeps every channel a valid u8 (NaN clamps to 0 here),
-        // i.e. garbage-in stays in-range instead of wrapping.
+        // A NaN hardness makes the coverage NaN; the `a <= 0.0` check is false for
+        // NaN, so the blend runs with a NaN alpha -- the `.clamp(0, 255)` on the
+        // result keeps every channel a valid u8 (NaN clamps to 0 here), i.e.
+        // garbage-in stays in-range instead of wrapping.
         let mut img = rgba8_image(4, 4);
         let mut nan_brush = Brush::new(opaque_red(), 2.0);
         nan_brush.hardness = f32::NAN;
         img.paint_dot(2.0, 2.0, nan_brush);
-        // No assertion on the exact value: the point is that it did not panic
-        // and every byte is (trivially) a valid u8.
+        // No assertion on the exact value: the point is that it did not panic and
+        // every byte is (trivially) a valid u8.
         assert_eq!(img.pixels.get_u8_vec_ref().map(|v| v.len()), Some(64));
     }
 
@@ -5845,8 +5600,8 @@ mod autotest_generated {
 
     #[test]
     fn paint_stroke_degenerate_brush_params_do_not_divide_by_zero_or_hang() {
-        // spacing == 0 / negative: the `.max(0.01)` and `.max(0.5)` floors keep
-        // the step positive, so the dab count stays finite.
+        // spacing == 0 / negative: the `.max(0.01)` and `.max(0.5)` floors keep the
+        // step positive, so the dab count stays finite.
         for spacing in [0.0_f32, -1.0, f32::NAN] {
             let mut img = rgba8_image(8, 8);
             let mut brush = Brush::new(opaque_red(), 2.0);
@@ -5885,8 +5640,7 @@ mod autotest_generated {
     fn bug_paint_dot_indexes_out_of_bounds_when_dims_exceed_the_buffer() {
         // RawImage's fields are all public, so a caller can hand paint_dot a
         // 100x100 image backed by 4 bytes. paint_dot computes the index from
-        // width/height and indexes `buf` unchecked -> panic. It should clamp the
-        // scan rect to the buffer length (or bail).
+        // width/height and indexes `buf` unchecked -> panic.
         let mut img = RawImage {
             pixels: RawImageData::U8(vec![0u8; 4].into()),
             width: 100,
@@ -5901,8 +5655,8 @@ mod autotest_generated {
     #[test]
     fn bug_into_loaded_image_source_overflows_on_huge_dimensions() {
         // Documented contract: "Returns None if the width * height * BPP does not
-        // match". With width == usize::MAX the multiplication overflows and
-        // panics under the dev-profile overflow checks instead.
+        // match". With width == usize::MAX the multiplication overflows and panics
+        // under the dev-profile overflow checks instead.
         let img = RawImage {
             pixels: RawImageData::U8(vec![0u8; 4].into()),
             width: usize::MAX,

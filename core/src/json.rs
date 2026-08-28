@@ -1,6 +1,5 @@
-//! JSON value types for C API (data definitions only, no serde_json dependency)
-//!
-//! The actual parsing/serialization lives in `azul_layout::json` which adds
+//! JSON value types for C API (data definitions only, no serde_json dependency) The
+//! actual parsing/serialization lives in `azul_layout::json` which adds
 //! serde_json-based implementations on top of these types.
 
 use alloc::string::String;
@@ -13,8 +12,8 @@ use azul_css::{
     impl_option, impl_option_inner,
 };
 
-// ============================================================================
-// JSON Value Type
+// ============================================================================ JSON
+// Value Type
 // ============================================================================
 
 /// A generic JSON value that can hold any JSON type
@@ -23,18 +22,14 @@ use azul_css::{
 pub struct Json {
     /// The type of this JSON value
     pub value_type: JsonType,
-    /// Internal storage - interpretation depends on `value_type`
-    /// For objects/arrays, this contains serialized data
+    /// Internal storage - interpretation depends on `value_type` For
+    /// objects/arrays, this contains serialized data
     pub internal: JsonInternal,
 }
 
-/// Internal storage for JSON values.
-///
-/// This is a C-FFI-compatible tagged-union-via-struct: all fields always exist,
-/// but only the field(s) corresponding to `JsonType` in the parent `Json` are
-/// meaningful.  For compound types (`Array`, `Object`) the serialized JSON is
-/// stored in `string_value` and re-parsed on each access — this trades repeated
-/// parsing cost for a flat, FFI-safe layout with no interior pointers.
+/// Internal storage for JSON values. This is a C-FFI-compatible
+/// tagged-union-via-struct: all fields always exist, but only the field(s)
+/// corresponding to `JsonType` in the parent `Json` are meaningful.
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct JsonInternal {
@@ -137,7 +132,8 @@ impl_vec_clone!(JsonKeyValue, JsonKeyValueVec, JsonKeyValueVecDestructor);
 impl_vec_debug!(JsonKeyValue, JsonKeyValueVec);
 
 impl JsonKeyValueVec {
-    /// Creates a new, heap-allocated `JsonKeyValueVec` by copying elements from a C array
+    /// Creates a new, heap-allocated `JsonKeyValueVec` by copying elements from a C
+    /// array
     #[inline]
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // SAFETY/FFI: `*const T` is the C-ABI signature; the fn null-checks then derefs under the documented caller contract (C guarantees a valid ptr/len). Marking it `unsafe fn` would force unsafe blocks into the generated dll bindings.
     #[must_use] pub fn copy_from_array(ptr: *const JsonKeyValue, len: usize) -> Self {
@@ -183,20 +179,16 @@ impl_option!(Json, OptionJson, copy = false, [Clone, Debug, PartialEq]);
 impl_option!(JsonVec, OptionJsonVec, copy = false, [Clone, Debug]);
 impl_option!(JsonKeyValueVec, OptionJsonKeyValueVec, copy = false, [Clone, Debug]);
 
-// FFI-safe Option types for JSON value extraction
-// Note: OptionBool and OptionF64 are already exported from azul_css
+// FFI-safe Option types for JSON value extraction Note: OptionBool and OptionF64
+// are already exported from azul_css
 impl_option!(i64, OptionI64, [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]);
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-/// Try to losslessly convert an `f64` to `i64`.
-///
-/// Returns `Some` only when `n` is an integer that fits in `i64` without
-/// overflow.  The upper bound uses `< 2^63` (not `<= i64::MAX as f64`)
-/// because `i64::MAX` cannot be represented exactly in `f64` — the cast
-/// rounds up to `2^63`, which would cause overflow on `n as i64`.
+/// Try to losslessly convert an `f64` to `i64`. Returns `Some` only when `n` is an
+/// integer that fits in `i64` without overflow.
 #[allow(clippy::cast_possible_truncation)] // bounded DPI/dimension/number conversion
 fn f64_as_i64(n: f64) -> Option<i64> {
     if n.fract() == 0.0 && n >= -(2_f64.powi(63)) && n < 2_f64.powi(63) {
@@ -243,10 +235,9 @@ impl Json {
         }
     }
 
-    /// Create an integer JSON value.
-    ///
-    /// **Note:** the value is stored as `f64` internally, so `i64` values with
-    /// magnitude greater than 2^53 will lose precision silently.
+    /// Create an integer JSON value. **Note:** the value is stored as `f64`
+    /// internally, so `i64` values with magnitude greater than 2^53 will lose
+    /// precision silently.
     #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion
     #[must_use] pub fn integer(value: i64) -> Self {
         Self {
@@ -337,16 +328,16 @@ impl Json {
         }
     }
 
-    /// Get the raw internal string value (for arrays/objects this is the serialized JSON)
+    /// Get the raw internal string value (for arrays/objects this is the serialized
+    /// JSON)
     #[must_use] pub fn raw_string(&self) -> &str {
         self.internal.string_value.as_str()
     }
 }
 
-/// Note: the `Display` output is meant for human-readable / debug display.
-/// String values are quoted but **not** JSON-escaped (no backslash escaping
-/// of embedded quotes, newlines, etc.).  Use `to_json_string()` (requires
-/// the `serde-json` feature) when valid JSON output is needed.
+/// Note: the `Display` output is meant for human-readable / debug display. String
+/// values are quoted but **not** JSON-escaped (no backslash escaping of embedded
+/// quotes, newlines, etc.).
 impl fmt::Display for Json {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.value_type {
@@ -375,11 +366,10 @@ impl fmt::Display for Json {
 #[cfg(feature = "serde-json")]
 impl serde::Serialize for Json {
     /// Serialize as the JSON value this represents, not as its repr(C) fields.
-    ///
-    /// Without this, a struct holding a `Json` field cannot derive
-    /// `Serialize` at all — and the obvious workaround, storing the payload
-    /// as a `String` of JSON, produces escaped JSON-inside-JSON that every
-    /// consumer has to parse twice and nothing validates.
+    /// Without this, a struct holding a `Json` field cannot derive `Serialize` at
+    /// all - and the obvious workaround, storing the payload as a `String` of JSON,
+    /// produces escaped JSON-inside-JSON that every consumer has to parse twice and
+    /// nothing validates.
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         self.to_serde_value().serialize(s)
     }
@@ -394,12 +384,8 @@ impl<'de> serde::Deserialize<'de> for Json {
 
 #[cfg(feature = "serde-json")]
 impl Json {
-    /// Parse JSON from a string.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`JsonParseError`] (message plus line/column) if `s` is not
-    /// well-formed JSON.
+    /// Parse JSON from a string. Returns [`JsonParseError`] (message plus
+    /// line/column) if `s` is not well-formed JSON.
     pub fn parse(s: &str) -> Result<Self, JsonParseError> {
         let value: serde_json::Value = serde_json::from_str(s).map_err(|e| {
             JsonParseError {
@@ -411,12 +397,8 @@ impl Json {
         Ok(Self::from_serde_value(value))
     }
 
-    /// Parse JSON from bytes (UTF-8).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`JsonParseError`] (message plus line/column) if `bytes` is not
-    /// well-formed UTF-8 JSON.
+    /// Parse JSON from bytes (UTF-8). Returns [`JsonParseError`] (message plus
+    /// line/column) if `bytes` is not well-formed UTF-8 JSON.
     pub fn parse_bytes(bytes: &[u8]) -> Result<Self, JsonParseError> {
         let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| {
             JsonParseError {
@@ -484,8 +466,8 @@ impl Json {
         }
     }
 
-    /// Create a JSON array from a vector of JSON values
-    // By-value is the C-ABI shape: the generated bindings hand ownership in.
+    /// Create a JSON array from a vector of JSON values By-value is the C-ABI
+    /// shape: the generated bindings hand ownership in.
     #[allow(clippy::needless_pass_by_value)]
     #[must_use] pub fn array(values: JsonVec) -> Self {
         let serde_array: Vec<serde_json::Value> = values
@@ -505,8 +487,8 @@ impl Json {
         }
     }
 
-    /// Create a JSON object from key-value pairs
-    // By-value is the C-ABI shape: the generated bindings hand ownership in.
+    /// Create a JSON object from key-value pairs By-value is the C-ABI shape: the
+    /// generated bindings hand ownership in.
     #[allow(clippy::needless_pass_by_value)]
     #[must_use] pub fn object(entries: JsonKeyValueVec) -> Self {
         let mut map = serde_json::Map::new();
@@ -689,20 +671,14 @@ impl Json {
         JsonVec::from_vec(result)
     }
 
-    /// Maximum JSON-Pointer component depth for [`jq_all`](Self::jq_all).
-    ///
-    /// AUDIT 2026-07-08: `jq_all_recursive` recursed once per pointer component,
-    /// so an attacker-supplied pointer with tens of thousands of `/` segments
-    /// (e.g. `"/a".repeat(100_000)`) overflowed the stack. The single-child
-    /// descent is now iterative (unbounded, allocation-free); only the wildcard
-    /// (`*`) fan-out still recurses, and that recursion is capped here. 512 is far
-    /// deeper than any real document nesting while staying well inside the stack.
+    /// Maximum JSON-Pointer component depth for [`jq_all`](Self::jq_all). AUDIT
+    /// 2026-07-08: `jq_all_recursive` recursed once per pointer component, so an
+    /// attacker-supplied pointer with tens of thousands of `/` segments (e.g.
     const JQ_MAX_WILDCARD_DEPTH: usize = 512;
 
-    /// Recursive helper for `jq_all` that handles wildcards.
-    ///
-    /// Non-wildcard components are walked in a loop so a long linear pointer can
-    /// never overflow the stack; only `*` fan-out recurses, bounded by
+    /// Recursive helper for `jq_all` that handles wildcards. Non-wildcard
+    /// components are walked in a loop so a long linear pointer can never overflow
+    /// the stack; only `*` fan-out recurses, bounded by
     /// [`JQ_MAX_WILDCARD_DEPTH`](Self::JQ_MAX_WILDCARD_DEPTH).
     fn jq_all_recursive(value: &serde_json::Value, path: &str) -> Vec<Self> {
         Self::jq_all_recursive_depth(value, path, 0)
@@ -783,11 +759,9 @@ mod jq_recursion_tests {
     use super::*;
 
     /// AUDIT 2026-07-08: a pointer with a very large number of components used to
-    /// overflow the stack via per-component recursion. Linear (non-wildcard)
-    /// descent is now iterative, so an over-long pointer against a shallow
-    /// document returns empty promptly with zero recursion instead of a deep call
-    /// chain. `serde_json`'s own 128-level parse cap keeps documents shallow, but
-    /// this guarantees the jq walk itself never blows the stack on a huge pointer.
+    /// overflow the stack via per-component recursion. Linear (non-wildcard) descent
+    /// is now iterative, so an over-long pointer against a shallow document returns
+    /// empty promptly with zero recursion instead of a deep call chain.
     #[test]
     #[cfg(feature = "serde-json")]
     fn huge_pointer_on_shallow_doc_returns_empty() {
@@ -844,9 +818,7 @@ mod autotest_generated {
     }
 
     /// Build a `Json` by hand, bypassing the constructors. Used to feed the
-    /// accessors a *corrupt* value (e.g. `value_type: Array` whose internal
-    /// string is not parseable JSON) — reachable over FFI because every field
-    /// of `Json` / `JsonInternal` is `pub`.
+    /// accessors a *corrupt* value (e.g.
     fn raw(value_type: JsonType, string_value: &str) -> Json {
         Json {
             value_type,
@@ -862,8 +834,8 @@ mod autotest_generated {
         2_f64.powi(63)
     }
 
-    // ==================================================================
-    // f64_as_i64  (numeric: zero / min_max / negative / overflow / nan_inf)
+    // ================================================================== f64_as_i64
+    // (numeric: zero / min_max / negative / overflow / nan_inf)
     // ==================================================================
 
     #[test]
@@ -877,7 +849,7 @@ mod autotest_generated {
     fn f64_as_i64_min_max_boundaries() {
         // -2^63 is exactly representable and is exactly i64::MIN.
         assert_eq!(f64_as_i64(-two_pow_63()), Some(i64::MIN));
-        // +2^63 is NOT a valid i64 — must be rejected rather than wrapping.
+        // +2^63 is NOT a valid i64 - must be rejected rather than wrapping.
         assert_eq!(f64_as_i64(two_pow_63()), None);
         // i64::MAX rounds *up* to 2^63 when cast to f64, so it is rejected too.
         // This is the documented reason the bound is `< 2^63` and not `<= MAX`.
@@ -916,8 +888,8 @@ mod autotest_generated {
 
     #[test]
     fn f64_as_i64_nan_and_infinity_do_not_panic() {
-        // NaN.fract() is NaN, and NaN == 0.0 is false, so all three fall through
-        // to `None` without ever reaching the (UB-adjacent) `as i64` cast.
+        // NaN.fract() is NaN, and NaN == 0.0 is false, so all three fall through to
+        // `None` without ever reaching the (UB-adjacent) `as i64` cast.
         assert_eq!(f64_as_i64(f64::NAN), None);
         assert_eq!(f64_as_i64(f64::INFINITY), None);
         assert_eq!(f64_as_i64(f64::NEG_INFINITY), None);
@@ -933,7 +905,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // Json::number / Json::integer  (numeric)
+    // Json::number / Json::integer (numeric)
     // ==================================================================
 
     #[test]
@@ -966,9 +938,9 @@ mod autotest_generated {
     fn integer_min_round_trips_but_max_does_not() {
         // i64::MIN == -2^63 is exactly representable in f64.
         assert_eq!(Json::integer(i64::MIN).as_i64(), OptionI64::Some(i64::MIN));
-        // i64::MAX is NOT: `value as f64` rounds it up to 2^63, which is out of
-        // i64 range, so the value cannot be read back. Documented on the fn as
-        // "silent precision loss" for |value| > 2^53.
+        // i64::MAX is NOT: `value as f64` rounds it up to 2^63, which is out of i64
+        // range, so the value cannot be read back. Documented on the fn as "silent
+        // precision loss" for |value| > 2^53.
         assert_eq!(Json::integer(i64::MAX).as_i64(), OptionI64::None);
         assert_eq!(
             Json::integer(i64::MAX).as_number(),
@@ -990,7 +962,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // constructors + predicates  (predicate: basic_true_false / edge_inputs)
+    // constructors + predicates (predicate: basic_true_false / edge_inputs)
     // ==================================================================
 
     #[test]
@@ -1024,7 +996,7 @@ mod autotest_generated {
 
     #[test]
     fn predicates_on_a_default_internal_do_not_panic() {
-        // A hand-rolled Json with a default (empty) payload — the FFI worst case.
+        // A hand-rolled Json with a default (empty) payload - the FFI worst case.
         for ty in [
             JsonType::Null,
             JsonType::Bool,
@@ -1047,7 +1019,8 @@ mod autotest_generated {
     fn bool_constructor_keeps_both_values() {
         assert_eq!(Json::bool(true).as_bool(), OptionBool::Some(true));
         assert_eq!(Json::bool(false).as_bool(), OptionBool::Some(false));
-        // The unused payload fields are zeroed, which the derived PartialEq relies on.
+        // The unused payload fields are zeroed, which the derived PartialEq relies
+        // on.
         assert_eq!(Json::bool(true).raw_string(), "");
         assert_eq!(Json::bool(true).as_number(), OptionF64::None);
     }
@@ -1069,8 +1042,8 @@ mod autotest_generated {
         assert_eq!(j.as_string(), OptionString::Some(AzString::from(huge)));
     }
 
-    // ==================================================================
-    // getters  (getter: basic_access / edge_access)
+    // ================================================================== getters
+    // (getter: basic_access / edge_access)
     // ==================================================================
 
     #[test]
@@ -1105,8 +1078,8 @@ mod autotest_generated {
         assert_eq!(raw(JsonType::Object, "{not json").raw_string(), "{not json");
     }
 
-    // ==================================================================
-    // Display for Json  (round_trip / serializer)
+    // ================================================================== Display
+    // for Json (round_trip / serializer)
     // ==================================================================
 
     #[test]
@@ -1133,8 +1106,8 @@ mod autotest_generated {
 
     #[test]
     fn display_does_not_escape_strings() {
-        // Documented caveat on the Display impl: embedded quotes/newlines are
-        // NOT escaped, so the output is deliberately not valid JSON.
+        // Documented caveat on the Display impl: embedded quotes/newlines are NOT
+        // escaped, so the output is deliberately not valid JSON.
         let j = Json::string("a\"b\nc");
         assert_eq!(alloc::format!("{j}"), "\"a\"b\nc\"");
     }
@@ -1153,7 +1126,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // JsonParseError::fmt  (serializer)
+    // JsonParseError::fmt (serializer)
     // ==================================================================
 
     #[test]
@@ -1194,7 +1167,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // JsonKeyValue::create  (other: no_panic_smoke)
+    // JsonKeyValue::create (other: no_panic_smoke)
     // ==================================================================
 
     #[test]
@@ -1217,13 +1190,13 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // copy_from_array  (numeric: zero / min_max / overflow)
+    // copy_from_array (numeric: zero / min_max / overflow)
     // ==================================================================
 
     #[test]
     fn json_vec_copy_from_array_null_ptr_is_empty_even_at_usize_max_len() {
-        // The null check runs first, so a bogus (null, huge) pair from C must
-        // yield an empty vec rather than constructing a wild slice.
+        // The null check runs first, so a bogus (null, huge) pair from C must yield
+        // an empty vec rather than constructing a wild slice.
         let v = JsonVec::copy_from_array(core::ptr::null(), 0);
         assert!(v.is_empty());
         let v = JsonVec::copy_from_array(core::ptr::null(), usize::MAX);
@@ -1282,7 +1255,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // Json::parse / parse_bytes — malformed input
+    // Json::parse / parse_bytes - malformed input
     // ==================================================================
 
     #[test]
@@ -1428,8 +1401,8 @@ mod autotest_generated {
             assert!(Json::parse(s).is_err(), "{s:?} is not valid JSON");
         }
 
-        // Overflowing exponents must not panic; whatever serde decides, the
-        // result is a deterministic Ok(number) or Err.
+        // Overflowing exponents must not panic; whatever serde decides, the result
+        // is a deterministic Ok(number) or Err.
         if let Ok(j) = Json::parse("1e400") {
             assert!(j.is_number());
         }
@@ -1456,8 +1429,8 @@ mod autotest_generated {
         );
     }
 
-    // ==================================================================
-    // round trips  (round_trip: representative / edge / stable)
+    // ================================================================== round
+    // trips (round_trip: representative / edge / stable)
     // ==================================================================
 
     #[cfg(feature = "serde-json")]
@@ -1521,8 +1494,7 @@ mod autotest_generated {
         // JSON, but for a non-finite `number_value` it falls back to Rust's float
         // Display and emits the bare tokens `NaN` / `inf` / `-inf`, which no JSON
         // parser accepts. `to_serde_value()` handles the same input correctly by
-        // mapping it to `null`. Callers must therefore not assume
-        // `parse(to_json_string(x))` succeeds for a hand-built non-finite number.
+        // mapping it to `null`.
         for (n, token) in [
             (f64::NAN, "NaN"),
             (f64::INFINITY, "inf"),
@@ -1610,7 +1582,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // Json::array / Json::object  (other: no_panic_smoke)
+    // Json::array / Json::object (other: no_panic_smoke)
     // ==================================================================
 
     #[test]
@@ -1622,8 +1594,8 @@ mod autotest_generated {
         assert!(empty.is_empty());
         assert_eq!(empty.raw_string(), "[]");
 
-        // A NaN member cannot be represented in JSON — it degrades to null
-        // (via to_serde_value) rather than producing invalid output or panicking.
+        // A NaN member cannot be represented in JSON - it degrades to null (via
+        // to_serde_value) rather than producing invalid output or panicking.
         let with_nan = Json::array(JsonVec::from_vec(vec![
             Json::number(f64::NAN),
             Json::number(f64::INFINITY),
@@ -1659,7 +1631,7 @@ mod autotest_generated {
             az("\"}\n😀"),
             Json::string("v"),
         )]));
-        // The payload must still be parseable JSON — i.e. the key was escaped.
+        // The payload must still be parseable JSON - i.e. the key was escaped.
         let reparsed = Json::parse(obj.raw_string()).expect("hostile key must be escaped");
         assert_eq!(
             reparsed.get_key("\"}\n😀").expect("key").as_string(),
@@ -1667,8 +1639,8 @@ mod autotest_generated {
         );
     }
 
-    // ==================================================================
-    // len / is_empty  (getter + predicate)
+    // ================================================================== len /
+    // is_empty (getter + predicate)
     // ==================================================================
 
     #[test]
@@ -1700,8 +1672,8 @@ mod autotest_generated {
         assert_eq!(raw(JsonType::Array, "{\"a\":1}").len(), 0);
     }
 
-    // ==================================================================
-    // get_index / get_key / keys / to_array / to_object
+    // ================================================================== get_index
+    // / get_key / keys / to_array / to_object
     // ==================================================================
 
     #[test]
@@ -1830,8 +1802,8 @@ mod autotest_generated {
         assert_eq!(raw(JsonType::Array, "").to_string_pretty().as_str(), "");
     }
 
-    // ==================================================================
-    // jq / jq_all  (other: no_panic_smoke)
+    // ================================================================== jq /
+    // jq_all (other: no_panic_smoke)
     // ==================================================================
 
     #[test]
@@ -1877,7 +1849,8 @@ mod autotest_generated {
         let j = Json::parse("{\"a\":[{\"v\":1},{\"v\":2}],\"b\":{\"v\":3},\"c\":7}").expect("doc");
 
         assert_eq!(j.jq_all("/a/*/v").as_ref().len(), 2);
-        // A wildcard over an object iterates its values; scalars contribute nothing.
+        // A wildcard over an object iterates its values; scalars contribute
+        // nothing.
         assert_eq!(j.jq_all("/*/v").as_ref().len(), 1);
         assert_eq!(j.jq_all("/*").as_ref().len(), 3);
         assert_eq!(j.jq_all("").as_ref().len(), 1);
@@ -1898,7 +1871,7 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // jq_all_recursive_depth  (numeric: zero / min_max / overflow)
+    // jq_all_recursive_depth (numeric: zero / min_max / overflow)
     // ==================================================================
 
     #[test]
@@ -1927,9 +1900,9 @@ mod autotest_generated {
     #[test]
     #[cfg(feature = "serde-json")]
     fn jq_all_wildcard_fanout_deeper_than_the_cap_returns_empty() {
-        // Build the document programmatically: serde_json's own 128-level parse
-        // cap means such a document can never come from `Json::parse`, so this is
-        // the only way to drive the wildcard recursion to its 512 limit.
+        // Build the document programmatically: serde_json's own 128-level parse cap
+        // means such a document can never come from `Json::parse`, so this is the
+        // only way to drive the wildcard recursion to its 512 limit.
         fn nest(depth: usize) -> serde_json::Value {
             let mut v = serde_json::Value::from(1_i64);
             for _ in 0..depth {

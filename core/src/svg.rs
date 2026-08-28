@@ -1,15 +1,5 @@
-//! SVG rendering and path tessellation.
-//!
-//! This module provides functionality for parsing, manipulating, and rendering SVG paths.
-//! It includes:
-//!
-//! - **Path tessellation**: Converts SVG paths into triangle meshes for GPU rendering
-//! - **Stroke generation**: Creates stroked paths with various line join and cap styles
-//! - **Transform support**: Applies CSS transforms to SVG elements
-//! - **Style parsing**: Handles SVG fill, stroke, opacity, and other attributes
-//!
-//! The module uses Lyon for geometric tessellation and generates vertex/index buffers
-//! that can be uploaded to WebRender for hardware-accelerated rendering.
+//! SVG rendering and path tessellation. This module provides functionality for
+//! parsing, manipulating, and rendering SVG paths.
 
 use alloc::{
     string::{String, ToString},
@@ -42,7 +32,8 @@ use crate::{
 const DEFAULT_MITER_LIMIT: f32 = 4.0;
 /// Default stroke width in pixels
 const DEFAULT_LINE_WIDTH: f32 = 1.0;
-/// Default tessellation tolerance in pixels (smaller = more vertices, higher quality)
+/// Default tessellation tolerance in pixels (smaller = more vertices, higher
+/// quality)
 const DEFAULT_TOLERANCE: f32 = 0.1;
 
 /// Represents the dimensions of an SVG viewport or element.
@@ -72,10 +63,8 @@ impl SvgLine {
         Self { start, end }
     }
 
-    /// Computes the inward-facing normal vector for this line.
-    ///
-    /// The normal points 90 degrees to the right of the line direction.
-    /// Returns `None` if the line has zero length.
+    /// Computes the inward-facing normal vector for this line. The normal points 90
+    /// degrees to the right of the line direction.
     #[must_use] pub fn inwards_normal(&self) -> Option<SvgPoint> {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
@@ -90,7 +79,8 @@ impl SvgLine {
         }
     }
 
-    /// Computes the outward-facing normal vector for this line (opposite of `inwards_normal`).
+    /// Computes the outward-facing normal vector for this line (opposite of
+    /// `inwards_normal`).
     #[must_use] pub fn outwards_normal(&self) -> Option<SvgPoint> {
         let inwards = self.inwards_normal()?;
         Some(SvgPoint {
@@ -112,14 +102,13 @@ impl SvgLine {
         self.end
     }
 
-    /// Returns the parametric `t` value (0.0–1.0) at the given arc-length offset.
+    /// Returns the parametric `t` value (0.0 - 1.0) at the given arc-length offset.
     #[must_use] pub fn get_t_at_offset(&self, offset: f64) -> f64 {
         offset / self.get_length()
     }
 
-    /// Returns the tangent vector of the line.
-    /// For a line, the tangent is constant (same direction everywhere),
-    /// so no `t` parameter is needed.
+    /// Returns the tangent vector of the line. For a line, the tangent is constant
+    /// (same direction everywhere), so no `t` parameter is needed.
     #[must_use] pub fn get_tangent_vector_at_t(&self) -> SvgVector {
         let dx = self.end.x - self.start.x;
         let dy = self.end.y - self.start.y;
@@ -130,13 +119,15 @@ impl SvgLine {
         .normalize()
     }
 
-    /// Returns the X coordinate at parametric position `t` (0.0 = start, 1.0 = end).
+    /// Returns the X coordinate at parametric position `t` (0.0 = start, 1.0 =
+    /// end).
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn get_x_at_t(&self, t: f64) -> f64 {
         f64::from(self.start.x) + (f64::from(self.end.x) - f64::from(self.start.x)) * t
     }
 
-    /// Returns the Y coordinate at parametric position `t` (0.0 = start, 1.0 = end).
+    /// Returns the Y coordinate at parametric position `t` (0.0 = start, 1.0 =
+    /// end).
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use] pub fn get_y_at_t(&self, t: f64) -> f64 {
         f64::from(self.start.y) + (f64::from(self.end.y) - f64::from(self.start.y)) * t
@@ -328,7 +319,8 @@ impl SvgPath {
         Self { items }
     }
 
-    /// Returns the start point of the first element, or `None` if the path is empty.
+    /// Returns the start point of the first element, or `None` if the path is
+    /// empty.
     #[must_use] pub fn get_start(&self) -> Option<SvgPoint> {
         self.items.as_ref().first().map(SvgPathElement::get_start)
     }
@@ -338,7 +330,8 @@ impl SvgPath {
         self.items.as_ref().last().map(SvgPathElement::get_end)
     }
 
-    /// Closes the path by appending a line from the last point to the first point, if needed.
+    /// Closes the path by appending a line from the last point to the first point,
+    /// if needed.
     pub fn close(&mut self) {
         let Some(first) = self.items.as_ref().first() else {
             return;
@@ -376,8 +369,8 @@ impl SvgPath {
         // reverse the order of items in the vec
         vec.reverse();
 
-        // reverse the order inside the item itself
-        // i.e. swap line.start and line.end
+        // reverse the order inside the item itself i.e. swap line.start and
+        // line.end
         for item in &mut vec {
             item.reverse();
         }
@@ -447,18 +440,19 @@ impl_option!(
 );
 
 impl SvgMultiPolygon {
-    /// Creates a new `SvgMultiPolygon` from a vector of paths (rings)
-    /// NOTE: If a ring represents a hole, simply reverse the order of points
+    /// Creates a new `SvgMultiPolygon` from a vector of paths (rings) NOTE: If a
+    /// ring represents a hole, simply reverse the order of points
     #[inline]
     #[must_use] pub const fn create(rings: SvgPathVec) -> Self {
         Self { rings }
     }
 
-    /// Returns the axis-aligned bounding rectangle of all rings in this multi-polygon.
+    /// Returns the axis-aligned bounding rectangle of all rings in this
+    /// multi-polygon.
     #[must_use] pub fn get_bounds(&self) -> SvgRect {
-        // Seed from the FIRST item found in ANY ring, not specifically rings[0].items[0]:
-        // an empty first ring used to make the old seed-or-bail return SvgRect::default()
-        // and silently drop every later ring's geometry.
+        // Seed from the FIRST item found in ANY ring, not specifically
+        // rings[0].items[0]: an empty first ring used to make the old seed-or-bail
+        // return SvgRect::default() and silently drop every later ring's geometry.
         let mut bounds: Option<SvgRect> = None;
         for ring in &self.rings {
             for item in &ring.items {
@@ -528,9 +522,9 @@ impl_vec_partialeq!(SvgSimpleNode, SvgSimpleNodeVec);
 impl_vec_partialord!(SvgSimpleNode, SvgSimpleNodeVec);
 
 impl SvgSimpleNode {
-    /// Returns the axis-aligned bounding rectangle of this node.
-    // Same-body arms dispatch on differently-typed bindings (SvgPath vs SvgCircle),
-    // so the identical `a.get_bounds()` bodies cannot be combined into one or-pattern.
+    /// Returns the axis-aligned bounding rectangle of this node. Same-body arms
+    /// dispatch on differently-typed bindings (SvgPath vs SvgCircle), so the
+    /// identical `a.get_bounds()` bodies cannot be combined into one or-pattern.
     #[allow(clippy::match_same_arms)]
     #[must_use] pub fn get_bounds(&self) -> SvgRect {
         match self {
@@ -902,12 +896,8 @@ impl_vec_clone!(
 impl_vec_partialeq!(SvgColoredVertex, SvgColoredVertexVec);
 
 /// Computes the bbox size and transform matrix uniforms shared by SVG draw methods.
-///
-/// Converts `StyleTransform` list into column-major `[f32; 16]` for OpenGL,
-/// and packages it along with the bbox size uniform.
-// target_size is physical pixel dimensions (u32); GL uniforms are f32. Pixel
-// counts are always well within f32's exact-integer range (2^24), so the
-// precision loss the lint warns about cannot occur for any real render target.
+/// Converts `StyleTransform` list into column-major `[f32; 16]` for OpenGL, and
+/// packages it along with the bbox size uniform.
 #[allow(clippy::cast_precision_loss)]
 fn compute_svg_transform_uniforms(
     target_size: PhysicalSizeU32,
@@ -926,8 +916,8 @@ fn compute_svg_transform_uniforms(
         RotationMode::ForWebRender,
     );
 
-    // NOTE: OpenGL draws are column-major, while ComputedTransform3D
-    // is row-major! Need to transpose the matrix!
+    // NOTE: OpenGL draws are column-major, while ComputedTransform3D is row-major!
+    // Need to transpose the matrix!
     let m = computed_transform.get_column_major().m;
     let matrix: [f32; 16] = core::array::from_fn(|i| m[i / 4][i % 4]);
 
@@ -1036,8 +1026,8 @@ impl TessellatedColoredGPUSvgNode {
         let (bbox_uniform, transform_uniform) =
             compute_svg_transform_uniforms(target_size, transforms.as_ref());
 
-        // two separately-named GL uniforms collected into the draw-call array;
-        // not a tuple->array conversion.
+        // two separately-named GL uniforms collected into the draw-call array; not
+        // a tuple->array conversion.
         #[allow(clippy::tuple_array_conversions)]
         let uniforms = [bbox_uniform, transform_uniform];
 
@@ -1103,24 +1093,18 @@ pub struct SvgTransform {
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
 #[repr(C)]
 pub struct SvgFillStyle {
-    /// See the SVG specification.
-    ///
-    /// Default value: `LineJoin::Miter`.
+    /// See the SVG specification. Default value: `LineJoin::Miter`.
     pub line_join: SvgLineJoin,
-    /// See the SVG specification.
-    ///
-    /// Must be greater than or equal to 1.0.
-    /// Default value: `StrokeOptions::DEFAULT_MITER_LIMIT`.
+    /// See the SVG specification. Must be greater than or equal to 1.0.
     pub miter_limit: f32,
-    /// Maximum allowed distance to the path when building an approximation.
-    ///
-    /// See [Flattening and tolerance](index.html#flattening-and-tolerance).
-    /// Default value: `StrokeOptions::DEFAULT_TOLERANCE`.
+    /// Maximum allowed distance to the path when building an approximation. See
+    /// [Flattening and tolerance](index.html#flattening-and-tolerance).
     pub tolerance: f32,
-    /// Whether to use the "winding" or "even / odd" fill rule when tesselating the path
+    /// Whether to use the "winding" or "even / odd" fill rule when tesselating the
+    /// path
     pub fill_rule: SvgFillRule,
-    /// Whether to apply a transform to the points in the path (warning: will be done on the CPU -
-    /// expensive)
+    /// Whether to apply a transform to the points in the path (warning: will be
+    /// done on the CPU - expensive)
     pub transform: SvgTransform,
     /// Whether the fill is intended to be anti-aliased (default: true)
     pub anti_alias: bool,
@@ -1147,42 +1131,27 @@ impl Default for SvgFillStyle {
 pub struct SvgStrokeStyle {
     /// Dash pattern
     pub dash_pattern: OptionSvgDashPattern,
-    /// Whether to apply a transform to the points in the path (warning: will be done on the CPU -
-    /// expensive)
+    /// Whether to apply a transform to the points in the path (warning: will be
+    /// done on the CPU - expensive)
     pub transform: SvgTransform,
-    /// What cap to use at the start of each sub-path.
-    ///
-    /// Default value: `LineCap::Butt`.
+    /// What cap to use at the start of each sub-path. Default value:
+    /// `LineCap::Butt`.
     pub start_cap: SvgLineCap,
-    /// What cap to use at the end of each sub-path.
-    ///
-    /// Default value: `LineCap::Butt`.
+    /// What cap to use at the end of each sub-path. Default value: `LineCap::Butt`.
     pub end_cap: SvgLineCap,
-    /// See the SVG specification.
-    ///
-    /// Default value: `LineJoin::Miter`.
+    /// See the SVG specification. Default value: `LineJoin::Miter`.
     pub line_join: SvgLineJoin,
-    /// Line width
-    ///
-    /// Default value: `StrokeOptions::DEFAULT_LINE_WIDTH`.
+    /// Line width Default value: `StrokeOptions::DEFAULT_LINE_WIDTH`.
     pub line_width: f32,
-    /// See the SVG specification.
-    ///
-    /// Must be greater than or equal to 1.0.
-    /// Default value: `StrokeOptions::DEFAULT_MITER_LIMIT`.
+    /// See the SVG specification. Must be greater than or equal to 1.0.
     pub miter_limit: f32,
-    /// Maximum allowed distance to the path when building an approximation.
-    ///
-    /// See [Flattening and tolerance](index.html#flattening-and-tolerance).
-    /// Default value: `StrokeOptions::DEFAULT_TOLERANCE`.
+    /// Maximum allowed distance to the path when building an approximation. See
+    /// [Flattening and tolerance](index.html#flattening-and-tolerance).
     pub tolerance: f32,
-    /// Apply line width
-    ///
-    /// When set to false, the generated vertices will all be positioned in the centre
-    /// of the line. The width can be applied later on (eg in a vertex shader) by adding
-    /// the vertex normal multiplied by the line with to each vertex position.
-    ///
-    /// Default value: `true`. NOTE: currently unused!
+    /// Apply line width When set to false, the generated vertices will all be
+    /// positioned in the centre of the line. The width can be applied later on (eg
+    /// in a vertex shader) by adding the vertex normal multiplied by the line with
+    /// to each vertex position.
     pub apply_line_width: bool,
     /// Whether the fill is intended to be anti-aliased (default: true)
     pub anti_alias: bool,
@@ -1338,30 +1307,30 @@ pub enum SvgFitTo {
 pub struct SvgParseOptions {
     /// SVG image path. Used to resolve relative image paths.
     pub relative_image_path: OptionString,
-    /// Default font family. Will be used when no font-family attribute is set in the SVG. Default:
-    /// Times New Roman
+    /// Default font family. Will be used when no font-family attribute is set in
+    /// the SVG.
     pub default_font_family: AzString,
-    /// A list of languages. Will be used to resolve a systemLanguage conditional attribute.
-    /// Format: en, en-US. Default: [en]
+    /// A list of languages. Will be used to resolve a systemLanguage conditional
+    /// attribute.
     pub languages: StringVec,
-    /// Target DPI. Impact units conversion. Default: 96.0
+    /// Target DPI. Impact units conversion.
     pub dpi: f32,
-    /// A default font size. Will be used when no font-size attribute is set in the SVG. Default:
-    /// 12
+    /// A default font size. Will be used when no font-size attribute is set in the
+    /// SVG.
     pub font_size: f32,
-    /// Specifies the default shape rendering method. Will be used when an SVG element's
-    /// shape-rendering property is set to auto. Default: `GeometricPrecision`
+    /// Specifies the default shape rendering method. Will be used when an SVG
+    /// element's shape-rendering property is set to auto.
     pub shape_rendering: ShapeRendering,
-    /// Specifies the default text rendering method. Will be used when an SVG element's
-    /// text-rendering property is set to auto. Default: `OptimizeLegibility`
+    /// Specifies the default text rendering method. Will be used when an SVG
+    /// element's text-rendering property is set to auto.
     pub text_rendering: TextRendering,
-    /// Specifies the default image rendering method. Will be used when an SVG element's
-    /// image-rendering property is set to auto. Default: `OptimizeQuality`
+    /// Specifies the default image rendering method. Will be used when an SVG
+    /// element's image-rendering property is set to auto.
     pub image_rendering: ImageRendering,
     /// When empty, text elements will be skipped. Default: `System`
     pub fontdb: FontDatabase,
-    /// Keep named groups. If set to true, all non-empty groups with id attribute will not be
-    /// removed. Default: false
+    /// Keep named groups. If set to true, all non-empty groups with id attribute
+    /// will not be removed.
     pub keep_named_groups: bool,
 }
 
@@ -1492,7 +1461,8 @@ mod autotest_generated {
         }
     }
 
-    /// `true` if `outer` fully contains `inner` (used to check bounding-box invariants).
+    /// `true` if `outer` fully contains `inner` (used to check bounding-box
+    /// invariants).
     fn rect_contains(outer: &SvgRect, inner: &SvgRect) -> bool {
         outer.x <= inner.x
             && outer.y <= inner.y
@@ -1541,7 +1511,8 @@ mod autotest_generated {
 
     #[test]
     fn svgline_inwards_normal_is_unit_length_and_90deg_right() {
-        // horizontal line pointing +x -> normal points -y (90deg to the right in SVG coords)
+        // horizontal line pointing +x -> normal points -y (90deg to the right in
+        // SVG coords)
         let l = SvgLine::new(pt(0.0, 0.0), pt(10.0, 0.0));
         let n = l.inwards_normal().expect("non-degenerate line has a normal");
         assert!((n.x - 0.0).abs() < 1e-6);
@@ -1581,8 +1552,8 @@ mod autotest_generated {
 
     #[test]
     fn svgline_inwards_normal_on_overflowing_line_stays_defined() {
-        // dx/dy overflow f32 -> hypot is +inf; the result must be either None
-        // or finite, never a silent NaN/inf leaking into the point.
+        // dx/dy overflow f32 -> hypot is +inf; the result must be either None or
+        // finite, never a silent NaN/inf leaking into the point.
         let l = SvgLine::new(pt(-f32::MAX, -f32::MAX), pt(f32::MAX, f32::MAX));
         match l.inwards_normal() {
             None => {}
@@ -1891,8 +1862,8 @@ mod autotest_generated {
 
     #[test]
     fn svgpathelement_curve_t_at_offset_saturates_at_1_past_the_end() {
-        // the sampling loop never triggers for an out-of-range offset,
-        // so it must fall through to the final t (== 1.0), not overshoot
+        // the sampling loop never triggers for an out-of-range offset, so it must
+        // fall through to the final t (== 1.0), not overshoot
         for el in [
             SvgPathElement::quadratic_curve(quad()),
             SvgPathElement::cubic_curve(cubic()),
@@ -2058,8 +2029,8 @@ mod autotest_generated {
 
     #[test]
     fn svgpath_join_with_on_empty_self_returns_none_without_underflow() {
-        // `vec.len() - 1` would underflow on an empty receiver; the `?` on
-        // `last()` must short-circuit first.
+        // `vec.len() - 1` would underflow on an empty receiver; the `?` on `last()`
+        // must short-circuit first.
         let mut a = make_path(Vec::new());
         let b = make_path(vec![line_el(0.0, 0.0, 1.0, 1.0)]);
         assert_eq!(a.join_with(b), None);
@@ -2121,8 +2092,8 @@ mod autotest_generated {
     #[test]
     fn svgmultipolygon_bounds_must_contain_geometry_after_an_empty_first_ring() {
         // BUG: get_bounds() seeds from rings[0].items[0]; when the FIRST ring is
-        // empty it bails out to SvgRect::default() and silently drops every
-        // later ring's geometry.
+        // empty it bails out to SvgRect::default() and silently drops every later
+        // ring's geometry.
         let mp = SvgMultiPolygon::create(SvgPathVec::from_vec(vec![
             make_path(Vec::new()),
             make_path(vec![line_el(100.0, 100.0, 200.0, 200.0)]),
@@ -2377,7 +2348,6 @@ mod autotest_generated {
         assert_eq!((b.x, b.y, b.width, b.height), (2.5, -7.5, 5.0, 5.0));
         // A bbox CORNER is outside the inscribed circle. (Mid-edge is not: the
         // previous probe sat on the horizontal diameter, 2.4 from the centre, i.e.
-        // strictly inside the radius-2.5 circle.)
         assert!(!c.contains_point(b.x + 0.1, b.y + 0.1));
         assert!(c.contains_point(c.center_x, c.center_y));
     }
@@ -2438,8 +2408,8 @@ mod autotest_generated {
 
     #[test]
     fn tessellated_svg_node_vec_ref_on_empty_vec_yields_an_empty_slice() {
-        // as_slice() calls slice::from_raw_parts - an empty vec must still
-        // produce a valid (dangling but aligned) pointer, never a null deref.
+        // as_slice() calls slice::from_raw_parts - an empty vec must still produce
+        // a valid (dangling but aligned) pointer, never a null deref.
         let v = TessellatedSvgNodeVec::from_vec(Vec::new());
         let r = v.get_ref();
         assert_eq!(r.len, 0);
@@ -2575,8 +2545,8 @@ mod autotest_generated {
             ],
         );
         assert_eq!(bbox_of(&bbox), [1.0, 1.0]);
-        // no assertion on finiteness here: the transform itself is degenerate,
-        // we only require that building the uniform does not panic
+        // no assertion on finiteness here: the transform itself is degenerate, we
+        // only require that building the uniform does not panic
         let _ = matrix_of(&tf);
     }
 

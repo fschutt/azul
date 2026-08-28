@@ -1,5 +1,5 @@
-//! OpenGL context wrappers, texture cache management, shader compilation,
-//! vertex buffer abstractions, and FFI-safe GL type aliases for the C/Python API.
+//! OpenGL context wrappers, texture cache management, shader compilation, vertex
+//! buffer abstractions, and FFI-safe GL type aliases for the C/Python API.
 
 #![allow(unused_variables)]
 use alloc::{
@@ -54,8 +54,8 @@ pub type GLfloat = f32;
 
 pub const GL_RESTART_INDEX: u32 = core::u32::MAX;
 
-/// Passing *const `c_void` is not easily possible when generating APIs,
-/// so this wrapper struct is for easier API generation
+/// Passing *const `c_void` is not easily possible when generating APIs, so this
+/// wrapper struct is for easier API generation
 #[repr(C)]
 #[derive(Debug)]
 pub struct GlVoidPtrConst {
@@ -78,10 +78,8 @@ impl Drop for GlVoidPtrConst {
     }
 }
 
-/// Struct returned from the C API
-///
-/// Because of Python, every object has to be clone-able,
-/// so yes there may exist more than one mutable reference
+/// Struct returned from the C API Because of Python, every object has to be
+/// clone-able, so yes there may exist more than one mutable reference
 #[repr(C)]
 #[derive(Debug)]
 pub struct GlVoidPtrMut {
@@ -118,9 +116,9 @@ impl fmt::Debug for Refstr {
 
 impl Refstr {
     #[must_use] pub const fn as_str(&self) -> &str {
-        // AUDIT: `from_raw_parts`/`from_utf8_unchecked` are UB on a null ptr
-        // (even with len==0). FFI callers can hand us a null/empty Refstr, so
-        // return an empty `&str` instead of forming a slice over null.
+        // AUDIT: `from_raw_parts`/`from_utf8_unchecked` are UB on a null ptr (even
+        // with len==0). FFI callers can hand us a null/empty Refstr, so return an
+        // empty `&str` instead of forming a slice over null.
         if self.ptr.is_null() || self.len == 0 {
             return "";
         }
@@ -722,7 +720,8 @@ impl From<GlContextGlType> for GlType {
 // (U8Vec, u32)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot
+// rename.
 #[allow(clippy::pub_underscore_fields)]
 pub struct GetProgramBinaryReturn {
     pub _0: U8Vec,
@@ -732,7 +731,8 @@ pub struct GetProgramBinaryReturn {
 // (i32, u32, AzString)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot
+// rename.
 #[allow(clippy::pub_underscore_fields)]
 pub struct GetActiveAttribReturn {
     pub _0: i32,
@@ -743,7 +743,8 @@ pub struct GetActiveAttribReturn {
 // (i32, u32, AzString)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot
+// rename.
 #[allow(clippy::pub_underscore_fields)]
 pub struct GetActiveUniformReturn {
     pub _0: i32,
@@ -791,37 +792,17 @@ impl Drop for GLsyncPtr {
 }
 
 /// Each pipeline (window) has its own OpenGL textures. GL Textures can technically
-/// be shared across pipelines, however this turns out to be very difficult in practice.
+/// be shared across pipelines, however this turns out to be very difficult in
+/// practice.
 pub type GlTextureStorage = OrderedMap<Epoch, OrderedMap<ExternalImageId, Texture>>;
 
-/// Non-cleaned up textures. When a `GlTexture` is registered, it has to stay active as long
-/// as `WebRender` needs it for drawing. To transparently do this, we store the epoch that the
-/// texture was originally created with, and check, **after we have drawn the frame**,
-/// if there are any textures that need cleanup.
-///
-/// Because the Texture2d is wrapped in an Rc, the destructor (which cleans up the OpenGL
-/// texture) does not run until we remove the textures
-///
-/// Note: Because textures could be used after the current draw call (ex. for scrolling),
-/// the `ACTIVE_GL_TEXTURES` are indexed by their epoch. Use `renderer.flush_pipeline_info()`
-/// to see which textures are still active and which ones can be safely removed.
-///
-/// See: <https://github.com/servo/webrender/issues/2940>
-///
-/// WARNING: Not thread-safe (however, the Texture itself is thread-unsafe, so it's unlikely to ever
-/// be misused)
+/// Non-cleaned up textures. When a `GlTexture` is registered, it has to stay active
+/// as long as `WebRender` needs it for drawing.
 static mut ACTIVE_GL_TEXTURES: Option<OrderedMap<DocumentId, GlTextureStorage>> = None;
 
-/// Sound accessor for the process-global GL texture table.
-///
-/// AUDIT: GL access is single-threaded by design (see the WARNING above — the
-/// `Texture` itself is thread-unsafe), so no lock is used. The soundness fix
-/// here is to never form an *implicit* reference to the `static mut` (the
-/// edition-2024 `static_mut_refs` hard error + `&mut`-aliasing UB that
-/// `ACTIVE_GL_TEXTURES.as_mut()` / `.as_ref()` triggered). Deriving the
-/// reference from `&raw mut` gives it correct provenance without ever naming
-/// the static as an auto-ref place. Callers must not hold two of these at once
-/// (they don't — every use is a single non-reentrant scope).
+/// Sound accessor for the process-global GL texture table. AUDIT: GL access is
+/// single-threaded by design (see the WARNING above - the `Texture` itself is
+/// thread-unsafe), so no lock is used.
 #[inline]
 #[allow(clippy::deref_addrof)] // the `&raw mut` deref is deliberate: it avoids naming the static as an auto-ref place (edition-2024 `static_mut_refs`)
 fn active_gl_textures() -> &'static mut Option<OrderedMap<DocumentId, GlTextureStorage>> {
@@ -830,14 +811,10 @@ fn active_gl_textures() -> &'static mut Option<OrderedMap<DocumentId, GlTextureS
     unsafe { &mut *(&raw mut ACTIVE_GL_TEXTURES) }
 }
 
-/// Inserts a new texture into the OpenGL texture cache, returns a new image ID
-/// for the inserted texture
-///
-/// This function exists so azul doesn't have to use `lazy_static` as a dependency
-///
-/// # Panics
-///
-/// Panics if the global active-GL-texture table has not been initialized.
+/// Inserts a new texture into the OpenGL texture cache, returns a new image ID for
+/// the inserted texture This function exists so azul doesn't have to use
+/// `lazy_static` as a dependency Panics if the global active-GL-texture table has
+/// not been initialized.
 #[must_use]
 pub fn insert_into_active_gl_textures(
     document_id: DocumentId,
@@ -858,8 +835,8 @@ pub fn insert_into_active_gl_textures(
     external_image_id
 }
 
-/// Destroys all textures from the given `document_id`
-/// where the texture is **older** than the given `epoch`.
+/// Destroys all textures from the given `document_id` where the texture is
+/// **older** than the given `epoch`.
 pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: Epoch) {
     // TODO: Handle overflow of Epochs correctly (low priority)
     let Some(active_textures) = active_gl_textures().as_mut() else {
@@ -870,8 +847,7 @@ pub fn gl_textures_remove_epochs_from_pipeline(document_id: &DocumentId, epoch: 
         return;
     };
 
-    // NOTE: original code used retain() but that
-    // doesn't work on no_std
+    // NOTE: original code used retain() but that doesn't work on no_std
     let mut epochs_to_remove = Vec::new();
 
     for (gl_texture_epoch, _) in active_epochs.iter() {
@@ -912,15 +888,12 @@ pub fn gl_textures_clear_opengl_cache() {
     *active_gl_textures() = None;
 }
 
-// Search all epoch hash maps for the given key
-// There does not seem to be a way to get the epoch for the key,
-// so we simply have to search all active epochs
-//
-// NOTE: Invalid textures can be generated on minimize / maximize
-// Luckily, webrender simply ignores an invalid texture, so we don't
-// need to check whether a window is maximized or minimized - if
-// we encounter an invalid ID, webrender simply won't draw anything,
-// but at least it won't crash. Usually invalid textures are also 0x0
+// Search all epoch hash maps for the given key There does not seem to be a way to
+// get the epoch for the key, so we simply have to search all active epochs NOTE:
+// Invalid textures can be generated on minimize / maximize Luckily, webrender simply
+// ignores an invalid texture, so we don't need to check whether a window is
+// maximized or minimized - if we encounter an invalid ID, webrender simply won't
+// draw anything, but at least it won't crash. Usually invalid textures are also 0x0
 // pixels large - so it's not like we had anything to draw anyway.
 #[allow(clippy::cast_precision_loss)] // OpenGL/graphics binding: GL-bounded numeric casts
 #[must_use] pub fn get_opengl_texture(image_key: &ExternalImageId) -> Option<(GLuint, (f32, f32))> {
@@ -937,10 +910,12 @@ pub fn gl_textures_clear_opengl_cache() {
         })
 }
 
-/// For .`get_gl_precision_format()`, but ABI-safe - returning an array or a tuple is not ABI-safe
+/// For .`get_gl_precision_format()`, but ABI-safe - returning an array or a tuple
+/// is not ABI-safe
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]
-// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot rename.
+// `_0`/`_1`… are C-ABI tuple-payload field names exposed in api.json; cannot
+// rename.
 #[allow(clippy::pub_underscore_fields)]
 pub struct GlShaderPrecisionFormatReturn {
     pub _0: GLint,
@@ -952,12 +927,9 @@ pub struct GlShaderPrecisionFormatReturn {
 pub struct GlContextPtr {
     /// `ManuallyDrop` so the owned `Box` is freed ONLY when `run_destructor` is
     /// still set (see `Drop`). The codegen FFI wrappers (`AzTexture` etc.) embed
-    /// this by value AND have their own `Drop` that `drop_in_place`s the real
-    /// type first; Rust's drop glue would then drop this field a SECOND time on
-    /// the same bytes. Gating the `Box` free on `run_destructor` (which the first
-    /// drop clears in the shared memory) makes that second drop a safe no-op.
-    /// Layout is unchanged: `ManuallyDrop<Box<T>>` is a single pointer, identical
-    /// to the old `Box<T>` and to the FFI `*mut c_void`.
+    /// this by value AND have their own `Drop` that `drop_in_place`s the real type
+    /// first; Rust's drop glue would then drop this field a SECOND time on the same
+    /// bytes.
     pub ptr: ManuallyDrop<Box<Rc<GlContextPtrInner>>>,
     /// Whether to force a hardware or software renderer
     pub renderer_type: RendererType,
@@ -977,8 +949,8 @@ impl Clone for GlContextPtr {
 impl Drop for GlContextPtr {
     fn drop(&mut self) {
         // Only free the owned Box if this instance still owns it. The FFI wrapper
-        // double-drop (see the struct doc) hits these same bytes a second time
-        // with `run_destructor` already cleared by the first drop -> no-op, no
+        // double-drop (see the struct doc) hits these same bytes a second time with
+        // `run_destructor` already cleared by the first drop -> no-op, no
         // double-free.
         if self.run_destructor {
             self.run_destructor = false;
@@ -992,16 +964,14 @@ impl GlContextPtr {
         self.ptr.svg_shader
     }
     /// Whether this hardware GL context proved usable at construction (the SVG
-    /// shaders compiled+linked at some GLSL version). `false` means context
-    /// creation succeeded but the driver can't run our shaders -- the caller
-    /// should fall back to CPU rendering. Always `false` for a Software context
-    /// (which never compiles these shaders); only meaningful on the GPU path.
+    /// shaders compiled+linked at some GLSL version). `false` means context creation
+    /// succeeded but the driver can't run our shaders -- the caller should fall back
+    /// to CPU rendering.
     #[must_use] pub fn is_gl_usable(&self) -> bool {
         self.ptr.svg_shader != 0
     }
-    /// The GLSL `#version` the driver accepted at construction (e.g. "150" or
-    /// "300 es"), discovered by the probe. Empty string if the context is
-    /// unusable / software. Exposed in the API so apps can report/branch on it.
+    /// The GLSL `#version` the driver accepted at construction (e.g. "150" or "300
+    /// es"), discovered by the probe.
     #[must_use] pub fn get_usable_glsl_version(&self) -> AzString {
         self.ptr.glsl_version.clone()
     }
@@ -1026,7 +996,7 @@ pub struct GlContextPtrInner {
     /// Soft-brush shader program for the GPU painting API (0 if unusable).
     pub brush_shader: GLuint,
     /// The GLSL `#version` directive that compiled (e.g. "150" or "300 es"),
-    /// discovered by the probe in `new()`. Empty if the context is unusable.
+    /// discovered by the probe in `new()`.
     pub glsl_version: AzString,
 }
 
@@ -1145,9 +1115,9 @@ void main() {
 }";
 
 // Soft-brush shaders for the GPU painting API. A unit quad [-1,1]^2 (aUv) is
-// positioned in NDC (aPos); the fragment computes the same radial falloff as
-// the CPU `brush_dab_coverage` (1 - smoothstep(hardness, 1, dist)) so GPU and
-// CPU strokes match. Version-agnostic via `__VERSION__` like the SVG shaders.
+// positioned in NDC (aPos); the fragment computes the same radial falloff as the CPU
+// `brush_dab_coverage` (1 - smoothstep(hardness, 1, dist)) so GPU and CPU strokes
+// match.
 static BRUSH_VERTEX_SHADER: &[u8] = b"#version 150
 
 #if __VERSION__ != 100
@@ -1193,8 +1163,6 @@ void main() {
 }";
 
 /// Checks if a shader compiled successfully. Logs an error under `std`.
-/// (Retained for diagnostics; the version probe in `GlContextPtr::new` now does
-/// its own status checks.)
 #[allow(dead_code)]
 #[allow(clippy::used_underscore_binding)] // intentional `_`-prefix (FFI/api.json pub field, or cfg-gated binding); access is deliberate
 #[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
@@ -1239,11 +1207,8 @@ fn shader_with_glsl_version(src: &[u8], version_line: &[u8]) -> Vec<u8> {
 }
 
 /// Try to compile+link a vertex+fragment program at a specific GLSL `#version`.
-/// Returns the linked program id, or `None` (after cleanup) on ANY compile or
-/// link failure. This is how we PROVE a GL context is actually usable and which
-/// `#version` its driver accepts -- creating a context can succeed yet leave it
-/// unable to compile our shaders (broken driver, or a GLES context that rejects
-/// the desktop `#version 150`).
+/// Returns the linked program id, or `None` (after cleanup) on ANY compile or link
+/// failure.
 #[cfg(feature = "std")]
 // OpenGL binding: gl::* enum constants passed to the gl API as GLint/GLenum.
 #[allow(clippy::cast_possible_wrap)]
@@ -1292,8 +1257,8 @@ fn try_compile_program(
     }
 }
 
-/// GLSL `#version` directives to try, in preference order, per context type.
-/// The first that compiles+links the SVG shaders is used for every program.
+/// GLSL `#version` directives to try, in preference order, per context type. The
+/// first that compiles+links the SVG shaders is used for every program.
 const fn glsl_version_candidates(gl_type: GlType) -> &'static [&'static [u8]] {
     match gl_type {
         GlType::Gl => &[b"#version 150\n", b"#version 330\n", b"#version 140\n"],
@@ -1303,16 +1268,8 @@ const fn glsl_version_candidates(gl_type: GlType) -> &'static [&'static [u8]] {
 
 impl GlContextPtr {
     #[must_use] pub fn new(renderer_type: RendererType, gl_context: Rc<GenericGlContext>) -> Self {
-        // Only attempt the SVG/FXAA GL shaders for a real GPU. In Software/CPU
-        // mode nothing composites through them.
-        //
-        // PROVE the context is usable rather than trusting context creation: try
-        // compiling the SVG program at each candidate `#version` for this context
-        // type (desktop GL 1.50/3.30/1.40, or GLES 3.00/1.00) and use the first
-        // that compiles+links for ALL programs. A GLES GPU (mobile) rejects the
-        // desktop `#version 150`, and a broken driver rejects everything -- in the
-        // latter case all program IDs stay 0 and `is_gl_usable()` returns false so
-        // the window can fall back to CPU rendering.
+        // Only attempt the SVG/FXAA GL shaders for a real GPU. In Software/CPU mode
+        // nothing composites through them.
         #[cfg(feature = "std")]
         let (svg_program_id, svg_multicolor_program_id, fxaa_program_id, brush_program_id, glsl_version) =
             if matches!(renderer_type, RendererType::Hardware) {
@@ -1337,7 +1294,8 @@ impl GlContextPtr {
                     );
                     (0, 0, 0, 0, AzString::from_const_str(""))
                 }, |ver| {
-                    // "150" / "300 es": the directive minus "#version " and newline.
+                    // "150" / "300 es": the directive minus "#version " and
+                    // newline.
                     let ver_str: AzString = core::str::from_utf8(ver)
                         .unwrap_or("")
                         .trim()
@@ -1492,11 +1450,10 @@ impl GlContextPtr {
         pixel_type: GLenum,
     ) -> U8Vec {
         // gl-context-loader's own read_pixels sizes the buffer as
-        // width*height*bytes_per_component and OMITS the format's channel count, so a
-        // 2x3 RGBA/UNSIGNED_BYTE read allocates 6 bytes instead of 24 — a heap overflow
-        // once a real driver writes the pixels. Size it correctly from format + type and
-        // read into our own buffer. (Raw GL enum values so this doesn't depend on which
-        // constants the gl module happens to re-export.)
+        // width*height*bytes_per_component and OMITS the format's channel count, so
+        // a 2x3 RGBA/UNSIGNED_BYTE read allocates 6 bytes instead of 24 - a heap
+        // overflow once a real driver writes the pixels. Size it correctly from
+        // format + type and read into our own buffer.
         let channels: usize = match format {
             // RED, ALPHA, LUMINANCE, DEPTH_COMPONENT, STENCIL_INDEX, RED_INTEGER
             0x1903 | 0x1906 | 0x1909 | 0x1902 | 0x1901 | 0x8D94 => 1,
@@ -2213,7 +2170,7 @@ impl GlContextPtr {
     pub fn blend_equation_separate(&self, mode_rgb: GLenum, mode_alpha: GLenum) {
         self.get().blend_equation_separate(mode_rgb, mode_alpha);
     }
-    // mirrors glColorMask(GLboolean, GLboolean, GLboolean, GLboolean) — the four
+    // mirrors glColorMask(GLboolean, GLboolean, GLboolean, GLboolean) - the four
     // RGBA write-mask flags are the GL API, not a refactorable bool soup.
     #[allow(clippy::fn_params_excessive_bools)]
     pub fn color_mask(&self, r: bool, g: bool, b: bool, a: bool) {
@@ -2804,11 +2761,9 @@ impl Ord for GlContextPtr {
     }
 }
 
-/// Saved OpenGL state for save/restore around framebuffer operations.
-/// Used by `Texture::clear()` and `GlShader::draw()` to avoid corrupting
-/// the caller's GL state.
-// the `current_` prefix is intentional: each field holds the saved CURRENT GL
-// binding captured at save() to be restored in restore().
+/// Saved OpenGL state for save/restore around framebuffer operations. Used by
+/// `Texture::clear()` and `GlShader::draw()` to avoid corrupting the caller's GL
+/// state.
 #[allow(clippy::struct_field_names)]
 struct GlStateSave {
     current_multisample: [u8; 1],
@@ -2862,11 +2817,9 @@ impl GlStateSave {
     }
 }
 
-/// AUDIT: RAII guard that deletes a transient framebuffer + renderbuffer on
-/// scope exit. Used by `Texture::clear` and `GlShader::draw` so that a panic
-/// mid-path (e.g. an `.unwrap()` on an empty gen-list, or any GL step that
-/// panics) can't leak the FBO/RBO. Ids of `0` are skipped (GL treats delete-0
-/// as a no-op anyway, but this keeps intent explicit).
+/// AUDIT: RAII guard that deletes a transient framebuffer + renderbuffer on scope
+/// exit. Used by `Texture::clear` and `GlShader::draw` so that a panic mid-path
+/// (e.g.
 struct FboRboGuard<'a> {
     gl_context: &'a GlContextPtr,
     framebuffer_id: GLuint,
@@ -2889,8 +2842,8 @@ impl Drop for FboRboGuard<'_> {
 /// OpenGL texture, use `ReadOnlyWindow::create_texture` to create a texture
 #[repr(C)]
 pub struct Texture {
-    /// A reference-counted pointer to the OpenGL context (so that the texture can be deleted in
-    /// the destructor)
+    /// A reference-counted pointer to the OpenGL context (so that the texture can
+    /// be deleted in the destructor)
     pub gl_context: GlContextPtr,
     /// Raw OpenGL texture ID
     pub texture_id: GLuint,
@@ -2997,16 +2950,15 @@ impl Texture {
             size,
             background,
             gl_context,
-            // Format is BGRA8 for WebRender integration, despite the GL upload using RGBA
+            // Format is BGRA8 for WebRender integration, despite the GL upload
+            // using RGBA
             RawImageFormat::BGRA8,
         )
     }
 
-    /// # Panics
-    ///
-    /// Panics if no framebuffer/depthbuffer was allocated (the GL object lists are empty).
-    // OpenGL binding: gl::* enum constants and texture dimensions passed as
-    // GLint/GLsizei (i32); values are GL-bounded, `as i32` is the idiomatic form.
+    /// Panics if no framebuffer/depthbuffer was allocated (the GL object lists are
+    /// empty). OpenGL binding: gl::* enum constants and texture dimensions passed as
+    /// GLint/GLsizei (i32); values are GL-bounded, `as i32` is the idiomatic form.
     #[allow(clippy::cast_possible_wrap)]
     pub fn clear(&mut self) {
         let saved = GlStateSave::save(&self.gl_context);
@@ -3087,9 +3039,9 @@ impl Texture {
         self.gl_context
             .clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
-        // AUDIT: FBO/RBO deletion is handled by `fbo_rbo_guard`'s Drop (which
-        // also runs on an unwinding panic), so we restore state and let the
-        // guard reclaim the GL objects at scope exit.
+        // AUDIT: FBO/RBO deletion is handled by `fbo_rbo_guard`'s Drop (which also
+        // runs on an unwinding panic), so we restore state and let the guard reclaim
+        // the GL objects at scope exit.
         saved.restore(&self.gl_context);
         drop(fbo_rbo_guard);
     }
@@ -3103,7 +3055,8 @@ impl Texture {
             offset: 0,
             flags: ImageDescriptorFlags {
                 is_opaque: self.flags.is_opaque,
-                // The texture gets mapped 1:1 onto the display, so there is no need for mipmaps
+                // The texture gets mapped 1:1 onto the display, so there is no need
+                // for mipmaps
                 allow_mipmaps: false,
             },
         }
@@ -3188,8 +3141,8 @@ macro_rules! impl_traits_for_gl_object {
 
 impl Texture {
     /// GPU painting: stamp one soft-brush dab centered at (`cx`, `cy`) in texture
-    /// pixel coordinates (origin top-left, matching [`RawImage::paint_dot`]).
-    /// No-op if the GL context is unusable -- the caller should then use the CPU
+    /// pixel coordinates (origin top-left, matching [`RawImage::paint_dot`]). No-op
+    /// if the GL context is unusable -- the caller should then use the CPU
     /// `RawImage` path (`GlContextPtr::is_gl_usable`).
     pub fn paint_dot(&mut self, cx: f32, cy: f32, brush: Brush) {
         self.paint_stroke(cx, cy, cx, cy, brush);
@@ -3197,7 +3150,7 @@ impl Texture {
 
     /// GPU painting: stamp dabs along (`x0`,`y0`)->(`x1`,`y1`) into this texture
     /// via an FBO + the soft-brush shader, alpha-over blended. Same spacing +
-    /// falloff as the CPU `RawImage::paint_stroke`. No-op if GL is unusable.
+    /// falloff as the CPU `RawImage::paint_stroke`.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::cast_sign_loss)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     #[allow(clippy::many_single_char_names)] // domain-standard colour/coordinate component names
@@ -3205,7 +3158,8 @@ impl Texture {
         let gl = self.gl_context.clone();
         let prog = gl.get_brush_shader();
         let (tw, th) = (self.size.width as f32, self.size.height as f32);
-        // `!(radius > 0.0)` intentionally also rejects NaN (`radius <= 0.0` would not).
+        // `!(radius > 0.0)` intentionally also rejects NaN (`radius <= 0.0` would
+        // not).
         #[allow(clippy::neg_cmp_op_on_partial_ord)]
         if prog == 0 || self.texture_id == 0 || !(brush.radius > 0.0) || tw <= 0.0 || th <= 0.0 {
             return;
@@ -3266,7 +3220,8 @@ impl Texture {
             let nx = |x: f32| (x / tw) * 2.0 - 1.0;
             let ny = |y: f32| 1.0 - (y / th) * 2.0;
             let (l, rr, tp, bt) = (nx(px - r), nx(px + r), ny(py - r), ny(py + r));
-            // TRIANGLE_STRIP: TL, BL, TR, BR -- interleaved (pos.x, pos.y, uv.x, uv.y).
+            // TRIANGLE_STRIP: TL, BL, TR, BR -- interleaved (pos.x, pos.y, uv.x,
+            // uv.y).
             let verts: [f32; 16] = [
                 l, tp, -1.0, -1.0, l, bt, -1.0, 1.0, rr, tp, 1.0, -1.0, rr, bt, 1.0, 1.0,
             ];
@@ -3345,10 +3300,9 @@ impl_traits_for_gl_object!(Texture, texture_id);
 impl Drop for Texture {
     fn drop(&mut self) {
         // AUDIT: mirror `GlContextPtr::drop`. Without this guard a C-ABI
-        // double-drop (drop_in_place run twice on the same byte-copied struct)
-        // does a second `fetch_sub` on the already-freed refcount box (UAF) and
-        // a second `delete_textures`. The first drop clears `run_destructor`, so
-        // the second is a no-op.
+        // double-drop (drop_in_place run twice on the same byte-copied struct) does
+        // a second `fetch_sub` on the already-freed refcount box (UAF) and a second
+        // `delete_textures`.
         if !self.run_destructor {
             return;
         }
@@ -3383,9 +3337,9 @@ impl_vec_eq!(VertexAttribute, VertexAttributeVec);
 impl_vec_hash!(VertexAttribute, VertexAttributeVec);
 
 impl VertexLayout {
-    /// Submits the vertex buffer description to OpenGL
-    // OpenGL binding: vertex-attribute layout (locations, item counts, strides,
-    // offsets) passed to the gl API as GLuint/GLint/GLsizei; values are GL-bounded.
+    /// Submits the vertex buffer description to OpenGL OpenGL binding:
+    /// vertex-attribute layout (locations, item counts, strides, offsets) passed to
+    /// the gl API as GLuint/GLint/GLsizei; values are GL-bounded.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     #[allow(clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     pub fn bind(&self, gl_context: &Rc<GenericGlContext>, program_id: GLuint) {
@@ -3432,16 +3386,17 @@ impl VertexLayout {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct VertexAttribute {
-    /// Attribute name of the vertex attribute in the vertex shader, i.e. `"vAttrXY"`
+    /// Attribute name of the vertex attribute in the vertex shader, i.e.
+    /// `"vAttrXY"`
     pub va_name: AzString,
-    /// If the vertex shader has a specific location, (like `layout(location = 2) vAttrXY`),
-    /// use this instead of the name to look up the uniform location.
+    /// If the vertex shader has a specific location, (like `layout(location = 2)
+    /// vAttrXY`), use this instead of the name to look up the uniform location.
     pub layout_location: OptionUsize,
     /// Type of items of this attribute (i.e. for a `FloatVec2`, would be
     /// `VertexAttributeType::Float`)
     pub attribute_type: VertexAttributeType,
-    /// Number of items of this attribute (i.e. for a `FloatVec2`, would be `2` (= 2 consecutive
-    /// f32 values))
+    /// Number of items of this attribute (i.e. for a `FloatVec2`, would be `2` (= 2
+    /// consecutive f32 values))
     pub item_count: usize,
 }
 
@@ -3474,8 +3429,8 @@ pub enum VertexAttributeType {
 }
 
 impl VertexAttributeType {
-    /// Returns the OpenGL id for the vertex attribute type, ex. `gl::UNSIGNED_BYTE` for
-    /// `VertexAttributeType::UnsignedByte`.
+    /// Returns the OpenGL id for the vertex attribute type, ex. `gl::UNSIGNED_BYTE`
+    /// for `VertexAttributeType::UnsignedByte`.
     #[must_use] pub const fn get_gl_id(&self) -> GLuint {
         use self::VertexAttributeType::{Float, Double, UnsignedByte, UnsignedShort, UnsignedInt};
         match self {
@@ -3542,7 +3497,7 @@ impl Clone for VertexArrayObject {
 
 impl Drop for VertexArrayObject {
     fn drop(&mut self) {
-        // AUDIT: mirror `GlContextPtr::drop` — guard against a C-ABI double-drop
+        // AUDIT: mirror `GlContextPtr::drop` - guard against a C-ABI double-drop
         // freeing the refcount box twice (use-after-free) + double delete.
         if !self.run_destructor {
             return;
@@ -3599,7 +3554,7 @@ impl Clone for VertexBuffer {
 
 impl Drop for VertexBuffer {
     fn drop(&mut self) {
-        // AUDIT: mirror `GlContextPtr::drop` — guard against a C-ABI double-drop
+        // AUDIT: mirror `GlContextPtr::drop` - guard against a C-ABI double-drop
         // freeing the refcount box twice (use-after-free) + double delete.
         if !self.run_destructor {
             return;
@@ -3619,12 +3574,9 @@ impl Drop for VertexBuffer {
 }
 
 impl VertexBuffer {
-    /// # Panics
-    ///
     /// Panics if the GL driver failed to create the vertex-array/buffer objects
-    /// (the returned id lists are empty).
-    // OpenGL binding: buffer sizes / vertex counts passed to the gl API as
-    // GLsizeiptr/GLint; values are GL-bounded.
+    /// (the returned id lists are empty). OpenGL binding: buffer sizes / vertex
+    /// counts passed to the gl API as GLsizeiptr/GLint; values are GL-bounded.
     #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
     #[allow(clippy::cast_possible_truncation)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     pub fn new<T: VertexLayoutDescription>(
@@ -3859,7 +3811,7 @@ impl_traits_for_gl_object!(GlShader, program_id);
 
 impl Drop for GlShader {
     fn drop(&mut self) {
-        // AUDIT: mirror `GlContextPtr::drop` — a C-ABI double-drop would call
+        // AUDIT: mirror `GlContextPtr::drop` - a C-ABI double-drop would call
         // `delete_program` on the same id twice. The first drop clears the flag.
         if !self.run_destructor {
             return;
@@ -3963,15 +3915,12 @@ impl ::core::fmt::Debug for GlShaderCreateError {
 }
 
 impl GlShader {
-    /// Compiles and creates a new OpenGL shader, created from a vertex and a fragment shader
-    /// string.
-    ///
-    /// If the shader fails to compile, the shader object gets automatically deleted, no cleanup
-    /// necessary.
+    /// Compiles and creates a new OpenGL shader, created from a vertex and a
+    /// fragment shader string. If the shader fails to compile, the shader object
+    /// gets automatically deleted, no cleanup necessary.
     #[allow(clippy::cast_possible_truncation)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
-    /// # Errors
-    ///
-    /// Returns an error if the OpenGL implementation has no shader compiler, or if the vertex/fragment shader fails to compile or link.
+    /// Returns an error if the OpenGL implementation has no shader compiler, or if
+    /// the vertex/fragment shader fails to compile or link.
     pub fn new(
         gl_context: &GlContextPtr,
         vertex_shader: &str,
@@ -4057,11 +4006,8 @@ impl GlShader {
         })
     }
 
-    /// Draws vertex buffers, index buffers + uniforms to the texture
-    ///
-    /// # Panics
-    ///
-    /// Panics if no framebuffer/depthbuffer was allocated (the GL object lists are empty).
+    /// Draws vertex buffers, index buffers + uniforms to the texture Panics if no
+    /// framebuffer/depthbuffer was allocated (the GL object lists are empty).
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // OpenGL/graphics binding: GL-bounded numeric casts to GL* types
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     pub fn draw(
@@ -4095,8 +4041,8 @@ impl GlShader {
         let framebuffers = gl_context.gen_framebuffers(1);
         let framebuffer_id = *framebuffers.get(0).unwrap();
         // AUDIT: register the FBO for cleanup BEFORE the next fallible step so a
-        // panic anywhere below (incl. `gen_renderbuffers().get(0).unwrap()`)
-        // can't leak the FBO/RBO. Guard's Drop runs on unwind too.
+        // panic anywhere below (incl. `gen_renderbuffers().get(0).unwrap()`) can't
+        // leak the FBO/RBO.
         let mut fbo_rbo_guard = FboRboGuard {
             gl_context,
             framebuffer_id,
@@ -4200,7 +4146,8 @@ impl GlShader {
         gl_context.blend_func(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA); // TODO: enable / disable
         gl_context.use_program(shader_program_id);
 
-        // Avoid multiple calls to get_uniform_location by caching the uniform locations
+        // Avoid multiple calls to get_uniform_location by caching the uniform
+        // locations
         let mut uniform_locations: BTreeMap<AzString, i32> = BTreeMap::new();
         let mut max_uniform_len = 0;
         for (_, uniforms) in buffers {
@@ -4219,8 +4166,8 @@ impl GlShader {
         }
         let mut current_uniforms = vec![None; max_uniform_len];
 
-        // Since the description of the vertex buffers is always the same,
-        // only the first layer needs to bind its VAO
+        // Since the description of the vertex buffers is always the same, only the
+        // first layer needs to bind its VAO
 
         // Draw the actual layers
         for (vertex_index_buffer, uniforms) in buffers {
@@ -4256,11 +4203,10 @@ impl GlShader {
             gl_context.disable(gl::PRIMITIVE_RESTART);
         }
 
-        // AUDIT: FBO/RBO deletion is handled by `fbo_rbo_guard`'s Drop (which
-        // also runs on an unwinding panic) — reclaim them explicitly here so
-        // the deletion order matches the original (delete before texture
-        // metadata writes / after state restore).
-        // Reset common GL state
+        // AUDIT: FBO/RBO deletion is handled by `fbo_rbo_guard`'s Drop (which also
+        // runs on an unwinding panic) - reclaim them explicitly here so the deletion
+        // order matches the original (delete before texture metadata writes / after
+        // state restore). Reset common GL state
         saved.restore(gl_context);
         drop(fbo_rbo_guard);
 
@@ -4300,9 +4246,9 @@ fn get_gl_program_error(context: &GlContextPtr, shader_object: GLuint) -> Option
 mod audit_tests {
     use super::*;
 
-    // AUDIT: FFI slice/str accessors must return an empty slice (not form a
-    // slice over a null/dangling ptr, which is UB) when handed a null or
-    // zero-length descriptor from C.
+    // AUDIT: FFI slice/str accessors must return an empty slice (not form a slice
+    // over a null/dangling ptr, which is UB) when handed a null or zero-length
+    // descriptor from C.
     #[test]
     fn refstr_null_and_empty_is_empty_str() {
         let null = Refstr {
@@ -4352,19 +4298,14 @@ mod autotest_generated {
     use super::*;
 
     // ---------------------------------------------------------------------
-    // Test scaffolding: a "null" GL context.
-    //
-    // Every field of `GenericGlContext` is a `*mut c_void` function pointer
-    // (780 of them, no other field types), and every gl-context-loader method
-    // null-checks its pointer and returns a default (0 / empty Vec / "") rather
-    // than calling through. So an all-zero context is a SAFE no-op GL driver:
-    // it lets us drive azul's whole wrapper surface off-GPU and assert how the
-    // wrappers behave when the driver hands back degenerate values -- which is
-    // exactly the "broken driver" path `is_gl_usable()` exists for.
+    // Test scaffolding: a "null" GL context. Every field of `GenericGlContext` is a
+    // `*mut c_void` function pointer (780 of them, no other field types), and every
+    // gl-context-loader method null-checks its pointer and returns a default (0 /
+    // empty Vec / "") rather than calling through.
     // ---------------------------------------------------------------------
     fn null_gl() -> Rc<GenericGlContext> {
-        // SAFETY: `GenericGlContext` is `repr(C)` and every field is a raw
-        // pointer, for which the all-zero bit pattern (null) is valid.
+        // SAFETY: `GenericGlContext` is `repr(C)` and every field is a raw pointer,
+        // for which the all-zero bit pattern (null) is valid.
         Rc::new(unsafe { core::mem::zeroed::<GenericGlContext>() })
     }
 
@@ -4408,15 +4349,15 @@ mod autotest_generated {
         IndexBufferFormat::TriangleFan,
     ];
 
-    // =====================================================================
-    // Refstr / *VecRef / *VecRefMut -- FFI slice+str accessors
-    // (parsers: malformed / huge / boundary / unicode)
+    // ===================================================================== Refstr
+    // / *VecRef / *VecRefMut -- FFI slice+str accessors (parsers: malformed / huge /
+    // boundary / unicode)
     // =====================================================================
 
     #[test]
     fn refstr_roundtrips_unicode_multibyte_and_combining_marks() {
-        // Non-ASCII, emoji, and combining marks must survive byte-exactly:
-        // `as_str` rebuilds the str via `from_utf8_unchecked` over the raw bytes.
+        // Non-ASCII, emoji, and combining marks must survive byte-exactly: `as_str`
+        // rebuilds the str via `from_utf8_unchecked` over the raw bytes.
         for s in [
             "\u{1F600}",
             "日本語のテキスト",
@@ -4443,7 +4384,8 @@ mod autotest_generated {
 
     #[test]
     fn refstr_huge_input_does_not_hang() {
-        // 1 MB single-token string: as_str is O(1) (no scan), so this must be instant.
+        // 1 MB single-token string: as_str is O(1) (no scan), so this must be
+        // instant.
         let huge = "x".repeat(1_000_000);
         let r: Refstr = huge.as_str().into();
         assert_eq!(r.as_str().len(), 1_000_000);
@@ -4456,7 +4398,8 @@ mod autotest_generated {
             ptr: core::ptr::null(),
             len: usize::MAX,
         };
-        // Debug goes through as_str(); a null guard failure here would be UB, not a panic.
+        // Debug goes through as_str(); a null guard failure here would be UB, not a
+        // panic.
         assert_eq!(alloc::format!("{null:?}"), "\"\"");
     }
 
@@ -4726,8 +4669,8 @@ mod autotest_generated {
     #[cfg(feature = "std")]
     #[test]
     fn shader_with_glsl_version_src_without_newline_is_kept_whole() {
-        // A src with NO newline has no first line to strip: body_start stays 0,
-        // so the version line is prepended and nothing is lost.
+        // A src with NO newline has no first line to strip: body_start stays 0, so
+        // the version line is prepended and nothing is lost.
         let out = shader_with_glsl_version(b"void main(){}", b"#version 150\n");
         assert_eq!(out, b"#version 150\nvoid main(){}".to_vec());
     }
@@ -4752,8 +4695,8 @@ mod autotest_generated {
     #[cfg(feature = "std")]
     #[test]
     fn shader_with_glsl_version_is_byte_exact_on_invalid_utf8_and_nul_bytes() {
-        // Shader sources are bytes, not str: invalid UTF-8 / NULs must pass
-        // through untouched (this is fed straight to glShaderSource).
+        // Shader sources are bytes, not str: invalid UTF-8 / NULs must pass through
+        // untouched (this is fed straight to glShaderSource).
         let src = b"#version 150\n\xFF\xFE\x00\x80body";
         let out = shader_with_glsl_version(src, b"#version 100\n");
         assert_eq!(out, b"#version 100\n\xFF\xFE\x00\x80body".to_vec());
@@ -4788,15 +4731,16 @@ mod autotest_generated {
             );
             for c in candidates {
                 // GlContextPtr::new parses these back out with
-                // `trim().trim_start_matches("#version ")`, which requires
-                // valid UTF-8, the exact prefix, and a trailing newline.
+                // `trim().trim_start_matches("#version ")`, which requires valid
+                // UTF-8, the exact prefix, and a trailing newline.
                 let s = core::str::from_utf8(c).expect("candidate must be valid UTF-8");
                 assert!(s.starts_with("#version "), "{s:?}");
                 assert!(s.ends_with('\n'), "{s:?}");
                 let parsed = s.trim().trim_start_matches("#version ");
                 assert!(!parsed.is_empty(), "{s:?} must parse to a nonempty version");
             }
-            // No duplicates: a repeated candidate would just re-probe a known failure.
+            // No duplicates: a repeated candidate would just re-probe a known
+            // failure.
             for (i, a) in candidates.iter().enumerate() {
                 for b in candidates.iter().skip(i + 1) {
                     assert_ne!(a, b, "duplicate candidate in {gl_type:?}");
@@ -4804,7 +4748,8 @@ mod autotest_generated {
             }
         }
 
-        // The GL and GLES lists must be disjoint (a GLES driver rejects `#version 150`).
+        // The GL and GLES lists must be disjoint (a GLES driver rejects `#version
+        // 150`).
         for g in glsl_version_candidates(GlType::Gl) {
             assert!(!glsl_version_candidates(GlType::Gles).contains(g));
         }
@@ -4828,8 +4773,8 @@ mod autotest_generated {
 
     #[test]
     fn gl_context_ptr_software_is_never_usable_and_has_no_shaders() {
-        // Documented: "Always `false` for a Software context (which never
-        // compiles these shaders)".
+        // Documented: "Always `false` for a Software context (which never compiles
+        // these shaders)".
         let ctx = GlContextPtr::new(RendererType::Software, null_gl());
         assert!(!ctx.is_gl_usable());
         assert_eq!(ctx.get_svg_shader(), 0);
@@ -4841,11 +4786,11 @@ mod autotest_generated {
 
     #[test]
     fn gl_context_ptr_hardware_with_broken_driver_falls_back_instead_of_panicking() {
-        // THE contract `is_gl_usable()` exists for: context creation "succeeds"
-        // but the driver compiles nothing. The probe must try every candidate
-        // version, fail them all, and leave every program id at 0 -- so the
-        // caller can fall back to CPU rendering -- rather than panicking or
-        // handing out a garbage program id.
+        // THE contract `is_gl_usable()` exists for: context creation "succeeds" but
+        // the driver compiles nothing. The probe must try every candidate version,
+        // fail them all, and leave every program id at 0 -- so the caller can fall
+        // back to CPU rendering -- rather than panicking or handing out a garbage
+        // program id.
         let ctx = GlContextPtr::new(RendererType::Hardware, null_gl());
         assert!(
             !ctx.is_gl_usable(),
@@ -4870,8 +4815,8 @@ mod autotest_generated {
 
     #[test]
     fn gl_context_ptr_clone_is_eq_but_distinct_contexts_are_not() {
-        // Eq/Ord are identity-based (`as_usize` = the inner Rc address), so a
-        // clone must compare equal and two independently created contexts must not.
+        // Eq/Ord are identity-based (`as_usize` = the inner Rc address), so a clone
+        // must compare equal and two independently created contexts must not.
         let a = null_ctx();
         let clone = a.clone();
         assert_eq!(a, clone);
@@ -4891,9 +4836,9 @@ mod autotest_generated {
 
     #[test]
     fn gl_context_ptr_gen_family_returns_empty_for_every_n_including_negatives() {
-        // A driver that generates nothing returns an EMPTY list. Callers index
-        // into this ([0] / .get(0).unwrap()), so the wrappers must at least not
-        // panic on the way out -- and must not choke on a negative/extreme n.
+        // A driver that generates nothing returns an EMPTY list. Callers index into
+        // this ([0] / .get(0).unwrap()), so the wrappers must at least not panic on
+        // the way out -- and must not choke on a negative/extreme n.
         let ctx = null_ctx();
         for n in [0, 1, -1, i32::MIN, i32::MAX] {
             assert!(ctx.gen_buffers(n).as_slice().is_empty(), "gen_buffers({n})");
@@ -4917,8 +4862,8 @@ mod autotest_generated {
     #[test]
     fn gl_context_ptr_integer_extremes_do_not_panic() {
         // Offsets/sizes/limits at the boundary of their integer types. These are
-        // passed straight through to GL, so the wrapper must not do arithmetic
-        // that overflows on the way.
+        // passed straight through to GL, so the wrapper must not do arithmetic that
+        // overflows on the way.
         let ctx = null_ctx();
         let data = [0u8; 4];
         let void_ptr = || GlVoidPtrConst {
@@ -4956,7 +4901,8 @@ mod autotest_generated {
 
     #[test]
     fn gl_context_ptr_float_extremes_do_not_panic() {
-        // NaN / inf / subnormal floats must pass through the f32 wrappers untouched.
+        // NaN / inf / subnormal floats must pass through the f32 wrappers
+        // untouched.
         let ctx = null_ctx();
         for v in [
             0.0,
@@ -4976,8 +4922,8 @@ mod autotest_generated {
 
     #[test]
     fn gl_context_ptr_shader_source_handles_empty_unicode_and_embedded_nuls() {
-        // shader_source NUL-terminates each string itself; an already-embedded
-        // NUL or multibyte UTF-8 must not panic on the way through.
+        // shader_source NUL-terminates each string itself; an already-embedded NUL
+        // or multibyte UTF-8 must not panic on the way through.
         let ctx = null_ctx();
         let strings: StringVec = vec![
             AzString::from(String::new()),
@@ -4994,13 +4940,12 @@ mod autotest_generated {
 
     #[test]
     fn gl_context_ptr_read_pixels_sizes_the_buffer_from_the_dimensions() {
-        // NOTE: only SAFE (small, positive) dimensions are exercised here.
-        // Negative dimensions are a live hazard in this path -- see the report:
-        // gl-context-loader's read_pixels does
-        //   `vec![0; width as usize * height as usize * bit_depth]`
-        // BEFORE its null-pointer check, so a negative width sign-extends to
-        // ~usize::MAX and the multiply overflows (debug) / requests an
-        // exabyte-scale allocation (release). Deliberately not provoked.
+        // NOTE: only SAFE (small, positive) dimensions are exercised here. Negative
+        // dimensions are a live hazard in this path -- see the report:
+        // gl-context-loader's read_pixels does `vec![0; width as usize * height as
+        // usize * bit_depth]` BEFORE its null-pointer check, so a negative width
+        // sign-extends to ~usize::MAX and the multiply overflows (debug) / requests
+        // an exabyte-scale allocation (release).
         let ctx = null_ctx();
         let px = ctx.read_pixels(0, 0, 2, 3, gl::RGBA, gl::UNSIGNED_BYTE);
         assert_eq!(px.len(), 2 * 3 * 4, "RGBA/UNSIGNED_BYTE = 4 bytes per pixel");
@@ -5014,8 +4959,8 @@ mod autotest_generated {
 
     #[test]
     fn gl_context_ptr_read_pixels_into_buffer_accepts_null_and_undersized_targets() {
-        // The destination is caller-owned here (no allocation from the dims), so
-        // a null / empty / undersized target must simply no-op.
+        // The destination is caller-owned here (no allocation from the dims), so a
+        // null / empty / undersized target must simply no-op.
         let ctx = null_ctx();
         ctx.read_pixels_into_buffer(
             0,
@@ -5265,16 +5210,16 @@ mod autotest_generated {
         );
     }
 
-    // =====================================================================
-    // Uniform / UniformType (NaN semantics feed GlShader::draw's dedupe)
+    // ===================================================================== Uniform
+    // / UniformType (NaN semantics feed GlShader::draw's dedupe)
     // =====================================================================
 
     #[test]
     fn uniform_type_nan_never_equals_itself_so_draw_always_reuploads_it() {
-        // GlShader::draw skips re-setting a uniform when
-        // `current_uniforms[i] != Some(uniform.uniform_type)`. With a NaN payload
-        // that comparison is ALWAYS unequal, so a NaN uniform is re-uploaded on
-        // every buffer -- correct (never stale), just not deduped. Pin it.
+        // GlShader::draw skips re-setting a uniform when `current_uniforms[i] !=
+        // Some(uniform.uniform_type)`. With a NaN payload that comparison is ALWAYS
+        // unequal, so a NaN uniform is re-uploaded on every buffer -- correct (never
+        // stale), just not deduped.
         let nan = UniformType::Float(f32::NAN);
         assert_ne!(nan, UniformType::Float(f32::NAN));
         assert_ne!(Some(nan), Some(nan));
@@ -5283,8 +5228,8 @@ mod autotest_generated {
         assert_ne!(nan_vec, nan_vec);
 
         // The flip side: +0.0 and -0.0 compare EQUAL, so a -0.0 -> +0.0 change is
-        // deduped away and never re-uploaded. Harmless for a uniform, but pinned
-        // so a change in semantics is visible.
+        // deduped away and never re-uploaded. Harmless for a uniform, but pinned so
+        // a change in semantics is visible.
         assert_eq!(UniformType::Float(0.0), UniformType::Float(-0.0));
 
         // Integer uniforms have no such wrinkle: they dedupe exactly.
@@ -5378,8 +5323,8 @@ mod autotest_generated {
             .contains("doesn't include a shader compiler"));
     }
 
-    // =====================================================================
-    // Texture -- getters, refcounting, and the degenerate-driver paths
+    // ===================================================================== Texture
+    // -- getters, refcounting, and the degenerate-driver paths
     // =====================================================================
 
     #[test]
@@ -5428,8 +5373,8 @@ mod autotest_generated {
 
     #[test]
     fn texture_clone_and_drop_share_one_refcount_without_double_freeing() {
-        // Texture is refcounted through a raw Box<AtomicUsize>; a miscount here
-        // is a double-free (or a leaked GL texture). Exercise fan-out + drop.
+        // Texture is refcounted through a raw Box<AtomicUsize>; a miscount here is
+        // a double-free (or a leaked GL texture). Exercise fan-out + drop.
         let tex = test_texture(9, 4, 4);
         let clones: Vec<Texture> = (0..16).map(|_| tex.clone()).collect();
         for c in &clones {
@@ -5458,10 +5403,9 @@ mod autotest_generated {
     #[test]
     fn texture_paint_stroke_is_a_noop_when_gl_is_unusable() {
         // Documented: "No-op if the GL context is unusable". With no brush shader
-        // (program id 0) this must bail out before touching GL -- including for
-        // NaN / infinite / negative radii and coordinates, which must not produce
-        // a huge dab loop. (`!(radius > 0.0)` is written that way precisely so it
-        // also rejects NaN.)
+        // (program id 0) this must bail out before touching GL -- including for NaN
+        // / infinite / negative radii and coordinates, which must not produce a huge
+        // dab loop.
         let mut tex = test_texture(5, 8, 8);
         assert_eq!(tex.gl_context.get_brush_shader(), 0);
 
@@ -5503,10 +5447,9 @@ mod autotest_generated {
     fn texture_copy_to_raw_image_returns_a_null_image_on_every_degenerate_input() {
         // The `w <= 0 || h <= 0` guard is load-bearing: size is a u32 but is cast
         // to i32 for glReadPixels, so a width >= 2^31 goes NEGATIVE. Without the
-        // guard that reaches gl-context-loader's
-        //   `vec![0; width as usize * height as usize * bit_depth]`
-        // which sign-extends the negative width to ~usize::MAX -> overflow panic
-        // (debug) / exabyte allocation (release). Prove the guard holds.
+        // guard that reaches gl-context-loader's `vec![0; width as usize * height as
+        // usize * bit_depth]` which sign-extends the negative width to ~usize::MAX
+        // -> overflow panic (debug) / exabyte allocation (release).
         let is_null_image = |img: &RawImage| img.width == 0 && img.height == 0;
 
         // texture id 0 -> null image
@@ -5516,7 +5459,8 @@ mod autotest_generated {
         assert!(is_null_image(&test_texture(1, 16, 0).copy_to_raw_image()));
         assert!(is_null_image(&test_texture(1, 0, 16).copy_to_raw_image()));
 
-        // u32::MAX / 2^31 both cast to a NEGATIVE i32 and MUST be caught by the guard.
+        // u32::MAX / 2^31 both cast to a NEGATIVE i32 and MUST be caught by the
+        // guard.
         assert!(is_null_image(
             &test_texture(1, u32::MAX, u32::MAX).copy_to_raw_image()
         ));
@@ -5524,8 +5468,8 @@ mod autotest_generated {
             &test_texture(1, 1 << 31, 1 << 31).copy_to_raw_image()
         ));
 
-        // Valid id + valid size, but the driver hands back no framebuffer
-        // (`fbo == 0`) -> still a clean null image, no unwrap panic.
+        // Valid id + valid size, but the driver hands back no framebuffer (`fbo ==
+        // 0`) -> still a clean null image, no unwrap panic.
         assert!(is_null_image(&test_texture(1, 4, 4).copy_to_raw_image()));
     }
 
@@ -5535,8 +5479,8 @@ mod autotest_generated {
         // DOCUMENTED panic: "Panics if no framebuffer/depthbuffer was allocated
         // (the GL object lists are empty)." A driver that generates nothing makes
         // gen_framebuffers(1) return an EMPTY list, so `.get(0).unwrap()` panics.
-        // Pinned as documented behavior -- note that the sibling paths
-        // (paint_stroke / copy_to_raw_image) degrade gracefully instead.
+        // Pinned as documented behavior -- note that the sibling paths (paint_stroke
+        // / copy_to_raw_image) degrade gracefully instead.
         test_texture(1, 4, 4).clear();
     }
 
@@ -5633,14 +5577,10 @@ mod autotest_generated {
         );
     }
 
-    // =====================================================================
-    // The process-global GL texture table.
-    //
-    // ACTIVE_GL_TEXTURES is a `static mut` with no lock (GL is single-threaded
-    // by design), and cargo test runs #[test]s on parallel threads. So ALL of
-    // its coverage lives in this ONE test -- splitting it up would race the
-    // table against itself. No other test in this crate touches it.
-    // =====================================================================
+    // ===================================================================== The
+    // process-global GL texture table. ACTIVE_GL_TEXTURES is a `static mut` with no
+    // lock (GL is single-threaded by design), and cargo test runs #[test]s on
+    // parallel threads.
 
     #[test]
     fn gl_texture_cache_insert_lookup_and_eviction_lifecycle() {
@@ -5665,10 +5605,9 @@ mod autotest_generated {
         gl_textures_clear_opengl_cache(); // idempotent
 
         // --- Insert into an UNINITIALIZED table.
-        // NOTE: the doc comment on insert_into_active_gl_textures claims it
-        // "Panics if the global active-GL-texture table has not been
-        // initialized" -- it does not; it initializes the table itself. The doc
-        // is stale (see the report). Pin the real behavior.
+        // NOTE: the doc comment on insert_into_active_gl_textures claims it "Panics
+        // if the global active-GL-texture table has not been initialized" -- it does
+        // not; it initializes the table itself. The doc is stale (see the report).
         let id5 = insert_into_active_gl_textures(doc, Epoch::from(5), test_texture(11, 4, 8));
         let id7 = insert_into_active_gl_textures(doc, Epoch::from(7), test_texture(22, 16, 32));
         assert_ne!(id5, id7, "each insert must mint a unique ExternalImageId");
@@ -5678,8 +5617,8 @@ mod autotest_generated {
         assert_eq!(get_opengl_texture(&id7), Some((22, (16.0, 32.0))));
         assert!(get_opengl_texture(&stale).is_none());
 
-        // A u32::MAX-sized texture goes through a lossy u32 -> f32 cast:
-        // u32::MAX (2^32 - 1) has no exact f32, so it rounds UP to 2^32.
+        // A u32::MAX-sized texture goes through a lossy u32 -> f32 cast: u32::MAX
+        // (2^32 - 1) has no exact f32, so it rounds UP to 2^32.
         let id_huge =
             insert_into_active_gl_textures(doc, Epoch::from(5), test_texture(33, u32::MAX, 1));
         assert_eq!(get_opengl_texture(&id_huge), Some((33, (4_294_967_296.0, 1.0))));
@@ -5704,8 +5643,8 @@ mod autotest_generated {
             Some(())
         );
         assert!(get_opengl_texture(&id7).is_none());
-        // ...including a second removal of an already-gone image (the path is
-        // still there, so it reports Some(()) rather than None)...
+        // ...including a second removal of an already-gone image (the path is still
+        // there, so it reports Some(()) rather than None)...
         assert_eq!(
             remove_single_texture_from_active_gl_textures(&doc, &Epoch::from(7), &id7),
             Some(())
