@@ -71,6 +71,15 @@ fn resolve_px_with_box_model(
     }
 
     let percent = px.to_percent()?;
+    // css-sizing-3 §5.2.1 (febf0c): a percentage that would resolve against an
+    // INDEFINITE size cannot resolve at all. Returning None routes every caller
+    // to its own "no constraint" answer — min-* becomes 0, max-* becomes
+    // unbounded — instead of manufacturing an infinite length that a later
+    // clamp would then FORCE onto the box (a percent min-width was enough to
+    // re-infect a width the main resolution had already fixed up).
+    if !containing.is_finite() {
+        return None;
+    }
     let (margin, border, padding) = if is_horizontal {
         (
             (box_props.margin.left, box_props.margin.right),
@@ -1784,7 +1793,22 @@ pub fn calculate_used_size_for_node(
         }
     };
     // css-sizing-3: "the used value is floored to preserve a non-negative inner size"
-    let resolved_width = resolved_width.max(0.0);
+    //
+    // And a net over EVERY arm above: a width that came out non-finite means
+    // some input resolved against the indefinite (measurement-pass) containing
+    // block — a percentage, a calc() with percent terms, anything. Spec-wise
+    // such a size "behaves as auto" (febf0c), and auto under an indefinite
+    // constraint is the max-content contribution (see
+    // auto_block_inline_size_definite_or_max_content). Letting the infinity
+    // through instead PERSISTS it as the node's used size, and no later stage
+    // survives that — it becomes an infinite clip, u32::MAX device pixels, and
+    // a ~900 GB pixmap request. Not loud: this is a legitimate, per-frame
+    // situation during measurement, not a bug to report.
+    let resolved_width = if resolved_width.is_finite() {
+        resolved_width.max(0.0)
+    } else {
+        intrinsic.max_content_width.max(0.0)
+    };
 
     // +spec:height-calculation:7880e3 - Distinction between box types for height/margin calculation
     // +spec:height-calculation:753d8d - Height calculation for various box types (§10.6)
@@ -1914,7 +1938,12 @@ pub fn calculate_used_size_for_node(
         }
     };
     // css-sizing-3: "the used value is floored to preserve a non-negative inner size"
-    let resolved_height = resolved_height.max(0.0);
+    // Same indefinite-input net as resolved_width above.
+    let resolved_height = if resolved_height.is_finite() {
+        resolved_height.max(0.0)
+    } else {
+        intrinsic.max_content_height.max(0.0)
+    };
 
     // +spec:replaced-elements:5a85ce - abs-pos replaced: derive auto width from height × intrinsic ratio
     // +spec:replaced-elements:aedb26 - abs-pos replaced: both auto, ratio but no intrinsic w/h → block constraint
@@ -2682,15 +2711,27 @@ mod autotest_generated {
     }
 
     #[test]
-    fn resolve_px_percentage_against_a_degenerate_containing_block_is_zero() {
+    fn resolve_px_percentage_against_a_degenerate_containing_block_cannot_resolve() {
+        // A non-finite containing dimension is INDEFINITE, and css-sizing-3
+        // says a percentage against it cannot resolve — so the answer is None,
+        // routing each caller to its own "no constraint" fallback. The old
+        // contract answered Some(0.0) instead, which zeroed a percent
+        // max-width under a measurement pass and crushed the box.
         let bp = zero_props();
         let px = PixelValue::const_percent(50);
-        for cb in [-800.0, f32::NAN, f32::NEG_INFINITY] {
-            let r = resolve_px_with_box_model(&px, cb, &bp, true, 16.0, 16.0)
-                .expect("a percentage always resolves to Some");
-            assert!(!r.is_nan(), "NaN escaped for cb={cb}");
-            assert_eq!(r, 0.0, "cb={cb}");
+        for cb in [f32::NAN, f32::NEG_INFINITY, f32::INFINITY] {
+            assert_eq!(
+                resolve_px_with_box_model(&px, cb, &bp, true, 16.0, 16.0),
+                None,
+                "cb={cb} is indefinite and must not resolve"
+            );
         }
+        // A negative but FINITE containing block is still definite — it
+        // resolves, floored to zero.
+        assert_eq!(
+            resolve_px_with_box_model(&px, -800.0, &bp, true, 16.0, 16.0),
+            Some(0.0)
+        );
     }
 
     #[test]
@@ -3717,9 +3758,53 @@ mod autotest_generated {
             assert!(!r.width.is_nan() && !r.height.is_nan(), "NaN for cb={cb:?}");
             assert!(r.width >= 0.0 && r.height >= 0.0, "negative size for cb={cb:?}");
         }
-        // An infinite CB stays infinite (saturation), never NaN.
+        // An infinite CB is a MEASUREMENT constraint, not a length: a
+        // percentage against it behaves as auto (max-content), never as an
+        // infinite used size. The earlier form of this test asserted the
+        // saturation instead — a green test encoding the very bug that grew a
+        // u32::MAX-wide compositor layer.
         let r = used_size(&dom, PCT, size(f32::INFINITY, f32::INFINITY), &bp);
-        assert!(r.width.is_infinite() && r.width.is_sign_positive());
+        assert!(
+            r.width.is_finite() && r.height.is_finite(),
+            "percent against an indefinite CB must behave as auto, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn a_percent_min_width_cannot_reinfect_a_width_with_infinity() {
+        // The main width resolution already treats an indefinite CB as auto —
+        // but min/max constraints are clamped on AFTERWARDS. A percent
+        // min-width resolved against the same indefinite CB used to come out
+        // infinite, and `.max(min_w)` then forced the finished width back to
+        // infinity. Per css-sizing-3 an unresolvable percentage minimum is
+        // simply ignored.
+        let dom = constraints_dom();
+        let bp = zero_props();
+        let r = used_size(&dom, PCTMIN, size(f32::INFINITY, f32::INFINITY), &bp);
+        assert!(
+            r.width.is_finite(),
+            "percent min-width against an indefinite CB must be ignored, got {r:?}"
+        );
+    }
+
+    #[test]
+    fn every_node_shape_yields_a_finite_used_size_under_a_measurement_pass() {
+        // Taffy's MinContent/MaxContent passes hand the bridge an INFINITE
+        // available size on purpose, and whatever this function returns is
+        // PERSISTED as the node's real used size. So for every CSS shape in
+        // the fixture — plain px, percent, clamped, box-sizing, auto, vw, em —
+        // the answer under that constraint must be a finite number. One
+        // infinity here became an infinite clip rect, a u32::MAX-wide
+        // compositor layer, and a ~900 GB allocation.
+        let dom = constraints_dom();
+        let bp = zero_props();
+        for id in [PLAIN, PCT, CLAMPED, MAXED, PCTMIN, BBOX, AUTOBLOCK, VWMIN, EM, HCLAMPED, ROW10] {
+            let r = used_size(&dom, id, size(f32::INFINITY, f32::INFINITY), &bp);
+            assert!(
+                r.width.is_finite() && r.height.is_finite(),
+                "node {id:?} leaked a non-finite used size under max-content: {r:?}"
+            );
+        }
     }
 
     #[test]
