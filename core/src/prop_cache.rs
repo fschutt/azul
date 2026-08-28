@@ -72,40 +72,37 @@ use azul_css::{
             LayoutMinWidthValue, LayoutOverflowValue, LayoutPaddingBottomValue,
             LayoutPaddingLeftValue, LayoutPaddingRightValue, LayoutPaddingTopValue,
             LayoutPositionValue, LayoutRightValue, LayoutRowGapValue, LayoutScrollbarWidthValue,
-            OverscrollBehaviorValue,
             LayoutTableLayoutValue, LayoutTextJustifyValue, LayoutTopValue, LayoutWidthValue,
-            LayoutWritingModeValue, LayoutZIndexValue, OrphansValue, PageBreakValue,
-            StyleBackgroundContentValue, ScrollbarFadeDelayValue, ScrollbarFadeDurationValue,
+            LayoutWritingModeValue, LayoutZIndexValue, OrphansValue, OverscrollBehaviorValue,
+            PageBreakValue, ScrollbarFadeDelayValue, ScrollbarFadeDurationValue,
             ScrollbarVisibilityModeValue, SelectionBackgroundColorValue, SelectionColorValue,
             SelectionRadiusValue, ShapeImageThresholdValue, ShapeInsideValue, ShapeMarginValue,
-            ShapeOutsideValue, StringSetValue, StyleAppRegionValue, StyleBackfaceVisibilityValue,
+            ShapeOutsideValue, StringSetValue, StyleAlignmentBaselineValue, StyleAppRegionValue,
+            StyleAspectRatioValue, StyleBackfaceVisibilityValue, StyleBackgroundContentValue,
             StyleBackgroundContentVecValue, StyleBackgroundPositionVecValue,
-            StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue,
+            StyleBackgroundRepeatVecValue, StyleBackgroundSizeVecValue, StyleBaselineSourceValue,
             StyleBorderBottomColorValue, StyleBorderBottomLeftRadiusValue,
             StyleBorderBottomRightRadiusValue, StyleBorderBottomStyleValue,
             StyleBorderCollapseValue, StyleBorderLeftColorValue, StyleBorderLeftStyleValue,
             StyleBorderRightColorValue, StyleBorderRightStyleValue, StyleBorderTopColorValue,
             StyleBorderTopLeftRadiusValue, StyleBorderTopRightRadiusValue,
-            StyleBorderTopStyleValue, StyleBoxShadowValue, StyleCaptionSideValue, StyleCursorValue,
-            StyleDirectionValue, StyleEmptyCellsValue, StyleExclusionMarginValue,
-            StyleFilterVecValue, StyleFontFamilyVecValue, StyleFontSizeValue, StyleFontStyleValue,
-            StyleFontValue, StyleFontWeightValue, StyleHangingPunctuationValue,
-            StyleHyphenationLanguageValue, StyleHyphensValue, StyleInitialLetterValue,
-            StyleLetterSpacingValue, StyleLineBreakValue, StyleLineClampValue, StyleLineHeightValue,
+            StyleBorderTopStyleValue, StyleBoxShadowValue, StyleCaptionSideValue,
+            StyleClipRectValue, StyleCursorValue, StyleDirectionValue, StyleDominantBaselineValue,
+            StyleEmptyCellsValue, StyleExclusionMarginValue, StyleFilterVecValue,
+            StyleFontFamilyVecValue, StyleFontSizeValue, StyleFontStyleValue, StyleFontValue,
+            StyleFontWeightValue, StyleHangingPunctuationValue, StyleHyphenationLanguageValue,
+            StyleHyphensValue, StyleInitialLetterAlignValue, StyleInitialLetterValue,
+            StyleInitialLetterWrapValue, StyleLetterSpacingValue, StyleLineBreakValue,
+            StyleLineClampValue, StyleLineFitEdgeValue, StyleLineHeightValue,
             StyleListStylePositionValue, StyleListStyleTypeValue, StyleMixBlendModeValue,
-            StyleAspectRatioValue, StyleObjectFitValue, StyleObjectPositionValue, StyleTextOverflowValue,
-            StyleOpacityValue, StylePerspectiveOriginValue,
-            StyleScrollbarColorValue, StyleOverflowWrapValue, StyleTabSizeValue,
-            StyleTextAlignLastValue, StyleTextOrientationValue, StyleTextTransformValue,
-            StyleTextAlignValue, StyleTextColorValue,
-            StyleTextCombineUprightValue, StyleUnicodeBidiValue,
-            StyleTextBoxTrimValue, StyleTextBoxEdgeValue,
-            StyleDominantBaselineValue, StyleAlignmentBaselineValue, StyleBaselineSourceValue,
-            StyleLineFitEdgeValue,
-            StyleInitialLetterAlignValue, StyleInitialLetterWrapValue,
-            StyleScrollbarGutterValue, StyleOverflowClipMarginValue, StyleClipRectValue,
-            StyleTextDecorationValue, StyleTextIndentValue,
-            StyleTransformOriginValue, StyleTransformVecValue, StyleUserSelectValue,
+            StyleObjectFitValue, StyleObjectPositionValue, StyleOpacityValue,
+            StyleOverflowClipMarginValue, StyleOverflowWrapValue, StylePerspectiveOriginValue,
+            StyleScrollbarColorValue, StyleScrollbarGutterValue, StyleTabSizeValue,
+            StyleTextAlignLastValue, StyleTextAlignValue, StyleTextBoxEdgeValue,
+            StyleTextBoxTrimValue, StyleTextColorValue, StyleTextCombineUprightValue,
+            StyleTextDecorationValue, StyleTextIndentValue, StyleTextOrientationValue,
+            StyleTextOverflowValue, StyleTextTransformValue, StyleTransformOriginValue,
+            StyleTransformVecValue, StyleUnicodeBidiValue, StyleUserSelectValue,
             StyleVerticalAlignValue, StyleVisibilityValue, StyleWhiteSpaceValue,
             StyleWordBreakValue, StyleWordSpacingValue, WidowsValue,
         },
@@ -144,7 +141,8 @@ std::thread_local! {
 /// this after each `layout_document` to print which properties
 /// drove the most cascade walks.
 #[cfg(feature = "std")]
-#[must_use] pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
+#[must_use]
+pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
     // try_with: no real TLS in the lifted-to-wasm web backend (see the
     // get_property recording site) — return empty rather than panic.
     PROP_COUNTS
@@ -405,10 +403,10 @@ impl<T> FlatVecVec<T> {
     /// flattened `data` + `offsets` tables and the per-node build
     /// Vecs (in case `sort_each_and_flatten` hasn't been called
     /// yet). `per_element_size` should be `size_of::<T>()`.
-    #[must_use] pub fn heap_bytes(&self, per_element_size: usize) -> usize {
+    #[must_use]
+    pub fn heap_bytes(&self, per_element_size: usize) -> usize {
         let data_bytes = self.data.capacity() * per_element_size;
-        let offsets_bytes =
-            self.offsets.capacity() * size_of::<(u32, u32)>();
+        let offsets_bytes = self.offsets.capacity() * size_of::<(u32, u32)>();
         let mut build_bytes = self.build.capacity() * size_of::<Vec<T>>();
         for v in &self.build {
             build_bytes += v.capacity() * per_element_size;
@@ -417,7 +415,8 @@ impl<T> FlatVecVec<T> {
     }
 
     /// Create a new `FlatVecVec` with `node_count` empty slots (build phase).
-    #[must_use] pub fn new(node_count: usize) -> Self {
+    #[must_use]
+    pub fn new(node_count: usize) -> Self {
         let mut build = Vec::with_capacity(node_count);
         for _ in 0..node_count {
             build.push(Vec::new());
@@ -453,13 +452,15 @@ impl<T> FlatVecVec<T> {
     /// Get a reference to the inner Vec at `node_index` during build phase.
     /// During read phase, returns None (use `get_slice` instead).
     #[inline]
-    #[must_use] pub fn build_get(&self, node_index: usize) -> Option<&Vec<T>> {
+    #[must_use]
+    pub fn build_get(&self, node_index: usize) -> Option<&Vec<T>> {
         self.build.get(node_index)
     }
 
     /// Number of node slots.
     #[inline]
-    #[must_use] pub const fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         if self.offsets.is_empty() {
             self.build.len()
         } else {
@@ -469,13 +470,15 @@ impl<T> FlatVecVec<T> {
 
     /// Returns `true` if there are no node slots.
     #[inline]
-    #[must_use] pub const fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Returns true if this is in read (flattened) mode.
     #[inline]
-    #[must_use] pub const fn is_flattened(&self) -> bool {
+    #[must_use]
+    pub const fn is_flattened(&self) -> bool {
         !self.offsets.is_empty() || self.build.is_empty()
     }
 
@@ -483,10 +486,13 @@ impl<T> FlatVecVec<T> {
     /// Returns empty slice if index is out of bounds or not yet flattened
     /// (falls back to build-phase data if not yet flattened).
     #[inline]
-    #[must_use] pub fn get_slice(&self, node_index: usize) -> &[T] {
+    #[must_use]
+    pub fn get_slice(&self, node_index: usize) -> &[T] {
         if self.offsets.is_empty() {
             // Build phase fallback: use inner Vecs
-            self.build.get(node_index).map_or(&[], alloc::vec::Vec::as_slice)
+            self.build
+                .get(node_index)
+                .map_or(&[], alloc::vec::Vec::as_slice)
         } else {
             // Read phase: use flat data
             if let Some(&(start, len)) = self.offsets.get(node_index) {
@@ -562,8 +568,13 @@ impl<T> FlatVecVec<T> {
 
     /// Rebuild flat storage, keeping only items matching `predicate`.
     /// Must be called after flatten. Preserves per-node ordering.
-    pub fn retain(&mut self, predicate: impl Fn(&T) -> bool) where T: Clone {
-        if self.offsets.is_empty() { return; }
+    pub fn retain(&mut self, predicate: impl Fn(&T) -> bool)
+    where
+        T: Clone,
+    {
+        if self.offsets.is_empty() {
+            return;
+        }
         let node_count = self.offsets.len();
         let mut new_data = Vec::new();
         let mut new_offsets = Vec::with_capacity(node_count);
@@ -594,7 +605,10 @@ impl<T> FlatVecVec<T> {
     /// internal pass, then the public API may do more), and building the compact cache
     /// flattens these vecs in between. Without re-entering build phase, the next
     /// restyle's `push_to` / `build_mut` would index an emptied `build` and panic.
-    pub fn ensure_build_phase(&mut self) where T: Clone {
+    pub fn ensure_build_phase(&mut self)
+    where
+        T: Clone,
+    {
         if self.offsets.is_empty() {
             return; // already in build phase (or wholly empty)
         }
@@ -611,11 +625,13 @@ impl<T> FlatVecVec<T> {
 
     /// Like `retain`, but passes each item's owning node index to the predicate.
     /// Must be called after flatten. Preserves per-node ordering.
-    pub fn retain_with_node_index(
-        &mut self,
-        predicate: impl Fn(usize, &T) -> bool,
-    ) where T: Clone {
-        if self.offsets.is_empty() { return; }
+    pub fn retain_with_node_index(&mut self, predicate: impl Fn(usize, &T) -> bool)
+    where
+        T: Clone,
+    {
+        if self.offsets.is_empty() {
+            return;
+        }
         let node_count = self.offsets.len();
         let mut new_data = Vec::new();
         let mut new_offsets = Vec::with_capacity(node_count);
@@ -655,7 +671,8 @@ impl<T> FlatVecVec<T> {
             // Both flattened: extend flat data with offset adjustment
             let base = u32::try_from(self.data.len()).unwrap_or(u32::MAX);
             self.data.append(&mut other.data);
-            self.offsets.extend(other.offsets.drain(..).map(|(s, l)| (s + base, l)));
+            self.offsets
+                .extend(other.offsets.drain(..).map(|(s, l)| (s + base, l)));
         } else {
             // At least one in build phase: extend build vecs
             self.build.append(&mut other.build);
@@ -788,7 +805,8 @@ pub struct CssPropertyCacheBreakdown {
 
 impl CssPropertyCacheBreakdown {
     /// Sum of all subfields.
-    #[must_use] pub const fn total_bytes(&self) -> usize {
+    #[must_use]
+    pub const fn total_bytes(&self) -> usize {
         self.cascaded_props_bytes
             + self.css_props_bytes
             + self.computed_values_bytes
@@ -815,8 +833,7 @@ impl CssPropertyCache {
     /// the pre-compact and compact caches.
     pub fn memory_breakdown(&self) -> CssPropertyCacheBreakdown {
         let stateful_sz = size_of::<StatefulCssProperty>();
-        let computed_entry_sz =
-            size_of::<(CssPropertyType, CssPropertyWithOrigin)>();
+        let computed_entry_sz = size_of::<(CssPropertyType, CssPropertyWithOrigin)>();
         let outer_vec_sz = size_of::<Vec<(CssPropertyType, CssPropertyWithOrigin)>>();
 
         let cascaded_bytes = self.cascaded_props.heap_bytes(stateful_sz);
@@ -830,26 +847,21 @@ impl CssPropertyCache {
         let user_overridden_bytes = {
             let mut b = self.user_overridden_properties.capacity() * outer_vec_sz;
             for v in &self.user_overridden_properties {
-                b += v.capacity()
-                    * size_of::<(CssPropertyType, CssProperty)>();
+                b += v.capacity() * size_of::<(CssPropertyType, CssProperty)>();
             }
             b
         };
 
-        let global_bytes = self.global_css_props.capacity()
-            * size_of::<CssProperty>();
+        let global_bytes = self.global_css_props.capacity() * size_of::<CssProperty>();
 
-        let compact_bytes = self
-            .compact_cache
-            .as_ref()
-            .map_or(0, |c| {
-                c.tier1_enums.capacity() * 8
-                    + c.tier2_dims.capacity() * 68
-                    + c.tier2_cold.capacity() * 28
-                    + c.tier2b_text.capacity() * 24
-                    + c.prev_font_hashes.capacity() * 8
-                    + c.font_dirty_nodes.capacity() * 8
-            });
+        let compact_bytes = self.compact_cache.as_ref().map_or(0, |c| {
+            c.tier1_enums.capacity() * 8
+                + c.tier2_dims.capacity() * 68
+                + c.tier2_cold.capacity() * 28
+                + c.tier2b_text.capacity() * 24
+                + c.prev_font_hashes.capacity() * 8
+                + c.font_dirty_nodes.capacity() * 8
+        });
 
         let resolved_font_sizes_bytes = self
             .resolved_font_sizes_px
@@ -878,36 +890,37 @@ impl CssPropertyCache {
 
         #[cfg(feature = "std")]
         {
-        static PRUNE_DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let dbg = *PRUNE_DBG.get_or_init(crate::profile::memory_enabled);
-        if dbg {
-            let mut normal_compact = 0usize;
-            let mut normal_noncompact = 0usize;
-            let mut nonnormal = 0usize;
-            for i in 0..self.css_props.len() {
-                for p in self.css_props.get_slice(i) {
-                    if p.state != PseudoStateType::Normal {
-                        nonnormal += 1;
-                    } else if p.prop_type.has_compact_encoding() {
-                        normal_compact += 1;
-                    } else {
-                        normal_noncompact += 1;
+            static PRUNE_DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            let dbg = *PRUNE_DBG.get_or_init(crate::profile::memory_enabled);
+            if dbg {
+                let mut normal_compact = 0usize;
+                let mut normal_noncompact = 0usize;
+                let mut nonnormal = 0usize;
+                for i in 0..self.css_props.len() {
+                    for p in self.css_props.get_slice(i) {
+                        if p.state != PseudoStateType::Normal {
+                            nonnormal += 1;
+                        } else if p.prop_type.has_compact_encoding() {
+                            normal_compact += 1;
+                        } else {
+                            normal_noncompact += 1;
+                        }
                     }
                 }
-            }
-            let ssp_sz = size_of::<StatefulCssProperty>();
-            let mut casc_normal_compact = 0usize;
-            let mut casc_total = 0usize;
-            for i in 0..self.cascaded_props.len() {
-                for p in self.cascaded_props.get_slice(i) {
-                    casc_total += 1;
-                    if p.state == PseudoStateType::Normal && p.prop_type.has_compact_encoding() {
-                        casc_normal_compact += 1;
+                let ssp_sz = size_of::<StatefulCssProperty>();
+                let mut casc_normal_compact = 0usize;
+                let mut casc_total = 0usize;
+                for i in 0..self.cascaded_props.len() {
+                    for p in self.cascaded_props.get_slice(i) {
+                        casc_total += 1;
+                        if p.state == PseudoStateType::Normal && p.prop_type.has_compact_encoding()
+                        {
+                            casc_normal_compact += 1;
+                        }
                     }
                 }
+                eprintln!("[PRUNE] css_props: norm+compact={normal_compact} norm+other={normal_noncompact} nonnorm={nonnormal} SSP={ssp_sz}B | cascaded: total={casc_total} norm+compact={casc_normal_compact}");
             }
-            eprintln!("[PRUNE] css_props: norm+compact={normal_compact} norm+other={normal_noncompact} nonnorm={nonnormal} SSP={ssp_sz}B | cascaded: total={casc_total} norm+compact={casc_normal_compact}");
-        }
         }
 
         // The compact cache stores SENTINEL for pixel-valued properties whose inner
@@ -943,7 +956,8 @@ impl CssPropertyCache {
         // so pruning it remains safe. TODO: re-enable css_props pruning once recompute
         // becomes incremental (preserve directly-set compact values instead of rebuilding).
         if !self.cascaded_props.is_flattened() {
-            self.cascaded_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
+            self.cascaded_props
+                .sort_each_and_flatten(|p| (p.state, p.prop_type));
         }
         self.cascaded_props.retain(keep);
     }
@@ -962,7 +976,8 @@ impl CssPropertyCache {
         prop_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
         let key = (state, *prop_type);
-        props.binary_search_by_key(&key, |p| (p.state, p.prop_type))
+        props
+            .binary_search_by_key(&key, |p| (p.state, p.prop_type))
             .ok()
             .map(|idx| &props[idx].property)
     }
@@ -985,7 +1000,10 @@ impl CssPropertyCache {
         props: &[StatefulCssProperty],
         state: azul_css::dynamic_selector::PseudoStateType,
     ) -> impl Iterator<Item = &CssPropertyType> + '_ {
-        props.iter().filter(move |p| p.state == state).map(|p| &p.prop_type)
+        props
+            .iter()
+            .filter(move |p| p.state == state)
+            .map(|p| &p.prop_type)
     }
 }
 
@@ -1105,31 +1123,71 @@ fn is_resolved_parent_inherited(prop_type: CssPropertyType) -> bool {
     prop_type == CssPropertyType::FontSize
 }
 
-fn clone_inheritable_property(
-    p: &CssProperty,
-) -> CssProperty {
+fn clone_inheritable_property(p: &CssProperty) -> CssProperty {
     use azul_css::props::property::CssProperty;
-    if let CssProperty::FontFamily(v) = p { return CssProperty::FontFamily(v.clone()); }
-    if let CssProperty::BackgroundContent(v) = p { return CssProperty::BackgroundContent(v.clone()); }
-    if let CssProperty::BackgroundPosition(v) = p { return CssProperty::BackgroundPosition(v.clone()); }
-    if let CssProperty::BackgroundSize(v) = p { return CssProperty::BackgroundSize(v.clone()); }
-    if let CssProperty::BackgroundRepeat(v) = p { return CssProperty::BackgroundRepeat(v.clone()); }
-    if let CssProperty::BoxShadowLeft(v) = p { return CssProperty::BoxShadowLeft(v.clone()); }
-    if let CssProperty::BoxShadowRight(v) = p { return CssProperty::BoxShadowRight(v.clone()); }
-    if let CssProperty::BoxShadowTop(v) = p { return CssProperty::BoxShadowTop(v.clone()); }
-    if let CssProperty::BoxShadowBottom(v) = p { return CssProperty::BoxShadowBottom(v.clone()); }
-    if let CssProperty::TextShadow(v) = p { return CssProperty::TextShadow(v.clone()); }
-    if let CssProperty::ScrollbarTrack(v) = p { return CssProperty::ScrollbarTrack(v.clone()); }
-    if let CssProperty::ScrollbarThumb(v) = p { return CssProperty::ScrollbarThumb(v.clone()); }
-    if let CssProperty::ScrollbarButton(v) = p { return CssProperty::ScrollbarButton(v.clone()); }
-    if let CssProperty::ScrollbarCorner(v) = p { return CssProperty::ScrollbarCorner(v.clone()); }
-    if let CssProperty::ScrollbarResizer(v) = p { return CssProperty::ScrollbarResizer(v.clone()); }
-    if let CssProperty::Transform(v) = p { return CssProperty::Transform(v.clone()); }
-    if let CssProperty::Filter(v) = p { return CssProperty::Filter(v.clone()); }
-    if let CssProperty::BackdropFilter(v) = p { return CssProperty::BackdropFilter(v.clone()); }
-    if let CssProperty::Content(v) = p { return CssProperty::Content(v.clone()); }
-    if let CssProperty::HyphenationLanguage(v) = p { return CssProperty::HyphenationLanguage(v.clone()); }
-    if let CssProperty::Cursor(v) = p { return CssProperty::Cursor(*v); }
+    if let CssProperty::FontFamily(v) = p {
+        return CssProperty::FontFamily(v.clone());
+    }
+    if let CssProperty::BackgroundContent(v) = p {
+        return CssProperty::BackgroundContent(v.clone());
+    }
+    if let CssProperty::BackgroundPosition(v) = p {
+        return CssProperty::BackgroundPosition(v.clone());
+    }
+    if let CssProperty::BackgroundSize(v) = p {
+        return CssProperty::BackgroundSize(v.clone());
+    }
+    if let CssProperty::BackgroundRepeat(v) = p {
+        return CssProperty::BackgroundRepeat(v.clone());
+    }
+    if let CssProperty::BoxShadowLeft(v) = p {
+        return CssProperty::BoxShadowLeft(v.clone());
+    }
+    if let CssProperty::BoxShadowRight(v) = p {
+        return CssProperty::BoxShadowRight(v.clone());
+    }
+    if let CssProperty::BoxShadowTop(v) = p {
+        return CssProperty::BoxShadowTop(v.clone());
+    }
+    if let CssProperty::BoxShadowBottom(v) = p {
+        return CssProperty::BoxShadowBottom(v.clone());
+    }
+    if let CssProperty::TextShadow(v) = p {
+        return CssProperty::TextShadow(v.clone());
+    }
+    if let CssProperty::ScrollbarTrack(v) = p {
+        return CssProperty::ScrollbarTrack(v.clone());
+    }
+    if let CssProperty::ScrollbarThumb(v) = p {
+        return CssProperty::ScrollbarThumb(v.clone());
+    }
+    if let CssProperty::ScrollbarButton(v) = p {
+        return CssProperty::ScrollbarButton(v.clone());
+    }
+    if let CssProperty::ScrollbarCorner(v) = p {
+        return CssProperty::ScrollbarCorner(v.clone());
+    }
+    if let CssProperty::ScrollbarResizer(v) = p {
+        return CssProperty::ScrollbarResizer(v.clone());
+    }
+    if let CssProperty::Transform(v) = p {
+        return CssProperty::Transform(v.clone());
+    }
+    if let CssProperty::Filter(v) = p {
+        return CssProperty::Filter(v.clone());
+    }
+    if let CssProperty::BackdropFilter(v) = p {
+        return CssProperty::BackdropFilter(v.clone());
+    }
+    if let CssProperty::Content(v) = p {
+        return CssProperty::Content(v.clone());
+    }
+    if let CssProperty::HyphenationLanguage(v) = p {
+        return CssProperty::HyphenationLanguage(v.clone());
+    }
+    if let CssProperty::Cursor(v) = p {
+        return CssProperty::Cursor(*v);
+    }
     p.clone()
 }
 
@@ -1148,7 +1206,11 @@ impl CssPropertyCache {
         html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
     ) -> Vec<TagIdToNodeIdMapping> {
         use azul_css::{
-            css::{CssDeclaration, CssPathPseudoSelector::{Hover, Active, Focus, Dragging, DragOver}, CssPathSelector, CssRuleBlock},
+            css::{
+                CssDeclaration,
+                CssPathPseudoSelector::{Active, DragOver, Dragging, Focus, Hover},
+                CssPathSelector, CssRuleBlock,
+            },
             dynamic_selector::{DynamicSelector, PseudoStateType},
             props::layout::LayoutDisplay,
         };
@@ -1240,87 +1302,114 @@ impl CssPropertyCache {
 
             // Phase 2: Match specific rules per-node (only non-global rules)
             if !specific_rules.is_empty() {
-
-            // Per-node "which declarations match" lists are built as
-            // `(rule_idx, decl_idx)` pairs — 4 bytes per entry instead of
-            // cloning a 140-byte `CssProperty`. The clone only happens at
-            // the final push_to step, so the transient peak is ~35× smaller.
-            //
-            // rule_idx indexes into `specific_rules` (Vec<&CssRuleBlock>),
-            // decl_idx indexes into `rule.declarations.as_slice()`. Both
-            // fit in u16 since real stylesheets have far fewer than 65k
-            // rules and declarations per rule.
-            macro_rules! filter_rules {($expected_pseudo_selector:expr, $node_id:expr) => {{
-                let mut out: Vec<(u16, u16)> = Vec::new();
-                for (rule_idx, rule_block) in specific_rules.iter().enumerate() {
-                    if !rule_applies(&rule_block.conditions) {
-                        continue;
-                    }
-                    if !crate::style::rule_ends_with(&rule_block.path, $expected_pseudo_selector) {
-                        continue;
-                    }
-                    if !crate::style::matches_html_element(
-                        &rule_block.path,
-                        $node_id,
-                        &node_hierarchy.as_container(),
-                        &node_data,
-                        &html_tree,
-                        $expected_pseudo_selector,
-                    ) {
-                        continue;
-                    }
-                    for (decl_idx, decl) in rule_block.declarations.as_slice().iter().enumerate() {
-                        if matches!(decl, CssDeclaration::Static(_)) {
-                            out.push((u16::try_from(rule_idx).unwrap_or(u16::MAX), u16::try_from(decl_idx).unwrap_or(u16::MAX)));
-                        }
-                    }
-                }
-                out
-            }};}
-
-            // Pre-check which pseudo-states have any matching rules at all.
-            // This avoids iterating 50K nodes for pseudo-states with zero rules
-            // (common: most stylesheets have no :hover/:focus/:active rules).
-            let has_normal = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, None));
-            let has_hover = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(Hover)));
-            let has_active = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(Active)));
-            let has_focus = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(Focus)));
-            let has_dragging = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(Dragging)));
-            let has_drag_over = specific_rules.iter().any(|r| crate::style::rule_ends_with(&r.path, Some(DragOver)));
-
-            macro_rules! collect_and_assign {
-                ($pseudo:expr, $state:expr, $has_any:expr) => {
-                    if $has_any {
-                        let indices: NodeDataContainer<(NodeId, Vec<(u16, u16)>)> = node_data
-                            .transform_nodeid_optional(|node_id| {
-                                let r = filter_rules!($pseudo, node_id);
-                                if r.is_empty() { None } else { Some((node_id, r)) }
-                            });
-                        for (n, pairs) in indices.internal.into_iter() {
-                            for (rule_idx, decl_idx) in pairs {
-                                let decl = &specific_rules[rule_idx as usize]
-                                    .declarations
-                                    .as_slice()[decl_idx as usize];
-                                if let CssDeclaration::Static(prop) = decl {
-                                    self.css_props.push_to(n.index(), StatefulCssProperty {
-                                        state: $state,
-                                        prop_type: prop.get_type(),
-                                        property: prop.clone(),
-                                    });
+                // Per-node "which declarations match" lists are built as
+                // `(rule_idx, decl_idx)` pairs — 4 bytes per entry instead of
+                // cloning a 140-byte `CssProperty`. The clone only happens at
+                // the final push_to step, so the transient peak is ~35× smaller.
+                //
+                // rule_idx indexes into `specific_rules` (Vec<&CssRuleBlock>),
+                // decl_idx indexes into `rule.declarations.as_slice()`. Both
+                // fit in u16 since real stylesheets have far fewer than 65k
+                // rules and declarations per rule.
+                macro_rules! filter_rules {
+                    ($expected_pseudo_selector:expr, $node_id:expr) => {{
+                        let mut out: Vec<(u16, u16)> = Vec::new();
+                        for (rule_idx, rule_block) in specific_rules.iter().enumerate() {
+                            if !rule_applies(&rule_block.conditions) {
+                                continue;
+                            }
+                            if !crate::style::rule_ends_with(
+                                &rule_block.path,
+                                $expected_pseudo_selector,
+                            ) {
+                                continue;
+                            }
+                            if !crate::style::matches_html_element(
+                                &rule_block.path,
+                                $node_id,
+                                &node_hierarchy.as_container(),
+                                &node_data,
+                                &html_tree,
+                                $expected_pseudo_selector,
+                            ) {
+                                continue;
+                            }
+                            for (decl_idx, decl) in
+                                rule_block.declarations.as_slice().iter().enumerate()
+                            {
+                                if matches!(decl, CssDeclaration::Static(_)) {
+                                    out.push((
+                                        u16::try_from(rule_idx).unwrap_or(u16::MAX),
+                                        u16::try_from(decl_idx).unwrap_or(u16::MAX),
+                                    ));
                                 }
                             }
                         }
-                    }
-                };
-            }
+                        out
+                    }};
+                }
 
-            collect_and_assign!(None, PseudoStateType::Normal, has_normal);
-            collect_and_assign!(Some(Hover), PseudoStateType::Hover, has_hover);
-            collect_and_assign!(Some(Active), PseudoStateType::Active, has_active);
-            collect_and_assign!(Some(Focus), PseudoStateType::Focus, has_focus);
-            collect_and_assign!(Some(Dragging), PseudoStateType::Dragging, has_dragging);
-            collect_and_assign!(Some(DragOver), PseudoStateType::DragOver, has_drag_over);
+                // Pre-check which pseudo-states have any matching rules at all.
+                // This avoids iterating 50K nodes for pseudo-states with zero rules
+                // (common: most stylesheets have no :hover/:focus/:active rules).
+                let has_normal = specific_rules
+                    .iter()
+                    .any(|r| crate::style::rule_ends_with(&r.path, None));
+                let has_hover = specific_rules
+                    .iter()
+                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Hover)));
+                let has_active = specific_rules
+                    .iter()
+                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Active)));
+                let has_focus = specific_rules
+                    .iter()
+                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Focus)));
+                let has_dragging = specific_rules
+                    .iter()
+                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Dragging)));
+                let has_drag_over = specific_rules
+                    .iter()
+                    .any(|r| crate::style::rule_ends_with(&r.path, Some(DragOver)));
 
+                macro_rules! collect_and_assign {
+                    ($pseudo:expr, $state:expr, $has_any:expr) => {
+                        if $has_any {
+                            let indices: NodeDataContainer<(NodeId, Vec<(u16, u16)>)> = node_data
+                                .transform_nodeid_optional(|node_id| {
+                                    let r = filter_rules!($pseudo, node_id);
+                                    if r.is_empty() {
+                                        None
+                                    } else {
+                                        Some((node_id, r))
+                                    }
+                                });
+                            for (n, pairs) in indices.internal.into_iter() {
+                                for (rule_idx, decl_idx) in pairs {
+                                    let decl = &specific_rules[rule_idx as usize]
+                                        .declarations
+                                        .as_slice()[decl_idx as usize];
+                                    if let CssDeclaration::Static(prop) = decl {
+                                        self.css_props.push_to(
+                                            n.index(),
+                                            StatefulCssProperty {
+                                                state: $state,
+                                                prop_type: prop.get_type(),
+                                                property: prop.clone(),
+                                            },
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    };
+                }
+
+                collect_and_assign!(None, PseudoStateType::Normal, has_normal);
+                collect_and_assign!(Some(Hover), PseudoStateType::Hover, has_hover);
+                collect_and_assign!(Some(Active), PseudoStateType::Active, has_active);
+                collect_and_assign!(Some(Focus), PseudoStateType::Focus, has_focus);
+                collect_and_assign!(Some(Dragging), PseudoStateType::Dragging, has_dragging);
+                collect_and_assign!(Some(DragOver), PseudoStateType::DragOver, has_drag_over);
             } // end if !specific_rules.is_empty()
         }
 
@@ -1342,7 +1431,8 @@ impl CssPropertyCache {
 
             for &state in &all_states {
                 // 1. Inherit inline CSS properties from parent for this pseudo-state
-                let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = node_data[parent_id]
+                let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = node_data
+                    [parent_id]
                     .style
                     .iter_inline_properties()
                     .filter(|(_prop, conds)| {
@@ -1350,13 +1440,16 @@ impl CssPropertyCache {
                         if conditions.is_empty() {
                             state == PseudoStateType::Normal
                         } else {
-                            conditions.iter().all(|c| {
-                                matches!(c, DynamicSelector::PseudoState(s) if *s == state)
-                            })
+                            conditions.iter().all(
+                                |c| matches!(c, DynamicSelector::PseudoState(s) if *s == state),
+                            )
                         }
                     })
                     .map(|(prop, _)| prop)
-                    .filter(|prop| prop.get_type().is_inheritable() && !is_resolved_parent_inherited(prop.get_type()))
+                    .filter(|prop| {
+                        prop.get_type().is_inheritable()
+                            && !is_resolved_parent_inherited(prop.get_type())
+                    })
                     .map(|p| (p.get_type(), clone_inheritable_property(p)))
                     .collect();
 
@@ -1364,20 +1457,30 @@ impl CssPropertyCache {
                 let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if css_is_empty {
                     Vec::new()
                 } else {
-                    self.css_props.get_slice(parent_id.index())
+                    self.css_props
+                        .get_slice(parent_id.index())
                         .iter()
-                        .filter(|p| p.state == state && p.prop_type.is_inheritable() && !is_resolved_parent_inherited(p.prop_type))
+                        .filter(|p| {
+                            p.state == state
+                                && p.prop_type.is_inheritable()
+                                && !is_resolved_parent_inherited(p.prop_type)
+                        })
                         .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
                         .collect()
                 };
 
                 // 3. Inherit cascaded properties from parent for this pseudo-state
-                let parent_inheritable_cascaded: Vec<(CssPropertyType, CssProperty)> =
-                    self.cascaded_props.get_slice(parent_id.index())
-                        .iter()
-                        .filter(|p| p.state == state && p.prop_type.is_inheritable() && !is_resolved_parent_inherited(p.prop_type))
-                        .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
-                        .collect();
+                let parent_inheritable_cascaded: Vec<(CssPropertyType, CssProperty)> = self
+                    .cascaded_props
+                    .get_slice(parent_id.index())
+                    .iter()
+                    .filter(|p| {
+                        p.state == state
+                            && p.prop_type.is_inheritable()
+                            && !is_resolved_parent_inherited(p.prop_type)
+                    })
+                    .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
+                    .collect();
 
                 // Combine all inheritable props (inline first = strongest, cascaded last)
                 // Only insert if child doesn't already have that (state, prop_type) combo
@@ -1396,7 +1499,10 @@ impl CssPropertyCache {
                         .chain(parent_inheritable_cascaded.iter())
                     {
                         // or_insert: only insert if child doesn't already have this (state, prop_type)
-                        if !child_vec.iter().any(|p| p.state == state && p.prop_type == *prop_type) {
+                        if !child_vec
+                            .iter()
+                            .any(|p| p.state == state && p.prop_type == *prop_type)
+                        {
                             child_vec.push(StatefulCssProperty {
                                 state,
                                 prop_type: *prop_type,
@@ -1410,7 +1516,8 @@ impl CssPropertyCache {
 
         // Sort css_props by (state, prop_type) for binary search lookups,
         // then flatten into contiguous memory for cache-friendly reads.
-        self.css_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
+        self.css_props
+            .sort_each_and_flatten(|p| (p.state, p.prop_type));
 
         // Restyling can change font-size properties; the memoized resolved font
         // sizes are now stale and must be recomputed on next access.
@@ -1427,13 +1534,11 @@ impl CssPropertyCache {
         node_data: &NodeDataContainerRef<'_, NodeData>,
         node_hierarchy: &NodeHierarchyItemVec,
     ) -> Vec<TagIdToNodeIdMapping> {
-
         // Tag ID generation: determine which nodes need hit-test tags for
         // hover/click/scroll events. Uses compact cache for display/overflow
         // checks instead of get_property_slow (which searches 6 data structures).
         use azul_css::compact_cache::{
-            DISPLAY_SHIFT, DISPLAY_MASK,
-            OVERFLOW_X_SHIFT, OVERFLOW_Y_SHIFT, OVERFLOW_MASK,
+            DISPLAY_MASK, DISPLAY_SHIFT, OVERFLOW_MASK, OVERFLOW_X_SHIFT, OVERFLOW_Y_SHIFT,
         };
 
         let compact_cache = self.compact_cache.as_ref();
@@ -1451,11 +1556,14 @@ impl CssPropertyCache {
                     .iter()
                     .any(|cb| cb.event.is_focus_callback());
 
-                let tab_index = node_data.get_tab_index().map_or(if should_auto_insert_tabindex {
-                            Some(TabIndex::Auto)
-                        } else {
-                            None
-                        }, Some);
+                let tab_index = node_data.get_tab_index().map_or(
+                    if should_auto_insert_tabindex {
+                        Some(TabIndex::Auto)
+                    } else {
+                        None
+                    },
+                    Some,
+                );
 
                 let mut need_tag = false;
 
@@ -1467,21 +1575,27 @@ impl CssPropertyCache {
                     if let Some(cc) = compact_cache.as_ref() {
                         let t1 = cc.tier1_enums[node_idx];
                         let display_val = ((t1 >> DISPLAY_SHIFT) & DISPLAY_MASK) as u8;
-                        if display_val == 4 { break 'compute_need_tag; } // 4 = LayoutDisplay::None (new encoding)
+                        if display_val == 4 {
+                            break 'compute_need_tag;
+                        } // 4 = LayoutDisplay::None (new encoding)
                     }
 
                     if node_data.has_context_menu() || node_data.get_context_menu().is_some() {
-                        need_tag = true; break 'compute_need_tag;
+                        need_tag = true;
+                        break 'compute_need_tag;
                     }
-                    if tab_index.is_some() { need_tag = true; break 'compute_need_tag; }
+                    if tab_index.is_some() {
+                        need_tag = true;
+                        break 'compute_need_tag;
+                    }
 
                     // Pseudo-state property checks (hover/active/focus/dragging/drag-over)
                     {
                         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
                         let has_pseudo = |state: PseudoStateType| -> bool {
                             node_data.style.iter_inline_properties().any(|(_p, conds)| {
-                                conds.as_slice().iter().any(|c|
-                                    matches!(c, DynamicSelector::PseudoState(s) if *s == state)
+                                conds.as_slice().iter().any(
+                                    |c| matches!(c, DynamicSelector::PseudoState(s) if *s == state),
                                 )
                             }) || Self::has_state_props(self.css_props.get_slice(node_idx), state)
                         };
@@ -1492,23 +1606,33 @@ impl CssPropertyCache {
                             || has_pseudo(PseudoStateType::Dragging)
                             || has_pseudo(PseudoStateType::DragOver)
                         {
-                            need_tag = true; break 'compute_need_tag;
+                            need_tag = true;
+                            break 'compute_need_tag;
                         }
                     }
 
                     // Non-window callbacks
                     let has_non_window_cb = !node_data.get_callbacks().is_empty()
-                        && !node_data.get_callbacks().iter().all(|cb| cb.event.is_window_callback());
-                    if has_non_window_cb { need_tag = true; break 'compute_need_tag; }
+                        && !node_data
+                            .get_callbacks()
+                            .iter()
+                            .all(|cb| cb.event.is_window_callback());
+                    if has_non_window_cb {
+                        need_tag = true;
+                        break 'compute_need_tag;
+                    }
 
                     // Cursor check — read from cached css_props or inline style.
-                    if self.css_props.get_slice(node_idx).iter().any(|p|
+                    if self.css_props.get_slice(node_idx).iter().any(|p| {
                         p.state == azul_css::dynamic_selector::PseudoStateType::Normal
-                        && p.prop_type == CssPropertyType::Cursor
-                    ) || node_data.style.iter_inline_properties().any(|(p, _)|
-                        p.get_type() == CssPropertyType::Cursor
-                    ) {
-                        need_tag = true; break 'compute_need_tag;
+                            && p.prop_type == CssPropertyType::Cursor
+                    }) || node_data
+                        .style
+                        .iter_inline_properties()
+                        .any(|(p, _)| p.get_type() == CssPropertyType::Cursor)
+                    {
+                        need_tag = true;
+                        break 'compute_need_tag;
                     }
 
                     // Overflow scroll check — read from compact tier1
@@ -1518,7 +1642,8 @@ impl CssPropertyCache {
                         let oy = ((t1 >> OVERFLOW_Y_SHIFT) & OVERFLOW_MASK) as u8;
                         // 2 = Scroll, 3 = Auto in layout_overflow_to_u8 (new encoding)
                         if ox == 2 || ox == 3 || oy == 2 || oy == 3 {
-                            need_tag = true; break 'compute_need_tag;
+                            need_tag = true;
+                            break 'compute_need_tag;
                         }
                     }
 
@@ -1530,13 +1655,20 @@ impl CssPropertyCache {
                         if let Some(first_child) = hier.first_child_id(node_id) {
                             let mut child_id = Some(first_child);
                             while let Some(cid) = child_id {
-                                if matches!(node_data_container[cid.index()].get_node_type(), NodeType::Text(_)) {
-                                    has_text = true; break;
+                                if matches!(
+                                    node_data_container[cid.index()].get_node_type(),
+                                    NodeType::Text(_)
+                                ) {
+                                    has_text = true;
+                                    break;
                                 }
                                 child_id = node_hierarchy.as_container()[cid].next_sibling_id();
                             }
                         }
-                        if has_text { need_tag = true; break 'compute_need_tag; }
+                        if has_text {
+                            need_tag = true;
+                            break 'compute_need_tag;
+                        }
                     }
 
                     break 'compute_need_tag;
@@ -1590,277 +1722,256 @@ impl CssPropertyCache {
     ) -> String {
         let mut s = String::new();
         if let Some(p) = self.get_background_content(node_data, node_id, node_state) {
-            let _ = write!(s,"background: {};", p.get_css_value_fmt());
+            let _ = write!(s, "background: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_background_position(node_data, node_id, node_state) {
-            let _ = write!(s,"background-position: {};", p.get_css_value_fmt());
+            let _ = write!(s, "background-position: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_background_size(node_data, node_id, node_state) {
-            let _ = write!(s,"background-size: {};", p.get_css_value_fmt());
+            let _ = write!(s, "background-size: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_background_repeat(node_data, node_id, node_state) {
-            let _ = write!(s,"background-repeat: {};", p.get_css_value_fmt());
+            let _ = write!(s, "background-repeat: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_font_size(node_data, node_id, node_state) {
-            let _ = write!(s,"font-size: {};", p.get_css_value_fmt());
+            let _ = write!(s, "font-size: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_font_family(node_data, node_id, node_state) {
-            let _ = write!(s,"font-family: {};", p.get_css_value_fmt());
+            let _ = write!(s, "font-family: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_color(node_data, node_id, node_state) {
-            let _ = write!(s,"color: {};", p.get_css_value_fmt());
+            let _ = write!(s, "color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_align(node_data, node_id, node_state) {
-            let _ = write!(s,"text-align: {};", p.get_css_value_fmt());
+            let _ = write!(s, "text-align: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_line_height(node_data, node_id, node_state) {
-            let _ = write!(s,"line-height: {};", p.get_css_value_fmt());
+            let _ = write!(s, "line-height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_letter_spacing(node_data, node_id, node_state) {
-            let _ = write!(s,"letter-spacing: {};", p.get_css_value_fmt());
+            let _ = write!(s, "letter-spacing: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_word_spacing(node_data, node_id, node_state) {
-            let _ = write!(s,"word-spacing: {};", p.get_css_value_fmt());
+            let _ = write!(s, "word-spacing: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_tab_size(node_data, node_id, node_state) {
-            let _ = write!(s,"tab-size: {};", p.get_css_value_fmt());
+            let _ = write!(s, "tab-size: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_cursor(node_data, node_id, node_state) {
-            let _ = write!(s,"cursor: {};", p.get_css_value_fmt());
+            let _ = write!(s, "cursor: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_shadow_left(node_data, node_id, node_state) {
-            let _ = write!(s,
-                "-azul-box-shadow-left: {};",
-                p.get_css_value_fmt()
-            );
+            let _ = write!(s, "-azul-box-shadow-left: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_shadow_right(node_data, node_id, node_state) {
-            let _ = write!(s,
-                "-azul-box-shadow-right: {};",
-                p.get_css_value_fmt()
-            );
+            let _ = write!(s, "-azul-box-shadow-right: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_shadow_top(node_data, node_id, node_state) {
-            let _ = write!(s,"-azul-box-shadow-top: {};", p.get_css_value_fmt());
+            let _ = write!(s, "-azul-box-shadow-top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_shadow_bottom(node_data, node_id, node_state) {
-            let _ = write!(s,
-                "-azul-box-shadow-bottom: {};",
-                p.get_css_value_fmt()
-            );
+            let _ = write!(s, "-azul-box-shadow-bottom: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_color(node_data, node_id, node_state) {
-            let _ = write!(s,"border-top-color: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-top-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_left_color(node_data, node_id, node_state) {
-            let _ = write!(s,"border-left-color: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-left-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_right_color(node_data, node_id, node_state) {
-            let _ = write!(s,"border-right-color: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-right-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_color(node_data, node_id, node_state) {
-            let _ = write!(s,"border-bottom-color: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-bottom-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_style(node_data, node_id, node_state) {
-            let _ = write!(s,"border-top-style: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-top-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_left_style(node_data, node_id, node_state) {
-            let _ = write!(s,"border-left-style: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-left-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_right_style(node_data, node_id, node_state) {
-            let _ = write!(s,"border-right-style: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-right-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_style(node_data, node_id, node_state) {
-            let _ = write!(s,"border-bottom-style: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-bottom-style: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_left_radius(node_data, node_id, node_state) {
-            let _ = write!(s,
-                "border-top-left-radius: {};",
-                p.get_css_value_fmt()
-            );
+            let _ = write!(s, "border-top-left-radius: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_right_radius(node_data, node_id, node_state) {
-            let _ = write!(s,
-                "border-top-right-radius: {};",
-                p.get_css_value_fmt()
-            );
+            let _ = write!(s, "border-top-right-radius: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_left_radius(node_data, node_id, node_state) {
-            let _ = write!(s,
-                "border-bottom-left-radius: {};",
-                p.get_css_value_fmt()
-            );
+            let _ = write!(s, "border-bottom-left-radius: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_right_radius(node_data, node_id, node_state) {
-            let _ = write!(s,
-                "border-bottom-right-radius: {};",
-                p.get_css_value_fmt()
-            );
+            let _ = write!(s, "border-bottom-right-radius: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_opacity(node_data, node_id, node_state) {
-            let _ = write!(s,"opacity: {};", p.get_css_value_fmt());
+            let _ = write!(s, "opacity: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_transform(node_data, node_id, node_state) {
-            let _ = write!(s,"transform: {};", p.get_css_value_fmt());
+            let _ = write!(s, "transform: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_transform_origin(node_data, node_id, node_state) {
-            let _ = write!(s,"transform-origin: {};", p.get_css_value_fmt());
+            let _ = write!(s, "transform-origin: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_perspective_origin(node_data, node_id, node_state) {
-            let _ = write!(s,"perspective-origin: {};", p.get_css_value_fmt());
+            let _ = write!(s, "perspective-origin: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_backface_visibility(node_data, node_id, node_state) {
-            let _ = write!(s,"backface-visibility: {};", p.get_css_value_fmt());
+            let _ = write!(s, "backface-visibility: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_hyphens(node_data, node_id, node_state) {
-            let _ = write!(s,"hyphens: {};", p.get_css_value_fmt());
+            let _ = write!(s, "hyphens: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_direction(node_data, node_id, node_state) {
-            let _ = write!(s,"direction: {};", p.get_css_value_fmt());
+            let _ = write!(s, "direction: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_unicode_bidi(node_data, node_id, node_state) {
-            let _ = write!(s,"unicode-bidi: {};", p.get_css_value_fmt());
+            let _ = write!(s, "unicode-bidi: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_box_trim(node_data, node_id, node_state) {
-            let _ = write!(s,"text-box-trim: {};", p.get_css_value_fmt());
+            let _ = write!(s, "text-box-trim: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_text_box_edge(node_data, node_id, node_state) {
-            let _ = write!(s,"text-box-edge: {};", p.get_css_value_fmt());
+            let _ = write!(s, "text-box-edge: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_dominant_baseline(node_data, node_id, node_state) {
-            let _ = write!(s,"dominant-baseline: {};", p.get_css_value_fmt());
+            let _ = write!(s, "dominant-baseline: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_alignment_baseline(node_data, node_id, node_state) {
-            let _ = write!(s,"alignment-baseline: {};", p.get_css_value_fmt());
+            let _ = write!(s, "alignment-baseline: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_baseline_source(node_data, node_id, node_state) {
-            let _ = write!(s,"baseline-source: {};", p.get_css_value_fmt());
+            let _ = write!(s, "baseline-source: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_line_fit_edge(node_data, node_id, node_state) {
-            let _ = write!(s,"line-fit-edge: {};", p.get_css_value_fmt());
+            let _ = write!(s, "line-fit-edge: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_initial_letter_align(node_data, node_id, node_state) {
-            let _ = write!(s,"initial-letter-align: {};", p.get_css_value_fmt());
+            let _ = write!(s, "initial-letter-align: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_initial_letter_wrap(node_data, node_id, node_state) {
-            let _ = write!(s,"initial-letter-wrap: {};", p.get_css_value_fmt());
+            let _ = write!(s, "initial-letter-wrap: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_scrollbar_gutter(node_data, node_id, node_state) {
-            let _ = write!(s,"scrollbar-gutter: {};", p.get_css_value_fmt());
+            let _ = write!(s, "scrollbar-gutter: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_overflow_clip_margin(node_data, node_id, node_state) {
-            let _ = write!(s,"overflow-clip-margin: {};", p.get_css_value_fmt());
+            let _ = write!(s, "overflow-clip-margin: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_clip(node_data, node_id, node_state) {
-            let _ = write!(s,"clip: {};", p.get_css_value_fmt());
+            let _ = write!(s, "clip: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_white_space(node_data, node_id, node_state) {
-            let _ = write!(s,"white-space: {};", p.get_css_value_fmt());
+            let _ = write!(s, "white-space: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_display(node_data, node_id, node_state) {
-            let _ = write!(s,"display: {};", p.get_css_value_fmt());
+            let _ = write!(s, "display: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_float(node_data, node_id, node_state) {
-            let _ = write!(s,"float: {};", p.get_css_value_fmt());
+            let _ = write!(s, "float: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_box_sizing(node_data, node_id, node_state) {
-            let _ = write!(s,"box-sizing: {};", p.get_css_value_fmt());
+            let _ = write!(s, "box-sizing: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_width(node_data, node_id, node_state) {
-            let _ = write!(s,"width: {};", p.get_css_value_fmt());
+            let _ = write!(s, "width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_height(node_data, node_id, node_state) {
-            let _ = write!(s,"height: {};", p.get_css_value_fmt());
+            let _ = write!(s, "height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_min_width(node_data, node_id, node_state) {
-            let _ = write!(s,"min-width: {};", p.get_css_value_fmt());
+            let _ = write!(s, "min-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_min_height(node_data, node_id, node_state) {
-            let _ = write!(s,"min-height: {};", p.get_css_value_fmt());
+            let _ = write!(s, "min-height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_max_width(node_data, node_id, node_state) {
-            let _ = write!(s,"max-width: {};", p.get_css_value_fmt());
+            let _ = write!(s, "max-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_max_height(node_data, node_id, node_state) {
-            let _ = write!(s,"max-height: {};", p.get_css_value_fmt());
+            let _ = write!(s, "max-height: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_position(node_data, node_id, node_state) {
-            let _ = write!(s,"position: {};", p.get_css_value_fmt());
+            let _ = write!(s, "position: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_top(node_data, node_id, node_state) {
-            let _ = write!(s,"top: {};", p.get_css_value_fmt());
+            let _ = write!(s, "top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_bottom(node_data, node_id, node_state) {
-            let _ = write!(s,"bottom: {};", p.get_css_value_fmt());
+            let _ = write!(s, "bottom: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_right(node_data, node_id, node_state) {
-            let _ = write!(s,"right: {};", p.get_css_value_fmt());
+            let _ = write!(s, "right: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_left(node_data, node_id, node_state) {
-            let _ = write!(s,"left: {};", p.get_css_value_fmt());
+            let _ = write!(s, "left: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_top(node_data, node_id, node_state) {
-            let _ = write!(s,"padding-top: {};", p.get_css_value_fmt());
+            let _ = write!(s, "padding-top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_bottom(node_data, node_id, node_state) {
-            let _ = write!(s,"padding-bottom: {};", p.get_css_value_fmt());
+            let _ = write!(s, "padding-bottom: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_left(node_data, node_id, node_state) {
-            let _ = write!(s,"padding-left: {};", p.get_css_value_fmt());
+            let _ = write!(s, "padding-left: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_padding_right(node_data, node_id, node_state) {
-            let _ = write!(s,"padding-right: {};", p.get_css_value_fmt());
+            let _ = write!(s, "padding-right: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_top(node_data, node_id, node_state) {
-            let _ = write!(s,"margin-top: {};", p.get_css_value_fmt());
+            let _ = write!(s, "margin-top: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_bottom(node_data, node_id, node_state) {
-            let _ = write!(s,"margin-bottom: {};", p.get_css_value_fmt());
+            let _ = write!(s, "margin-bottom: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_left(node_data, node_id, node_state) {
-            let _ = write!(s,"margin-left: {};", p.get_css_value_fmt());
+            let _ = write!(s, "margin-left: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_margin_right(node_data, node_id, node_state) {
-            let _ = write!(s,"margin-right: {};", p.get_css_value_fmt());
+            let _ = write!(s, "margin-right: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_top_width(node_data, node_id, node_state) {
-            let _ = write!(s,"border-top-width: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-top-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_left_width(node_data, node_id, node_state) {
-            let _ = write!(s,"border-left-width: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-left-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_right_width(node_data, node_id, node_state) {
-            let _ = write!(s,"border-right-width: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-right-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_border_bottom_width(node_data, node_id, node_state) {
-            let _ = write!(s,"border-bottom-width: {};", p.get_css_value_fmt());
+            let _ = write!(s, "border-bottom-width: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_overflow_x(node_data, node_id, node_state) {
-            let _ = write!(s,"overflow-x: {};", p.get_css_value_fmt());
+            let _ = write!(s, "overflow-x: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_overflow_y(node_data, node_id, node_state) {
-            let _ = write!(s,"overflow-y: {};", p.get_css_value_fmt());
+            let _ = write!(s, "overflow-y: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_direction(node_data, node_id, node_state) {
-            let _ = write!(s,"flex-direction: {};", p.get_css_value_fmt());
+            let _ = write!(s, "flex-direction: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_wrap(node_data, node_id, node_state) {
-            let _ = write!(s,"flex-wrap: {};", p.get_css_value_fmt());
+            let _ = write!(s, "flex-wrap: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_grow(node_data, node_id, node_state) {
-            let _ = write!(s,"flex-grow: {};", p.get_css_value_fmt());
+            let _ = write!(s, "flex-grow: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_flex_shrink(node_data, node_id, node_state) {
-            let _ = write!(s,"flex-shrink: {};", p.get_css_value_fmt());
+            let _ = write!(s, "flex-shrink: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_justify_content(node_data, node_id, node_state) {
-            let _ = write!(s,"justify-content: {};", p.get_css_value_fmt());
+            let _ = write!(s, "justify-content: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_align_items(node_data, node_id, node_state) {
-            let _ = write!(s,"align-items: {};", p.get_css_value_fmt());
+            let _ = write!(s, "align-items: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_align_content(node_data, node_id, node_state) {
-            let _ = write!(s,"align-content: {};", p.get_css_value_fmt());
+            let _ = write!(s, "align-content: {};", p.get_css_value_fmt());
         }
         s
     }
@@ -1923,7 +2034,8 @@ macro_rules! impl_get_prop {
 }
 
 impl CssPropertyCache {
-    #[must_use] pub fn empty(node_count: usize) -> Self {
+    #[must_use]
+    pub fn empty(node_count: usize) -> Self {
         Self {
             node_count,
             retained_author_css: Css::default(),
@@ -1950,7 +2062,8 @@ impl CssPropertyCache {
     }
 
     pub fn append(&mut self, other: &mut Self) {
-        self.user_overridden_properties.append(&mut other.user_overridden_properties);
+        self.user_overridden_properties
+            .append(&mut other.user_overridden_properties);
         // The parent's dynamic context wins; a child subtree styled before
         // composition has no window context of its own worth keeping.
         if self.dynamic_context.is_none() {
@@ -2220,7 +2333,6 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
-
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
         // Helper: do these conditions identify a rule that applies in `state`
@@ -2258,19 +2370,24 @@ impl CssPropertyCache {
         // :focus > :active > :hover > normal (fallback)
         if node_state.focused {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
-                if matches_pseudo_state(conds, PseudoStateType::Focus)
-                    && prop.get_type() == *css_property_type
-                {
-                    // LAST matching inline declaration wins (CSS source order),
-                    // same as the compact builder's later-overwrites-earlier and
-                    // get_property_with_context - a widget's merged_style()
-                    // appends overrides and relies on exactly this.
-                    Some(prop)
-                } else {
-                    acc
-                }
-            }) {
+            if let Some(p) =
+                node_data
+                    .style
+                    .iter_inline_properties()
+                    .fold(None, |acc, (prop, conds)| {
+                        if matches_pseudo_state(conds, PseudoStateType::Focus)
+                            && prop.get_type() == *css_property_type
+                        {
+                            // LAST matching inline declaration wins (CSS source order),
+                            // same as the compact builder's later-overwrites-earlier and
+                            // get_property_with_context - a widget's merged_style()
+                            // appends overrides and relies on exactly this.
+                            Some(prop)
+                        } else {
+                            acc
+                        }
+                    })
+            {
                 return Some(p);
             }
 
@@ -2295,19 +2412,24 @@ impl CssPropertyCache {
 
         if node_state.active {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
-                if matches_pseudo_state(conds, PseudoStateType::Active)
-                    && prop.get_type() == *css_property_type
-                {
-                    // LAST matching inline declaration wins (CSS source order),
-                    // same as the compact builder's later-overwrites-earlier and
-                    // get_property_with_context - a widget's merged_style()
-                    // appends overrides and relies on exactly this.
-                    Some(prop)
-                } else {
-                    acc
-                }
-            }) {
+            if let Some(p) =
+                node_data
+                    .style
+                    .iter_inline_properties()
+                    .fold(None, |acc, (prop, conds)| {
+                        if matches_pseudo_state(conds, PseudoStateType::Active)
+                            && prop.get_type() == *css_property_type
+                        {
+                            // LAST matching inline declaration wins (CSS source order),
+                            // same as the compact builder's later-overwrites-earlier and
+                            // get_property_with_context - a widget's merged_style()
+                            // appends overrides and relies on exactly this.
+                            Some(prop)
+                        } else {
+                            acc
+                        }
+                    })
+            {
                 return Some(p);
             }
 
@@ -2332,19 +2454,24 @@ impl CssPropertyCache {
 
         // :dragging pseudo-state (higher priority than :hover)
         if node_state.dragging {
-            if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
-                if matches_pseudo_state(conds, PseudoStateType::Dragging)
-                    && prop.get_type() == *css_property_type
-                {
-                    // LAST matching inline declaration wins (CSS source order),
-                    // same as the compact builder's later-overwrites-earlier and
-                    // get_property_with_context - a widget's merged_style()
-                    // appends overrides and relies on exactly this.
-                    Some(prop)
-                } else {
-                    acc
-                }
-            }) {
+            if let Some(p) =
+                node_data
+                    .style
+                    .iter_inline_properties()
+                    .fold(None, |acc, (prop, conds)| {
+                        if matches_pseudo_state(conds, PseudoStateType::Dragging)
+                            && prop.get_type() == *css_property_type
+                        {
+                            // LAST matching inline declaration wins (CSS source order),
+                            // same as the compact builder's later-overwrites-earlier and
+                            // get_property_with_context - a widget's merged_style()
+                            // appends overrides and relies on exactly this.
+                            Some(prop)
+                        } else {
+                            acc
+                        }
+                    })
+            {
                 return Some(p);
             }
 
@@ -2367,19 +2494,24 @@ impl CssPropertyCache {
 
         // :drag-over pseudo-state (higher priority than :hover)
         if node_state.drag_over {
-            if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
-                if matches_pseudo_state(conds, PseudoStateType::DragOver)
-                    && prop.get_type() == *css_property_type
-                {
-                    // LAST matching inline declaration wins (CSS source order),
-                    // same as the compact builder's later-overwrites-earlier and
-                    // get_property_with_context - a widget's merged_style()
-                    // appends overrides and relies on exactly this.
-                    Some(prop)
-                } else {
-                    acc
-                }
-            }) {
+            if let Some(p) =
+                node_data
+                    .style
+                    .iter_inline_properties()
+                    .fold(None, |acc, (prop, conds)| {
+                        if matches_pseudo_state(conds, PseudoStateType::DragOver)
+                            && prop.get_type() == *css_property_type
+                        {
+                            // LAST matching inline declaration wins (CSS source order),
+                            // same as the compact builder's later-overwrites-earlier and
+                            // get_property_with_context - a widget's merged_style()
+                            // appends overrides and relies on exactly this.
+                            Some(prop)
+                        } else {
+                            acc
+                        }
+                    })
+            {
                 return Some(p);
             }
 
@@ -2402,19 +2534,24 @@ impl CssPropertyCache {
 
         if node_state.hover {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
-                if matches_pseudo_state(conds, PseudoStateType::Hover)
-                    && prop.get_type() == *css_property_type
-                {
-                    // LAST matching inline declaration wins (CSS source order),
-                    // same as the compact builder's later-overwrites-earlier and
-                    // get_property_with_context - a widget's merged_style()
-                    // appends overrides and relies on exactly this.
-                    Some(prop)
-                } else {
-                    acc
-                }
-            }) {
+            if let Some(p) =
+                node_data
+                    .style
+                    .iter_inline_properties()
+                    .fold(None, |acc, (prop, conds)| {
+                        if matches_pseudo_state(conds, PseudoStateType::Hover)
+                            && prop.get_type() == *css_property_type
+                        {
+                            // LAST matching inline declaration wins (CSS source order),
+                            // same as the compact builder's later-overwrites-earlier and
+                            // get_property_with_context - a widget's merged_style()
+                            // appends overrides and relies on exactly this.
+                            Some(prop)
+                        } else {
+                            acc
+                        }
+                    })
+            {
                 return Some(p);
             }
 
@@ -2439,20 +2576,25 @@ impl CssPropertyCache {
 
         // Normal/fallback properties - always apply as base layer
         // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-        if let Some(p) = node_data.style.iter_inline_properties().fold(None, |acc, (prop, conds)| {
-            if matches_pseudo_state(conds, PseudoStateType::Normal)
-                && prop.get_type() == *css_property_type
-            {
-                // LAST matching inline declaration wins (CSS source order),
-                // same as the compact builder's later-overwrites-earlier and
-                // get_property_with_context - the widget pattern
-                // "display:none + display:flex @media(max-width)" relies on
-                // exactly this ordering.
-                Some(prop)
-            } else {
-                acc
-            }
-        }) {
+        if let Some(p) =
+            node_data
+                .style
+                .iter_inline_properties()
+                .fold(None, |acc, (prop, conds)| {
+                    if matches_pseudo_state(conds, PseudoStateType::Normal)
+                        && prop.get_type() == *css_property_type
+                    {
+                        // LAST matching inline declaration wins (CSS source order),
+                        // same as the compact builder's later-overwrites-earlier and
+                        // get_property_with_context - the widget pattern
+                        // "display:none + display:flex @media(max-width)" relies on
+                        // exactly this ordering.
+                        Some(prop)
+                    } else {
+                        acc
+                    }
+                })
+        {
             return Some(p);
         }
 
@@ -2468,7 +2610,11 @@ impl CssPropertyCache {
         // PRIORITY 2b: Global `*` selector properties (specificity 0,0,0)
         // These are collected once during restyle and apply to all nodes.
         // Lower priority than per-node rules but higher than inheritance/UA.
-        if let Some(p) = self.global_css_props.iter().find(|p| p.get_type() == *css_property_type) {
+        if let Some(p) = self
+            .global_css_props
+            .iter()
+            .find(|p| p.get_type() == *css_property_type)
+        {
             return Some(p);
         }
 
@@ -2584,111 +2730,371 @@ impl CssPropertyCache {
         false
     }
 
-    impl_get_prop!(get_background_content, StyleBackgroundContentVecValue, BackgroundContent, as_background_content);
+    impl_get_prop!(
+        get_background_content,
+        StyleBackgroundContentVecValue,
+        BackgroundContent,
+        as_background_content
+    );
 
     impl_get_prop!(get_hyphens, StyleHyphensValue, Hyphens, as_hyphens);
 
-    impl_get_prop!(get_word_break, StyleWordBreakValue, WordBreak, as_word_break);
+    impl_get_prop!(
+        get_word_break,
+        StyleWordBreakValue,
+        WordBreak,
+        as_word_break
+    );
 
-    impl_get_prop!(get_overflow_wrap, StyleOverflowWrapValue, OverflowWrap, as_overflow_wrap);
+    impl_get_prop!(
+        get_overflow_wrap,
+        StyleOverflowWrapValue,
+        OverflowWrap,
+        as_overflow_wrap
+    );
 
-    impl_get_prop!(get_line_break, StyleLineBreakValue, LineBreak, as_line_break);
+    impl_get_prop!(
+        get_line_break,
+        StyleLineBreakValue,
+        LineBreak,
+        as_line_break
+    );
 
-    impl_get_prop!(get_text_align_last, StyleTextAlignLastValue, TextAlignLast, as_text_align_last);
+    impl_get_prop!(
+        get_text_align_last,
+        StyleTextAlignLastValue,
+        TextAlignLast,
+        as_text_align_last
+    );
 
-    impl_get_prop!(get_text_transform, StyleTextTransformValue, TextTransform, as_text_transform);
+    impl_get_prop!(
+        get_text_transform,
+        StyleTextTransformValue,
+        TextTransform,
+        as_text_transform
+    );
 
-    impl_get_prop!(get_object_fit, StyleObjectFitValue, ObjectFit, as_object_fit);
+    impl_get_prop!(
+        get_object_fit,
+        StyleObjectFitValue,
+        ObjectFit,
+        as_object_fit
+    );
 
-    impl_get_prop!(get_text_overflow, StyleTextOverflowValue, TextOverflow, as_text_overflow);
+    impl_get_prop!(
+        get_text_overflow,
+        StyleTextOverflowValue,
+        TextOverflow,
+        as_text_overflow
+    );
 
-    impl_get_prop!(get_text_orientation, StyleTextOrientationValue, TextOrientation, as_text_orientation);
+    impl_get_prop!(
+        get_text_orientation,
+        StyleTextOrientationValue,
+        TextOrientation,
+        as_text_orientation
+    );
 
-    impl_get_prop!(get_object_position, StyleObjectPositionValue, ObjectPosition, as_object_position);
+    impl_get_prop!(
+        get_object_position,
+        StyleObjectPositionValue,
+        ObjectPosition,
+        as_object_position
+    );
 
-    impl_get_prop!(get_aspect_ratio, StyleAspectRatioValue, AspectRatio, as_aspect_ratio);
+    impl_get_prop!(
+        get_aspect_ratio,
+        StyleAspectRatioValue,
+        AspectRatio,
+        as_aspect_ratio
+    );
 
     impl_get_prop!(get_direction, StyleDirectionValue, Direction, as_direction);
 
-    impl_get_prop!(get_unicode_bidi, StyleUnicodeBidiValue, UnicodeBidi, as_unicode_bidi);
+    impl_get_prop!(
+        get_unicode_bidi,
+        StyleUnicodeBidiValue,
+        UnicodeBidi,
+        as_unicode_bidi
+    );
 
-    impl_get_prop!(get_text_box_trim, StyleTextBoxTrimValue, TextBoxTrim, as_text_box_trim);
+    impl_get_prop!(
+        get_text_box_trim,
+        StyleTextBoxTrimValue,
+        TextBoxTrim,
+        as_text_box_trim
+    );
 
-    impl_get_prop!(get_text_box_edge, StyleTextBoxEdgeValue, TextBoxEdge, as_text_box_edge);
+    impl_get_prop!(
+        get_text_box_edge,
+        StyleTextBoxEdgeValue,
+        TextBoxEdge,
+        as_text_box_edge
+    );
 
-    impl_get_prop!(get_dominant_baseline, StyleDominantBaselineValue, DominantBaseline, as_dominant_baseline);
+    impl_get_prop!(
+        get_dominant_baseline,
+        StyleDominantBaselineValue,
+        DominantBaseline,
+        as_dominant_baseline
+    );
 
-    impl_get_prop!(get_alignment_baseline, StyleAlignmentBaselineValue, AlignmentBaseline, as_alignment_baseline);
+    impl_get_prop!(
+        get_alignment_baseline,
+        StyleAlignmentBaselineValue,
+        AlignmentBaseline,
+        as_alignment_baseline
+    );
 
-    impl_get_prop!(get_baseline_source, StyleBaselineSourceValue, BaselineSource, as_baseline_source);
+    impl_get_prop!(
+        get_baseline_source,
+        StyleBaselineSourceValue,
+        BaselineSource,
+        as_baseline_source
+    );
 
-    impl_get_prop!(get_line_fit_edge, StyleLineFitEdgeValue, LineFitEdge, as_line_fit_edge);
+    impl_get_prop!(
+        get_line_fit_edge,
+        StyleLineFitEdgeValue,
+        LineFitEdge,
+        as_line_fit_edge
+    );
 
-    impl_get_prop!(get_initial_letter_align, StyleInitialLetterAlignValue, InitialLetterAlign, as_initial_letter_align);
+    impl_get_prop!(
+        get_initial_letter_align,
+        StyleInitialLetterAlignValue,
+        InitialLetterAlign,
+        as_initial_letter_align
+    );
 
-    impl_get_prop!(get_initial_letter_wrap, StyleInitialLetterWrapValue, InitialLetterWrap, as_initial_letter_wrap);
+    impl_get_prop!(
+        get_initial_letter_wrap,
+        StyleInitialLetterWrapValue,
+        InitialLetterWrap,
+        as_initial_letter_wrap
+    );
 
-    impl_get_prop!(get_scrollbar_gutter, StyleScrollbarGutterValue, ScrollbarGutter, as_scrollbar_gutter);
+    impl_get_prop!(
+        get_scrollbar_gutter,
+        StyleScrollbarGutterValue,
+        ScrollbarGutter,
+        as_scrollbar_gutter
+    );
 
-    impl_get_prop!(get_overflow_clip_margin, StyleOverflowClipMarginValue, OverflowClipMargin, as_overflow_clip_margin);
+    impl_get_prop!(
+        get_overflow_clip_margin,
+        StyleOverflowClipMarginValue,
+        OverflowClipMargin,
+        as_overflow_clip_margin
+    );
 
     impl_get_prop!(get_clip, StyleClipRectValue, Clip, as_clip);
 
-    impl_get_prop!(get_white_space, StyleWhiteSpaceValue, WhiteSpace, as_white_space);
-    impl_get_prop!(get_background_position, StyleBackgroundPositionVecValue, BackgroundPosition, as_background_position);
-    impl_get_prop!(get_background_size, StyleBackgroundSizeVecValue, BackgroundSize, as_background_size);
-    impl_get_prop!(get_background_repeat, StyleBackgroundRepeatVecValue, BackgroundRepeat, as_background_repeat);
+    impl_get_prop!(
+        get_white_space,
+        StyleWhiteSpaceValue,
+        WhiteSpace,
+        as_white_space
+    );
+    impl_get_prop!(
+        get_background_position,
+        StyleBackgroundPositionVecValue,
+        BackgroundPosition,
+        as_background_position
+    );
+    impl_get_prop!(
+        get_background_size,
+        StyleBackgroundSizeVecValue,
+        BackgroundSize,
+        as_background_size
+    );
+    impl_get_prop!(
+        get_background_repeat,
+        StyleBackgroundRepeatVecValue,
+        BackgroundRepeat,
+        as_background_repeat
+    );
     impl_get_prop!(get_font_size, StyleFontSizeValue, FontSize, as_font_size);
-    impl_get_prop!(get_font_family, StyleFontFamilyVecValue, FontFamily, as_font_family);
-    impl_get_prop!(get_font_weight, StyleFontWeightValue, FontWeight, as_font_weight);
-    impl_get_prop!(get_font_style, StyleFontStyleValue, FontStyle, as_font_style);
-    impl_get_prop!(get_text_color, StyleTextColorValue, TextColor, as_text_color);
-    impl_get_prop!(get_text_indent, StyleTextIndentValue, TextIndent, as_text_indent);
-    impl_get_prop!(get_initial_letter, StyleInitialLetterValue, InitialLetter, as_initial_letter);
-    impl_get_prop!(get_line_clamp, StyleLineClampValue, LineClamp, as_line_clamp);
-    impl_get_prop!(get_hanging_punctuation, StyleHangingPunctuationValue, HangingPunctuation, as_hanging_punctuation);
-    impl_get_prop!(get_text_combine_upright, StyleTextCombineUprightValue, TextCombineUpright, as_text_combine_upright);
-    impl_get_prop!(get_exclusion_margin, StyleExclusionMarginValue, ExclusionMargin, as_exclusion_margin);
-    impl_get_prop!(get_hyphenation_language, StyleHyphenationLanguageValue, HyphenationLanguage, as_hyphenation_language);
+    impl_get_prop!(
+        get_font_family,
+        StyleFontFamilyVecValue,
+        FontFamily,
+        as_font_family
+    );
+    impl_get_prop!(
+        get_font_weight,
+        StyleFontWeightValue,
+        FontWeight,
+        as_font_weight
+    );
+    impl_get_prop!(
+        get_font_style,
+        StyleFontStyleValue,
+        FontStyle,
+        as_font_style
+    );
+    impl_get_prop!(
+        get_text_color,
+        StyleTextColorValue,
+        TextColor,
+        as_text_color
+    );
+    impl_get_prop!(
+        get_text_indent,
+        StyleTextIndentValue,
+        TextIndent,
+        as_text_indent
+    );
+    impl_get_prop!(
+        get_initial_letter,
+        StyleInitialLetterValue,
+        InitialLetter,
+        as_initial_letter
+    );
+    impl_get_prop!(
+        get_line_clamp,
+        StyleLineClampValue,
+        LineClamp,
+        as_line_clamp
+    );
+    impl_get_prop!(
+        get_hanging_punctuation,
+        StyleHangingPunctuationValue,
+        HangingPunctuation,
+        as_hanging_punctuation
+    );
+    impl_get_prop!(
+        get_text_combine_upright,
+        StyleTextCombineUprightValue,
+        TextCombineUpright,
+        as_text_combine_upright
+    );
+    impl_get_prop!(
+        get_exclusion_margin,
+        StyleExclusionMarginValue,
+        ExclusionMargin,
+        as_exclusion_margin
+    );
+    impl_get_prop!(
+        get_hyphenation_language,
+        StyleHyphenationLanguageValue,
+        HyphenationLanguage,
+        as_hyphenation_language
+    );
     impl_get_prop!(get_caret_color, CaretColorValue, CaretColor, as_caret_color);
 
     impl_get_prop!(get_caret_width, CaretWidthValue, CaretWidth, as_caret_width);
 
-    impl_get_prop!(get_caret_animation_duration, CaretAnimationDurationValue, CaretAnimationDuration, as_caret_animation_duration);
+    impl_get_prop!(
+        get_caret_animation_duration,
+        CaretAnimationDurationValue,
+        CaretAnimationDuration,
+        as_caret_animation_duration
+    );
 
-    impl_get_prop!(get_selection_background_color, SelectionBackgroundColorValue, SelectionBackgroundColor, as_selection_background_color);
+    impl_get_prop!(
+        get_selection_background_color,
+        SelectionBackgroundColorValue,
+        SelectionBackgroundColor,
+        as_selection_background_color
+    );
 
-    impl_get_prop!(get_selection_color, SelectionColorValue, SelectionColor, as_selection_color);
+    impl_get_prop!(
+        get_selection_color,
+        SelectionColorValue,
+        SelectionColor,
+        as_selection_color
+    );
 
-    impl_get_prop!(get_selection_radius, SelectionRadiusValue, SelectionRadius, as_selection_radius);
+    impl_get_prop!(
+        get_selection_radius,
+        SelectionRadiusValue,
+        SelectionRadius,
+        as_selection_radius
+    );
 
-    impl_get_prop!(get_text_justify, LayoutTextJustifyValue, TextJustify, as_text_justify);
+    impl_get_prop!(
+        get_text_justify,
+        LayoutTextJustifyValue,
+        TextJustify,
+        as_text_justify
+    );
 
     impl_get_prop!(get_z_index, LayoutZIndexValue, ZIndex, as_z_index);
 
-    impl_get_prop!(get_flex_basis, LayoutFlexBasisValue, FlexBasis, as_flex_basis);
+    impl_get_prop!(
+        get_flex_basis,
+        LayoutFlexBasisValue,
+        FlexBasis,
+        as_flex_basis
+    );
 
-    impl_get_prop!(get_column_gap, LayoutColumnGapValue, ColumnGap, as_column_gap);
+    impl_get_prop!(
+        get_column_gap,
+        LayoutColumnGapValue,
+        ColumnGap,
+        as_column_gap
+    );
 
     impl_get_prop!(get_row_gap, LayoutRowGapValue, RowGap, as_row_gap);
 
-    impl_get_prop!(get_grid_template_columns, LayoutGridTemplateColumnsValue, GridTemplateColumns, as_grid_template_columns);
+    impl_get_prop!(
+        get_grid_template_columns,
+        LayoutGridTemplateColumnsValue,
+        GridTemplateColumns,
+        as_grid_template_columns
+    );
 
-    impl_get_prop!(get_grid_template_rows, LayoutGridTemplateRowsValue, GridTemplateRows, as_grid_template_rows);
+    impl_get_prop!(
+        get_grid_template_rows,
+        LayoutGridTemplateRowsValue,
+        GridTemplateRows,
+        as_grid_template_rows
+    );
 
-    impl_get_prop!(get_grid_auto_columns, LayoutGridAutoColumnsValue, GridAutoColumns, as_grid_auto_columns);
+    impl_get_prop!(
+        get_grid_auto_columns,
+        LayoutGridAutoColumnsValue,
+        GridAutoColumns,
+        as_grid_auto_columns
+    );
 
-    impl_get_prop!(get_grid_auto_rows, LayoutGridAutoRowsValue, GridAutoRows, as_grid_auto_rows);
+    impl_get_prop!(
+        get_grid_auto_rows,
+        LayoutGridAutoRowsValue,
+        GridAutoRows,
+        as_grid_auto_rows
+    );
 
-    impl_get_prop!(get_grid_column, LayoutGridColumnValue, GridColumn, as_grid_column);
+    impl_get_prop!(
+        get_grid_column,
+        LayoutGridColumnValue,
+        GridColumn,
+        as_grid_column
+    );
 
     impl_get_prop!(get_grid_row, LayoutGridRowValue, GridRow, as_grid_row);
 
-    impl_get_prop!(get_grid_auto_flow, LayoutGridAutoFlowValue, GridAutoFlow, as_grid_auto_flow);
+    impl_get_prop!(
+        get_grid_auto_flow,
+        LayoutGridAutoFlowValue,
+        GridAutoFlow,
+        as_grid_auto_flow
+    );
 
-    impl_get_prop!(get_justify_self, LayoutJustifySelfValue, JustifySelf, as_justify_self);
+    impl_get_prop!(
+        get_justify_self,
+        LayoutJustifySelfValue,
+        JustifySelf,
+        as_justify_self
+    );
 
-    impl_get_prop!(get_justify_items, LayoutJustifyItemsValue, JustifyItems, as_justify_items);
+    impl_get_prop!(
+        get_justify_items,
+        LayoutJustifyItemsValue,
+        JustifyItems,
+        as_justify_items
+    );
 
     impl_get_prop!(get_gap, LayoutGapValue, Gap, as_gap);
 
@@ -2704,17 +3110,37 @@ impl CssPropertyCache {
             .and_then(|p| p.as_grid_gap())
     }
 
-    impl_get_prop!(get_align_self, LayoutAlignSelfValue, AlignSelf, as_align_self);
+    impl_get_prop!(
+        get_align_self,
+        LayoutAlignSelfValue,
+        AlignSelf,
+        as_align_self
+    );
 
     impl_get_prop!(get_font, StyleFontValue, Font, as_font);
 
-    impl_get_prop!(get_writing_mode, LayoutWritingModeValue, WritingMode, as_writing_mode);
+    impl_get_prop!(
+        get_writing_mode,
+        LayoutWritingModeValue,
+        WritingMode,
+        as_writing_mode
+    );
 
     impl_get_prop!(get_clear, LayoutClearValue, Clear, as_clear);
 
-    impl_get_prop!(get_shape_outside, ShapeOutsideValue, ShapeOutside, as_shape_outside);
+    impl_get_prop!(
+        get_shape_outside,
+        ShapeOutsideValue,
+        ShapeOutside,
+        as_shape_outside
+    );
 
-    impl_get_prop!(get_shape_inside, ShapeInsideValue, ShapeInside, as_shape_inside);
+    impl_get_prop!(
+        get_shape_inside,
+        ShapeInsideValue,
+        ShapeInside,
+        as_shape_inside
+    );
 
     impl_get_prop!(get_clip_path, ClipPathValue, ClipPath, as_clip_path);
 
@@ -2725,8 +3151,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleBackgroundContentValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarTrack)
-            .and_then(|p| p.as_scrollbar_track())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarTrack,
+        )
+        .and_then(|p| p.as_scrollbar_track())
     }
 
     /// Method for getting scrollbar thumb background
@@ -2736,8 +3167,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleBackgroundContentValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarThumb)
-            .and_then(|p| p.as_scrollbar_thumb())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarThumb,
+        )
+        .and_then(|p| p.as_scrollbar_thumb())
     }
 
     /// Method for getting scrollbar button background
@@ -2747,8 +3183,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleBackgroundContentValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarButton)
-            .and_then(|p| p.as_scrollbar_button())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarButton,
+        )
+        .and_then(|p| p.as_scrollbar_button())
     }
 
     /// Method for getting scrollbar corner background
@@ -2758,8 +3199,13 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleBackgroundContentValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarCorner)
-            .and_then(|p| p.as_scrollbar_corner())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarCorner,
+        )
+        .and_then(|p| p.as_scrollbar_corner())
     }
 
     /// Method for getting scrollbar resizer background
@@ -2769,144 +3215,559 @@ impl CssPropertyCache {
         node_id: &NodeId,
         node_state: &StyledNodeState,
     ) -> Option<&'a StyleBackgroundContentValue> {
-        self.get_property(node_data, node_id, node_state, &CssPropertyType::ScrollbarResizer)
-            .and_then(|p| p.as_scrollbar_resizer())
+        self.get_property(
+            node_data,
+            node_id,
+            node_state,
+            &CssPropertyType::ScrollbarResizer,
+        )
+        .and_then(|p| p.as_scrollbar_resizer())
     }
 
-    impl_get_prop!(get_scrollbar_width, LayoutScrollbarWidthValue, ScrollbarWidth, as_scrollbar_width);
-    impl_get_prop!(get_overscroll_behavior_x, OverscrollBehaviorValue, OverscrollBehaviorX, as_overscroll_behavior_x);
-    impl_get_prop!(get_overscroll_behavior_y, OverscrollBehaviorValue, OverscrollBehaviorY, as_overscroll_behavior_y);
+    impl_get_prop!(
+        get_scrollbar_width,
+        LayoutScrollbarWidthValue,
+        ScrollbarWidth,
+        as_scrollbar_width
+    );
+    impl_get_prop!(
+        get_overscroll_behavior_x,
+        OverscrollBehaviorValue,
+        OverscrollBehaviorX,
+        as_overscroll_behavior_x
+    );
+    impl_get_prop!(
+        get_overscroll_behavior_y,
+        OverscrollBehaviorValue,
+        OverscrollBehaviorY,
+        as_overscroll_behavior_y
+    );
 
-    impl_get_prop!(get_scrollbar_color, StyleScrollbarColorValue, ScrollbarColor, as_scrollbar_color);
+    impl_get_prop!(
+        get_scrollbar_color,
+        StyleScrollbarColorValue,
+        ScrollbarColor,
+        as_scrollbar_color
+    );
 
-    impl_get_prop!(get_scrollbar_visibility, ScrollbarVisibilityModeValue, ScrollbarVisibility, as_scrollbar_visibility);
+    impl_get_prop!(
+        get_scrollbar_visibility,
+        ScrollbarVisibilityModeValue,
+        ScrollbarVisibility,
+        as_scrollbar_visibility
+    );
 
-    impl_get_prop!(get_scrollbar_fade_delay, ScrollbarFadeDelayValue, ScrollbarFadeDelay, as_scrollbar_fade_delay);
+    impl_get_prop!(
+        get_scrollbar_fade_delay,
+        ScrollbarFadeDelayValue,
+        ScrollbarFadeDelay,
+        as_scrollbar_fade_delay
+    );
 
-    impl_get_prop!(get_scrollbar_fade_duration, ScrollbarFadeDurationValue, ScrollbarFadeDuration, as_scrollbar_fade_duration);
+    impl_get_prop!(
+        get_scrollbar_fade_duration,
+        ScrollbarFadeDurationValue,
+        ScrollbarFadeDuration,
+        as_scrollbar_fade_duration
+    );
 
-    impl_get_prop!(get_visibility, StyleVisibilityValue, Visibility, as_visibility);
+    impl_get_prop!(
+        get_visibility,
+        StyleVisibilityValue,
+        Visibility,
+        as_visibility
+    );
 
-    impl_get_prop!(get_break_before, PageBreakValue, BreakBefore, as_break_before);
+    impl_get_prop!(
+        get_break_before,
+        PageBreakValue,
+        BreakBefore,
+        as_break_before
+    );
 
     impl_get_prop!(get_break_after, PageBreakValue, BreakAfter, as_break_after);
 
-    impl_get_prop!(get_break_inside, BreakInsideValue, BreakInside, as_break_inside);
+    impl_get_prop!(
+        get_break_inside,
+        BreakInsideValue,
+        BreakInside,
+        as_break_inside
+    );
 
     impl_get_prop!(get_orphans, OrphansValue, Orphans, as_orphans);
 
     impl_get_prop!(get_widows, WidowsValue, Widows, as_widows);
 
-    impl_get_prop!(get_box_decoration_break, BoxDecorationBreakValue, BoxDecorationBreak, as_box_decoration_break);
+    impl_get_prop!(
+        get_box_decoration_break,
+        BoxDecorationBreakValue,
+        BoxDecorationBreak,
+        as_box_decoration_break
+    );
 
-    impl_get_prop!(get_column_count, ColumnCountValue, ColumnCount, as_column_count);
+    impl_get_prop!(
+        get_column_count,
+        ColumnCountValue,
+        ColumnCount,
+        as_column_count
+    );
 
-    impl_get_prop!(get_column_width, ColumnWidthValue, ColumnWidth, as_column_width);
+    impl_get_prop!(
+        get_column_width,
+        ColumnWidthValue,
+        ColumnWidth,
+        as_column_width
+    );
 
     impl_get_prop!(get_column_span, ColumnSpanValue, ColumnSpan, as_column_span);
 
     impl_get_prop!(get_column_fill, ColumnFillValue, ColumnFill, as_column_fill);
 
-    impl_get_prop!(get_column_rule_width, ColumnRuleWidthValue, ColumnRuleWidth, as_column_rule_width);
+    impl_get_prop!(
+        get_column_rule_width,
+        ColumnRuleWidthValue,
+        ColumnRuleWidth,
+        as_column_rule_width
+    );
 
-    impl_get_prop!(get_column_rule_style, ColumnRuleStyleValue, ColumnRuleStyle, as_column_rule_style);
+    impl_get_prop!(
+        get_column_rule_style,
+        ColumnRuleStyleValue,
+        ColumnRuleStyle,
+        as_column_rule_style
+    );
 
-    impl_get_prop!(get_column_rule_color, ColumnRuleColorValue, ColumnRuleColor, as_column_rule_color);
+    impl_get_prop!(
+        get_column_rule_color,
+        ColumnRuleColorValue,
+        ColumnRuleColor,
+        as_column_rule_color
+    );
 
     impl_get_prop!(get_flow_into, FlowIntoValue, FlowInto, as_flow_into);
 
     impl_get_prop!(get_flow_from, FlowFromValue, FlowFrom, as_flow_from);
 
-    impl_get_prop!(get_shape_margin, ShapeMarginValue, ShapeMargin, as_shape_margin);
+    impl_get_prop!(
+        get_shape_margin,
+        ShapeMarginValue,
+        ShapeMargin,
+        as_shape_margin
+    );
 
-    impl_get_prop!(get_shape_image_threshold, ShapeImageThresholdValue, ShapeImageThreshold, as_shape_image_threshold);
+    impl_get_prop!(
+        get_shape_image_threshold,
+        ShapeImageThresholdValue,
+        ShapeImageThreshold,
+        as_shape_image_threshold
+    );
 
     impl_get_prop!(get_content, ContentValue, Content, as_content);
 
-    impl_get_prop!(get_counter_reset, CounterResetValue, CounterReset, as_counter_reset);
+    impl_get_prop!(
+        get_counter_reset,
+        CounterResetValue,
+        CounterReset,
+        as_counter_reset
+    );
 
-    impl_get_prop!(get_counter_increment, CounterIncrementValue, CounterIncrement, as_counter_increment);
+    impl_get_prop!(
+        get_counter_increment,
+        CounterIncrementValue,
+        CounterIncrement,
+        as_counter_increment
+    );
 
     impl_get_prop!(get_string_set, StringSetValue, StringSet, as_string_set);
-    impl_get_prop!(get_text_align, StyleTextAlignValue, TextAlign, as_text_align);
-    impl_get_prop!(get_user_select, StyleUserSelectValue, UserSelect, as_user_select);
-    impl_get_prop!(get_text_decoration, StyleTextDecorationValue, TextDecoration, as_text_decoration);
-    impl_get_prop!(get_vertical_align, StyleVerticalAlignValue, VerticalAlign, as_vertical_align);
-    impl_get_prop!(get_line_height, StyleLineHeightValue, LineHeight, as_line_height);
-    impl_get_prop!(get_letter_spacing, StyleLetterSpacingValue, LetterSpacing, as_letter_spacing);
-    impl_get_prop!(get_word_spacing, StyleWordSpacingValue, WordSpacing, as_word_spacing);
+    impl_get_prop!(
+        get_text_align,
+        StyleTextAlignValue,
+        TextAlign,
+        as_text_align
+    );
+    impl_get_prop!(
+        get_user_select,
+        StyleUserSelectValue,
+        UserSelect,
+        as_user_select
+    );
+    impl_get_prop!(
+        get_text_decoration,
+        StyleTextDecorationValue,
+        TextDecoration,
+        as_text_decoration
+    );
+    impl_get_prop!(
+        get_vertical_align,
+        StyleVerticalAlignValue,
+        VerticalAlign,
+        as_vertical_align
+    );
+    impl_get_prop!(
+        get_line_height,
+        StyleLineHeightValue,
+        LineHeight,
+        as_line_height
+    );
+    impl_get_prop!(
+        get_letter_spacing,
+        StyleLetterSpacingValue,
+        LetterSpacing,
+        as_letter_spacing
+    );
+    impl_get_prop!(
+        get_word_spacing,
+        StyleWordSpacingValue,
+        WordSpacing,
+        as_word_spacing
+    );
     impl_get_prop!(get_tab_size, StyleTabSizeValue, TabSize, as_tab_size);
     impl_get_prop!(get_cursor, StyleCursorValue, Cursor, as_cursor);
-    impl_get_prop!(get_box_shadow_left, StyleBoxShadowValue, BoxShadowLeft, as_box_shadow_left);
-    impl_get_prop!(get_box_shadow_right, StyleBoxShadowValue, BoxShadowRight, as_box_shadow_right);
-    impl_get_prop!(get_box_shadow_top, StyleBoxShadowValue, BoxShadowTop, as_box_shadow_top);
-    impl_get_prop!(get_box_shadow_bottom, StyleBoxShadowValue, BoxShadowBottom, as_box_shadow_bottom);
-    impl_get_prop!(get_border_top_color, StyleBorderTopColorValue, BorderTopColor, as_border_top_color);
-    impl_get_prop!(get_border_left_color, StyleBorderLeftColorValue, BorderLeftColor, as_border_left_color);
-    impl_get_prop!(get_border_right_color, StyleBorderRightColorValue, BorderRightColor, as_border_right_color);
-    impl_get_prop!(get_border_bottom_color, StyleBorderBottomColorValue, BorderBottomColor, as_border_bottom_color);
-    impl_get_prop!(get_border_top_style, StyleBorderTopStyleValue, BorderTopStyle, as_border_top_style);
-    impl_get_prop!(get_border_left_style, StyleBorderLeftStyleValue, BorderLeftStyle, as_border_left_style);
-    impl_get_prop!(get_border_right_style, StyleBorderRightStyleValue, BorderRightStyle, as_border_right_style);
-    impl_get_prop!(get_border_bottom_style, StyleBorderBottomStyleValue, BorderBottomStyle, as_border_bottom_style);
-    impl_get_prop!(get_border_top_left_radius, StyleBorderTopLeftRadiusValue, BorderTopLeftRadius, as_border_top_left_radius);
-    impl_get_prop!(get_border_top_right_radius, StyleBorderTopRightRadiusValue, BorderTopRightRadius, as_border_top_right_radius);
-    impl_get_prop!(get_border_bottom_left_radius, StyleBorderBottomLeftRadiusValue, BorderBottomLeftRadius, as_border_bottom_left_radius);
-    impl_get_prop!(get_border_bottom_right_radius, StyleBorderBottomRightRadiusValue, BorderBottomRightRadius, as_border_bottom_right_radius);
+    impl_get_prop!(
+        get_box_shadow_left,
+        StyleBoxShadowValue,
+        BoxShadowLeft,
+        as_box_shadow_left
+    );
+    impl_get_prop!(
+        get_box_shadow_right,
+        StyleBoxShadowValue,
+        BoxShadowRight,
+        as_box_shadow_right
+    );
+    impl_get_prop!(
+        get_box_shadow_top,
+        StyleBoxShadowValue,
+        BoxShadowTop,
+        as_box_shadow_top
+    );
+    impl_get_prop!(
+        get_box_shadow_bottom,
+        StyleBoxShadowValue,
+        BoxShadowBottom,
+        as_box_shadow_bottom
+    );
+    impl_get_prop!(
+        get_border_top_color,
+        StyleBorderTopColorValue,
+        BorderTopColor,
+        as_border_top_color
+    );
+    impl_get_prop!(
+        get_border_left_color,
+        StyleBorderLeftColorValue,
+        BorderLeftColor,
+        as_border_left_color
+    );
+    impl_get_prop!(
+        get_border_right_color,
+        StyleBorderRightColorValue,
+        BorderRightColor,
+        as_border_right_color
+    );
+    impl_get_prop!(
+        get_border_bottom_color,
+        StyleBorderBottomColorValue,
+        BorderBottomColor,
+        as_border_bottom_color
+    );
+    impl_get_prop!(
+        get_border_top_style,
+        StyleBorderTopStyleValue,
+        BorderTopStyle,
+        as_border_top_style
+    );
+    impl_get_prop!(
+        get_border_left_style,
+        StyleBorderLeftStyleValue,
+        BorderLeftStyle,
+        as_border_left_style
+    );
+    impl_get_prop!(
+        get_border_right_style,
+        StyleBorderRightStyleValue,
+        BorderRightStyle,
+        as_border_right_style
+    );
+    impl_get_prop!(
+        get_border_bottom_style,
+        StyleBorderBottomStyleValue,
+        BorderBottomStyle,
+        as_border_bottom_style
+    );
+    impl_get_prop!(
+        get_border_top_left_radius,
+        StyleBorderTopLeftRadiusValue,
+        BorderTopLeftRadius,
+        as_border_top_left_radius
+    );
+    impl_get_prop!(
+        get_border_top_right_radius,
+        StyleBorderTopRightRadiusValue,
+        BorderTopRightRadius,
+        as_border_top_right_radius
+    );
+    impl_get_prop!(
+        get_border_bottom_left_radius,
+        StyleBorderBottomLeftRadiusValue,
+        BorderBottomLeftRadius,
+        as_border_bottom_left_radius
+    );
+    impl_get_prop!(
+        get_border_bottom_right_radius,
+        StyleBorderBottomRightRadiusValue,
+        BorderBottomRightRadius,
+        as_border_bottom_right_radius
+    );
     impl_get_prop!(get_opacity, StyleOpacityValue, Opacity, as_opacity);
-    impl_get_prop!(get_transform, StyleTransformVecValue, Transform, as_transform);
-    impl_get_prop!(get_transform_origin, StyleTransformOriginValue, TransformOrigin, as_transform_origin);
-    impl_get_prop!(get_perspective_origin, StylePerspectiveOriginValue, PerspectiveOrigin, as_perspective_origin);
-    impl_get_prop!(get_backface_visibility, StyleBackfaceVisibilityValue, BackfaceVisibility, as_backface_visibility);
-    impl_get_prop!(get_app_region, StyleAppRegionValue, AppRegion, as_app_region);
+    impl_get_prop!(
+        get_transform,
+        StyleTransformVecValue,
+        Transform,
+        as_transform
+    );
+    impl_get_prop!(
+        get_transform_origin,
+        StyleTransformOriginValue,
+        TransformOrigin,
+        as_transform_origin
+    );
+    impl_get_prop!(
+        get_perspective_origin,
+        StylePerspectiveOriginValue,
+        PerspectiveOrigin,
+        as_perspective_origin
+    );
+    impl_get_prop!(
+        get_backface_visibility,
+        StyleBackfaceVisibilityValue,
+        BackfaceVisibility,
+        as_backface_visibility
+    );
+    impl_get_prop!(
+        get_app_region,
+        StyleAppRegionValue,
+        AppRegion,
+        as_app_region
+    );
     impl_get_prop!(get_display, LayoutDisplayValue, Display, as_display);
     impl_get_prop!(get_float, LayoutFloatValue, Float, as_float);
-    impl_get_prop!(get_box_sizing, LayoutBoxSizingValue, BoxSizing, as_box_sizing);
+    impl_get_prop!(
+        get_box_sizing,
+        LayoutBoxSizingValue,
+        BoxSizing,
+        as_box_sizing
+    );
     impl_get_prop!(get_width, LayoutWidthValue, Width, as_width);
     impl_get_prop!(get_height, LayoutHeightValue, Height, as_height);
     impl_get_prop!(get_min_width, LayoutMinWidthValue, MinWidth, as_min_width);
-    impl_get_prop!(get_min_height, LayoutMinHeightValue, MinHeight, as_min_height);
+    impl_get_prop!(
+        get_min_height,
+        LayoutMinHeightValue,
+        MinHeight,
+        as_min_height
+    );
     impl_get_prop!(get_max_width, LayoutMaxWidthValue, MaxWidth, as_max_width);
-    impl_get_prop!(get_max_height, LayoutMaxHeightValue, MaxHeight, as_max_height);
+    impl_get_prop!(
+        get_max_height,
+        LayoutMaxHeightValue,
+        MaxHeight,
+        as_max_height
+    );
     impl_get_prop!(get_position, LayoutPositionValue, Position, as_position);
     impl_get_prop!(get_top, LayoutTopValue, Top, as_top);
     impl_get_prop!(get_bottom, LayoutInsetBottomValue, Bottom, as_bottom);
     impl_get_prop!(get_right, LayoutRightValue, Right, as_right);
     impl_get_prop!(get_left, LayoutLeftValue, Left, as_left);
-    impl_get_prop!(get_padding_top, LayoutPaddingTopValue, PaddingTop, as_padding_top);
-    impl_get_prop!(get_padding_bottom, LayoutPaddingBottomValue, PaddingBottom, as_padding_bottom);
-    impl_get_prop!(get_padding_left, LayoutPaddingLeftValue, PaddingLeft, as_padding_left);
-    impl_get_prop!(get_padding_right, LayoutPaddingRightValue, PaddingRight, as_padding_right);
-    impl_get_prop!(get_margin_top, LayoutMarginTopValue, MarginTop, as_margin_top);
-    impl_get_prop!(get_margin_bottom, LayoutMarginBottomValue, MarginBottom, as_margin_bottom);
-    impl_get_prop!(get_margin_left, LayoutMarginLeftValue, MarginLeft, as_margin_left);
-    impl_get_prop!(get_margin_right, LayoutMarginRightValue, MarginRight, as_margin_right);
-    impl_get_prop!(get_border_top_width, LayoutBorderTopWidthValue, BorderTopWidth, as_border_top_width);
-    impl_get_prop!(get_border_left_width, LayoutBorderLeftWidthValue, BorderLeftWidth, as_border_left_width);
-    impl_get_prop!(get_border_right_width, LayoutBorderRightWidthValue, BorderRightWidth, as_border_right_width);
-    impl_get_prop!(get_border_bottom_width, LayoutBorderBottomWidthValue, BorderBottomWidth, as_border_bottom_width);
-    impl_get_prop!(get_overflow_x, LayoutOverflowValue, OverflowX, as_overflow_x);
-    impl_get_prop!(get_overflow_y, LayoutOverflowValue, OverflowY, as_overflow_y);
-    impl_get_prop!(get_overflow_block, LayoutOverflowValue, OverflowBlock, as_overflow_block);
-    impl_get_prop!(get_overflow_inline, LayoutOverflowValue, OverflowInline, as_overflow_inline);
-    impl_get_prop!(get_flex_direction, LayoutFlexDirectionValue, FlexDirection, as_flex_direction);
+    impl_get_prop!(
+        get_padding_top,
+        LayoutPaddingTopValue,
+        PaddingTop,
+        as_padding_top
+    );
+    impl_get_prop!(
+        get_padding_bottom,
+        LayoutPaddingBottomValue,
+        PaddingBottom,
+        as_padding_bottom
+    );
+    impl_get_prop!(
+        get_padding_left,
+        LayoutPaddingLeftValue,
+        PaddingLeft,
+        as_padding_left
+    );
+    impl_get_prop!(
+        get_padding_right,
+        LayoutPaddingRightValue,
+        PaddingRight,
+        as_padding_right
+    );
+    impl_get_prop!(
+        get_margin_top,
+        LayoutMarginTopValue,
+        MarginTop,
+        as_margin_top
+    );
+    impl_get_prop!(
+        get_margin_bottom,
+        LayoutMarginBottomValue,
+        MarginBottom,
+        as_margin_bottom
+    );
+    impl_get_prop!(
+        get_margin_left,
+        LayoutMarginLeftValue,
+        MarginLeft,
+        as_margin_left
+    );
+    impl_get_prop!(
+        get_margin_right,
+        LayoutMarginRightValue,
+        MarginRight,
+        as_margin_right
+    );
+    impl_get_prop!(
+        get_border_top_width,
+        LayoutBorderTopWidthValue,
+        BorderTopWidth,
+        as_border_top_width
+    );
+    impl_get_prop!(
+        get_border_left_width,
+        LayoutBorderLeftWidthValue,
+        BorderLeftWidth,
+        as_border_left_width
+    );
+    impl_get_prop!(
+        get_border_right_width,
+        LayoutBorderRightWidthValue,
+        BorderRightWidth,
+        as_border_right_width
+    );
+    impl_get_prop!(
+        get_border_bottom_width,
+        LayoutBorderBottomWidthValue,
+        BorderBottomWidth,
+        as_border_bottom_width
+    );
+    impl_get_prop!(
+        get_overflow_x,
+        LayoutOverflowValue,
+        OverflowX,
+        as_overflow_x
+    );
+    impl_get_prop!(
+        get_overflow_y,
+        LayoutOverflowValue,
+        OverflowY,
+        as_overflow_y
+    );
+    impl_get_prop!(
+        get_overflow_block,
+        LayoutOverflowValue,
+        OverflowBlock,
+        as_overflow_block
+    );
+    impl_get_prop!(
+        get_overflow_inline,
+        LayoutOverflowValue,
+        OverflowInline,
+        as_overflow_inline
+    );
+    impl_get_prop!(
+        get_flex_direction,
+        LayoutFlexDirectionValue,
+        FlexDirection,
+        as_flex_direction
+    );
     impl_get_prop!(get_flex_wrap, LayoutFlexWrapValue, FlexWrap, as_flex_wrap);
     impl_get_prop!(get_flex_grow, LayoutFlexGrowValue, FlexGrow, as_flex_grow);
-    impl_get_prop!(get_flex_shrink, LayoutFlexShrinkValue, FlexShrink, as_flex_shrink);
-    impl_get_prop!(get_justify_content, LayoutJustifyContentValue, JustifyContent, as_justify_content);
-    impl_get_prop!(get_align_items, LayoutAlignItemsValue, AlignItems, as_align_items);
-    impl_get_prop!(get_align_content, LayoutAlignContentValue, AlignContent, as_align_content);
-    impl_get_prop!(get_mix_blend_mode, StyleMixBlendModeValue, MixBlendMode, as_mix_blend_mode);
+    impl_get_prop!(
+        get_flex_shrink,
+        LayoutFlexShrinkValue,
+        FlexShrink,
+        as_flex_shrink
+    );
+    impl_get_prop!(
+        get_justify_content,
+        LayoutJustifyContentValue,
+        JustifyContent,
+        as_justify_content
+    );
+    impl_get_prop!(
+        get_align_items,
+        LayoutAlignItemsValue,
+        AlignItems,
+        as_align_items
+    );
+    impl_get_prop!(
+        get_align_content,
+        LayoutAlignContentValue,
+        AlignContent,
+        as_align_content
+    );
+    impl_get_prop!(
+        get_mix_blend_mode,
+        StyleMixBlendModeValue,
+        MixBlendMode,
+        as_mix_blend_mode
+    );
     impl_get_prop!(get_filter, StyleFilterVecValue, Filter, as_filter);
-    impl_get_prop!(get_backdrop_filter, StyleFilterVecValue, BackdropFilter, as_backdrop_filter);
-    impl_get_prop!(get_text_shadow, StyleBoxShadowValue, TextShadow, as_text_shadow);
-    impl_get_prop!(get_list_style_type, StyleListStyleTypeValue, ListStyleType, as_list_style_type);
-    impl_get_prop!(get_list_style_position, StyleListStylePositionValue, ListStylePosition, as_list_style_position);
-    impl_get_prop!(get_table_layout, LayoutTableLayoutValue, TableLayout, as_table_layout);
-    impl_get_prop!(get_border_collapse, StyleBorderCollapseValue, BorderCollapse, as_border_collapse);
-    impl_get_prop!(get_border_spacing, LayoutBorderSpacingValue, BorderSpacing, as_border_spacing);
-    impl_get_prop!(get_caption_side, StyleCaptionSideValue, CaptionSide, as_caption_side);
-    impl_get_prop!(get_empty_cells, StyleEmptyCellsValue, EmptyCells, as_empty_cells);
+    impl_get_prop!(
+        get_backdrop_filter,
+        StyleFilterVecValue,
+        BackdropFilter,
+        as_backdrop_filter
+    );
+    impl_get_prop!(
+        get_text_shadow,
+        StyleBoxShadowValue,
+        TextShadow,
+        as_text_shadow
+    );
+    impl_get_prop!(
+        get_list_style_type,
+        StyleListStyleTypeValue,
+        ListStyleType,
+        as_list_style_type
+    );
+    impl_get_prop!(
+        get_list_style_position,
+        StyleListStylePositionValue,
+        ListStylePosition,
+        as_list_style_position
+    );
+    impl_get_prop!(
+        get_table_layout,
+        LayoutTableLayoutValue,
+        TableLayout,
+        as_table_layout
+    );
+    impl_get_prop!(
+        get_border_collapse,
+        StyleBorderCollapseValue,
+        BorderCollapse,
+        as_border_collapse
+    );
+    impl_get_prop!(
+        get_border_spacing,
+        LayoutBorderSpacingValue,
+        BorderSpacing,
+        as_border_spacing
+    );
+    impl_get_prop!(
+        get_caption_side,
+        StyleCaptionSideValue,
+        CaptionSide,
+        as_caption_side
+    );
+    impl_get_prop!(
+        get_empty_cells,
+        StyleEmptyCellsValue,
+        EmptyCells,
+        as_empty_cells
+    );
 
     // Width calculation methods
     pub fn calc_width(
@@ -3479,8 +4340,8 @@ impl CssPropertyCache {
     /// Uses a bitset per node to avoid O(n²) scanning of property vecs.
     #[allow(clippy::too_many_lines)] // cohesive single-pass walker; splitting adds state-threading
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
-        use azul_css::props::property::CssPropertyType;
         use azul_css::dynamic_selector::PseudoStateType;
+        use azul_css::props::property::CssPropertyType;
 
         let node_count = node_data.len();
         if node_count == 0 {
@@ -3614,11 +4475,14 @@ impl CssPropertyCache {
 
                 // Check if UA CSS defines this property for this node type
                 if let Some(ua_prop) = crate::ua_css::get_ua_property(node_type, *prop_type) {
-                    self.cascaded_props.push_to(node_index, StatefulCssProperty {
-                        state: PseudoStateType::Normal,
-                        prop_type: *prop_type,
-                        property: ua_prop.clone(),
-                    });
+                    self.cascaded_props.push_to(
+                        node_index,
+                        StatefulCssProperty {
+                            state: PseudoStateType::Normal,
+                            prop_type: *prop_type,
+                            property: ua_prop.clone(),
+                        },
+                    );
 
                     // Mark as set in the bitset (prevent duplicate insertion for same node)
                     if d < 128 {
@@ -3634,7 +4498,8 @@ impl CssPropertyCache {
     /// Sort `cascaded_props` by (state, `prop_type`) and flatten into contiguous memory.
     /// Must be called after `apply_ua_css()` which adds entries to `cascaded_props`.
     pub fn sort_cascaded_props(&mut self) {
-        self.cascaded_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
+        self.cascaded_props
+            .sort_each_and_flatten(|p| (p.state, p.prop_type));
     }
 
     /// Compute inherited values for all nodes in the DOM tree.
@@ -3648,7 +4513,8 @@ impl CssPropertyCache {
         node_data: &[NodeData],
     ) -> Vec<NodeId> {
         if self.computed_values.len() < node_hierarchy.len() {
-            self.computed_values.resize(node_hierarchy.len(), Vec::new());
+            self.computed_values
+                .resize(node_hierarchy.len(), Vec::new());
         }
         node_hierarchy
             .iter()
@@ -3694,12 +4560,18 @@ impl CssPropertyCache {
         for (prop_type, prop_with_origin) in
             parent_values.iter().filter(|(pt, _)| pt.is_inheritable())
         {
-            let entry = (*prop_type, CssPropertyWithOrigin {
-                property: prop_with_origin.property.clone(),
-                origin: CssPropertyOrigin::Inherited,
-            });
+            let entry = (
+                *prop_type,
+                CssPropertyWithOrigin {
+                    property: prop_with_origin.property.clone(),
+                    origin: CssPropertyOrigin::Inherited,
+                },
+            );
             // Insert into sorted vec
-            match ctx.computed_values.binary_search_by_key(prop_type, |(k, _)| *k) {
+            match ctx
+                .computed_values
+                .binary_search_by_key(prop_type, |(k, _)| *k)
+            {
                 Ok(idx) => ctx.computed_values[idx] = entry,
                 Err(idx) => ctx.computed_values.insert(idx, entry),
             }
@@ -3720,9 +4592,10 @@ impl CssPropertyCache {
             let cascaded_slice = self.cascaded_props.get_slice(node_id.index());
             for p in cascaded_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal
-                    && Self::should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property) {
-                        Self::process_property(ctx, &p.property, parent_computed);
-                    }
+                    && Self::should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property)
+                {
+                    Self::process_property(ctx, &p.property, parent_computed);
+                }
             }
         }
 
@@ -3771,7 +4644,9 @@ impl CssPropertyCache {
     ) -> bool {
         computed
             .binary_search_by_key(&prop_type, |(k, _)| *k)
-            .map_or(true, |idx| computed[idx].1.origin == CssPropertyOrigin::Inherited)
+            .map_or(true, |idx| {
+                computed[idx].1.origin == CssPropertyOrigin::Inherited
+            })
     }
 
     /// Process a single property: resolve and store
@@ -3788,11 +4663,17 @@ impl CssPropertyCache {
             Self::resolve_other_property(prop, &ctx.computed_values)
         };
 
-        let entry = (prop_type, CssPropertyWithOrigin {
-            property: resolved,
-            origin: CssPropertyOrigin::Own,
-        });
-        match ctx.computed_values.binary_search_by_key(&prop_type, |(k, _)| *k) {
+        let entry = (
+            prop_type,
+            CssPropertyWithOrigin {
+                property: resolved,
+                origin: CssPropertyOrigin::Own,
+            },
+        );
+        match ctx
+            .computed_values
+            .binary_search_by_key(&prop_type, |(k, _)| *k)
+        {
             Ok(idx) => ctx.computed_values[idx] = entry,
             Err(idx) => ctx.computed_values.insert(idx, entry),
         }
@@ -3803,24 +4684,28 @@ impl CssPropertyCache {
         prop: &CssProperty,
         parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
     ) -> CssProperty {
-        let parent_font_size = parent_computed
-            .and_then(|p| {
-                p.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k)
-                    .ok()
-                    .map(|idx| &p[idx].1)
-            });
+        let parent_font_size = parent_computed.and_then(|p| {
+            p.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k)
+                .ok()
+                .map(|idx| &p[idx].1)
+        });
 
-        parent_font_size.map_or_else(|| Self::resolve_font_size_to_pixels(
-                prop,
-                azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
-            ), |pfs| Self::resolve_property_dependency(prop, &pfs.property).unwrap_or_else(
-                || {
+        parent_font_size.map_or_else(
+            || {
+                Self::resolve_font_size_to_pixels(
+                    prop,
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                )
+            },
+            |pfs| {
+                Self::resolve_property_dependency(prop, &pfs.property).unwrap_or_else(|| {
                     Self::resolve_font_size_to_pixels(
                         prop,
                         azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
                     )
-                },
-            ))
+                })
+            },
+        )
     }
 
     /// Resolve other properties (uses current node's font-size as reference)
@@ -3879,21 +4764,18 @@ impl CssPropertyCache {
             return false;
         };
 
-        css_val
-            .get_property()
-            .is_some_and(|fs| {
-                matches!(
-                    fs.inner.metric,
-                    SizeMetric::Em | SizeMetric::Rem | SizeMetric::Percent
-                )
-            })
+        css_val.get_property().is_some_and(|fs| {
+            matches!(
+                fs.inner.metric,
+                SizeMetric::Em | SizeMetric::Rem | SizeMetric::Percent
+            )
+        })
     }
 
     /// Store computed values if changed, returns true if values were updated
     fn store_if_changed(&mut self, ctx: &InheritanceContext) -> bool {
-        let values_changed = self
-            .computed_values
-            .get(ctx.node_id.index()) != Some(&ctx.computed_values);
+        let values_changed =
+            self.computed_values.get(ctx.node_id.index()) != Some(&ctx.computed_values);
 
         self.computed_values[ctx.node_id.index()].clone_from(&ctx.computed_values);
 
@@ -3909,1924 +4791,8 @@ struct InheritanceContext {
 }
 
 impl CssPropertyCache {
-
     /// Clear the entire compact cache. Call after major DOM changes.
     pub(crate) fn invalidate_resolved_cache(&mut self) {
         self.compact_cache = None;
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::float_cmp, clippy::too_many_lines)]
-mod autotest_generated {
-    use azul_css::{
-        css::CssPropertyValue,
-        dynamic_selector::{
-            CssPropertyWithConditions, DynamicSelector, DynamicSelectorContext, PseudoStateType,
-        },
-        props::{
-            basic::{length::SizeMetric, pixel::PixelValue},
-            layout::{
-                LayoutFlexBasis, LayoutInsetBottom, LayoutLeft, LayoutMarginTop, LayoutMaxWidth,
-                LayoutMinWidth, LayoutOverflow, LayoutPaddingLeft, LayoutRight, LayoutTop,
-            },
-            style::LayoutBorderLeftWidth,
-        },
-    };
-
-    use super::*;
-
-    // ---------------------------------------------------------------------
-    // helpers
-    // ---------------------------------------------------------------------
-
-    /// Approximate float compare — every value here round-trips through
-    /// `FloatValue`'s fixed-point (1/1000) encoding.
-    fn close(a: f32, b: f32) -> bool {
-        (a - b).abs() < 0.01
-    }
-
-    fn n0() -> NodeId {
-        NodeId::new(0)
-    }
-
-    fn normal() -> StyledNodeState {
-        StyledNodeState::default()
-    }
-
-    /// A `<div>` carrying `props` as unconditional (Normal-state) inline CSS.
-    fn div_with(props: Vec<CssProperty>) -> NodeData {
-        let mut nd = NodeData::create_div();
-        for property in props {
-            nd.add_css_property(CssPropertyWithConditions {
-                property,
-                apply_if: Vec::new().into(),
-            });
-        }
-        nd
-    }
-
-    /// A `<div>` carrying `props` gated on a single pseudo-state.
-    fn div_with_pseudo(props: Vec<CssProperty>, state: PseudoStateType) -> NodeData {
-        let mut nd = NodeData::create_div();
-        for property in props {
-            nd.add_css_property(CssPropertyWithConditions {
-                property,
-                apply_if: vec![DynamicSelector::PseudoState(state)].into(),
-            });
-        }
-        nd
-    }
-
-    fn width_px(v: f32) -> CssProperty {
-        CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(PixelValue::px(v))))
-    }
-
-    fn width_pct(v: f32) -> CssProperty {
-        CssProperty::Width(CssPropertyValue::Exact(LayoutWidth::Px(PixelValue::percent(
-            v,
-        ))))
-    }
-
-    fn font_size(pv: PixelValue) -> CssProperty {
-        CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize { inner: pv }))
-    }
-
-    /// Pull `(metric, number)` back out of a `CssProperty::FontSize`.
-    fn font_size_parts(p: &CssProperty) -> Option<(SizeMetric, f32)> {
-        match p {
-            CssProperty::FontSize(v) => v
-                .get_property()
-                .map(|fs| (fs.inner.metric, fs.inner.number.get())),
-            _ => None,
-        }
-    }
-
-    fn stateful(state: PseudoStateType, property: CssProperty) -> StatefulCssProperty {
-        StatefulCssProperty {
-            state,
-            prop_type: property.get_type(),
-            property,
-        }
-    }
-
-    // =====================================================================
-    // FlatVecVec — construction / getters / predicates
-    // =====================================================================
-
-    #[test]
-    fn flatvecvec_new_zero_is_empty() {
-        let f = FlatVecVec::<i32>::new(0);
-        assert_eq!(f.len(), 0);
-        assert!(f.is_empty());
-        // Quirk worth pinning: with no build slots at all, `is_flattened()` is
-        // vacuously true (`build.is_empty()`), even though `flatten()` never ran.
-        assert!(f.is_flattened());
-        assert!(f.get_slice(0).is_empty());
-    }
-
-    #[test]
-    fn flatvecvec_new_invariants_hold() {
-        let f = FlatVecVec::<i32>::new(3);
-        assert_eq!(f.len(), 3);
-        assert!(!f.is_empty());
-        assert!(!f.is_flattened(), "fresh multi-slot vec is in build phase");
-        assert_eq!(f.build_get(0), Some(&Vec::new()));
-        assert_eq!(f.build_get(2), Some(&Vec::new()));
-        assert_eq!(f.build_get(3), None, "one past the end");
-        assert_eq!(f.build_get(usize::MAX), None);
-        assert!(f.get_slice(0).is_empty());
-    }
-
-    #[test]
-    fn flatvecvec_default_is_neutral() {
-        let f = FlatVecVec::<i32>::default();
-        assert_eq!(f.len(), 0);
-        assert!(f.is_empty());
-        assert_eq!(f.build_get(0), None);
-        assert!(f.get_slice(0).is_empty());
-    }
-
-    #[test]
-    fn flatvecvec_get_slice_out_of_bounds_is_empty_in_both_phases() {
-        let mut f = FlatVecVec::<i32>::new(2);
-        f.push_to(0, 7);
-        // build phase
-        assert_eq!(f.get_slice(0), &[7]);
-        assert!(f.get_slice(2).is_empty());
-        assert!(f.get_slice(usize::MAX).is_empty());
-
-        f.flatten();
-        // read phase — same out-of-bounds contract, still no panic
-        assert_eq!(f.get_slice(0), &[7]);
-        assert!(f.get_slice(2).is_empty());
-        assert!(f.get_slice(usize::MAX).is_empty());
-    }
-
-    #[test]
-    #[should_panic(expected = "index out of bounds")]
-    fn flatvecvec_push_to_out_of_bounds_panics() {
-        // Documented in `push_to`: "Panics if ... node_index >= len()".
-        let mut f = FlatVecVec::<i32>::new(1);
-        f.push_to(1, 0);
-    }
-
-    #[test]
-    #[should_panic(expected = "index out of bounds")]
-    fn flatvecvec_push_to_after_flatten_panics() {
-        // Documented in `push_to`: "Panics if already flattened".
-        let mut f = FlatVecVec::<i32>::new(1);
-        f.flatten();
-        f.push_to(0, 0);
-    }
-
-    #[test]
-    #[should_panic(expected = "index out of bounds")]
-    fn flatvecvec_build_mut_out_of_bounds_panics() {
-        let mut f = FlatVecVec::<i32>::new(1);
-        let _ = f.build_mut(usize::MAX);
-    }
-
-    #[test]
-    fn flatvecvec_build_iter_mut_visits_every_slot() {
-        let mut f = FlatVecVec::<i32>::new(3);
-        f.push_to(0, 1);
-        f.push_to(2, 2);
-        let mut visited = 0;
-        for v in f.build_iter_mut() {
-            visited += 1;
-            v.clear();
-        }
-        assert_eq!(visited, 3);
-        assert!(f.get_slice(0).is_empty());
-        assert!(f.get_slice(2).is_empty());
-    }
-
-    #[test]
-    fn flatvecvec_build_get_returns_none_once_flattened() {
-        let mut f = FlatVecVec::<i32>::new(1);
-        f.push_to(0, 5);
-        f.flatten();
-        // Doc: "During read phase, returns None (use `get_slice` instead)."
-        assert_eq!(f.build_get(0), None);
-        assert_eq!(f.get_slice(0), &[5]);
-    }
-
-    // =====================================================================
-    // FlatVecVec — heap_bytes (numeric)
-    // =====================================================================
-
-    #[test]
-    fn flatvecvec_heap_bytes_zero_and_empty() {
-        let f = FlatVecVec::<i32>::default();
-        assert_eq!(f.heap_bytes(0), 0, "empty vec, zero element size");
-        // All three capacities are 0, so even a nonsensical MAX element size
-        // multiplies out to 0 rather than overflowing.
-        assert_eq!(f.heap_bytes(usize::MAX), 0);
-        assert_eq!(f.heap_bytes(size_of::<i32>()), 0);
-    }
-
-    #[test]
-    fn flatvecvec_heap_bytes_counts_build_and_flat_storage() {
-        let mut f = FlatVecVec::<i32>::new(4);
-        // Build-phase slots cost at least the outer Vec headers, even at a
-        // per-element size of 0.
-        assert!(f.heap_bytes(0) >= 4 * size_of::<Vec<i32>>());
-
-        f.push_to(0, 1);
-        f.push_to(0, 2);
-        let build_bytes = f.heap_bytes(size_of::<i32>());
-        assert!(build_bytes > 0);
-
-        f.flatten();
-        // Flat storage accounts for the 2 elements + the 4-entry offset table.
-        let flat_bytes = f.heap_bytes(size_of::<i32>());
-        assert!(flat_bytes >= 2 * size_of::<i32>() + 4 * size_of::<(u32, u32)>());
-    }
-
-    // =====================================================================
-    // FlatVecVec — flatten / sort_each_and_flatten
-    // =====================================================================
-
-    #[test]
-    fn flatvecvec_sort_each_and_flatten_keeps_last_of_equal_keys() {
-        // CSS cascade rule: among equal keys, later source order wins.
-        let mut f = FlatVecVec::<(i32, i32)>::new(1);
-        f.push_to(0, (1, 10));
-        f.push_to(0, (1, 20)); // same key, pushed later => must win
-        f.push_to(0, (0, 30));
-        f.sort_each_and_flatten(|p| p.0);
-
-        assert!(f.is_flattened());
-        assert_eq!(f.get_slice(0), &[(0, 30), (1, 20)]);
-    }
-
-    #[test]
-    fn flatvecvec_sort_each_and_flatten_on_empty_slots() {
-        let mut f = FlatVecVec::<i32>::new(3);
-        f.push_to(1, 42);
-        f.sort_each_and_flatten(|v| *v);
-        assert_eq!(f.len(), 3);
-        assert!(f.get_slice(0).is_empty());
-        assert_eq!(f.get_slice(1), &[42]);
-        assert!(f.get_slice(2).is_empty());
-    }
-
-    #[test]
-    fn flatvecvec_sort_each_and_flatten_on_zero_nodes_does_not_panic() {
-        let mut f = FlatVecVec::<i32>::new(0);
-        f.sort_each_and_flatten(|v| *v);
-        assert_eq!(f.len(), 0);
-        assert!(f.get_slice(0).is_empty());
-    }
-
-    #[test]
-    fn flatvecvec_flatten_does_not_deduplicate() {
-        let mut f = FlatVecVec::<i32>::new(2);
-        f.push_to(0, 5);
-        f.push_to(0, 5);
-        f.push_to(1, 9);
-        f.flatten();
-        assert!(f.is_flattened());
-        assert_eq!(f.get_slice(0), &[5, 5], "flatten() must not dedup");
-        assert_eq!(f.get_slice(1), &[9]);
-    }
-
-    // =====================================================================
-    // FlatVecVec — retain
-    // =====================================================================
-
-    #[test]
-    fn flatvecvec_retain_before_flatten_is_a_noop() {
-        // Doc: "Must be called after flatten." Before that it must not silently
-        // corrupt the build-phase data — it early-returns.
-        let mut f = FlatVecVec::<i32>::new(1);
-        f.push_to(0, 1);
-        f.push_to(0, 2);
-        f.retain(|_| false);
-        assert_eq!(f.get_slice(0), &[1, 2], "build-phase data left untouched");
-    }
-
-    #[test]
-    fn flatvecvec_retain_preserves_per_node_order() {
-        let mut f = FlatVecVec::<i32>::new(2);
-        for v in [1, 2, 3, 4] {
-            f.push_to(0, v);
-        }
-        f.push_to(1, 5);
-        f.flatten();
-
-        f.retain(|v| v % 2 == 0);
-        assert_eq!(f.get_slice(0), &[2, 4]);
-        assert!(f.get_slice(1).is_empty());
-        assert_eq!(f.len(), 2, "node slots survive an empty retain");
-    }
-
-    #[test]
-    fn flatvecvec_retain_dropping_everything_leaves_empty_slices() {
-        let mut f = FlatVecVec::<i32>::new(2);
-        f.push_to(0, 1);
-        f.push_to(1, 2);
-        f.flatten();
-        f.retain(|_| false);
-        assert_eq!(f.len(), 2);
-        assert!(f.get_slice(0).is_empty());
-        assert!(f.get_slice(1).is_empty());
-    }
-
-    #[test]
-    fn flatvecvec_retain_with_node_index_sees_owning_node() {
-        let mut f = FlatVecVec::<i32>::new(3);
-        f.push_to(0, 10);
-        f.push_to(1, 11);
-        f.push_to(2, 12);
-        f.flatten();
-
-        f.retain_with_node_index(|idx, _| idx == 1);
-        assert!(f.get_slice(0).is_empty());
-        assert_eq!(f.get_slice(1), &[11]);
-        assert!(f.get_slice(2).is_empty());
-    }
-
-    #[test]
-    fn flatvecvec_retain_with_node_index_before_flatten_is_a_noop() {
-        let mut f = FlatVecVec::<i32>::new(1);
-        f.push_to(0, 1);
-        f.retain_with_node_index(|_, _| false);
-        assert_eq!(f.get_slice(0), &[1]);
-    }
-
-    // =====================================================================
-    // FlatVecVec — iteration / extend_from
-    // =====================================================================
-
-    #[test]
-    fn flatvecvec_iter_node_slices_covers_all_nodes_in_both_phases() {
-        let mut f = FlatVecVec::<i32>::new(3);
-        f.push_to(1, 7);
-
-        let build: Vec<(usize, Vec<i32>)> = f
-            .iter_node_slices()
-            .map(|(i, s)| (i, s.to_vec()))
-            .collect();
-        assert_eq!(build, vec![(0, vec![]), (1, vec![7]), (2, vec![])]);
-
-        f.flatten();
-        let flat: Vec<(usize, Vec<i32>)> = f
-            .iter_node_slices()
-            .map(|(i, s)| (i, s.to_vec()))
-            .collect();
-        assert_eq!(flat, build, "iteration is phase-independent");
-    }
-
-    #[test]
-    fn flatvecvec_iter_node_slices_on_empty_yields_nothing() {
-        let f = FlatVecVec::<i32>::new(0);
-        assert_eq!(f.iter_node_slices().count(), 0);
-    }
-
-    #[test]
-    fn flatvecvec_extend_from_both_in_build_phase() {
-        let mut a = FlatVecVec::<i32>::new(1);
-        a.push_to(0, 1);
-        let mut b = FlatVecVec::<i32>::new(2);
-        b.push_to(0, 2);
-        b.push_to(1, 3);
-
-        a.extend_from(&mut b);
-        assert_eq!(a.len(), 3);
-        assert_eq!(a.get_slice(0), &[1]);
-        assert_eq!(a.get_slice(1), &[2]);
-        assert_eq!(a.get_slice(2), &[3]);
-        assert_eq!(b.len(), 0, "other is drained");
-    }
-
-    #[test]
-    fn flatvecvec_extend_from_both_flattened_rebases_offsets() {
-        let mut a = FlatVecVec::<i32>::new(2);
-        a.push_to(0, 1);
-        a.push_to(1, 2);
-        a.flatten();
-
-        let mut b = FlatVecVec::<i32>::new(2);
-        b.push_to(0, 3);
-        b.push_to(1, 4);
-        b.flatten();
-
-        a.extend_from(&mut b);
-        assert_eq!(a.len(), 4);
-        assert_eq!(a.get_slice(0), &[1]);
-        assert_eq!(a.get_slice(1), &[2]);
-        assert_eq!(a.get_slice(2), &[3], "offsets rebased onto a's flat data");
-        assert_eq!(a.get_slice(3), &[4]);
-    }
-
-    #[test]
-    fn flatvecvec_extend_from_across_phases_discards_self_flat_data() {
-        // Doc precondition: "Both must be in build phase, or both must be
-        // flattened." This pins what a violation actually does today — the
-        // flattened side's items are dropped on the floor rather than merged.
-        let mut a = FlatVecVec::<i32>::new(1);
-        a.push_to(0, 1);
-        a.flatten();
-
-        let mut b = FlatVecVec::<i32>::new(1);
-        b.push_to(0, 2);
-
-        a.extend_from(&mut b); // no panic...
-        assert_eq!(a.len(), 1);
-        assert_eq!(
-            a.get_slice(0),
-            &[2],
-            "a's own flattened item (1) is silently lost"
-        );
-    }
-
-    #[test]
-    fn flatvecvec_eq_within_the_same_phase() {
-        let mut a = FlatVecVec::<i32>::new(1);
-        a.push_to(0, 1);
-        let mut b = FlatVecVec::<i32>::new(1);
-        b.push_to(0, 1);
-        assert_eq!(a, b);
-
-        b.push_to(0, 2);
-        assert_ne!(a, b);
-
-        a.flatten();
-        // (a and c are both flattened below — equality is only meaningful
-        // between two caches in the same phase)
-        let mut c = FlatVecVec::<i32>::new(1);
-        c.push_to(0, 1);
-        c.flatten();
-        assert_eq!(a, c);
-    }
-
-    // =====================================================================
-    // CssPropertyCacheBreakdown
-    // =====================================================================
-
-    #[test]
-    fn breakdown_total_bytes_sums_subfields_and_excludes_node_count() {
-        let b = CssPropertyCacheBreakdown {
-            node_count: 999_999,
-            cascaded_props_bytes: 1,
-            css_props_bytes: 2,
-            computed_values_bytes: 4,
-            user_overridden_bytes: 8,
-            global_css_props_bytes: 16,
-            compact_cache_bytes: 32,
-            resolved_font_sizes_bytes: 64,
-        };
-        assert_eq!(b.total_bytes(), 127, "node_count is not a byte count");
-    }
-
-    #[test]
-    fn breakdown_total_bytes_default_is_zero_and_max_single_field_does_not_overflow() {
-        assert_eq!(CssPropertyCacheBreakdown::default().total_bytes(), 0);
-
-        let b = CssPropertyCacheBreakdown {
-            cascaded_props_bytes: usize::MAX,
-            ..Default::default()
-        };
-        assert_eq!(b.total_bytes(), usize::MAX);
-    }
-
-    // =====================================================================
-    // CssPropertyCache — construction / memory / append
-    // =====================================================================
-
-    #[test]
-    fn cache_empty_zero_is_neutral() {
-        let c = CssPropertyCache::empty(0);
-        assert_eq!(c.node_count, 0);
-        assert!(c.css_props.is_empty());
-        assert!(c.cascaded_props.is_empty());
-        assert!(c.computed_values.is_empty());
-        assert!(c.user_overridden_properties.is_empty());
-        assert!(c.global_css_props.is_empty());
-        assert!(c.compact_cache.is_none());
-
-        let b = c.memory_breakdown();
-        assert_eq!(b.node_count, 0);
-        assert_eq!(b.total_bytes(), 0, "a zero-node cache retains no heap");
-    }
-
-    #[test]
-    fn cache_empty_invariants_hold() {
-        let c = CssPropertyCache::empty(7);
-        assert_eq!(c.node_count, 7);
-        assert_eq!(c.css_props.len(), 7);
-        assert_eq!(c.cascaded_props.len(), 7);
-        assert!(!c.css_props.is_flattened(), "starts in build phase");
-        assert!(c.compact_cache.is_none());
-
-        let b = c.memory_breakdown();
-        assert_eq!(b.node_count, 7);
-        assert!(b.total_bytes() > 0);
-        assert_eq!(b.compact_cache_bytes, 0);
-        assert_eq!(b.resolved_font_sizes_bytes, 0);
-    }
-
-    #[test]
-    fn cache_invalidate_resolved_font_sizes_clears_the_once_lock() {
-        let mut c = CssPropertyCache::empty(1);
-        assert!(c.resolved_font_sizes_px.set(vec![16.0]).is_ok());
-        assert!(c.resolved_font_sizes_px.get().is_some());
-
-        c.invalidate_resolved_font_sizes();
-        assert!(
-            c.resolved_font_sizes_px.get().is_none(),
-            "next read must recompute"
-        );
-        // and it can be re-populated afterwards
-        assert!(c.resolved_font_sizes_px.set(vec![12.0]).is_ok());
-    }
-
-    #[test]
-    fn cache_append_sums_nodes_and_invalidates_derived_caches() {
-        let mut a = CssPropertyCache::empty(2);
-        let mut b = CssPropertyCache::empty(3);
-        assert!(a.resolved_font_sizes_px.set(vec![16.0, 16.0]).is_ok());
-
-        a.append(&mut b);
-
-        assert_eq!(a.node_count, 5);
-        assert_eq!(a.css_props.len(), 5);
-        assert_eq!(a.cascaded_props.len(), 5);
-        assert!(
-            a.resolved_font_sizes_px.get().is_none(),
-            "node indices shifted"
-        );
-        assert!(a.compact_cache.is_none());
-    }
-
-    #[test]
-    fn cache_append_of_empty_cache_is_a_noop_on_node_count() {
-        let mut a = CssPropertyCache::empty(2);
-        let mut b = CssPropertyCache::empty(0);
-        a.append(&mut b);
-        assert_eq!(a.node_count, 2);
-        assert_eq!(a.css_props.len(), 2);
-    }
-
-    #[test]
-    fn cache_invalidate_resolved_cache_drops_compact_cache() {
-        let mut c = CssPropertyCache::empty(1);
-        c.invalidate_resolved_cache();
-        assert!(c.compact_cache.is_none());
-    }
-
-    #[test]
-    fn cache_ptr_new_and_downcast_roundtrip() {
-        let mut p = CssPropertyCachePtr::new(CssPropertyCache::empty(4));
-        assert!(p.run_destructor);
-        assert_eq!(p.downcast_mut().node_count, 4);
-
-        p.downcast_mut().node_count = 9;
-        assert_eq!(p.downcast_mut().node_count, 9, "downcast_mut aliases the box");
-    }
-
-    // =====================================================================
-    // Predicates (overflow / border / box-shadow)
-    // =====================================================================
-
-    #[test]
-    fn overflow_predicates_default_to_visible_for_a_bare_div() {
-        let c = CssPropertyCache::empty(1);
-        let nd = NodeData::create_div();
-        assert!(c.is_horizontal_overflow_visible(&nd, &n0(), &normal()));
-        assert!(c.is_vertical_overflow_visible(&nd, &n0(), &normal()));
-        assert!(!c.is_horizontal_overflow_hidden(&nd, &n0(), &normal()));
-        assert!(!c.is_vertical_overflow_hidden(&nd, &n0(), &normal()));
-    }
-
-    #[test]
-    fn overflow_predicates_are_per_axis() {
-        let c = CssPropertyCache::empty(1);
-        let nd = div_with(vec![CssProperty::OverflowX(CssPropertyValue::Exact(
-            LayoutOverflow::Hidden,
-        ))]);
-        assert!(c.is_horizontal_overflow_hidden(&nd, &n0(), &normal()));
-        assert!(!c.is_horizontal_overflow_visible(&nd, &n0(), &normal()));
-        // the Y axis must be untouched
-        assert!(!c.is_vertical_overflow_hidden(&nd, &n0(), &normal()));
-        assert!(c.is_vertical_overflow_visible(&nd, &n0(), &normal()));
-    }
-
-    #[test]
-    fn overflow_predicates_do_not_panic_on_an_out_of_range_node_id() {
-        let c = CssPropertyCache::empty(0);
-        let nd = NodeData::create_div();
-        let far = NodeId::new(999_999);
-        assert!(c.is_horizontal_overflow_visible(&nd, &far, &normal()));
-        assert!(!c.is_vertical_overflow_hidden(&nd, &far, &normal()));
-    }
-
-    #[test]
-    fn has_border_false_without_and_true_with_a_border_width() {
-        let c = CssPropertyCache::empty(1);
-        assert!(!c.has_border(&NodeData::create_div(), &n0(), &normal()));
-
-        let bordered = div_with(vec![CssProperty::BorderLeftWidth(CssPropertyValue::Exact(
-            LayoutBorderLeftWidth {
-                inner: PixelValue::px(2.0),
-            },
-        ))]);
-        assert!(c.has_border(&bordered, &n0(), &normal()));
-    }
-
-    #[test]
-    fn has_box_shadow_false_for_a_bare_div() {
-        let c = CssPropertyCache::empty(1);
-        assert!(!c.has_box_shadow(&NodeData::create_div(), &n0(), &normal()));
-        // out-of-range node id must not panic either
-        assert!(!c.has_box_shadow(&NodeData::create_div(), &NodeId::new(500), &normal()));
-    }
-
-    // =====================================================================
-    // `*_or_default` getters
-    // =====================================================================
-
-    #[test]
-    fn or_default_getters_fall_back_to_the_css_defaults() {
-        let c = CssPropertyCache::empty(1);
-        let nd = NodeData::create_div();
-
-        assert_eq!(
-            c.get_font_size_or_default(&nd, &n0(), &normal()),
-            azul_css::defaults::DEFAULT_FONT_SIZE
-        );
-        assert_eq!(
-            c.get_text_color_or_default(&nd, &n0(), &normal()),
-            azul_css::defaults::DEFAULT_TEXT_COLOR
-        );
-
-        let fams = c.get_font_id_or_default(&nd, &n0(), &normal());
-        assert_eq!(fams.as_ref().len(), 1);
-        match &fams.as_ref()[0] {
-            StyleFontFamily::System(s) => {
-                assert_eq!(s.as_str(), azul_css::defaults::DEFAULT_FONT_ID);
-            }
-            other => panic!("expected the default System font family, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn get_font_size_or_default_prefers_the_inline_value() {
-        let c = CssPropertyCache::empty(1);
-        let nd = div_with(vec![font_size(PixelValue::px(42.0))]);
-        let fs = c.get_font_size_or_default(&nd, &n0(), &normal());
-        assert!(close(fs.inner.number.get(), 42.0));
-        assert_eq!(fs.inner.metric, SizeMetric::Px);
-    }
-
-    #[test]
-    fn or_default_getters_survive_an_out_of_range_node_id() {
-        let c = CssPropertyCache::empty(0);
-        let nd = NodeData::create_div();
-        let far = NodeId::new(usize::MAX / 2);
-        assert_eq!(
-            c.get_font_size_or_default(&nd, &far, &normal()),
-            azul_css::defaults::DEFAULT_FONT_SIZE
-        );
-        assert_eq!(c.get_font_id_or_default(&nd, &far, &normal()).as_ref().len(), 1);
-    }
-
-    // =====================================================================
-    // calc_* (numeric: zero / negative / NaN / inf / saturation)
-    // =====================================================================
-
-    #[test]
-    fn calc_width_is_zero_when_unset() {
-        let c = CssPropertyCache::empty(1);
-        let nd = NodeData::create_div();
-        assert_eq!(c.calc_width(&nd, &n0(), &normal(), 800.0), 0.0);
-        assert_eq!(c.calc_width(&nd, &n0(), &normal(), 0.0), 0.0);
-        assert_eq!(c.calc_height(&nd, &n0(), &normal(), f32::NAN), 0.0);
-    }
-
-    #[test]
-    fn calc_width_resolves_px_and_percent() {
-        let c = CssPropertyCache::empty(1);
-
-        let px = div_with(vec![width_px(100.0)]);
-        assert!(close(c.calc_width(&px, &n0(), &normal(), 800.0), 100.0));
-        // px must ignore the reference entirely
-        assert!(close(c.calc_width(&px, &n0(), &normal(), 0.0), 100.0));
-
-        let pct = div_with(vec![width_pct(50.0)]);
-        assert!(close(c.calc_width(&pct, &n0(), &normal(), 800.0), 400.0));
-        assert!(close(c.calc_width(&pct, &n0(), &normal(), 0.0), 0.0));
-    }
-
-    #[test]
-    fn calc_width_with_a_negative_reference_is_negative_not_clamped() {
-        let c = CssPropertyCache::empty(1);
-        let pct = div_with(vec![width_pct(50.0)]);
-        assert!(close(c.calc_width(&pct, &n0(), &normal(), -800.0), -400.0));
-    }
-
-    #[test]
-    fn calc_width_with_nan_and_infinite_references_is_defined() {
-        let c = CssPropertyCache::empty(1);
-        let pct = div_with(vec![width_pct(50.0)]);
-
-        assert!(c.calc_width(&pct, &n0(), &normal(), f32::NAN).is_nan());
-        assert_eq!(
-            c.calc_width(&pct, &n0(), &normal(), f32::INFINITY),
-            f32::INFINITY
-        );
-        assert_eq!(
-            c.calc_width(&pct, &n0(), &normal(), f32::NEG_INFINITY),
-            f32::NEG_INFINITY
-        );
-    }
-
-    #[test]
-    fn calc_width_saturates_non_finite_pixel_values_at_construction() {
-        let c = CssPropertyCache::empty(1);
-
-        // PixelValue stores a fixed-point isize, so `as isize` saturates:
-        // NaN => 0, +inf => isize::MAX, -inf => isize::MIN. Nothing panics and
-        // nothing leaks a NaN into layout.
-        let nan = div_with(vec![width_px(f32::NAN)]);
-        assert_eq!(c.calc_width(&nan, &n0(), &normal(), 800.0), 0.0);
-
-        let inf = div_with(vec![width_px(f32::INFINITY)]);
-        let got = c.calc_width(&inf, &n0(), &normal(), 800.0);
-        assert!(got.is_finite() && got > 0.0, "saturated, got {got}");
-
-        let neg_inf = div_with(vec![width_px(f32::NEG_INFINITY)]);
-        let got = c.calc_width(&neg_inf, &n0(), &normal(), 800.0);
-        assert!(got.is_finite() && got < 0.0, "saturated, got {got}");
-
-        let huge = div_with(vec![width_px(f32::MAX)]);
-        assert!(c.calc_width(&huge, &n0(), &normal(), 800.0).is_finite());
-    }
-
-    #[test]
-    fn calc_width_of_auto_and_intrinsic_keywords_is_zero() {
-        let c = CssPropertyCache::empty(1);
-
-        let auto = div_with(vec![CssProperty::Width(CssPropertyValue::Auto)]);
-        assert_eq!(c.calc_width(&auto, &n0(), &normal(), 800.0), 0.0);
-
-        // min-content/max-content are not resolvable here; documented as 0.0.
-        let min_content = div_with(vec![CssProperty::Width(CssPropertyValue::Exact(
-            LayoutWidth::MinContent,
-        ))]);
-        assert_eq!(c.calc_width(&min_content, &n0(), &normal(), 800.0), 0.0);
-    }
-
-    #[test]
-    fn calc_height_mirrors_calc_width() {
-        let c = CssPropertyCache::empty(1);
-        let nd = div_with(vec![CssProperty::Height(CssPropertyValue::Exact(
-            LayoutHeight::Px(PixelValue::percent(25.0)),
-        ))]);
-        assert!(close(c.calc_height(&nd, &n0(), &normal(), 400.0), 100.0));
-        assert!(c.calc_height(&nd, &n0(), &normal(), f32::NAN).is_nan());
-    }
-
-    #[test]
-    fn calc_min_width_defaults_to_zero_and_max_width_defaults_to_none() {
-        let c = CssPropertyCache::empty(1);
-        let nd = NodeData::create_div();
-
-        assert_eq!(c.calc_min_width(&nd, &n0(), &normal(), 800.0), 0.0);
-        assert_eq!(c.calc_min_height(&nd, &n0(), &normal(), 600.0), 0.0);
-        assert_eq!(c.calc_max_width(&nd, &n0(), &normal(), 800.0), None);
-        assert_eq!(c.calc_max_height(&nd, &n0(), &normal(), 600.0), None);
-    }
-
-    #[test]
-    fn calc_min_max_width_resolve_percentages_and_propagate_nan() {
-        let c = CssPropertyCache::empty(1);
-        let nd = div_with(vec![
-            CssProperty::MinWidth(CssPropertyValue::Exact(LayoutMinWidth {
-                inner: PixelValue::percent(10.0),
-            })),
-            CssProperty::MaxWidth(CssPropertyValue::Exact(LayoutMaxWidth {
-                inner: PixelValue::percent(90.0),
-            })),
-        ]);
-
-        assert!(close(c.calc_min_width(&nd, &n0(), &normal(), 1000.0), 100.0));
-        assert!(close(
-            c.calc_max_width(&nd, &n0(), &normal(), 1000.0).unwrap(),
-            900.0
-        ));
-        assert!(c.calc_min_width(&nd, &n0(), &normal(), f32::NAN).is_nan());
-        assert!(c
-            .calc_max_width(&nd, &n0(), &normal(), f32::NAN)
-            .unwrap()
-            .is_nan());
-    }
-
-    #[test]
-    fn calc_inset_getters_are_none_when_unset_and_some_when_set() {
-        let c = CssPropertyCache::empty(1);
-        let bare = NodeData::create_div();
-        assert_eq!(c.calc_left(&bare, &n0(), &normal(), 800.0), None);
-        assert_eq!(c.calc_right(&bare, &n0(), &normal(), 800.0), None);
-        assert_eq!(c.calc_top(&bare, &n0(), &normal(), 600.0), None);
-        assert_eq!(c.calc_bottom(&bare, &n0(), &normal(), 600.0), None);
-
-        let inset = div_with(vec![
-            CssProperty::Left(CssPropertyValue::Exact(LayoutLeft {
-                inner: PixelValue::px(5.0),
-            })),
-            CssProperty::Right(CssPropertyValue::Exact(LayoutRight {
-                inner: PixelValue::percent(10.0),
-            })),
-            CssProperty::Top(CssPropertyValue::Exact(LayoutTop {
-                inner: PixelValue::px(-7.0),
-            })),
-            CssProperty::Bottom(CssPropertyValue::Exact(LayoutInsetBottom {
-                inner: PixelValue::px(0.0),
-            })),
-        ]);
-        assert!(close(c.calc_left(&inset, &n0(), &normal(), 800.0).unwrap(), 5.0));
-        assert!(close(
-            c.calc_right(&inset, &n0(), &normal(), 800.0).unwrap(),
-            80.0
-        ));
-        assert!(close(
-            c.calc_top(&inset, &n0(), &normal(), 600.0).unwrap(),
-            -7.0
-        ));
-        assert_eq!(c.calc_bottom(&inset, &n0(), &normal(), 600.0), Some(0.0));
-    }
-
-    #[test]
-    fn calc_padding_margin_border_default_to_zero() {
-        let c = CssPropertyCache::empty(1);
-        let nd = NodeData::create_div();
-        assert_eq!(c.calc_padding_left(&nd, &n0(), &normal(), 800.0), 0.0);
-        assert_eq!(c.calc_padding_right(&nd, &n0(), &normal(), 800.0), 0.0);
-        assert_eq!(c.calc_padding_top(&nd, &n0(), &normal(), 600.0), 0.0);
-        assert_eq!(c.calc_padding_bottom(&nd, &n0(), &normal(), 600.0), 0.0);
-        assert_eq!(c.calc_margin_left(&nd, &n0(), &normal(), 800.0), 0.0);
-        assert_eq!(c.calc_margin_right(&nd, &n0(), &normal(), 800.0), 0.0);
-        assert_eq!(c.calc_margin_top(&nd, &n0(), &normal(), 600.0), 0.0);
-        assert_eq!(c.calc_margin_bottom(&nd, &n0(), &normal(), 600.0), 0.0);
-        assert_eq!(c.calc_border_left_width(&nd, &n0(), &normal(), 800.0), 0.0);
-        assert_eq!(c.calc_border_right_width(&nd, &n0(), &normal(), 800.0), 0.0);
-        assert_eq!(c.calc_border_top_width(&nd, &n0(), &normal(), 600.0), 0.0);
-        assert_eq!(c.calc_border_bottom_width(&nd, &n0(), &normal(), 600.0), 0.0);
-    }
-
-    #[test]
-    fn calc_padding_em_uses_the_default_font_size_not_the_reference() {
-        // `calc_*` passes DEFAULT_FONT_SIZE (16px) as both em and rem resolvers,
-        // so an em padding must be invariant under the reference width.
-        let c = CssPropertyCache::empty(1);
-        let nd = div_with(vec![CssProperty::PaddingLeft(CssPropertyValue::Exact(
-            LayoutPaddingLeft {
-                inner: PixelValue::em(2.0),
-            },
-        ))]);
-        assert!(close(c.calc_padding_left(&nd, &n0(), &normal(), 800.0), 32.0));
-        assert!(close(c.calc_padding_left(&nd, &n0(), &normal(), 0.0), 32.0));
-        assert!(close(
-            c.calc_padding_left(&nd, &n0(), &normal(), f32::NAN),
-            32.0
-        ));
-    }
-
-    #[test]
-    fn calc_margin_and_border_resolve_px_and_percent() {
-        let c = CssPropertyCache::empty(1);
-        let nd = div_with(vec![
-            CssProperty::MarginTop(CssPropertyValue::Exact(LayoutMarginTop {
-                inner: PixelValue::percent(50.0),
-            })),
-            CssProperty::BorderLeftWidth(CssPropertyValue::Exact(LayoutBorderLeftWidth {
-                inner: PixelValue::px(3.0),
-            })),
-        ]);
-        assert!(close(c.calc_margin_top(&nd, &n0(), &normal(), 200.0), 100.0));
-        assert!(close(
-            c.calc_border_left_width(&nd, &n0(), &normal(), 800.0),
-            3.0
-        ));
-        assert!(c.calc_margin_top(&nd, &n0(), &normal(), f32::NAN).is_nan());
-    }
-
-    #[test]
-    fn calc_getters_do_not_panic_on_an_out_of_range_node_id() {
-        let c = CssPropertyCache::empty(0);
-        let nd = NodeData::create_div();
-        let far = NodeId::new(usize::MAX / 2);
-        assert_eq!(c.calc_width(&nd, &far, &normal(), 800.0), 0.0);
-        assert_eq!(c.calc_max_height(&nd, &far, &normal(), 600.0), None);
-        assert_eq!(c.calc_padding_top(&nd, &far, &normal(), f32::INFINITY), 0.0);
-    }
-
-    // =====================================================================
-    // property_needs_slow_path_after_compact
-    // =====================================================================
-
-    #[test]
-    fn slow_path_only_needed_for_non_px_pixel_values() {
-        // px round-trips through the compact cache => no slow path
-        assert!(!property_needs_slow_path_after_compact(&width_px(10.0)));
-        // % encodes to SENTINEL => must survive the prune
-        assert!(property_needs_slow_path_after_compact(&width_pct(50.0)));
-
-        assert!(!property_needs_slow_path_after_compact(&CssProperty::Height(
-            CssPropertyValue::Exact(LayoutHeight::Px(PixelValue::px(1.0)))
-        )));
-        assert!(property_needs_slow_path_after_compact(&CssProperty::Height(
-            CssPropertyValue::Exact(LayoutHeight::Px(PixelValue::em(1.0)))
-        )));
-    }
-
-    #[test]
-    fn slow_path_covers_the_plain_pixelvalue_wrappers() {
-        assert!(property_needs_slow_path_after_compact(&font_size(
-            PixelValue::rem(2.0)
-        )));
-        assert!(!property_needs_slow_path_after_compact(&font_size(
-            PixelValue::px(16.0)
-        )));
-
-        assert!(property_needs_slow_path_after_compact(
-            &CssProperty::MinWidth(CssPropertyValue::Exact(LayoutMinWidth {
-                inner: PixelValue::percent(10.0),
-            }))
-        ));
-        assert!(!property_needs_slow_path_after_compact(
-            &CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
-                inner: PixelValue::px(4.0),
-            }))
-        ));
-    }
-
-    #[test]
-    fn slow_path_handles_flex_basis_and_non_pixel_properties() {
-        assert!(property_needs_slow_path_after_compact(
-            &CssProperty::FlexBasis(CssPropertyValue::Exact(LayoutFlexBasis::Exact(
-                PixelValue::percent(50.0)
-            )))
-        ));
-        assert!(!property_needs_slow_path_after_compact(
-            &CssProperty::FlexBasis(CssPropertyValue::Exact(LayoutFlexBasis::Auto))
-        ));
-
-        // Non-Exact keywords and non-pixel properties never need the slow path.
-        assert!(!property_needs_slow_path_after_compact(&CssProperty::Width(
-            CssPropertyValue::Auto
-        )));
-        assert!(!property_needs_slow_path_after_compact(
-            &CssProperty::const_none(CssPropertyType::Display)
-        ));
-        assert!(!property_needs_slow_path_after_compact(
-            &CssProperty::const_none(CssPropertyType::BackgroundContent)
-        ));
-    }
-
-    // =====================================================================
-    // clone_inheritable_property (round-trip)
-    // =====================================================================
-
-    #[test]
-    fn clone_inheritable_property_round_trips_heap_and_pod_variants() {
-        // The whole point of this hand-rolled clone is that it must be
-        // byte-equivalent to the derived Clone on native.
-        let font_family = CssProperty::FontFamily(CssPropertyValue::Exact(
-            vec![StyleFontFamily::System(AzString::from_const_str("serif"))].into(),
-        ));
-        assert_eq!(clone_inheritable_property(&font_family), font_family);
-
-        for p in [
-            CssProperty::const_none(CssPropertyType::Cursor),
-            CssProperty::const_none(CssPropertyType::TextColor),
-            CssProperty::const_none(CssPropertyType::BackgroundContent),
-            CssProperty::const_none(CssPropertyType::Transform),
-            CssProperty::const_none(CssPropertyType::Content),
-            width_px(3.0),
-            font_size(PixelValue::em(1.5)),
-        ] {
-            assert_eq!(clone_inheritable_property(&p), p, "clone must be identity");
-            assert_eq!(clone_inheritable_property(&p).get_type(), p.get_type());
-        }
-    }
-
-    // =====================================================================
-    // find_in_stateful / has_state_props / prop_types_for_state
-    // =====================================================================
-
-    fn sorted_stateful_fixture() -> Vec<StatefulCssProperty> {
-        let mut v = vec![
-            stateful(PseudoStateType::Normal, width_px(1.0)),
-            stateful(
-                PseudoStateType::Normal,
-                CssProperty::const_none(CssPropertyType::Display),
-            ),
-            stateful(PseudoStateType::Hover, width_px(2.0)),
-        ];
-        // The lookup helpers require (state, prop_type) sort order.
-        v.sort_by_key(|p| (p.state, p.prop_type));
-        v
-    }
-
-    #[test]
-    fn find_in_stateful_on_an_empty_slice_is_none() {
-        assert!(CssPropertyCache::find_in_stateful(
-            &[],
-            PseudoStateType::Normal,
-            &CssPropertyType::Width
-        )
-        .is_none());
-    }
-
-    #[test]
-    fn find_in_stateful_is_keyed_on_both_state_and_prop_type() {
-        let v = sorted_stateful_fixture();
-
-        let normal_width =
-            CssPropertyCache::find_in_stateful(&v, PseudoStateType::Normal, &CssPropertyType::Width)
-                .expect("normal width present");
-        assert_eq!(normal_width.get_type(), CssPropertyType::Width);
-
-        let hover_width =
-            CssPropertyCache::find_in_stateful(&v, PseudoStateType::Hover, &CssPropertyType::Width)
-                .expect("hover width present");
-        // same prop type, different state => a different entry
-        assert_ne!(normal_width, hover_width);
-
-        // present prop type, absent state
-        assert!(CssPropertyCache::find_in_stateful(
-            &v,
-            PseudoStateType::Focus,
-            &CssPropertyType::Width
-        )
-        .is_none());
-        // present state, absent prop type
-        assert!(CssPropertyCache::find_in_stateful(
-            &v,
-            PseudoStateType::Hover,
-            &CssPropertyType::Display
-        )
-        .is_none());
-    }
-
-    #[test]
-    fn has_state_props_true_false_and_edges() {
-        let v = sorted_stateful_fixture();
-        assert!(CssPropertyCache::has_state_props(&v, PseudoStateType::Normal));
-        assert!(CssPropertyCache::has_state_props(&v, PseudoStateType::Hover));
-        assert!(!CssPropertyCache::has_state_props(&v, PseudoStateType::Focus));
-        // empty slice: deterministic false, no partition_point OOB read
-        assert!(!CssPropertyCache::has_state_props(
-            &[],
-            PseudoStateType::Normal
-        ));
-    }
-
-    #[test]
-    fn prop_types_for_state_filters_by_state() {
-        let v = sorted_stateful_fixture();
-
-        let mut normal: Vec<CssPropertyType> =
-            CssPropertyCache::prop_types_for_state(&v, PseudoStateType::Normal)
-                .copied()
-                .collect();
-        normal.sort_unstable();
-        assert_eq!(normal.len(), 2);
-        assert!(normal.contains(&CssPropertyType::Width));
-        assert!(normal.contains(&CssPropertyType::Display));
-
-        let hover: Vec<CssPropertyType> =
-            CssPropertyCache::prop_types_for_state(&v, PseudoStateType::Hover)
-                .copied()
-                .collect();
-        assert_eq!(hover, vec![CssPropertyType::Width]);
-
-        assert_eq!(
-            CssPropertyCache::prop_types_for_state(&v, PseudoStateType::Active).count(),
-            0
-        );
-        assert_eq!(
-            CssPropertyCache::prop_types_for_state(&[], PseudoStateType::Normal).count(),
-            0
-        );
-    }
-
-    // =====================================================================
-    // font-size resolution (numeric)
-    // =====================================================================
-
-    #[test]
-    fn resolve_font_size_to_pixels_converts_absolute_units() {
-        let px = CssPropertyCache::resolve_font_size_to_pixels(&font_size(PixelValue::px(20.0)), 10.0);
-        let (metric, n) = font_size_parts(&px).unwrap();
-        assert_eq!(metric, SizeMetric::Px);
-        assert!(close(n, 20.0));
-
-        let pt = CssPropertyCache::resolve_font_size_to_pixels(&font_size(PixelValue::pt(12.0)), 10.0);
-        assert!(close(font_size_parts(&pt).unwrap().1, 12.0 * PT_TO_PX));
-    }
-
-    #[test]
-    fn resolve_font_size_to_pixels_em_scales_by_reference_but_rem_does_not() {
-        let em =
-            CssPropertyCache::resolve_font_size_to_pixels(&font_size(PixelValue::em(2.0)), 10.0);
-        assert!(close(font_size_parts(&em).unwrap().1, 20.0));
-
-        // rem deliberately ignores the reference and uses DEFAULT_FONT_SIZE (16).
-        let rem =
-            CssPropertyCache::resolve_font_size_to_pixels(&font_size(PixelValue::rem(2.0)), 10.0);
-        assert!(close(font_size_parts(&rem).unwrap().1, 32.0));
-
-        let pct = CssPropertyCache::resolve_font_size_to_pixels(
-            &font_size(PixelValue::percent(50.0)),
-            10.0,
-        );
-        assert!(close(font_size_parts(&pct).unwrap().1, 5.0));
-    }
-
-    #[test]
-    fn resolve_font_size_to_pixels_with_nan_and_infinite_references() {
-        // NaN * anything => NaN => saturates to 0 in the fixed-point encoding.
-        let nan =
-            CssPropertyCache::resolve_font_size_to_pixels(&font_size(PixelValue::em(2.0)), f32::NAN);
-        let (metric, n) = font_size_parts(&nan).unwrap();
-        assert_eq!(metric, SizeMetric::Px);
-        assert_eq!(n, 0.0, "NaN must not escape into the cascade");
-
-        let inf = CssPropertyCache::resolve_font_size_to_pixels(
-            &font_size(PixelValue::em(2.0)),
-            f32::INFINITY,
-        );
-        let n = font_size_parts(&inf).unwrap().1;
-        assert!(n.is_finite() && n > 0.0, "saturated, got {n}");
-
-        let zero =
-            CssPropertyCache::resolve_font_size_to_pixels(&font_size(PixelValue::em(2.0)), 0.0);
-        assert_eq!(font_size_parts(&zero).unwrap().1, 0.0);
-
-        let neg =
-            CssPropertyCache::resolve_font_size_to_pixels(&font_size(PixelValue::em(2.0)), -10.0);
-        assert!(close(font_size_parts(&neg).unwrap().1, -20.0));
-    }
-
-    #[test]
-    fn resolve_font_size_to_pixels_passes_through_unresolvable_inputs() {
-        // viewport units need a viewport => returned unchanged
-        let vw = font_size(PixelValue::from_metric(SizeMetric::Vw, 10.0));
-        assert_eq!(CssPropertyCache::resolve_font_size_to_pixels(&vw, 16.0), vw);
-
-        // a non-font-size property is returned verbatim
-        let w = width_px(10.0);
-        assert_eq!(CssPropertyCache::resolve_font_size_to_pixels(&w, 16.0), w);
-
-        // a keyword (non-Exact) font-size has no PixelValue to convert
-        let inherit = CssProperty::FontSize(CssPropertyValue::Inherit);
-        assert_eq!(
-            CssPropertyCache::resolve_font_size_to_pixels(&inherit, 16.0),
-            inherit
-        );
-    }
-
-    #[test]
-    fn has_relative_font_size_unit_true_false_and_edges() {
-        assert!(CssPropertyCache::has_relative_font_size_unit(&font_size(
-            PixelValue::em(1.0)
-        )));
-        assert!(CssPropertyCache::has_relative_font_size_unit(&font_size(
-            PixelValue::rem(1.0)
-        )));
-        assert!(CssPropertyCache::has_relative_font_size_unit(&font_size(
-            PixelValue::percent(100.0)
-        )));
-
-        assert!(!CssPropertyCache::has_relative_font_size_unit(&font_size(
-            PixelValue::px(16.0)
-        )));
-        assert!(!CssPropertyCache::has_relative_font_size_unit(&font_size(
-            PixelValue::pt(12.0)
-        )));
-        // keyword font-size and non-font-size properties are not "relative"
-        assert!(!CssPropertyCache::has_relative_font_size_unit(
-            &CssProperty::FontSize(CssPropertyValue::Auto)
-        ));
-        assert!(!CssPropertyCache::has_relative_font_size_unit(&width_px(1.0)));
-    }
-
-    // =====================================================================
-    // resolve_property_dependency
-    // =====================================================================
-
-    #[test]
-    fn resolve_property_dependency_scales_relative_targets_by_an_absolute_reference() {
-        let reference = font_size(PixelValue::px(10.0));
-
-        let em = CssPropertyCache::resolve_property_dependency(
-            &font_size(PixelValue::em(2.0)),
-            &reference,
-        )
-        .expect("em resolves against an absolute reference");
-        assert!(close(font_size_parts(&em).unwrap().1, 20.0));
-
-        let pct = CssPropertyCache::resolve_property_dependency(
-            &font_size(PixelValue::percent(50.0)),
-            &reference,
-        )
-        .expect("percent resolves");
-        assert!(close(font_size_parts(&pct).unwrap().1, 5.0));
-
-        // The reference itself may be in any absolute unit.
-        let pt_ref = font_size(PixelValue::pt(10.0));
-        let em2 =
-            CssPropertyCache::resolve_property_dependency(&font_size(PixelValue::em(2.0)), &pt_ref)
-                .expect("pt reference is absolute");
-        assert!(close(
-            font_size_parts(&em2).unwrap().1,
-            2.0 * 10.0 * PT_TO_PX
-        ));
-    }
-
-    #[test]
-    fn resolve_property_dependency_rewrites_the_target_variant_in_place() {
-        let reference = font_size(PixelValue::px(10.0));
-        let padding = CssProperty::PaddingLeft(CssPropertyValue::Exact(LayoutPaddingLeft {
-            inner: PixelValue::em(3.0),
-        }));
-        let out = CssPropertyCache::resolve_property_dependency(&padding, &reference)
-            .expect("padding is a supported target");
-        match out {
-            CssProperty::PaddingLeft(v) => {
-                let inner = v.get_property().unwrap().inner;
-                assert_eq!(inner.metric, SizeMetric::Px);
-                assert!(close(inner.number.get(), 30.0));
-            }
-            other => panic!("variant must be preserved, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn resolve_property_dependency_returns_none_for_unresolvable_inputs() {
-        let abs = font_size(PixelValue::px(10.0));
-
-        // a relative reference cannot anchor anything
-        assert!(CssPropertyCache::resolve_property_dependency(
-            &font_size(PixelValue::em(2.0)),
-            &font_size(PixelValue::em(2.0))
-        )
-        .is_none());
-        // viewport-unit target needs a viewport
-        assert!(CssPropertyCache::resolve_property_dependency(
-            &font_size(PixelValue::from_metric(SizeMetric::Vh, 5.0)),
-            &abs
-        )
-        .is_none());
-        // unsupported target type (no PixelValue to extract)
-        assert!(CssPropertyCache::resolve_property_dependency(&width_px(5.0), &abs).is_none());
-        // unsupported reference type
-        assert!(CssPropertyCache::resolve_property_dependency(
-            &font_size(PixelValue::em(2.0)),
-            &width_px(5.0)
-        )
-        .is_none());
-        // keyword (non-Exact) target
-        assert!(CssPropertyCache::resolve_property_dependency(
-            &CssProperty::FontSize(CssPropertyValue::Inherit),
-            &abs
-        )
-        .is_none());
-    }
-
-    // =====================================================================
-    // should_apply_cascaded
-    // =====================================================================
-
-    #[test]
-    fn should_apply_cascaded_respects_origin_and_relative_font_sizes() {
-        let own = |p: CssProperty| {
-            vec![(
-                p.get_type(),
-                CssPropertyWithOrigin {
-                    property: p,
-                    origin: CssPropertyOrigin::Own,
-                },
-            )]
-        };
-        let inherited = |p: CssProperty| {
-            vec![(
-                p.get_type(),
-                CssPropertyWithOrigin {
-                    property: p,
-                    origin: CssPropertyOrigin::Inherited,
-                },
-            )]
-        };
-
-        // nothing computed yet => apply
-        assert!(CssPropertyCache::should_apply_cascaded(
-            &[],
-            CssPropertyType::Width,
-            &width_px(1.0)
-        ));
-
-        // the node already set it itself => the UA/cascaded value must not win
-        assert!(!CssPropertyCache::should_apply_cascaded(
-            &own(width_px(2.0)),
-            CssPropertyType::Width,
-            &width_px(1.0)
-        ));
-
-        // an inherited value is weaker than a cascaded one => apply
-        assert!(CssPropertyCache::should_apply_cascaded(
-            &inherited(width_px(2.0)),
-            CssPropertyType::Width,
-            &width_px(1.0)
-        ));
-
-        // A cascaded (UA/author) font-size — relative OR absolute — overrides an
-        // inherited value: it is the node's own declared size (e.g. <h1>'s UA
-        // `font-size: 2em`), and `resolve_font_size_property` resolves the `em`
-        // against the parent's size, so there is no double-scaling.
-        let inherited_fs = inherited(font_size(PixelValue::px(20.0)));
-        assert!(CssPropertyCache::should_apply_cascaded(
-            &inherited_fs,
-            CssPropertyType::FontSize,
-            &font_size(PixelValue::em(2.0))
-        ));
-        assert!(CssPropertyCache::should_apply_cascaded(
-            &inherited_fs,
-            CssPropertyType::FontSize,
-            &font_size(PixelValue::px(12.0))
-        ));
-    }
-
-    // =====================================================================
-    // get_property / get_property_slow (cascade layering)
-    // =====================================================================
-
-    #[test]
-    fn get_property_finds_an_inline_normal_property() {
-        let c = CssPropertyCache::empty(1);
-        let nd = div_with(vec![width_px(100.0)]);
-        let got = c
-            .get_property(&nd, &n0(), &normal(), &CssPropertyType::Width)
-            .expect("inline width");
-        assert_eq!(*got, width_px(100.0));
-    }
-
-    #[test]
-    fn get_property_ignores_pseudo_state_props_unless_the_state_is_active() {
-        let c = CssPropertyCache::empty(1);
-        let nd = div_with_pseudo(vec![width_px(100.0)], PseudoStateType::Hover);
-
-        assert!(
-            c.get_property(&nd, &n0(), &normal(), &CssPropertyType::Width)
-                .is_none(),
-            ":hover width must not leak into the Normal state"
-        );
-
-        let hovered = StyledNodeState {
-            hover: true,
-            ..StyledNodeState::default()
-        };
-        assert_eq!(
-            c.get_property(&nd, &n0(), &hovered, &CssPropertyType::Width),
-            Some(&width_px(100.0))
-        );
-    }
-
-    #[test]
-    fn get_property_user_override_beats_inline_and_stylesheet() {
-        let mut c = CssPropertyCache::empty(1);
-        c.user_overridden_properties
-            .push(vec![(CssPropertyType::Width, width_px(1.0))]);
-        c.css_props
-            .push_to(0, stateful(PseudoStateType::Normal, width_px(2.0)));
-        c.css_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
-
-        let nd = div_with(vec![width_px(3.0)]);
-        assert_eq!(
-            c.get_property(&nd, &n0(), &normal(), &CssPropertyType::Width),
-            Some(&width_px(1.0)),
-            "user override is the top cascade layer"
-        );
-    }
-
-    #[test]
-    fn get_property_falls_back_through_stylesheet_global_cascaded_then_ua() {
-        let nd = NodeData::create_div();
-
-        // stylesheet layer
-        let mut c = CssPropertyCache::empty(1);
-        c.css_props
-            .push_to(0, stateful(PseudoStateType::Normal, width_px(2.0)));
-        c.css_props.sort_each_and_flatten(|p| (p.state, p.prop_type));
-        assert_eq!(
-            c.get_property(&nd, &n0(), &normal(), &CssPropertyType::Width),
-            Some(&width_px(2.0))
-        );
-
-        // `*` global layer (below per-node rules)
-        let mut c = CssPropertyCache::empty(1);
-        c.global_css_props.push(width_px(4.0));
-        assert_eq!(
-            c.get_property(&nd, &n0(), &normal(), &CssPropertyType::Width),
-            Some(&width_px(4.0))
-        );
-
-        // cascaded (inherited/UA) layer
-        let mut c = CssPropertyCache::empty(1);
-        c.cascaded_props
-            .push_to(0, stateful(PseudoStateType::Normal, width_px(5.0)));
-        c.cascaded_props
-            .sort_each_and_flatten(|p| (p.state, p.prop_type));
-        assert_eq!(
-            c.get_property(&nd, &n0(), &normal(), &CssPropertyType::Width),
-            Some(&width_px(5.0))
-        );
-
-        // UA fallback: a <div> has no UA width, but it does have `display: block`
-        let c = CssPropertyCache::empty(1);
-        assert!(c
-            .get_property(&nd, &n0(), &normal(), &CssPropertyType::Width)
-            .is_none());
-        assert!(c
-            .get_property(&nd, &n0(), &normal(), &CssPropertyType::Display)
-            .is_some());
-    }
-
-    #[test]
-    fn get_property_on_an_out_of_range_node_id_falls_through_to_ua_css() {
-        let c = CssPropertyCache::empty(0);
-        let nd = NodeData::create_div();
-        let far = NodeId::new(usize::MAX / 2);
-
-        assert!(c
-            .get_property(&nd, &far, &normal(), &CssPropertyType::Width)
-            .is_none());
-        assert!(
-            c.get_property(&nd, &far, &normal(), &CssPropertyType::Display)
-                .is_some(),
-            "UA CSS is node-type-keyed, not index-keyed"
-        );
-    }
-
-    #[test]
-    fn get_property_with_context_matches_pseudo_state_conditions() {
-        let c = CssPropertyCache::empty(1);
-        let nd = div_with_pseudo(vec![width_px(100.0)], PseudoStateType::Hover);
-
-        let plain = DynamicSelectorContext::default();
-        assert!(c
-            .get_property_with_context(&nd, &n0(), &plain, &CssPropertyType::Width)
-            .is_none());
-
-        let mut hovered = DynamicSelectorContext::default();
-        hovered.pseudo_state.hover = true;
-        assert_eq!(
-            c.get_property_with_context(&nd, &n0(), &hovered, &CssPropertyType::Width),
-            Some(&width_px(100.0))
-        );
-    }
-
-    #[test]
-    fn check_properties_changed_only_fires_when_a_condition_flips() {
-        let plain = DynamicSelectorContext::default();
-        let mut hovered = DynamicSelectorContext::default();
-        hovered.pseudo_state.hover = true;
-
-        // unconditional props never "change" between contexts
-        let unconditional = div_with(vec![width_px(1.0)]);
-        assert!(!CssPropertyCache::check_properties_changed(
-            &unconditional,
-            &plain,
-            &hovered
-        ));
-
-        let conditional = div_with_pseudo(vec![width_px(1.0)], PseudoStateType::Hover);
-        assert!(CssPropertyCache::check_properties_changed(
-            &conditional,
-            &plain,
-            &hovered
-        ));
-        assert!(
-            !CssPropertyCache::check_properties_changed(&conditional, &plain, &plain),
-            "identical contexts can never differ"
-        );
-
-        // a node with no inline style at all
-        assert!(!CssPropertyCache::check_properties_changed(
-            &NodeData::create_div(),
-            &plain,
-            &hovered
-        ));
-    }
-
-    #[test]
-    fn check_layout_properties_changed_ignores_non_layout_properties() {
-        let plain = DynamicSelectorContext::default();
-        let mut hovered = DynamicSelectorContext::default();
-        hovered.pseudo_state.hover = true;
-
-        let layout = div_with_pseudo(vec![width_px(1.0)], PseudoStateType::Hover);
-        assert!(CssPropertyCache::check_layout_properties_changed(
-            &layout, &plain, &hovered
-        ));
-        assert!(CssPropertyType::Width.can_trigger_relayout());
-
-        // A paint-only property flipping must not force a relayout.
-        let paint = div_with_pseudo(
-            vec![CssProperty::const_none(CssPropertyType::BackgroundContent)],
-            PseudoStateType::Hover,
-        );
-        assert!(!CssPropertyType::BackgroundContent.can_trigger_relayout());
-        assert!(!CssPropertyCache::check_layout_properties_changed(
-            &paint, &plain, &hovered
-        ));
-        // ...though the generic check still sees it
-        assert!(CssPropertyCache::check_properties_changed(
-            &paint, &plain, &hovered
-        ));
-    }
-
-    // =====================================================================
-    // grid-gap / scrollbar getters
-    // =====================================================================
-
-    #[test]
-    fn grid_gap_and_scrollbar_getters_are_none_on_a_bare_div() {
-        let c = CssPropertyCache::empty(1);
-        let nd = NodeData::create_div();
-        assert!(c.get_grid_gap(&nd, &n0(), &normal()).is_none());
-        assert!(c.get_scrollbar_track(&nd, &n0(), &normal()).is_none());
-        assert!(c.get_scrollbar_thumb(&nd, &n0(), &normal()).is_none());
-        assert!(c.get_scrollbar_button(&nd, &n0(), &normal()).is_none());
-        assert!(c.get_scrollbar_corner(&nd, &n0(), &normal()).is_none());
-        assert!(c.get_scrollbar_resizer(&nd, &n0(), &normal()).is_none());
-
-        // and on an out-of-range node id
-        let far = NodeId::new(4_242);
-        assert!(c.get_grid_gap(&nd, &far, &normal()).is_none());
-        assert!(c.get_scrollbar_thumb(&nd, &far, &normal()).is_none());
-    }
-
-    // =====================================================================
-    // get_computed_css_style_string
-    // =====================================================================
-
-    #[test]
-    fn computed_css_style_string_serializes_set_properties() {
-        let c = CssPropertyCache::empty(1);
-
-        // A bare <div> still gets `display: block` from the UA sheet.
-        let s = c.get_computed_css_style_string(&NodeData::create_div(), &n0(), &normal());
-        assert!(s.contains("display:"), "got {s:?}");
-
-        let styled = div_with(vec![width_px(100.0), font_size(PixelValue::px(12.0))]);
-        let s = c.get_computed_css_style_string(&styled, &n0(), &normal());
-        assert!(s.contains("width:"), "got {s:?}");
-        assert!(s.contains("font-size:"), "got {s:?}");
-        assert!(s.ends_with(';'), "each declaration is terminated: {s:?}");
-    }
-
-    #[test]
-    fn computed_css_style_string_does_not_panic_on_an_out_of_range_node_id() {
-        let c = CssPropertyCache::empty(0);
-        let s = c.get_computed_css_style_string(
-            &NodeData::create_div(),
-            &NodeId::new(usize::MAX / 2),
-            &normal(),
-        );
-        assert!(s.contains("display:"));
-    }
-
-    // =====================================================================
-    // apply_ua_css / sort_cascaded_props / prune_compact_normal_props
-    // =====================================================================
-
-    #[test]
-    fn apply_ua_css_inserts_ua_properties_into_cascaded_props() {
-        let nodes = vec![NodeData::create_div()];
-        let mut c = CssPropertyCache::empty(1);
-        c.apply_ua_css(&nodes);
-
-        let props = c.cascaded_props.build_get(0).expect("build phase");
-        assert!(
-            props
-                .iter()
-                .any(|p| p.prop_type == CssPropertyType::Display
-                    && p.state == PseudoStateType::Normal),
-            "UA `div {{ display: block }}` must land in the cascade"
-        );
-    }
-
-    #[test]
-    fn apply_ua_css_does_not_override_an_existing_inline_property() {
-        let nodes = vec![div_with(vec![CssProperty::const_none(
-            CssPropertyType::Display,
-        )])];
-        let mut c = CssPropertyCache::empty(1);
-        c.apply_ua_css(&nodes);
-
-        let props = c.cascaded_props.build_get(0).expect("build phase");
-        assert!(
-            !props.iter().any(|p| p.prop_type == CssPropertyType::Display),
-            "UA CSS is the weakest layer and must not clobber inline"
-        );
-    }
-
-    #[test]
-    fn apply_ua_css_on_zero_nodes_returns_early() {
-        let mut c = CssPropertyCache::empty(0);
-        c.apply_ua_css(&[]);
-        assert_eq!(c.cascaded_props.len(), 0);
-    }
-
-    #[test]
-    fn sort_cascaded_props_flattens_and_orders_by_state_then_type() {
-        let mut c = CssPropertyCache::empty(1);
-        c.cascaded_props
-            .push_to(0, stateful(PseudoStateType::Hover, width_px(1.0)));
-        c.cascaded_props.push_to(
-            0,
-            stateful(
-                PseudoStateType::Normal,
-                CssProperty::const_none(CssPropertyType::Display),
-            ),
-        );
-        c.cascaded_props
-            .push_to(0, stateful(PseudoStateType::Normal, width_px(2.0)));
-
-        c.sort_cascaded_props();
-
-        assert!(c.cascaded_props.is_flattened());
-        let slice = c.cascaded_props.get_slice(0);
-        assert_eq!(slice.len(), 3);
-        let keys: Vec<_> = slice.iter().map(|p| (p.state, p.prop_type)).collect();
-        let mut sorted = keys.clone();
-        sorted.sort_unstable();
-        assert_eq!(keys, sorted, "binary_search lookups require sort order");
-    }
-
-    #[test]
-    fn prune_compact_normal_props_keeps_what_the_slow_path_still_needs() {
-        let mut c = CssPropertyCache::empty(1);
-        // Normal + compact-encoded + fully representable => droppable
-        c.cascaded_props.push_to(
-            0,
-            stateful(
-                PseudoStateType::Normal,
-                CssProperty::const_none(CssPropertyType::Display),
-            ),
-        );
-        // Normal + compact-encoded but SENTINEL-encoded (%) => must survive
-        c.cascaded_props
-            .push_to(0, stateful(PseudoStateType::Normal, width_pct(50.0)));
-        // Normal + no compact encoding at all => must survive
-        c.cascaded_props.push_to(
-            0,
-            stateful(
-                PseudoStateType::Normal,
-                CssProperty::const_none(CssPropertyType::BackgroundContent),
-            ),
-        );
-        // non-Normal => always survives
-        c.cascaded_props.push_to(
-            0,
-            stateful(
-                PseudoStateType::Hover,
-                CssProperty::const_none(CssPropertyType::Display),
-            ),
-        );
-
-        c.prune_compact_normal_props();
-
-        let kept: Vec<(PseudoStateType, CssPropertyType)> = c
-            .cascaded_props
-            .get_slice(0)
-            .iter()
-            .map(|p| (p.state, p.prop_type))
-            .collect();
-
-        assert!(
-            !kept.contains(&(PseudoStateType::Normal, CssPropertyType::Display)),
-            "the compact cache is authoritative for this one"
-        );
-        assert!(kept.contains(&(PseudoStateType::Normal, CssPropertyType::Width)));
-        assert!(kept.contains(&(PseudoStateType::Normal, CssPropertyType::BackgroundContent)));
-        assert!(kept.contains(&(PseudoStateType::Hover, CssPropertyType::Display)));
-        assert_eq!(kept.len(), 3);
-    }
-
-    #[test]
-    fn prune_compact_normal_props_on_an_empty_cache_does_not_panic() {
-        let mut c = CssPropertyCache::empty(0);
-        c.prune_compact_normal_props();
-        assert_eq!(c.cascaded_props.len(), 0);
-
-        let mut c = CssPropertyCache::empty(3);
-        c.prune_compact_normal_props();
-        assert_eq!(c.cascaded_props.len(), 3);
-        assert!(c.cascaded_props.get_slice(0).is_empty());
-    }
-
-    // =====================================================================
-    // compute_inherited_values
-    // =====================================================================
-
-    /// `[root, child]`, child's parent = root (the hierarchy uses 1-based ids).
-    fn two_node_hierarchy() -> Vec<NodeHierarchyItem> {
-        vec![
-            NodeHierarchyItem {
-                parent: 0,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 2,
-            },
-            NodeHierarchyItem {
-                parent: 1,
-                previous_sibling: 0,
-                next_sibling: 0,
-                last_child: 0,
-            },
-        ]
-    }
-
-    #[test]
-    fn compute_inherited_values_propagates_font_size_to_children() {
-        let hierarchy = two_node_hierarchy();
-        assert_eq!(hierarchy[1].parent_id(), Some(NodeId::new(0)));
-
-        let nodes = vec![
-            div_with(vec![font_size(PixelValue::px(20.0))]),
-            NodeData::create_div(),
-        ];
-        let mut c = CssPropertyCache::empty(2);
-        let changed = c.compute_inherited_values(&hierarchy, &nodes);
-
-        assert_eq!(c.computed_values.len(), 2);
-        assert_eq!(changed.len(), 2, "both nodes gained a computed value");
-
-        let (t, v) = &c.computed_values[1][0];
-        assert_eq!(*t, CssPropertyType::FontSize);
-        assert_eq!(v.origin, CssPropertyOrigin::Inherited);
-        assert!(close(font_size_parts(&v.property).unwrap().1, 20.0));
-
-        // the parent's own value keeps the Own origin
-        assert_eq!(c.computed_values[0][0].1.origin, CssPropertyOrigin::Own);
-    }
-
-    #[test]
-    fn compute_inherited_values_resolves_a_child_em_against_the_parent_px() {
-        let hierarchy = two_node_hierarchy();
-        let nodes = vec![
-            div_with(vec![font_size(PixelValue::px(20.0))]),
-            div_with(vec![font_size(PixelValue::em(2.0))]),
-        ];
-        let mut c = CssPropertyCache::empty(2);
-        c.compute_inherited_values(&hierarchy, &nodes);
-
-        let (t, v) = &c.computed_values[1][0];
-        assert_eq!(*t, CssPropertyType::FontSize);
-        assert_eq!(v.origin, CssPropertyOrigin::Own);
-        let (metric, n) = font_size_parts(&v.property).unwrap();
-        assert_eq!(metric, SizeMetric::Px, "resolved to absolute px");
-        assert!(close(n, 40.0), "2em of the parent's 20px, got {n}");
-    }
-
-    #[test]
-    fn compute_inherited_values_is_idempotent_on_a_second_run() {
-        let hierarchy = two_node_hierarchy();
-        let nodes = vec![
-            div_with(vec![font_size(PixelValue::px(20.0))]),
-            NodeData::create_div(),
-        ];
-        let mut c = CssPropertyCache::empty(2);
-        assert_eq!(c.compute_inherited_values(&hierarchy, &nodes).len(), 2);
-        assert!(
-            c.compute_inherited_values(&hierarchy, &nodes).is_empty(),
-            "nothing changed the second time around"
-        );
-    }
-
-    #[test]
-    fn compute_inherited_values_on_an_empty_tree_does_not_panic() {
-        let mut c = CssPropertyCache::empty(0);
-        assert!(c.compute_inherited_values(&[], &[]).is_empty());
-        assert!(c.computed_values.is_empty());
-    }
-
-    // =====================================================================
-    // restyle / generate_tag_ids
-    // =====================================================================
-
-    fn one_node_scaffold() -> (NodeHierarchyItemVec, NodeDataContainer<CascadeInfo>) {
-        (
-            vec![NodeHierarchyItem::zeroed()].into(),
-            NodeDataContainer::new(vec![CascadeInfo {
-                index_in_parent: 0,
-                is_last_child: true,
-            }]),
-        )
-    }
-
-    #[test]
-    fn restyle_with_an_empty_stylesheet_flattens_and_yields_no_tags() {
-        let (hierarchy, cascade) = one_node_scaffold();
-        let nodes = NodeDataContainer::new(vec![NodeData::create_div()]);
-        let non_leaf: ParentWithNodeDepthVec = Vec::new().into();
-        let mut css = Css::empty();
-
-        let mut c = CssPropertyCache::empty(1);
-        let tags = c.restyle(
-            &mut css,
-            &nodes.as_ref(),
-            &hierarchy,
-            &non_leaf,
-            &cascade.as_ref(),
-        );
-
-        assert!(tags.is_empty(), "a plain div needs no hit-test tag");
-        assert!(
-            c.css_props.is_flattened(),
-            "restyle must leave css_props in read phase"
-        );
-        assert!(c.resolved_font_sizes_px.get().is_none());
-    }
-
-    #[test]
-    fn generate_tag_ids_skips_inert_nodes_and_tags_interactive_ones() {
-        let (hierarchy, _) = one_node_scaffold();
-
-        let inert = NodeDataContainer::new(vec![NodeData::create_div()]);
-        let c = CssPropertyCache::empty(1);
-        assert!(c.generate_tag_ids(&inert.as_ref(), &hierarchy).is_empty());
-
-        // an inline :hover rule makes the node hit-testable
-        let hoverable = NodeDataContainer::new(vec![div_with_pseudo(
-            vec![width_px(1.0)],
-            PseudoStateType::Hover,
-        )]);
-        let tags = c.generate_tag_ids(&hoverable.as_ref(), &hierarchy);
-        assert_eq!(tags.len(), 1);
-        assert_eq!(
-            tags[0].node_id.into_crate_internal(),
-            Some(NodeId::new(0))
-        );
-    }
-
-    #[test]
-    fn generate_tag_ids_tags_a_node_with_a_cursor_declaration() {
-        let (hierarchy, _) = one_node_scaffold();
-        let nodes = NodeDataContainer::new(vec![div_with(vec![CssProperty::const_none(
-            CssPropertyType::Cursor,
-        )])]);
-        let c = CssPropertyCache::empty(1);
-        assert_eq!(c.generate_tag_ids(&nodes.as_ref(), &hierarchy).len(), 1);
-    }
-
-    #[test]
-    fn generate_tag_ids_on_an_empty_dom_yields_nothing() {
-        let nodes: NodeDataContainer<NodeData> = NodeDataContainer::new(Vec::new());
-        let hierarchy: NodeHierarchyItemVec = Vec::new().into();
-        let c = CssPropertyCache::empty(0);
-        assert!(c.generate_tag_ids(&nodes.as_ref(), &hierarchy).is_empty());
-    }
-
-    // =====================================================================
-    // std-gated profiling helpers
-    // =====================================================================
-
-    #[cfg(feature = "std")]
-    #[test]
-    fn css_prop_type_label_is_interned_and_distinct_per_variant() {
-        let a = CssPropertyCache::css_prop_type_label(&CssPropertyType::Width);
-        let b = CssPropertyCache::css_prop_type_label(&CssPropertyType::Width);
-        assert!(!a.is_empty());
-        assert_eq!(
-            a.as_ptr(),
-            b.as_ptr(),
-            "the label table must leak at most one &'static str per variant"
-        );
-
-        let other = CssPropertyCache::css_prop_type_label(&CssPropertyType::Height);
-        assert_ne!(a, other);
-    }
-
-    #[cfg(feature = "std")]
-    #[test]
-    fn drain_css_prop_counts_is_sorted_descending_and_drains() {
-        // The counter is thread-local and only records when AZ_PROP_COUNT=1, so
-        // the contract to pin here is "never panics, and drains".
-        let first = drain_css_prop_counts();
-        for w in first.windows(2) {
-            assert!(w[0].1 >= w[1].1, "counts must be sorted descending");
-        }
-        assert!(
-            drain_css_prop_counts().is_empty(),
-            "a drained counter comes back empty"
-        );
     }
 }
