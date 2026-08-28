@@ -192,9 +192,9 @@ mod autotest_generated {
         }
     }
 
-    #[test]
-    fn quantize_is_deterministic_across_calls() {
-        for v in HOSTILE {
+    proptest! {
+        #[test]
+        fn quantize_is_deterministic_across_calls(v in proptest::num::f32::ANY) {
             assert_eq!(quantize(v), quantize(v));
         }
     }
@@ -215,63 +215,63 @@ mod autotest_generated {
         out
     }
 
-    #[test]
-    fn ord_is_reflexive_and_antisymmetric_even_with_nan() {
-        let grid = hostile_positions();
-        for a in grid {
-            // Eq requires reflexivity — raw f32 NaN would break it.
+    proptest! {
+        #[test]
+        fn ord_is_reflexive_and_antisymmetric_even_with_nan(
+            ax in proptest::num::f32::ANY, ay in proptest::num::f32::ANY,
+            bx in proptest::num::f32::ANY, by in proptest::num::f32::ANY
+        ) {
+            let a = LogicalPosition::new(ax, ay);
+            let b = LogicalPosition::new(bx, by);
             assert_eq!(a.cmp(&a), Ordering::Equal);
             assert_eq!(a, a);
-            for b in grid {
-                assert_eq!(a.cmp(&b), b.cmp(&a).reverse());
+            assert_eq!(a.cmp(&b), b.cmp(&a).reverse());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn ord_is_transitive_over_the_hostile_grid(
+            ax in proptest::num::f32::ANY, ay in proptest::num::f32::ANY,
+            bx in proptest::num::f32::ANY, by in proptest::num::f32::ANY,
+            cx in proptest::num::f32::ANY, cy in proptest::num::f32::ANY
+        ) {
+            let a = LogicalPosition::new(ax, ay);
+            let b = LogicalPosition::new(bx, by);
+            let c = LogicalPosition::new(cx, cy);
+            if a.cmp(&b) == Ordering::Less && b.cmp(&c) == Ordering::Less {
+                assert_eq!(a.cmp(&c), Ordering::Less);
             }
         }
     }
 
-    #[test]
-    fn ord_is_transitive_over_the_hostile_grid() {
-        let grid = hostile_positions();
-        for a in grid {
-            for b in grid {
-                if a.cmp(&b) != Ordering::Less {
-                    continue;
-                }
-                for c in grid {
-                    if b.cmp(&c) == Ordering::Less {
-                        assert_eq!(a.cmp(&c), Ordering::Less);
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn partial_eq_ord_and_hash_agree_over_the_hostile_grid() {
-        let grid = hostile_positions();
-        for a in grid {
-            for b in grid {
-                let eq = a == b;
-                assert_eq!(eq, a.cmp(&b) == Ordering::Equal);
-                assert_eq!(Some(a.cmp(&b)), a.partial_cmp(&b));
-                if eq {
-                    // Hash/Eq contract: equal keys MUST hash equal, or HashMap
-                    // lookups silently miss.
-                    assert_eq!(hash_of(&a), hash_of(&b));
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn logical_size_eq_and_hash_agree_including_nan() {
-        for w in HOSTILE {
-            for h in HOSTILE {
-                let a = LogicalSize::new(w, h);
-                let b = LogicalSize::new(w, h);
-                assert_eq!(a, b);
-                assert_eq!(a.cmp(&b), Ordering::Equal);
+    proptest! {
+        #[test]
+        fn partial_eq_ord_and_hash_agree_over_the_hostile_grid(
+            ax in proptest::num::f32::ANY, ay in proptest::num::f32::ANY,
+            bx in proptest::num::f32::ANY, by in proptest::num::f32::ANY
+        ) {
+            let a = LogicalPosition::new(ax, ay);
+            let b = LogicalPosition::new(bx, by);
+            let eq = a == b;
+            assert_eq!(eq, a.cmp(&b) == Ordering::Equal);
+            assert_eq!(Some(a.cmp(&b)), a.partial_cmp(&b));
+            if eq {
                 assert_eq!(hash_of(&a), hash_of(&b));
             }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn logical_size_eq_and_hash_agree_including_nan(
+            w in proptest::num::f32::ANY, h in proptest::num::f32::ANY
+        ) {
+            let a = LogicalSize::new(w, h);
+            let b = LogicalSize::new(w, h);
+            assert_eq!(a, b);
+            assert_eq!(a.cmp(&b), Ordering::Equal);
+            assert_eq!(hash_of(&a), hash_of(&b));
         }
     }
 
@@ -301,27 +301,27 @@ mod autotest_generated {
     // Constructors / zero neutrality
     // ---------------------------------------------------------------------
 
-    #[test]
-    fn constructors_preserve_fields_for_extreme_arguments() {
-        for x in HOSTILE {
-            for y in HOSTILE {
-                let p = LogicalPosition::new(x, y);
-                assert_eq!(p.x.to_bits(), x.to_bits());
-                assert_eq!(p.y.to_bits(), y.to_bits());
+    proptest! {
+        #[test]
+        fn constructors_preserve_fields_for_extreme_arguments(
+            x in proptest::num::f32::ANY, y in proptest::num::f32::ANY
+        ) {
+            let p = LogicalPosition::new(x, y);
+            assert_eq!(p.x.to_bits(), x.to_bits());
+            assert_eq!(p.y.to_bits(), y.to_bits());
 
-                let s = LogicalSize::new(x, y);
-                assert_eq!(s.width.to_bits(), x.to_bits());
-                assert_eq!(s.height.to_bits(), y.to_bits());
+            let s = LogicalSize::new(x, y);
+            assert_eq!(s.width.to_bits(), x.to_bits());
+            assert_eq!(s.height.to_bits(), y.to_bits());
 
-                let r = LogicalRect::new(p, s);
-                assert_eq!(r.origin.x.to_bits(), x.to_bits());
-                assert_eq!(r.size.height.to_bits(), y.to_bits());
+            let r = LogicalRect::new(p, s);
+            assert_eq!(r.origin.x.to_bits(), x.to_bits());
+            assert_eq!(r.size.height.to_bits(), y.to_bits());
 
-                assert_eq!(ScreenPosition::new(x, y).x.to_bits(), x.to_bits());
-                assert_eq!(CursorNodePosition::new(x, y).y.to_bits(), y.to_bits());
-                assert_eq!(PhysicalPosition::new(x, y).x.to_bits(), x.to_bits());
-                assert_eq!(PhysicalSize::new(x, y).height.to_bits(), y.to_bits());
-            }
+            assert_eq!(ScreenPosition::new(x, y).x.to_bits(), x.to_bits());
+            assert_eq!(CursorNodePosition::new(x, y).y.to_bits(), y.to_bits());
+            assert_eq!(PhysicalPosition::new(x, y).x.to_bits(), x.to_bits());
+            assert_eq!(PhysicalSize::new(x, y).height.to_bits(), y.to_bits());
         }
     }
 
@@ -370,20 +370,20 @@ mod autotest_generated {
         assert_eq!(r.max_y(), 60.0);
     }
 
-    #[test]
-    fn rect_getters_do_not_panic_on_extreme_geometry() {
-        for x in HOSTILE {
-            for w in HOSTILE {
-                let r = LogicalRect::new(LogicalPosition::new(x, x), LogicalSize::new(w, w));
-                // Pure reads: must never panic, whatever the float class.
-                let _ = r.min_x();
-                let _ = r.max_x();
-                let _ = r.min_y();
-                let _ = r.max_y();
-            }
+    proptest! {
+        #[test]
+        fn rect_getters_do_not_panic_on_extreme_geometry(
+            x in proptest::num::f32::ANY, w in proptest::num::f32::ANY
+        ) {
+            let r = LogicalRect::new(LogicalPosition::new(x, x), LogicalSize::new(w, w));
+            let _ = r.min_x();
+            let _ = r.max_x();
+            let _ = r.min_y();
+            let _ = r.max_y();
         }
-        // inf + (-inf) is NaN — max_x has no guard, so it propagates NaN rather
-        // than panicking. Assert the defined (non-panicking) result.
+    }
+    #[test]
+    fn rect_getters_nan_propagation() {
         let r = LogicalRect::new(
             LogicalPosition::new(f32::INFINITY, f32::INFINITY),
             LogicalSize::new(f32::NEG_INFINITY, f32::NEG_INFINITY),
@@ -409,43 +409,43 @@ mod autotest_generated {
         assert!(r.contains(LogicalPosition::new(39.999, 59.999)));
     }
 
-    #[test]
-    fn contains_and_hit_test_agree_on_the_hostile_grid() {
-        // The invariant the hit_test comment promises: identical edge semantics.
-        let rects = [
-            LogicalRect::zero(),
-            LogicalRect::new(
-                LogicalPosition::new(10.0, 20.0),
-                LogicalSize::new(30.0, 40.0),
-            ),
-            LogicalRect::new(
-                LogicalPosition::new(-5.0, -5.0),
-                LogicalSize::new(10.0, 10.0),
-            ),
-            // Negative extent: max < min, so it can never contain anything.
-            LogicalRect::new(
-                LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(-10.0, -10.0),
-            ),
-            LogicalRect::new(
-                LogicalPosition::new(f32::NAN, f32::NAN),
-                LogicalSize::new(f32::NAN, f32::NAN),
-            ),
-            LogicalRect::new(
-                LogicalPosition::zero(),
-                LogicalSize::new(f32::INFINITY, f32::INFINITY),
-            ),
-        ];
-        for r in rects {
-            for x in HOSTILE {
-                for y in HOSTILE {
-                    let p = LogicalPosition::new(x, y);
-                    assert_eq!(
-                        r.contains(p),
-                        r.hit_test(&p).is_some(),
-                        "contains/hit_test disagree for {r:?} at {p:?}"
-                    );
-                }
+    proptest! {
+        #[test]
+        fn contains_and_hit_test_agree_on_the_hostile_grid(
+            x in proptest::num::f32::ANY, y in proptest::num::f32::ANY
+        ) {
+            // The invariant the hit_test comment promises: identical edge semantics.
+            let rects = [
+                LogicalRect::zero(),
+                LogicalRect::new(
+                    LogicalPosition::new(10.0, 20.0),
+                    LogicalSize::new(30.0, 40.0),
+                ),
+                LogicalRect::new(
+                    LogicalPosition::new(-5.0, -5.0),
+                    LogicalSize::new(10.0, 10.0),
+                ),
+                // Negative extent: max < min, so it can never contain anything.
+                LogicalRect::new(
+                    LogicalPosition::new(0.0, 0.0),
+                    LogicalSize::new(-10.0, -10.0),
+                ),
+                LogicalRect::new(
+                    LogicalPosition::new(f32::NAN, f32::NAN),
+                    LogicalSize::new(f32::NAN, f32::NAN),
+                ),
+                LogicalRect::new(
+                    LogicalPosition::zero(),
+                    LogicalSize::new(f32::INFINITY, f32::INFINITY),
+                ),
+            ];
+            for r in rects {
+                let p = LogicalPosition::new(x, y);
+                assert_eq!(
+                    r.contains(p),
+                    r.hit_test(&p).is_some(),
+                    "contains/hit_test disagree for {r:?} at {p:?}"
+                );
             }
         }
     }
@@ -667,9 +667,9 @@ mod autotest_generated {
         assert_eq!(out, s);
     }
 
-    #[test]
-    fn scale_for_dpi_with_nan_or_inf_does_not_panic() {
-        for factor in HOSTILE {
+    proptest! {
+        #[test]
+        fn scale_for_dpi_with_nan_or_inf_does_not_panic(factor in proptest::num::f32::ANY) {
             let mut p = LogicalPosition::new(1.0, -1.0);
             p.scale_for_dpi(factor);
 
@@ -680,8 +680,9 @@ mod autotest_generated {
                 LogicalRect::new(LogicalPosition::new(1.0, -1.0), LogicalSize::new(2.0, -2.0));
             r.scale_for_dpi(factor);
         }
-        // 0.0 * inf is the classic NaN trap: a zero-origin rect scaled by an
-        // infinite DPI factor yields NaN coordinates, not zeros.
+    }
+    #[test]
+    fn scale_for_dpi_with_inf_produces_nan() {
         let mut r = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(1.0, 1.0));
         r.scale_for_dpi(f32::INFINITY);
         assert!(r.origin.x.is_nan());
@@ -754,13 +755,13 @@ mod autotest_generated {
         );
     }
 
-    #[test]
-    fn to_physical_never_panics_on_the_hostile_grid() {
-        for v in HOSTILE {
-            for f in HOSTILE {
-                let _ = LogicalPosition::new(v, v).to_physical(f);
-                let _ = LogicalSize::new(v, v).to_physical(f);
-            }
+    proptest! {
+        #[test]
+        fn to_physical_never_panics_on_the_hostile_grid(
+            v in proptest::num::f32::ANY, f in proptest::num::f32::ANY
+        ) {
+            let _ = LogicalPosition::new(v, v).to_physical(f);
+            let _ = LogicalSize::new(v, v).to_physical(f);
         }
     }
 
@@ -811,9 +812,9 @@ mod autotest_generated {
         assert!(big.y.is_infinite() && big.y.is_sign_negative());
     }
 
-    #[test]
-    fn to_logical_never_panics_for_hostile_dpi_factors() {
-        for f in HOSTILE {
+    proptest! {
+        #[test]
+        fn to_logical_never_panics_for_hostile_dpi_factors(f in proptest::num::f32::ANY) {
             let _ = PhysicalPosition::new(i32::MIN, i32::MAX).to_logical(f);
             let _ = PhysicalPosition::new(f64::MAX, f64::MIN).to_logical(f);
             let _ = PhysicalSize::new(u32::MAX, 0_u32).to_logical(f);
@@ -857,20 +858,20 @@ mod autotest_generated {
         }
     }
 
-    #[test]
-    fn screen_and_cursor_position_logical_round_trip_bit_for_bit() {
-        for x in HOSTILE {
-            for y in HOSTILE {
-                let p = LogicalPosition::new(x, y);
+    proptest! {
+        #[test]
+        fn screen_and_cursor_position_logical_round_trip_bit_for_bit(
+            x in proptest::num::f32::ANY, y in proptest::num::f32::ANY
+        ) {
+            let p = LogicalPosition::new(x, y);
 
-                let screen = ScreenPosition::from_logical(p).to_logical();
-                assert_eq!(screen.x.to_bits(), x.to_bits());
-                assert_eq!(screen.y.to_bits(), y.to_bits());
+            let screen = ScreenPosition::from_logical(p).to_logical();
+            assert_eq!(screen.x.to_bits(), x.to_bits());
+            assert_eq!(screen.y.to_bits(), y.to_bits());
 
-                let cursor = CursorNodePosition::from_logical(p).to_logical();
-                assert_eq!(cursor.x.to_bits(), x.to_bits());
-                assert_eq!(cursor.y.to_bits(), y.to_bits());
-            }
+            let cursor = CursorNodePosition::from_logical(p).to_logical();
+            assert_eq!(cursor.x.to_bits(), x.to_bits());
+            assert_eq!(cursor.y.to_bits(), y.to_bits());
         }
     }
 
@@ -891,28 +892,26 @@ mod autotest_generated {
     // Writing-mode axis mapping
     // ---------------------------------------------------------------------
 
-    #[test]
-    fn position_main_cross_round_trip_for_every_writing_mode() {
-        for wm in WMS {
-            for main in HOSTILE {
-                for cross in HOSTILE {
-                    let p = LogicalPosition::from_main_cross(main, cross, wm);
-                    assert_eq!(p.main(wm).to_bits(), main.to_bits());
-                    assert_eq!(p.cross(wm).to_bits(), cross.to_bits());
-                }
+    proptest! {
+        #[test]
+        fn position_main_cross_round_trip_for_every_writing_mode(
+            main in proptest::num::f32::ANY, cross in proptest::num::f32::ANY
+        ) {
+            for wm in WMS {
+                let p = LogicalPosition::from_main_cross(main, cross, wm);
+                assert_eq!(p.main(wm).to_bits(), main.to_bits());
+                assert_eq!(p.cross(wm).to_bits(), cross.to_bits());
             }
         }
-    }
 
-    #[test]
-    fn size_main_cross_round_trip_for_every_writing_mode() {
-        for wm in WMS {
-            for main in HOSTILE {
-                for cross in HOSTILE {
-                    let s = LogicalSize::from_main_cross(main, cross, wm);
-                    assert_eq!(s.main(wm).to_bits(), main.to_bits());
-                    assert_eq!(s.cross(wm).to_bits(), cross.to_bits());
-                }
+        #[test]
+        fn size_main_cross_round_trip_for_every_writing_mode(
+            main in proptest::num::f32::ANY, cross in proptest::num::f32::ANY
+        ) {
+            for wm in WMS {
+                let s = LogicalSize::from_main_cross(main, cross, wm);
+                assert_eq!(s.main(wm).to_bits(), main.to_bits());
+                assert_eq!(s.cross(wm).to_bits(), cross.to_bits());
             }
         }
     }
@@ -943,10 +942,10 @@ mod autotest_generated {
         }
     }
 
-    #[test]
-    fn with_main_and_with_cross_only_touch_their_own_axis() {
-        for wm in WMS {
-            for v in HOSTILE {
+    proptest! {
+        #[test]
+        fn with_main_and_with_cross_only_touch_their_own_axis(v in proptest::num::f32::ANY) {
+            for wm in WMS {
                 let s = LogicalSize::new(10.0, 20.0);
 
                 let m = s.with_main(wm, v);
@@ -1002,16 +1001,19 @@ mod autotest_generated {
         assert_eq!(format!("{}", LogicalRect::zero()), "0x0 @ (0, 0)");
     }
 
-    #[test]
-    fn display_does_not_panic_on_nan_or_infinite_coordinates() {
-        for x in HOSTILE {
-            for y in HOSTILE {
-                let r = LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(x, y));
-                let shown = format!("{r}");
-                assert!(!shown.is_empty());
-                assert_eq!(shown, format!("{r:?}"));
-            }
+    proptest! {
+        #[test]
+        fn display_does_not_panic_on_nan_or_infinite_coordinates(
+            x in proptest::num::f32::ANY, y in proptest::num::f32::ANY
+        ) {
+            let r = LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(x, y));
+            let shown = format!("{r}");
+            assert!(!shown.is_empty());
+            assert_eq!(shown, format!("{r:?}"));
         }
+    }
+    #[test]
+    fn display_nan_explicit_formatting() {
         let nan = LogicalRect::new(
             LogicalPosition::new(f32::NAN, f32::INFINITY),
             LogicalSize::new(f32::NEG_INFINITY, f32::NAN),
