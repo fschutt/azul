@@ -1,6 +1,9 @@
 #[cfg(test)]
 mod assign_tests {
-    use super::*;
+    use crate::a11y::*;
+    use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
+    use alloc::vec::Vec;
+    use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
 
     /// A patch that sets only a NAME must leave the widget's role, value and
     /// states intact. This is the whole contract: an app names a control, and
@@ -70,7 +73,10 @@ mod assign_tests {
 
 #[cfg(test)]
 mod autotest_generated {
-    use super::*;
+    use crate::a11y::*;
+    use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
+    use alloc::vec::Vec;
+    use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
     use alloc::string::String;
 
     // ---- small helpers to reach into the FFI-style option wrappers ----
