@@ -87,6 +87,8 @@ mod autotest_generated {
     use azul_css::props::layout::LayoutWritingMode;
 
     use super::*;
+    use proptest::prelude::*;
+    use proptest::proptest;
 
     /// Hostile float grid: every class that can reach a coordinate field.
     const HOSTILE: [f32; 8] = [

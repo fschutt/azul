@@ -1,11 +1,15 @@
 #[allow(unused_imports)]
 pub use super::*;
+use proptest::prelude::*;
+use proptest::proptest;
 #[cfg(test)]
 mod assign_tests {
     use super::*;
     use crate::{dom::OptionDomNodeId, geom::LogicalPosition, window::OptionVirtualKeyCodeCombo};
     use alloc::vec::Vec;
     use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
+    use proptest::prelude::*;
+    use proptest::proptest;
 
     /// Partial updates must leave unset fields intact.
     #[test]
@@ -76,6 +80,8 @@ mod autotest_generated {
     use alloc::string::String;
     use alloc::vec::Vec;
     use azul_css::{props::basic::length::FloatValue, AzString, OptionF32, OptionString};
+    use proptest::prelude::*;
+    use proptest::proptest;
 
     fn name_str(o: &OptionString) -> Option<&str> {
         o.as_ref().map(|s| s.as_str())
@@ -86,58 +92,27 @@ mod autotest_generated {
     }
 
     /// Adversarial strings for FFI boundary testing.
-    fn adversarial_strings() -> Vec<String> {
-        vec![
-            String::new(),
-            String::from(" "),
-            String::from("\0"),
-            String::from("a\0b\0c"),
-            String::from("\t\r\n\x1b[0m"),
-            String::from("日本語のテキスト"),
-            String::from("🎉👨‍👩‍👧‍👦🇺🇳"),
-            String::from("e\u{0301}\u{0301}\u{0301}"), // combining accents
-            String::from("\u{202e}reversed\u{202d}"),  // RTL override
-            String::from("\u{FFFD}\u{10FFFF}"),        // replacement + max scalar
-            "x".repeat(100_000),                       // huge
-        ]
-    }
 
     /// f32 edge cases.
-    fn adversarial_f32() -> Vec<f32> {
-        vec![
-            0.0,
-            -0.0,
-            1.0,
-            -1.0,
-            f32::MIN,
-            f32::MAX,
-            f32::MIN_POSITIVE,
-            -f32::MIN_POSITIVE,
-            f32::EPSILON,
-            f32::NAN,
-            f32::INFINITY,
-            f32::NEG_INFINITY,
-        ]
-    }
 
     // SmallAriaInfo::label — no_panic_smoke
 
-    #[test]
-    fn small_label_no_panic_smoke() {
-        for s in adversarial_strings() {
-            let expected = s.clone();
-            let info = SmallAriaInfo::label(s);
+    proptest! {
+        #[test]
+        fn small_label_no_panic_smoke(s in any::<String>()) {
+        let expected = s.clone();
+        let info = SmallAriaInfo::label(s);
 
-            assert_eq!(name_str(&info.label), Some(expected.as_str()));
-            assert!(info.role.is_none());
-            assert!(info.description.is_none());
+        assert_eq!(name_str(&info.label), Some(expected.as_str()));
+        assert!(info.role.is_none());
+        assert!(info.description.is_none());
 
-            let full = info.to_full_info();
-            assert_eq!(name_str(&full.accessibility_name), Some(expected.as_str()));
-        }
+        let full = info.to_full_info();
+        assert_eq!(name_str(&full.accessibility_name), Some(expected.as_str()));
 
         let info = SmallAriaInfo::label("hello");
         assert_eq!(name_str(&info.label), Some("hello"));
+        }
     }
 
     // SmallAriaInfo::with_role — no_panic + invariants
@@ -175,15 +150,15 @@ mod autotest_generated {
 
     // SmallAriaInfo::with_description — no_panic + invariants
 
-    #[test]
-    fn small_with_description_invariants() {
-        for s in adversarial_strings() {
-            let expected = s.clone();
-            let info = SmallAriaInfo::label("base").with_description(s);
-            assert_eq!(name_str(&info.description), Some(expected.as_str()));
+    proptest! {
+        #[test]
+        fn small_with_description_invariants(s in any::<String>()) {
+        let expected = s.clone();
+        let info = SmallAriaInfo::label("base").with_description(s);
+        assert_eq!(name_str(&info.description), Some(expected.as_str()));
 
-            assert_eq!(name_str(&info.label), Some("base"));
-            assert!(info.role.is_none());
+        assert_eq!(name_str(&info.label), Some("base"));
+        assert!(info.role.is_none());
         }
     }
 
@@ -216,50 +191,50 @@ mod autotest_generated {
 
     // ProgressAriaInfo::create — no_panic_smoke
 
-    #[test]
-    fn progress_create_no_panic_smoke() {
-        for s in adversarial_strings() {
-            let expected = s.clone();
-            let p = ProgressAriaInfo::create(s.into());
-            assert_eq!(name_str(&p.label), Some(expected.as_str()));
+    proptest! {
+        #[test]
+        fn progress_create_no_panic_smoke(s in any::<String>()) {
+        let expected = s.clone();
+        let p = ProgressAriaInfo::create(s.into());
+        assert_eq!(name_str(&p.label), Some(expected.as_str()));
 
-            assert!(p.current_value.is_none());
-            assert!(p.max.is_none());
-            assert!(!p.indeterminate);
-            assert!(p.description.is_none());
+        assert!(p.current_value.is_none());
+        assert!(p.max.is_none());
+        assert!(!p.indeterminate);
+        assert!(p.description.is_none());
         }
     }
 
     // ProgressAriaInfo::with_current_value — no_panic + invariants (numeric)
 
-    #[test]
-    fn progress_with_current_value_numeric() {
-        for v in adversarial_f32() {
-            let p = ProgressAriaInfo::create("p".into()).with_current_value(v);
-            match f32_of(&p.current_value) {
-                Some(got) if v.is_nan() => assert!(got.is_nan()),
-                Some(got) => assert_eq!(got, v),
-                None => panic!("current_value should be Some after with_current_value"),
-            }
+    proptest! {
+        #[test]
+        fn progress_with_current_value_numeric(v in proptest::num::f32::ANY) {
+        let p = ProgressAriaInfo::create("p".into()).with_current_value(v);
+        match f32_of(&p.current_value) {
+            Some(got) if v.is_nan() => assert!(got.is_nan()),
+            Some(got) => assert_eq!(got, v),
+            None => panic!("current_value should be Some after with_current_value"),
+        }
 
-            let full = p.to_full_info();
-            assert!(full.accessibility_value.is_some());
+        let full = p.to_full_info();
+        assert!(full.accessibility_value.is_some());
         }
     }
 
     // ProgressAriaInfo::with_max — no_panic + invariants (numeric)
 
-    #[test]
-    fn progress_with_max_numeric() {
-        for v in adversarial_f32() {
-            let p = ProgressAriaInfo::create("p".into()).with_max(v);
-            match f32_of(&p.max) {
-                Some(got) if v.is_nan() => assert!(got.is_nan()),
-                Some(got) => assert_eq!(got, v),
-                None => panic!("max should be Some after with_max"),
-            }
+    proptest! {
+        #[test]
+        fn progress_with_max_numeric(v in proptest::num::f32::ANY) {
+        let p = ProgressAriaInfo::create("p".into()).with_max(v);
+        match f32_of(&p.max) {
+            Some(got) if v.is_nan() => assert!(got.is_nan()),
+            Some(got) => assert_eq!(got, v),
+            None => panic!("max should be Some after with_max"),
+        }
 
-            assert!(p.current_value.is_none());
+        assert!(p.current_value.is_none());
         }
     }
 
@@ -280,13 +255,13 @@ mod autotest_generated {
 
     // ProgressAriaInfo::with_description — no_panic + invariants
 
-    #[test]
-    fn progress_with_description_invariants() {
-        for s in adversarial_strings() {
-            let expected = s.clone();
-            let p = ProgressAriaInfo::create("p".into()).with_description(s.into());
-            assert_eq!(name_str(&p.description), Some(expected.as_str()));
-            assert_eq!(name_str(&p.label), Some("p"));
+    proptest! {
+        #[test]
+        fn progress_with_description_invariants(s in any::<String>()) {
+        let expected = s.clone();
+        let p = ProgressAriaInfo::create("p".into()).with_description(s.into());
+        assert_eq!(name_str(&p.description), Some(expected.as_str()));
+        assert_eq!(name_str(&p.label), Some("p"));
         }
     }
 
@@ -408,36 +383,36 @@ mod autotest_generated {
 
     // MeterAriaInfo::with_low / with_high / with_optimum — numeric invariants
 
-    #[test]
-    fn meter_with_low_high_optimum_numeric() {
-        for v in adversarial_f32() {
-            let m = MeterAriaInfo::create("m".into(), 0.5, 0.0, 1.0)
-                .with_low(v)
-                .with_high(v)
-                .with_optimum(v);
-            for opt in [&m.low, &m.high, &m.optimum] {
-                match f32_of(opt) {
-                    Some(got) if v.is_nan() => assert!(got.is_nan()),
-                    Some(got) => assert_eq!(got, v),
-                    None => panic!("threshold should be Some after builder"),
-                }
+    proptest! {
+        #[test]
+        fn meter_with_low_high_optimum_numeric(v in proptest::num::f32::ANY) {
+        let m = MeterAriaInfo::create("m".into(), 0.5, 0.0, 1.0)
+            .with_low(v)
+            .with_high(v)
+            .with_optimum(v);
+        for opt in [&m.low, &m.high, &m.optimum] {
+            match f32_of(opt) {
+                Some(got) if v.is_nan() => assert!(got.is_nan()),
+                Some(got) => assert_eq!(got, v),
+                None => panic!("threshold should be Some after builder"),
             }
+        }
 
-            assert_eq!(m.current_value, 0.5);
-            assert_eq!(m.min, 0.0);
-            assert_eq!(m.max, 1.0);
+        assert_eq!(m.current_value, 0.5);
+        assert_eq!(m.min, 0.0);
+        assert_eq!(m.max, 1.0);
         }
     }
 
     // MeterAriaInfo::with_description — no_panic + invariants
 
-    #[test]
-    fn meter_with_description_invariants() {
-        for s in adversarial_strings() {
-            let expected = s.clone();
-            let m = MeterAriaInfo::create("m".into(), 1.0, 0.0, 2.0).with_description(s.into());
-            assert_eq!(name_str(&m.description), Some(expected.as_str()));
-            assert_eq!(m.current_value, 1.0);
+    proptest! {
+        #[test]
+        fn meter_with_description_invariants(s in any::<String>()) {
+        let expected = s.clone();
+        let m = MeterAriaInfo::create("m".into(), 1.0, 0.0, 2.0).with_description(s.into());
+        assert_eq!(name_str(&m.description), Some(expected.as_str()));
+        assert_eq!(m.current_value, 1.0);
         }
     }
 
@@ -466,17 +441,17 @@ mod autotest_generated {
 
     // DialogAriaInfo::create — no_panic_smoke
 
-    #[test]
-    fn dialog_create_no_panic_smoke() {
-        for s in adversarial_strings() {
-            let expected = s.clone();
-            let d = DialogAriaInfo::create(s.into());
-            assert_eq!(name_str(&d.label), Some(expected.as_str()));
+    proptest! {
+        #[test]
+        fn dialog_create_no_panic_smoke(s in any::<String>()) {
+        let expected = s.clone();
+        let d = DialogAriaInfo::create(s.into());
+        assert_eq!(name_str(&d.label), Some(expected.as_str()));
 
-            assert!(!d.modal);
-            assert_eq!(d.role, AccessibilityRole::Dialog);
-            assert!(d.described_by.is_none());
-            assert!(d.description.is_none());
+        assert!(!d.modal);
+        assert_eq!(d.role, AccessibilityRole::Dialog);
+        assert!(d.described_by.is_none());
+        assert!(d.description.is_none());
         }
     }
 
@@ -495,13 +470,13 @@ mod autotest_generated {
 
     // DialogAriaInfo::with_described_by — no_panic + invariants
 
-    #[test]
-    fn dialog_with_described_by_invariants() {
-        for s in adversarial_strings() {
-            let expected = s.clone();
-            let d = DialogAriaInfo::create("t".into()).with_described_by(s.into());
-            assert_eq!(name_str(&d.described_by), Some(expected.as_str()));
-            assert_eq!(name_str(&d.label), Some("t"));
+    proptest! {
+        #[test]
+        fn dialog_with_described_by_invariants(s in any::<String>()) {
+        let expected = s.clone();
+        let d = DialogAriaInfo::create("t".into()).with_described_by(s.into());
+        assert_eq!(name_str(&d.described_by), Some(expected.as_str()));
+        assert_eq!(name_str(&d.label), Some("t"));
         }
     }
 
@@ -523,13 +498,13 @@ mod autotest_generated {
 
     // DialogAriaInfo::with_description — no_panic + invariants
 
-    #[test]
-    fn dialog_with_description_invariants() {
-        for s in adversarial_strings() {
-            let expected = s.clone();
-            let d = DialogAriaInfo::create("t".into()).with_description(s.into());
-            assert_eq!(name_str(&d.description), Some(expected.as_str()));
-            assert_eq!(name_str(&d.label), Some("t"));
+    proptest! {
+        #[test]
+        fn dialog_with_description_invariants(s in any::<String>()) {
+        let expected = s.clone();
+        let d = DialogAriaInfo::create("t".into()).with_description(s.into());
+        assert_eq!(name_str(&d.description), Some(expected.as_str()));
+        assert_eq!(name_str(&d.label), Some("t"));
         }
     }
 
@@ -939,30 +914,30 @@ mod autotest_generated {
         }
     }
 
-    #[test]
-    fn action_string_payloads_survive_adversarial_strings() {
-        for s in adversarial_strings() {
-            let expected = s.clone();
+    proptest! {
+        #[test]
+        fn action_string_payloads_survive_adversarial_strings(s in any::<String>()) {
+        let expected = s.clone();
 
-            let replace = AccessibilityAction::ReplaceSelectedText(s.clone().into());
-            let set = AccessibilityAction::SetValue(s.into());
+        let replace = AccessibilityAction::ReplaceSelectedText(s.clone().into());
+        let set = AccessibilityAction::SetValue(s.into());
 
-            match &replace {
-                AccessibilityAction::ReplaceSelectedText(got) => {
-                    assert_eq!(got.as_str(), expected.as_str());
-                    assert_eq!(got.as_str().len(), expected.len());
-                }
-                other => panic!("wrong variant: {other:?}"),
+        match &replace {
+            AccessibilityAction::ReplaceSelectedText(got) => {
+                assert_eq!(got.as_str(), expected.as_str());
+                assert_eq!(got.as_str().len(), expected.len());
             }
-            match &set {
-                AccessibilityAction::SetValue(got) => assert_eq!(got.as_str(), expected.as_str()),
-                other => panic!("wrong variant: {other:?}"),
-            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+        match &set {
+            AccessibilityAction::SetValue(got) => assert_eq!(got.as_str(), expected.as_str()),
+            other => panic!("wrong variant: {other:?}"),
+        }
 
-            assert_eq!(replace.clone(), replace);
-            assert_eq!(hash_of(&replace.clone()), hash_of(&replace));
+        assert_eq!(replace.clone(), replace);
+        assert_eq!(hash_of(&replace.clone()), hash_of(&replace));
 
-            assert_ne!(replace, set);
+        assert_ne!(replace, set);
         }
     }
 
@@ -1123,47 +1098,47 @@ mod autotest_generated {
 
     // Float -> value-string encoding: format/parse round-trip
 
-    #[test]
-    fn progress_value_string_round_trips_through_parse() {
-        for v in adversarial_f32() {
-            let full = ProgressAriaInfo::create("p".into())
-                .with_current_value(v)
-                .to_full_info();
-            let s = name_str(&full.accessibility_value).expect("determinate => Some");
+    proptest! {
+        #[test]
+        fn progress_value_string_round_trips_through_parse(v in proptest::num::f32::ANY) {
+        let full = ProgressAriaInfo::create("p".into())
+            .with_current_value(v)
+            .to_full_info();
+        let s = name_str(&full.accessibility_value).expect("determinate => Some");
 
-            if v.is_nan() {
-                assert_eq!(s, "NaN");
-                assert!(s.parse::<f32>().unwrap().is_nan());
-            } else if v.is_infinite() {
-                assert_eq!(s, if v > 0.0 { "inf" } else { "-inf" });
-            } else {
-                let parsed: f32 = s.parse().expect("emitted value string must re-parse");
-                assert_eq!(parsed, v, "round-trip failed for {v} via {s:?}");
-                if v != 0.0 {
-                    assert_eq!(parsed.to_bits(), v.to_bits(), "lossy round-trip for {v}");
-                }
+        if v.is_nan() {
+            assert_eq!(s, "NaN");
+            assert!(s.parse::<f32>().unwrap().is_nan());
+        } else if v.is_infinite() {
+            assert_eq!(s, if v > 0.0 { "inf" } else { "-inf" });
+        } else {
+            let parsed: f32 = s.parse().expect("emitted value string must re-parse");
+            assert_eq!(parsed, v, "round-trip failed for {v} via {s:?}");
+            if v != 0.0 {
+                assert_eq!(parsed.to_bits(), v.to_bits(), "lossy round-trip for {v}");
             }
+        }
         }
     }
 
-    #[test]
-    fn meter_value_string_round_trips_through_parse() {
-        for v in adversarial_f32() {
-            let full = MeterAriaInfo::create("m".into(), v, 0.0, 1.0).to_full_info();
+    proptest! {
+        #[test]
+        fn meter_value_string_round_trips_through_parse(v in proptest::num::f32::ANY) {
+        let full = MeterAriaInfo::create("m".into(), v, 0.0, 1.0).to_full_info();
 
-            let s = name_str(&full.accessibility_value).expect("meter always emits a value");
+        let s = name_str(&full.accessibility_value).expect("meter always emits a value");
 
-            if v.is_nan() {
-                assert_eq!(s, "NaN");
-            } else if v.is_infinite() {
-                assert_eq!(s, if v > 0.0 { "inf" } else { "-inf" });
-            } else {
-                let parsed: f32 = s.parse().expect("emitted value string must re-parse");
-                assert_eq!(parsed, v);
-                if v != 0.0 {
-                    assert_eq!(parsed.to_bits(), v.to_bits());
-                }
+        if v.is_nan() {
+            assert_eq!(s, "NaN");
+        } else if v.is_infinite() {
+            assert_eq!(s, if v > 0.0 { "inf" } else { "-inf" });
+        } else {
+            let parsed: f32 = s.parse().expect("emitted value string must re-parse");
+            assert_eq!(parsed, v);
+            if v != 0.0 {
+                assert_eq!(parsed.to_bits(), v.to_bits());
             }
+        }
         }
     }
 
@@ -1204,18 +1179,18 @@ mod autotest_generated {
         assert_eq!(nan_meter.to_full_info(), nan_meter.to_full_info());
     }
 
-    #[test]
-    fn progress_max_is_never_surfaced_in_full_info() {
+    proptest! {
+        #[test]
+        fn progress_max_is_never_surfaced_in_full_info(v in proptest::num::f32::ANY) {
         let baseline = ProgressAriaInfo::create("p".into())
             .with_current_value(0.5)
             .to_full_info();
 
-        for v in adversarial_f32() {
-            let with_max = ProgressAriaInfo::create("p".into())
-                .with_current_value(0.5)
-                .with_max(v)
-                .to_full_info();
-            assert_eq!(with_max, baseline, "with_max({v}) leaked into to_full_info");
+        let with_max = ProgressAriaInfo::create("p".into())
+            .with_current_value(0.5)
+            .with_max(v)
+            .to_full_info();
+        assert_eq!(with_max, baseline, "with_max({v}) leaked into to_full_info");
         }
     }
 
