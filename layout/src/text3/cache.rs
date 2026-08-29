@@ -5685,7 +5685,59 @@ impl UnifiedLayout {
                 });
             }
         }
-        None
+        // A cursor on a run that shaped to NO cluster: the EMPTY Text run an
+        // Enter splices in after a hard break — `[.., LineBreak, Text("")]`
+        // at the document end, or `[.., LineBreak, Text(""), LineBreak, ..]`
+        // between two. The caret stands at the START of the line after that
+        // break. No line box materializes for a content-less line (CSS
+        // removes empty line boxes, and non-editable `pre` text must not
+        // grow), so the rect is synthesized: the break's own `line_index`
+        // names the line the caret follows, and the uniform line advance of
+        // the layout places it. Empty runs are only ever produced by the
+        // plain-text edit path, whose hosts carry one style, so the
+        // first-top + n×line-height arithmetic is exact there.
+        let cursor_run = cursor.cluster_id.source_run;
+        let run_has_clusters = self.items.iter().any(|it| {
+            matches!(&it.item, ShapedItem::Cluster(c)
+                if c.source_cluster_id.source_run == cursor_run)
+        });
+        if run_has_clusters {
+            return None;
+        }
+        let caret_line = self
+            .items
+            .iter()
+            .filter_map(|it| match &it.item {
+                ShapedItem::Break { source, .. } if source.run_index < cursor_run => {
+                    Some(it.line_index + 1)
+                }
+                _ => None,
+            })
+            .max()?;
+        let mut first_top: Option<f32> = None;
+        let mut line_height: f32 = 0.0;
+        for it in &self.items {
+            if let ShapedItem::Cluster(_) = &it.item {
+                let b = it.item.bounds();
+                first_top = Some(first_top.map_or(it.position.y, |t: f32| t.min(it.position.y)));
+                line_height = line_height.max(b.height);
+            }
+        }
+        let first_top = first_top?;
+        if line_height <= 0.0 {
+            return None;
+        }
+        #[allow(clippy::cast_precision_loss)] // line counts are small
+        Some(LogicalRect {
+            origin: LogicalPosition {
+                x: 0.0,
+                y: first_top + caret_line as f32 * line_height,
+            },
+            size: LogicalSize {
+                width: 1.0,
+                height: line_height,
+            },
+        })
     }
 
     /// Get a cursor at the first cluster (leading edge) in the layout.

@@ -2677,13 +2677,20 @@ fn windowed_structural_damage(
         return None;
     }
 
-    // Union the middle window of one list, tracking Push/Pop inside it.
-    let union_window = |items: &[DisplayListItem],
-                        offsets: &ScrollOffsetMap,
-                        start_stack: &[(f32, f32)]|
-     -> Option<LogicalRect> {
-        let mut stack = start_stack.to_vec();
-        let mut acc: Option<LogicalRect> = None;
+    // PER-ITEM rects for the middle window of one list, tracking Push/Pop
+    // inside it. This used to union the whole window into ONE rect per side —
+    // sound, but as coarse as the window: an Enter in a TextArea unioned the
+    // full-width HitTestArea in with the ~60px-wide moved lines and damaged
+    // 375×48 where ~60×48 changed. Per-item rects (coalesced below) cover the
+    // same changed pixels exactly: every pixel a window item painted, before
+    // or after, lies in its own item's rect, and every pixel BETWEEN window
+    // items belongs to visually-equal prefix/suffix items, which by
+    // definition did not change.
+    let refine = dl_diff_refinements_enabled();
+    let mut damage: Vec<LogicalRect> = Vec::new();
+    let mut skipped_nonpainting = false;
+    let mut collect_window = |items: &[DisplayListItem], offsets: &ScrollOffsetMap| {
+        let mut stack = stack.clone();
         for item in items {
             match item {
                 DisplayListItem::PushScrollFrame { scroll_id, .. } => {
@@ -2697,6 +2704,20 @@ fn windowed_structural_damage(
                     }
                 }
                 _ => {}
+            }
+            // Items that never RASTERIZE never produce paint damage — the
+            // same rule as the paired path's refinement: hit testing and
+            // PDF/a11y metadata read the NEW display list, no pixels are
+            // involved. In the union days their (viewport-sized) rects were
+            // absorbed anyway; per-item they WOULD dominate the result.
+            if refine
+                && matches!(
+                    item,
+                    DisplayListItem::HitTestArea { .. } | DisplayListItem::TextLayout { .. }
+                )
+            {
+                skipped_nonpainting = true;
+                continue;
             }
             // INK bounds, not box bounds: a box-shadow's blur/spread and a
             // glyph run's overhang paint OUTSIDE `bounds()`. Unioning the
@@ -2722,38 +2743,27 @@ fn windowed_structural_damage(
                 visual.size.width += 2.0;
                 visual.size.height += 2.0;
             }
-            acc = Some(match acc {
-                Some(a) => {
-                    let x0 = a.origin.x.min(visual.origin.x);
-                    let y0 = a.origin.y.min(visual.origin.y);
-                    let x1 = (a.origin.x + a.size.width).max(visual.origin.x + visual.size.width);
-                    let y1 = (a.origin.y + a.size.height).max(visual.origin.y + visual.size.height);
-                    LogicalRect {
-                        origin: LogicalPosition { x: x0, y: y0 },
-                        size: LogicalSize {
-                            width: x1 - x0,
-                            height: y1 - y0,
-                        },
-                    }
-                }
-                None => visual,
-            });
+            damage.push(visual);
         }
-        acc
     };
 
-    let mut damage = Vec::new();
-    if let Some(r) = union_window(&o[prefix..o.len() - suffix], old_offsets, &stack) {
-        damage.push(r);
-    }
-    if let Some(r) = union_window(&n[prefix..n.len() - suffix], new_offsets, &stack) {
-        damage.push(r);
-    }
-    // A window of only Push/Pop pairs (no bounds-carrying item) still changed
-    // structure somewhere — be conservative rather than claim "no damage".
+    collect_window(&o[prefix..o.len() - suffix], old_offsets);
+    collect_window(&n[prefix..n.len() - suffix], new_offsets);
+
     if damage.is_empty() {
+        // Every window item was a non-painting one (hit areas, metadata):
+        // nothing rasterizes differently, so there is genuinely no paint
+        // damage — the same `Some(empty)` the paired path produces for a
+        // HitTestArea-only change.
+        if skipped_nonpainting {
+            return Some(damage);
+        }
+        // A window of only Push/Pop pairs (no bounds-carrying item) still
+        // changed structure somewhere — be conservative rather than claim
+        // "no damage".
         return None;
     }
+    coalesce_damage_rects(&mut damage);
     Some(damage)
 }
 

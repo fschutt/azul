@@ -5933,7 +5933,7 @@ where
             // Save the viewport-sized content box for clipping BEFORE expanding
             // to full scroll content size. Text must be clipped to the viewport
             // when overflow is hidden/scroll/auto, not to the full content size.
-            let viewport_clip_rect = content_box_rect;
+            let mut viewport_clip_rect = content_box_rect;
 
             // For scrollable containers, extend the content rect to the full content size.
             // The scroll frame handles clipping - we need to paint ALL content, not just
@@ -5944,6 +5944,37 @@ where
             }
             if content_size.width > content_box_rect.size.width {
                 content_box_rect.size.width = content_size.width;
+            }
+
+            // An overflow-VISIBLE axis does not clip its own inline content:
+            // the ink paints past the box and only the nearest clipping
+            // ANCESTOR (scroll frame / overflow clip) bounds it. The tight
+            // box here was wrong twice over for such a node — the renderer
+            // paints those glyphs anyway, and `Text::visual_bounds()` clamps
+            // its DAMAGE into this rect. After a text edit grew an IFC past
+            // its stale box (`used_size` only catches up on the next
+            // relayout), every moved line's pixels lay outside the clamp and
+            // the incremental present never repainted them — the TextArea's
+            // garbled-lines-below-the-Enter bug. Per axis: only an axis that
+            // actually clips (hidden/scroll/auto) keeps the viewport bound;
+            // a visible axis takes the full content extent computed above,
+            // which `reshape_text_node` keeps fresh between relayouts.
+            if let Some(dom_id) = node.dom_node_id {
+                let st = self.get_styled_node_state(dom_id);
+                let clips = |ov: crate::solver3::getters::MultiValue<LayoutOverflow>| {
+                    matches!(
+                        ov,
+                        crate::solver3::getters::MultiValue::Exact(
+                            LayoutOverflow::Hidden | LayoutOverflow::Scroll | LayoutOverflow::Auto
+                        )
+                    )
+                };
+                if !clips(get_overflow_x(self.ctx.styled_dom, dom_id, &st)) {
+                    viewport_clip_rect.size.width = content_box_rect.size.width;
+                }
+                if !clips(get_overflow_y(self.ctx.styled_dom, dom_id, &st)) {
+                    viewport_clip_rect.size.height = content_box_rect.size.height;
+                }
             }
 
             // Check for text-shadow and wrap inline content with push/pop shadow
