@@ -6580,49 +6580,60 @@ pub fn try_incremental_relayout(
         return IncrementalRelayoutResult::GlyphSwap;
     }
 
-    // Check each dirty item
+    // `LineShift` moves everything after ONE pivot by ONE delta, so it is
+    // only sound when EXACTLY one dirty item changed width. Deciding on the
+    // first changed item (the old shape of this loop) turned a whole-run
+    // restyle — every advance different — into a single-delta shift that
+    // pasted the new glyphs onto the old pen positions, compressing the
+    // line into overlapping strokes.
+    let mut changed: Option<(usize, f32)> = None;
     for &dirty_idx in dirty_item_indices {
         if dirty_idx >= old_advances.len() || dirty_idx >= new_advances.len() {
             return IncrementalRelayoutResult::FullRelayout;
         }
 
-        let old_adv = old_advances[dirty_idx];
-        let new_adv = new_advances[dirty_idx];
-        let delta = new_adv - old_adv;
-
+        let delta = new_advances[dirty_idx] - old_advances[dirty_idx];
         if delta.abs() < 0.001 {
             // Same width — just swap glyphs (GlyphSwap for this item)
             continue;
         }
-
-        // Width changed — find which line this item is on
-        let line_idx = line_breaks
-            .line_ranges
-            .iter()
-            .position(|&(start, end)| dirty_idx >= start && dirty_idx < end);
-
-        let Some(line_idx) = line_idx else {
+        if changed.is_some() {
+            // A second width change: one delta cannot describe the line.
             return IncrementalRelayoutResult::FullRelayout;
-        };
-
-        let old_line_width = line_breaks.line_widths[line_idx];
-        let new_line_width = old_line_width + delta;
-
-        if new_line_width <= line_breaks.available_width {
-            // Still fits on same line — shift subsequent items
-            return IncrementalRelayoutResult::LineShift {
-                affected_item: dirty_idx,
-                delta,
-            };
         }
-        // Overflows line — need to reflow from this line
-        return IncrementalRelayoutResult::PartialReflow {
-            reflow_from_line: line_idx,
-        };
+        changed = Some((dirty_idx, delta));
     }
 
-    // All dirty items had same width
-    IncrementalRelayoutResult::GlyphSwap
+    let Some((dirty_idx, delta)) = changed else {
+        // All dirty items had same width
+        return IncrementalRelayoutResult::GlyphSwap;
+    };
+
+    // Width changed — find which line this item is on
+    let line_idx = line_breaks
+        .line_ranges
+        .iter()
+        .position(|&(start, end)| dirty_idx >= start && dirty_idx < end);
+
+    let Some(line_idx) = line_idx else {
+        return IncrementalRelayoutResult::FullRelayout;
+    };
+
+    let old_line_width = line_breaks.line_widths[line_idx];
+    let new_line_width = old_line_width + delta;
+
+    if new_line_width <= line_breaks.available_width {
+        // Still fits on same line — shift subsequent items
+        IncrementalRelayoutResult::LineShift {
+            affected_item: dirty_idx,
+            delta,
+        }
+    } else {
+        // Overflows line — need to reflow from this line
+        IncrementalRelayoutResult::PartialReflow {
+            reflow_from_line: line_idx,
+        }
+    }
 }
 
 /// (d7, segmented rework) The compact stored form of a per-item shaped
@@ -16290,6 +16301,37 @@ mod autotest_generated {
             }
             other => panic!("expected PartialReflow, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn try_incremental_relayout_two_width_changes_are_a_full_relayout() {
+        // A whole-run restyle (every advance different) must NEVER become a
+        // LineShift: one pivot + one delta cannot describe the line, and the
+        // shift pasted new glyphs onto old pen positions — the oscillating
+        // "squashed garbage" TextInput (2026-08-29).
+        let lb = CachedLineBreaks {
+            line_ranges: vec![(0, 4)],
+            line_widths: vec![40.0],
+            available_width: 1000.0,
+        };
+        let old = [10.0, 10.0, 10.0, 10.0];
+        let restyled = [14.5, 14.5, 14.5, 14.5]; // 16px glyphs on an 11px cache
+        assert!(matches!(
+            try_incremental_relayout(&[0, 1, 2, 3], &old, &restyled, &lb),
+            IncrementalRelayoutResult::FullRelayout
+        ));
+        // Two changed items out of four: still not describable by one delta.
+        let two = [10.0, 12.0, 10.0, 13.0];
+        assert!(matches!(
+            try_incremental_relayout(&[1, 3], &old, &two, &lb),
+            IncrementalRelayoutResult::FullRelayout
+        ));
+        // Exactly one change keeps the fast path.
+        let one = [10.0, 12.0, 10.0, 10.0];
+        assert!(matches!(
+            try_incremental_relayout(&[1, 3], &old, &one, &lb),
+            IncrementalRelayoutResult::LineShift { affected_item: 1, .. }
+        ));
     }
 
     #[test]

@@ -2134,16 +2134,18 @@ pub fn scroll_all_nodes(layout_window: &LayoutWindow, txn: &mut WrTransaction) {
             .scroll_manager
             .get_scroll_states_for_dom(*dom_id);
 
+        // Forward node -> id map, built once: the per-node reverse `find`
+        // hid the scroll-id collision as a silent `continue` (a scroller's
+        // offsets simply never reached WebRender).
+        let node_to_scroll_id: std::collections::HashMap<_, _> = layout_result
+            .scroll_id_to_node_id
+            .iter()
+            .map(|(&sid, &nid)| (nid, sid))
+            .collect();
+
         // Update each scrollable node
         for (node_id, scroll_position) in scroll_states {
-            // Get the scroll ID from the layout result
-            let scroll_id = layout_result
-                .scroll_id_to_node_id
-                .iter()
-                .find(|(_, &nid)| nid == node_id)
-                .map(|(&sid, _)| sid);
-
-            let Some(scroll_id) = scroll_id else {
+            let Some(&scroll_id) = node_to_scroll_id.get(&node_id) else {
                 continue;
             };
 

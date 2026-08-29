@@ -303,6 +303,15 @@ pub struct CachedInlineLayout {
     /// a same-width `RefreshDom` whose text CHANGED would reuse the stale shaped
     /// layout (#11 stale display list). 0 = unknown ⇒ never fast-path-reuse.
     pub inline_content_hash: u64,
+    /// The STYLE environment this layout was shaped under (fonts, sizes,
+    /// spacing — not paint-only fields), written only by the fast reshape
+    /// path (`LayoutWindow::shaping_style_fingerprint`). The incremental
+    /// patcher pastes new glyphs onto CACHED pen positions, which is only
+    /// sound when both were shaped under the same style; 0 = unknown
+    /// (full-layout caches) ⇒ it re-runs stage 4 instead. Pinned by the
+    /// 2026-08-29 TextInput bug: a 16px-seeded reshape met an 11px cache
+    /// and pasted large glyphs onto short advances every other frame.
+    pub shaping_style_fp: u64,
 }
 
 /// §3.2 step (d5): the display list's `TextLayout` payload when the dense
@@ -541,6 +550,7 @@ impl CachedInlineLayout {
             line_breaks: None,
             dense,
             inline_content_hash: 0,
+            shaping_style_fp: 0,
         }
     }
 
@@ -579,6 +589,7 @@ impl CachedInlineLayout {
             line_breaks,
             dense,
             inline_content_hash: 0,
+            shaping_style_fp: 0,
         }
     }
 

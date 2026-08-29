@@ -556,3 +556,88 @@ fn several_enters_in_a_row_stay_pixel_correct() {
         let _ = assert_incremental_identity(&mut h, "\n");
     }
 }
+
+// =========================================================================
+// C2. TYPING into an empty TextArea until it overflows makes it a scroller
+// =========================================================================
+
+/// The 2026-08-29 device bug: `an_overflowing_text_area_registers_as_a_scroller`
+/// above starts with the text already in the DOM, so Phase 3 sees it. On the
+/// device the DOM stays empty (the demo has no on_text_input mirror) and only
+/// the FAST reshape path knows the real extent — which used to publish it on
+/// a node nobody scrolls (the walk started at the contenteditable host,
+/// ancestors-only, with a stale extent). The container therefore never
+/// registered, the wheel scrolled the page, and no scrollbar appeared.
+#[test]
+fn typing_into_an_empty_text_area_until_overflow_makes_the_container_a_scroller() {
+    use azul_core::selection::GraphemeClusterId;
+
+    let mut h = Harness::new_with_text_area(300.0, 90.0, "");
+    // Model the DEVICE: macOS overlay scrollbars (reserve 0px). Without a
+    // system style the UA resolves a classic space-reserving bar, and a
+    // reserving bar legitimately takes the ESCALATION path instead (it
+    // changes geometry) — that path needs the DOM to carry the text and is
+    // pinned elsewhere.
+    h.lw.system_style = Some(std::sync::Arc::new({
+        let mut style = azul_css::system::SystemStyle::default();
+        style.platform = azul_css::system::Platform::MacOs;
+        style
+    }));
+    h.register_scroll_nodes();
+    assert!(
+        !h.lw
+            .scroll_manager
+            .state_keys()
+            .contains(&(DomId::ROOT_ID, NodeId::new(CONTAINER))),
+        "premise: an empty TextArea is not a scroller yet"
+    );
+
+    h.start_editing(TextCursor {
+        cluster_id: GraphemeClusterId {
+            source_run: 0,
+            start_byte_in_run: 0,
+        },
+        affinity: CursorAffinity::Leading,
+    });
+
+    // Type enough WRAPPING text (pre-wrap, 300px box) to overflow 90px of
+    // height — pure fast path, no relayout, exactly like the device.
+    for _ in 0..30 {
+        let _ = h.type_str("lorem ipsum dolor sit amet consectetur ");
+    }
+
+    let keys = h.lw.scroll_manager.state_keys();
+    assert!(
+        keys.contains(&(DomId::ROOT_ID, NodeId::new(CONTAINER))),
+        "typing past the box must register the CONTAINER as a scroller, got {keys:?}"
+    );
+    let info =
+        h.lw.scroll_manager
+            .get_scroll_node_info(DomId::ROOT_ID, NodeId::new(CONTAINER))
+            .expect("the registered container has scroll node info");
+    assert!(
+        info.max_scroll_y > 0.0,
+        "the mid-typing scroller must have a usable vertical range, got {}",
+        info.max_scroll_y
+    );
+
+    // The wheel-target walk from the text leaf resolves the container, not
+    // the page.
+    let target = h.lw.find_scrollable_ancestor(dnid(5));
+    assert_eq!(
+        target,
+        Some(dnid(CONTAINER)),
+        "wheel over the typed text must scroll the TextArea, not the page"
+    );
+
+    // And the display list actually shows a scrollbar for it.
+    let has_bar = h
+        .dl()
+        .items
+        .iter()
+        .any(|it| matches!(it, DisplayListItem::ScrollBarStyled { .. }));
+    assert!(
+        has_bar,
+        "the overflow-started transition must emit a scrollbar on this very frame"
+    );
+}

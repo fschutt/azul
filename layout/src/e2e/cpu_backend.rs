@@ -523,43 +523,20 @@ impl CpuBackend {
                 present_extra.extend(blit.present_extra);
             }
             for (scroll_id, clip, delta, offset) in &scroll_shifts {
-                let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
-                if cpurender::scroll_fast_path_eligible(
+                // One shared recipe with the shell — see
+                // `cpurender::execute_scroll_shift`.
+                let out = cpurender::execute_scroll_shift(
+                    &mut output,
                     display_list,
                     *scroll_id,
                     clip,
+                    *delta,
                     *offset,
-                    prev_offset,
-                ) {
-                    let strips = cpurender::scroll_shift_region(
-                        &mut output,
-                        clip,
-                        *delta,
-                        *offset,
-                        dpi_factor,
-                    );
-                    all_damage.extend(strips);
-                    // Overlays composited OVER the frame (its own scrollbar, a
-                    // dropdown, a tooltip) are DRAGGED by the memmove above: a
-                    // positive scroll delta shifts every pixel inside the clip by
-                    // -delta on screen. Repaint each overlay at BOTH its correct
-                    // position AND where its dragged ghost landed (origin - delta).
-                    // Without the ghost rect, an overlay that does NOT span the
-                    // scroll axis — the vertical scrollbar during a horizontal
-                    // pan — leaves a delta-wide stale sliver on its trailing edge
-                    // (the leading edge is cleaned by the exposed strip; the
-                    // trailing edge is not).
-                    for g in cpurender::overlay_rects_after_frame(display_list, *scroll_id, clip) {
-                        all_damage.push(g);
-                        let mut ghost = g;
-                        ghost.origin.x -= delta.0;
-                        ghost.origin.y -= delta.1;
-                        all_damage.push(ghost);
-                    }
-                    present_extra.push(*clip);
-                } else {
-                    all_damage.push(*clip);
-                }
+                    dpi_factor,
+                    false, // e2e twin renders owned pixmaps, never pool-order
+                );
+                all_damage.extend(out.damage);
+                present_extra.extend(out.present_extra);
             }
         }
 
