@@ -249,6 +249,19 @@ impl AvailableSpace {
         !self.is_definite()
     }
 
+    /// The definite length, or `None` when this is a measurement constraint.
+    ///
+    /// The accessor sizing code should reach for: it forces the caller to
+    /// decide what an indefinite axis means at that call site instead of
+    /// inheriting an `f32::INFINITY` it will do arithmetic on.
+    #[must_use]
+    pub const fn definite(self) -> Option<f32> {
+        match self {
+            Self::Definite(v) => Some(v),
+            _ => None,
+        }
+    }
+
     /// Returns the definite value if available, or a fallback for indefinite constraints
     #[must_use]
     pub const fn unwrap_or(self, fallback: f32) -> f32 {

@@ -2151,8 +2151,12 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     ctx: &LayoutContext<'a, T>,
     tree: &LayoutTree,
     node_index: usize,
-    containing_block_size: LogicalSize,
+    cb: &super::geometry::ContainingBlock,
 ) -> Result<PreparedLayoutContext<'a>> {
+    // Legacy view for the consumers below that are still keyed on the
+    // flattened form (cache slots, LayoutConstraints). Sizing itself gets the
+    // TYPED cb so no arm of it can do arithmetic on a sentinel.
+    let containing_block_size = cb.flattened();
     let node = tree
         .get(LayoutNodeId::new(node_index))
         .ok_or(LayoutError::InvalidTree)?;
@@ -2169,7 +2173,7 @@ fn prepare_layout_context<'a, T: ParsedFontTrait>(
     let final_used_size = calculate_used_size_for_node(
         ctx.styled_dom,
         dom_id, // Now Option<NodeId>
-        &containing_block_size,
+        cb,
         intrinsic,
         &node.box_props.unpack(),
         &ctx.viewport_size,
@@ -2756,7 +2760,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     node_index: usize,
     self_content_box_pos: LogicalPosition,
-    containing_block_size: LogicalSize,
+    cb: &super::geometry::ContainingBlock,
     calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
@@ -2800,7 +2804,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
             text_cache,
             child_index,
             self_content_box_pos,
-            containing_block_size,
+            cb,
             calculated_positions,
             reflow_needed_for_scrollbars,
             float_cache,
@@ -2849,7 +2853,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     node_index: usize,
     containing_block_pos: LogicalPosition,
-    containing_block_size: LogicalSize,
+    cb: &super::geometry::ContainingBlock,
     calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
@@ -2861,7 +2865,7 @@ pub fn calculate_layout_for_subtree<T: ParsedFontTrait>(
         text_cache,
         node_index,
         containing_block_pos,
-        containing_block_size,
+        cb,
         calculated_positions,
         reflow_needed_for_scrollbars,
         float_cache,
@@ -2884,7 +2888,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     text_cache: &mut TextLayoutCache,
     node_index: usize,
     containing_block_pos: LogicalPosition,
-    containing_block_size: LogicalSize,
+    cb: &super::geometry::ContainingBlock,
     calculated_positions: &mut super::PositionVec,
     reflow_needed_for_scrollbars: &mut bool,
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
@@ -2892,6 +2896,9 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     fragment: Option<fc::FragmentainerSpace<'_>>,
     mut fragment_out: Option<&mut Option<crate::solver3::break_token::BreakToken>>,
 ) -> Result<()> {
+    // Legacy flattened view for the cache keys and the not-yet-migrated
+    // consumers in this body; the typed `cb` travels to sizing and recursion.
+    let containing_block_size = cb.flattened();
     // [g147b az-web-lift DIAG] per-node calculate_layout_for_subtree entry (0x60980+slot): records the
     // last compute_mode that reached this node (PerformLayout=2 wins, runs after ComputeSize=1). If a div
     // shows 0x...0002 here but its layout_formatting_context marker (0x609A0+) is UNSET → positioning
@@ -3067,13 +3074,17 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                         // would hand children the full content-box width, ignoring
                         // any vertical/horizontal scrollbar that was detected.
                         let child_available_size = cached_layout.scrollbar_info.shrink_size(inner);
+                        // A cache-hit parent has a RESOLVED content box, so the
+                        // children's containing block is fully definite.
+                        let child_cb =
+                            super::geometry::ContainingBlock::definite(child_available_size);
                         calculate_layout_for_subtree(
                             ctx,
                             tree,
                             text_cache,
                             *child_index,
                             child_abs_pos,
-                            child_available_size,
+                            &child_cb,
                             calculated_positions,
                             reflow_needed_for_scrollbars,
                             float_cache,
@@ -3103,7 +3114,7 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         box_props,
     } = {
         let _p = crate::probe::Probe::span("prepare_layout_context");
-        prepare_layout_context(ctx, tree, node_index, containing_block_size)?
+        prepare_layout_context(ctx, tree, node_index, cb)?
     };
     // K30b: arm this subtree's fragmentainer (None on the continuous path).
     if let Some(fs) = fragment {
@@ -3298,14 +3309,16 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
         )?;
     }
 
-    // Phase 7: Process out-of-flow children (absolute/fixed)
+    // Phase 7: Process out-of-flow children (absolute/fixed). The node's own
+    // used size is resolved by now, so the abs-pos containing block is
+    // definite regardless of the constraint this node was measured under.
     process_out_of_flow_children(
         ctx,
         tree,
         text_cache,
         node_index,
         self_content_box_pos,
-        inner_size_after_scrollbars,
+        &super::geometry::ContainingBlock::definite(inner_size_after_scrollbars),
         calculated_positions,
         reflow_needed_for_scrollbars,
         float_cache,
