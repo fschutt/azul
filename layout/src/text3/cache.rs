@@ -444,7 +444,7 @@ impl FontChainKey {
 /// measured 0.0 depending on which text node came first). Resolving at
 /// miss time uses the same `fc_cache` query the pre-pass would have used,
 /// so the result is identical — just later.
-fn resolve_chain_on_miss(
+pub(crate) fn resolve_chain_on_miss(
     key: &FontChainKey,
     fc_cache: &FcFontCache,
 ) -> rust_fontconfig::FontFallbackChain {
