@@ -211,7 +211,7 @@ pub fn init(app_id: &str, meta: AppMeta) -> TelemetryConfig {
     metrics::set_labels(MetricLabels::detect(&meta.version, &meta.channel));
     metrics::register_histogram(metrics::STARTUP_SECONDS, metrics::SECONDS_BUCKETS);
     metrics::register_histogram(metrics::STARTUP_RSS_BYTES, metrics::BYTES_BUCKETS);
-    metrics::register_histogram(metrics::PHASE_SECONDS, metrics::SECONDS_BUCKETS);
+    metrics::register_histogram(metrics::PHASE_SECONDS, metrics::MICRO_SECONDS_BUCKETS);
 
     if let Ok(mut slot) = inner().write() {
         *slot = Some(Inner {

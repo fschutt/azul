@@ -85,6 +85,20 @@ pub const SECONDS_BUCKETS: &[f64] = &[
     0.1, 0.25, 1.0, 5.0,
 ];
 
+/// Histogram bounds for MICRO-scale spans (probe phases), in seconds.
+///
+/// Phases are microsecond work units; the frame-grade `SECONDS_BUCKETS`
+/// starts at 250us, so every faster span fell entirely into the FIRST
+/// bucket and `histogram_quantile` interpolated p95 = 0.95 x 250us =
+/// 237.5us - dozens of unrelated phases all reading "238us" identically
+/// (the observed fingerprint of quantiles bottoming out on the lowest
+/// bound, not a measurement). The low end here resolves 2us..250us; the
+/// tail joins the frame band so a pathological phase still lands.
+pub const MICRO_SECONDS_BUCKETS: &[f64] = &[
+    0.000_002, 0.000_005, 0.000_01, 0.000_025, 0.000_05, 0.000_1, 0.000_25, 0.000_5, 0.001,
+    0.002_5, 0.005, 0.01, 0.025, 0.1, 1.0,
+];
+
 /// Default histogram bounds for byte counts (8 MiB … 1 GiB).
 pub const BYTES_BUCKETS: &[f64] = &[
     8.0e6, 16.0e6, 32.0e6, 48.0e6, 64.0e6, 96.0e6, 128.0e6, 192.0e6, 256.0e6, 384.0e6, 512.0e6,
