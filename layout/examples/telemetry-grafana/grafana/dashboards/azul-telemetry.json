@@ -1092,6 +1092,59 @@
           "refId": "A"
         }
       ]
+    },
+    {
+      "id": 44,
+      "type": "timeseries",
+      "title": "Paint damage per frame (px, p50 / p95)",
+      "description": "Damaged pixels per painted frame - THE strip-vs-full-repaint observable. A gentle scroll should sit in the thousands (thin strips); values near the window area mean full-window repaints.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "azul-metrics"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 78
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(app_paint_damage_pixels_bucket[$__rate_interval])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(app_paint_damage_pixels_bucket[$__rate_interval])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ]
     }
   ]
 }

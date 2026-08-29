@@ -5497,6 +5497,14 @@ impl WaylandWindow {
         // (RenderMode::Cpu(None) renders nothing on its first pass), the GPU
         // `should_present == false` skip, an empty CPU damage list, and a missing
         // renderer.
+        // The frame clock for scope="present" (app_frame_seconds). X11 gets
+        // this from the shared cpu_backend render fn; the Wayland present
+        // path never passed through it, so Grafana under-counted Wayland
+        // presents ~10x while the real event->render latency measured a
+        // healthy 16ms p50 (wait_for_render probe, 2026-08-29). One pump per
+        // generate_frame pass, ended on drop.
+        let _frame_pump = azul_layout::telemetry::FramePump::begin("present");
+
         let mut surface_committed = false;
 
         // Did this frame RENDER to completion and simply find nothing changed

@@ -44,29 +44,40 @@ pub(crate) struct MenuLayoutData {
 /// It's called by Azul's normal layout system, so rendering happens through the
 /// standard WebRender pipeline.
 extern "C" fn menu_layout_callback(
-    mut data: RefAny,
-    _info: LayoutCallbackInfo,
+    _data: RefAny,
+    info: LayoutCallbackInfo,
 ) -> azul_core::dom::Dom {
-    // Clone data early to avoid borrow issues
-    let data_clone = data.clone();
-
-    // Extract menu data from RefAny
-    let menu_data = match data.downcast_ref::<MenuLayoutData>() {
-        Some(d) => d,
+    // The menu's `MenuLayoutData` is carried in the layout callback's `ctx`
+    // (see `create_menu_popup_options`), NOT in `data`: `data` is the SHARED
+    // APP data, common to every window, so downcasting it to MenuLayoutData
+    // always failed - every Wayland menu popup opened as a blank surface
+    // (KDE session, 2026-08-29). Same fix the unified menu system's
+    // `menu_layout_callback` carries; read the per-window payload via
+    // `info.get_ctx()`.
+    let menu_refany = match info.get_ctx().into_option() {
+        Some(r) => r,
         None => {
             log_error!(
                 LogCategory::Layout,
-                "[Menu Layout] Failed to downcast menu data"
+                "[Menu Layout] menu window has no ctx (MenuLayoutData)"
             );
             return azul_core::dom::Dom::create_body();
         }
+    };
+    let mut probe = menu_refany.clone();
+    let Some(menu_data) = probe.downcast_ref::<MenuLayoutData>() else {
+        log_error!(
+            LogCategory::Layout,
+            "[Menu Layout] ctx is not MenuLayoutData"
+        );
+        return azul_core::dom::Dom::create_body();
     };
 
     // Use menu_renderer to create Dom with deferred CSS
     crate::desktop::menu_renderer::create_menu_dom_with_css(
         &menu_data.menu,
         &menu_data.system_style,
-        data_clone, // Pass cloned RefAny for menu window data
+        menu_refany.clone(), // Pass the menu-window RefAny for item callbacks
     )
 }
 
