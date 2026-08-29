@@ -299,6 +299,23 @@ impl Harness {
             .expect("a materialised page has a contenteditable content root")
     }
 
+    /// Scrollbar items (track/thumb, either variant) in `dom`'s display list.
+    fn scrollbar_count(&self, dom: DomId) -> usize {
+        self.lw
+            .get_layout_result(&dom)
+            .expect("layout")
+            .display_list
+            .items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item,
+                    DisplayListItem::ScrollBar { .. } | DisplayListItem::ScrollBarStyled { .. }
+                )
+            })
+            .count()
+    }
+
     /// How many carets the rasteriser would draw in `dom`. The blink-off phase
     /// still emits the item (with alpha 0), so this counts a caret that EXISTS,
     /// not one that happens to be lit this frame.
@@ -564,5 +581,38 @@ fn typed_text_follows_its_paragraph_across_a_rematerialisation() {
     assert!(
         !h.edited_text(nested_after, banner).contains("ZZZ"),
         "the node now wearing the OLD id must not inherit the edit"
+    );
+}
+
+/// A 12-page document inside the VirtualView is ~13,600 virtual px against a
+/// 900 px window: `overflow: auto` (the UA default for a VirtualView) plus a
+/// published `virtual_rect` that tall MUST produce a scrollbar. The layout-side
+/// necessity test can never fire for a VirtualView (it has no flow content),
+/// so the bar's existence rides entirely on the published virtual size
+/// reaching the display-list build — the seam where it was lost on device
+/// (AzWriter showed a page running past the viewport with no bar at all).
+///
+/// Two mechanisms are pinned, one per frame:
+/// - frame 1: the host list is built BEFORE the callback publishes, so the
+///   funnel must detect the changed scroll-geometry fingerprint and rebuild
+///   (`regenerate_display_list_for_dom`) within the same pass;
+/// - frame 2: the DL cache key includes the scroll-geometry fingerprint, so
+///   an identical tree can no longer serve the pre-publication list back.
+#[test]
+fn the_virtualized_documents_scrollbar_is_painted_once_its_size_is_published() {
+    let mut h = Harness::new(Doc::Paragraphs);
+    let frame1 = h.scrollbar_count(DomId::ROOT_ID);
+    h.relayout();
+    let frame2 = h.scrollbar_count(DomId::ROOT_ID);
+    assert!(
+        frame1 >= 1,
+        "the FIRST frame flashed bar-less: the publish-after-consume rebuild \
+         did not fire (frame1={frame1})"
+    );
+    assert!(
+        frame2 >= 1,
+        "a 13,600px virtual document in a 900px window paints NO scrollbar on \
+         the second full pass (frame1={frame1}, frame2={frame2}) — the \
+         published virtual size is not reaching the display-list build"
     );
 }
