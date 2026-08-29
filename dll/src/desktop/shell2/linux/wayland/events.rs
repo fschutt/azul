@@ -2345,6 +2345,14 @@ extern "C" fn data_source_send(
         unsafe { CStr::from_ptr(mime).to_str().unwrap_or_default().to_owned() }
     };
     let bytes = super::clipboard::native_copy_bytes(&requested).unwrap_or_default();
+    // An empty serve is worth a trace: klipper's "prevent empty clipboard"
+    // answers one by RE-TAKING the selection with its previous entry, which
+    // presents as "my copy pasted the OLD clipboard text".
+    crate::plog_info!(
+        "[wl-clipboard] send: peer asked for '{}', serving {} byte(s)",
+        requested,
+        bytes.len()
+    );
     write_all_then_close(fd, &bytes);
 }
 

@@ -2216,7 +2216,13 @@ pub fn run(
 
                             // A real toplevel (e.g. a modal/file dialog): dismiss any
                             // open menu first so it can't capture over the new window.
-                            wayland_window.dismiss_active_popup();
+                            // EXCEPT while a screen-color pick is in flight — the new
+                            // toplevel is the eyedropper's loupe, and the popup that
+                            // asked (the color picker) has to survive to hear the
+                            // answer (see managers/eyedropper.rs module docs).
+                            if !azul_layout::managers::eyedropper::in_flight_anywhere() {
+                                wayland_window.dismiss_active_popup();
+                            }
 
                             match super::linux::wayland::WaylandWindow::new(
                                 pending_create,

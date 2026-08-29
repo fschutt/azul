@@ -1565,7 +1565,7 @@ impl WaylandWindow {
     /// Dismiss (close + drop) the active menu popup, if any. Dropping the popup
     /// destroys its wl objects and releases the seat grab.
     pub fn dismiss_active_popup(&mut self) {
-        if let Some(popup) = self.active_popup.take() {
+        if let Some(mut popup) = self.active_popup.take() {
             // A `<transient-window>` popup tells its parent — this window —
             // through the mailbox, so the engine's manager and the widget
             // learn it was dismissed (popup_done / click-outside) instead of
@@ -1573,6 +1573,22 @@ impl WaylandWindow {
             use crate::desktop::shell2::common::transient::{
                 poll_popup, post_dismissed, PopupAction,
             };
+            // A screen-color pick the popup asked for must not die with it:
+            // the answer is routed by request id, and the picker subtree in
+            // THIS window's DOM carries the same ScreenColorPicked callback
+            // over the same shared state — so adopt the outstanding ids here
+            // and the reply still lands (and the in-flight count still drains).
+            let orphaned_picks = popup
+                .common
+                .layout_window
+                .as_mut()
+                .map(|lw| lw.eyedropper_manager.take_issued())
+                .unwrap_or_default();
+            if !orphaned_picks.is_empty() {
+                if let Some(lw) = self.common.layout_window.as_mut() {
+                    lw.eyedropper_manager.adopt_issued(orphaned_picks);
+                }
+            }
             let closed_by_parent =
                 poll_popup(popup.common.current_window_state()) == PopupAction::Close;
             if !closed_by_parent && post_dismissed(popup.common.current_window_state()) {
@@ -4320,9 +4336,14 @@ impl WaylandWindow {
     /// `events::data_source_send`.
     pub(super) fn wayland_set_selection(&mut self) -> bool {
         if self.data_device_manager.is_null() || self.data_device.is_null() {
+            crate::plog_info!("[wl-clipboard] set_selection: no data_device — copy dropped");
             return false;
         }
         if self.last_input_serial == 0 {
+            crate::plog_info!(
+                "[wl-clipboard] set_selection: no input serial yet — copy dropped \
+                 (compositor ignores a serial-less selection)"
+            );
             return false;
         }
         unsafe {
@@ -4412,6 +4433,11 @@ impl WaylandWindow {
             );
             (self.wayland.wl_display_flush)(self.display);
 
+            crate::plog_info!(
+                "[wl-clipboard] set_selection sent: serial={} flavors={}",
+                self.last_input_serial,
+                mimes.len()
+            );
             self.clipboard_source = src as *mut defines::wl_data_source;
         }
         true

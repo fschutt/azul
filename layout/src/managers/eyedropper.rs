@@ -101,6 +101,24 @@ impl EyedropperManager {
         self.last_result
     }
 
+    /// Move every outstanding request id out of this manager — for a window
+    /// that is closing while a pick it asked for is still in flight. The
+    /// global in-flight count is deliberately untouched: the ids MUST be
+    /// handed to another window's manager ([`Self::adopt_issued`]), or the
+    /// count leaks and popups stop light-dismissing forever.
+    pub fn take_issued(&mut self) -> Vec<u64> {
+        core::mem::take(&mut self.issued)
+    }
+
+    /// Adopt outstanding request ids taken from a closing window — the color
+    /// picker popup that asked for a screen pick and died (compositor
+    /// popup_done, the loupe's grab break) before the answer arrived. Results
+    /// are routed by request id, so after adoption THIS window's pass drains
+    /// them and its `ScreenColorPicked` fires here instead of nowhere.
+    pub fn adopt_issued(&mut self, ids: Vec<u64>) {
+        self.issued.extend(ids);
+    }
+
     /// The dll clears this after the event pass collected the event.
     pub const fn clear_pending_event(&mut self) {
         self.pending_event = false;

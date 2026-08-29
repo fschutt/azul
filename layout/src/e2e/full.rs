@@ -2166,8 +2166,13 @@ pub enum DebugEvent {
     GetAllNodesLayout,
     /// Get detailed DOM tree structure
     GetDomTree,
-    /// Get the raw node hierarchy (for debugging DOM structure issues)
-    GetNodeHierarchy,
+    /// Get the raw node hierarchy (for debugging DOM structure issues).
+    /// `dom_id` selects a child DOM (a VirtualView / iframe document);
+    /// omitted = the root DOM, as before.
+    GetNodeHierarchy {
+        #[serde(default)]
+        dom_id: Option<u64>,
+    },
     /// Get the layout tree structure (for debugging layout tree building)
     GetLayoutTree,
     /// Get the display list items (what's actually being rendered)
@@ -14072,7 +14077,7 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::GetNodeHierarchy => {
+        DebugEvent::GetNodeHierarchy { dom_id } => {
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
@@ -14082,7 +14087,9 @@ pub fn process_debug_event(
             use azul_core::dom::DomId;
             use azul_core::id::NodeId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = dom_id.map_or(ROOT_DOM_ID, |id| DomId {
+                inner: id as usize,
+            });
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {

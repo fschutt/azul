@@ -5840,11 +5840,26 @@ pub trait PlatformWindow {
                         .text_edit_manager
                         .get_editing_dom_id()
                         .unwrap_or(azul_core::dom::DomId { inner: 0 });
-                    if let Some(clipboard_content) =
-                        layout_window.get_selected_content_for_clipboard(&dom_id)
-                    {
-                        if let Some(payload) = clipboard_content_to_payload(&clipboard_content) {
-                            set_system_clipboard(&payload);
+                    let clipboard_content =
+                        layout_window.get_selected_content_for_clipboard(&dom_id);
+                    log_debug!(
+                        super::debug_server::LogCategory::Resources,
+                        "[copy] editing_dom={:?} extracted={}",
+                        dom_id,
+                        clipboard_content.is_some()
+                    );
+                    if let Some(clipboard_content) = clipboard_content {
+                        match clipboard_content_to_payload(&clipboard_content) {
+                            Some(payload) => {
+                                set_system_clipboard(&payload);
+                            }
+                            None => {
+                                log_debug!(
+                                    super::debug_server::LogCategory::Resources,
+                                    "[copy] extracted content produced NO payload — nothing \
+                                     written to the OS clipboard"
+                                );
+                            }
                         }
                     }
                 }

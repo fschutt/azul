@@ -1478,6 +1478,24 @@ pub fn breakpoints_crossed(thresholds: &[f32], old: f32, new: f32) -> bool {
     thresholds.iter().any(|&bp| (old <= bp) != (new <= bp))
 }
 
+/// Debug-server trace for the clipboard-copy extraction path. A copy that
+/// produces NOTHING is invisible by construction (no paint, no event), so the
+/// only witness is a trace at each decision point. No-op without the
+/// `e2e-server` feature.
+fn copy_trace(msg: impl FnOnce() -> String) {
+    #[cfg(feature = "e2e-server")]
+    crate::e2e::log(
+        crate::e2e::LogLevel::Debug,
+        crate::e2e::LogCategory::Layout,
+        msg(),
+        None,
+    );
+    #[cfg(not(feature = "e2e-server"))]
+    {
+        let _ = msg;
+    }
+}
+
 impl LayoutWindow {
     /// #28: SPECULATIVE pagination query — "what WOULD the page breaks be
     /// for this content at this page size?" — answered from this window's
@@ -16919,6 +16937,12 @@ impl LayoutWindow {
         // newlines (what Word puts on the clipboard for a multi-paragraph
         // selection).
         if let Some(cb) = self.text_edit_manager.get_cross_block_selection() {
+            copy_trace(|| format!(
+                    "[copy] cross-block selection on {:?} ({} node(s)); copy targets {:?}",
+                    cb.dom_id,
+                    cb.affected_nodes.len(),
+                    dom_id
+                ));
             if cb.dom_id == *dom_id {
                 let mut nodes: Vec<(NodeId, SelectionRange)> = cb
                     .affected_nodes
@@ -16967,8 +16991,18 @@ impl LayoutWindow {
             }
         }
 
-        let mc = self.text_edit_manager.multi_cursor.as_ref()?;
-        let node_id = mc.node_id.node.into_crate_internal()?;
+        let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() else {
+            copy_trace(|| String::from("[copy] no cross-block selection and no multi_cursor — nothing to extract"));
+            return None;
+        };
+        let Some(node_id) = mc.node_id.node.into_crate_internal() else {
+            copy_trace(|| format!(
+                    "[copy] multi_cursor on {:?} carries a node id that decodes to NONE — \
+                     nothing to extract",
+                    mc.node_id.dom
+                ));
+            return None;
+        };
 
         // Collect range selections (collapsed cursors contribute nothing to a copy).
         let ranges: Vec<_> = mc
@@ -16980,6 +17014,13 @@ impl LayoutWindow {
             })
             .collect();
         if ranges.is_empty() {
+            copy_trace(|| format!(
+                    "[copy] multi_cursor on {:?}/{:?} holds {} selection(s) but no RANGE — \
+                     nothing to extract",
+                    mc.node_id.dom,
+                    node_id,
+                    mc.selections.len()
+                ));
             return None;
         }
 
@@ -16989,7 +17030,38 @@ impl LayoutWindow {
         // Byte offsets are affinity-aware (cursor_byte_offset_in_run), so a
         // select-all whose end cursor is Trailing on the last cluster copies the
         // full text — matching the affinity fix in delete_range.
-        let content = self.get_text_before_textinput(*dom_id, node_id);
+        let mut content = self.get_text_before_textinput(*dom_id, node_id);
+        if content.is_empty() {
+            // Dual text path: a block whose committed styled_dom carries no
+            // text children (a blank document's seeded first run, a
+            // VV-regenerated block mid-edit) keeps its LIVE buffer in the
+            // content overlay of the contenteditable HOST, not of the block
+            // the cursors anchor on — read the host's flattened buffer, which
+            // is the same content the ranges' run indices were computed
+            // against.
+            if let Some(host) = self.find_contenteditable_host(*dom_id, node_id) {
+                if host != node_id {
+                    content = self.get_text_before_textinput(*dom_id, host);
+                    copy_trace(|| {
+                        format!(
+                            "[copy] block {:?}/{:?} had no inline content — fell back to \
+                             contenteditable host {:?} ({} run(s))",
+                            dom_id,
+                            node_id,
+                            host,
+                            content.len()
+                        )
+                    });
+                }
+            }
+        }
+        copy_trace(|| format!(
+                "[copy] extracting from {:?}/{:?}: {} range(s), {} inline run(s)",
+                dom_id,
+                node_id,
+                ranges.len(),
+                content.len()
+            ));
         let mut acc = ClipboardExtract::default();
         for r in &ranges {
             let sr = r.start.cluster_id.source_run as usize;
@@ -17031,7 +17103,15 @@ impl LayoutWindow {
             }
         }
 
-        acc.finish()
+        let out = acc.finish();
+        if out.is_none() {
+            copy_trace(|| format!(
+                    "[copy] every range resolved to zero bytes against {:?}/{:?}'s inline \
+                     content — the ranges and the runs disagree (dual text path?)",
+                    dom_id, node_id
+                ));
+        }
+        out
     }
 
     /// Check if a scrolled node is a `VirtualView` that needs re-invocation. If so,
