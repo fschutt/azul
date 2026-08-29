@@ -73,8 +73,16 @@ pub const DOC_RSS_PER_UNIT: &str = "app_document_rss_bytes_per_unit";
 pub const HEAP_BYTES: &str = "app_heap_bytes";
 
 /// Default histogram bounds for durations, in seconds.
+///
+/// Frame-grade resolution in the band that matters for interactivity: the
+/// old bounds jumped 10ms -> 25ms, so a 60Hz app's whole frame budget fell
+/// into ONE bucket and histogram_quantile read ~20ms for genuinely-12ms
+/// frames (interpolation across a bucket 2.5x wider than the thing being
+/// measured). Bounds now bracket the 8/12/16.7/20/25/33ms rates a frame
+/// debugger actually distinguishes; the tail keeps decade coverage.
 pub const SECONDS_BUCKETS: &[f64] = &[
-    0.000_5, 0.001, 0.002_5, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+    0.000_25, 0.000_5, 0.001, 0.002, 0.004, 0.008, 0.012_5, 0.016_7, 0.02, 0.025, 0.033, 0.05,
+    0.1, 0.25, 1.0, 5.0,
 ];
 
 /// Default histogram bounds for byte counts (8 MiB … 1 GiB).

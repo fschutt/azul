@@ -197,6 +197,17 @@ fn fill_random(out: &mut [u8; 16]) {
 pub fn init(app_id: &str, meta: AppMeta) -> TelemetryConfig {
     let resolved = config::load(app_id);
 
+    // Consent ARMS the probe: a tier that ships metrics wants
+    // `app_phase_seconds{phase}` filled, and requiring a second, unrelated
+    // switch (`AZ_PROFILE`, the agent/e2e-local debugging tool) for that
+    // made the phase histogram silently empty on every consenting run - and
+    // an empty histogram is indistinguishable from a fast one. `AZ_PROFILE`
+    // remains orthogonal: it arms the same recorder for LOCAL consumers
+    // (e2e cross-frame dumps) with no telemetry involved.
+    if resolved.tier.allows_metrics() {
+        enable_probe_bridge();
+    }
+
     metrics::set_labels(MetricLabels::detect(&meta.version, &meta.channel));
     metrics::register_histogram(metrics::STARTUP_SECONDS, metrics::SECONDS_BUCKETS);
     metrics::register_histogram(metrics::STARTUP_RSS_BYTES, metrics::BYTES_BUCKETS);
@@ -827,6 +838,17 @@ pub fn upload() -> UploadStats {
 /// Blocking: performs network IO, so keep it off the UI thread.
 #[must_use]
 pub fn flush() -> FlushOutcome {
+    // Sample the RSS gauge on every flush cycle so `app_rss_bytes` exists for
+    // EVERY app, not only those that call the startup/document-open hooks -
+    // an engine-only run (any demo) used to leave the dashboard's RSS panels
+    // permanently at "No data". `current_rss_bytes` is a syscall read; at
+    // tier Off `is_collecting` gates the write like every other sink.
+    if is_collecting() {
+        let (rss, _) = crate::probe::current_rss_bytes();
+        if rss > 0 {
+            metrics::gauge_set(metrics::RSS_BYTES, rss as f64);
+        }
+    }
     let mut outcome = persist();
     if !outcome.skipped {
         outcome.upload = upload();

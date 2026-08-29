@@ -41,7 +41,7 @@
       "id": 1,
       "type": "stat",
       "title": "Sessions",
-      "description": "app_sessions_started_total \u2014 one per app run. The denominator of every release-health ratio.",
+      "description": "app_sessions_started_total — one per app run. The denominator of every release-health ratio.",
       "datasource": {
         "type": "prometheus",
         "uid": "azul-metrics"
@@ -295,7 +295,7 @@
       "id": 11,
       "type": "timeseries",
       "title": "Startup RSS by version (p50)",
-      "description": "\"Did 1.4.2 raise RAM right after startup?\" \u2014 the rollout gate. Same increase()-over-the-range reasoning as the startup-time panel.",
+      "description": "\"Did 1.4.2 raise RAM right after startup?\" — the rollout gate. Same increase()-over-the-range reasoning as the startup-time panel.",
       "datasource": {
         "type": "prometheus",
         "uid": "azul-metrics"
@@ -342,7 +342,7 @@
     {
       "id": 12,
       "type": "timeseries",
-      "title": "Adoption \u2014 sessions by version",
+      "title": "Adoption — sessions by version",
       "description": "sum by (version) of app_sessions_started_total. \"Which users updated?\" is this curve.",
       "datasource": {
         "type": "prometheus",
@@ -434,7 +434,7 @@
             "type": "prometheus",
             "uid": "azul-metrics"
           },
-          "expr": "sum by (version) (increase(app_panics_total{channel=~\"$channel\"}[10m])) / clamp_min(sum by (version) (increase(app_sessions_started_total{channel=~\"$channel\"}[10m])), 1)",
+          "expr": "(sum by (version) (increase(app_panics_total{channel=~\"$channel\"}[10m])) / clamp_min(sum by (version) (increase(app_sessions_started_total{channel=~\"$channel\"}[10m])), 1)) or vector(0)",
           "legendFormat": "{{version}}"
         }
       ]
@@ -443,7 +443,7 @@
       "id": 14,
       "type": "timeseries",
       "title": "Frame duration by scope (p50 / p95)",
-      "description": "Wall-clock per frame from app_frame_seconds \u2014 the number that IS smoothness. p95 above ~32 ms means visible hitches; the slow-frame WARN logs carry which session and why.",
+      "description": "Wall-clock per frame from app_frame_seconds — the number that IS smoothness. p95 above ~32 ms means visible hitches; the slow-frame WARN logs carry which session and why.",
       "datasource": {
         "type": "prometheus",
         "uid": "azul-metrics"
@@ -504,7 +504,7 @@
       "id": 15,
       "type": "timeseries",
       "title": "Phase duration p95 (from Probe spans)",
-      "description": "histogram_quantile over app_phase_seconds_bucket. Fed by telemetry::drain_probe_events() \u2014 the same Probe::span guards the layout engine uses, exported as metrics.",
+      "description": "histogram_quantile over app_phase_seconds_bucket. Fed by telemetry::drain_probe_events() — the same Probe::span guards the layout engine uses, exported as metrics.",
       "datasource": {
         "type": "prometheus",
         "uid": "azul-metrics"
@@ -557,7 +557,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "Resident set size",
-      "description": "app_rss_bytes gauge, sliced by version. On Windows this reads K32GetProcessMemoryInfo's WorkingSetSize \u2014 before this branch it read 0.",
+      "description": "app_rss_bytes gauge, sliced by version. On Windows this reads K32GetProcessMemoryInfo's WorkingSetSize — before this branch it read 0.",
       "datasource": {
         "type": "prometheus",
         "uid": "azul-metrics"
@@ -606,7 +606,7 @@
       "id": 17,
       "type": "timeseries",
       "title": "Document size worked on (p95 nodes)",
-      "description": "An app-defined histogram (demo_document_nodes) recorded through the public telemetry::observe API \u2014 the same path an app would use for doc-size buckets.",
+      "description": "An app-defined histogram (demo_document_nodes) recorded through the public telemetry::observe API — the same path an app would use for doc-size buckets.",
       "datasource": {
         "type": "prometheus",
         "uid": "azul-metrics"
@@ -652,7 +652,7 @@
       "id": 20,
       "type": "logs",
       "title": "Log records (OTLP -> Loki)",
-      "description": "Structured log records shipped on the same OTLP connection as the metrics, at consent tier >= metrics and severity >= WARN. The client_id rides here \u2014 never on a metric label.",
+      "description": "Structured log records shipped on the same OTLP connection as the metrics, at consent tier >= metrics and severity >= WARN. The client_id rides here — never on a metric label.",
       "datasource": {
         "type": "loki",
         "uid": "azul-logs"
@@ -677,7 +677,7 @@
             "type": "loki",
             "uid": "azul-logs"
           },
-          "expr": "{service_name=\"azul-telemetry-demo\"}",
+          "expr": "{service_name=~\".+\"}",
           "queryType": "range"
         }
       ]
@@ -686,7 +686,7 @@
       "id": 30,
       "type": "timeseries",
       "title": "Timer frame duration (p50 / p95)",
-      "description": "app_timer_frame_seconds \u2014 the animation clock. Slow ticks here are stuttering animations; each one also counts into app_slow_frames_total and warns with full context.",
+      "description": "app_timer_frame_seconds — the animation clock. Slow ticks here are stuttering animations; each one also counts into app_slow_frames_total and warns with full context.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -740,7 +740,7 @@
       "id": 31,
       "type": "timeseries",
       "title": "Slow frames per minute (by scope)",
-      "description": "rate(app_slow_frames_total) \u2014 frames/spans over the slow threshold (default 32 ms). The matching WARN log names the exact span, duration, document size and (once per session) the machine.",
+      "description": "rate(app_slow_frames_total) — frames/spans over the slow threshold (default 32 ms). The matching WARN log names the exact span, duration, document size and (once per session) the machine.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -785,7 +785,7 @@
       "id": 32,
       "type": "timeseries",
       "title": "RSS growth per document unit",
-      "description": "app_document_rss_bytes_per_unit = (RSS after open \u2212 before) / document size. Flat across document sizes = healthy; a per-version jump is a memory regression document size does NOT explain.",
+      "description": "app_document_rss_bytes_per_unit = (RSS after open − before) / document size. Flat across document sizes = healthy; a per-version jump is a memory regression document size does NOT explain.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -901,7 +901,7 @@
       "id": 40,
       "type": "timeseries",
       "title": "Sub-spans: layout / relayout (p95, stacked)",
-      "description": "app_phase_seconds p95 for probe spans matching `layout.*|solver.*|reconcile.*|cascade.*|intrinsic.*|position.*` \u2014 the per-span breakdown of where this family's time goes. Empty until the app emits spans of this family.",
+      "description": "app_phase_seconds p95 for probe spans matching `layout.*|solver.*|reconcile.*|cascade.*|intrinsic.*|position.*` — the per-span breakdown of where this family's time goes. Empty until the app emits spans of this family.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -950,7 +950,7 @@
       "id": 41,
       "type": "timeseries",
       "title": "Sub-spans: repaint / render (p95, stacked)",
-      "description": "app_phase_seconds p95 for probe spans matching `render.*|paint.*|raster.*|composite.*|display_list.*|blit.*` \u2014 the per-span breakdown of where this family's time goes. Empty until the app emits spans of this family.",
+      "description": "app_phase_seconds p95 for probe spans matching `render.*|paint.*|raster.*|composite.*|display_list.*|blit.*` — the per-span breakdown of where this family's time goes. Empty until the app emits spans of this family.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -999,7 +999,7 @@
       "id": 42,
       "type": "timeseries",
       "title": "Sub-spans: callbacks / timers (p95, stacked)",
-      "description": "app_phase_seconds p95 for probe spans matching `dispatch.*|callback.*|timer.*|thread.*` \u2014 the per-span breakdown of where this family's time goes. Empty until the app emits spans of this family.",
+      "description": "app_phase_seconds p95 for probe spans matching `dispatch.*|callback.*|timer.*|thread.*` — the per-span breakdown of where this family's time goes. Empty until the app emits spans of this family.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -1048,7 +1048,7 @@
       "id": 43,
       "type": "timeseries",
       "title": "Sub-spans: text / parse (p95, stacked)",
-      "description": "app_phase_seconds p95 for probe spans matching `text.*|font.*|shape.*|demo\\\\.parse.*|xml.*|css.*` \u2014 the per-span breakdown of where this family's time goes. Empty until the app emits spans of this family.",
+      "description": "app_phase_seconds p95 for probe spans matching `text.*|font.*|shape.*|demo\\\\.parse.*|xml.*|css.*` — the per-span breakdown of where this family's time goes. Empty until the app emits spans of this family.",
       "gridPos": {
         "h": 8,
         "w": 12,

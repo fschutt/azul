@@ -95,9 +95,31 @@ impl ProfileFlags {
 pub fn flags() -> ProfileFlags {
     static FLAGS: OnceLock<ProfileFlags> = OnceLock::new();
     *FLAGS.get_or_init(|| {
-        let f = std::env::var("AZ_PROFILE")
-            .map(|v| ProfileFlags::parse(&v))
+        let raw = std::env::var("AZ_PROFILE").ok();
+        let f = raw
+            .as_deref()
+            .map(ProfileFlags::parse)
             .unwrap_or_default();
+        // A typo'd token must WARN and keep running, never silently parse to
+        // nothing - AZ_PROFILE=phases looked exactly like AZ_PROFILE unset,
+        // and "a zero is not a measurement".
+        if let Some(raw) = &raw {
+            let known = |t: &str| {
+                matches!(
+                    t.to_ascii_lowercase().as_str(),
+                    "memory" | "mem" | "cpu" | "perf" | "cascade" | "css" | "heap" | "jsonl"
+                        | "detail" | ""
+                )
+            };
+            let mut unknown: Vec<&str> =
+                raw.split(',').map(str::trim).filter(|t| !known(t)).collect();
+            unknown.truncate(8); // a garbage value must not flood stderr
+            if !unknown.is_empty() {
+                eprintln!(
+                    "[azul][profile] AZ_PROFILE={raw:?}: unknown token(s) {unknown:?} ignored -                      valid values are cpu (perf), memory (mem), cascade (css), heap, jsonl,                      detail; combine with commas, e.g. AZ_PROFILE=cpu,memory"
+                );
+            }
+        }
         // The announce table: a profile mode that silently emits NOTHING
         // reads as "not looking" and has repeatedly burned real debugging
         // time ("a zero is not a measurement"). One line, once, at the
