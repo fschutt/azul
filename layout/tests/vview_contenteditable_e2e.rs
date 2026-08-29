@@ -433,6 +433,84 @@ fn set_virtual_view_geometry_updates_scrollbar_math_without_reinvoke() {
 
 /// Where the content ends up on screen, read off the display list the
 /// rasteriser consumes.
+/// The DEVICE symptom "Enter does nothing in AzWriter": before any event can
+/// reach the app's DocumentEdit callback, the shells ask
+/// `build_editing_query_state(focused)` and hand the answer to
+/// `determine_keyboard_default_action_with_editing`. If the editing state
+/// comes back `None` for a focus INSIDE the VirtualView's nested dom, Enter
+/// silently degrades to the activation arm (→ `None`) and no split is ever
+/// recorded — nothing happens, no log, no preview. Pin the whole
+/// determination leg for the nested shape.
+#[test]
+fn enter_on_a_nested_contenteditable_determines_a_structural_split() {
+    let model = fresh_model();
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(800.0, 600.0);
+    lw.current_window_state = window_state;
+
+    relayout(&mut lw, &model);
+    let nested = lw
+        .virtual_view_manager
+        .get_nested_dom_id(DomId::ROOT_ID, NodeId::new(1))
+        .expect("virtual view mounted a nested dom");
+    let (para, text) = find_para(&lw, nested, "page 0 content").expect("page 0 mounted");
+    lw.focus_manager
+        .set_focused_node(Some(dom_node(nested, para)));
+    lw.text_edit_manager
+        .initialize_editing(cursor(7), nested, text, 0);
+
+    let focused = lw.focus_manager.get_focused_node().copied();
+    let editing = lw.build_editing_query_state(focused);
+    let editing = editing.expect(
+        "build_editing_query_state answered None for a focused node inside \
+         the nested dom — Enter degrades to the activation arm and the user \
+         sees NOTHING happen",
+    );
+    assert!(editing.is_contenteditable, "the nested paragraph is editable");
+    assert!(
+        !editing.host_preserves_newlines,
+        "a rich host must SPLIT on Enter, not insert a literal newline",
+    );
+
+    let ks = azul_core::window::KeyboardState {
+        current_virtual_keycode: Some(azul_core::window::VirtualKeyCode::Return).into(),
+        pressed_virtual_keycodes: vec![azul_core::window::VirtualKeyCode::Return].into(),
+        ..Default::default()
+    };
+    let action = azul_layout::default_actions::determine_keyboard_default_action_with_editing(
+        &ks,
+        focused,
+        &lw.layout_results,
+        false,
+        Some(&editing),
+    );
+    assert!(
+        matches!(
+            action.action,
+            azul_core::events::DefaultAction::SplitBlockAtCursor { .. }
+        ),
+        "Enter on a nested contenteditable must determine a split, got {:?}",
+        action.action
+    );
+
+    // And the recorded split must NOTIFY: the provider emits exactly one
+    // DocumentEdit event targeting the nested node, which is what the app's
+    // FocusEventFilter::DocumentEdit callback hangs off.
+    lw.record_structural_default_action(&action.action)
+        .expect("split records");
+    let provider = lw.document_edit_event_provider();
+    let events = azul_core::events::EventProvider::get_pending_events(
+        &provider,
+        azul_core::task::Instant::from(std::time::Instant::now()),
+    );
+    assert_eq!(events.len(), 1, "one DocumentEdit notification");
+    assert_eq!(
+        events[0].target.dom, nested,
+        "the notification targets the NESTED dom (where the callback lives)"
+    );
+}
+
 fn vv_content_offset(lw: &LayoutWindow) -> Option<LogicalPosition> {
     use azul_layout::solver3::display_list::DisplayListItem;
     lw.get_layout_result(&DomId::ROOT_ID)?
