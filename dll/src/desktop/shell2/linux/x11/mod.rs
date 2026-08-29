@@ -3584,6 +3584,29 @@ impl X11Window {
                 return Ok(());
             }
 
+            // Work is already OWED - a callback queued a VirtualView
+            // re-render or requested a redraw while THIS iteration was
+            // dispatching events. Parking now would sit on that work until
+            // the NEXT event happened to arrive: the "meter repaints one
+            // event late" bug (azpaint pressure meter, 2026-08-29 - the
+            // trigger_virtual_view_rerender frame only appeared when a later
+            // pointer event woke the loop). Return instead, so the main
+            // loop's render gate (which checks exactly these flags) runs
+            // now; render_and_present clears them, so this cannot spin.
+            let vview_pending = self
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| !lw.pending_virtual_view_updates.is_empty())
+                .unwrap_or(false);
+            if self.needs_redraw.pending()
+                || self.common.regeneration_pending()
+                || self.common.resize_relayout_pending()
+                || vview_pending
+            {
+                return Ok(());
+            }
+
             // Build pollfd array: X11 connection + all timer fds
             let mut pollfds: Vec<libc::pollfd> = Vec::with_capacity(1 + self.timer_fds.len());
 
