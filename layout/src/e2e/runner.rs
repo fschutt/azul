@@ -3209,10 +3209,20 @@ impl Runner {
                 else {
                     return (ProcessEventResult::DoNothing, false);
                 };
-                if resolved == focused {
+                // Tab with nothing tabbable is a MISS, not a clear — keep the
+                // current focus (mirrors the dll shell arm).
+                use azul_layout::managers::focus_cursor::FocusResolution;
+                let new_focus = match resolved {
+                    FocusResolution::Resolved(n) => Some(n),
+                    FocusResolution::ClearRequested => None,
+                    FocusResolution::NotFound | FocusResolution::Deferred => {
+                        return (ProcessEventResult::DoNothing, false);
+                    }
+                };
+                if new_focus == focused {
                     return (ProcessEventResult::DoNothing, false);
                 }
-                (self.set_focus(resolved, focused), true)
+                (self.set_focus(new_focus, focused), true)
             }
             DefaultAction::ClearFocus => {
                 if focused.is_none() {
