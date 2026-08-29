@@ -5491,14 +5491,13 @@ impl LayoutWindow {
                 let dl_mut = Arc::make_mut(&mut display_list);
                 let mut replaced = false;
                 for item in &mut dl_mut.items {
-                    if let solver3::display_list::DisplayListItem::VirtualViewPlaceholder {
-                        node_id: ref placeholder_nid,
-                        bounds: ref placeholder_bounds,
-                        clip_rect: ref placeholder_clip,
-                        ..
-                    } = item
-                    {
-                        if *placeholder_nid == node_id {
+                    match item {
+                        solver3::display_list::DisplayListItem::VirtualViewPlaceholder {
+                            node_id: placeholder_nid,
+                            bounds: placeholder_bounds,
+                            clip_rect: placeholder_clip,
+                            ..
+                        } if *placeholder_nid == node_id => {
                             if std::env::var("AZ_MAP_DEBUG").is_ok() {
                                 eprintln!(
                                     "[vview] placeholder swap: node={} placeholder_bounds={:?} scan_bounds={:?}",
@@ -5521,6 +5520,27 @@ impl LayoutWindow {
                             replaced = true;
                             break;
                         }
+                        // A cache-served list can arrive ALREADY swapped: the
+                        // structural DL cache is refreshed by
+                        // `regenerate_display_list_for_dom` AFTER its own
+                        // placeholder re-point, so a Step-1.1 hit hands back a
+                        // list whose placeholder is a `VirtualView` item with
+                        // LAST pass's `content_offset` baked in. Matching only
+                        // placeholders here meant that item kept the stale
+                        // offset (scrolling moved the bar but not the content)
+                        // while the fallback below appended a SECOND item —
+                        // double-composite. Re-point the existing item instead.
+                        solver3::display_list::DisplayListItem::VirtualView {
+                            child_dom_id: existing_child,
+                            content_offset,
+                            ..
+                        } if *existing_child == child_dom_id => {
+                            *content_offset =
+                                self.virtual_view_content_offset(dom_id, node_id);
+                            replaced = true;
+                            break;
+                        }
+                        _ => {}
                     }
                 }
 
