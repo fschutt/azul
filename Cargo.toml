@@ -72,13 +72,17 @@ azul-layout = { path = "layout" }
 # azul-layout and NO printpdf git patch is needed. (dll/ pins printpdf 0.12.5.)
 # rust-fontconfig: use crates.io (the vendored copy was a labelled REVERT; its
 # only functional delta was a web_lift-only hashbrown workaround). core/ and
-# layout/ pin `>=4.4.7, <4.5`; the lock is on 4.4.9.
+# layout/ pin `>=4.6, <4.7` (4.6.0 = the FcScanConfig injection release: scan
+# dirs + priority families come from the embedder, the old per-OS tables are
+# the explicit `os_defaults()` fallback).
 #
-# That pin is why 4.4.8 is a PATCH release despite adding public API: printpdf
-# 0.12.2 declares the same `>=4.4.7, <4.5` range, so a 4.5.0 would satisfy
-# neither and cargo would resolve TWO rust-fontconfigs into one binary — two
+# THE SINGLE-COPY RULE still applies: every dependent's range must intersect
+# on ONE version or cargo resolves TWO rust-fontconfigs into one binary — two
 # independent FcFontCaches, i.e. layout resolving a font the renderer cannot
-# find. Keep any future release inside this range until printpdf moves.
+# find. printpdf 0.12.6+ declares `>=4.4.9, <5`, which intersects this
+# workspace's `>=4.6, <4.7` at 4.6.x — one copy. (The PUBLISHED azul-layout
+# 0.0.14 still pins `<4.5`; that only matters for consumers of the published
+# crates, so the next azul-* crates.io release must carry the >=4.6 pin.)
 #
 # allsorts-azul is NOT patched. It used to be (`path = "third_party/allsorts"`), and that
 # is exactly how azul-layout 0.0.9 shipped broken: the vendored tree grew
