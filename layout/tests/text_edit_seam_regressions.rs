@@ -10,6 +10,8 @@
 //! - Typing into a node that only INHERITS `contenteditable` must land.
 //! - A click on plain selectable text must not claim the blink timer, and a
 //!   focus change must not erase the selection that same click made.
+//! - The FIRST character typed into an EMPTY editable must land: it has no
+//!   text run for the insert to splice into.
 
 use azul_core::{
     dom::{Dom, DomId, DomNodeId, IdOrClass, NodeId},
@@ -749,5 +751,96 @@ fn an_ime_composition_in_a_deeply_nested_editable_is_shaped() {
         glyph_count(&lw) > before,
         "the composition was never shaped: {before} glyphs before, {} after",
         glyph_count(&lw)
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The first character typed into an EMPTY editable
+// ---------------------------------------------------------------------------
+
+/// `text3::edit::insert_text` splices into `content[cursor.source_run]`. An
+/// editable with no text at all collects to an EMPTY buffer, so run 0 does not
+/// exist, the splice found nothing and the function returned the content
+/// unchanged — the first keystroke was silently dropped and the editable could
+/// never be typed into at all. A caret blinked in it the whole time.
+///
+/// This is the shape a brand-new AzWriter document has (an empty `<p>` under
+/// the editing host) and the shape every text widget has before its first
+/// character.
+///
+/// NOT yet fixed, and deliberately not asserted here: the character lands in
+/// the BUFFER but still paints no glyph. `reshape_text_node` shapes through
+/// `shape_text_for_relayout`, which can only use fonts a previous layout
+/// already LOADED — an editable that has never held text never loaded one, so
+/// stage 3 returns zero shaped items for the first character and the IFC keeps
+/// its empty strut layout. `cargo test ... the_first_character` is green while
+/// AzWriter still looks dead on a new document; the missing half is font
+/// loading on the incremental reshape path.
+#[test]
+fn the_first_character_typed_into_an_empty_p_wrapped_editable_lands() {
+    // body(0) > div[contenteditable](1) > div.p(2) — no text node anywhere.
+    let mut lw = layout(Dom::create_body().with_child(
+        Dom::create_div().with_contenteditable(true).with_child(with_class(Dom::create_div(), "p")),
+    ));
+    const HOST: usize = 1;
+    assert_eq!(text_of(&lw, HOST), "", "premise: the editable starts empty");
+
+    lw.focus_manager.set_focused_node(Some(dnid(HOST)));
+    lw.record_text_input("X");
+    let _ = lw.apply_text_changeset();
+
+    assert_eq!(
+        text_of(&lw, HOST),
+        "X",
+        "the first character typed into an empty editable must land — with no \
+         run to splice into, the insert was a silent no-op and the document \
+         could not be started"
+    );
+}
+
+/// The same defect without the block wrapper: a bare `div[contenteditable]`
+/// with no children at all.
+#[test]
+fn the_first_character_typed_into_a_flat_empty_editable_lands() {
+    let mut lw = layout(
+        Dom::create_body().with_child(Dom::create_div().with_contenteditable(true)),
+    );
+    const HOST: usize = 1;
+    assert_eq!(text_of(&lw, HOST), "", "premise: the editable starts empty");
+
+    lw.focus_manager.set_focused_node(Some(dnid(HOST)));
+    lw.record_text_input("X");
+    let _ = lw.apply_text_changeset();
+
+    assert_eq!(text_of(&lw, HOST), "X");
+}
+
+/// The seeded run must carry the BLOCK's style, not `StyleProperties::default()`
+/// — the first character has to be the size the editable is styled at, or every
+/// new document starts one character of the wrong font.
+#[test]
+fn the_first_character_typed_into_an_empty_editable_keeps_the_blocks_style() {
+    // `.big` is 40px; the default would be the 14px body size.
+    let mut lw = layout(Dom::create_body().with_child(
+        with_class(Dom::create_div(), "big").with_contenteditable(true),
+    ));
+    const HOST: usize = 1;
+
+    lw.focus_manager.set_focused_node(Some(dnid(HOST)));
+    lw.record_text_input("X");
+    let _ = lw.apply_text_changeset();
+    assert_eq!(text_of(&lw, HOST), "X");
+
+    let size = lw
+        .get_text_before_textinput(DomId::ROOT_ID, NodeId::new(HOST))
+        .iter()
+        .find_map(|c| match c {
+            azul_layout::text3::cache::InlineContent::Text(run) => Some(run.style.font_size_px),
+            _ => None,
+        })
+        .expect("the edited buffer has a text run");
+    assert!(
+        (size - 40.0).abs() < 0.01,
+        "the seeded run must inherit the editable's own font-size, got {size}"
     );
 }

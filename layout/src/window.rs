@@ -12690,8 +12690,35 @@ impl LayoutWindow {
             return empty;
         }
 
-        // Get the current inline content from cache
-        let content = self.get_text_before_textinput(dom_id, node_id);
+        // The buffer this edit splices into.
+        //
+        // `text3::edit::insert_text` writes into `content[cursor.source_run]`,
+        // so an editable with NO text at all — a brand-new document, an empty
+        // `<p>`, a field the user just cleared — has no run 0 to write into:
+        // the splice found nothing, returned the content unchanged, and the
+        // FIRST character typed into it was silently dropped. It happened on
+        // every shape (a flat `div[contenteditable]` as much as the
+        // `container > p` the text widgets and AzWriter use), and it looked
+        // like a dead window — the caret blinked in a document that could not
+        // be started.
+        //
+        // Seed ONE empty run so there is something to splice into, carrying
+        // the node's own text style: the first character has to be the size
+        // and font the block is styled at, not `StyleProperties::default()`.
+        // `source_node_id` stays `None` — no Text node produced this run, and
+        // `reshape_text_node` routes the result by IFC, not by that id.
+        //
+        // Only the INSERT path needs it: `delete_selection` on an empty
+        // editable is correctly a no-op.
+        let mut content = self.get_text_before_textinput(dom_id, node_id);
+        if content.is_empty() {
+            content = vec![InlineContent::Text(StyledRun {
+                text: Arc::from(""),
+                style: self.get_text_style_for_node(dom_id, node_id),
+                logical_start_byte: 0,
+                source_node_id: None,
+            })];
+        }
 
         // Get current cursor/selection — prefer non-empty MultiCursorState, fall back to legacy
         let mc_selections = self.text_edit_manager.multi_cursor.as_ref()
