@@ -161,6 +161,13 @@ struct PaintState {
     /// construction, and markers are excluded from node equality, so the
     /// per-rebuild re-mint never churns the DOM diff.
     pressure_marker: String,
+    /// MARKER on the canvas image node - same mint/reuse discipline as
+    /// `pressure_marker`. The stroke callbacks resolve it and call
+    /// `update_image_callback` instead of returning `RefreshDom`: a stroke
+    /// point re-renders THE CANVAS IMAGE (rev-diffed, incremental) with no
+    /// relayout at all - the user's "I only painted, the app didn't move,
+    /// why a 10ms layout per point" ruling (Wayland session 2026-08-29).
+    canvas_marker: String,
     /// Last pressure pushed through the fast path, ONLY so a full rebuild
     /// (heavy path) seeds the fresh `ProgressBar` at the current value
     /// instead of flashing back to zero. Deliberately NOT part of `PenHud`:
@@ -187,6 +194,7 @@ impl PaintState {
             export_path: None,
             rev: 1,
             pressure_marker: String::new(), // minted in layout() - Uuid::short()
+            canvas_marker: String::new(),   // minted in layout() - Uuid::short()
             last_pressure: 0.0,
         }
     }
@@ -282,6 +290,31 @@ struct CanvasCache {
     metaball_gpu: Option<MetaballGpu>,
     /// `PaintState.rev` the cache was last rasterized at.
     rendered_rev: u64,
+    /// INCREMENTAL metaball state (CPU path). A full re-sum is
+    /// O(total dabs x their support area) and measured 807ms/frame after a
+    /// few minutes of painting (Wayland, 2026-08-29) - the field and the
+    /// composited output persist here and only NEW dabs are applied, so a
+    /// stroke point costs O(one dab's support box) no matter how much ink
+    /// the canvas already carries. Rebuilt from scratch when the dab prefix
+    /// shrinks (undo/clear), the canvas box resizes, or the base changes.
+    mb: MetaballField,
+}
+
+/// See `CanvasCache::mb`. `dabs`/`strokes` are the applied PREFIX counts:
+/// history only ever grows point-by-point at the tail (begin/extend/commit),
+/// so prefix-count equality identifies "same ink plus new dabs"; any
+/// shrink means an edit (undo/redo/clear) and rebuilds.
+#[derive(Default)]
+struct MetaballField {
+    field: Vec<f32>,
+    acc: Vec<[f32; 3]>,
+    /// Composited RGBA output, patched only in each new dab's box.
+    buf: Vec<u8>,
+    size: (u32, u32),
+    dabs: usize,
+    strokes: usize,
+    /// Identity of the composited base: (background ptr, len) or (0, 0).
+    base_sig: (usize, usize),
 }
 
 /// A round brush for a stroke point at the given pressure.
@@ -502,7 +535,132 @@ fn strokes_to_svg(strokes: &[Stroke], metaball_mode: bool) -> String {
 /// bridges and merge organically -- the thing alpha-over dabs can't do. Color
 /// is field-weighted so overlapping blobs blend. O(Σ per-ball bbox), not
 /// O(pixels·balls).
-fn render_metaballs(
+/// One dab's kernel + color contribution into `(field, acc)`. Returns the
+/// integer box it touched (x0, y0, x1, y1 - exclusive); the Wyvill kernel is
+/// exactly zero outside it, so compositing that box alone is EXACT.
+fn apply_metaball_dab(
+    field: &mut [f32],
+    acc: &mut [[f32; 3]],
+    wu: usize,
+    hu: usize,
+    (cr, cg, cb): (f32, f32, f32),
+    p: &StrokePoint,
+) -> (usize, usize, usize, usize) {
+    // pressure -> ball size
+    let r = (BASE_RADIUS * (0.6 + p.pressure * 2.0)).max(2.0);
+    // tilt magnitude -> eccentricity; tilt direction (+ roll) -> angle.
+    // The AZIMUTH of the tilt is atan2(y, x) — the angle from the +X
+    // axis, matching the SVG export. atan2(x, y) measured from the
+    // Y-axis with mirrored handedness, so the dab rotated 90° off the
+    // pen (measured with the real pen, 2026-08-29).
+    let tilt_mag = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt();
+    let ecc = (tilt_mag / 60.0).max(0.0).min(0.85);
+    let theta = p.tilt_y.atan2(p.tilt_x) + p.barrel_roll_rad;
+    let ax = r * (1.0 + ecc * 1.6);
+    let ay = (r * (1.0 - ecc * 0.5)).max(r * 0.35);
+    let (st, ct) = theta.sin_cos();
+    // The kernel is exactly zero at this distance, so the box is exact.
+    let reach = ax.max(ay) * METABALL_SUPPORT;
+    let x0 = (p.x - reach).floor().max(0.0) as usize;
+    let y0 = (p.y - reach).floor().max(0.0) as usize;
+    let x1 = ((p.x + reach).ceil().max(0.0) as usize).min(wu);
+    let y1 = ((p.y + reach).ceil().max(0.0) as usize).min(hu);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let dx = x as f32 + 0.5 - p.x;
+            let dy = y as f32 + 0.5 - p.y;
+            let lx = dx * ct + dy * st; // into the ball's local frame
+            let ly = -dx * st + dy * ct;
+            let q = (lx / ax) * (lx / ax) + (ly / ay) * (ly / ay);
+            let c = metaball_kernel(q);
+            if c <= 0.0 {
+                continue; // the box corners lie outside the support
+            }
+            let idx = y * wu + x;
+            field[idx] += c;
+            acc[idx][0] += c * cr;
+            acc[idx][1] += c * cg;
+            acc[idx][2] += c * cb;
+        }
+    }
+    (x0, y0, x1, y1)
+}
+
+/// Composite base layer + thresholded field into `buf`, WITHIN `bx` only.
+/// Same math as the old full-canvas pass, restricted to a region; a dab's
+/// field contribution is zero outside its box, so per-box recomposition
+/// after `apply_metaball_dab` reproduces the full render bit-for-bit.
+fn composite_metaball_region(
+    buf: &mut [u8],
+    field: &[f32],
+    acc: &[[f32; 3]],
+    w: u32,
+    h: u32,
+    bg: ColorU,
+    background: Option<&RawImage>,
+    bx: (usize, usize, usize, usize),
+) {
+    let (x0, y0, x1, y1) = bx;
+    let wu = w as usize;
+    // Base sampler: scaled background image pixel, else the solid color -
+    // the region twin of `composite_base`.
+    let bg_img = background.and_then(|img| {
+        if let RawImageData::U8(ref src) = img.pixels {
+            let bgr = matches!(img.data_format, RawImageFormat::BGRA8);
+            let ok = matches!(
+                img.data_format,
+                RawImageFormat::RGBA8 | RawImageFormat::BGRA8
+            );
+            if ok && img.width > 0 && img.height > 0 {
+                return Some((src.as_ref(), img.width, img.height, bgr));
+            }
+        }
+        None
+    });
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let i = y * wu + x;
+            let o = i * 4;
+            // 1. base
+            let (mut pr, mut pg, mut pb) = (bg.r, bg.g, bg.b);
+            if let Some((src, sw, sh, bgr)) = bg_img {
+                let sy = (y * sh) / h as usize;
+                let sx = (x * sw) / w as usize;
+                let si = (sy * sw + sx) * 4;
+                if si + 3 < src.len() {
+                    (pr, pg, pb) = if bgr {
+                        (src[si + 2], src[si + 1], src[si])
+                    } else {
+                        (src[si], src[si + 1], src[si + 2])
+                    };
+                }
+            }
+            // 2. blob over it (AA rim around the iso-surface)
+            let f = field[i];
+            let a = smoothstep(METABALL_ISO - METABALL_AA, METABALL_ISO + METABALL_AA, f);
+            if a > 0.0 {
+                let (r, g, b) = (acc[i][0] / f, acc[i][1] / f, acc[i][2] / f);
+                buf[o] = (pr as f32 * (1.0 - a) + r * a).round().max(0.0).min(255.0) as u8;
+                buf[o + 1] = (pg as f32 * (1.0 - a) + g * a).round().max(0.0).min(255.0) as u8;
+                buf[o + 2] = (pb as f32 * (1.0 - a) + b * a).round().max(0.0).min(255.0) as u8;
+            } else {
+                buf[o] = pr;
+                buf[o + 1] = pg;
+                buf[o + 2] = pb;
+            }
+            buf[o + 3] = 255;
+        }
+    }
+}
+
+/// The INCREMENTAL metaball renderer: apply only the dabs added since the
+/// previous frame into the persistent field, recomposite just their boxes,
+/// and hand back the full image. A history edit (undo/redo/clear), a canvas
+/// resize, or a changed base rebuilds from scratch - see [`MetaballField`].
+/// The old every-frame full re-sum was O(total dabs x support area):
+/// 807ms/frame after minutes of painting; a stroke point is now O(one box).
+fn metaball_image(
+    mb: &mut MetaballField,
     strokes: &[Stroke],
     w: u32,
     h: u32,
@@ -511,80 +669,59 @@ fn render_metaballs(
 ) -> RawImage {
     let (wu, hu) = (w as usize, h as usize);
     let n = wu.saturating_mul(hu).max(1);
-    let mut field = vec![0.0f32; n];
-    let mut acc = vec![[0.0f32; 3]; n]; // field-weighted RGB accumulator
-    for s in strokes {
-        let col = if s.is_eraser { bg } else { s.color };
-        let (cr, cg, cb) = (col.r as f32, col.g as f32, col.b as f32);
-        for p in &s.points {
-            // pressure -> ball size
-            let r = (BASE_RADIUS * (0.6 + p.pressure * 2.0)).max(2.0);
-            // tilt magnitude -> eccentricity; tilt direction (+ roll) -> angle.
-            // The AZIMUTH of the tilt is atan2(y, x) — the angle from the +X
-            // axis, matching the SVG export. atan2(x, y) measured from the
-            // Y-axis with mirrored handedness, so the dab rotated 90° off the
-            // pen (measured with the real pen, 2026-08-29).
-            let tilt_mag = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt();
-            let ecc = (tilt_mag / 60.0).max(0.0).min(0.85);
-            let theta = p.tilt_y.atan2(p.tilt_x) + p.barrel_roll_rad;
-            let ax = r * (1.0 + ecc * 1.6);
-            let ay = (r * (1.0 - ecc * 0.5)).max(r * 0.35);
-            let (st, ct) = theta.sin_cos();
-            // The kernel is exactly zero at this distance, so the box is exact.
-            let reach = ax.max(ay) * METABALL_SUPPORT;
-            let x0 = (p.x - reach).floor().max(0.0) as usize;
-            let y0 = (p.y - reach).floor().max(0.0) as usize;
-            let x1 = ((p.x + reach).ceil().max(0.0) as usize).min(wu);
-            let y1 = ((p.y + reach).ceil().max(0.0) as usize).min(hu);
-            for y in y0..y1 {
-                for x in x0..x1 {
-                    let dx = x as f32 + 0.5 - p.x;
-                    let dy = y as f32 + 0.5 - p.y;
-                    let lx = dx * ct + dy * st; // into the ball's local frame
-                    let ly = -dx * st + dy * ct;
-                    let q = (lx / ax) * (lx / ax) + (ly / ay) * (ly / ay);
-                    let c = metaball_kernel(q);
-                    if c <= 0.0 {
-                        continue; // the box corners lie outside the support
-                    }
-                    let idx = y * wu + x;
-                    field[idx] += c;
-                    acc[idx][0] += c * cr;
-                    acc[idx][1] += c * cg;
-                    acc[idx][2] += c * cb;
-                }
-            }
+    let total_dabs: usize = strokes.iter().map(|s| s.points.len()).sum();
+    let base_sig = background.map_or((0, 0), |img| match img.pixels {
+        RawImageData::U8(ref v) => (v.as_ref().as_ptr() as usize, v.as_ref().len()),
+        _ => (1, 0),
+    });
+
+    let rebuild = mb.size != (w, h)
+        || mb.buf.len() != n * 4
+        || total_dabs < mb.dabs
+        || strokes.len() < mb.strokes
+        || mb.base_sig != base_sig;
+    if rebuild {
+        mb.field = vec![0.0f32; n];
+        mb.acc = vec![[0.0f32; 3]; n];
+        mb.buf = vec![0u8; n * 4];
+        mb.size = (w, h);
+        mb.dabs = 0;
+        mb.strokes = 0;
+        mb.base_sig = base_sig;
+    }
+
+    // Apply the NEW suffix of the dab sequence (empty on a pure recomposite).
+    let mut skip = mb.dabs;
+    let mut boxes: Vec<(usize, usize, usize, usize)> = Vec::new();
+    for st in strokes {
+        if skip >= st.points.len() {
+            skip -= st.points.len();
+            continue;
+        }
+        let col = if st.is_eraser { bg } else { st.color };
+        let col = (col.r as f32, col.g as f32, col.b as f32);
+        for p in &st.points[skip..] {
+            boxes.push(apply_metaball_dab(&mut mb.field, &mut mb.acc, wu, hu, col, p));
+        }
+        skip = 0;
+    }
+
+    if rebuild {
+        // One full composite instead of per-dab boxes: overlapping boxes
+        // would recomposite the same pixels once per dab.
+        composite_metaball_region(
+            &mut mb.buf, &mb.field, &mb.acc, w, h, bg, background, (0, 0, wu, hu),
+        );
+    } else {
+        for bx in boxes {
+            composite_metaball_region(&mut mb.buf, &mb.field, &mb.acc, w, h, bg, background, bx);
         }
     }
-    let mut buf = vec![0u8; n * 4];
-    // Base layer first (imported image or solid bg), then composite the
-    // thresholded metaball blobs over it.
-    composite_base(&mut buf, w, h, bg, background);
-    for i in 0..n {
-        let f = field[i];
-        // AA rim around the iso-surface.
-        let a = smoothstep(METABALL_ISO - METABALL_AA, METABALL_ISO + METABALL_AA, f);
-        if a <= 0.0 {
-            continue; // keep the base layer
-        }
-        let (r, g, b) = (acc[i][0] / f, acc[i][1] / f, acc[i][2] / f);
-        let o = i * 4;
-        buf[o] = (buf[o] as f32 * (1.0 - a) + r * a)
-            .round()
-            .max(0.0)
-            .min(255.0) as u8;
-        buf[o + 1] = (buf[o + 1] as f32 * (1.0 - a) + g * a)
-            .round()
-            .max(0.0)
-            .min(255.0) as u8;
-        buf[o + 2] = (buf[o + 2] as f32 * (1.0 - a) + b * a)
-            .round()
-            .max(0.0)
-            .min(255.0) as u8;
-        buf[o + 3] = 255;
-    }
+    mb.dabs = total_dabs;
+    mb.strokes = strokes.len();
+
     RawImage {
-        pixels: RawImageData::U8(buf.into()),
+        pixels: RawImageData::U8(mb.buf.clone().into()),
         width: wu,
         height: hu,
         premultiplied_alpha: true,
@@ -932,7 +1069,7 @@ fn render_canvas_inner(
         export_path.is_some(),
     ) {
         let img = if metaball_mode {
-            render_metaballs(&strokes, w, h, bg, bg_ref)
+            metaball_image(&mut cache.mb, &strokes, w, h, bg, bg_ref)
         } else {
             render_brush_cpu(&strokes, w, h, bg, bg_ref)
         };
@@ -976,12 +1113,13 @@ fn clear_export(cache: &mut CanvasCache) {
 extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     // Move the (non-Clone) compiled GPU program out of the old cache; clone the
     // refcounted texture/image handles.
-    let (tex, img, rev, mgpu) = match old_data.downcast_mut::<CanvasCache>() {
+    let (tex, img, rev, mgpu, mb) = match old_data.downcast_mut::<CanvasCache>() {
         Some(mut old) => (
             old.texture.clone(),
             old.cpu_image.clone(),
             old.rendered_rev,
             old.metaball_gpu.take(),
+            core::mem::take(&mut old.mb),
         ),
         None => return new_data,
     };
@@ -990,6 +1128,7 @@ extern "C" fn merge_cache(mut new_data: RefAny, mut old_data: RefAny) -> RefAny 
         new.cpu_image = img;
         new.rendered_rev = rev;
         new.metaball_gpu = mgpu;
+        new.mb = mb;
     }
     new_data
 }
@@ -1020,14 +1159,17 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
     // after a rebuild missed (verified via AZ_PAINT_DEBUG, 2026-08-29).
     // Reuse costs nothing: markers are excluded from node equality either
     // way, and the string is still a layout()-minted UUID.
-    let pressure_marker = match data.downcast_mut::<PaintState>() {
+    let (pressure_marker, canvas_marker) = match data.downcast_mut::<PaintState>() {
         Some(mut s) => {
             if s.pressure_marker.is_empty() {
                 s.pressure_marker = azul::uuid::Uuid::short().as_str().to_string();
             }
-            s.pressure_marker.clone()
+            if s.canvas_marker.is_empty() {
+                s.canvas_marker = azul::uuid::Uuid::short().as_str().to_string();
+            }
+            (s.pressure_marker.clone(), s.canvas_marker.clone())
         }
-        None => String::new(),
+        None => (String::new(), String::new()),
     };
     let (n_strokes, n_undone, metaballs, hud, device_line, last_pressure) = data
         .downcast_ref::<PaintState>()
@@ -1121,6 +1263,7 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         cpu_image: None,
         metaball_gpu: None,
         rendered_rev: 0,
+        mb: MetaballField::default(),
     });
 
     let canvas = Dom::create_image(ImageRef::callback(
@@ -1128,6 +1271,9 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         cache.clone(),
     ))
     .with_css(CANVAS)
+    // Resolvable from the stroke callbacks: they repaint the canvas via
+    // `update_image_callback` on this node - no relayout per stroke point.
+    .with_marker(azul::option::OptionString::Some(canvas_marker.as_str().into()))
     .with_dataset(OptionRefAny::Some(cache))
     .with_merge_callback(DatasetMergeCallback::from(
         merge_cache as DatasetMergeCallbackType,
@@ -1377,6 +1523,22 @@ fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> 
     ok.then_some(pct)
 }
 
+/// Repaint THE CANVAS after a stroke mutation, without a relayout: resolve
+/// the canvas image node by its marker and queue its `RenderImageCallback`
+/// re-render. The callback re-runs rev-diffed (`CanvasCache.rendered_rev`),
+/// rasters incrementally (`metaball_image`), and damage falls out of the
+/// image identity - the canvas half of the inter-widget fast path.
+fn poke_canvas(info: &mut CallbackInfo, marker: &str) {
+    if let Some(node) = info.get_node_id_by_marker(marker.to_string()).into_option() {
+        let raw = node.node.into_raw();
+        if raw != 0 {
+            // Bindings `NodeId` shares `NodeHierarchyItemId`'s 1-based raw
+            // encoding (0 = None), so a non-zero raw converts directly.
+            info.update_image_callback(node.dom, azul::dom::NodeId { inner: raw });
+        }
+    }
+}
+
 extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         eprintln!("[paint] t={}ms on_pointer_down FIRED", dbg_ms());
@@ -1403,13 +1565,18 @@ extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
     update_hud(&mut state, hud);
     state.begin_stroke(point, is_eraser);
     let marker = state.pressure_marker.clone();
+    let canvas = state.canvas_marker.clone();
     drop(state);
     if let Some(pct) = push_pressure_to_meter(&mut info, &marker) {
         if let Some(mut s) = data.downcast_mut::<PaintState>() {
             s.last_pressure = pct;
         }
     }
-    Update::RefreshDom
+    // FAST PATH for the ink too: the first dab repaints the canvas image in
+    // place. Nothing in the DOM changed (the strokes COUNT only moves on
+    // commit), so no relayout - the header readout catches up on stroke end.
+    poke_canvas(&mut info, &canvas);
+    Update::DoNothing
 }
 
 extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
@@ -1453,7 +1620,16 @@ extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
     match point {
         Some((p, _)) => {
             state.extend_stroke(p);
-            Update::RefreshDom
+            let canvas = state.canvas_marker.clone();
+            drop(state);
+            // Mid-stroke: the canvas image repaints in place (incremental
+            // raster + image-identity damage) and the meter already updated
+            // through its own fast path above. NO relayout per stroke point
+            // - the 10ms-layout-per-painted-pixel class ends here. The hud
+            // text stays frozen during the stroke; end_stroke's RefreshDom
+            // catches it up.
+            poke_canvas(&mut info, &canvas);
+            Update::DoNothing
         }
         None if hud_changed => Update::RefreshDom,
         None => Update::DoNothing,
