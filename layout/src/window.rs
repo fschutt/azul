@@ -9972,15 +9972,35 @@ impl LayoutWindow {
                 continue;
             }
 
-            // Generate stable scroll ID from node_data_fingerprint
-            // Use a combined hash of the fingerprint fields to create a stable ID
+            // Stable scroll ID = hash of (dom, node) IDENTITY — deliberately
+            // NOT the node_data_fingerprint. The fingerprint carries no
+            // position: two structurally identical widgets (NumberInput
+            // literally returns TextInput::dom()) hashed to ONE id, WebRender
+            // applied any offset to every spatial node matching it (the two
+            // fields scrolled in lockstep), and the last-write-wins reverse
+            // map dropped the loser's offsets entirely (its caret reveal
+            // wrote state that never reached the compositor). Identity also
+            // survives a hover restyle, which changed the fingerprint — a
+            // scroller's external id must not move mid-interaction. Same
+            // (dom, node) across frames → same id, which is all the
+            // "stable across frames" contract ever needed.
             let scroll_id = {
                 use std::hash::{DefaultHasher, Hash, Hasher};
                 let mut h = DefaultHasher::new();
-                if let Some(cold) = layout_tree.cold(LayoutNodeId::new(layout_idx)) {
-                    cold.node_data_fingerprint.hash(&mut h);
+                styled_dom.dom_id.inner.hash(&mut h);
+                dom_node_id.index().hash(&mut h);
+                let mut id = h.finish();
+                // Paranoia: a raw hash collision between two DIFFERENT nodes
+                // must not silently merge scrollers — re-salt until free.
+                while scroll_id_to_node_id
+                    .get(&id)
+                    .is_some_and(|&existing| existing != dom_node_id)
+                {
+                    let mut h2 = DefaultHasher::new();
+                    id.hash(&mut h2);
+                    id = h2.finish();
                 }
-                h.finish()
+                id
             };
 
             scroll_ids.insert(LayoutNodeId::new(layout_idx), scroll_id);
@@ -13338,21 +13358,29 @@ impl LayoutWindow {
         // like a dead window — the caret blinked in a document that could not
         // be started.
         //
-        // Seed ONE empty run so there is something to splice into, carrying
-        // the node's own text style: the first character has to be the size
-        // and font the block is styled at, not `StyleProperties::default()`.
-        // `source_node_id` stays `None` — no Text node produced this run, and
-        // `reshape_text_node` routes the result by IFC, not by that id.
+        // Seed ONE empty run so there is something to splice into. The style
+        // must come from the node a FULL layout would shape this IFC's text
+        // at — the first Text descendant (`solver3::fc` resolves runs on the
+        // TEXT node) — and NOT from `node_id`: that is the contenteditable
+        // HOST, whose cascade can differ from the value's. The stock
+        // TextInput styles its value `<p>` at 11px while the container
+        // inherits 16px; seeding the container's style shaped the field at
+        // 16px forever (the overlay is sticky), and the incremental reshape
+        // then pasted 16px glyphs onto 11px cached pen positions — the
+        // oscillating "squashed garbage" TextInput (2026-08-29). Carrying the
+        // Text node as `source_node_id` also restores the per-run hit-test
+        // area and live color re-resolution, which skip `None` runs.
         //
         // Only the INSERT path needs it: `delete_selection` on an empty
         // editable is correctly a no-op.
         let mut content = self.get_text_before_textinput(dom_id, node_id);
         if content.is_empty() {
+            let style_node = self.seed_style_node(dom_id, node_id);
             content = vec![InlineContent::Text(StyledRun {
                 text: Arc::from(""),
-                style: self.get_text_style_for_node(dom_id, node_id),
+                style: self.get_text_style_for_node(dom_id, style_node.unwrap_or(node_id)),
                 logical_start_byte: 0,
-                source_node_id: None,
+                source_node_id: style_node,
             })];
         }
 
@@ -13778,6 +13806,23 @@ impl LayoutWindow {
     }
 
     /// Get the font style for a text node from CSS
+    /// The node whose cascade the seeded empty run must carry: the first
+    /// (caret-owner-first) Text descendant of the editable — the same node
+    /// `solver3::fc` resolves a run's style on during a full layout. `None`
+    /// for a childless editable; the caller falls back to the host itself.
+    fn seed_style_node(&self, dom_id: DomId, node_id: NodeId) -> Option<NodeId> {
+        let layout_result = self.layout_results.get(&dom_id)?;
+        let node_data = layout_result.styled_dom.node_data.as_ref();
+        self.ifc_candidate_children(dom_id, node_id)
+            .into_iter()
+            .find(|c| {
+                matches!(
+                    node_data.get(c.index()).map(|d| d.get_node_type()),
+                    Some(NodeType::Text(_))
+                )
+            })
+    }
+
     fn get_text_style_for_node(&self, dom_id: DomId, node_id: NodeId) -> Arc<StyleProperties> {
         use alloc::sync::Arc;
 
@@ -14166,6 +14211,7 @@ impl LayoutWindow {
 
         // 4. Update the layout cache with the new layout
         // Use the ifc_layout_index we found earlier (correct layout tree index)
+        let mut reshape_extent: Option<LogicalSize> = None;
         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
             let old_size = layout_result
                 .layout_tree
@@ -14202,64 +14248,74 @@ impl LayoutWindow {
                 width: new_bounds.width.max(unclipped.width),
                 height: new_bounds.height.max(unclipped.height),
             };
+            reshape_extent = Some(content_extent);
 
             // Update the inline layout result with the new layout but preserve constraints (warm data)
             if let Some(warm_node) = layout_result
                 .layout_tree
                 .warm_mut(LayoutNodeId::new(ifc_layout_index))
             {
-                warm_node.inline_layout_result =
-                    Some(Box::new(CachedInlineLayout::new_with_constraints(
-                        Arc::new(new_layout),
-                        constraints.available_width,
-                        false, // No floats in quick relayout
-                        constraints,
-                    )));
+                let mut fresh = CachedInlineLayout::new_with_constraints(
+                    Arc::new(new_layout),
+                    constraints.available_width,
+                    false, // No floats in quick relayout
+                    constraints,
+                );
+                // Stamp the style this shape ran under so the NEXT keystroke
+                // may patch incrementally against these positions.
+                fresh.shaping_style_fp = Self::shaping_style_fingerprint(&new_inline_content);
+                warm_node.inline_layout_result = Some(Box::new(fresh));
                 warm_node.overflow_content_size = Some(content_extent);
             }
         }
 
-        // Propagate the new extent up to the box that actually SCROLLS it.
+        // Publish the new extent to the box that actually SCROLLS it, and
+        // re-derive that box's scrollbar necessity — the fast-path half of
+        // the scroll contract (defect 2 of the 2026-08-25 architecture
+        // audit, closed 2026-08-29).
         //
-        // `overflow_content_size` was just written on the IFC ROOT, but the IFC
-        // root is not always the scroll box. In a TextInput it is — the value
-        // <p> carries `overflow-x: auto` itself — which is why that widget
-        // appeared to work. A TextArea puts `overflow-y: auto` on the CONTAINER
-        // and leaves the value <p> with no overflow at all, so the grown extent
-        // landed on a node nobody scrolls: `register_scroll_nodes` asked the
-        // CONTAINER for its content size, got whatever the last full layout
-        // wrote, and never raised `needs_vertical`. The TextArea did nothing on
-        // overflow no matter how much was typed.
+        // `overflow_content_size` was just written on the IFC ROOT, but the
+        // IFC root is not always the scroll box. In a TextInput it is — the
+        // value <p> carries `overflow-x: auto` itself. A TextArea puts
+        // `overflow-y: auto` on the CONTAINER, so the walk starts AT the IFC
+        // (Self-inclusive — the TextInput case becomes explicit) and NOT at
+        // `node_id`: that is the contenteditable HOST, and the old walk
+        // started there with `AncestorsOnly` — structurally excluding the
+        // host that IS the TextArea's scroll box — and propagated the STALE
+        // stored extent instead of this reshape's fresh one. The TextArea
+        // did nothing on overflow no matter how much was typed.
         //
-        // Growing (never shrinking) the ancestor keeps this consistent with
-        // `apply_content_scroll_necessity`, which also only ever raises.
+        // What may happen in place, and what must escalate:
+        //   - OVERLAY scrollbars (`reserve_width_px == 0`, the macOS
+        //     default) are space-neutral: necessity may flip HERE, in both
+        //     directions, and the scroller registers immediately — the
+        //     keystroke that first overflows the box scrolls and shows its
+        //     bar on this very frame.
+        //   - SPACE-RESERVING bars change the content-box width; flipping
+        //     the flag inline renders the box with geometry that never
+        //     reserved room (the "TextArea rendered blank" incident). That
+        //     transition latches `needs_ancestor_relayout` and the real
+        //     reflow runs through the escalation channel.
+        let mut escalate_for_scrollbar_geometry = false;
         {
-            let mut chain: Vec<(NodeId, LogicalSize)> = Vec::new();
-            if let Some(layout_result) = self.layout_results.get(&dom_id) {
-                if let Some(&ifc_idx) = layout_result
-                    .layout_tree
-                    .dom_to_layout
-                    .get(&node_id)
-                    .and_then(|c| c.first())
-                {
-                    let extent = layout_result
-                        .layout_tree
-                        .warm(ifc_idx)
-                        .and_then(|w| w.overflow_content_size)
-                        .unwrap_or_default();
-                    // ANCESTORS ONLY: the IFC root's own scrollability is
-                    // handled by `apply_content_scroll_necessity`; this is
-                    // about growing the box AROUND it.
-                    for idx in layout_result
-                        .layout_tree
-                        .ancestor_chain(ifc_idx, Inclusivity::AncestorsOnly)
-                    {
-                        let Some(pnode) = layout_result.layout_tree.get(idx) else {
-                            break;
-                        };
-                        let Some(pdom) = pnode.dom_node_id else {
-                            continue;
-                        };
+            struct HostPlan {
+                host_dom: NodeId,
+                host_idx: LayoutNodeId,
+                merged_extent: LogicalSize,
+                scrollport: LogicalRect,
+                now_reqs: solver3::scrollbar::ScrollbarRequirements,
+                transitioned: bool,
+                was_reflow: bool,
+            }
+            let plan: Option<HostPlan> = reshape_extent
+                .zip(self.layout_results.get(&dom_id))
+                .and_then(|(content_extent, layout_result)| {
+                    let tree = &layout_result.layout_tree;
+                    let ifc_idx = LayoutNodeId::new(ifc_layout_index);
+                    let mut found: Option<(NodeId, LayoutNodeId)> = None;
+                    for idx in tree.ancestor_chain(ifc_idx, Inclusivity::SelfAndAncestors) {
+                        let Some(pnode) = tree.get(idx) else { break };
+                        let Some(pdom) = pnode.dom_node_id else { continue };
                         let st = layout_result
                             .styled_dom
                             .styled_nodes
@@ -14267,50 +14323,177 @@ impl LayoutWindow {
                             .get(pdom)
                             .map(|n| n.styled_node_state)
                             .unwrap_or_default();
-                        let scrolls =
-                            solver3::getters::get_overflow_x(&layout_result.styled_dom, pdom, &st)
-                                .is_scroll()
-                                || solver3::getters::get_overflow_y(
-                                    &layout_result.styled_dom,
-                                    pdom,
-                                    &st,
-                                )
-                                .is_scroll();
-                        if scrolls {
-                            chain.push((pdom, extent));
+                        let ox =
+                            solver3::getters::get_overflow_x(&layout_result.styled_dom, pdom, &st);
+                        let oy =
+                            solver3::getters::get_overflow_y(&layout_result.styled_dom, pdom, &st);
+                        if ox.is_scroll() || oy.is_scroll() {
+                            found = Some((pdom, idx));
                             break;
                         }
                     }
-                }
+                    let (host_dom, host_idx) = found?;
+                    let host_node = tree.get(host_idx)?;
+                    let host_used = host_node.used_size?;
+                    let bp = host_node.box_props.unpack();
+                    let host_origin = layout_result
+                        .calculated_positions
+                        .get(host_idx.index())
+                        .copied()?;
+                    // The scrollport is the PADDING box — same box the
+                    // registration pass publishes.
+                    let scrollport = LogicalRect {
+                        origin: LogicalPosition::new(
+                            host_origin.x + bp.border.left,
+                            host_origin.y + bp.border.top,
+                        ),
+                        size: LogicalSize::new(
+                            (host_used.width - bp.border.left - bp.border.right).max(0.0),
+                            (host_used.height - bp.border.top - bp.border.bottom).max(0.0),
+                        ),
+                    };
+                    // The extent as the HOST sees it: the IFC's fresh extent
+                    // plus the IFC's offset inside the host's padding box
+                    // (the raw copy under-counted by the host's padding).
+                    // Grow-only for a host that is not the IFC itself: a
+                    // document box holds MANY paragraphs, and one paragraph
+                    // shrinking cannot prove the whole box shrank — a real
+                    // shrink escalates through the used_size check above.
+                    let merged_extent = if host_idx == ifc_idx {
+                        content_extent
+                    } else {
+                        let ifc_origin = layout_result
+                            .calculated_positions
+                            .get(ifc_layout_index)
+                            .copied()
+                            .unwrap_or(host_origin);
+                        let off_x = (ifc_origin.x - scrollport.origin.x).max(0.0);
+                        let off_y = (ifc_origin.y - scrollport.origin.y).max(0.0);
+                        let prev = tree
+                            .warm(host_idx)
+                            .and_then(|w| w.overflow_content_size)
+                            .unwrap_or_default();
+                        LogicalSize::new(
+                            prev.width.max(off_x + content_extent.width),
+                            prev.height.max(off_y + content_extent.height),
+                        )
+                    };
+                    let old_info = tree.warm(host_idx).and_then(|w| w.scrollbar_info);
+                    let was = old_info.map_or((false, false), |i| {
+                        (i.needs_horizontal, i.needs_vertical)
+                    });
+                    let was_reflow = old_info.is_some_and(|i| i.needs_reflow());
+                    let st = layout_result
+                        .styled_dom
+                        .styled_nodes
+                        .as_container()
+                        .get(host_dom)
+                        .map(|n| n.styled_node_state)
+                        .unwrap_or_default();
+                    let style = solver3::getters::get_scrollbar_style(
+                        &layout_result.styled_dom,
+                        host_dom,
+                        &st,
+                        self.system_style.as_deref(),
+                    );
+                    let ox =
+                        solver3::getters::get_overflow_x(&layout_result.styled_dom, host_dom, &st);
+                    let oy =
+                        solver3::getters::get_overflow_y(&layout_result.styled_dom, host_dom, &st);
+                    let mut now_reqs = solver3::fc::check_scrollbar_necessity(
+                        merged_extent,
+                        scrollport.size,
+                        solver3::cache::to_overflow_behavior(ox),
+                        solver3::cache::to_overflow_behavior(oy),
+                        style.reserve_width_px,
+                    );
+                    now_reqs.visual_width_px = style.visual_width_px;
+                    let transitioned =
+                        was != (now_reqs.needs_horizontal, now_reqs.needs_vertical);
+                    Some(HostPlan {
+                        host_dom,
+                        host_idx,
+                        merged_extent,
+                        scrollport,
+                        now_reqs,
+                        transitioned,
+                        was_reflow,
+                    })
+                });
+
+            if plan.is_none() && std::env::var("AZ_SCROLL_CONTRACT_TRACE").is_ok() {
+                eprintln!("[contract] NO PLAN (no scroll host / missing geometry)");
             }
-            for (target, extent) in chain {
+            if let Some(plan) = plan {
+                // Publish the extent so `get_content_size` (the registration
+                // pass, the scroll-frame content size, the scrollbar thumb)
+                // reads THIS edit, not the last full layout.
                 if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-                    if let Some(&t_idx) = layout_result
-                        .layout_tree
-                        .dom_to_layout
-                        .get(&target)
-                        .and_then(|c| c.first())
-                    {
-                        if let Some(warm) = layout_result.layout_tree.warm_mut(t_idx) {
-                            let prev = warm.overflow_content_size.unwrap_or_default();
-                            warm.overflow_content_size = Some(LogicalSize {
-                                width: prev.width.max(extent.width),
-                                height: prev.height.max(extent.height),
-                            });
+                    if let Some(warm) = layout_result.layout_tree.warm_mut(plan.host_idx) {
+                        warm.overflow_content_size = Some(plan.merged_extent);
+                    }
+                }
+                if std::env::var("AZ_SCROLL_CONTRACT_TRACE").is_ok() {
+                    eprintln!(
+                        "[contract] host={:?} extent={:?} port={:?} was_reflow={} now={:?} trans={}",
+                        plan.host_dom, plan.merged_extent, plan.scrollport,
+                        plan.was_reflow, plan.now_reqs, plan.transitioned
+                    );
+                }
+                if plan.transitioned {
+                    if plan.now_reqs.needs_reflow() || plan.was_reflow {
+                        escalate_for_scrollbar_geometry = true;
+                    } else {
+                        if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
+                            if let Some(warm) =
+                                layout_result.layout_tree.warm_mut(plan.host_idx)
+                            {
+                                warm.scrollbar_info = Some(plan.now_reqs);
+                            }
                         }
+                        let now = Instant::from(std::time::Instant::now());
+                        if plan.now_reqs.needs_horizontal || plan.now_reqs.needs_vertical {
+                            // Idempotent full pass: registers the node,
+                            // computes thumb geometry, seeds activity so the
+                            // overlay bar is visible right away. Runs BEFORE
+                            // `regenerate_display_list_for_dom` below — the
+                            // DL build and its scroll-geometry cache key must
+                            // see the published state (publish before
+                            // consume).
+                            crate::managers::scroll_registration::register_scroll_nodes(
+                                self, &now,
+                            );
+                        } else {
+                            // Overflow STOPPED. The registration pass skips
+                            // non-needing nodes, so shrink the manager's
+                            // content rect directly — otherwise
+                            // `is_node_scrollable` stays true forever and the
+                            // box keeps eating wheel events.
+                            self.scroll_manager.register_or_update_scroll_node(
+                                dom_id,
+                                plan.host_dom,
+                                plan.scrollport,
+                                plan.merged_extent,
+                                now,
+                                plan.now_reqs
+                                    .scrollbar_width
+                                    .max(plan.now_reqs.scrollbar_height),
+                                plan.now_reqs.visual_width_px,
+                                false,
+                                false,
+                            );
+                        }
+                        let _ = self.refresh_scrollbar_transforms();
                     }
                 }
             }
         }
+        if escalate_for_scrollbar_geometry {
+            if let Some(dirty_node) = self.content_overlay.text_for_node_mut(dom_id, node_id) {
+                dirty_node.needs_ancestor_relayout = true;
+            }
+        }
 
-        // NOTE: whether this box needs SCROLLBARS may have changed with the
-        // content, and nothing on this fast path revisits it — `scrollbar_info`
-        // is decided by Phase 3 of a full layout. Raising the flag HERE was
-        // tried and reverted: the scrollbar then shrinks the content area using
-        // geometry from a layout that never reserved room for it, and the
-        // TextArea rendered blank. Making a box become scrollable needs a real
-        // reflow, not a flag flip. See `register_scroll_nodes`, which re-derives
-        // necessity correctly but only on the next full layout.
         // CRITICAL: Regenerate the display list after updating the inline layout.
         // Without this, the old display list (with old text glyphs) is sent to WebRender,
         // so the screen still shows the old text even though the layout tree is updated.
@@ -14948,6 +15131,50 @@ impl LayoutWindow {
         (sparse.position, sparse.line_index)
     }
 
+    /// A fingerprint of everything in the runs' styles that affects SHAPING
+    /// (fonts, sizes, spacing, line height, variants — not paint-only fields
+    /// like color). The incremental patcher pastes freshly shaped glyphs onto
+    /// CACHED pen positions, which is only sound when the cache was shaped
+    /// under the same style environment. Never returns 0 — 0 is the
+    /// "unknown" sentinel a full layout's cache carries.
+    fn shaping_style_fingerprint(content: &[InlineContent]) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for item in content {
+            match item {
+                InlineContent::Text(run) => {
+                    let s = &run.style;
+                    format!(
+                        "T{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                        s.font_stack,
+                        s.font_size_px.to_bits(),
+                        s.letter_spacing,
+                        s.word_spacing,
+                        s.line_height,
+                        s.font_features,
+                        s.font_variations,
+                        s.tab_size.to_bits(),
+                        s.text_transform,
+                        s.writing_mode,
+                        s.text_orientation,
+                        s.text_combine_upright,
+                        s.font_variant_caps,
+                        s.font_variant_numeric,
+                        s.font_variant_ligatures,
+                        s.font_variant_east_asian,
+                        s.vertical_align,
+                    )
+                    .hash(&mut h);
+                }
+                other => core::mem::discriminant(other).hash(&mut h),
+            }
+        }
+        match h.finish() {
+            0 => 1,
+            v => v,
+        }
+    }
+
     fn try_incremental_text_relayout(
         &self,
         content: &[InlineContent],
@@ -14986,9 +15213,15 @@ impl LayoutWindow {
         } else {
             cached.layout.items.len()
         };
+        // A cache from a FULL layout carries `shaping_style_fp == 0` and is
+        // never patched against: its pen positions may come from a different
+        // style resolution than this reshape (the 16px-seed / 11px-cache
+        // squash, 2026-08-29). Stage 4 below re-positions instead.
+        let style_fp = Self::shaping_style_fingerprint(content);
         let incremental_ok = cached.line_breaks.is_some()
             && cached.overflow.overflow_items.is_empty()
-            && shaped_items.len() == cached_item_count;
+            && shaped_items.len() == cached_item_count
+            && cached.shaping_style_fp == style_fp;
 
         if incremental_ok {
             let line_breaks = cached.line_breaks.as_ref().unwrap();

@@ -1009,40 +1009,20 @@ impl CpuBackend {
                 present_extra.extend(blit.present_extra);
             }
             for (scroll_id, clip, delta, offset) in &scroll_shifts {
-                // The pixels being dragged were composited at the PREVIOUS
-                // offset — eligibility (opaque coverage) must hold there too,
-                // or a backdrop fragment visible through a gap at the old
-                // offset gets dragged into the kept region.
-                let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
-                if cpurender::scroll_fast_path_eligible(
+                // One shared recipe with the e2e twin — see
+                // `cpurender::execute_scroll_shift`.
+                let out = cpurender::execute_scroll_shift(
+                    &mut output,
                     display_list,
                     *scroll_id,
                     clip,
+                    *delta,
                     *offset,
-                    prev_offset,
-                ) {
-                    let shift = if self.rendered_native && self.native_target_pool_order {
-                        cpurender::scroll_shift_region_pool_order
-                    } else {
-                        cpurender::scroll_shift_region
-                    };
-                    let strips = shift(&mut output, clip, *delta, *offset, dpi_factor);
-                    all_damage.extend(strips);
-                    // Items composited OVER the frame inside its clip (its own
-                    // scrollbar, an open dropdown/tooltip) were just dragged by
-                    // the memmove — repaint their clip intersection so no
-                    // smeared copy survives.
-                    all_damage.extend(cpurender::overlay_rects_after_frame(
-                        display_list,
-                        *scroll_id,
-                        clip,
-                    ));
-                    // The shift moved the whole clip on screen → present it all.
-                    present_extra.push(*clip);
-                } else {
-                    // Ineligible: repaint the whole clip with the new offset.
-                    all_damage.push(*clip);
-                }
+                    dpi_factor,
+                    self.rendered_native && self.native_target_pool_order,
+                );
+                all_damage.extend(out.damage);
+                present_extra.extend(out.present_extra);
             }
         }
 

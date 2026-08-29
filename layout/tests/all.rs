@@ -344,6 +344,12 @@ mod text_edit_seam_regressions;
 mod textarea_enter_repaint;
 #[path = "textinput_resize_selection.rs"]
 mod textinput_resize_selection;
+#[path = "scroll_id_identity.rs"]
+mod scroll_id_identity;
+#[path = "scroll_shift_ghost.rs"]
+mod scroll_shift_ghost;
+#[path = "textinput_seed_style.rs"]
+mod textinput_seed_style;
 #[path = "token_vs_slicer_differential.rs"]
 mod token_vs_slicer_differential;
 #[path = "unresolved_family_render.rs"]

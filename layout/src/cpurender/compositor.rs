@@ -2070,6 +2070,68 @@ pub fn gpu_value_damage(
 /// the dragged pixels are simply repainted after the shift.
 #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
 #[must_use]
+/// The complete FAST-PATH damage recipe for one scrolled frame, shared by
+/// the shell (`headless/mod.rs`) and the e2e twin (`e2e/cpu_backend.rs`) so a
+/// damage rule can never land on one side only — the scrollbar snap-back
+/// ghost trail (2026-08-29) was exactly such a one-sided fix: the twin
+/// repainted the dragged overlay ghost, the shell did not.
+///
+/// Eligibility is checked at the PREVIOUS offset too (the pixels being
+/// dragged were composited there). On the fast path the region is memmoved,
+/// the exposed strips become damage, and every overlay composited over the
+/// frame (its own scrollbar, an open dropdown) is repainted at BOTH its
+/// correct position and where its dragged ghost landed (`origin - delta`) —
+/// an overlay that does not span the scroll axis (the vertical scrollbar
+/// during a horizontal pan) otherwise keeps a delta-wide stale copy per
+/// frame. Ineligible frames repaint their whole clip.
+pub struct ScrollShiftOutcome {
+    /// Rects to re-raster.
+    pub damage: Vec<LogicalRect>,
+    /// Rects to present even though they were not re-rastered (the whole
+    /// moved clip on the fast path).
+    pub present_extra: Vec<LogicalRect>,
+}
+
+/// See [`ScrollShiftOutcome`]. `pool_order` selects the commit-swizzle mover
+/// for native ARGB pools ([`scroll_shift_region_pool_order`]).
+#[allow(clippy::too_many_arguments)]
+pub fn execute_scroll_shift(
+    pixmap: &mut AzulPixmap,
+    display_list: &DisplayList,
+    scroll_id: LocalScrollId,
+    clip: &LogicalRect,
+    delta: (f32, f32),
+    offset: (f32, f32),
+    dpi_factor: f32,
+    pool_order: bool,
+) -> ScrollShiftOutcome {
+    let mut damage = Vec::new();
+    let mut present_extra = Vec::new();
+    let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
+    if scroll_fast_path_eligible(display_list, scroll_id, clip, offset, prev_offset) {
+        let strips = if pool_order {
+            scroll_shift_region_pool_order(pixmap, clip, delta, offset, dpi_factor)
+        } else {
+            scroll_shift_region(pixmap, clip, delta, offset, dpi_factor)
+        };
+        damage.extend(strips);
+        for g in overlay_rects_after_frame(display_list, scroll_id, clip) {
+            damage.push(g);
+            let mut ghost = g;
+            ghost.origin.x -= delta.0;
+            ghost.origin.y -= delta.1;
+            damage.push(ghost);
+        }
+        present_extra.push(*clip);
+    } else {
+        damage.push(*clip);
+    }
+    ScrollShiftOutcome {
+        damage,
+        present_extra,
+    }
+}
+
 pub fn overlay_rects_after_frame(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,
