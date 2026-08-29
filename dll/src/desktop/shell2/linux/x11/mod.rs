@@ -1282,6 +1282,23 @@ const X11_WINDOW_EVENT_MASK: c_long = ExposureMask
 /// dropped its XIC and ran a full pass plus restyle every time a context menu
 /// opened. `detail == NotifyPointer` is likewise not a window focus change (the
 /// focus merely follows the pointer). Same rule winit and GTK apply.
+/// The primary monitor's refresh interval for frame pacing (fallback 60Hz,
+/// clamped to 30..=240 so a bogus XRandR reading cannot stall or spin the
+/// pacer). Read once at window creation; a mid-session mode switch keeps the
+/// old cadence until the next window (acceptable - pacing is a ceiling, not
+/// a sync).
+fn detect_frame_interval() -> std::time::Duration {
+    let monitors = crate::desktop::display::get_monitors();
+    let hz = monitors
+        .as_ref()
+        .iter()
+        .find(|m| m.is_primary_monitor)
+        .or_else(|| monitors.as_ref().first())
+        .and_then(|m| m.video_modes.as_ref().first())
+        .map_or(60_u64, |v| u64::from(v.refresh_rate));
+    std::time::Duration::from_nanos(1_000_000_000 / hz.clamp(30, 240))
+}
+
 fn is_grab_focus_change(ev: &defines::XFocusChangeEvent) -> bool {
     ev.mode == defines::NotifyGrab
         || ev.mode == defines::NotifyUngrab
@@ -1899,6 +1916,19 @@ pub struct X11Window {
     // When timerfd becomes readable, the timer has fired
     pub timer_fds: std::collections::BTreeMap<usize, i32>,
 
+    /// FRAME PACING - the X11 counterpart of macOS's CVDisplayLink tick.
+    /// `last_present_at` stamps each completed `render_and_present`;
+    /// `pace_fd` is a lazily created ONE-SHOT timerfd armed when a render is
+    /// requested less than one `frame_interval` after the last present. The
+    /// render then runs on the fd's poll wake, coalescing every request in
+    /// the same refresh period into one frame. Without this the loop
+    /// rendered per request: a wheel flood measured ~90 presents/s of
+    /// sub-ms frames on a 60Hz display (app_frame_seconds, 2026-08-29).
+    /// `AZ_NO_PACE=1` disables the gate.
+    last_present_at: Option<std::time::Instant>,
+    pace_fd: i32,
+    frame_interval: std::time::Duration,
+
     // Multi-window support
     /// Pending window creation requests (for popup menus, dialogs, etc.)
     /// Processed in Phase 3 of the event loop
@@ -2027,10 +2057,11 @@ impl X11Window {
         // needs_redraw is included deliberately: MapNotify, Expose and the CPU
         // shm retry all set ONLY that, and a gate that ignores it leaves those
         // events with no path to a frame at all.
-        if self.common.regeneration_pending()
+        if (self.common.regeneration_pending()
             || self.common.resize_relayout_pending()
             || vview_pending
-            || self.needs_redraw.pending()
+            || self.needs_redraw.pending())
+            && self.pace_allows_render()
         {
             if let Err(e) = self.render_and_present() {
                 log_error!(
@@ -3068,6 +3099,9 @@ impl X11Window {
             new_frame_ready: new_frame_ready_shared,
             xrandr_event_base: None,
             timer_fds: std::collections::BTreeMap::new(),
+            last_present_at: None,
+            pace_fd: -1,
+            frame_interval: detect_frame_interval(),
             pending_window_creates: Vec::new(),
             gnome_menu: None, // New dlopen-based implementation
             resources: resources.clone(),
@@ -3599,10 +3633,17 @@ impl X11Window {
                 .as_ref()
                 .map(|lw| !lw.pending_virtual_view_updates.is_empty())
                 .unwrap_or(false);
-            if self.needs_redraw.pending()
+            // The pace gate rides along: within one refresh interval of the
+            // last present, `pace_allows_render` ARMS the pace timerfd and
+            // returns false - we then PARK (the fd is in the poll set below)
+            // and the wake re-enters the render gate exactly one refresh
+            // period after the previous frame, with every request since
+            // coalesced into it.
+            if (self.needs_redraw.pending()
                 || self.common.regeneration_pending()
                 || self.common.resize_relayout_pending()
-                || vview_pending
+                || vview_pending)
+                && self.pace_allows_render()
             {
                 return Ok(());
             }
@@ -3634,6 +3675,17 @@ impl X11Window {
             if self.frame_ready_wake_fd >= 0 {
                 pollfds.push(libc::pollfd {
                     fd: self.frame_ready_wake_fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                });
+            }
+
+            // Frame-pace wake (see `pace_allows_render`): fires one refresh
+            // period after the last present when a render was deferred.
+            let pace_idx = pollfds.len();
+            if self.pace_fd >= 0 {
+                pollfds.push(libc::pollfd {
+                    fd: self.pace_fd,
                     events: libc::POLLIN,
                     revents: 0,
                 });
@@ -3737,6 +3789,17 @@ impl X11Window {
                             );
                         }
                     }
+                }
+
+                // Pace-timer wake: drain the expiration count and fall
+                // through - returning lets the main loop's render gate run,
+                // and the owed work is still flagged.
+                if self.pace_fd >= 0
+                    && pace_idx < pollfds.len()
+                    && pollfds[pace_idx].revents & libc::POLLIN != 0
+                {
+                    let mut n: u64 = 0;
+                    libc::read(self.pace_fd, &mut n as *mut u64 as *mut libc::c_void, 8);
                 }
             }
             // result == 0: timeout (the 16ms thread tick, or spurious)
@@ -5234,6 +5297,57 @@ impl X11Window {
     /// 2. Build and send WebRender transaction
     /// 3. Call renderer.update() and renderer.render()
     /// 4. Swap buffers to show the rendered frame
+    /// The frame-pacing gate. `true` = a present may run NOW (more than one
+    /// refresh interval since the last one, or pacing disabled/unprimed).
+    /// Otherwise the ONE-SHOT pace timerfd is armed for the remainder of
+    /// the interval and this returns `false`: the fd sits in the poll set,
+    /// its wake re-enters the render gate, and every request that arrived
+    /// in between coalesces into that single deferred frame - the timerfd
+    /// spelling of macOS's "render at the CVDisplayLink tick".
+    fn pace_allows_render(&mut self) -> bool {
+        use std::sync::OnceLock;
+        static NO_PACE: OnceLock<bool> = OnceLock::new();
+        if *NO_PACE.get_or_init(|| std::env::var("AZ_NO_PACE").is_ok_and(|v| v == "1")) {
+            return true;
+        }
+        let Some(last) = self.last_present_at else {
+            return true;
+        };
+        let since = last.elapsed();
+        if since >= self.frame_interval {
+            return true;
+        }
+        let remaining = self.frame_interval - since;
+        unsafe {
+            if self.pace_fd < 0 {
+                self.pace_fd = libc::timerfd_create(
+                    libc::CLOCK_MONOTONIC,
+                    libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
+                );
+            }
+            if self.pace_fd >= 0 {
+                let ns = remaining.as_nanos().max(1);
+                #[allow(clippy::cast_possible_truncation)]
+                let spec = libc::itimerspec {
+                    // one-shot: it_interval zero
+                    it_interval: libc::timespec {
+                        tv_sec: 0,
+                        tv_nsec: 0,
+                    },
+                    it_value: libc::timespec {
+                        tv_sec: (ns / 1_000_000_000) as libc::time_t,
+                        tv_nsec: (ns % 1_000_000_000) as libc::c_long,
+                    },
+                };
+                if libc::timerfd_settime(self.pace_fd, 0, &spec, std::ptr::null_mut()) == 0 {
+                    return false;
+                }
+            }
+        }
+        // No usable timerfd: never defer (pacing must not lose frames).
+        true
+    }
+
     pub fn render_and_present(&mut self) -> Result<(), WindowError> {
         // Consume the render-intent flag: this call satisfies it. The GPU
         // skip-heuristic below honours `want_redraw`, so any explicitly
@@ -5940,6 +6054,10 @@ impl X11Window {
         // of the loop retries instead of silently dropping the repaint. And the
         // epoch check means the scrollbar-fade re-arm above survives too.
         self.needs_redraw.retire_unless_reraised(redraw_epoch_seen);
+
+        // Frame-pacing stamp (see `pace_allows_render`): only a call that
+        // actually presented reaches this line, same argument as above.
+        self.last_present_at = Some(std::time::Instant::now());
 
         Ok(())
     }
@@ -6775,6 +6893,10 @@ impl X11Window {
 impl Drop for X11Window {
     fn drop(&mut self) {
         // Close all timerfd's
+        if self.pace_fd >= 0 {
+            unsafe { libc::close(self.pace_fd) };
+            self.pace_fd = -1;
+        }
         for (_timer_id, fd) in std::mem::take(&mut self.timer_fds) {
             unsafe {
                 libc::close(fd);
