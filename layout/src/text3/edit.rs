@@ -118,12 +118,60 @@ pub fn edit_text(
     selections: &[Selection],
     edit: &TextEdit,
 ) -> (Vec<InlineContent>, Vec<Selection>) {
+    match edit_text_outcome(content, selections, edit) {
+        EditOutcome::Applied {
+            content,
+            selections,
+        } => (content, selections),
+        EditOutcome::NoOp(EditNoOp::NoSelection) => (content.to_vec(), Vec::new()),
+        EditOutcome::NoOp(EditNoOp::EverySelectionMissed) => {
+            (content.to_vec(), selections.to_vec())
+        }
+    }
+}
+
+/// Why [`edit_text_outcome`] applied nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EditNoOp {
+    /// There was no cursor/selection to apply the edit at.
+    NoSelection,
+    /// Every selection's splice left the content untouched — a cursor pointing
+    /// at a run that does not exist (an un-seeded empty editable: the caller
+    /// owns seeding ONE empty styled run, see `apply_one_text_changeset`), a
+    /// cursor on a non-Text item, a corrupt byte offset, or a delete at the
+    /// document edge.
+    EverySelectionMissed,
+}
+
+/// Outcome of [`edit_text_outcome`] — either the edited state, or the REASON
+/// nothing changed. `edit_text` erases this distinction back into the old
+/// tuple shape ("success, nothing happened"), which is exactly how a dropped
+/// first keystroke stayed invisible: prefer this function in production code
+/// and treat `NoOp` explicitly (skip undo recording, skip cache writes).
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditOutcome {
+    Applied {
+        content: Vec<InlineContent>,
+        selections: Vec<Selection>,
+    },
+    NoOp(EditNoOp),
+}
+
+/// [`edit_text`], but the no-op channel is explicit. Appliedness is tracked
+/// from the byte/run-count deltas already computed per selection — no content
+/// comparison. An insert of `""` counts as a miss (both deltas zero).
+pub fn edit_text_outcome(
+    content: &[InlineContent],
+    selections: &[Selection],
+    edit: &TextEdit,
+) -> EditOutcome {
     if selections.is_empty() {
-        return (content.to_vec(), Vec::new());
+        return EditOutcome::NoOp(EditNoOp::NoSelection);
     }
 
     let mut new_content = content.to_vec();
     let mut new_selections = Vec::new();
+    let mut any_applied = false;
 
     // To handle multiple cursors correctly, we must process edits
     // from the end of the document to the beginning. This ensures that
@@ -143,6 +191,9 @@ pub fn edit_text(
         let new_run_len = run_text_len(&temp_content, edit_run);
         let byte_offset_change = new_run_len as i32 - old_run_len as i32;
         let run_count_change = temp_content.len() as i32 - old_run_count as i32;
+        // A splice that moved neither a byte nor a run boundary did nothing —
+        // the silent-fallthrough tail of `insert_text` / a delete at the edge.
+        any_applied |= byte_offset_change != 0 || run_count_change != 0;
 
         // Adjust all previously-processed cursors in the same run that come after this position
         adjust_cursors(&mut new_selections, edit_run, edit_byte, byte_offset_change);
@@ -154,10 +205,17 @@ pub fn edit_text(
         new_selections.push(Selection::Cursor(new_cursor));
     }
 
+    if !any_applied {
+        return EditOutcome::NoOp(EditNoOp::EverySelectionMissed);
+    }
+
     // The new selections were added in reverse order, so we reverse them back.
     new_selections.reverse();
 
-    (new_content, new_selections)
+    EditOutcome::Applied {
+        content: new_content,
+        selections: new_selections,
+    }
 }
 
 /// Applies a single edit to a single selection.
@@ -2251,5 +2309,73 @@ mod autotest_generated {
             vec![""],
             "...yet delete_range removes all of it"
         );
+    }
+}
+
+#[cfg(test)]
+mod edit_outcome_tests {
+    use super::*;
+
+    fn cursor0() -> Selection {
+        Selection::Cursor(TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Leading,
+        })
+    }
+
+    fn run(text: &str) -> InlineContent {
+        InlineContent::Text(crate::text3::cache::StyledRun {
+            text: alloc::sync::Arc::from(text),
+            style: alloc::sync::Arc::new(Default::default()),
+            logical_start_byte: 0,
+            source_node_id: None,
+        })
+    }
+
+    #[test]
+    fn an_insert_with_no_selection_reports_the_reason() {
+        assert_eq!(
+            edit_text_outcome(&[run("abc")], &[], &TextEdit::Insert("x".into())),
+            EditOutcome::NoOp(EditNoOp::NoSelection),
+        );
+    }
+
+    #[test]
+    fn an_insert_into_unseeded_empty_content_is_a_named_miss_not_a_success() {
+        // The un-seeded empty editable: cursor at run 0 of NOTHING. The old
+        // tuple return handed back unchanged content — "success" — and the
+        // first character typed into a brand-new document vanished into undo
+        // snapshots and cache writes. The reason is now explicit.
+        assert_eq!(
+            edit_text_outcome(&[], &[cursor0()], &TextEdit::Insert("H".into())),
+            EditOutcome::NoOp(EditNoOp::EverySelectionMissed),
+        );
+    }
+
+    #[test]
+    fn a_backspace_at_the_document_start_is_a_named_miss() {
+        assert_eq!(
+            edit_text_outcome(&[run("abc")], &[cursor0()], &TextEdit::DeleteBackward),
+            EditOutcome::NoOp(EditNoOp::EverySelectionMissed),
+        );
+    }
+
+    #[test]
+    fn an_applied_insert_reports_applied_with_the_new_content() {
+        let EditOutcome::Applied {
+            content,
+            selections,
+        } = edit_text_outcome(&[run("bc")], &[cursor0()], &TextEdit::Insert("a".into()))
+        else {
+            panic!("a real insert must be Applied");
+        };
+        assert_eq!(selections.len(), 1);
+        let InlineContent::Text(r) = &content[0] else {
+            panic!()
+        };
+        assert_eq!(&*r.text, "abc");
     }
 }

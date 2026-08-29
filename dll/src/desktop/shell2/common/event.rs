@@ -3967,7 +3967,7 @@ pub trait PlatformWindow {
                 };
 
                 let new_focus = match resolution {
-                    Ok(FocusResolution::Resolved(Some(n))) => {
+                    Ok(FocusResolution::Resolved(n)) => {
                         crate::log_debug!(
                             crate::desktop::shell2::common::debug_server::LogCategory::Window,
                             "[SetFocusTarget] resolved {:?} -> node {:?}",
@@ -3976,13 +3976,23 @@ pub trait PlatformWindow {
                         );
                         Some(n)
                     }
-                    Ok(FocusResolution::Resolved(None)) => {
+                    Ok(FocusResolution::ClearRequested) => {
                         crate::log_debug!(
                             crate::desktop::shell2::common::debug_server::LogCategory::Window,
-                            "[SetFocusTarget] target resolved to NO node — clearing focus: {:?}",
+                            "[SetFocusTarget] explicit NoFocus — clearing focus: {:?}",
                             target
                         );
                         None
+                    }
+                    // A MISS is not a clear: an unmatched selector or an empty
+                    // tab order must not destroy the current focus/caret.
+                    Ok(FocusResolution::NotFound) => {
+                        crate::log_debug!(
+                            crate::desktop::shell2::common::debug_server::LogCategory::Window,
+                            "[SetFocusTarget] target matched nothing — keeping current focus: {:?}",
+                            target
+                        );
+                        return ProcessEventResult::DoNothing;
                     }
                     Ok(FocusResolution::Deferred) => {
                         // No layout yet: the target is queued on the focus

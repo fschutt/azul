@@ -570,6 +570,11 @@ pub struct FrameReport {
     pub hit_depth_cap: bool,
     /// The last terminal `ProcessEventResult` (as its `u8` discriminant order).
     pub terminal_result: u8,
+    /// Shaping calls since the last reset that produced ZERO clusters because
+    /// the resolved font was NOT LOADED (or nothing in the chain covered the
+    /// text) — the silent channel behind "typed text paints nothing". `0`
+    /// after a pass that shaped text is the invariant; a test can pin it.
+    pub font_shape_deficit: u32,
 }
 
 /// Maximum recursion depth for event processing.
@@ -635,6 +640,7 @@ impl FrameReport {
         self.dom_regenerations = 0;
         self.layout_passes = 0;
         self.dl_rebuilds = 0;
+        self.font_shape_deficit = 0;
         self.hit_depth_cap = false;
         self.frames_since_reset = 0;
         self.accumulated_paint_damage = FrameDamage::None;
@@ -1983,6 +1989,13 @@ impl LayoutWindow {
         // Mirror AFTER the build: the marker describes THIS pass's DL build
         // (patched splice vs full emission), not the previous one.
         self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
+        // Drain the shaping deficit this pass accumulated: > 0 means some
+        // text produced zero glyphs because its font was not loaded when the
+        // shaper ran (see `text3::cache::FONT_SHAPE_DEFICIT`).
+        self.frame_report.font_shape_deficit = self
+            .frame_report
+            .font_shape_deficit
+            .saturating_add(crate::text3::cache::take_font_shape_deficit());
 
         if let Err(ref e) = result {
             if let Some(msgs) = debug_messages.as_mut() {
@@ -8030,10 +8043,15 @@ impl LayoutWindow {
         else {
             return None;
         };
-        // A target that STILL matches nothing is a genuine "no such focusable"
-        // answer now that layout exists — do not re-queue it, or it would
-        // re-run on every frame for the window's lifetime.
-        let new_focus = resolved?;
+        let new_focus = match resolved {
+            crate::managers::focus_cursor::FocusResolution::Resolved(n) => n,
+            // A target that STILL matches nothing is a genuine "no such
+            // focusable" answer now that layout exists — do not re-queue it,
+            // or it would re-run on every frame for the window's lifetime.
+            // (ClearRequested is unreachable here — NoFocus is never parked —
+            // and a resolve with layout present never defers.)
+            _ => return None,
+        };
 
         self.focus_manager.set_focused_node(Some(new_focus));
         let window_state = self.current_window_state.clone();
@@ -13379,7 +13397,28 @@ impl LayoutWindow {
 
         // Apply the edit using text3::edit - this is a pure function
         let text_edit = TextEdit::Insert(changeset.inserted_text.as_str().to_string());
-        let (new_content, new_selections) = edit_text(&content, &current_selection, &text_edit);
+        let (new_content, new_selections) =
+            match crate::text3::edit::edit_text_outcome(&content, &current_selection, &text_edit) {
+                crate::text3::edit::EditOutcome::Applied {
+                    content,
+                    selections,
+                } => (content, selections),
+                crate::text3::edit::EditOutcome::NoOp(reason) => {
+                    // The seed above guarantees run 0 exists, so a missed
+                    // insert here is a broken invariant — fail loudly in
+                    // debug, and in release DON'T push the unchanged content
+                    // through the overlay/undo pipeline (that recorded a
+                    // pre==post undo entry and bumped the revision for
+                    // nothing).
+                    debug_assert!(
+                        false,
+                        "insert missed every selection ({reason:?}) despite the empty-run seed \
+                         — cursor points outside the content ({} runs)",
+                        content.len(),
+                    );
+                    return empty;
+                }
+            };
 
         // Update cursors from edit result
         if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
@@ -16174,8 +16213,19 @@ impl LayoutWindow {
         } else {
             crate::text3::edit::TextEdit::DeleteBackward
         };
+        // Backspace at the very start of a document / Delete at its end is a
+        // legitimate no-op — but it must BE a no-op: the old tuple return
+        // pushed the unchanged content through undo (a pre==post entry that
+        // made Ctrl+Z eat a keypress), the overlay (revision bump) and a
+        // display-list rebuild.
         let (new_content, new_selections) =
-            crate::text3::edit::edit_text(&content, &current_selections, &edit);
+            match crate::text3::edit::edit_text_outcome(&content, &current_selections, &edit) {
+                crate::text3::edit::EditOutcome::Applied {
+                    content,
+                    selections,
+                } => (content, selections),
+                crate::text3::edit::EditOutcome::NoOp(_) => return None,
+            };
 
         // MWA-C-undo_redo: deletions (Backspace / Delete / Cut all route
         // here) were never recorded — only insertions were undoable. Record
