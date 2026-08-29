@@ -442,6 +442,7 @@ pub fn insert_text(
     text_to_insert: &str,
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
+    let cursor = &sanitize_cursor(content, cursor);
 
     // A newline is a STRUCTURAL forced break, not a shapeable character. A raw
     // '\n' left inside a Text run renders as .notdef (tofu): the shaper only
@@ -525,6 +526,7 @@ fn insert_text_with_line_breaks(
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
 
+    let cursor = &sanitize_cursor(content, cursor);
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
 
@@ -618,11 +620,63 @@ fn insert_text_with_line_breaks(
 #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
 #[allow(clippy::too_many_lines)] // cohesive grapheme-deletion routine: one branch per cursor affinity
 #[must_use]
+/// Clamp a (possibly STALE) cursor to the given content: the run index into
+/// range, the byte to a valid char boundary of that run's text (past-the-end
+/// snaps to the end, mid-UTF-8 snaps down to the cluster start).
+///
+/// A cursor can legitimately outlive the text it was minted against - the
+/// content pipeline replaces run text underneath it (a widget resetting its
+/// value, an overlay entry retiring, a reconcile swapping generations) and
+/// the cursor is only re-seated on the NEXT layout pass. Between those two
+/// moments an edit used to slice `text[..stale_byte]` and ABORT the process
+/// (device crash: AzWidgets Backspace, 2026-08-29). An edit against a stale
+/// cursor must degrade to a clamped edit, never a panic; the debug_asserts
+/// keep the PRODUCER of such a cursor loud in dev builds.
+fn sanitize_cursor(content: &[InlineContent], cursor: &TextCursor) -> TextCursor {
+    let mut c = *cursor;
+    let n_runs = content.len();
+    let run_idx = c.cluster_id.source_run as usize;
+    if run_idx >= n_runs && n_runs > 0 {
+        debug_assert!(
+            false,
+            "cursor run {run_idx} is out of range ({n_runs} runs) - a stale \
+             cursor survived a content swap",
+        );
+        c.cluster_id.source_run = (n_runs - 1) as u32;
+        c.cluster_id.start_byte_in_run = u32::MAX; // clamped to len below
+    }
+    if let Some(InlineContent::Text(run)) = content.get(c.cluster_id.source_run as usize) {
+        let byte = c.cluster_id.start_byte_in_run as usize;
+        let len = run.text.len();
+        if byte > len {
+            debug_assert!(
+                c.cluster_id.start_byte_in_run == u32::MAX,
+                "cursor byte {byte} is past the run text (len {len}) - a \
+                 stale cursor survived a content swap",
+            );
+            c.cluster_id.start_byte_in_run = len as u32;
+        } else if !run.text.is_char_boundary(byte) {
+            debug_assert!(
+                false,
+                "cursor byte {byte} is not a char boundary of the run text - \
+                 a stale cursor survived a content swap",
+            );
+            let mut b = byte;
+            while b > 0 && !run.text.is_char_boundary(b) {
+                b -= 1;
+            }
+            c.cluster_id.start_byte_in_run = b as u32;
+        }
+    }
+    c
+}
+
 pub fn delete_backward(
     content: &[InlineContent],
     cursor: &TextCursor,
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
+    let cursor = &sanitize_cursor(content, cursor);
     let mut new_content = content.to_vec();
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
@@ -762,6 +816,7 @@ pub fn delete_forward(
     cursor: &TextCursor,
 ) -> (Vec<InlineContent>, TextCursor) {
     use unicode_segmentation::UnicodeSegmentation;
+    let cursor = &sanitize_cursor(content, cursor);
     let mut new_content = content.to_vec();
     let run_idx = cursor.cluster_id.source_run as usize;
     let cluster_start_byte = cursor.cluster_id.start_byte_in_run as usize;
