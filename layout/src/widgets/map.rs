@@ -38,9 +38,7 @@
 
 use alloc::collections::btree_map::BTreeMap;
 
-use azul_core::callbacks::{
-    VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn,
-};
+use azul_core::callbacks::{VirtualViewCallback, VirtualViewCallbackInfo, VirtualViewReturn};
 use azul_core::dom::{DatasetMergeCallbackType, Dom, OptionDom};
 use azul_core::refany::{OptionRefAny, RefAny};
 use azul_css::dynamic_selector::CssPropertyWithConditionsVec;
@@ -185,13 +183,43 @@ impl MapTileStyle {
     pub const fn look(self, scheme: MapColorScheme) -> MapTheme {
         let dark = matches!(scheme, MapColorScheme::Dark);
         match self {
-            Self::Standard => if dark { MapTheme::Dark } else { MapTheme::Positron },
+            Self::Standard => {
+                if dark {
+                    MapTheme::Dark
+                } else {
+                    MapTheme::Positron
+                }
+            }
             // Bright and Liberty are light-only designs; their dark counterpart
             // is Dark Matter, the same pairing MapLibre's demo styles use.
-            Self::Bright => if dark { MapTheme::Dark } else { MapTheme::Bright },
-            Self::Liberty => if dark { MapTheme::Dark } else { MapTheme::Liberty },
-            Self::Google => if dark { MapTheme::GoogleNight } else { MapTheme::GoogleLight },
-            Self::Apple => if dark { MapTheme::AppleDark } else { MapTheme::AppleLight },
+            Self::Bright => {
+                if dark {
+                    MapTheme::Dark
+                } else {
+                    MapTheme::Bright
+                }
+            }
+            Self::Liberty => {
+                if dark {
+                    MapTheme::Dark
+                } else {
+                    MapTheme::Liberty
+                }
+            }
+            Self::Google => {
+                if dark {
+                    MapTheme::GoogleNight
+                } else {
+                    MapTheme::GoogleLight
+                }
+            }
+            Self::Apple => {
+                if dark {
+                    MapTheme::AppleDark
+                } else {
+                    MapTheme::AppleLight
+                }
+            }
             Self::Custom => MapTheme::Custom,
         }
     }
@@ -235,8 +263,11 @@ impl MapTheme {
     #[must_use]
     pub const fn pinned_scheme(self) -> Option<MapColorScheme> {
         match self {
-            Self::Positron | Self::Bright | Self::Liberty
-            | Self::GoogleLight | Self::AppleLight => Some(MapColorScheme::Light),
+            Self::Positron
+            | Self::Bright
+            | Self::Liberty
+            | Self::GoogleLight
+            | Self::AppleLight => Some(MapColorScheme::Light),
             Self::Dark | Self::GoogleNight | Self::AppleDark => Some(MapColorScheme::Dark),
             Self::System | Self::Custom => None,
         }
@@ -341,7 +372,11 @@ impl MapTileLayer {
     #[must_use]
     pub fn with_theme(mut self, theme: MapTheme) -> Self {
         self.theme = theme;
-        for t in [theme, theme.resolve(azul_core::window::WindowTheme::LightMode), theme.resolve(azul_core::window::WindowTheme::DarkMode)] {
+        for t in [
+            theme,
+            theme.resolve(azul_core::window::WindowTheme::LightMode),
+            theme.resolve(azul_core::window::WindowTheme::DarkMode),
+        ] {
             let credit = t.credit_str();
             if !credit.is_empty() && !self.attribution.as_str().contains(credit) {
                 let mut s = self.attribution.as_str().to_string();
@@ -455,7 +490,8 @@ pub struct MapWidget {
 }
 
 impl MapWidget {
-    #[must_use] pub fn create(layer: MapTileLayer) -> Self {
+    #[must_use]
+    pub fn create(layer: MapTileLayer) -> Self {
         Self {
             layer,
             viewport: MapViewport::default(),
@@ -465,14 +501,16 @@ impl MapWidget {
         }
     }
 
-    #[must_use] pub const fn with_viewport(mut self, viewport: MapViewport) -> Self {
+    #[must_use]
+    pub const fn with_viewport(mut self, viewport: MapViewport) -> Self {
         self.viewport = viewport;
         self
     }
 
     /// Pick a look for the tile layer (see [`MapTheme`]); `System` follows
     /// the window's light / dark theme.
-    #[must_use] pub fn with_theme(mut self, theme: MapTheme) -> Self {
+    #[must_use]
+    pub fn with_theme(mut self, theme: MapTheme) -> Self {
         self.layer = self.layer.with_theme(theme);
         self
     }
@@ -480,19 +518,22 @@ impl MapWidget {
     /// Tilt the camera: 0 looks straight down, [`MAX_PITCH_DEG`] is the
     /// steepest 3D view (clamped). Rendered as a perspective transform on
     /// the tile canvas; right-drag vertically changes it at runtime.
-    #[must_use] pub fn with_pitch(mut self, pitch_deg: f32) -> Self {
+    #[must_use]
+    pub fn with_pitch(mut self, pitch_deg: f32) -> Self {
         self.viewport.pitch_deg = clamp_pitch(pitch_deg);
         self
     }
 
     /// Rotate the map (clockwise degrees, normalised to `-180..180`).
     /// Right-drag horizontally or a rotate gesture changes it at runtime.
-    #[must_use] pub const fn with_bearing(mut self, bearing_deg: f32) -> Self {
+    #[must_use]
+    pub const fn with_bearing(mut self, bearing_deg: f32) -> Self {
         self.viewport.bearing_deg = normalize_bearing(bearing_deg);
         self
     }
 
-    #[must_use] pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
+    #[must_use]
+    pub fn with_container_style(mut self, css: CssPropertyWithConditionsVec) -> Self {
         self.container_style = css;
         self
     }
@@ -551,7 +592,8 @@ impl MapWidget {
     /// [`px_at_latlon`](Self::px_at_latlon). Exposed so apps don't reimplement
     /// the projection (e.g. to drop a pin where the user tapped).
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-    #[must_use] pub fn latlon_at_px(
+    #[must_use]
+    pub fn latlon_at_px(
         viewport: MapViewport,
         px: azul_core::geom::LogicalPosition,
         container: azul_core::geom::LogicalSize,
@@ -572,7 +614,8 @@ impl MapWidget {
     /// container pixels at `viewport`.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    #[must_use] pub fn px_at_latlon(
+    #[must_use]
+    pub fn px_at_latlon(
         viewport: MapViewport,
         coord: MapLatLon,
         container: azul_core::geom::LogicalSize,
@@ -606,7 +649,8 @@ impl MapWidget {
     /// `azul_dll::unified::map::map_widget_dom`, which calls `dom_with_fetch`
     /// with the built-in worker. It used to route here, which is why the map
     /// panned but never painted a tile on every desktop platform.
-    #[must_use] pub fn dom(self) -> Dom {
+    #[must_use]
+    pub fn dom(self) -> Dom {
         self.build_dom(None)
     }
 
@@ -618,7 +662,8 @@ impl MapWidget {
     /// `azul_dll::desktop::extra::map::tile_fetch_worker`; wrap it in a
     /// `ThreadCallback` to pass it here. See the recipe in
     /// `MOBILE_SESSION_LOG.md`.
-    #[must_use] pub fn dom_with_fetch(self, cb: crate::thread::ThreadCallback) -> Dom {
+    #[must_use]
+    pub fn dom_with_fetch(self, cb: crate::thread::ThreadCallback) -> Dom {
         self.build_dom(Some(cb))
     }
 
@@ -844,7 +889,8 @@ pub struct MapTileCache {
 }
 
 impl MapTileCache {
-    #[must_use] pub const fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
+    #[must_use]
+    pub const fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
         let active_theme = layer.theme;
         Self {
             layer,
@@ -892,7 +938,10 @@ impl MapTileCache {
     /// The key `tile` occupies at the look the cache is currently showing.
     #[must_use]
     pub fn key_at_current_look(&self, tile: MapTileId) -> TileStyleKey {
-        TileStyleKey { tile, theme: self.current_look() }
+        TileStyleKey {
+            tile,
+            theme: self.current_look(),
+        }
     }
 
     /// Insert / replace `tile`'s entry at the current look.
@@ -929,16 +978,19 @@ impl MapTileCache {
     /// when the colour scheme flips — the previous look keeps painting until the
     /// restyle lands, and the restyle needs no network.
     #[must_use]
-    pub fn best_available_svg(&self, tile: MapTileId, want: MapTheme) -> Option<(MapTheme, AzString)> {
-        if let Some(TileEntry::Ready { svg }) = self.tiles.get(&TileStyleKey { tile, theme: want }) {
+    pub fn best_available_svg(
+        &self,
+        tile: MapTileId,
+        want: MapTheme,
+    ) -> Option<(MapTheme, AzString)> {
+        if let Some(TileEntry::Ready { svg }) = self.tiles.get(&TileStyleKey { tile, theme: want })
+        {
             return Some((want, svg.clone()));
         }
-        self.tiles
-            .iter()
-            .find_map(|(k, e)| match e {
-                TileEntry::Ready { svg } if k.tile == tile => Some((k.theme, svg.clone())),
-                _ => None,
-            })
+        self.tiles.iter().find_map(|(k, e)| match e {
+            TileEntry::Ready { svg } if k.tile == tile => Some((k.theme, svg.clone())),
+            _ => None,
+        })
     }
 
     /// Bound the tile cache by evicting tiles far from the current viewport.
@@ -971,7 +1023,11 @@ impl MapTileCache {
         let active = self.active_theme;
         let score = |k: &TileStyleKey| {
             tile_viewport_score(&self.viewport, &self.layer, k.tile)
-                + if k.theme == active { 0.0 } else { OTHER_LOOK_PENALTY }
+                + if k.theme == active {
+                    0.0
+                } else {
+                    OTHER_LOOK_PENALTY
+                }
         };
 
         let mut evictable: Vec<(f64, TileStyleKey)> = self
@@ -1189,10 +1245,10 @@ extern "C" fn merge_map_tile_cache(mut new_data: RefAny, mut old_data: RefAny) -
 // ────────── Pan + zoom callbacks ─────────────────────────────────────
 
 use crate::callbacks::CallbackInfo;
-use azul_core::callbacks::Update;
-use azul_core::callbacks::TimerCallbackReturn;
-use azul_core::task::{Duration, SystemTimeDiff, TerminateTimer, TimerId};
 use crate::timer::{Timer, TimerCallback, TimerCallbackInfo};
+use azul_core::callbacks::TimerCallbackReturn;
+use azul_core::callbacks::Update;
+use azul_core::task::{Duration, SystemTimeDiff, TerminateTimer, TimerId};
 
 // --- User hook: on_viewport_changed (backreference DI, FFI-exposed) ---
 
@@ -1237,9 +1293,7 @@ fn invoke_viewport_changed(
     viewport: MapViewport,
 ) -> Update {
     match hook {
-        OptionMapViewportChanged::Some(h) => {
-            (h.callback.cb)(h.refany.clone(), *info, viewport)
-        }
+        OptionMapViewportChanged::Some(h) => (h.callback.cb)(h.refany.clone(), *info, viewport),
         OptionMapViewportChanged::None => Update::DoNothing,
     }
 }
@@ -1486,7 +1540,9 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
     let container = info
         .get_hit_node_rect()
         .map_or(azul_core::geom::LogicalSize::new(0.0, 0.0), |r| r.size);
-    let (press, viewport, hook) = data.downcast_mut::<MapTileCache>().map_or_else(|| (None, MapViewport::default(), OptionMapPinTap::None), |mut cache| {
+    let (press, viewport, hook) = data.downcast_mut::<MapTileCache>().map_or_else(
+        || (None, MapViewport::default(), OptionMapPinTap::None),
+        |mut cache| {
             let out = (cache.press_origin, cache.viewport, cache.on_pin_tap.clone());
             cache.drag_anchor = None;
             cache.pinch_anchor = None;
@@ -1494,7 +1550,8 @@ extern "C" fn map_on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Upd
             // a pointer leaving the canvas ends a camera drag too
             cache.tilt_anchor = None;
             out
-        });
+        },
+    );
     // A press + release at ~the same point (no pan/pinch) is a tap: project it
     // to lat/lon and fire the user's on_pin_tap hook — and carry its answer
     // out, so a hook that drops a pin with `RefreshDom` sees the pin now, not
@@ -1531,7 +1588,9 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
     // the scroll-physics input queue (which only feeds scrollable nodes).
     let dy: f32 = {
         let hn = info.get_hit_node();
-        hn.node.into_crate_internal().map_or(0.0, |nid| info.get_scroll_delta(hn.dom, nid).map_or(0.0, |d| d.y))
+        hn.node.into_crate_internal().map_or(0.0, |nid| {
+            info.get_scroll_delta(hn.dom, nid).map_or(0.0, |d| d.y)
+        })
     };
     #[cfg(feature = "std")]
     if std::env::var("AZ_MAP_DEBUG").is_ok() {
@@ -1562,7 +1621,10 @@ extern "C" fn map_on_scroll(mut data: RefAny, mut info: CallbackInfo) -> Update 
         for t in map_visible_tiles(&vp, bounds, &layer) {
             cache
                 .tiles
-                .entry(TileStyleKey { tile: t, theme: look })
+                .entry(TileStyleKey {
+                    tile: t,
+                    theme: look,
+                })
                 .or_insert(TileEntry::Pending);
         }
         (vp, cache.on_viewport_changed.clone())
@@ -1590,8 +1652,10 @@ fn wheel_zoom_step(dy_px: f32) -> f32 {
     if !dy_px.is_finite() {
         return 0.0;
     }
-    (dy_px / WHEEL_PX_PER_ZOOM_LEVEL)
-        .clamp(-MAX_ZOOM_STEP_PER_WHEEL_EVENT, MAX_ZOOM_STEP_PER_WHEEL_EVENT)
+    (dy_px / WHEEL_PX_PER_ZOOM_LEVEL).clamp(
+        -MAX_ZOOM_STEP_PER_WHEEL_EVENT,
+        MAX_ZOOM_STEP_PER_WHEEL_EVENT,
+    )
 }
 
 fn wrap_lon(lon: f64) -> f64 {
@@ -1645,7 +1709,11 @@ pub const fn normalize_bearing(bearing_deg: f32) -> f32 {
 /// away (`MapLibre`'s pitch), `rotate` applies the bearing; all about the
 /// canvas centre.
 #[must_use]
-pub fn camera_transform_css(viewport: &MapViewport, width_px: f32, height_px: f32) -> Option<String> {
+pub fn camera_transform_css(
+    viewport: &MapViewport,
+    width_px: f32,
+    height_px: f32,
+) -> Option<String> {
     let pitch = clamp_pitch(viewport.pitch_deg);
     let bearing = normalize_bearing(viewport.bearing_deg);
     if pitch.abs() < 0.01 && bearing.abs() < 0.01 {
@@ -1686,8 +1754,7 @@ fn lon_to_tile_x(lon_deg: f64, tile_count: f64) -> f64 {
 /// Latitude (deg) → fractional tile-y at the given `tile_count`.
 fn lat_to_tile_y(lat_deg: f64, tile_count: f64) -> f64 {
     let lat_rad = lat_deg.to_radians();
-    let mercator =
-        (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / core::f64::consts::PI) / 2.0;
+    let mercator = (1.0 - (lat_rad.tan() + 1.0 / lat_rad.cos()).ln() / core::f64::consts::PI) / 2.0;
     mercator * tile_count
 }
 
@@ -1748,7 +1815,8 @@ fn pan_viewport(
 // (`str_to_dom_unstyled` → `SvgNodeData::Path`) only produces a clip mask, so it
 // cannot paint the feature colours — hence the tiles rendered grey.
 #[cfg(all(feature = "xml", feature = "cpurender"))]
-#[must_use] pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
+#[must_use]
+pub fn svg_string_to_dom(svg: &str) -> Option<Dom> {
     let img = crate::cpurender::render_svg_to_imageref(svg.as_bytes(), 256, 256).ok()?;
     Some(
         Dom::create_image(img)
@@ -1897,7 +1965,10 @@ fn spawn_pending_tile_fetches(data: &mut RefAny, info: &mut CallbackInfo) {
             cache.tiles.remove(&k);
             cache
                 .tiles
-                .entry(TileStyleKey { tile: k.tile, theme: look })
+                .entry(TileStyleKey {
+                    tile: k.tile,
+                    theme: look,
+                })
                 .or_insert(TileEntry::Pending);
         }
 
@@ -2013,7 +2084,8 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
 /// `MapTileCache` the widget reads); `incoming` is the `TileReadyMsg`
 /// the worker sent. Stamps the tile `Ready` (or `Failed`) and asks for
 /// a relayout so the `VirtualView` renders the new content.
-#[must_use] pub extern "C" fn map_tile_writeback(
+#[must_use]
+pub extern "C" fn map_tile_writeback(
     mut cache_dataset: RefAny,
     mut incoming: RefAny,
     mut info: CallbackInfo,
@@ -2027,7 +2099,13 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
         }
         return Update::DoNothing;
     };
-    let msg = (m.tile, m.svg.clone(), m.error.clone(), m.theme, m.bytes.clone());
+    let msg = (
+        m.tile,
+        m.svg.clone(),
+        m.error.clone(),
+        m.theme,
+        m.bytes.clone(),
+    );
     drop(m);
     {
         let Some(mut cache) = cache_dataset.downcast_mut::<MapTileCache>() else {
@@ -2056,7 +2134,10 @@ fn build_tile_url(template: &str, tile: MapTileId) -> String {
         // widget has moved on from is still correct data for that look, so it is
         // kept, not thrown away and re-fetched. If the user flips back it paints
         // instantly; until then it serves as the fallback for its own tile.
-        let key = TileStyleKey { tile: msg.0, theme: msg.3 };
+        let key = TileStyleKey {
+            tile: msg.0,
+            theme: msg.3,
+        };
         let ok = msg.2.as_str().is_empty();
         let svg_len = msg.1.as_str().len();
         if ok {
@@ -2151,19 +2232,29 @@ fn map_visible_tiles(
     bounds: azul_core::geom::LogicalSize,
     layer: &MapTileLayer,
 ) -> Vec<MapTileId> {
-    let z_int =
-        (viewport.zoom.floor() as i32).clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom)) as u8;
+    let z_int = (viewport.zoom.floor() as i32)
+        .clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom)) as u8;
     let tile_count = 1u32 << u32::from(z_int);
     let frac_zoom = viewport.zoom - f32::from(z_int);
     let zoom_scale = 2.0_f32.powf(frac_zoom);
     let centre_x = lon_to_tile_x(viewport.centre_lon_deg, f64::from(tile_count)) as f32;
     let centre_y = lat_to_tile_y(viewport.centre_lat_deg, f64::from(tile_count)) as f32;
-    let (x_min, x_max, y_min, y_max) =
-        visible_tile_range(centre_x, centre_y, bounds.width, bounds.height, zoom_scale, tile_count);
+    let (x_min, x_max, y_min, y_max) = visible_tile_range(
+        centre_x,
+        centre_y,
+        bounds.width,
+        bounds.height,
+        zoom_scale,
+        tile_count,
+    );
     let mut tiles = Vec::new();
     for x in x_min..=x_max {
         for y in y_min..=y_max {
-            tiles.push(MapTileId { z: z_int, x: wrap_tile_x(x, tile_count), y: y as u32 });
+            tiles.push(MapTileId {
+                z: z_int,
+                x: wrap_tile_x(x, tile_count),
+                y: y as u32,
+            });
         }
     }
     tiles
@@ -2172,12 +2263,13 @@ fn map_visible_tiles(
 // ────────── VirtualView callback — visible-tile rendering ─────────────
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
-#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::cast_sign_loss)] // bounded layout/render numeric cast
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)] // bounded layout/render numeric cast
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-extern "C" fn map_widget_render(
-    data: RefAny,
-    info: VirtualViewCallbackInfo,
-) -> VirtualViewReturn {
+extern "C" fn map_widget_render(data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     enum TileDisplay {
         Glyph(&'static str),
         Svg(AzString),
@@ -2198,8 +2290,14 @@ extern "C" fn map_widget_render(
         }
         return VirtualViewReturn {
             dom: OptionDom::None,
-            materialized: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
-            virtual_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
+            materialized: azul_core::geom::LogicalRect::new(
+                azul_core::geom::LogicalPosition::zero(),
+                bounds_logical,
+            ),
+            virtual_rect: azul_core::geom::LogicalRect::new(
+                azul_core::geom::LogicalPosition::zero(),
+                bounds_logical,
+            ),
         };
     }
 
@@ -2217,8 +2315,14 @@ extern "C" fn map_widget_render(
         None => {
             return VirtualViewReturn {
                 dom: OptionDom::None,
-                materialized: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
-                virtual_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
+                materialized: azul_core::geom::LogicalRect::new(
+                    azul_core::geom::LogicalPosition::zero(),
+                    bounds_logical,
+                ),
+                virtual_rect: azul_core::geom::LogicalRect::new(
+                    azul_core::geom::LogicalPosition::zero(),
+                    bounds_logical,
+                ),
             };
         }
     };
@@ -2226,8 +2330,7 @@ extern "C" fn map_widget_render(
     // Round the requested fractional zoom down to the nearest integer
     // tile zoom the layer supports.
     let z_int = (viewport.zoom.floor() as i32)
-        .clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom))
-        as u8;
+        .clamp(i32::from(layer.min_zoom), i32::from(layer.max_zoom)) as u8;
     let tile_count = 1u32 << u32::from(z_int);
     let frac_zoom = viewport.zoom - f32::from(z_int);
     let zoom_scale = 2.0_f32.powf(frac_zoom);
@@ -2277,7 +2380,10 @@ extern "C" fn map_widget_render(
                 };
                 cache
                     .tiles
-                    .entry(TileStyleKey { tile: id, theme: look })
+                    .entry(TileStyleKey {
+                        tile: id,
+                        theme: look,
+                    })
                     .or_insert(TileEntry::Pending);
             }
         }
@@ -2293,27 +2399,30 @@ extern "C" fn map_widget_render(
     // placeholders. Only a tile with NO decoded look at all shows a glyph
     // (`…` Pending / `⟳` Fetching / `✗` Failed), which keeps the fetch path
     // observable.
-    let states: BTreeMap<MapTileId, TileDisplay> = data
-        .downcast_ref::<MapTileCache>()
-        .map_or_else(BTreeMap::new, |c| {
-            let mut out = BTreeMap::new();
-            for k in c.tiles.keys() {
-                if out.contains_key(&k.tile) {
-                    continue;
-                }
-                let disp = if let Some((_, svg)) = c.best_available_svg(k.tile, look) {
-                    TileDisplay::Svg(svg)
-                } else {
-                    match c.tiles.get(&TileStyleKey { tile: k.tile, theme: look }) {
-                        Some(TileEntry::Fetching) => TileDisplay::Glyph("⟳"),
-                        Some(TileEntry::Failed { .. }) => TileDisplay::Glyph("✗"),
-                        _ => TileDisplay::Glyph("…"),
+    let states: BTreeMap<MapTileId, TileDisplay> =
+        data.downcast_ref::<MapTileCache>()
+            .map_or_else(BTreeMap::new, |c| {
+                let mut out = BTreeMap::new();
+                for k in c.tiles.keys() {
+                    if out.contains_key(&k.tile) {
+                        continue;
                     }
-                };
-                out.insert(k.tile, disp);
-            }
-            out
-        });
+                    let disp = if let Some((_, svg)) = c.best_available_svg(k.tile, look) {
+                        TileDisplay::Svg(svg)
+                    } else {
+                        match c.tiles.get(&TileStyleKey {
+                            tile: k.tile,
+                            theme: look,
+                        }) {
+                            Some(TileEntry::Fetching) => TileDisplay::Glyph("⟳"),
+                            Some(TileEntry::Failed { .. }) => TileDisplay::Glyph("✗"),
+                            _ => TileDisplay::Glyph("…"),
+                        }
+                    };
+                    out.insert(k.tile, disp);
+                }
+                out
+            });
 
     // Build the visible-tile grid. Each tile div is GPU-translated
     // into its screen position; the (CSS-driven) `transform` keeps
@@ -2515,8 +2624,14 @@ extern "C" fn map_widget_render(
 
     VirtualViewReturn {
         dom: OptionDom::Some(grid),
-        materialized: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
-        virtual_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), bounds_logical),
+        materialized: azul_core::geom::LogicalRect::new(
+            azul_core::geom::LogicalPosition::zero(),
+            bounds_logical,
+        ),
+        virtual_rect: azul_core::geom::LogicalRect::new(
+            azul_core::geom::LogicalPosition::zero(),
+            bounds_logical,
+        ),
     }
 }
 
@@ -2536,7 +2651,11 @@ mod camera_tests {
     fn the_flat_view_has_no_transform_and_no_overscan() {
         assert_eq!(camera_transform_css(&vp(0.0, 0.0), 800.0, 600.0), None);
         assert_eq!(camera_overscan(&vp(0.0, 0.0), 800.0, 600.0), (1.0, 1.0));
-        assert_eq!(camera_transform_css(&vp(0.001, -0.001), 800.0, 600.0), None, "sub-0.01deg is flat");
+        assert_eq!(
+            camera_transform_css(&vp(0.001, -0.001), 800.0, 600.0),
+            None,
+            "sub-0.01deg is flat"
+        );
     }
 
     #[test]
@@ -2547,7 +2666,9 @@ mod camera_tests {
         assert!(css.contains("rotate(30.00deg)"), "{css}");
         assert!(css.contains("transform-origin: 50% 50%"), "{css}");
         // the widget API clamps and normalises
-        let w = MapWidget::create(MapTileLayer::default()).with_pitch(95.0).with_bearing(370.0);
+        let w = MapWidget::create(MapTileLayer::default())
+            .with_pitch(95.0)
+            .with_bearing(370.0);
         assert_eq!(w.viewport.pitch_deg, MAX_PITCH_DEG);
         assert!((w.viewport.bearing_deg - 10.0).abs() < 1e-4);
         assert_eq!(clamp_pitch(f32::NAN), 0.0);
@@ -2561,9 +2682,15 @@ mod camera_tests {
         assert!((h - 2.0).abs() < 1e-4, "max pitch doubles the rows: {h}");
         assert!(w > 1.0 && w < 2.0, "{w}");
         let (w, h) = camera_overscan(&vp(0.0, 90.0), 800.0, 600.0);
-        assert!((w - 600.0 / 800.0).abs() < 1e-4 && (h - 800.0 / 600.0).abs() < 1e-4, "a 90deg turn swaps the sides: {w} {h}");
+        assert!(
+            (w - 600.0 / 800.0).abs() < 1e-4 && (h - 800.0 / 600.0).abs() < 1e-4,
+            "a 90deg turn swaps the sides: {w} {h}"
+        );
         let (w, h) = camera_overscan(&vp(0.0, 45.0), 800.0, 800.0);
-        assert!((w - core::f32::consts::SQRT_2).abs() < 1e-3 && (h - core::f32::consts::SQRT_2).abs() < 1e-3);
+        assert!(
+            (w - core::f32::consts::SQRT_2).abs() < 1e-3
+                && (h - core::f32::consts::SQRT_2).abs() < 1e-3
+        );
     }
 
     #[test]
@@ -2589,10 +2716,19 @@ mod theme_tests {
     fn system_follows_the_window_theme_and_presets_resolve_to_themselves() {
         let light = MapTheme::System.resolve(WindowTheme::LightMode);
         let dark = MapTheme::System.resolve(WindowTheme::DarkMode);
-        assert!(!light.is_dark_look() && dark.is_dark_look(), "{light:?} / {dark:?}");
+        assert!(
+            !light.is_dark_look() && dark.is_dark_look(),
+            "{light:?} / {dark:?}"
+        );
         assert_ne!(light, MapTheme::System);
         assert!(!light.sheet().is_empty() && !dark.sheet().is_empty());
-        for preset in [MapTheme::Positron, MapTheme::Dark, MapTheme::GoogleNight, MapTheme::AppleLight, MapTheme::Custom] {
+        for preset in [
+            MapTheme::Positron,
+            MapTheme::Dark,
+            MapTheme::GoogleNight,
+            MapTheme::AppleLight,
+            MapTheme::Custom,
+        ] {
             assert_eq!(preset.resolve(WindowTheme::DarkMode), preset);
             assert_eq!(preset.resolve(WindowTheme::LightMode), preset);
         }
@@ -2603,7 +2739,10 @@ mod theme_tests {
     #[test]
     fn a_custom_sheet_wins_over_a_preset_and_with_theme_credits_the_design() {
         let layer = MapTileLayer::default().with_theme(MapTheme::Positron);
-        assert_eq!(layer.effective_style_css(MapTheme::Positron).as_str(), super::super::map_themes::POSITRON);
+        assert_eq!(
+            layer.effective_style_css(MapTheme::Positron).as_str(),
+            super::super::map_themes::POSITRON
+        );
         assert!(
             layer.attribution.as_str().contains("CC BY 4.0"),
             "the CC BY design credit must reach the attribution: {}",
@@ -2615,13 +2754,24 @@ mod theme_tests {
 
         let mut custom = MapTileLayer::default().with_theme(MapTheme::Dark);
         custom.style_css = AzString::from("water { fill: #123456; }");
-        assert_eq!(custom.effective_style_css(MapTheme::Dark).as_str(), "water { fill: #123456; }");
+        assert_eq!(
+            custom.effective_style_css(MapTheme::Dark).as_str(),
+            "water { fill: #123456; }"
+        );
         // authored looks carry no third-party credit
-        assert!(MapTheme::AppleLight.credit_str().is_empty() && MapTheme::GoogleLight.credit_str().is_empty());
-        assert_eq!(MapTheme::Positron.credit().as_str(), MapTheme::Positron.credit_str());
+        assert!(
+            MapTheme::AppleLight.credit_str().is_empty()
+                && MapTheme::GoogleLight.credit_str().is_empty()
+        );
+        assert_eq!(
+            MapTheme::Positron.credit().as_str(),
+            MapTheme::Positron.credit_str()
+        );
         // System credits BOTH resolutions' designs where they have one
         let sys = MapTileLayer::default().with_theme(MapTheme::System);
-        let l = MapTheme::System.resolve(WindowTheme::LightMode).credit_str();
+        let l = MapTheme::System
+            .resolve(WindowTheme::LightMode)
+            .credit_str();
         let d = MapTheme::System.resolve(WindowTheme::DarkMode).credit_str();
         assert!(l.is_empty() || sys.attribution.as_str().contains(l));
         assert!(d.is_empty() || sys.attribution.as_str().contains(d));
@@ -2633,7 +2783,10 @@ mod theme_tests {
         let id = MapTileId { z: 1, x: 0, y: 0 };
         let look_a = cache.key_at_current_look(id);
         cache.mark_tile_ready(look_a, AzString::from("<svg/>"));
-        assert!(!cache.set_active_theme(cache.active_theme), "same look: nothing to do");
+        assert!(
+            !cache.set_active_theme(cache.active_theme),
+            "same look: nothing to do"
+        );
         assert!(matches!(cache.tiles[&look_a], TileEntry::Ready { .. }));
         assert!(cache.set_active_theme(MapTheme::Dark));
         // A look change RE-KEYS the lookup; it must never invalidate geometry
@@ -2644,7 +2797,10 @@ mod theme_tests {
             "a look change must not discard a decoded tile"
         );
         assert_eq!(cache.active_theme, MapTheme::Dark);
-        assert_eq!(cache.layer.effective_style_css(cache.active_theme).as_str(), super::super::map_themes::DARK);
+        assert_eq!(
+            cache.layer.effective_style_css(cache.active_theme).as_str(),
+            super::super::map_themes::DARK
+        );
     }
 }
 
@@ -2675,7 +2831,11 @@ mod tests {
 
     #[test]
     fn build_tile_url_substitutes_zxy() {
-        let tile = MapTileId { z: 11, x: 327, y: 791 };
+        let tile = MapTileId {
+            z: 11,
+            x: 327,
+            y: 791,
+        };
         assert_eq!(
             build_tile_url("https://t.example/{z}/{x}/{y}.pbf", tile),
             "https://t.example/11/327/791.pbf"
@@ -2740,8 +2900,14 @@ mod tests {
         for lat in [37.7749, -33.8688, 0.0] {
             let (_, down) = pan_viewport(lat, 0.0, 4.0, 0.0, 128.0);
             let (_, up) = pan_viewport(lat, 0.0, 4.0, 0.0, -128.0);
-            assert!(down > lat, "content dragged down must reveal the north: {lat} → {down}");
-            assert!(up < lat, "content dragged up must reveal the south: {lat} → {up}");
+            assert!(
+                down > lat,
+                "content dragged down must reveal the north: {lat} → {down}"
+            );
+            assert!(
+                up < lat,
+                "content dragged up must reveal the south: {lat} → {up}"
+            );
         }
     }
 
@@ -2766,8 +2932,14 @@ mod tests {
         let events: Vec<f32> = (0..40).map(|i| if i < 20 { 8.0 } else { 2.0 }).collect();
         let total: f32 = events.iter().map(|d| wheel_zoom_step(*d)).sum();
         // The old signum() * 0.5 charged 40 × 0.5 = 20 levels — past any cap.
-        assert!(total < 3.0, "a flick must stay within a couple of levels, got {total}");
-        assert!(total > 0.5, "a flick must still zoom noticeably, got {total}");
+        assert!(
+            total < 3.0,
+            "a flick must stay within a couple of levels, got {total}"
+        );
+        assert!(
+            total > 0.5,
+            "a flick must still zoom noticeably, got {total}"
+        );
     }
 
     #[test]
@@ -2801,15 +2973,29 @@ mod tests {
             .map(|k| k.tile)
             .collect();
         assert_eq!(order.len(), 17, "{order:?}");
-        assert_eq!(order[0], MapTileId { z: 2, x: 2, y: 2 }, "the tile under the centre first");
+        assert_eq!(
+            order[0],
+            MapTileId { z: 2, x: 2, y: 2 },
+            "the tile under the centre first"
+        );
         let ring: std::collections::BTreeSet<MapTileId> = order[..9].iter().copied().collect();
         for x in 1..=3 {
             for y in 1..=3 {
-                assert!(ring.contains(&MapTileId { z: 2, x, y }), "3×3 ring before the edge: {order:?}");
+                assert!(
+                    ring.contains(&MapTileId { z: 2, x, y }),
+                    "3×3 ring before the edge: {order:?}"
+                );
             }
         }
-        assert_eq!(*order.last().unwrap(), MapTileId { z: 1, x: 0, y: 0 }, "another zoom's leftover last");
-        assert!(!order.contains(&MapTileId { z: 2, x: 9, y: 9 }), "in-flight tiles are not pending");
+        assert_eq!(
+            *order.last().unwrap(),
+            MapTileId { z: 1, x: 0, y: 0 },
+            "another zoom's leftover last"
+        );
+        assert!(
+            !order.contains(&MapTileId { z: 2, x: 9, y: 9 }),
+            "in-flight tiles are not pending"
+        );
     }
 
     #[test]
@@ -2889,7 +3075,12 @@ mod tests {
         worker_handle
             .downcast_mut::<MapTileCache>()
             .unwrap()
-            .insert_tile(tile, TileEntry::Ready { svg: AzString::from("<svg/>") });
+            .insert_tile(
+                tile,
+                TileEntry::Ready {
+                    svg: AzString::from("<svg/>"),
+                },
+            );
 
         // ...and it IS visible through the merged cache (shared storage). With the
         // old copy-merge this assertion failed — the tile was stranded.
@@ -2914,15 +3105,23 @@ mod tests {
         let mut old_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(5.0));
         old_cache.viewport.zoom = 7.0; // internal state from previous frames
         let tile = MapTileId { z: 2, x: 1, y: 1 };
-        old_cache.insert_tile(tile, TileEntry::Ready { svg: "<svg/>".into() });
+        old_cache.insert_tile(
+            tile,
+            TileEntry::Ready {
+                svg: "<svg/>".into(),
+            },
+        );
 
         let new_cache = MapTileCache::new(MapTileLayer::default(), viewport_at(2.0));
 
-        let mut merged =
-            merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
+        let mut merged = merge_map_tile_cache(RefAny::new(new_cache), RefAny::new(old_cache));
         let g = merged.downcast_ref::<MapTileCache>().unwrap();
         // The build's viewport wins…
-        approx(f64::from(g.viewport.zoom), f64::from(viewport_at(2.0).zoom), 1e-6);
+        approx(
+            f64::from(g.viewport.zoom),
+            f64::from(viewport_at(2.0).zoom),
+            1e-6,
+        );
         // …while the fetched tiles survive in the same allocation.
         assert!(
             g.tile_entry(tile).is_some(),
@@ -2985,8 +3184,14 @@ mod tests {
         // …but x is unclamped so the world wraps: a west-edge viewport over-scans
         // into negative columns and an east-edge one past tile_count-1; both wrap
         // back into 0..tile_count via wrap_tile_x.
-        assert!(x0 < 0, "west-edge viewport should over-scan into wrapped columns");
-        assert!(x1 > 15, "east-edge viewport should over-scan into wrapped columns");
+        assert!(
+            x0 < 0,
+            "west-edge viewport should over-scan into wrapped columns"
+        );
+        assert!(
+            x1 > 15,
+            "east-edge viewport should over-scan into wrapped columns"
+        );
         assert_eq!(wrap_tile_x(x0, 16), x0.rem_euclid(16) as u32);
         assert_eq!(wrap_tile_x(x1, 16), x1.rem_euclid(16) as u32);
     }
@@ -3017,21 +3222,38 @@ mod tests {
         // the 192 cap — plus a near Pending tile and a near Ready tile.
         for x in 0..20u32 {
             for y in 0..20u32 {
-                cache
-                    .insert_tile(MapTileId { z: 4, x, y }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+                cache.insert_tile(
+                    MapTileId { z: 4, x, y },
+                    TileEntry::Ready {
+                        svg: AzString::from("<svg/>"),
+                    },
+                );
             }
         }
         // A near, in-flight tile (must NEVER be evicted).
         cache.insert_tile(MapTileId { z: 4, x: 8, y: 8 }, TileEntry::Pending);
         // A near, ready tile (should survive — low distance score).
-        cache.insert_tile(MapTileId { z: 4, x: 9, y: 8 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+        cache.insert_tile(
+            MapTileId { z: 4, x: 9, y: 8 },
+            TileEntry::Ready {
+                svg: AzString::from("<svg/>"),
+            },
+        );
         // A very far ready tile (should be evicted first).
-        cache.insert_tile(MapTileId { z: 4, x: 0, y: 0 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+        cache.insert_tile(
+            MapTileId { z: 4, x: 0, y: 0 },
+            TileEntry::Ready {
+                svg: AzString::from("<svg/>"),
+            },
+        );
 
         assert!(cache.tiles.len() > 192, "precondition: over the cap");
         cache.prune_distant_tiles();
 
-        assert!(cache.tiles.len() <= 192, "cache must be bounded after prune");
+        assert!(
+            cache.tiles.len() <= 192,
+            "cache must be bounded after prune"
+        );
         // In-flight tile survives.
         assert!(matches!(
             cache.tile_entry(MapTileId { z: 4, x: 8, y: 8 }),
@@ -3046,8 +3268,12 @@ mod tests {
     fn prune_is_noop_under_cap() {
         let mut cache = test_cache();
         for x in 0..4u32 {
-            cache
-                .insert_tile(MapTileId { z: 4, x, y: 8 }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+            cache.insert_tile(
+                MapTileId { z: 4, x, y: 8 },
+                TileEntry::Ready {
+                    svg: AzString::from("<svg/>"),
+                },
+            );
         }
         cache.prune_distant_tiles();
         assert_eq!(cache.tiles.len(), 4, "under the cap → nothing evicted");
@@ -3182,10 +3408,8 @@ mod autotest_generated {
         let previous_window_state: Option<FullWindowState> = None;
         let current_window_state = FullWindowState::default();
         let gl_context = OptionGlContextPtr::None;
-        let scroll_states: BTreeMap<
-            DomId,
-            BTreeMap<NodeHierarchyItemId, ScrollPosition>,
-        > = BTreeMap::new();
+        let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+            BTreeMap::new();
         let window_handle = RawWindowHandle::Unsupported;
         let system_callbacks = ExternalSystemCallbacks::rust_internal();
 
@@ -3516,11 +3740,8 @@ mod autotest_generated {
     fn latlon_at_px_centre_pixel_is_the_viewport_centre() {
         let viewport = view(51.5074, -0.1278, 11.0);
         let container = LogicalSize::new(800.0, 600.0);
-        let coord = MapWidget::latlon_at_px(
-            viewport,
-            LogicalPosition::new(400.0, 300.0),
-            container,
-        );
+        let coord =
+            MapWidget::latlon_at_px(viewport, LogicalPosition::new(400.0, 300.0), container);
         close(coord.lat_deg, 51.5074, 1e-9);
         close(coord.lon_deg, -0.1278, 1e-9);
     }
@@ -3624,7 +3845,11 @@ mod autotest_generated {
             container,
         );
         assert!(p.x.is_finite(), "x should stay finite, got {}", p.x);
-        assert!(!p.y.is_nan(), "y must be a number or an infinity, got {}", p.y);
+        assert!(
+            !p.y.is_nan(),
+            "y must be a number or an infinity, got {}",
+            p.y
+        );
     }
 
     #[test]
@@ -3660,8 +3885,7 @@ mod autotest_generated {
 
     #[test]
     fn visible_tile_range_infinite_dimensions_saturate_the_same_way() {
-        let (x0, x1, y0, y1) =
-            visible_tile_range(8.0, 8.0, f32::INFINITY, f32::INFINITY, 1.0, 16);
+        let (x0, x1, y0, y1) = visible_tile_range(8.0, 8.0, f32::INFINITY, f32::INFINITY, 1.0, 16);
         assert_eq!((x0, x1), (i32::MIN, i32::MAX));
         assert_eq!((y0, y1), (0, 15));
     }
@@ -3779,7 +4003,10 @@ mod autotest_generated {
     fn map_visible_tiles_zero_bounds_still_covers_the_centre() {
         let layer = MapTileLayer::default();
         let tiles = map_visible_tiles(&view(0.0, 0.0, 2.0), LogicalSize::new(0.0, 0.0), &layer);
-        assert!(!tiles.is_empty(), "the one-tile margin must survive 0x0 bounds");
+        assert!(
+            !tiles.is_empty(),
+            "the one-tile margin must survive 0x0 bounds"
+        );
         for t in &tiles {
             assert_eq!(t.z, 2);
             assert!(t.x < 4 && t.y < 4, "tile {t:?} escaped the z2 grid");
@@ -3842,9 +4069,8 @@ mod autotest_generated {
                     let viewport = view(lat, lon, zoom);
                     let tiles =
                         map_visible_tiles(&viewport, LogicalSize::new(800.0, 600.0), &layer);
-                    let expected_z = (zoom.floor() as i32)
-                        .clamp(i32::from(min_zoom), i32::from(max_zoom))
-                        as u8;
+                    let expected_z =
+                        (zoom.floor() as i32).clamp(i32::from(min_zoom), i32::from(max_zoom)) as u8;
                     let tile_count = 1u32 << u32::from(expected_z);
                     for t in &tiles {
                         assert_eq!(t.z, expected_z, "zoom {zoom} produced z {}", t.z);
@@ -3912,14 +4138,20 @@ mod autotest_generated {
 
     #[test]
     fn with_viewport_stores_extreme_values_verbatim() {
-        let widget = MapWidget::create(MapTileLayer::default())
-            .with_viewport(view(1.0e300, -1.0e300, f32::MAX));
+        let widget = MapWidget::create(MapTileLayer::default()).with_viewport(view(
+            1.0e300,
+            -1.0e300,
+            f32::MAX,
+        ));
         assert_eq!(widget.viewport.centre_lat_deg, 1.0e300);
         assert_eq!(widget.viewport.centre_lon_deg, -1.0e300);
         assert_eq!(widget.viewport.zoom, f32::MAX);
 
-        let widget = MapWidget::create(MapTileLayer::default())
-            .with_viewport(view(f64::NAN, f64::INFINITY, f32::NEG_INFINITY));
+        let widget = MapWidget::create(MapTileLayer::default()).with_viewport(view(
+            f64::NAN,
+            f64::INFINITY,
+            f32::NEG_INFINITY,
+        ));
         assert!(widget.viewport.centre_lat_deg.is_nan());
         assert!(widget.viewport.centre_lon_deg.is_infinite());
         assert!(widget.viewport.zoom.is_infinite());
@@ -3989,8 +4221,10 @@ mod autotest_generated {
 
     #[test]
     fn with_on_pin_tap_installs_and_replaces_the_hook() {
-        let mut widget = MapWidget::create(MapTileLayer::default())
-            .with_on_pin_tap(RefAny::new(HookLog::default()), record_pin as MapPinTapCallbackType);
+        let mut widget = MapWidget::create(MapTileLayer::default()).with_on_pin_tap(
+            RefAny::new(HookLog::default()),
+            record_pin as MapPinTapCallbackType,
+        );
         assert!(matches!(widget.on_pin_tap, OptionMapPinTap::Some(_)));
         widget.set_on_pin_tap(
             RefAny::new(HookLog::default()),
@@ -4118,11 +4352,20 @@ mod autotest_generated {
         let tile = MapTileId { z: 4, x: 8, y: 8 };
         let key = cache.key_at_current_look(tile);
         cache.mark_tile_ready(key, AzString::from("<svg/>"));
-        assert!(matches!(cache.tile_entry(tile), Some(TileEntry::Ready { .. })));
+        assert!(matches!(
+            cache.tile_entry(tile),
+            Some(TileEntry::Ready { .. })
+        ));
         cache.mark_tile_failed(key, AzString::from("boom"));
-        assert!(matches!(cache.tile_entry(tile), Some(TileEntry::Failed { .. })));
+        assert!(matches!(
+            cache.tile_entry(tile),
+            Some(TileEntry::Failed { .. })
+        ));
         cache.mark_tile_ready(key, AzString::from(""));
-        assert!(matches!(cache.tile_entry(tile), Some(TileEntry::Ready { .. })));
+        assert!(matches!(
+            cache.tile_entry(tile),
+            Some(TileEntry::Ready { .. })
+        ));
         assert_eq!(cache.tiles.len(), 1, "the same id must not duplicate");
     }
 
@@ -4166,7 +4409,12 @@ mod autotest_generated {
                 y: 0,
             },
         ] {
-            cache.insert_tile(tile, TileEntry::Failed { error: AzString::from("e") });
+            cache.insert_tile(
+                tile,
+                TileEntry::Failed {
+                    error: AzString::from("e"),
+                },
+            );
         }
         assert_eq!(cache.tiles.len(), 3);
     }
@@ -4178,8 +4426,12 @@ mod autotest_generated {
     fn fill_ready_grid(cache: &mut MapTileCache, z: u8, side: u32) {
         for x in 0..side {
             for y in 0..side {
-                cache
-                    .insert_tile(MapTileId { z, x, y }, TileEntry::Ready { svg: AzString::from("<svg/>") });
+                cache.insert_tile(
+                    MapTileId { z, x, y },
+                    TileEntry::Ready {
+                        svg: AzString::from("<svg/>"),
+                    },
+                );
             }
         }
     }
@@ -4225,7 +4477,11 @@ mod autotest_generated {
             let mut cache = MapTileCache::new(layer_zoom(0, 19), view(0.0, 0.0, zoom));
             fill_ready_grid(&mut cache, 4, 16);
             cache.prune_distant_tiles();
-            assert_eq!(cache.tiles.len(), 192, "zoom {zoom} must still bound the cache");
+            assert_eq!(
+                cache.tiles.len(),
+                192,
+                "zoom {zoom} must still bound the cache"
+            );
         }
     }
 
@@ -4251,9 +4507,17 @@ mod autotest_generated {
         // tile (the score adds 10_000 per zoom level of mismatch).
         let mut cache = cache_at(0.0, 0.0, 4.0);
         fill_ready_grid(&mut cache, 4, 16);
-        let wrong_zoom = MapTileId { z: 9, x: 256, y: 256 };
-        cache
-            .insert_tile(wrong_zoom, TileEntry::Ready { svg: AzString::from("<svg/>") });
+        let wrong_zoom = MapTileId {
+            z: 9,
+            x: 256,
+            y: 256,
+        };
+        cache.insert_tile(
+            wrong_zoom,
+            TileEntry::Ready {
+                svg: AzString::from("<svg/>"),
+            },
+        );
         let near = MapTileId { z: 4, x: 8, y: 8 };
         cache.prune_distant_tiles();
         assert!(cache.tiles.len() <= 192);
@@ -4261,7 +4525,10 @@ mod autotest_generated {
             cache.tile_entry(wrong_zoom).is_none(),
             "a zoom-mismatched tile must be evicted before same-zoom neighbours"
         );
-        assert!(cache.tile_entry(near).is_some(), "the centre tile must survive");
+        assert!(
+            cache.tile_entry(near).is_some(),
+            "the centre tile must survive"
+        );
     }
 
     // ==================================================================
@@ -4272,10 +4539,18 @@ mod autotest_generated {
     fn merge_with_a_wrong_typed_new_dataset_returns_the_old_one_intact() {
         let mut old_cache = cache_at(0.0, 0.0, 5.0);
         let tile = MapTileId { z: 5, x: 1, y: 1 };
-        old_cache.insert_tile(tile, TileEntry::Ready { svg: AzString::from("<svg/>") });
+        old_cache.insert_tile(
+            tile,
+            TileEntry::Ready {
+                svg: AzString::from("<svg/>"),
+            },
+        );
         let mut merged = merge_map_tile_cache(RefAny::new(0u32), RefAny::new(old_cache));
         let cache = merged.downcast_ref::<MapTileCache>().expect("old cache");
-        assert_eq!(cache.viewport.zoom, 5.0, "no adoption from a bogus new dataset");
+        assert_eq!(
+            cache.viewport.zoom, 5.0,
+            "no adoption from a bogus new dataset"
+        );
         assert!(cache.tile_entry(tile).is_some());
     }
 
@@ -4346,7 +4621,10 @@ mod autotest_generated {
     fn build_tile_url_without_placeholders_is_the_identity() {
         let tile = MapTileId { z: 1, x: 2, y: 3 };
         assert_eq!(build_tile_url("", tile), "");
-        assert_eq!(build_tile_url("https://t.example/fixed", tile), "https://t.example/fixed");
+        assert_eq!(
+            build_tile_url("https://t.example/fixed", tile),
+            "https://t.example/fixed"
+        );
         // Unknown placeholders are left verbatim, not eaten.
         assert_eq!(build_tile_url("{q}/{Z}/{ x }", tile), "{q}/{Z}/{ x }");
     }
@@ -4545,7 +4823,14 @@ mod autotest_generated {
     #[cfg(not(feature = "xml"))]
     #[test]
     fn svg_stub_returns_none_for_every_input() {
-        for input in ["", "   ", "<svg/>", "<svg><g/></svg>", "\u{1F600}", "<<<>>>"] {
+        for input in [
+            "",
+            "   ",
+            "<svg/>",
+            "<svg><g/></svg>",
+            "\u{1F600}",
+            "<<<>>>",
+        ] {
             assert!(svg_string_to_dom(input).is_none());
         }
         let long = "a".repeat(1_000_000);
@@ -4573,7 +4858,8 @@ mod autotest_generated {
             callback: (record_viewport as MapViewportChangedCallbackType).into(),
         });
         let viewport = view(f64::NAN, f64::INFINITY, f32::NAN);
-        let (update, _) = with_callback_info(|info| invoke_viewport_changed(&hook, &info, viewport));
+        let (update, _) =
+            with_callback_info(|info| invoke_viewport_changed(&hook, &info, viewport));
         assert_eq!(update, Update::DoNothing);
         assert_eq!(hook_log(&mut log), (1, 0));
     }
@@ -4593,11 +4879,17 @@ mod autotest_generated {
     fn finish_viewport_change_returns_the_hooks_update_and_rerenders_only_without_a_rebuild() {
         // No hook: the handler owes the in-place VirtualView re-render itself.
         let (update, changes) = with_callback_info(|mut info| {
-            finish_viewport_change(&OptionMapViewportChanged::None, &mut info, view(1.0, 2.0, 3.0))
+            finish_viewport_change(
+                &OptionMapViewportChanged::None,
+                &mut info,
+                view(1.0, 2.0, 3.0),
+            )
         });
         assert_eq!(update, Update::DoNothing);
         assert!(
-            changes.iter().any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)),
+            changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)),
             "without a rebuild the view must be re-rendered in place: {changes:?}"
         );
 
@@ -4607,10 +4899,13 @@ mod autotest_generated {
             refany: log.clone(),
             callback: (record_viewport as MapViewportChangedCallbackType).into(),
         });
-        let (update, changes) =
-            with_callback_info(|mut info| finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0)));
+        let (update, changes) = with_callback_info(|mut info| {
+            finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0))
+        });
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.iter().any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)));
+        assert!(changes
+            .iter()
+            .any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)));
         assert_eq!(hook_log(&mut log), (1, 0));
 
         // A hook that asks for RefreshDom: the handler RETURNS it (the bug:
@@ -4621,11 +4916,18 @@ mod autotest_generated {
             refany: log.clone(),
             callback: (record_viewport_and_refresh as MapViewportChangedCallbackType).into(),
         });
-        let (update, changes) =
-            with_callback_info(|mut info| finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0)));
-        assert_eq!(update, Update::RefreshDom, "the user's Update must come out of the handler");
+        let (update, changes) = with_callback_info(|mut info| {
+            finish_viewport_change(&hook, &mut info, view(1.0, 2.0, 3.0))
+        });
+        assert_eq!(
+            update,
+            Update::RefreshDom,
+            "the user's Update must come out of the handler"
+        );
         assert!(
-            !changes.iter().any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)),
+            !changes
+                .iter()
+                .any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)),
             "a rebuild already re-invokes the view; rendering it twice is waste: {changes:?}"
         );
         assert_eq!(hook_log(&mut log), (1, 0));
@@ -4674,8 +4976,7 @@ mod autotest_generated {
     #[test]
     fn pointer_down_without_a_cursor_is_a_no_op() {
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
-        let (update, _) =
-            with_callback_info(|info| map_on_pointer_down(dataset.clone(), info));
+        let (update, _) = with_callback_info(|info| map_on_pointer_down(dataset.clone(), info));
         assert_eq!(update, Update::DoNothing);
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
         assert!(cache.drag_anchor.is_none());
@@ -4894,7 +5195,10 @@ mod autotest_generated {
         assert!(changes.is_empty(), "no worker → no threads queued");
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
         assert!(
-            cache.tiles.values().all(|e| matches!(e, TileEntry::Pending)),
+            cache
+                .tiles
+                .values()
+                .all(|e| matches!(e, TileEntry::Pending)),
             "tiles must stay Pending so the placeholder grid renders"
         );
     }
@@ -4934,7 +5238,11 @@ mod autotest_generated {
             let mut info = info;
             spawn_pending_tile_fetches(&mut dataset.clone(), &mut info);
         });
-        assert_eq!(count_states(&mut dataset), (16, 4), "one call spawns at most 16");
+        assert_eq!(
+            count_states(&mut dataset),
+            (16, 4),
+            "one call spawns at most 16"
+        );
         assert_eq!(
             changes
                 .iter()
@@ -4974,16 +5282,18 @@ mod autotest_generated {
             error: AzString::from(""),
             bytes: azul_css::U8Vec::from_vec(Vec::new()),
         });
-        let (update, changes) = with_callback_info(|info| {
-            map_tile_writeback(dataset.clone(), ok.clone(), info)
-        });
+        let (update, changes) =
+            with_callback_info(|info| map_tile_writeback(dataset.clone(), ok.clone(), info));
         assert_eq!(update, Update::DoNothing);
         assert!(changes
             .iter()
             .any(|c| matches!(c, CallbackChange::UpdateAllVirtualViews)));
         {
             let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
-            assert!(matches!(cache.tile_entry(tile), Some(TileEntry::Ready { .. })));
+            assert!(matches!(
+                cache.tile_entry(tile),
+                Some(TileEntry::Ready { .. })
+            ));
         }
 
         let failed = RefAny::new(TileReadyMsg {
@@ -4993,12 +5303,14 @@ mod autotest_generated {
             error: AzString::from("404"),
             bytes: azul_css::U8Vec::from_vec(Vec::new()),
         });
-        let (update, _) = with_callback_info(|info| {
-            map_tile_writeback(dataset.clone(), failed.clone(), info)
-        });
+        let (update, _) =
+            with_callback_info(|info| map_tile_writeback(dataset.clone(), failed.clone(), info));
         assert_eq!(update, Update::DoNothing);
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
-        assert!(matches!(cache.tile_entry(tile), Some(TileEntry::Failed { .. })));
+        assert!(matches!(
+            cache.tile_entry(tile),
+            Some(TileEntry::Failed { .. })
+        ));
     }
 
     #[test]
@@ -5026,11 +5338,13 @@ mod autotest_generated {
     #[test]
     fn tile_writeback_with_a_wrong_typed_message_is_a_no_op() {
         let mut dataset = RefAny::new(cache_at(0.0, 0.0, 4.0));
-        let (update, changes) = with_callback_info(|info| {
-            map_tile_writeback(dataset.clone(), RefAny::new(0u32), info)
-        });
+        let (update, changes) =
+            with_callback_info(|info| map_tile_writeback(dataset.clone(), RefAny::new(0u32), info));
         assert_eq!(update, Update::DoNothing);
-        assert!(changes.is_empty(), "a bogus message must not force a re-render");
+        assert!(
+            changes.is_empty(),
+            "a bogus message must not force a re-render"
+        );
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
         assert!(cache.tiles.is_empty());
     }
@@ -5044,9 +5358,8 @@ mod autotest_generated {
             error: AzString::from(""),
             bytes: azul_css::U8Vec::from_vec(Vec::new()),
         });
-        let (update, changes) = with_callback_info(|info| {
-            map_tile_writeback(RefAny::new(9u64), msg.clone(), info)
-        });
+        let (update, changes) =
+            with_callback_info(|info| map_tile_writeback(RefAny::new(9u64), msg.clone(), info));
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
     }
@@ -5150,9 +5463,7 @@ mod autotest_generated {
             TileStyleKey { tile, theme: dark },
             AzString::from("<svg id='d'/>"),
         );
-        let (got, svg) = cache
-            .best_available_svg(tile, dark)
-            .expect("exact hit");
+        let (got, svg) = cache.best_available_svg(tile, dark).expect("exact hit");
         assert_eq!(got, dark);
         assert_eq!(svg.as_str(), "<svg id='d'/>");
     }
@@ -5183,7 +5494,10 @@ mod autotest_generated {
         let cache = dataset.downcast_ref::<MapTileCache>().expect("cache");
         assert!(
             matches!(
-                cache.tiles.get(&TileStyleKey { tile, theme: arrived_for }),
+                cache.tiles.get(&TileStyleKey {
+                    tile,
+                    theme: arrived_for
+                }),
                 Some(TileEntry::Ready { .. })
             ),
             "a result for a look the widget has since left is still correct data \
@@ -5205,7 +5519,10 @@ mod autotest_generated {
             .insert(tile, azul_css::U8Vec::from_vec(Vec::from([9u8])));
         for scheme in [MapColorScheme::Light, MapColorScheme::Dark] {
             cache.mark_tile_ready(
-                TileStyleKey { tile, theme: MapTileStyle::Google.look(scheme) },
+                TileStyleKey {
+                    tile,
+                    theme: MapTileStyle::Google.look(scheme),
+                },
                 AzString::from("<svg/>"),
             );
         }
@@ -5265,8 +5582,7 @@ mod autotest_generated {
             (f32::INFINITY, 600.0),
             (800.0, f32::NEG_INFINITY),
         ] {
-            let ret =
-                with_virtual_view_info(w, h, |info| map_widget_render(dataset.clone(), info));
+            let ret = with_virtual_view_info(w, h, |info| map_widget_render(dataset.clone(), info));
             assert!(
                 rendered_child_count(&ret).is_none(),
                 "bounds {w}x{h} must render nothing until layout settles"
@@ -5277,8 +5593,9 @@ mod autotest_generated {
     #[test]
     fn render_with_a_wrong_typed_dataset_emits_no_dom() {
         let dataset = RefAny::new(0u32);
-        let ret =
-            with_virtual_view_info(800.0, 600.0, |info| map_widget_render(dataset.clone(), info));
+        let ret = with_virtual_view_info(800.0, 600.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
         assert!(rendered_child_count(&ret).is_none());
     }
 
@@ -5290,8 +5607,9 @@ mod autotest_generated {
             LogicalSize::new(800.0, 600.0),
             &layer_zoom(0, 19),
         );
-        let ret =
-            with_virtual_view_info(800.0, 600.0, |info| map_widget_render(dataset.clone(), info));
+        let ret = with_virtual_view_info(800.0, 600.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
         assert_eq!(
             rendered_child_count(&ret),
             Some(expected.len()),
@@ -5309,13 +5627,17 @@ mod autotest_generated {
     #[test]
     fn render_reports_the_bounds_back_as_the_scroll_size() {
         let dataset = RefAny::new(cache_at(0.0, 0.0, 2.0));
-        let ret =
-            with_virtual_view_info(640.0, 480.0, |info| map_widget_render(dataset.clone(), info));
+        let ret = with_virtual_view_info(640.0, 480.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
         assert_eq!(ret.materialized.size.width, 640.0);
         assert_eq!(ret.materialized.size.height, 480.0);
         assert_eq!(ret.virtual_rect.size.width, 640.0);
         assert_eq!(ret.virtual_rect.size.height, 480.0);
-        assert_eq!((ret.materialized.origin.x, ret.materialized.origin.y), (0.0, 0.0));
+        assert_eq!(
+            (ret.materialized.origin.x, ret.materialized.origin.y),
+            (0.0, 0.0)
+        );
         assert_eq!(
             (ret.virtual_rect.origin.x, ret.virtual_rect.origin.y),
             (0.0, 0.0)
@@ -5332,11 +5654,17 @@ mod autotest_generated {
             LogicalSize::new(512.0, 512.0),
             &layer_zoom(0, 19),
         ) {
-            cache.insert_tile(tile, TileEntry::Ready { svg: AzString::from("not xml at all <<<") });
+            cache.insert_tile(
+                tile,
+                TileEntry::Ready {
+                    svg: AzString::from("not xml at all <<<"),
+                },
+            );
         }
         let dataset = RefAny::new(cache);
-        let ret =
-            with_virtual_view_info(512.0, 512.0, |info| map_widget_render(dataset.clone(), info));
+        let ret = with_virtual_view_info(512.0, 512.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
         assert!(
             rendered_child_count(&ret).is_some_and(|n| n > 0),
             "garbage tiles still render their placeholder"
@@ -5357,14 +5685,22 @@ mod autotest_generated {
                 1 => cache.insert_tile(*tile, TileEntry::Fetching),
                 2 => cache.insert_tile(
                     *tile,
-                    TileEntry::Failed { error: AzString::from("\u{1F600} failed") },
+                    TileEntry::Failed {
+                        error: AzString::from("\u{1F600} failed"),
+                    },
                 ),
-                _ => cache.insert_tile(*tile, TileEntry::Ready { svg: AzString::from("") }),
+                _ => cache.insert_tile(
+                    *tile,
+                    TileEntry::Ready {
+                        svg: AzString::from(""),
+                    },
+                ),
             }
         }
         let dataset = RefAny::new(cache);
-        let ret =
-            with_virtual_view_info(512.0, 512.0, |info| map_widget_render(dataset.clone(), info));
+        let ret = with_virtual_view_info(512.0, 512.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
         assert_eq!(rendered_child_count(&ret), Some(tiles.len()));
     }
 
@@ -5390,10 +5726,12 @@ mod autotest_generated {
     #[test]
     fn render_is_stable_across_repeated_invocations() {
         let dataset = RefAny::new(cache_at(48.1372, 11.5756, 5.0));
-        let first =
-            with_virtual_view_info(800.0, 600.0, |info| map_widget_render(dataset.clone(), info));
-        let second =
-            with_virtual_view_info(800.0, 600.0, |info| map_widget_render(dataset.clone(), info));
+        let first = with_virtual_view_info(800.0, 600.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
+        let second = with_virtual_view_info(800.0, 600.0, |info| {
+            map_widget_render(dataset.clone(), info)
+        });
         assert_eq!(rendered_child_count(&first), rendered_child_count(&second));
     }
 }

@@ -248,7 +248,9 @@ impl Harness {
                 &resolve_tf,
             )
         };
-        self.lw.hover_manager.push_hit_test(InputPointId::Mouse, hit);
+        self.lw
+            .hover_manager
+            .push_hit_test(InputPointId::Mouse, hit);
         self.lw.process_mouse_click_for_selection(position, 0);
     }
 
@@ -307,17 +309,18 @@ fn clicking_a_paragraph_on_a_materialised_page_places_the_caret_in_it() {
     let mut h = Harness::new(Doc::Paragraphs);
     let (nested, _vv) = h.virtual_view();
     let para = h.first_editable_line(nested);
-    let (origin, size) = h.window_rect(nested, para).expect("the paragraph has a box");
+    let (origin, size) = h
+        .window_rect(nested, para)
+        .expect("the paragraph has a box");
 
     let target = LogicalPosition::new(origin.x + size.width * 0.25, origin.y + size.height * 0.5);
     h.click_at(target);
 
-    let session = h
-        .lw
-        .text_edit_manager
-        .multi_cursor
-        .as_ref()
-        .map(|mc| mc.node_id);
+    let session =
+        h.lw.text_edit_manager
+            .multi_cursor
+            .as_ref()
+            .map(|mc| mc.node_id);
     assert!(
         session.is_some(),
         "clicking the text of a page sheet placed no caret at all \
@@ -394,9 +397,7 @@ fn clicking_a_page_after_scrolling_past_the_first_screenful_still_places_a_caret
     let visible = paras
         .into_iter()
         .filter_map(|p| h.window_rect(nested, p).map(|r| (p, r)))
-        .find(|(_, (origin, size))| {
-            origin.y >= CHROME_H && origin.y + size.height <= WIN_H - 24.0
-        })
+        .find(|(_, (origin, size))| origin.y >= CHROME_H && origin.y + size.height <= WIN_H - 24.0)
         .expect("at least one materialised paragraph is inside the canvas viewport");
     let (_, (origin, size)) = visible;
 
@@ -441,14 +442,14 @@ fn focusing_a_blank_documents_editing_host_anchors_the_caret_on_its_empty_line()
     };
     let window_state = h.lw.current_window_state.clone();
     h.lw.focus_manager.set_focused_node(Some(focus));
-    let _ = h.lw.handle_focus_change_for_cursor_blink(Some(focus), &window_state);
+    let _ =
+        h.lw.handle_focus_change_for_cursor_blink(Some(focus), &window_state);
 
-    let pending = h
-        .lw
-        .focus_manager
-        .pending_contenteditable_focus
-        .clone()
-        .expect("focusing a contenteditable flags a deferred caret");
+    let pending =
+        h.lw.focus_manager
+            .pending_contenteditable_focus
+            .clone()
+            .expect("focusing a contenteditable flags a deferred caret");
     assert_eq!(
         pending.container_node_id, host,
         "focus itself still belongs to the editing host"

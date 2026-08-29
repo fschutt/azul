@@ -53,8 +53,10 @@ pub fn title_band(state: &AppState, data: &RefAny) -> Dom {
     let title = format!("{} - AzWriter", state.document.display_name());
     let mut band = QuickAccessBar::office_2013(AzString::from(title)).with_leading(word_logo());
     band.actions = QuickAccessActionVec::from_vec(vec![
-        QuickAccessAction::new(s("save"))
-            .with_on_click(data.clone(), crate::on_save_clicked as ButtonOnClickCallbackType),
+        QuickAccessAction::new(s("save")).with_on_click(
+            data.clone(),
+            crate::on_save_clicked as ButtonOnClickCallbackType,
+        ),
         QuickAccessAction::new(s("undo"))
             .with_on_click(data.clone(), crate::on_undo as ButtonOnClickCallbackType),
         QuickAccessAction::new(s("redo"))
@@ -243,9 +245,8 @@ extern "C" fn pages_virtual_view(
          overflow: hidden;",
         page_w as isize, page_h as isize,
     );
-    let mut col = Dom::create_div().with_css(
-        "display: flex; flex-direction: column; align-items: center;",
-    );
+    let mut col =
+        Dom::create_div().with_css("display: flex; flex-direction: column; align-items: center;");
     for page in pages.into_iter().map(|p| p.dom) {
         // C11: the engine records structural edits on this editable subtree
         // and fires DocumentEdit; the app applies them to its model.
@@ -311,7 +312,10 @@ pub fn status_bar(state: &AppState, data: &RefAny, page_count: usize) -> Dom {
 
     let views = StatusBarViewSwitcher::office_2013()
         .with_active_view(state.view_mode)
-        .with_on_select(data.clone(), crate::on_view_select as StatusBarOnViewSelectCallbackType);
+        .with_on_select(
+            data.clone(),
+            crate::on_view_select as StatusBarOnViewSelectCallbackType,
+        );
 
     let mut zoom = StatusBarZoom::office_2013().with_percent(state.zoom_percent);
     zoom.on_zoom_out = Some(azul_layout::widgets::button::ButtonOnClick {

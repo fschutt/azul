@@ -173,8 +173,11 @@ const EDITOR: usize = 1;
 
 fn flat_editable(content: &str) -> LayoutWindow {
     layout(
-        Dom::create_body()
-            .with_child(Dom::create_div().with_contenteditable(true).with_child(text(content))),
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(text(content)),
+        ),
     )
 }
 
@@ -234,7 +237,11 @@ fn cancelling_an_ime_composition_puts_the_clean_base_back_on_screen() {
     lw.text_edit_manager.clear_preedit();
     lw.apply_preedit_to_text_cache(DomId::ROOT_ID, NodeId::new(EDITOR));
 
-    assert_eq!(glyph_count(&lw), base, "no composed glyph survives the cancel");
+    assert_eq!(
+        glyph_count(&lw),
+        base,
+        "no composed glyph survives the cancel"
+    );
     assert_eq!(text_of(&lw, EDITOR), "ab");
 }
 
@@ -250,9 +257,13 @@ const IFC_ROOT: usize = 2;
 
 #[test]
 fn the_first_click_into_a_p_wrapped_editable_keeps_the_clicked_caret() {
-    let mut lw = layout(Dom::create_body().with_child(
-        Dom::create_div().with_contenteditable(true).with_child(block(text("hello world"))),
-    ));
+    let mut lw = layout(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(block(text("hello world"))),
+        ),
+    );
 
     lw.process_mouse_click_for_selection(LogicalPosition::new(6.0, 6.0), 0)
         .expect("the click lands in the paragraph");
@@ -290,9 +301,13 @@ fn the_first_click_into_a_p_wrapped_editable_keeps_the_clicked_caret() {
 #[test]
 fn typing_into_a_node_that_only_inherits_contenteditable_reaches_the_text() {
     // body(0) > div[contenteditable](1) > div.p(2) > text(3)
-    let mut lw = layout(Dom::create_body().with_child(
-        Dom::create_div().with_contenteditable(true).with_child(block(text("hi"))),
-    ));
+    let mut lw = layout(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(block(text("hi"))),
+        ),
+    );
     const INNER: usize = 2;
 
     lw.focus_manager.set_focused_node(Some(dnid(INNER)));
@@ -327,7 +342,9 @@ fn static_text_then(second: Dom) -> LayoutWindow {
 #[test]
 fn clicking_plain_selectable_text_does_not_claim_the_blink_timer() {
     let mut lw = static_text_then(
-        Dom::create_div().with_contenteditable(true).with_child(text("editable")),
+        Dom::create_div()
+            .with_contenteditable(true)
+            .with_child(text("editable")),
     );
 
     lw.process_mouse_click_for_selection(LogicalPosition::new(6.0, 6.0), 0)
@@ -478,9 +495,13 @@ fn home_with_an_active_selection_travels_to_the_line_start() {
 #[test]
 fn the_caret_rect_answers_for_the_session_node_not_the_focused_node() {
     // body(0) > container(1) > div.p(2) > text(3)
-    let mut lw = layout(Dom::create_body().with_child(
-        Dom::create_div().with_contenteditable(true).with_child(block(text("hello world"))),
-    ));
+    let mut lw = layout(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(block(text("hello world"))),
+        ),
+    );
     let at_start = first_cluster_cursor(&lw, IFC_ROOT);
 
     lw.text_edit_manager
@@ -507,11 +528,13 @@ fn the_caret_rect_answers_for_the_session_node_not_the_focused_node() {
 #[test]
 fn a_caret_two_levels_below_the_ifc_root_is_painted() {
     // body(0) > container(1) > div.p(2) > span(3) > text(4)
-    let mut lw = layout(Dom::create_body().with_child(
-        Dom::create_div()
-            .with_contenteditable(true)
-            .with_child(block(Dom::create_span_with_text("rich text"))),
-    ));
+    let mut lw = layout(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(block(Dom::create_span_with_text("rich text"))),
+        ),
+    );
     const DEEP_TEXT: usize = 4;
 
     let at_start = first_cluster_cursor(&lw, IFC_ROOT);
@@ -599,7 +622,8 @@ fn the_preedit_underline_spans_the_measured_advance_not_an_eight_pixel_guess() {
     start_editing(&mut lw, EDITOR, 0);
 
     let composed = "MM";
-    lw.text_edit_manager.set_preedit(composed.to_string(), -1, -1);
+    lw.text_edit_manager
+        .set_preedit(composed.to_string(), -1, -1);
     lw.apply_preedit_to_text_cache(DomId::ROOT_ID, NodeId::new(EDITOR));
 
     let width = underline_width(&lw).expect("a live composition is underlined");
@@ -730,9 +754,9 @@ fn a_burst_of_keystrokes_lands_in_order() {
 #[test]
 fn an_ime_composition_in_a_deeply_nested_editable_is_shaped() {
     let dom = Dom::create_body().with_child(
-        Dom::create_div().with_contenteditable(true).with_child(
-            Dom::create_div().with_child(Dom::create_div().with_child(text("ab"))),
-        ),
+        Dom::create_div()
+            .with_contenteditable(true)
+            .with_child(Dom::create_div().with_child(Dom::create_div().with_child(text("ab")))),
     );
     let mut lw = layout(dom);
 
@@ -779,9 +803,13 @@ fn an_ime_composition_in_a_deeply_nested_editable_is_shaped() {
 #[test]
 fn the_first_character_typed_into_an_empty_p_wrapped_editable_lands() {
     // body(0) > div[contenteditable](1) > div.p(2) — no text node anywhere.
-    let mut lw = layout(Dom::create_body().with_child(
-        Dom::create_div().with_contenteditable(true).with_child(with_class(Dom::create_div(), "p")),
-    ));
+    let mut lw = layout(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(with_class(Dom::create_div(), "p")),
+        ),
+    );
     const HOST: usize = 1;
     assert_eq!(text_of(&lw, HOST), "", "premise: the editable starts empty");
 
@@ -802,9 +830,8 @@ fn the_first_character_typed_into_an_empty_p_wrapped_editable_lands() {
 /// with no children at all.
 #[test]
 fn the_first_character_typed_into_a_flat_empty_editable_lands() {
-    let mut lw = layout(
-        Dom::create_body().with_child(Dom::create_div().with_contenteditable(true)),
-    );
+    let mut lw =
+        layout(Dom::create_body().with_child(Dom::create_div().with_contenteditable(true)));
     const HOST: usize = 1;
     assert_eq!(text_of(&lw, HOST), "", "premise: the editable starts empty");
 
@@ -821,9 +848,10 @@ fn the_first_character_typed_into_a_flat_empty_editable_lands() {
 #[test]
 fn the_first_character_typed_into_an_empty_editable_keeps_the_blocks_style() {
     // `.big` is 40px; the default would be the 14px body size.
-    let mut lw = layout(Dom::create_body().with_child(
-        with_class(Dom::create_div(), "big").with_contenteditable(true),
-    ));
+    let mut lw = layout(
+        Dom::create_body()
+            .with_child(with_class(Dom::create_div(), "big").with_contenteditable(true)),
+    );
     const HOST: usize = 1;
 
     lw.focus_manager.set_focused_node(Some(dnid(HOST)));

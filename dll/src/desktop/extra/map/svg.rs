@@ -68,7 +68,10 @@ fn default_style(layer_name: &str) -> LayerStyle {
         LayerStyle::make("none", "#ffffff", 1.6)
     } else if lower.contains("transportation") || lower.contains("road") {
         LayerStyle::make("none", "#f0e8d8", 0.8)
-    } else if lower.contains("park") || lower.contains("landcover") || lower.contains("landuse_grass") {
+    } else if lower.contains("park")
+        || lower.contains("landcover")
+        || lower.contains("landuse_grass")
+    {
         LayerStyle::make("#c8e0c0", "#a8c89c", 0.4)
     } else if lower.contains("boundary") || lower.contains("admin") {
         LayerStyle::make("none", "#9a8aa0", 0.6)
@@ -128,7 +131,9 @@ impl MapCss {
             let mut stroke = "none".to_string();
             let mut stroke_width = 0.5_f32;
             for decl in body.split(';') {
-                let Some(colon) = decl.find(':') else { continue };
+                let Some(colon) = decl.find(':') else {
+                    continue;
+                };
                 let prop = decl[..colon].trim().to_ascii_lowercase();
                 let val = decl[colon + 1..].trim();
                 match prop.as_str() {
@@ -148,7 +153,14 @@ impl MapCss {
                 }
                 continue;
             }
-            rules.insert(key, LayerStyle { fill, stroke, stroke_width });
+            rules.insert(
+                key,
+                LayerStyle {
+                    fill,
+                    stroke,
+                    stroke_width,
+                },
+            );
         }
         Self { rules, canvas_fill }
     }
@@ -352,10 +364,7 @@ fn emit_polygon<F: Fn(f64, f64) -> (f64, f64)>(
             }
             let (x, y) = project(p[0], p[1]);
             if i == 0 {
-                let _ = core::fmt::Write::write_fmt(
-                    out,
-                    format_args!("{}{:.2},{:.2}", cmd, x, y),
-                );
+                let _ = core::fmt::Write::write_fmt(out, format_args!("{}{:.2},{:.2}", cmd, x, y));
             } else {
                 let _ = core::fmt::Write::write_fmt(out, format_args!(" L{:.2},{:.2}", x, y));
             }
@@ -371,11 +380,7 @@ fn emit_polygon<F: Fn(f64, f64) -> (f64, f64)>(
     out.push_str("\" fill-rule=\"evenodd\" />");
 }
 
-fn write_points<F: Fn(f64, f64) -> (f64, f64)>(
-    out: &mut String,
-    line: &[Vec<f64>],
-    project: &F,
-) {
+fn write_points<F: Fn(f64, f64) -> (f64, f64)>(out: &mut String, line: &[Vec<f64>], project: &F) {
     for (i, p) in line.iter().enumerate() {
         if p.len() < 2 {
             continue;
@@ -394,9 +399,15 @@ mod tests {
 
     fn line_feature(layer: &str, class: Option<&str>) -> geojson::Feature {
         let mut props = serde_json::Map::new();
-        props.insert("layer".to_string(), serde_json::Value::String(layer.to_string()));
+        props.insert(
+            "layer".to_string(),
+            serde_json::Value::String(layer.to_string()),
+        );
         if let Some(c) = class {
-            props.insert("class".to_string(), serde_json::Value::String(c.to_string()));
+            props.insert(
+                "class".to_string(),
+                serde_json::Value::String(c.to_string()),
+            );
         }
         geojson::Feature {
             bbox: None,
@@ -413,17 +424,38 @@ mod tests {
     #[test]
     fn a_theme_drives_the_canvas_and_colours_a_motorway_by_class() {
         use azul_layout::widgets::map::MapTheme;
-        let tile = MapTileId { z: 11, x: 327, y: 791 };
+        let tile = MapTileId {
+            z: 11,
+            x: 327,
+            y: 791,
+        };
         // Dark Matter: dark base, motorway lighter than a minor road.
         let dark = MapTheme::Dark.stylesheet();
         let dark = dark.as_str();
-        let svg = features_to_svg(&[line_feature("transportation", Some("motorway"))], tile, dark);
-        assert!(svg.contains("fill=\"#0c0c0c\""), "the theme's canvas fill is the base rect: {svg}");
-        assert!(svg.contains("stroke=\"#333333\""), "transportation.motorway rule applies: {svg}");
+        let svg = features_to_svg(
+            &[line_feature("transportation", Some("motorway"))],
+            tile,
+            dark,
+        );
+        assert!(
+            svg.contains("fill=\"#0c0c0c\""),
+            "the theme's canvas fill is the base rect: {svg}"
+        );
+        assert!(
+            svg.contains("stroke=\"#333333\""),
+            "transportation.motorway rule applies: {svg}"
+        );
         let svg = features_to_svg(&[line_feature("transportation", Some("minor"))], tile, dark);
-        assert!(svg.contains("stroke=\"#222222\""), "no `.minor` rule: the layer rule applies: {svg}");
+        assert!(
+            svg.contains("stroke=\"#222222\""),
+            "no `.minor` rule: the layer rule applies: {svg}"
+        );
         // No theme: the built-in light base and palette, unchanged.
-        let svg = features_to_svg(&[line_feature("transportation", Some("motorway"))], tile, "");
+        let svg = features_to_svg(
+            &[line_feature("transportation", Some("motorway"))],
+            tile,
+            "",
+        );
         assert!(svg.contains("fill=\"#d6d8db\""), "{svg}");
         assert!(svg.contains("stroke=\"#f0e8d8\""), "{svg}");
     }
@@ -442,13 +474,29 @@ mod tests {
             MapTheme::AppleDark,
         ] {
             let sheet = MapCss::parse(theme.stylesheet().as_str());
-            assert!(sheet.canvas_fill.is_some(), "{theme:?}: no canvas rule parsed");
-            assert!(sheet.rules.contains_key("water"), "{theme:?}: no water rule");
-            assert!(sheet.rules.contains_key("transportation.motorway"), "{theme:?}: no motorway rule");
+            assert!(
+                sheet.canvas_fill.is_some(),
+                "{theme:?}: no canvas rule parsed"
+            );
+            assert!(
+                sheet.rules.contains_key("water"),
+                "{theme:?}: no water rule"
+            );
+            assert!(
+                sheet.rules.contains_key("transportation.motorway"),
+                "{theme:?}: no motorway rule"
+            );
             let water = sheet.resolve("water", None);
-            assert!(water.fill.starts_with('#'), "{theme:?}: water fill {:?}", water.fill);
+            assert!(
+                water.fill.starts_with('#'),
+                "{theme:?}: water fill {:?}",
+                water.fill
+            );
             // a `.class` key never captures a plain layer by substring
-            assert_eq!(sheet.resolve("transportation", None).stroke, sheet.rules["transportation"].stroke);
+            assert_eq!(
+                sheet.resolve("transportation", None).stroke,
+                sheet.rules["transportation"].stroke
+            );
         }
     }
 
@@ -483,7 +531,15 @@ mod tests {
         f.properties = Some(props);
 
         // Point features (place/POI label anchors) must NOT be drawn as dots.
-        let svg = features_to_svg(&[f], MapTileId { z: 11, x: 327, y: 791 }, "");
+        let svg = features_to_svg(
+            &[f],
+            MapTileId {
+                z: 11,
+                x: 327,
+                y: 791,
+            },
+            "",
+        );
         assert!(!svg.contains("<circle"));
     }
 
@@ -539,6 +595,9 @@ mod tests {
             }
             rest = &data[end..];
         }
-        assert!(checked >= 8, "expected path coordinates to check, got {checked}: {svg}");
+        assert!(
+            checked >= 8,
+            "expected path coordinates to check, got {checked}: {svg}"
+        );
     }
 }
