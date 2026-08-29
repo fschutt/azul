@@ -2867,6 +2867,71 @@ pub fn setup_main_menu(app: &NSApplication, mtm: objc2::MainThreadMarker) {
 }
 
 // ============================================================================
+// AppDelegate — application-level activation / dock-reopen handling
+// ============================================================================
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "AzulAppDelegate"]
+    pub struct AppDelegate;
+
+    impl AppDelegate {
+        /// The app became active (Cmd-Tab, dock click, programmatic
+        /// `activate`): bring our key window to the front. Without this the
+        /// process activated but every window stayed BEHIND other apps'
+        /// windows - "the window doesn't pop to front".
+        #[unsafe(method(applicationDidBecomeActive:))]
+        fn application_did_become_active(&self, _notification: Option<&objc2::runtime::AnyObject>) {
+            Self::order_front_registered_windows();
+        }
+
+        /// Dock icon clicked while the app runs with no visible window:
+        /// standard macOS behavior is to re-show the window.
+        #[unsafe(method(applicationShouldHandleReopen:hasVisibleWindows:))]
+        fn application_should_handle_reopen(
+            &self,
+            _sender: Option<&objc2::runtime::AnyObject>,
+            has_visible_windows: Bool,
+        ) -> Bool {
+            if !has_visible_windows.as_bool() {
+                Self::order_front_registered_windows();
+            }
+            Bool::YES
+        }
+    }
+);
+
+unsafe impl NSObjectProtocol for AppDelegate {}
+unsafe impl NSApplicationDelegate for AppDelegate {}
+
+impl AppDelegate {
+    pub fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        let result: Option<Retained<Self>> = unsafe { msg_send_id![Self::alloc(mtm), init] };
+        result.expect("Failed to initialize AppDelegate")
+    }
+
+    /// Order every registered window front; the LAST one becomes key
+    /// (creation order, so the most recent window ends up on top).
+    fn order_front_registered_windows() {
+        let ns_windows = super::macos::registry::all_ns_windows();
+        log_debug!(
+            LogCategory::Window,
+            "[AppDelegate] activation/reopen - ordering {} window(s) front",
+            ns_windows.len()
+        );
+        for ptr in ns_windows {
+            // SAFETY: registered pointers are valid until windowWillClose
+            // unregisters them; we are on the main thread.
+            unsafe {
+                let win: &NSWindow = &*(ptr.cast::<NSWindow>());
+                win.makeKeyAndOrderFront(None);
+            }
+        }
+    }
+}
+
+// ============================================================================
 // WindowDelegate — handles per-window close, resize, etc.
 // ============================================================================
 
