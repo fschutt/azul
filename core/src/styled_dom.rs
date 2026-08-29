@@ -1081,6 +1081,36 @@ impl StyledDom {
         let mut swap_dom = Dom::create_body();
         mem::swap(dom, &mut swap_dom);
 
+        // Silent-loss fix: this entry point used to DISCARD every
+        // node-attached stylesheet (`Dom::with_css` / `add_component_css`) —
+        // the string parsed, rode the Dom to here, and vanished in the
+        // CompactDom conversion, while `create_from_dom` applied it. The
+        // classic split-brain constructor: half the callers styled nothing
+        // and nobody was told (a `width:260px; height:100px` box silently
+        // laid out auto-sized). Collect + subtree-scope exactly like
+        // `create_from_dom` (#47), APPENDED after the caller's stylesheet —
+        // inline rules already carry `rule_priority::INLINE`, so the cascade
+        // ranks them correctly regardless of order.
+        swap_dom.fixup_children_estimated();
+        let mut next_scope_id = 0usize;
+        scope_inline_css(&mut swap_dom, &mut next_scope_id);
+        let mut node_css: Vec<Css> = Vec::new();
+        collect_css_from_dom(&swap_dom, &mut node_css);
+        let css = if node_css.is_empty() {
+            css
+        } else {
+            let mut combined_rules = css.rules.into_library_owned_vec();
+            let mut combined_keyframes = css.keyframes.into_library_owned_vec();
+            for c in node_css {
+                combined_rules.extend(c.rules.into_library_owned_vec());
+                combined_keyframes.extend(c.keyframes.into_library_owned_vec());
+            }
+            let mut merged = Css::new(combined_rules);
+            merged.keyframes = combined_keyframes.into();
+            merged
+        };
+        strip_css_from_dom(&mut swap_dom);
+
         let compact_dom: CompactDom = swap_dom.into();
         let node_hierarchy: NodeHierarchyItemVec = compact_dom
             .node_hierarchy
