@@ -72,6 +72,10 @@ The destination is environment or config, not code — a packager can point a
 build at their own collector without a rebuild:
 
 ```bash
+# Local debugging loop (the Grafana stack from layout/examples/telemetry-grafana):
+AZ_OBSERVE=1 ./myapp
+
+# Production / custom collector - the granular variables:
 AZ_TELEMETRY_ENDPOINT=https://otlp.example.com \
 AZ_TELEMETRY_TOKEN=<ingest token> \
 AZ_TELEMETRY=metrics ./myapp
@@ -264,6 +268,7 @@ it, and a quantile over an all-zero rate is `NaN`.
 
 | Variable | Effect |
 | --- | --- |
+| `AZ_OBSERVE` | ONE-VAR local loop: `1`/`local` = metrics tier + `http://127.0.0.1:4318` + the local stack's token + 5s flushes; `<url>` targets another collector. Granular vars below override pieces. |
 | `AZ_TELEMETRY` | consent tier: `off`, `crashes`, `metrics`, `full` |
 | `AZ_TELEMETRY_ENDPOINT` | OTLP base URL; signal paths are appended |
 | `AZ_TELEMETRY_TOKEN` | bearer token for the ingest endpoint |
