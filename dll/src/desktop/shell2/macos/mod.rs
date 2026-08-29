@@ -4234,12 +4234,32 @@ impl MacOSWindow {
         extern "C" fn mark_views_dirty_on_main(context: *mut std::ffi::c_void) {
             // Runs on the MAIN queue. `context` is an NSWindow retained at
             // enqueue time (the window may have been dropped in between).
+            //
+            // THE VSYNC FRAME DRIVER: for years this called
+            // `setViewsNeedDisplay:` on the WINDOW, which marks no view -
+            // the pump was proven inert (611 ticks -> 2 draws) and every
+            // frame was scheduled ad-hoc by request_redraw instead. Now the
+            // tick CONSUMES the pending-redraw flag: if this window asked
+            // for a frame since the last vsync, deliver the invalidation
+            // here, so drawRect lands aligned to the refresh and multiple
+            // requests within one period coalesce. An idle window's tick
+            // stays a no-op.
             unsafe {
                 if !context.is_null() {
-                    use objc2::msg_send;
                     let ns_window = context as *const NSWindow;
                     pace_trace("mark-dirty-on-main");
-                    let _: () = msg_send![ns_window, setViewsNeedDisplay: true];
+                    if let Some(win) = super::macos::registry::get_window(
+                        ns_window as *mut objc2::runtime::AnyObject,
+                    ) {
+                        let win = &mut *win;
+                        if win.redraw_requested
+                            || win.common.display_list_dirty
+                            || win.common.regeneration_pending()
+                        {
+                            pace_trace("vsync-deliver");
+                            win.deliver_invalidation_now();
+                        }
+                    }
                     // Balance the retain taken in display_link_callback.
                     objc2::ffi::objc_release(context.cast());
                 }
@@ -8066,6 +8086,31 @@ impl MacOSWindow {
         // moved by the physics timer are otherwise invisible to that check).
         self.redraw_requested = true;
 
+        // VSYNC INTEGRATION: with a LIVE display link the request stays a
+        // flag - the next vsync tick (mark_views_dirty_on_main) delivers the
+        // invalidation. This coalesces every request inside one refresh
+        // period into a single vsync-aligned drawRect; measured before this,
+        // the CPU scroll path rendered 10.2ms frames yet paced at ~46fps
+        // because ad-hoc setNeedsDisplay landed mid-period and slipped.
+        // Damage rects queue up in gpu_damage_rects until delivery. Without
+        // a running link (occluded window, init failure) deliver immediately
+        // as before - correctness never depends on the link.
+        if self
+            .display_link
+            .as_ref()
+            .is_some_and(corevideo::DisplayLink::is_running)
+        {
+            pace_trace("request-redraw-deferred");
+            return;
+        }
+        self.deliver_invalidation_now();
+    }
+
+    /// Push the pending invalidation into AppKit: damage rects via
+    /// `setNeedsDisplayInRect:` when present, full-view `setNeedsDisplay`
+    /// otherwise. Split out of [`Self::request_redraw`] so the display-link
+    /// tick can deliver vsync-aligned.
+    pub(super) fn deliver_invalidation_now(&mut self) {
         // If we have damage rects, use setNeedsDisplayInRect: for each one
         // so macOS only redraws the changed regions.
         if !self.gpu_damage_rects.is_empty() {

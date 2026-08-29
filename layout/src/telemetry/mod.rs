@@ -212,6 +212,7 @@ pub fn init(app_id: &str, meta: AppMeta) -> TelemetryConfig {
     metrics::register_histogram(metrics::STARTUP_SECONDS, metrics::SECONDS_BUCKETS);
     metrics::register_histogram(metrics::STARTUP_RSS_BYTES, metrics::BYTES_BUCKETS);
     metrics::register_histogram(metrics::PHASE_SECONDS, metrics::MICRO_SECONDS_BUCKETS);
+    metrics::register_histogram(metrics::PAINT_DAMAGE_PIXELS, metrics::PIXELS_BUCKETS);
 
     if let Ok(mut slot) = inner().write() {
         *slot = Some(Inner {
@@ -456,6 +457,14 @@ pub fn record_frame(scope: &str, seconds: f64) {
 /// Records one TIMER tick's duration — the clock animations ride, so slow
 /// ticks here are what make animations stutter. Slow ticks warn like slow
 /// frames, under scope `timer`.
+/// Per-frame PAINT damage area (physical px) into `app_paint_damage_pixels`.
+pub fn record_paint_damage_pixels(pixels: f64) {
+    if !is_collecting() {
+        return;
+    }
+    metrics::histogram_record(metrics::PAINT_DAMAGE_PIXELS, pixels);
+}
+
 pub fn record_timer_frame(seconds: f64) {
     if !is_collecting() {
         return;

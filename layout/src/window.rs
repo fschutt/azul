@@ -14439,6 +14439,10 @@ impl LayoutWindow {
         use crate::solver3::{display_list::generate_display_list, LayoutContext};
 
         self.frame_report.dl_rebuilds = self.frame_report.dl_rebuilds.saturating_add(1);
+        // Every FULL display-list regeneration, visible as a phase: during a
+        // pure scroll this must be FLAT ZERO - any activity here is the
+        // hover-restyle / overscroll rebuild class.
+        let _p = crate::probe::Probe::span("dl_regenerate_full");
 
         // This rebuild is WHOLESALE — the list is regenerated from the current
         // layout tree, it is not a splice of the previous one. The previous

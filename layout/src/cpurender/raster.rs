@@ -1422,6 +1422,10 @@ pub fn render_display_list_damaged(
     render_state: &CpuRenderState,
     damage_rects: &[LogicalRect],
 ) -> Result<(), String> {
+    // The strip/damage raster body - the previously UNSPANNED majority of a
+    // scroll frame's present time (7 of 10.2ms measured 2026-08-29).
+    let _p = crate::probe::Probe::span("raster_damage_body");
+
     // A damage rect snapped OUTWARD to physical-pixel boundaries, carried
     // BOTH as physical ints (clear + clip) and as the equivalent logical
     // rect (item filter).

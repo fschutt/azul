@@ -1753,6 +1753,8 @@ pub fn scroll_fast_path_eligible(
     scroll_offset: (f32, f32),
     prev_offset: (f32, f32),
 ) -> bool {
+    let _p = crate::probe::Probe::span("scroll_fastpath_check");
+
     // Locate the frame's content range [start+1, end).
     let start = display_list.items.iter().position(|it| {
         matches!(it, DisplayListItem::PushScrollFrame { scroll_id: sid, .. } if *sid == scroll_id)
