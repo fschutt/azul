@@ -4567,6 +4567,11 @@ impl LayoutWindow {
             }
         }
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
+        // The geometry half of this snapshot is a display-list INPUT (and part
+        // of the DL cache key). Remember what this build consumed so the
+        // publish-after-consume check below the VirtualView invokes can tell
+        // whether a callback changed it mid-pass.
+        let pre_scroll_fp = crate::solver3::scroll_geometry_fingerprint(&scroll_offsets);
 
         // Synchronize CSS transform / opacity keys with the current StyledDom
         // BEFORE building the display list. `display_list.rs` reads
@@ -5485,6 +5490,21 @@ impl LayoutWindow {
                 scroll_id_to_node_id,
             },
         );
+
+        // PUBLISH-AFTER-CONSUME, closed: a VirtualView invoke above may have
+        // published a new virtual size into the ScrollManager — an input the
+        // display list just stored was built WITHOUT (the snapshot was taken
+        // before the callbacks ran). If the geometry fingerprint moved,
+        // rebuild this dom's list through the existing primitive (it takes a
+        // fresh snapshot and re-points the placeholders), so the very first
+        // frame already shows the scrollbar instead of flashing bar-less.
+        // Steady state republishes identical geometry and this is a no-op.
+        let post_scroll_fp = crate::solver3::scroll_geometry_fingerprint(
+            &self.scroll_manager.get_scroll_states_for_dom(dom_id),
+        );
+        if post_scroll_fp != pre_scroll_fp {
+            self.regenerate_display_list_for_dom(dom_id);
+        }
 
         // layout_results — THE KNOWN BLIND SPOT, reported HERE and not with
         // the rest of the [MEM] block.
@@ -9565,7 +9585,7 @@ impl LayoutWindow {
                 if let (Some(patched), Some(cached)) =
                     (patched, self.layout_cache.cached_display_list.as_mut())
                 {
-                    cached.3 = patched;
+                    cached.4 = patched;
                 }
             }
             self.css_transitions.retain(|tr| tr.t < 1.0);
@@ -14452,6 +14472,7 @@ impl LayoutWindow {
                                 h,
                                 cached.1,
                                 gpu_cache.dl_emission_fingerprint(),
+                                crate::solver3::scroll_geometry_fingerprint(&scroll_offsets),
                                 display_list,
                             );
                         }
@@ -16684,6 +16705,16 @@ impl LayoutWindow {
             now,
         );
         let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+        #[cfg(feature = "std")]
+        if std::env::var("AZ_VV_RECONCILE_TRACE").is_ok() {
+            eprintln!(
+                "[vv-reconcile] dom={child_dom_id:?} old_n={} new_n={} moves={} sample={:?}",
+                old_node_data.len(),
+                new_node_data.len(),
+                diff.node_moves.len(),
+                diff.node_moves.iter().take(6).collect::<Vec<_>>(),
+            );
+        }
         self.remap_node_ids(child_dom_id, &map);
     }
 

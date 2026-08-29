@@ -1583,7 +1583,6 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
 ///
 /// Small and `#[inline(never)]`: M12.7 — the wasm lift mis-reads f32 loads
 /// inside the ~6 KB sizing function these are called from.
-#[inline(never)]
 fn shrink_to_fit_available_width(cb_w: Text3AvailableSpace, bp: &BoxProps) -> f32 {
     match cb_w {
         Text3AvailableSpace::Definite(w) => (w

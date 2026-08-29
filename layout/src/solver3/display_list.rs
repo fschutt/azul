@@ -6063,6 +6063,21 @@ where
         // built, and the layout pass that precedes this one has already
         // recomputed `warm.scrollbar_info` from the laid-out sizes.
         if let Some(nid) = node_id {
+            if std::env::var("AZ_VV_BAR_TRACE").is_ok()
+                && self
+                    .ctx
+                    .styled_dom
+                    .node_data
+                    .as_container()
+                    .get(nid)
+                    .is_some_and(azul_core::dom::NodeData::is_virtual_view_node)
+            {
+                eprintln!(
+                    "[vv-bar] nid={nid:?} offsets_hit={} n_offsets={} reqs_before={scrollbar_info:?}",
+                    self.scroll_offsets.contains_key(&nid),
+                    self.scroll_offsets.len(),
+                );
+            }
             if let Some(pos) = self.scroll_offsets.get(&nid) {
                 let bp = node.box_props.unpack();
                 let border = &bp.border;
@@ -6070,13 +6085,19 @@ where
                     (paint_rect.size.width - border.left - border.right).max(0.0),
                     (paint_rect.size.height - border.top - border.bottom).max(0.0),
                 );
-                crate::solver3::cache::apply_virtual_scroll_necessity(
+                let raised = crate::solver3::cache::apply_virtual_scroll_necessity(
                     self.ctx.styled_dom,
                     nid,
                     pos.children_rect.size,
                     padding_box_size,
                     &mut scrollbar_info,
                 );
+                if std::env::var("AZ_VV_BAR_TRACE").is_ok() {
+                    eprintln!(
+                        "[vv-bar] nid={nid:?} raised={raised} virt={:?} padbox={padding_box_size:?} reqs_after={scrollbar_info:?}",
+                        pos.children_rect.size,
+                    );
+                }
             }
         }
 

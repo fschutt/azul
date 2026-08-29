@@ -748,14 +748,7 @@ impl ScrollManager {
         let Some(state) = self.states.get(&(dom_id, node_id)) else {
             return (delta_x, delta_y);
         };
-        let effective_width = state
-            .virtual_scroll_size
-            .map_or(state.content_rect.size.width, |s| s.width);
-        let effective_height = state
-            .virtual_scroll_size
-            .map_or(state.content_rect.size.height, |s| s.height);
-        let max_x = (effective_width - state.container_rect.size.width).max(0.0);
-        let max_y = (effective_height - state.container_rect.size.height).max(0.0);
+        let (max_x, max_y) = state.max_scroll_offsets();
         if max_y <= EPS && max_x > EPS {
             (delta_y, 0.0)
         } else {
@@ -774,14 +767,7 @@ impl ScrollManager {
         node_id: NodeId,
     ) -> Option<(LogicalPosition, f32, f32)> {
         let state = self.states.get(&(dom_id, node_id))?;
-        let effective_width = state
-            .virtual_scroll_size
-            .map_or(state.content_rect.size.width, |s| s.width);
-        let effective_height = state
-            .virtual_scroll_size
-            .map_or(state.content_rect.size.height, |s| s.height);
-        let max_x = (effective_width - state.container_rect.size.width).max(0.0);
-        let max_y = (effective_height - state.container_rect.size.height).max(0.0);
+        let (max_x, max_y) = state.max_scroll_offsets();
         if max_x <= 0.0 && max_y <= 0.0 {
             return None;
         }
@@ -796,14 +782,7 @@ impl ScrollManager {
         let Some(state) = self.states.get(&(dom_id, node_id)) else {
             return false;
         };
-        let effective_width = state
-            .virtual_scroll_size
-            .map_or(state.content_rect.size.width, |s| s.width);
-        let effective_height = state
-            .virtual_scroll_size
-            .map_or(state.content_rect.size.height, |s| s.height);
-        let max_x = (effective_width - state.container_rect.size.width).max(0.0);
-        let max_y = (effective_height - state.container_rect.size.height).max(0.0);
+        let (max_x, max_y) = state.max_scroll_offsets();
         let off = state.current_offset;
 
         let x_ok = if eff_x > EPS {
@@ -905,14 +884,9 @@ impl ScrollManager {
     /// identified as scrollable even when only a small subset is rendered.
     fn is_node_scrollable(&self, dom_id: DomId, node_id: NodeId) -> bool {
         let result = self.states.get(&(dom_id, node_id)).is_some_and(|state| {
-            let effective_width = state
-                .virtual_scroll_size
-                .map_or(state.content_rect.size.width, |s| s.width);
-            let effective_height = state
-                .virtual_scroll_size
-                .map_or(state.content_rect.size.height, |s| s.height);
-            let has_horizontal = effective_width > state.container_rect.size.width;
-            let has_vertical = effective_height > state.container_rect.size.height;
+            let effective = state.effective_content_size();
+            let has_horizontal = effective.width > state.container_rect.size.width;
+            let has_vertical = effective.height > state.container_rect.size.height;
             has_horizontal || has_vertical
         });
         result
@@ -1101,14 +1075,7 @@ impl ScrollManager {
     #[must_use]
     pub fn get_scroll_node_info(&self, dom_id: DomId, node_id: NodeId) -> Option<ScrollNodeInfo> {
         let state = self.states.get(&(dom_id, node_id))?;
-        let effective_content_width = state
-            .virtual_scroll_size
-            .map_or(state.content_rect.size.width, |s| s.width);
-        let effective_content_height = state
-            .virtual_scroll_size
-            .map_or(state.content_rect.size.height, |s| s.height);
-        let max_x = (effective_content_width - state.container_rect.size.width).max(0.0);
-        let max_y = (effective_content_height - state.container_rect.size.height).max(0.0);
+        let (max_x, max_y) = state.max_scroll_offsets();
         Some(ScrollNodeInfo {
             current_offset: state.current_offset,
             container_rect: state.container_rect,
@@ -1164,8 +1131,7 @@ impl ScrollManager {
             .map(|((_, node_id), state)| {
                 // Use virtual_scroll_size (from VirtualView callback) when available,
                 // otherwise fall back to content_rect.size from layout.
-                let effective_content_size =
-                    state.virtual_scroll_size.unwrap_or(state.content_rect.size);
+                let effective_content_size = state.effective_content_size();
                 (
                     *node_id,
                     ScrollPosition {
@@ -1307,13 +1273,11 @@ impl ScrollManager {
                 .filter(|(_, s)| {
                     let (effective, container) = match orientation {
                         ScrollbarOrientation::Vertical => (
-                            s.virtual_scroll_size
-                                .map_or(s.content_rect.size.height, |vs| vs.height),
+                            s.effective_content_size().height,
                             s.container_rect.size.height,
                         ),
                         ScrollbarOrientation::Horizontal => (
-                            s.virtual_scroll_size
-                                .map_or(s.content_rect.size.width, |vs| vs.width),
+                            s.effective_content_size().width,
                             s.container_rect.size.width,
                         ),
                     };
@@ -1343,9 +1307,7 @@ impl ScrollManager {
             crate::solver3::fc::DEFAULT_SCROLLBAR_WIDTH_PX
         };
 
-        let content_size = scroll_state
-            .virtual_scroll_size
-            .map_or(scroll_state.content_rect.size, |vs| vs);
+        let content_size = scroll_state.effective_content_size();
 
         let scroll_offset = match orientation {
             ScrollbarOrientation::Vertical => scroll_state.current_offset.y,
@@ -1511,6 +1473,27 @@ impl ScrollManager {
 // AnimatedScrollState Implementation
 
 impl AnimatedScrollState {
+    /// The size scroll bounds are computed against: the VirtualView-published
+    /// virtual size when this node hosts one, else the laid-out content size.
+    /// THE single owner of that rule — every consumer (clamping, wheel
+    /// redirection, scrollability, thumb geometry, the per-dom snapshot) goes
+    /// through this instead of re-deriving the `map_or` by hand.
+    #[must_use]
+    pub fn effective_content_size(&self) -> LogicalSize {
+        self.virtual_scroll_size.unwrap_or(self.content_rect.size)
+    }
+
+    /// Max positive scroll offset per axis, from `effective_content_size`
+    /// against the container. Zero on non-overflowing axes.
+    #[must_use]
+    pub fn max_scroll_offsets(&self) -> (f32, f32) {
+        let effective = self.effective_content_size();
+        (
+            (effective.width - self.container_rect.size.width).max(0.0),
+            (effective.height - self.container_rect.size.height).max(0.0),
+        )
+    }
+
     // +spec:overflow:60f6a1 - scroll origin defaults to block-start inline-start corner (0,0)
     /// Create a new scroll state initialized at offset (0, 0).
     pub(crate) const fn new(now: Instant) -> Self {
@@ -1537,14 +1520,7 @@ impl AnimatedScrollState {
     /// When `virtual_scroll_size` is set (for `VirtualView` nodes), the max bounds
     /// are computed from the virtual size instead of `content_rect`.
     pub(crate) fn clamp(&self, position: LogicalPosition) -> LogicalPosition {
-        let effective_width = self
-            .virtual_scroll_size
-            .map_or(self.content_rect.size.width, |s| s.width);
-        let effective_height = self
-            .virtual_scroll_size
-            .map_or(self.content_rect.size.height, |s| s.height);
-        let max_x = (effective_width - self.container_rect.size.width).max(0.0);
-        let max_y = (effective_height - self.container_rect.size.height).max(0.0);
+        let (max_x, max_y) = self.max_scroll_offsets();
         LogicalPosition {
             x: position.x.max(0.0).min(max_x),
             y: position.y.max(0.0).min(max_y),
