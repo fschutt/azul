@@ -1036,6 +1036,20 @@ impl CpuBackend {
             cpurender::coalesce_damage_rects(&mut all_damage);
         }
 
+        // Per-frame paint-damage AREA into telemetry: the one number that
+        // says whether a scroll frame is thin strips or a full-window
+        // repaint. dpi^2 converts logical rects to physical px.
+        #[cfg(feature = "telemetry")]
+        {
+            let px: f64 = all_damage
+                .iter()
+                .map(|r| f64::from(r.size.width) * f64::from(r.size.height))
+                .sum::<f64>()
+                * f64::from(dpi_factor)
+                * f64::from(dpi_factor);
+            azul_layout::telemetry::record_paint_damage_pixels(px);
+        }
+
         // Build render state from the GPU value cache (opacity/transform) + scroll
         // offsets — the SAME construction the real X11/Wayland CPU paths use, so
         // this render_frame is reusable by them. The headless harness has an empty

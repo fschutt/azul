@@ -472,6 +472,8 @@ impl GlyphCache {
         is_hinted: bool,
         hint_correction: f32,
     ) -> Option<(&[CellAa], i32, i32)> {
+        let _p = crate::probe::Probe::span("glyph_cache_lcd_lookup");
+
         let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
         let subpx = text_subpixel_enabled();
 

@@ -105,6 +105,18 @@ pub const BYTES_BUCKETS: &[f64] = &[
     768.0e6, 1.024e9,
 ];
 
+/// `app_paint_damage_pixels` - per-frame PAINT damage area in physical px.
+/// The direct observable for "are scroll frames thin strips or full-window
+/// repaints" (2026-08-29: a 3px-per-tick scroll rasterized ~10ms/frame -
+/// this metric is what makes that inflation visible in Grafana).
+pub const PAINT_DAMAGE_PIXELS: &str = "app_paint_damage_pixels";
+
+/// Histogram bounds for pixel areas (1k px .. ~8M px, a 4K frame).
+pub const PIXELS_BUCKETS: &[f64] = &[
+    1_000.0, 4_000.0, 16_000.0, 64_000.0, 250_000.0, 500_000.0, 1_000_000.0, 2_000_000.0,
+    4_000_000.0, 8_000_000.0,
+];
+
 /// Hard ceiling on distinct series. A bug that turns a bounded dimension into
 /// an unbounded one (a file path, a document title) would otherwise take the
 /// backend down; here it costs one warning and dropped data points.
