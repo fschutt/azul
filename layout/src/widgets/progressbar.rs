@@ -380,18 +380,17 @@ impl ProgressBar {
 /// `bounds_px: None`) and the `VirtualView` callback (absolute pixel sizes
 /// computed from the node's known bounds, `Some((width, height))`).
 ///
-/// The split exists because the two contexts size differently: in normal flow
-/// the children can use CSS percentages of the container, but inside a
-/// `VirtualView` a child's percentage width does not resolve against the
-/// materialized bounds (engine gap, 2026-08-29 - the fill rendered
-/// full-width regardless of the percentage). The VV callback KNOWS its
-/// bounds in pixels, so it renders exact pixel sizes instead - which is also
-/// the more honest spelling for a bounds-aware renderer. In the bounds mode
-/// the container is additionally sized to `bounds - 2px borders` so its
-/// 1px border ring lands INSIDE the box: with the normal-flow sizing
-/// (content height + borders) the ring overflowed the VV node and was
-/// clipped away at the right and bottom ("oddly cut off", user report
-/// 2026-08-29).
+/// The split exists because the two contexts size differently. Percentages
+/// inside a `VirtualView` DO resolve correctly against the view's bounds
+/// (the child DOM lays out against its own viewport - it briefly resolved
+/// against the WINDOW, fixed 2026-08-29, pinned by
+/// `a_virtual_view_child_lays_out_against_the_view_bounds_not_the_window`),
+/// but the bounds mode stays PIXEL-based for what percentages cannot
+/// express: the container is sized to `bounds - 2px borders` so its 1px
+/// border ring lands INSIDE the box - with the normal-flow sizing (content
+/// height + borders) the ring overflowed the VV node and was clipped away
+/// at the right and bottom ("oddly cut off", user report 2026-08-29) - and
+/// the fill is an exact device-pixel split of the known content width.
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[must_use]
 fn render_bar_impl(bar: ProgressBar, bounds_px: Option<(f32, f32)>) -> Dom {

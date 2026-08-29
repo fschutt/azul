@@ -4262,6 +4262,32 @@ impl LayoutWindow {
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(), solver3::LayoutError> {
+        self.layout_dom_recursive_with_viewport(
+            styled_dom,
+            window_state,
+            renderer_resources,
+            system_callbacks,
+            debug_messages,
+            None,
+        )
+    }
+
+    /// [`layout_dom_recursive`](Self::layout_dom_recursive) with an explicit
+    /// CHILD viewport. A nested DOM (`VirtualView` content) is laid out
+    /// against ITS OWN box, not the window: the returned root fills the view
+    /// and percentage sizes resolve inside it. `None` = the window viewport
+    /// (the root DOM). Found 2026-08-29: a `width: 66%` child of a VV root
+    /// resolved against the 640px window instead of the 140px view and
+    /// painted "full width" after clipping.
+    pub fn layout_dom_recursive_with_viewport(
+        &mut self,
+        mut styled_dom: StyledDom,
+        window_state: &FullWindowState,
+        renderer_resources: &RendererResources,
+        system_callbacks: &ExternalSystemCallbacks,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        child_viewport: Option<LogicalRect>,
+    ) -> Result<(), solver3::LayoutError> {
         // Provide the window's dynamic-selector context BEFORE anything reads
         // styles: inline conditional properties (@media-style viewport rules,
         // theme/OS selectors on `CssPropertyWithConditions`) evaluate against
@@ -4301,6 +4327,7 @@ impl LayoutWindow {
                 renderer_resources,
                 system_callbacks,
                 debug_messages,
+                child_viewport,
             );
             self.layout_cache = saved_root_cache;
             return result;
@@ -4311,6 +4338,7 @@ impl LayoutWindow {
             renderer_resources,
             system_callbacks,
             debug_messages,
+            child_viewport,
         )
     }
 
@@ -4323,6 +4351,7 @@ impl LayoutWindow {
         renderer_resources: &RendererResources,
         system_callbacks: &ExternalSystemCallbacks,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        child_viewport: Option<LogicalRect>,
     ) -> Result<(), solver3::LayoutError> {
         // Optional memory-breakdown print for the CSS property cache and
         // the layout tree. Gated on `AZ_PROFILE=memory` (the flag word is
@@ -4357,10 +4386,13 @@ impl LayoutWindow {
             self.layout_cache.reset_incremental();
         }
 
-        let viewport = LogicalRect {
+        // A child DOM's viewport is ITS OWN box (the VirtualView bounds),
+        // not the window - percentages and the root's fill size resolve
+        // against it. See `layout_dom_recursive_with_viewport`.
+        let viewport = child_viewport.unwrap_or(LogicalRect {
             origin: LogicalPosition::zero(),
             size: window_state.size.dimensions,
-        };
+        });
 
         // Get the platform from system_style, falling back to compile-time detection
         let platform = self
@@ -6647,13 +6679,16 @@ impl LayoutWindow {
         // **RECURSIVE LAYOUT STEP**
         // Perform a full layout pass on the child DOM. This will recursively handle
         // any VirtualViews within this VirtualView. Ownership of the child DOM
-        // is transferred into `layout_results`.
-        self.layout_dom_recursive(
+        // is transferred into `layout_results`. The child's viewport is THIS
+        // view's bounds (content space, origin zero): the returned root fills
+        // the view and percentage sizes resolve against it, not the window.
+        self.layout_dom_recursive_with_viewport(
             child_styled_dom,
             window_state,
             renderer_resources,
             system_callbacks,
             debug_messages,
+            Some(LogicalRect::new(LogicalPosition::zero(), bounds.size)),
         )
         .ok()?;
 
@@ -19966,6 +20001,75 @@ mod autotest_generated {
         win.layout_and_generate_display_list(styled_dom, &ws, &rr, &sc, &mut dbg)
             .expect("layout must succeed on a well-formed DOM");
         win
+    }
+
+    /// THE CLASS (azpaint pressure meter, 2026-08-29): a `VirtualView` child
+    /// DOM was laid out against the WINDOW viewport, not the view's own
+    /// bounds — a percent-width child of the returned root resolved against
+    /// the window (66% of 640 instead of 66% of 140) and painted "full
+    /// width" after clipping. The child viewport must be the VV bounds: the
+    /// returned root fills the view, and percentages resolve inside it.
+    #[test]
+    fn a_virtual_view_child_lays_out_against_the_view_bounds_not_the_window() {
+        use azul_core::callbacks::{VirtualViewCallbackInfo, VirtualViewReturn};
+        use azul_core::refany::RefAny;
+
+        extern "C" fn half_split(
+            _data: RefAny,
+            info: VirtualViewCallbackInfo,
+        ) -> VirtualViewReturn {
+            let size = info.bounds.get_logical_size();
+            let rect = LogicalRect::new(LogicalPosition::zero(), size);
+            let dom = Dom::create_div()
+                .with_css("display: flex; flex-direction: row; height: 20px;")
+                .with_child(Dom::create_div().with_css("width: 50%; height: 20px;"))
+                .with_child(Dom::create_div().with_css("width: 50%; height: 20px;"));
+            VirtualViewReturn::with_dom(dom, rect, rect)
+        }
+
+        // body(0) > wrapper div(1, 140px wide) > virtual view(2, fills wrapper)
+        let dom = Dom::create_body().with_child(
+            Dom::create_div().with_css("width: 140px; height: 20px;").with_child(
+                Dom::create_virtual_view(
+                    RefAny::new(0_u8),
+                    azul_core::callbacks::VirtualViewCallback::create(half_split),
+                )
+                .with_css("width: 100%; height: 20px;"),
+            ),
+        );
+        let win = laid_out(StyledDom::create_from_dom(dom), 640.0, 480.0);
+
+        // The materialized child DOM is the first nested dom id.
+        let child_dom = win
+            .get_dom_ids()
+            .as_ref()
+            .iter()
+            .copied()
+            .find(|d| d.inner != 0)
+            .expect("the VirtualView must have materialized a child DOM");
+        let node = |n: usize| DomNodeId {
+            dom: child_dom,
+            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(n))),
+        };
+
+        // child root(0) > bar(1) + rest(2)
+        let root = win.get_node_size(node(0)).expect("child root laid out");
+        assert!(
+            (root.width - 140.0).abs() < 1.0,
+            "the child ROOT must fill the view bounds (140px), got {root:?} — \
+             a window-sized root means percents resolve against the window"
+        );
+        let bar = win.get_node_size(node(1)).expect("bar laid out");
+        assert!(
+            (bar.width - 70.0).abs() < 1.0,
+            "width:50% inside a 140px view must be 70px, got {bar:?} \
+             (320px = it resolved against the 640px window)"
+        );
+        let rest = win.get_node_size(node(2)).expect("rest laid out");
+        assert!(
+            (rest.width - 70.0).abs() < 1.0,
+            "the second 50% child must also be 70px, got {rest:?}"
+        );
     }
 
     /// THE CLASS (AzWidgets "TextInput not working", 2026-08-21): an IFC root
