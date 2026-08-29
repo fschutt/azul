@@ -142,10 +142,15 @@ Every slow frame also emits a `WARN` log record naming the scope, the
 duration and the document size, and the session's first one carries a
 one-shot system-info snapshot.
 
-`app_phase_seconds` is the exception that needs a line of code: `Probe`
-resolves its recording flag from `AZ_PROFILE`, so without
-`azul_layout::telemetry::enable_probe_bridge()` the phase histogram is
-silently empty — and an empty histogram is indistinguishable from a fast one.
+`app_phase_seconds` is armed automatically: `telemetry::init` calls
+`enable_probe_bridge()` whenever the resolved consent tier ships metrics, so
+a consenting run fills the phase histogram with no further switches. (It
+used to require a separate `enable_probe_bridge()` call - the histogram was
+silently empty otherwise, and an empty histogram is indistinguishable from a
+fast one.) `AZ_PROFILE` is unrelated to telemetry: it arms the same recorder
+for LOCAL consumers - agent/e2e debugging, `AZ_PROFILE=cpu` dumps,
+cross-frame phase diffs - and unknown tokens now warn with the valid list
+instead of parsing to nothing.
 
 ## Your own metrics
 
