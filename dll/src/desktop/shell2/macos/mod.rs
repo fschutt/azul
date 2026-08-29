@@ -1909,17 +1909,28 @@ define_class!(
                     ivars.cached_bitmap_stale.set(false);
 
                     // Copy the dirty rows (or everything, once, after a
-                    // (re)allocation) into the bitmap's pixel buffer.
+                    // (re)allocation) into the bitmap's pixel buffer. The
+                    // rep's stride is read back rather than assumed: AppKit
+                    // allocated the buffer (null planes), and a padded
+                    // `bytesPerRow` copied with the framebuffer's stride
+                    // would shear every row — which on screen looks exactly
+                    // like horizontally squashed, doubled text.
                     let stride = width * 4;
+                    let dst_stride = bitmap.bytesPerRow() as usize;
+                    debug_assert_eq!(
+                        dst_stride, stride,
+                        "NSBitmapImageRep padded bytesPerRow ({dst_stride}) past the requested {stride}"
+                    );
                     let dst = bitmap.bitmapData();
                     let span = (x1 - x0) * 4;
                     if !dst.is_null() && span > 0 {
                         for row in y0..y1 {
-                            let off = row * stride + x0 * 4;
-                            if off + span <= framebuffer.len() {
+                            let src_off = row * stride + x0 * 4;
+                            let dst_off = row * dst_stride + x0 * 4;
+                            if src_off + span <= framebuffer.len() {
                                 std::ptr::copy_nonoverlapping(
-                                    framebuffer.as_ptr().add(off),
-                                    dst.add(off),
+                                    framebuffer.as_ptr().add(src_off),
+                                    dst.add(dst_off),
                                     span,
                                 );
                             }

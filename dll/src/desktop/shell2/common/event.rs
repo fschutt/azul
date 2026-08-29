@@ -5096,20 +5096,35 @@ pub trait PlatformWindow {
             }
 
             CallbackChange::ToggleCursorVisibility => {
+                let mut changed = false;
                 if let Some(lw) = self.get_layout_window_mut() {
                     let now = azul_core::task::Instant::now();
+                    let before = lw.text_edit_manager.blink.is_visible;
                     if lw.text_edit_manager.blink.should_blink(&now) {
                         lw.text_edit_manager.blink.toggle_visibility();
                     } else {
                         lw.text_edit_manager.blink.set_visibility(true);
                     }
-                    // Regenerate display list with cursor rect toggled.
-                    // Future: use GPU opacity animation instead of display list rebuild.
-                    if let Some(dom_id) = lw.text_edit_manager.get_editing_dom_id() {
-                        lw.regenerate_display_list_for_dom(dom_id);
+                    changed = lw.text_edit_manager.blink.is_visible != before;
+                    // Regenerate only when visibility actually flipped. While
+                    // the user is typing, `should_blink` is false and the
+                    // caret is pinned visible — the old unconditional rebuild
+                    // made every 500ms blink tick a FULL display-list
+                    // regeneration (a fresh Arc, so even the damage diff's
+                    // ptr_eq skip never fired) for a frame that changed
+                    // nothing.
+                    // Future: use GPU opacity animation instead of a rebuild.
+                    if changed {
+                        if let Some(dom_id) = lw.text_edit_manager.get_editing_dom_id() {
+                            lw.regenerate_display_list_for_dom(dom_id);
+                        }
                     }
                 }
-                ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                if changed {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
             }
 
             CallbackChange::ResetCursorBlink => {

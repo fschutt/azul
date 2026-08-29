@@ -863,7 +863,11 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
             return None;
         }
         let empty = text_area.inner.get_text().is_empty();
-        set_placeholder_visible(&mut info, placeholder_node_id, empty);
+        // Transition-only for the same reason as the insert path below: a
+        // same-value placeholder write costs a full relayout.
+        if empty != before.is_empty() {
+            set_placeholder_visible(&mut info, placeholder_node_id, empty);
+        }
         let result = {
             let text_area = &mut *text_area;
             let inner_clone = text_area.inner.clone();
@@ -944,8 +948,15 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
     };
 
     if result.valid == TextInputValid::Yes {
-        // hide the placeholder text
-        set_placeholder_visible(&mut info, placeholder_node_id, false);
+        // Hide the placeholder — but only on the empty -> non-empty
+        // TRANSITION. The placeholder can only be showing when the pre-edit
+        // value was empty; re-writing the same `display`/`opacity` override
+        // on every accepted keystroke charged a FULL relayout per character
+        // (`display` is a geometry property, and the css chokepoint has no
+        // same-value early-out).
+        if text_area.inner.get_text().is_empty() {
+            set_placeholder_visible(&mut info, placeholder_node_id, false);
+        }
 
         mirror_insertion(&mut text_area.inner, &inserted_text, caret);
 
@@ -2620,19 +2631,33 @@ mod autotest_generated {
 
     #[test]
     fn text_input_mirrors_the_insertion_and_hides_the_placeholder() {
-        let data = RefAny::new(wrapper("ab"));
+        // The FIRST character into an empty area hides the placeholder...
+        let data = RefAny::new(wrapper(""));
         let (out, changes, nodes) = run(Env::typed("cd"), &data, default_on_text_input_inner);
 
         assert_eq!(out, Some(Update::DoNothing), "no hook means no refresh");
-        assert_eq!(read(&data).get_text(), "abcd");
+        assert_eq!(read(&data).get_text(), "cd");
         assert_eq!(
             opacity_writes(&changes),
             vec![(nodes.placeholder, 0.0)],
-            "typing hides the placeholder"
+            "the empty -> non-empty transition hides the placeholder"
         );
         assert!(
             text_writes(&changes).is_empty(),
             "the widget repainted the value itself; the engine owns the buffer"
+        );
+
+        // ...and a keystroke into an already-filled area writes NOTHING:
+        // the placeholder is already hidden, and re-writing the same
+        // display/opacity override charged a full relayout per character
+        // (2026-08-29). This test used to pin the redundant write.
+        let data = RefAny::new(wrapper("ab"));
+        let (out, changes, _) = run(Env::typed("cd"), &data, default_on_text_input_inner);
+        assert_eq!(out, Some(Update::DoNothing));
+        assert_eq!(read(&data).get_text(), "abcd");
+        assert!(
+            opacity_writes(&changes).is_empty(),
+            "no transition, no placeholder write: {changes:?}"
         );
     }
 
