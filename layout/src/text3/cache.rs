@@ -8747,6 +8747,22 @@ fn measure_run_advance<T: ParsedFontTrait>(
     }
 }
 
+/// Count of shaping calls that produced ZERO clusters because the resolved
+/// font was not loaded (or no font in the chain covered any character) —
+/// the "success, zero glyphs" channel that made the first character typed
+/// into a blank document invisible for three sessions. The pipeline stays
+/// permissive at runtime (a transiently missing font must not abort the
+/// whole layout), but the deficit is COUNTED and surfaced per layout pass in
+/// `FrameReport::font_shape_deficit`, where a test can pin it to zero.
+pub(crate) static FONT_SHAPE_DEFICIT: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+/// Drain [`FONT_SHAPE_DEFICIT`] (called once per layout pass by the funnel).
+#[must_use]
+pub fn take_font_shape_deficit() -> u32 {
+    FONT_SHAPE_DEFICIT.swap(0, core::sync::atomic::Ordering::Relaxed)
+}
+
 /// Shape text with per-character font fallback.
 ///
 /// Splits the text into segments by font coverage, shapes each segment with
@@ -8807,6 +8823,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                     text.chars().take(20).collect::<String>()
                 );
             }
+            FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             return Ok(Vec::new());
         };
         let font = if let Some(f) = loaded_fonts.get(font_id) {
@@ -8825,6 +8842,7 @@ fn shape_with_font_fallback<T: ParsedFontTrait>(
                     text.chars().take(20).collect::<String>()
                 );
             }
+            FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             return Ok(Vec::new());
         };
         // If segment covers the full text (overwhelmingly common), skip substr+fixup

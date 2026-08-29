@@ -891,6 +891,12 @@ fn the_first_character_typed_into_an_empty_editable_paints_glyphs() {
     let _ = lw.apply_text_changeset();
 
     assert_eq!(text_of(&lw, HOST), "X", "premise: the buffer half landed");
+    assert_eq!(
+        lw.frame_report_synced().font_shape_deficit,
+        0,
+        "no shaping call may have hit an unloaded font (the counted version \
+         of the invisible-first-character bug)"
+    );
     assert!(
         glyph_count(&lw) >= 1,
         "the first character of a blank document must PAINT, not just land in          the buffer — its font was never loaded by any full layout, and the          reshape path silently shaped it to zero glyphs"

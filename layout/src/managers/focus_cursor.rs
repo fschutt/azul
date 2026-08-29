@@ -66,8 +66,8 @@ pub struct FocusManager {
     /// A [`FocusTarget`] that could not be resolved because no layout existed
     /// yet, kept so it can be re-resolved as soon as one does.
     ///
-    /// `resolve_focus_target` answers `Ok(None)` with empty `layout_results`,
-    /// and every caller reads `Ok(None)` as "clear focus" — so a programmatic
+    /// `resolve_focus_target` used to answer `Ok(None)` with empty
+    /// `layout_results`, and every caller read that as "clear focus" — so a programmatic
     /// `set_focus` issued from a `create` callback (which runs BEFORE the first
     /// layout) vanished without a trace, and apps papered over it with a
     /// short timer. Drained by
@@ -84,13 +84,25 @@ pub struct FocusManager {
 /// back because the text layout was not available yet.
 pub const MAX_PENDING_FOCUS_RETRIES: u8 = 2;
 
-/// Outcome of resolving a [`FocusTarget`] through
-/// [`resolve_focus_target_or_defer`].
+/// Outcome of resolving a [`FocusTarget`] — the answer says WHY there is no
+/// node, not just that there is none.
+///
+/// The old shape (`Resolved(Option<DomNodeId>)`) conflated three different
+/// answers in `None`: "the app asked to clear focus", "the selector matched
+/// nothing", and "the tab order is empty" — and every caller applied all of
+/// them as a clear. A focus request that merely MISSED (a selector against a
+/// VirtualView that had not materialized yet, a Tab press with nothing
+/// tabbable) therefore DESTROYED the current focus/caret as a side effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusResolution {
-    /// The target resolved. `None` means "clear focus" (`FocusTarget::NoFocus`,
-    /// or a selector that matched nothing focusable) and MUST be applied.
-    Resolved(Option<DomNodeId>),
+    /// The target resolved to this node — apply it.
+    Resolved(DomNodeId),
+    /// The app explicitly asked for no focus (`FocusTarget::NoFocus`) —
+    /// apply the clear.
+    ClearRequested,
+    /// The target matched nothing (unmatched selector, empty tab order,
+    /// no layout to search). NOT a clear: callers keep the current focus.
+    NotFound,
     /// No layout existed yet, so the target was retained on the
     /// [`FocusManager`] and will be re-resolved after the first layout pass.
     /// Callers must leave the current focus alone.
@@ -515,7 +527,7 @@ fn nested_dom_ids(layout_results: &BTreeMap<DomId, DomLayoutResult>, host: DomId
 /// against yet.
 ///
 /// This is the entry point every focus-changing caller should use.
-/// [`resolve_focus_target`] cannot tell "nothing matched" from "nothing exists
+/// [`resolve_focus_target`] used to be unable to tell "nothing matched" from "nothing exists
 /// yet": both are `Ok(None)`, and callers apply that as "clear focus". A
 /// `set_focus` issued from a `create` callback — which runs before the first
 /// layout — was therefore dropped on the floor.
@@ -537,26 +549,31 @@ pub fn resolve_focus_target_or_defer(
     }
 
     let current_focus = focus_manager.get_focused_node().copied();
-    resolve_focus_target(focus_target, layout_results, current_focus).map(FocusResolution::Resolved)
+    resolve_focus_target(focus_target, layout_results, current_focus)
 }
 
-/// Resolve a `FocusTarget` to an actual `DomNodeId`
-///
-/// Prefer [`resolve_focus_target_or_defer`]: with empty `layout_results` this
-/// answers `Ok(None)`, which is indistinguishable from "clear focus".
+/// Resolve a `FocusTarget` to a [`FocusResolution`] (never `Deferred` —
+/// that variant belongs to [`resolve_focus_target_or_defer`], which parks
+/// targets that arrive before the first layout).
 ///
 /// # Errors
 ///
-/// Returns an `UpdateFocusWarning` if the focus target cannot be resolved.
+/// Returns an `UpdateFocusWarning` if the focus target names an invalid
+/// dom/node.
 pub fn resolve_focus_target(
     focus_target: &FocusTarget,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     current_focus: Option<DomNodeId>,
-) -> Result<Option<DomNodeId>, UpdateFocusWarning> {
+) -> Result<FocusResolution, UpdateFocusWarning> {
     use azul_core::callbacks::FocusTarget::{First, Id, Last, Next, NoFocus, Path, Previous};
 
+    // The explicit clear is answerable without any layout and must stay
+    // distinguishable from every kind of miss below.
+    if matches!(focus_target, NoFocus) {
+        return Ok(FocusResolution::ClearRequested);
+    }
     if layout_results.is_empty() {
-        return Ok(None);
+        return Ok(FocusResolution::NotFound);
     }
 
     let ctx = FocusSearchContext::new(layout_results);
@@ -565,7 +582,7 @@ pub fn resolve_focus_target(
         Path(FocusTargetPath { dom, css_path }) => {
             let layout = ctx.get_layout(dom)?;
             if let Some(found) = find_first_matching_focusable_node(layout, dom, css_path) {
-                return Ok(Some(found));
+                return Ok(FocusResolution::Resolved(found));
             }
             // A `VirtualView` mounts its callback's DOM as a SEPARATE layout
             // result under its own DomId. To the app that subtree is part of
@@ -585,10 +602,10 @@ pub fn resolve_focus_target(
                 if let Some(found) =
                     find_first_matching_focusable_node(nested_layout, &nested, css_path)
                 {
-                    return Ok(Some(found));
+                    return Ok(FocusResolution::Resolved(found));
                 }
             }
-            Ok(None)
+            Ok(FocusResolution::NotFound)
         }
 
         Id(dom_node_id) => {
@@ -599,7 +616,7 @@ pub fn resolve_focus_target(
                 .is_some_and(|n| layout.styled_dom.node_data.as_container().get(n).is_some());
 
             if is_valid {
-                Ok(Some(*dom_node_id))
+                Ok(FocusResolution::Resolved(*dom_node_id))
             } else {
                 Err(UpdateFocusWarning::FocusInvalidNodeId(dom_node_id.node))
             }
@@ -608,23 +625,28 @@ pub fn resolve_focus_target(
         // MWA-C-focus_cursor: sequential navigation goes through the W3C tab
         // order (positive tabindex ascending, then document order; -1
         // excluded) instead of the old raw-NodeId walk.
-        Previous => Ok(next_in_tab_order(
-            &collect_tab_order(layout_results),
-            current_focus,
-            false,
-        )),
+        Previous => Ok(
+            next_in_tab_order(&collect_tab_order(layout_results), current_focus, false)
+                .map_or(FocusResolution::NotFound, FocusResolution::Resolved),
+        ),
 
-        Next => Ok(next_in_tab_order(
-            &collect_tab_order(layout_results),
-            current_focus,
-            true,
-        )),
+        Next => Ok(
+            next_in_tab_order(&collect_tab_order(layout_results), current_focus, true)
+                .map_or(FocusResolution::NotFound, FocusResolution::Resolved),
+        ),
 
-        First => Ok(collect_tab_order(layout_results).first().copied()),
+        First => Ok(collect_tab_order(layout_results)
+            .first()
+            .copied()
+            .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
 
-        Last => Ok(collect_tab_order(layout_results).last().copied()),
+        Last => Ok(collect_tab_order(layout_results)
+            .last()
+            .copied()
+            .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
 
-        NoFocus => Ok(None),
+        // Handled by the early return above; kept for match exhaustiveness.
+        NoFocus => Ok(FocusResolution::ClearRequested),
     }
 }
 
@@ -1465,7 +1487,7 @@ mod autotest_generated {
     #[test]
     fn resolve_focus_target_empty_window_short_circuits_every_variant() {
         // The `layout_results.is_empty()` guard runs BEFORE any validation, so
-        // even a structurally invalid target resolves to `Ok(None)` — never Err,
+        // even a structurally invalid target resolves to `Ok(FocusResolution::NotFound)` — never Err,
         // never a panic.
         let empty = BTreeMap::new();
         let targets = vec![
@@ -1479,15 +1501,20 @@ mod autotest_generated {
             FocusTarget::Next,
             FocusTarget::First,
             FocusTarget::Last,
-            FocusTarget::NoFocus,
         ];
         for t in targets {
             assert_eq!(
                 resolve_focus_target(&t, &empty, Some(nid(0, 1))),
-                Ok(None),
+                Ok(FocusResolution::NotFound),
                 "empty window must short-circuit {t:?}"
             );
         }
+        // The explicit clear stays answerable — and distinguishable — even
+        // with no layout at all.
+        assert_eq!(
+            resolve_focus_target(&FocusTarget::NoFocus, &empty, Some(nid(0, 1))),
+            Ok(FocusResolution::ClearRequested),
+        );
     }
 
     #[test]
@@ -1532,11 +1559,11 @@ mod autotest_generated {
         let results = window(vec![(dom(0), tab_fixture())]);
         assert_eq!(
             resolve_focus_target(&FocusTarget::Id(nid(0, 0)), &results, None),
-            Ok(Some(nid(0, 0)))
+            Ok(FocusResolution::Resolved(nid(0, 0)))
         );
         assert_eq!(
             resolve_focus_target(&FocusTarget::Id(nid(0, 4)), &results, None),
-            Ok(Some(nid(0, 4)))
+            Ok(FocusResolution::Resolved(nid(0, 4)))
         );
     }
 
@@ -1557,14 +1584,14 @@ mod autotest_generated {
     fn resolve_focus_target_path_with_no_match_is_ok_none_not_err() {
         // NOTE: the doc comment on `find_first_matching_focusable_node` advertises
         // `Err(_)` for an unmatchable path, but the implementation returns
-        // `Ok(None)`. Pin the IMPLEMENTED behaviour (a miss is not an error);
+        // `Ok(FocusResolution::NotFound)`. Pin the IMPLEMENTED behaviour (a miss is not an error);
         // the doc comment is what is wrong here.
         let results = window(vec![(dom(0), tab_fixture())]);
         let target = FocusTarget::Path(FocusTargetPath {
             dom: dom(0),
             css_path: class_path("no-such-class"),
         });
-        assert_eq!(resolve_focus_target(&target, &results, None), Ok(None));
+        assert_eq!(resolve_focus_target(&target, &results, None), Ok(FocusResolution::NotFound));
     }
 
     /// A `VirtualView` mounts its DOM under its OWN DomId, so a selector the
@@ -1594,7 +1621,7 @@ mod autotest_generated {
         });
         assert_eq!(
             resolve_focus_target(&target, &results, None),
-            Ok(Some(nid(1, 1))),
+            Ok(FocusResolution::Resolved(nid(1, 1))),
             "the selector must resolve into the dom the VirtualView mounted; \
              answering None here is applied by every caller as 'clear focus', \
              which is why the editor opened with no caret"
@@ -1633,16 +1660,17 @@ mod autotest_generated {
         });
         assert_eq!(
             resolve_focus_target(&target, &results, None),
-            Ok(Some(nid(0, 1)))
+            Ok(FocusResolution::Resolved(nid(0, 1)))
         );
     }
 
     #[test]
-    fn resolve_focus_target_no_focus_is_always_none() {
+    fn resolve_focus_target_no_focus_is_an_explicit_clear() {
         let results = window(vec![(dom(0), tab_fixture())]);
         assert_eq!(
             resolve_focus_target(&FocusTarget::NoFocus, &results, Some(nid(0, 5))),
-            Ok(None)
+            Ok(FocusResolution::ClearRequested),
+            "the app's explicit clear must stay distinguishable from a miss"
         );
     }
 
@@ -1652,17 +1680,17 @@ mod autotest_generated {
         // Tab order is [5, 3, 2, 6, 7].
         assert_eq!(
             resolve_focus_target(&FocusTarget::First, &results, None),
-            Ok(Some(nid(0, 5))),
+            Ok(FocusResolution::Resolved(nid(0, 5))),
             "First must be the lowest positive tabindex, not document node 0"
         );
         assert_eq!(
             resolve_focus_target(&FocusTarget::Last, &results, None),
-            Ok(Some(nid(0, 7)))
+            Ok(FocusResolution::Resolved(nid(0, 7)))
         );
         // `current_focus` must not influence First/Last.
         assert_eq!(
             resolve_focus_target(&FocusTarget::First, &results, Some(nid(0, 7))),
-            Ok(Some(nid(0, 5)))
+            Ok(FocusResolution::Resolved(nid(0, 5)))
         );
     }
 
@@ -1672,19 +1700,19 @@ mod autotest_generated {
         let results = window(vec![(dom(0), sd)]);
         assert_eq!(
             resolve_focus_target(&FocusTarget::First, &results, None),
-            Ok(None)
+            Ok(FocusResolution::NotFound)
         );
         assert_eq!(
             resolve_focus_target(&FocusTarget::Last, &results, None),
-            Ok(None)
+            Ok(FocusResolution::NotFound)
         );
         assert_eq!(
             resolve_focus_target(&FocusTarget::Next, &results, None),
-            Ok(None)
+            Ok(FocusResolution::NotFound)
         );
         assert_eq!(
             resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 0))),
-            Ok(None)
+            Ok(FocusResolution::NotFound)
         );
     }
 
@@ -1694,20 +1722,20 @@ mod autotest_generated {
         // Tab order [5, 3, 2, 6, 7]: stepping off either end wraps.
         assert_eq!(
             resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 7))),
-            Ok(Some(nid(0, 5)))
+            Ok(FocusResolution::Resolved(nid(0, 5)))
         );
         assert_eq!(
             resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 5))),
-            Ok(Some(nid(0, 7)))
+            Ok(FocusResolution::Resolved(nid(0, 7)))
         );
         // ...and step normally in the middle.
         assert_eq!(
             resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 3))),
-            Ok(Some(nid(0, 2)))
+            Ok(FocusResolution::Resolved(nid(0, 2)))
         );
         assert_eq!(
             resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 2))),
-            Ok(Some(nid(0, 3)))
+            Ok(FocusResolution::Resolved(nid(0, 3)))
         );
     }
 
@@ -1720,14 +1748,14 @@ mod autotest_generated {
         // order's neighbour of any element.
         assert_eq!(
             resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 4))),
-            Ok(Some(nid(0, 3)))
+            Ok(FocusResolution::Resolved(nid(0, 3)))
         );
         // Focus on the plain, non-focusable div (index 1): Tab goes to the next
         // tab stop in DOCUMENT order (node 2, the button) — not to the tab
         // order's first entry (node 5).
         assert_eq!(
             resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 1))),
-            Ok(Some(nid(0, 2)))
+            Ok(FocusResolution::Resolved(nid(0, 2)))
         );
     }
 
@@ -1739,18 +1767,18 @@ mod autotest_generated {
         let stale = nid(0, 9_999);
         assert_eq!(
             resolve_focus_target(&FocusTarget::Next, &results, Some(stale)),
-            Ok(Some(nid(0, 5))),
+            Ok(FocusResolution::Resolved(nid(0, 5))),
             "no tab stop past node 9999 -> wrap to the first"
         );
         // A stale node in a DOM that isn't even mounted.
         let alien = nid(5, 1);
         assert_eq!(
             resolve_focus_target(&FocusTarget::Next, &results, Some(alien)),
-            Ok(Some(nid(0, 5)))
+            Ok(FocusResolution::Resolved(nid(0, 5)))
         );
         assert_eq!(
             resolve_focus_target(&FocusTarget::Previous, &results, Some(alien)),
-            Ok(Some(nid(0, 7)))
+            Ok(FocusResolution::Resolved(nid(0, 7)))
         );
     }
 

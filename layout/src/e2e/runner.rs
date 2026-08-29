@@ -1660,19 +1660,23 @@ impl Runner {
                     target,
                     &lw.layout_results,
                 ) {
-                    Ok(FocusResolution::Resolved(Some(new_focus))) => {
+                    Ok(FocusResolution::Resolved(new_focus)) => {
                         lw.focus_manager.set_focused_node(Some(new_focus));
                         lw.scroll_node_into_view(new_focus, ScrollIntoViewOptions::nearest(), now);
                         arm_caret_for_focus(lw, Some(new_focus), &window_state);
                         lw.finalize_pending_focus_changes();
                         ProcessEventResult::ShouldReRenderCurrentWindow
                     }
-                    Ok(FocusResolution::Resolved(None)) => {
+                    Ok(FocusResolution::ClearRequested) => {
                         lw.focus_manager.set_focused_node(None);
                         arm_caret_for_focus(lw, None, &window_state);
                         lw.finalize_pending_focus_changes();
                         ProcessEventResult::ShouldReRenderCurrentWindow
                     }
+                    // A MISS is not a clear: a selector that matched nothing
+                    // (e.g. a VirtualView that has not materialized yet) must
+                    // not destroy the current focus/caret.
+                    Ok(FocusResolution::NotFound) => ProcessEventResult::DoNothing,
                     Ok(FocusResolution::Deferred) => ProcessEventResult::DoNothing,
                     Err(_) => ProcessEventResult::DoNothing,
                 }
