@@ -4615,6 +4615,55 @@ pub trait PlatformWindow {
                     );
                     return ProcessEventResult::DoNothing;
                 }
+                // A widget handler running INSIDE a transient popup window (the
+                // combobox option click, a picker's day cell) closes "its" popup
+                // by naming the node it walked up to — but in the popup's
+                // extracted dom that node is the popup's own ROOT (the former
+                // `<transient-window>` node arrives here as a plain div), not a
+                // transient node this window hangs anything off. When the named
+                // node is not a `<transient-window>` of THIS dom, `open == false`
+                // and this window IS a transient popup, the request means "close
+                // the popup I am in": mirror the Escape dismissal — post
+                // `dismissed` to the parent's mailbox, close this window, and
+                // wake every window so the parent's next pass dismisses the node
+                // and fires `Dismissed` on it (where the widget's parent-side
+                // handler applies the selection to the field).
+                let is_transient_node_here = self.get_layout_window().is_some_and(|lw| {
+                    lw.layout_results
+                        .get(&azul_core::dom::DomId::ROOT_ID)
+                        .and_then(|r| {
+                            r.styled_dom
+                                .node_data
+                                .as_container()
+                                .get(node_id)
+                                .map(|n| {
+                                    matches!(
+                                        n.get_node_type(),
+                                        azul_core::dom::NodeType::TransientWindow(_)
+                                    )
+                                })
+                        })
+                        .unwrap_or(false)
+                });
+                if !is_transient_node_here && !*open {
+                    if super::transient::post_dismissed(self.get_current_window_state()) {
+                        log_debug!(
+                            super::debug_server::LogCategory::Window,
+                            "[transient] popup-side set_transient_window_open(false): \
+                             self-dismissing"
+                        );
+                        // Deferred close, exactly like CallbackChange::CloseWindow:
+                        // the backend's loop runs the close protocol. No baseline
+                        // snapshot here — we are mid-pass.
+                        self.get_common_mut()
+                            .update_window_state(WindowStateSource::App, |ws| {
+                                ws.flags.close_requested = true;
+                            });
+                        self.request_regeneration_all_windows();
+                        return ProcessEventResult::ShouldReRenderCurrentWindow;
+                    }
+                    return ProcessEventResult::DoNothing;
+                }
                 let changed = self
                     .get_layout_window_mut()
                     .is_some_and(|lw| lw.transient_windows.set_forced_open(node_id, *open));
@@ -11446,6 +11495,53 @@ mod tests {
         assert!(
             !body.contains("popUpMenuPositioningItem"),
             "it must never pop the menu up while &mut self is held"
+        );
+    }
+
+    /// A native menu's item action fires on the unwind of the nested tracking
+    /// run loop, which CONSUMED the click that chose the item — no NSEvent
+    /// follows it. In the manual event loop (the default termination
+    /// behaviour) the queued action tag is only drained by `drain_loop_work`,
+    /// so without a wake the selection's callback — and the repaint it asks
+    /// for — waited for the NEXT unrelated event ("the dropdown label updates
+    /// only when I move the mouse"). Two halves keep that from regressing:
+    ///
+    ///   1. `menuItemAction:` posts an app-defined NSEvent after queueing the
+    ///      tag, waking `runMode:beforeDate:` / `nextEventMatchingMask:`;
+    ///   2. every `present_pending_context_menu` call site drains the loop
+    ///      work immediately after the pop-up returns.
+    #[test]
+    fn a_menu_selection_never_waits_for_the_next_unrelated_event() {
+        const MACOS_MENU_RS: &str = include_str!("../macos/menu.rs");
+
+        let action = MACOS_MENU_RS
+            .find("fn menu_item_action")
+            .expect("menuItemAction: handler exists");
+        assert!(
+            MACOS_MENU_RS[action..].contains("postEvent_atStart"),
+            "menuItemAction: must post a wake event after queueing the tag"
+        );
+
+        // The definition takes `pending: &PendingContextMenu`; only CALLS
+        // match `(&`. Each of the three (GLView / CPUView presentPendingMenu:,
+        // right_mouse_up) must be followed by a drain.
+        let mut call_sites = 0usize;
+        let mut from = 0usize;
+        while let Some(i) = MACOS_MOD_RS[from..].find("present_pending_context_menu(&") {
+            let at = from + i;
+            call_sites += 1;
+            let after = &MACOS_MOD_RS[at..(at + 1600).min(MACOS_MOD_RS.len())];
+            assert!(
+                after.contains("drain_loop_work"),
+                "present_pending_context_menu call site #{call_sites} is not \
+                 followed by drain_loop_work — the picked item's action would \
+                 wait for the next unrelated event"
+            );
+            from = at + 1;
+        }
+        assert_eq!(
+            call_sites, 3,
+            "expected the three menu presenters (GLView, CPUView, right_mouse_up)"
         );
     }
 

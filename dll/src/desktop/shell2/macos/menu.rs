@@ -67,6 +67,39 @@ define_class!(
                     Ok(mut queue) => queue.push(tag),
                     Err(e) => log_warn!(LogCategory::Input, "[AzulMenuTarget] Menu action mutex poisoned: {}", e),
                 }
+
+                // WAKE THE EVENT LOOP. This action fires on the unwind of the
+                // menu's nested tracking run loop, which CONSUMED the click that
+                // chose the item — no NSEvent follows it. In the manual event
+                // loop (AppTerminationBehavior::EndProcess / ReturnToMain, the
+                // default) the queued tag is only drained by `drain_loop_work`,
+                // which runs when the loop iterates — so without a wake the
+                // selection's callback (and the repaint it asks for) waits for
+                // the NEXT unrelated event: the classic "the dropdown label
+                // updates only when I move the mouse". Post an app-defined
+                // NSEvent: it wakes both `runMode:beforeDate:` and
+                // `nextEventMatchingMask:`, forcing one full loop iteration.
+                // `process_event` routes unknown event types to a no-op arm, and
+                // under `NSApplication.run()` the event is simply discarded (the
+                // 33ms drain timer covers that mode), so posting is always safe.
+                if let Some(mtm) = MainThreadMarker::new() {
+                    use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType};
+                    use objc2_foundation::NSPoint;
+                    let wake = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
+                        NSEventType::ApplicationDefined,
+                        NSPoint::new(0.0, 0.0),
+                        NSEventModifierFlags::empty(),
+                        0.0,
+                        0,
+                        None,
+                        0,
+                        0,
+                        0,
+                    );
+                    if let Some(wake) = wake {
+                        NSApplication::sharedApplication(mtm).postEvent_atStart(&wake, false);
+                    }
+                }
             }
         }
     }

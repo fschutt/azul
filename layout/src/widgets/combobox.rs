@@ -777,14 +777,47 @@ extern "C" fn on_combobox_toggle(mut data: RefAny, mut info: CallbackInfo) -> Up
     Update::DoNothing
 }
 
-/// The popup dismissed itself (outside click / Escape). Clear `open` so the
-/// widget's flag matches reality — otherwise the next field click would "toggle
-/// off" an already-closed list and the user would have to click twice.
-extern "C" fn on_combobox_dismissed(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() else {
-        return Update::DoNothing;
+/// The popup dismissed itself (outside click / Escape / an option was picked
+/// INSIDE the popup window). Clear `open` so the widget's flag matches reality —
+/// otherwise the next field click would "toggle off" an already-closed list and
+/// the user would have to click twice.
+///
+/// This runs in the PARENT window (the `Dismissed` lifecycle event targets the
+/// `<transient-window>` node in the parent dom), so it is the one place a
+/// selection made inside the popup WINDOW can reach the parent's field node:
+/// [`on_combobox_option_click`] wrote the chosen label into the shared state but
+/// could not address the field from the popup's dom — apply it here. For a plain
+/// outside-click dismissal the state text is whatever the field already shows,
+/// so the write is a no-op (and an empty text is skipped so a never-touched
+/// field keeps its placeholder).
+extern "C" fn on_combobox_dismissed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let text = {
+        let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() else {
+            return Update::DoNothing;
+        };
+        combo.inner.open = false;
+        let text = combo.inner.text.clone();
+        if text.as_str().is_empty() {
+            None
+        } else {
+            Some(text)
+        }
     };
-    combo.inner.open = false;
+
+    // popup (= the event's target, the <transient-window> node) -> wrapper ->
+    // field -> label <p> -> text leaf, all in the parent dom.
+    if let Some(text) = text {
+        let popup = info.get_hit_node();
+        if let Some(wrapper) = info.get_parent(popup) {
+            if let Some(field) = info.get_first_child(wrapper) {
+                if let Some(text_box) = info.get_first_child(field) {
+                    if let Some(text_node) = info.get_first_child(text_box) {
+                        info.change_node_text(text_node, text);
+                    }
+                }
+            }
+        }
+    }
     Update::DoNothing
 }
 
@@ -848,11 +881,27 @@ fn on_combobox_key_down_inner(mut data: RefAny, mut info: CallbackInfo) -> Optio
 }
 
 /// Option click handler. The hit node is the clicked option's `<p>`; its index is
-/// the number of previous siblings. Its parent is the list; the list's parent is
-/// the wrapper, whose first child is the field, whose first child is the label
-/// `<p>`, whose only child is the text node.
-/// Fills the field with the option's label, sets `selected`, closes the list, and
-/// invokes the optional user callback.
+/// the number of previous siblings. Fills the field with the option's label, sets
+/// `selected`, closes the list, and invokes the optional user callback.
+///
+/// RUNS IN TWO DIFFERENT DOMS. The options list lives in a `<transient-window>`,
+/// so on a device this callback fires inside the POPUP's own window, whose DOM is
+/// the extracted subtree: `root div (the former transient node) > list > options`.
+/// The wrapper / field / label ancestors DO NOT EXIST there — the old
+/// walk-all-the-way-up version bailed out at `get_parent(popup) == None` and a
+/// click on an option did nothing at all. In a harness (or an inline-docked
+/// panel) the same callback runs against the PARENT dom, where the full chain
+/// exists. Every step below therefore works from the two ancestors both doms
+/// share (list, and the node above it), does the state + `on_select` work first,
+/// and treats the field re-text as best-effort:
+///
+///   * parent dom: `popup` is the `<transient-window>` node — closing it releases
+///     the engine's forced-open latch, and the field text is written directly;
+///   * popup dom: `popup` is the popup's ROOT — `set_transient_window_open(false)`
+///     on it is recognised by the shell as "this popup dismisses itself" (it posts
+///     `dismissed` to the parent's mailbox and closes the window), and the parent
+///     applies the field text in its `Dismissed` handler, where the parent's
+///     field node is addressable ([`on_combobox_dismissed`]).
 extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let option = info.get_hit_node();
 
@@ -864,28 +913,18 @@ extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo)
         cursor = prev;
     }
 
-    // option -> list -> <transient-window> -> wrapper. The popup window is an
-    // extra level the old absolutely-positioned panel did not have.
+    // option -> list -> popup. Both exist in the parent dom (popup = the
+    // `<transient-window>` node) AND in the popup window's dom (popup = root).
     let Some(list) = info.get_parent(option) else {
         return Update::DoNothing;
     };
     let Some(popup) = info.get_parent(list) else {
         return Update::DoNothing;
     };
-    let Some(wrapper) = info.get_parent(popup) else {
-        return Update::DoNothing;
-    };
-    let Some(field) = info.get_first_child(wrapper) else {
-        return Update::DoNothing;
-    };
-    let Some(text_box) = info.get_first_child(field) else {
-        return Update::DoNothing;
-    };
-    let Some(text_node) = info.get_first_child(text_box) else {
-        return Update::DoNothing;
-    };
 
-    let (label, inner, result) = {
+    // State + user callback BEFORE any DOM write, so an `items.get(index)` miss
+    // still aborts without a partial write.
+    let (label, result) = {
         let Some(mut combo) = data.downcast_mut::<ComboBoxStateWrapper>() else {
             return Update::DoNothing;
         };
@@ -899,17 +938,28 @@ extern "C" fn on_combobox_option_click(mut data: RefAny, mut info: CallbackInfo)
         let combo = &mut *combo;
         let result = match combo.on_select.as_mut() {
             Some(ComboBoxOnSelect { callback, refany }) => {
-                (callback.cb)(refany.clone(), info, inner.clone())
+                (callback.cb)(refany.clone(), info, inner)
             }
             None => Update::DoNothing,
         };
-        (label, inner, result)
+        (label, result)
     };
-    drop(inner);
 
-    // Fill the field with the chosen label and close the popup WINDOW.
-    info.change_node_text(text_node, label);
+    // Close the popup WINDOW (or, inside it, dismiss ourselves — see above).
     info.set_transient_window_open(popup, false);
+
+    // Fill the field with the chosen label — only reachable from the parent dom.
+    // Inside the popup this walk stops at `get_parent(root) == None` and the
+    // parent's `Dismissed` handler writes the text instead.
+    if let Some(wrapper) = info.get_parent(popup) {
+        if let Some(field) = info.get_first_child(wrapper) {
+            if let Some(text_box) = info.get_first_child(field) {
+                if let Some(text_node) = info.get_first_child(text_box) {
+                    info.change_node_text(text_node, label);
+                }
+            }
+        }
+    }
 
     result
 }
@@ -2691,6 +2741,164 @@ mod autotest_generated {
                 alloc::vec![(fx.text, String::from(*label))]
             );
         }
+    }
+
+    /// The dom shape an option click ACTUALLY runs against on a device: the
+    /// popup window's own dom, i.e. the `<transient-window>` subtree extracted
+    /// by `azul_core::transient::extract_subtree_as_dom` — root div (the former
+    /// transient node) > list > options, with NO wrapper/field above it.
+    /// Returns the styled popup dom plus the flattened option indices.
+    fn popup_window_fixture(items: &[&str]) -> (StyledDom, Vec<usize>) {
+        let fx = fixture(items);
+        let extracted = azul_core::transient::extract_subtree_as_dom(
+            &fx.styled,
+            NodeId::new(fx.popup),
+        )
+        .expect("the popup node is a <transient-window>, extraction must succeed");
+        assert!(
+            matches!(extracted.root.get_node_type(), NodeType::Div),
+            "inside its own window the transient container is a plain div"
+        );
+        let styled = StyledDom::create_from_dom(extracted);
+        let options = nodes_with_class(&styled, "__azul-native-combobox-option");
+        assert_eq!(options.len(), items.len());
+        // Extraction must carry the click callback AND the same shared RefAny
+        // allocation — that sharing is the only channel a popup-side pick has
+        // back to the parent's handlers.
+        let orig = fx.styled.node_data.as_ref()[fx.options[0]]
+            .get_callbacks()
+            .as_ref()[0]
+            .clone();
+        let copy = styled.node_data.as_ref()[options[0]]
+            .get_callbacks()
+            .as_ref()[0]
+            .clone();
+        assert_eq!(copy.callback.cb, on_combobox_option_click as usize);
+        assert_eq!(
+            copy.refany, orig.refany,
+            "the extracted option must share the parent's state RefAny"
+        );
+        (styled, options)
+    }
+
+    #[test]
+    fn option_click_inside_the_popup_window_selects_and_dismisses() {
+        // DEVICE BUG: clicking an option in the real popup window did NOTHING —
+        // the handler walked option -> list -> popup -> wrapper, and in the
+        // popup's extracted dom `get_parent(popup)` is None (the wrapper lives
+        // in the PARENT window's dom), so it bailed before touching the state,
+        // before the user callback, and before closing anything. Pin the fixed
+        // contract: state + on_select + a close request on the popup ROOT (the
+        // shell recognises that as "this popup dismisses itself"), and NO text
+        // write (there is no field in this dom to mis-address).
+        let labels = ["Apple", "Banana", "Cherry"];
+        let (styled, options) = popup_window_fixture(&labels);
+
+        let mut log = RefAny::new(SelectLog { calls: Vec::new() });
+        let mut data = RefAny::new(ComboBoxStateWrapper {
+            inner: ComboBoxState {
+                open: true,
+                selected: 0,
+                text: AzString::from(""),
+            },
+            items: sv(&labels),
+            on_select: Some(ComboBoxOnSelect {
+                callback: on_select_cb(record_select),
+                refany: log.clone(),
+            })
+            .into(),
+        });
+
+        let (update, changes) = run(
+            Env {
+                styled: Some(styled),
+                ..Env::default()
+            },
+            options[1],
+            data.clone(),
+            |r, ci| on_combobox_option_click(r, ci),
+        );
+
+        // The shared state is the SAME RefAny allocation the parent's handlers
+        // hold — this is the leg that makes the selection visible to the parent.
+        let inner = inner_of(&mut data);
+        assert_eq!(inner.selected, 1, "the pick must land in the shared state");
+        assert_eq!(inner.text.as_str(), "Banana");
+        assert!(!inner.open, "selecting closes the list");
+
+        assert_eq!(update, Update::RefreshDom, "the user callback's verdict");
+        let logged = log
+            .downcast_ref::<SelectLog>()
+            .expect("log payload survived");
+        assert_eq!(logged.calls.len(), 1, "on_select must fire inside the popup");
+        assert_eq!(logged.calls[0].selected, 1);
+
+        // Root of the extracted dom = flattened index 0.
+        assert_eq!(
+            transient_writes(&changes),
+            alloc::vec![(0, false)],
+            "the close request names the popup's ROOT — the shell's cue to \
+             dismiss the popup window itself",
+        );
+        assert!(
+            text_writes(&changes).is_empty(),
+            "no field exists in the popup dom — a text write here would land \
+             on an arbitrary node",
+        );
+    }
+
+    #[test]
+    fn dismissed_applies_the_popup_side_selection_to_the_field() {
+        // The parent-side half of the popup selection: `Dismissed` targets the
+        // <transient-window> node in the PARENT dom, and the handler must copy
+        // the shared state's text (written by the popup-side click) into the
+        // field's text leaf — the write the popup window could not address.
+        let fx = fixture(&["Apple", "Banana"]);
+        let mut data = state(&["Apple", "Banana"], "Banana", true, 1);
+
+        let (update, changes) = run(
+            Env {
+                styled: Some(fx.styled),
+                ..Env::default()
+            },
+            fx.popup,
+            data.clone(),
+            |r, ci| on_combobox_dismissed(r, ci),
+        );
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(!inner_of(&mut data).open, "Dismissed resyncs the open flag");
+        assert_eq!(
+            text_writes(&changes),
+            alloc::vec![(fx.text, String::from("Banana"))],
+            "the parent-side handler is where the popup's pick reaches the field",
+        );
+    }
+
+    #[test]
+    fn dismissed_with_no_text_keeps_the_placeholder() {
+        // An open-then-outside-click dismissal with nothing ever picked or
+        // typed: the shared text is empty, and writing "" would erase the
+        // placeholder the field was built with.
+        let fx = fixture(&["Apple"]);
+        let mut data = state(&["Apple"], "", true, 0);
+
+        let (update, changes) = run(
+            Env {
+                styled: Some(fx.styled),
+                ..Env::default()
+            },
+            fx.popup,
+            data.clone(),
+            |r, ci| on_combobox_dismissed(r, ci),
+        );
+
+        assert_eq!(update, Update::DoNothing);
+        assert!(!inner_of(&mut data).open);
+        assert!(
+            changes.is_empty(),
+            "an empty shared text must not blank the field's placeholder"
+        );
     }
 
     #[test]
