@@ -1965,6 +1965,51 @@ pub fn run(
         window_id
     );
 
+    // Install the app icon + tray requested via `App::set_app_icon` /
+    // `App::set_tray`, mirroring the macOS run(): AFTER the first window
+    // exists, because the icon renders through the DOM and needs the
+    // app-level font manager warm (the font registry scans on background
+    // threads; blocking on `request_fonts` here is the same wait the first
+    // layout does). This block existed only in the macOS run() before — on
+    // Linux, set_tray / set_app_icon were accepted and silently dropped.
+    if tray.is_some() || app_icon.is_some() {
+        let own = resources.font_manager.as_ref().map(|fm| {
+            let mut fm = fm.clone_shared();
+            if let Some(reg) = resources.font_registry.as_ref() {
+                let stacks = rust_fontconfig::config::tokenize_common_families(
+                    rust_fontconfig::OperatingSystem::current(),
+                );
+                reg.request_fonts(&stacks);
+                fm.replace_fc_cache(reg.shared_cache());
+            }
+            fm
+        });
+        match own.as_ref() {
+            Some(fm) => {
+                if let Some(spec) = app_icon.as_ref() {
+                    let outcome = crate::desktop::app_icon::set_app_icon(
+                        spec.as_str(),
+                        &resources.icon_provider,
+                        fm,
+                    );
+                    crate::plog_info!(
+                        "[app-icon] set_app_icon({:?}) -> {:?}",
+                        spec.as_str(),
+                        outcome
+                    );
+                }
+                if let Some(tray) = tray {
+                    crate::desktop::tray::install_tray(tray, &resources.icon_provider, fm);
+                }
+            }
+            None => {
+                crate::plog_warn!(
+                    "[tray] no app-level font manager; tray / app icon not installed"
+                );
+            }
+        }
+    }
+
     // Main event loop with multi-window support
     loop {
         // Get all active window IDs
