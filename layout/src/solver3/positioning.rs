@@ -271,7 +271,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 let Ok(size) = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),
-                    &containing_block_rect.size,
+                    // An abs-pos box resolves against its containing block's
+                    // RESOLVED rect — definite by construction here.
+                    &crate::solver3::geometry::ContainingBlock::definite(containing_block_rect.size),
                     intrinsic,
                     &node.box_props.unpack(),
                     &ctx.viewport_size,

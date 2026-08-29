@@ -40,6 +40,7 @@ use taffy::{AvailableSpace, LayoutInput, Line, Size as TaffySize};
 
 #[cfg(feature = "text_layout")]
 use crate::text3;
+use crate::solver3::geometry::ContainingBlock as CBTY;
 use crate::{
     debug_ifc_layout, debug_info, debug_log, debug_table_layout, debug_warning,
     font_traits::{
@@ -1355,7 +1356,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                 text_cache,
                 child_index,
                 LogicalPosition::zero(),
-                children_containing_block_size,
+                &CBTY::from_flattened_with_width_type(
+                    children_containing_block_size,
+                    constraints.available_width_type,
+                ),
                 &mut temp_positions,
                 &mut temp_scrollbar_reflow,
                 float_cache,
@@ -1618,7 +1622,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                     text_cache,
                     child_index,
                     LogicalPosition::zero(),
-                    children_containing_block_size,
+                    &CBTY::from_flattened_with_width_type(
+                        children_containing_block_size,
+                        constraints.available_width_type,
+                    ),
                     &mut tmp_positions,
                     &mut tmp_scrollbars,
                     float_cache,
@@ -1697,7 +1704,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                     let computed_size = crate::solver3::sizing::calculate_used_size_for_node(
                         ctx.styled_dom,
                         child_dom_id,
-                        &children_containing_block_size,
+                        &CBTY::from_flattened_with_width_type(
+                            children_containing_block_size,
+                            constraints.available_width_type,
+                        ),
                         intrinsic,
                         &child_bp,
                         &ctx.viewport_size,
@@ -1842,7 +1852,10 @@ fn layout_bfc<T: ParsedFontTrait>(
             let child_used_size = crate::solver3::sizing::calculate_used_size_for_node(
                 ctx.styled_dom,
                 child_dom_id,
-                &children_containing_block_size,
+                &CBTY::from_flattened_with_width_type(
+                    children_containing_block_size,
+                    constraints.available_width_type,
+                ),
                 intrinsic,
                 &child_node.box_props.unpack(),
                 &ctx.viewport_size,
@@ -2350,7 +2363,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                             text_cache,
                             child_index,
                             LogicalPosition::zero(),
-                            children_containing_block_size,
+                            &CBTY::from_flattened_with_width_type(
+                                children_containing_block_size,
+                                constraints.available_width_type,
+                            ),
                             &mut tmp_positions,
                             &mut tmp_scrollbars,
                             float_cache,
@@ -2443,7 +2459,10 @@ fn layout_bfc<T: ParsedFontTrait>(
                             text_cache,
                             child_index,
                             LogicalPosition::zero(),
-                            children_containing_block_size,
+                            &CBTY::from_flattened_with_width_type(
+                                children_containing_block_size,
+                                constraints.available_width_type,
+                            ),
                             &mut tmp_positions,
                             &mut tmp_scrollbars,
                             float_cache,
@@ -6137,7 +6156,10 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         let table_size = crate::solver3::sizing::calculate_used_size_for_node(
             ctx.styled_dom,
             Some(dom_id),
-            &containing_block_size,
+            &CBTY::from_flattened_with_width_type(
+                containing_block_size,
+                constraints.available_width_type,
+            ),
             intrinsic,
             &table_bp,
             &ctx.viewport_size,
@@ -6918,7 +6940,10 @@ fn measure_cell_content_width<T: ParsedFontTrait>(
         text_cache,
         cell_index,
         LogicalPosition::zero(),
-        cell_constraints.available_size,
+        &CBTY::from_flattened_with_width_type(
+            cell_constraints.available_size,
+            cell_constraints.available_width_type,
+        ),
         &mut temp_positions,
         &mut temp_scrollbar_reflow,
         &mut temp_float_cache,
@@ -7397,7 +7422,10 @@ fn layout_cell_for_height<T: ParsedFontTrait>(
             text_cache,
             cell_index,
             LogicalPosition::zero(),
-            cell_constraints.available_size,
+            &CBTY::from_flattened_with_width_type(
+                cell_constraints.available_size,
+                cell_constraints.available_width_type,
+            ),
             &mut temp_positions,
             &mut temp_scrollbar_reflow,
             &mut temp_float_cache,
@@ -8502,7 +8530,10 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
                     ctx.styled_dom,
                     Some(dom_id),
-                    &constraints.containing_block_size,
+                    &CBTY::from_flattened_with_width_type(
+                        constraints.containing_block_size,
+                        constraints.available_width_type,
+                    ),
                     intrinsic_size,
                     &box_props,
                     &ctx.viewport_size,
@@ -9012,7 +9043,10 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
                 ctx.styled_dom,
                 Some(dom_id),
-                &constraints.containing_block_size,
+                &CBTY::from_flattened_with_width_type(
+                    constraints.containing_block_size,
+                    constraints.available_width_type,
+                ),
                 intrinsic_size,
                 &box_props,
                 &ctx.viewport_size,
@@ -9229,7 +9263,10 @@ fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             let tentative_size = crate::solver3::sizing::calculate_used_size_for_node(
                 ctx.styled_dom,
                 Some(dom_id),
-                &constraints.containing_block_size,
+                &CBTY::from_flattened_with_width_type(
+                    constraints.containing_block_size,
+                    constraints.available_width_type,
+                ),
                 intrinsic_size,
                 &box_props,
                 &ctx.viewport_size,

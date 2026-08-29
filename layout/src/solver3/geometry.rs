@@ -14,6 +14,143 @@ use azul_css::props::{
     style::{StyleDirection, StyleTextOrientation},
 };
 
+/// The containing block a node's used size is resolved against — with each
+/// axis carrying whether it is a LENGTH or a measurement CONSTRAINT.
+///
+/// # Why this type exists
+///
+/// Taffy models available space as a sum type (`Definite` / `MinContent` /
+/// `MaxContent`) precisely so that "indefinite" is not representable as a
+/// float. The bridge used to flatten that into `f32::INFINITY`, and from that
+/// point on nothing downstream could tell 800px from no-constraint: `width:
+/// auto` stretch-fit to the infinity, `width: 100%` multiplied straight
+/// through it, and the persisted result became an infinite clip, a
+/// `u32::MAX`-wide compositor layer, and a ~900 GB pixmap request. Three
+/// separate fixes patched three separate leaks of the same erasure; this type
+/// removes the erasure. Inside sizing there is no flattened form to misuse —
+/// every consumer must say what an indefinite axis means for it.
+///
+/// # The `flattened` view
+///
+/// The legacy `LogicalSize` (INFINITY sentinel included) is still stored,
+/// because the layout CACHE is keyed on it (`classify_size_key` canonicalizes
+/// the indefinite axis and its slotting depends on the exact legacy values).
+/// Both views are built by one constructor from one input, so they cannot
+/// drift. Migrating the cache keys onto the typed axes is a follow-up; until
+/// then the flattened view is for KEYS, never for arithmetic.
+#[derive(Copy, Debug, Clone, PartialEq)]
+pub struct ContainingBlock {
+    /// The inline-axis constraint.
+    pub width: crate::text3::cache::AvailableSpace,
+    /// The block-axis constraint.
+    pub height: crate::text3::cache::AvailableSpace,
+    /// The exact `LogicalSize` the pre-typed code carried, for cache keys.
+    flattened: LogicalSize,
+}
+
+impl ContainingBlock {
+    /// A fully definite containing block — the normal layout case.
+    #[must_use]
+    pub const fn definite(size: LogicalSize) -> Self {
+        Self {
+            width: crate::text3::cache::AvailableSpace::Definite(size.width),
+            height: crate::text3::cache::AvailableSpace::Definite(size.height),
+            flattened: size,
+        }
+    }
+
+    /// Adopt a legacy flattened size, reading a non-finite axis as the
+    /// max-content constraint.
+    ///
+    /// The migration shim for call sites that have no semantic channel saying
+    /// WHICH measurement produced the sentinel. Max-content is the right
+    /// default: it is what `AvailableSpace::default()` is, and what every
+    /// pre-typed consumer effectively assumed ("no constraint, natural size").
+    #[must_use]
+    pub fn from_flattened(size: LogicalSize) -> Self {
+        Self {
+            width: axis_from_flattened(
+                size.width,
+                crate::text3::cache::AvailableSpace::MaxContent,
+            ),
+            height: axis_from_flattened(
+                size.height,
+                crate::text3::cache::AvailableSpace::MaxContent,
+            ),
+            flattened: size,
+        }
+    }
+
+    /// Adopt a legacy flattened size whose WIDTH sentinel's meaning is known
+    /// from a `LayoutConstraints::available_width_type` channel.
+    ///
+    /// A finite width is definite regardless of the channel (the channel
+    /// describes the pass, the number describes this box). The height axis has
+    /// never had a semantic channel, so a non-finite height reads as
+    /// max-content like [`Self::from_flattened`].
+    #[must_use]
+    pub fn from_flattened_with_width_type(
+        size: LogicalSize,
+        width_type: crate::text3::cache::AvailableSpace,
+    ) -> Self {
+        let width_kind = match width_type {
+            crate::text3::cache::AvailableSpace::MinContent => {
+                crate::text3::cache::AvailableSpace::MinContent
+            }
+            _ => crate::text3::cache::AvailableSpace::MaxContent,
+        };
+        Self {
+            width: axis_from_flattened(size.width, width_kind),
+            height: axis_from_flattened(
+                size.height,
+                crate::text3::cache::AvailableSpace::MaxContent,
+            ),
+            flattened: size,
+        }
+    }
+
+    /// Build from already-typed axes plus the legacy flattened view the
+    /// pre-typed code carried for this situation (cache keys).
+    #[must_use]
+    pub const fn from_axes(
+        width: crate::text3::cache::AvailableSpace,
+        height: crate::text3::cache::AvailableSpace,
+        flattened: LogicalSize,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            flattened,
+        }
+    }
+
+    /// The exact legacy `LogicalSize` — cache keys and other not-yet-migrated
+    /// consumers only. Never do arithmetic on this: a non-finite component is
+    /// a constraint, not a number.
+    #[must_use]
+    pub const fn flattened(&self) -> LogicalSize {
+        self.flattened
+    }
+}
+
+/// One axis of [`ContainingBlock::from_flattened`]: finite stays definite,
+/// a sentinel becomes `indefinite_kind`.
+///
+/// Small and `#[inline(never)]` on purpose (M12.7): the wasm lift mis-reads
+/// f32 loads inside large sizing functions, and every constructor above is
+/// called from them.
+#[inline(never)]
+fn axis_from_flattened(
+    v: f32,
+    indefinite_kind: crate::text3::cache::AvailableSpace,
+) -> crate::text3::cache::AvailableSpace {
+    if v.is_finite() {
+        crate::text3::cache::AvailableSpace::Definite(v)
+    } else {
+        indefinite_kind
+    }
+}
+
 #[derive(Copy, Debug, Clone, PartialEq, PartialOrd)]
 pub struct PositionedRectangle {
     /// The outer bounds of the rectangle

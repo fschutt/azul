@@ -867,7 +867,8 @@ fn compute_layout_with_fragmentation<T: ParsedFontTrait + Sync + 'static>(
                 text_cache,
                 root_idx,
                 adjusted_cb_pos,
-                cb_size,
+                // The page box is a definite containing block on both axes.
+                &crate::solver3::geometry::ContainingBlock::definite(cb_size),
                 &mut calculated_positions,
                 &mut reflow_needed_for_scrollbars,
                 &mut cache.float_cache,
@@ -2624,7 +2625,7 @@ where
             text_cache,
             0, // the root layout node
             LogicalPosition::zero(),
-            viewport.size,
+            &crate::solver3::geometry::ContainingBlock::definite(viewport.size),
             &mut page_positions,
             &mut tmp_scrollbars,
             &mut tmp_floats,

@@ -2024,6 +2024,35 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             height: available_height,
         };
 
+        // The TYPED containing block for everything that resolves a used size:
+        // built straight from Taffy's sum type, so "indefinite" never becomes a
+        // float on that path. The flattened `available_size` above remains for
+        // the text/inline constraint plumbing, where INFINITY genuinely encodes
+        // "unbounded line" inside the line breaker (stage-2 migration).
+        let typed_cb = {
+            let axis = |known: Option<f32>, pad_border: f32, avail: AvailableSpace| match known {
+                Some(k) => crate::text3::cache::AvailableSpace::Definite((k - pad_border).max(0.0)),
+                None => match avail {
+                    AvailableSpace::Definite(v) => crate::text3::cache::AvailableSpace::Definite(v),
+                    AvailableSpace::MinContent => crate::text3::cache::AvailableSpace::MinContent,
+                    AvailableSpace::MaxContent => crate::text3::cache::AvailableSpace::MaxContent,
+                },
+            };
+            crate::solver3::geometry::ContainingBlock::from_axes(
+                axis(
+                    inputs.known_dimensions.width,
+                    node_padding_width + node_border_width,
+                    inputs.available_space.width,
+                ),
+                axis(
+                    inputs.known_dimensions.height,
+                    node_padding_height + node_border_height,
+                    inputs.available_space.height,
+                ),
+                available_size,
+            )
+        };
+
         // NOTE: Scrollbar reservation is handled inside layout_bfc() where it subtracts
         // scrollbar width from children_containing_block_size. We do NOT subtract here
         // to avoid double-subtraction when compute_non_flex_layout delegates to
@@ -2232,7 +2261,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                             crate::solver3::sizing::calculate_used_size_for_node(
                                 self.ctx.styled_dom,
                                 Some(id),
-                                &constraints.containing_block_size,
+                                &typed_cb,
                                 intrinsic,
                                 &bp,
                                 &self.ctx.viewport_size,

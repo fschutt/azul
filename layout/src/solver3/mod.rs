@@ -1143,7 +1143,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     text_cache,
                     root_idx,
                     adjusted_cb_pos,
-                    cb_size,
+                    // The root's containing block is the viewport — definite
+                    // on both axes, always.
+                    &geometry::ContainingBlock::definite(cb_size),
                     &mut calculated_positions,
                     &mut reflow_needed_for_scrollbars,
                     &mut cache.float_cache,

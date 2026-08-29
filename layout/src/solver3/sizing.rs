@@ -26,6 +26,7 @@ use rust_fontconfig::FcFontCache;
 
 #[cfg(feature = "text_layout")]
 use crate::text3;
+use crate::text3::cache::AvailableSpace as Text3AvailableSpace;
 use crate::{
     font::parsed::ParsedFont,
     font_traits::{
@@ -1572,6 +1573,32 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
 ///    was the 2×f32 *struct* HFA — a single scalar f32 return is fine.)
 #[inline(never)]
 #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot pixel/coord path or to avoid churning call sites for a perf-neutral change)
+/// The AVAILABLE term of a shrink-to-fit width, per constraint kind.
+///
+/// shrink-to-fit = `min(max(preferred_minimum, available), preferred)`, so a
+/// min-content pass wants `available = 0` (clamps to the preferred minimum)
+/// and a max-content pass wants it unbounded (clamps to the preferred width).
+/// `f32::MAX` is safe as "unbounded" here — every caller immediately clamps
+/// with `.min(preferred)`, so it can never escape into a used size.
+///
+/// Small and `#[inline(never)]`: M12.7 — the wasm lift mis-reads f32 loads
+/// inside the ~6 KB sizing function these are called from.
+#[inline(never)]
+fn shrink_to_fit_available_width(cb_w: Text3AvailableSpace, bp: &BoxProps) -> f32 {
+    match cb_w {
+        Text3AvailableSpace::Definite(w) => (w
+            - bp.margin.left
+            - bp.margin.right
+            - bp.border.left
+            - bp.border.right
+            - bp.padding.left
+            - bp.padding.right)
+            .max(0.0),
+        Text3AvailableSpace::MinContent => 0.0,
+        Text3AvailableSpace::MaxContent => f32::MAX,
+    }
+}
+
 fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
     let aw = cb.width
         - bp.margin.left
@@ -1583,38 +1610,40 @@ fn auto_block_inline_size(cb: &LogicalSize, bp: &BoxProps) -> f32 {
     aw.max(0.0)
 }
 
-/// Stretch-fit inline size, or the max-content size when there is nothing to
-/// stretch to.
+/// The used inline size of an `auto` block-level box, per constraint kind.
 ///
 /// CSS Sizing 3 §5.1: stretch-fit is defined against a **definite** available
-/// size. Under a max-content constraint there is none — Taffy hands the bridge
-/// `AvailableSpace::MaxContent`, which `compute_non_flex_layout` deliberately
-/// turns into `f32::INFINITY` so text can report its intrinsic width — and an
-/// `auto` box must then resolve to its max-content contribution instead.
+/// size. Under a measurement constraint there is none, and the box resolves
+/// to its CONTRIBUTION of that constraint's kind — min-content under a
+/// min-content pass, max-content under a max-content pass. The pre-typed
+/// version of this helper only knew "not finite" and always answered
+/// max-content, which was subtly wrong for min-content passes; the typed axis
+/// makes the distinction expressible at all.
 ///
-/// Stretching to it produced an INFINITE used width that was persisted like any
-/// other, and infinity is not a number later stages survive: the display list
-/// built an infinite clip rect, `f32 as u32` saturated it to `u32::MAX` device
-/// pixels, and the CPU compositor asked for a ~900 GB pixmap. Downstream every
-/// scroll clamp computed from that box (`max_x`) is equally meaningless, so the
-/// box could not be scrolled either.
+/// (History: before any of this, `auto` stretch-fit against the flattened
+/// `f32::INFINITY` sentinel persisted an INFINITE used width — which became an
+/// infinite clip rect, a `u32::MAX`-wide compositor layer, and a ~900 GB
+/// pixmap request.)
 ///
-/// Kept as a separate small `#[inline(never)]` fn taking `&` args and returning
-/// `f32` for the same reason [`auto_block_inline_size`] is: the M12.7 remill
-/// lift mis-reads `cb.width` when the load happens inside the ~6 KB
+/// Kept as a separate small `#[inline(never)]` fn taking `&` args and
+/// returning `f32` for the same reason [`auto_block_inline_size`] is: the
+/// M12.7 remill lift mis-reads f32 loads inside the ~6 KB
 /// `calculate_used_size_for_node`.
 #[inline(never)]
-fn auto_block_inline_size_definite_or_max_content(
-    cb: &LogicalSize,
+fn auto_inline_size_for(
+    cb_w: Text3AvailableSpace,
     bp: &BoxProps,
+    min_content_width: f32,
     max_content_width: f32,
 ) -> f32 {
-    if cb.width.is_finite() {
-        auto_block_inline_size(cb, bp)
-    } else {
+    match cb_w {
+        Text3AvailableSpace::Definite(w) => {
+            auto_block_inline_size(&LogicalSize::new(w, 0.0), bp)
+        }
         // `.max(0.0)` also normalises a NaN intrinsic to 0 — an unmeasured box
         // is zero-sized, never a size that poisons everything downstream.
-        max_content_width.max(0.0)
+        Text3AvailableSpace::MinContent => min_content_width.max(0.0),
+        Text3AvailableSpace::MaxContent => max_content_width.max(0.0),
     }
 }
 
@@ -1631,12 +1660,27 @@ pub fn calculate_used_size_for_node(
     // (2×f32) the remill lift stages as an 8-byte double into a V register, and that
     // f64/d-register copyload mis-tracks to 0 in the wasm lift (single-f32 reads work,
     // the 64-bit one doesn't) — so cb + viewport arrived 0 and every width came out 0.
-    // A pointer arg lifts cleanly; the body reads only .width/.height (auto-deref).
-    containing_block_size: &LogicalSize,
+    // A pointer arg lifts cleanly. The typed `ContainingBlock` keeps that shape.
+    //
+    // TYPED on purpose: each axis says whether it is a LENGTH or a measurement
+    // CONSTRAINT, so no arm below can do arithmetic on an `f32::INFINITY`
+    // sentinel — the erasure that produced an infinite used size three
+    // different ways (auto stretch-fit, `width: 100%`, percent min-width).
+    cb: &super::geometry::ContainingBlock,
     intrinsic: IntrinsicSizes,
     box_props: &BoxProps,
     viewport_size: &LogicalSize,
 ) -> Result<LogicalSize> {
+    // The two axes, consumed all over the body. `Copy` enums — reading them
+    // out once keeps every use a plain register value (M12.7).
+    let cb_w = cb.width;
+    let cb_h = cb.height;
+    // For helpers that treat a non-finite base as "cannot resolve" (the min/max
+    // constraint resolvers): an indefinite axis travels as NaN, which their
+    // `is_finite` guard maps to None. NEVER used in arithmetic here.
+    let cbw_unresolvable_nan = cb_w.definite().unwrap_or(f32::NAN);
+    let cbh_unresolvable_nan = cb_h.definite().unwrap_or(f32::NAN);
+
     let Some(id) = dom_id else {
         // Anonymous boxes:
         // CSS 2.2 § 9.2.1.1: Anonymous boxes inherit from their enclosing box.
@@ -1648,13 +1692,13 @@ pub fn calculate_used_size_for_node(
         // Since anonymous boxes don't have a DOM node, we default to horizontal-tb.
         // The parent's writing mode is already reflected in containing_block_size.
         return Ok(LogicalSize::new(
-            // Same indefinite-available-space rule as the named case below: an
-            // anonymous box under a max-content constraint is max-content wide,
-            // not infinitely wide.
-            if containing_block_size.width.is_finite() {
-                containing_block_size.width
-            } else {
-                intrinsic.max_content_width.max(0.0)
+            // An anonymous box fills a definite containing block; under a
+            // measurement constraint it is exactly its contribution of that
+            // kind — never infinitely wide.
+            match cb_w {
+                Text3AvailableSpace::Definite(w) => w,
+                Text3AvailableSpace::MinContent => intrinsic.min_content_width.max(0.0),
+                Text3AvailableSpace::MaxContent => intrinsic.max_content_width.max(0.0),
             },
             if intrinsic.max_content_height > 0.0 {
                 intrinsic.max_content_height
@@ -1762,14 +1806,7 @@ pub fn calculate_used_size_for_node(
                 // orthogonal flows would require child block size as input (not yet implemented)
                 // +spec:width-calculation:a6fd29 - shrink-to-fit width for floats: min(max(preferred minimum, available), preferred)
                 // CSS 2.2 §10.3.5: For floats, auto width = shrink-to-fit
-                let available_width = (containing_block_size.width
-                    - box_props.margin.left
-                    - box_props.margin.right
-                    - box_props.border.left
-                    - box_props.border.right
-                    - box_props.padding.left
-                    - box_props.padding.right)
-                    .max(0.0);
+                let available_width = shrink_to_fit_available_width(cb_w, box_props);
                 let preferred_minimum = intrinsic.min_content_width;
                 let preferred = intrinsic.max_content_width;
                 preferred_minimum
@@ -1783,14 +1820,7 @@ pub fn calculate_used_size_for_node(
                 // +spec:intrinsic-sizing:087b57 - abspos automatic size is fit-content (shrink-to-fit)
                 // +spec:width-calculation:1661b4 - abs-pos non-replaced auto width uses shrink-to-fit (§10.3.7)
                 // shrink-to-fit = min(max(preferred_minimum, available), preferred)
-                let available_width = (containing_block_size.width
-                    - box_props.margin.left
-                    - box_props.margin.right
-                    - box_props.border.left
-                    - box_props.border.right
-                    - box_props.padding.left
-                    - box_props.padding.right)
-                    .max(0.0);
+                let available_width = shrink_to_fit_available_width(cb_w, box_props);
                 let preferred_minimum = intrinsic.min_content_width;
                 let preferred = intrinsic.max_content_width;
                 preferred_minimum
@@ -1832,9 +1862,10 @@ pub fn calculate_used_size_for_node(
                         // return comes back in D0 as the call's SSA result (opt can't forward
                         // the init over it), and with D8-D15 preserved across calc's later
                         // calls the value survives to the return.
-                        auto_block_inline_size_definite_or_max_content(
-                            containing_block_size,
+                        auto_inline_size_for(
+                            cb_w,
                             box_props,
+                            intrinsic.min_content_width,
                             intrinsic.max_content_width,
                         )
                     }
@@ -1843,14 +1874,8 @@ pub fn calculate_used_size_for_node(
                     | LayoutDisplay::InlineFlex => {
                         // +spec:width-calculation:c01de8 - inline-block auto width uses shrink-to-fit (§10.3.9)
                         // shrink-to-fit = min(max(preferred_minimum, available), preferred)
-                        let available_width = (containing_block_size.width
-                            - box_props.margin.left
-                            - box_props.margin.right
-                            - box_props.border.left
-                            - box_props.border.right
-                            - box_props.padding.left
-                            - box_props.padding.right)
-                            .max(0.0);
+                        let available_width =
+                            shrink_to_fit_available_width(cb_w, box_props);
                         let preferred_minimum = intrinsic.min_content_width;
                         let preferred = intrinsic.max_content_width;
                         preferred_minimum
@@ -1873,14 +1898,21 @@ pub fn calculate_used_size_for_node(
                         if intrinsic.max_content_width > 0.0 {
                             intrinsic.max_content_width
                         } else {
-                            (containing_block_size.width
-                                - box_props.margin.left
-                                - box_props.margin.right
-                                - box_props.border.left
-                                - box_props.border.right
-                                - box_props.padding.left
-                                - box_props.padding.right)
-                                .max(0.0)
+                            // A definite containing block lets an unmeasured
+                            // cell expand for measurement. Under a measurement
+                            // CONSTRAINT there is nothing to expand into — the
+                            // old sentinel arithmetic made this infinite; an
+                            // unmeasured cell contributes zero until the table
+                            // algorithm assigns real column widths.
+                            cb_w.definite().map_or(0.0, |w| {
+                                (w - box_props.margin.left
+                                    - box_props.margin.right
+                                    - box_props.border.left
+                                    - box_props.border.right
+                                    - box_props.padding.left
+                                    - box_props.padding.right)
+                                    .max(0.0)
+                            })
                         }
                     }
                     // Other display types use intrinsic sizing
@@ -1901,13 +1933,20 @@ pub fn calculate_used_size_for_node(
 
             pixels_opt.unwrap_or_else(|| {
                 px.to_percent().map_or(intrinsic.max_content_width, |p| {
-                    resolve_percentage_with_box_model(
-                        containing_block_size.width,
-                        p.get(),
-                        (box_props.margin.left, box_props.margin.right),
-                        (box_props.border.left, box_props.border.right),
-                        (box_props.padding.left, box_props.padding.right),
-                    )
+                    // css-sizing-3 §5.2.1: a percentage against an indefinite
+                    // size behaves as auto — the contribution of the pass's
+                    // kind, never sentinel arithmetic.
+                    match cb_w {
+                        Text3AvailableSpace::Definite(w) => resolve_percentage_with_box_model(
+                            w,
+                            p.get(),
+                            (box_props.margin.left, box_props.margin.right),
+                            (box_props.border.left, box_props.border.right),
+                            (box_props.padding.left, box_props.padding.right),
+                        ),
+                        Text3AvailableSpace::MinContent => intrinsic.min_content_width,
+                        Text3AvailableSpace::MaxContent => intrinsic.max_content_width,
+                    }
                 })
             })
         }
@@ -1921,9 +1960,13 @@ pub fn calculate_used_size_for_node(
         LayoutWidth::FitContent(px) => {
             let em = get_element_font_size(styled_dom, id, node_state);
             let rem = super::getters::get_root_font_size(styled_dom, node_state);
+            // An indefinite basis travels as NaN: a percent argument then
+            // resolves to NaN, the fit-content formula propagates it, and the
+            // non-finite net below lands on the content contribution — the
+            // behaves-as-auto outcome, without sentinel arithmetic.
             let arg = super::calc::resolve_pixel_value_with_viewport(
                 &px,
-                containing_block_size.width,
+                cbw_unresolvable_nan,
                 em,
                 rem,
                 viewport_size.width,
@@ -1941,7 +1984,13 @@ pub fn calculate_used_size_for_node(
                 em_size: em,
                 rem_size: DEFAULT_FONT_SIZE,
             };
-            super::calc::evaluate_calc(&calc_ctx, containing_block_size.width)
+            // A calc() with percent terms against an indefinite basis behaves
+            // as auto, like the plain percentage above.
+            match cb_w {
+                Text3AvailableSpace::Definite(w) => super::calc::evaluate_calc(&calc_ctx, w),
+                Text3AvailableSpace::MinContent => intrinsic.min_content_width,
+                Text3AvailableSpace::MaxContent => intrinsic.max_content_width,
+            }
         }
     };
     // css-sizing-3: "the used value is floored to preserve a non-negative inner size"
@@ -2004,19 +2053,19 @@ pub fn calculate_used_size_for_node(
                 if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed)
                     && !is_replaced
                 {
+                    // §10.6.4 solves the height from the insets only against
+                    // a DEFINITE containing block; under a measurement
+                    // constraint there is no block to inset from, so the auto
+                    // (content height) fallback below applies.
                     let off = crate::solver3::positioning::resolve_position_offsets(
                         styled_dom,
                         dom_id,
-                        *containing_block_size,
+                        cb.flattened(),
                         *viewport_size,
                     );
-                    match (off.top, off.bottom) {
-                        (Some(t), Some(b)) => Some(
-                            (containing_block_size.height
-                                - t
-                                - b
-                                - box_props.margin.top
-                                - box_props.margin.bottom)
+                    match (off.top, off.bottom, cb_h.definite()) {
+                        (Some(t), Some(b), Some(cbh)) => Some(
+                            (cbh - t - b - box_props.margin.top - box_props.margin.bottom)
                                 .max(0.0),
                         ),
                         _ => None,
@@ -2059,13 +2108,19 @@ pub fn calculate_used_size_for_node(
             // +spec:height-calculation:37bc8c - percentage heights resolve against definite containing block height
             pixels_opt.unwrap_or_else(|| {
                 px.to_percent().map_or(intrinsic.max_content_height, |p| {
-                    resolve_percentage_with_box_model(
-                        containing_block_size.height,
-                        p.get(),
-                        (box_props.margin.top, box_props.margin.bottom),
-                        (box_props.border.top, box_props.border.bottom),
-                        (box_props.padding.top, box_props.padding.bottom),
-                    )
+                    // Percentage against an indefinite block size behaves as
+                    // auto = the content height. (Both measurement kinds map
+                    // to max-content here: "min-content height" is height at
+                    // min-content WIDTH, not a shorter height.)
+                    cb_h.definite().map_or(intrinsic.max_content_height, |h| {
+                        resolve_percentage_with_box_model(
+                            h,
+                            p.get(),
+                            (box_props.margin.top, box_props.margin.bottom),
+                            (box_props.border.top, box_props.border.bottom),
+                            (box_props.padding.top, box_props.padding.bottom),
+                        )
+                    })
                 })
             })
         }
@@ -2078,9 +2133,10 @@ pub fn calculate_used_size_for_node(
         LayoutHeight::FitContent(px) => {
             let em = get_element_font_size(styled_dom, id, node_state);
             let rem = super::getters::get_root_font_size(styled_dom, node_state);
+            // NaN routing as in the width fit-content arm.
             let arg = super::calc::resolve_pixel_value_with_viewport(
                 &px,
-                containing_block_size.height,
+                cbh_unresolvable_nan,
                 em,
                 rem,
                 viewport_size.width,
@@ -2097,7 +2153,10 @@ pub fn calculate_used_size_for_node(
                 em_size: em,
                 rem_size: DEFAULT_FONT_SIZE,
             };
-            super::calc::evaluate_calc(&calc_ctx, containing_block_size.height)
+            // Same indefinite-basis rule as the width calc arm.
+            cb_h.definite().map_or(intrinsic.max_content_height, |h| {
+                super::calc::evaluate_calc(&calc_ctx, h)
+            })
         }
     };
     // css-sizing-3: "the used value is floored to preserve a non-negative inner size"
@@ -2135,14 +2194,19 @@ pub fn calculate_used_size_for_node(
             } else if height_is_auto && !has_intrinsic_width && !has_intrinsic_height {
                 // §6.2 case: both auto, has ratio but no intrinsic width or height
                 // → use block-level non-replaced constraint equation for width
-                let block_width = (containing_block_size.width
-                    - box_props.margin.left
-                    - box_props.margin.right
-                    - box_props.border.left
-                    - box_props.border.right
-                    - box_props.padding.left
-                    - box_props.padding.right)
-                    .max(0.0);
+                // The §6.2 block constraint equation needs a definite inline
+                // size; under a measurement constraint fall back to the
+                // element's content contribution instead of stretching to a
+                // sentinel.
+                let block_width = cb_w.definite().map_or(intrinsic.max_content_width, |w| {
+                    (w - box_props.margin.left
+                        - box_props.margin.right
+                        - box_props.border.left
+                        - box_props.border.right
+                        - box_props.padding.left
+                        - box_props.padding.right)
+                        .max(0.0)
+                });
                 (block_width, block_width / ratio)
             } else {
                 (resolved_width, resolved_height)
@@ -2207,8 +2271,11 @@ pub fn calculate_used_size_for_node(
             node_state,
             resolved_width,
             resolved_height,
-            containing_block_size.width,
-            containing_block_size.height,
+            // Indefinite axes travel as NaN: percent min/max constraints
+            // against them are unresolvable and resolve_px_with_box_model
+            // maps a non-finite basis to None (min -> 0, max -> unbounded).
+            cbw_unresolvable_nan,
+            cbh_unresolvable_nan,
             box_props,
         )
     } else {
@@ -2218,7 +2285,7 @@ pub fn calculate_used_size_for_node(
             id,
             node_state,
             resolved_width,
-            containing_block_size.width,
+            cbw_unresolvable_nan,
             box_props,
         );
 
@@ -2227,7 +2294,7 @@ pub fn calculate_used_size_for_node(
             id,
             node_state,
             resolved_height,
-            containing_block_size.height,
+            cbh_unresolvable_nan,
             box_props,
         );
         (cw, ch)
@@ -3066,51 +3133,65 @@ mod autotest_generated {
     }
 
     #[test]
-    fn an_indefinite_containing_block_resolves_auto_to_max_content_not_infinity() {
-        // Taffy's MinContent/MaxContent measurement passes hand the bridge an
-        // INFINITE available width on purpose. Stretching to it produced an
-        // infinite used width that was then persisted, and infinity is not a
-        // number later stages survive — it became a `u32::MAX`-wide compositor
-        // layer and a ~900 GB pixmap request.
-        let r = auto_block_inline_size_definite_or_max_content(
-            &size(f32::INFINITY, 0.0),
-            &props(10.0, 2.0, 5.0),
-            420.0,
+    fn an_auto_width_answers_each_constraint_kind_with_its_own_contribution() {
+        // Definite stretches; a MIN-content pass gets the min-content
+        // contribution and a MAX-content pass the max-content one. The
+        // pre-typed helper could only say "not finite" and answered
+        // max-content for both — wrong for every min-content measurement.
+        let bp = props(10.0, 2.0, 5.0);
+        assert_eq!(
+            auto_inline_size_for(Text3AvailableSpace::Definite(800.0), &bp, 120.0, 420.0),
+            766.0,
+            "800 - (10+2+5)*2, exactly as the untyped stretch-fit did"
         );
         assert_eq!(
-            r, 420.0,
-            "auto under a max-content constraint is max-content"
+            auto_inline_size_for(Text3AvailableSpace::MinContent, &bp, 120.0, 420.0),
+            120.0,
         );
-    }
-
-    #[test]
-    fn a_definite_containing_block_still_stretch_fits() {
-        // The guard must be invisible to every layout that was already correct:
-        // 800 - (10+2+5)*2 = 766, exactly as before.
-        let r = auto_block_inline_size_definite_or_max_content(
-            &size(800.0, 600.0),
-            &props(10.0, 2.0, 5.0),
+        assert_eq!(
+            auto_inline_size_for(Text3AvailableSpace::MaxContent, &bp, 120.0, 420.0),
             420.0,
         );
-        assert_eq!(r, 766.0);
     }
 
     #[test]
-    fn auto_inline_size_is_finite_for_every_containing_block() {
-        // Including the cases that reach this from a measurement pass with an
-        // unmeasured (NaN/negative) intrinsic — a zero-width box is recoverable,
-        // a non-finite one poisons the display list, the clip and the scroll clamp.
-        for cb in [f32::INFINITY, f32::NEG_INFINITY, f32::NAN, 800.0, -800.0] {
-            for mc in [420.0, 0.0, -1.0, f32::NAN] {
-                let r = auto_block_inline_size_definite_or_max_content(
-                    &size(cb, 0.0),
-                    &props(1.0, 1.0, 1.0),
-                    mc,
-                );
-                assert!(r.is_finite(), "cb={cb} max_content={mc} produced {r}");
-                assert!(r >= 0.0, "cb={cb} max_content={mc} produced {r}");
+    fn auto_inline_size_is_finite_for_every_constraint_and_intrinsic() {
+        // Including unmeasured (NaN/negative) intrinsics — a zero-width box is
+        // recoverable, a non-finite one poisons the display list, the clip and
+        // the scroll clamp.
+        let kinds = [
+            Text3AvailableSpace::Definite(800.0),
+            Text3AvailableSpace::Definite(-800.0),
+            Text3AvailableSpace::MinContent,
+            Text3AvailableSpace::MaxContent,
+        ];
+        for cbw in kinds {
+            for c in [420.0, 0.0, -1.0, f32::NAN] {
+                let r = auto_inline_size_for(cbw, &props(1.0, 1.0, 1.0), c, c);
+                assert!(r.is_finite(), "{cbw:?} content={c} produced {r}");
+                assert!(r >= 0.0, "{cbw:?} content={c} produced {r}");
             }
         }
+    }
+
+    #[test]
+    fn shrink_to_fit_available_width_clamps_to_the_right_contribution() {
+        // min(max(pref_min, available), preferred): 0 under min-content pins
+        // the minimum, MAX under max-content pins the preferred — and the MAX
+        // can never escape because every caller clamps with `.min(preferred)`.
+        let bp = props(10.0, 2.0, 5.0);
+        assert_eq!(
+            shrink_to_fit_available_width(Text3AvailableSpace::Definite(800.0), &bp),
+            766.0
+        );
+        assert_eq!(
+            shrink_to_fit_available_width(Text3AvailableSpace::MinContent, &bp),
+            0.0
+        );
+        assert_eq!(
+            shrink_to_fit_available_width(Text3AvailableSpace::MaxContent, &bp),
+            f32::MAX
+        );
     }
 
     #[test]
@@ -3951,6 +4032,19 @@ mod autotest_generated {
     }
 
     fn used_size(dom: &StyledDom, id: NodeId, cb: LogicalSize, bp: &BoxProps) -> LogicalSize {
+        // Legacy-shaped entry: adopt the flattened size the way migration call
+        // sites do (non-finite axis -> max-content).
+        let cb = crate::solver3::geometry::ContainingBlock::from_flattened(cb);
+        calculate_used_size_for_node(dom, Some(id), &cb, IntrinsicSizes::default(), bp, &VIEWPORT)
+            .expect("used size")
+    }
+
+    fn used_size_typed(
+        dom: &StyledDom,
+        id: NodeId,
+        cb: crate::solver3::geometry::ContainingBlock,
+        bp: &BoxProps,
+    ) -> LogicalSize {
         calculate_used_size_for_node(dom, Some(id), &cb, IntrinsicSizes::default(), bp, &VIEWPORT)
             .expect("used size")
     }
@@ -3961,8 +4055,9 @@ mod autotest_generated {
         let cb = size(800.0, 600.0);
         let bp = zero_props();
 
+        let tcb = crate::solver3::geometry::ContainingBlock::from_flattened(cb);
         let r =
-            calculate_used_size_for_node(&dom, None, &cb, isz(0.0, 0.0, 0.0, 42.0), &bp, &VIEWPORT)
+            calculate_used_size_for_node(&dom, None, &tcb, isz(0.0, 0.0, 0.0, 42.0), &bp, &VIEWPORT)
                 .expect("anonymous box");
         assert_eq!(r.width, 800.0);
         assert_eq!(r.height, 42.0);
@@ -3970,7 +4065,7 @@ mod autotest_generated {
         // A non-positive content height means "auto" — resolved later from the
         // laid-out children, so 0.0 (not the negative value) is stored now.
         let r =
-            calculate_used_size_for_node(&dom, None, &cb, isz(0.0, 0.0, 0.0, -5.0), &bp, &VIEWPORT)
+            calculate_used_size_for_node(&dom, None, &tcb, isz(0.0, 0.0, 0.0, -5.0), &bp, &VIEWPORT)
                 .expect("anonymous box");
         assert_eq!(r.height, 0.0);
     }
@@ -4025,6 +4120,60 @@ mod autotest_generated {
             r.width.is_finite() && r.height.is_finite(),
             "percent against an indefinite CB must behave as auto, got {r:?}"
         );
+    }
+
+    #[test]
+    fn an_auto_width_under_a_min_content_pass_is_its_min_content_contribution() {
+        // The interim (pre-typed) fix answered max-content for EVERY
+        // indefinite containing block, because `f32::INFINITY` cannot say
+        // which measurement produced it. The typed axis can — and a
+        // min-content pass must get the min-content contribution, or every
+        // auto block reports the same number for both passes and shrink-to-fit
+        // collapses to a constant.
+        use crate::solver3::geometry::ContainingBlock;
+        use crate::text3::cache::AvailableSpace;
+        let dom = constraints_dom();
+        let bp = zero_props();
+        let min_cb = ContainingBlock::from_axes(
+            AvailableSpace::MinContent,
+            AvailableSpace::MaxContent,
+            size(f32::INFINITY, f32::INFINITY),
+        );
+        let max_cb = ContainingBlock::from_flattened(size(f32::INFINITY, f32::INFINITY));
+        let intrinsic = isz(120.0, 420.0, 0.0, 30.0);
+        let r_min = calculate_used_size_for_node(
+            &dom, Some(AUTOBLOCK), &min_cb, intrinsic, &bp, &VIEWPORT,
+        )
+        .expect("min pass");
+        let r_max = calculate_used_size_for_node(
+            &dom, Some(AUTOBLOCK), &max_cb, intrinsic, &bp, &VIEWPORT,
+        )
+        .expect("max pass");
+        assert_eq!(r_min.width, 120.0, "min-content pass -> min-content width");
+        assert_eq!(r_max.width, 420.0, "max-content pass -> max-content width");
+    }
+
+    #[test]
+    fn a_percent_width_under_each_measurement_pass_behaves_as_auto_of_that_kind() {
+        // css-sizing-3 §5.2.1 — and with the typed axis, "behaves as auto"
+        // can finally distinguish the two passes for percentages too.
+        use crate::solver3::geometry::ContainingBlock;
+        use crate::text3::cache::AvailableSpace;
+        let dom = constraints_dom();
+        let bp = zero_props();
+        let intrinsic = isz(120.0, 420.0, 0.0, 30.0);
+        let min_cb = ContainingBlock::from_axes(
+            AvailableSpace::MinContent,
+            AvailableSpace::MaxContent,
+            size(f32::INFINITY, f32::INFINITY),
+        );
+        let r = calculate_used_size_for_node(&dom, Some(PCT), &min_cb, intrinsic, &bp, &VIEWPORT)
+            .expect("pct under min pass");
+        assert_eq!(r.width, 120.0);
+        let max_cb = ContainingBlock::from_flattened(size(f32::INFINITY, f32::INFINITY));
+        let r = calculate_used_size_for_node(&dom, Some(PCT), &max_cb, intrinsic, &bp, &VIEWPORT)
+            .expect("pct under max pass");
+        assert_eq!(r.width, 420.0);
     }
 
     #[test]
