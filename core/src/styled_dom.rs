@@ -1,4 +1,4 @@
-//! `StyledDom` — the result of applying CSS styles to a DOM tree.
+//! `StyledDom` - the result of applying CSS styles to a DOM tree.
 //!
 //! This module contains [`StyledDom`], which is produced by combining a [`Dom`]
 //! with a [`Css`] stylesheet via [`StyledDom::create`]. It stores the flattened
@@ -156,10 +156,10 @@ pub struct RestyleResult {
     /// The highest `RelayoutScope` seen across all property changes.
     ///
     /// This enables the IFC incremental layout optimization (Phase 2):
-    /// - `None`      → repaint only, zero layout work
-    /// - `IfcOnly`   → only the affected IFC needs re-shaping/repositioning
-    /// - `SizingOnly`→ this node's size changed, parent repositions siblings
-    /// - `Full`      → full subtree relayout
+    /// - `None`      -> repaint only, zero layout work
+    /// - `IfcOnly`   -> only the affected IFC needs re-shaping/repositioning
+    /// - `SizingOnly`-> this node's size changed, parent repositions siblings
+    /// - `Full`      -> full subtree relayout
     ///
     /// When `max_relayout_scope <= IfcOnly`, the layout engine can skip
     /// full `calculate_layout_for_subtree` and use the IFC fast path instead.
@@ -528,8 +528,8 @@ impl StyleFontFamiliesHash {
 ///
 /// # Encoding (1-based)
 ///
-/// - `inner = 0` → `None` (no node)
-/// - `inner = n > 0` → `Some(NodeId(n - 1))`
+/// - `inner = 0` -> `None` (no node)
+/// - `inner = n > 0` -> `Some(NodeId(n - 1))`
 ///
 /// This type exists because C/C++ cannot use Rust's `Option` type.
 /// Use [`NodeHierarchyItemId::into_crate_internal`] to decode and
@@ -651,7 +651,7 @@ impl NodeHierarchyItemId {
         NodeId::from_usize(self.inner)
     }
 
-    /// Encodes from `Option<NodeId>` (None → 0, Some(NodeId(n)) → n+1).
+    /// Encodes from `Option<NodeId>` (None -> 0, Some(NodeId(n)) -> n+1).
     #[inline]
     #[must_use]
     pub const fn from_crate_internal(t: Option<NodeId>) -> Self {
@@ -690,7 +690,7 @@ impl_option!(
     [Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash]
 );
 
-/// Iterator over a DOM node's ancestor chain — see [`hierarchy_ancestors`].
+/// Iterator over a DOM node's ancestor chain - see [`hierarchy_ancestors`].
 #[derive(Debug)]
 pub struct HierarchyAncestors<'a> {
     hierarchy: &'a [NodeHierarchyItem],
@@ -715,7 +715,7 @@ impl Iterator for HierarchyAncestors<'_> {
     }
 }
 
-/// THE ancestor walk over a `NodeHierarchy` — the DOM-tree twin of
+/// THE ancestor walk over a `NodeHierarchy` - the DOM-tree twin of
 /// `LayoutTree::ancestor_chain`.
 ///
 /// Yields `node` (only when `inclusivity` says so) followed by every parent up
@@ -1096,7 +1096,7 @@ impl StyledDom {
 
     /// Creates a `StyledDom` from a `FastDom` (arena-based DOM).
     ///
-    /// This skips the `convert_dom_into_compact_dom` tree→arena conversion
+    /// This skips the `convert_dom_into_compact_dom` tree->arena conversion
     /// entirely since `FastDom` already has flat `NodeHierarchyItemVec` and
     /// `NodeDataVec`. CSS is collected from `CssWithNodeIdVec`.
     #[must_use]
@@ -1176,8 +1176,8 @@ impl StyledDom {
     }
 
     /// Internal: creates `StyledDom` from a `CompactDom` + CSS + pre-built hierarchy items.
-    /// Shared by both the Slow path (create → `convert_dom_into_compact_dom` → this)
-    /// and the Fast path (`create_from_fast_dom` → this).
+    /// Shared by both the Slow path (create -> `convert_dom_into_compact_dom` -> this)
+    /// and the Fast path (`create_from_fast_dom` -> this).
     #[allow(clippy::similar_names)] // domain-standard coordinate/control-point names
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
     fn create_from_compact_dom(
@@ -1356,7 +1356,7 @@ impl StyledDom {
     /// 1. Collects all CSS objects from the recursive tree
     /// 2. Flattens the Dom into contiguous arrays (`CompactDom`)
     /// 3. Merges all CSS objects and runs a single cascade pass
-    /// 4. Runs `apply_ua_css` → `compute_inherited_values` → `build_compact_cache`
+    /// 4. Runs `apply_ua_css` -> `compute_inherited_values` -> `build_compact_cache`
     /// 5. Generates anonymous table elements
     #[must_use]
     pub fn create_from_dom(mut dom: Dom) -> Self {
@@ -1619,7 +1619,7 @@ impl StyledDom {
     /// The PER-TICK override channel: write `user_overridden_properties`
     /// WITHOUT recomputing inheritance or the compact cache. Sound only when
     /// the caller supplies the pixels itself (the transition driver patches
-    /// the display list with the interpolated value directly) — every other
+    /// the display list with the interpolated value directly) - every other
     /// caller wants [`Self::restyle_user_property`]. At t=1 the override is
     /// removed and the (correctly cascaded) target shows through.
     pub fn set_user_property_override_fast(
@@ -2035,7 +2035,7 @@ impl StyledDom {
     /// Overrides CSS properties for a single node from user code (typically a
     /// callback). Writes into `CssPropertyCache::user_overridden_properties`,
     /// which `get_property_slow` / `get_property_fast` / `get_computed_value`
-    /// consult at higher priority than the static CSS cascade — making this
+    /// consult at higher priority than the static CSS cascade - making this
     /// the fast path for animating a handful of properties per frame.
     ///
     /// Passing `CssProperty::Initial` for a property removes any override for
@@ -2168,14 +2168,14 @@ impl StyledDom {
         map
     }
 
-    /// Provide (or update) the window's `DynamicSelectorContext` — viewport
-    /// size, theme, OS, media type — for this DOM's cascade.
+    /// Provide (or update) the window's `DynamicSelectorContext` - viewport
+    /// size, theme, OS, media type - for this DOM's cascade.
     ///
     /// Inline conditional properties (`CssPropertyWithConditions` with
     /// viewport/@media/theme/OS selectors) evaluate against this context in
     /// BOTH production readers: `get_property_slow` (per lookup) and the
     /// compact-cache builder (at build time). A freshly created `StyledDom`
-    /// has NO context — non-pseudo conditions do not apply until a window
+    /// has NO context - non-pseudo conditions do not apply until a window
     /// adopts the DOM and calls this, which the layout funnel
     /// (`LayoutWindow::layout_and_generate_display_list`) does before every
     /// pass.
@@ -2236,7 +2236,7 @@ impl StyledDom {
     /// bounds (harvested by the compact-cache builder). Sorted, deduped.
     ///
     /// `None` when the compact cache has not been built yet (no styling
-    /// pass) — callers should treat that as "unknown" and fall back to a
+    /// pass) - callers should treat that as "unknown" and fall back to a
     /// conservative policy. The engine's resize decision uses this instead
     /// of the old hardcoded `CSS_BREAKPOINTS` guess list, which failed both
     /// ways: a widget breakpoint like the ribbon's 720px was not on it (so
@@ -2261,7 +2261,7 @@ impl StyledDom {
     /// previous generation's property cache onto this DOM, following the
     /// reconciliation node matches.
     ///
-    /// State follows node identity across a `RefreshDom` rebuild — exactly
+    /// State follows node identity across a `RefreshDom` rebuild - exactly
     /// like datasets (`diff::transfer_states`), scroll offsets and text
     /// cursors already do. Without this, every runtime patch
     /// (`set_css_property`) silently reverted on the next app-driven DOM
@@ -2310,14 +2310,14 @@ impl StyledDom {
 
     /// Reconstruct a plain [`Dom`](crate::dom::Dom) from a subtree of this
     /// styled DOM by cloning each node's [`NodeData`](crate::dom::NodeData)
-    /// (ids/classes, inline CSS, callbacks, dataset — `RefAny`/`ImageRef`
+    /// (ids/classes, inline CSS, callbacks, dataset - `RefAny`/`ImageRef`
     /// fields are refcounted handles, so nothing heavy is copied).
     ///
     /// `root`: the subtree root, or `None` for the DOM's root node.
     ///
     /// The returned `Dom` CARRIES THE STYLESHEETS: the cascade retains the
     /// author CSS (`CssPropertyCache::retained_author_css`), and it is
-    /// re-attached to the returned root's `css` field — re-styling the
+    /// re-attached to the returned root's `css` field - re-styling the
     /// reconstruction reproduces the on-screen cascade. For a NON-root
     /// subtree this is an approximation: selectors that depended on
     /// ancestors OUTSIDE the subtree (descendant combinators through cut-off
@@ -2730,7 +2730,7 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
 /// `[flat_id, flat_id + estimated_total_children]` range pushed onto each rule (via
 /// `CssPath::push_front_scope`) matches the ids the cascade will later see. After
 /// this, a node's `with_css`/`set_css` rules can only match nodes inside its subtree
-/// — they can no longer leak to the whole tree. `fixup_children_estimated()` must
+/// - they can no longer leak to the whole tree. `fixup_children_estimated()` must
 /// have run first so `estimated_total_children` is populated/exact.
 fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
     let start = *next_id;
@@ -3009,7 +3009,7 @@ pub fn collect_nodes_in_document_order(
 /// Check if two `StyledDom`s are structurally equivalent for layout purposes.
 ///
 /// Returns `true` if the DOMs have the same structure, node types, classes,
-/// IDs, inline styles, and callback event registrations — meaning the
+/// IDs, inline styles, and callback event registrations - meaning the
 /// layout output would be identical.
 ///
 /// Image callback nodes are compared by function pointer and `RefAny` type ID

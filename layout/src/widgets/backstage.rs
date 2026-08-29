@@ -15,7 +15,7 @@
 //! The widget owns the CHROME: nav column, back button, item highlight and
 //! the content host. The per-item pane content ("Open" recent list, "Info"
 //! properties, …) is application composition, injected through
-//! [`Backstage::content`] — the backstage does not model document state.
+//! [`Backstage::content`] - the backstage does not model document state.
 //!
 //! The back button expands to the existing [`super::button::Button`] widget
 //! with backstage part styles injected (the ribbon's composition rule), and

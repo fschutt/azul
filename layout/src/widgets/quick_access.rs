@@ -19,7 +19,7 @@
 //! icon provider (Material Icons by default): "save", "undo", "redo",
 //! "help_outline", "minimize", "crop_square", "close".
 //!
-//! This widget draws WINDOW CHROME AS DOM — pair it with borderless window
+//! This widget draws WINDOW CHROME AS DOM - pair it with borderless window
 //! decorations, or use [`super::titlebar::Titlebar`] when the OS should
 //! draw its native caption instead. Window-button clicks are forwarded to
 //! application callbacks; the band never calls `modify_window_state`
@@ -510,31 +510,43 @@ impl_vec_mut!(QuickAccessAction, QuickAccessActionVec);
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct QuickAccessBar {
+
+    /// All part styles (defaults to the the Office-2013-era look look).
+    pub style: QuickAccessStyle,
+
     /// Optional leading content (office-2013: the app logo square).
     pub leading: azul_core::dom::OptionDom,
-    /// Quick-access actions (office-2013: save / undo / redo).
-    pub actions: QuickAccessActionVec,
-    /// Renders the "customize quick access toolbar" chevron.
-    pub show_menu_arrow: bool,
+
+    /// Optional minimize handler.
+    pub on_minimize: OptionButtonOnClick,
+
+    /// Optional maximize/restore handler.
+    pub on_maximize: OptionButtonOnClick,
+
+    /// Optional close handler.
+    pub on_close: OptionButtonOnClick,
+
     /// The centered window title ("Document1 - `AzWriter`").
     pub title: AzString,
+
+    /// Quick-access actions (office-2013: save / undo / redo).
+    pub actions: QuickAccessActionVec,
+
     /// Actions between the title and the window buttons (office-2013: help,
     /// ribbon display options).
     pub trailing_actions: QuickAccessActionVec,
+
+    /// Renders the "customize quick access toolbar" chevron.
+    pub show_menu_arrow: bool,
+
     /// Renders the minimize window button.
     pub show_minimize: bool,
+
     /// Renders the maximize/restore window button.
     pub show_maximize: bool,
+
     /// Renders the close window button.
     pub show_close: bool,
-    /// Optional minimize handler.
-    pub on_minimize: OptionButtonOnClick,
-    /// Optional maximize/restore handler.
-    pub on_maximize: OptionButtonOnClick,
-    /// Optional close handler.
-    pub on_close: OptionButtonOnClick,
-    /// All part styles (defaults to the the Office-2013-era look look).
-    pub style: QuickAccessStyle,
 }
 
 // -- CSS classes --

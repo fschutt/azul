@@ -24,7 +24,7 @@
 //! All visual parts are exposed on [`StatusBarStyle`] (defaults = the Office-2013-era look
 //! look, [`StatusBarStyle::office_2013`]); replace any field to re-theme
 //! without touching widget code. There is no behavior struct: the status bar
-//! has no self-driven chrome interactions — every event is forwarded to the
+//! has no self-driven chrome interactions - every event is forwarded to the
 //! application callbacks.
 
 use azul_core::{
@@ -874,23 +874,30 @@ impl_option!(
 /// The slider is the existing [`Slider`] widget with `value = percent` over
 /// the linear `[min, max]` window. The the Office-2013-era look default window is
 /// `[10, 190]` so the 100% default rests exactly on the center tick (the
-/// original office-suite slider maps 10–100–500 piecewise; a linear window keeps the
-/// widget dumb — the application decides what a slider value means).
+/// original office-suite slider maps 10-100-500 piecewise; a linear window keeps the
+/// widget dumb - the application decides what a slider value means).
 #[derive(Debug, Clone, PartialEq)]
 #[repr(C)]
 pub struct StatusBarZoom {
-    /// Current zoom percent, shown in the label and placing the thumb.
-    pub percent: f32,
-    /// Slider window minimum (thumb far left).
-    pub min: f32,
-    /// Slider window maximum (thumb far right).
-    pub max: f32,
+
     /// Optional − button callback.
     pub on_zoom_out: OptionButtonOnClick,
+
     /// Optional + button callback.
     pub on_zoom_in: OptionButtonOnClick,
+
     /// Optional slider drag/press callback (reports the raw slider value).
     pub on_slider_change: OptionSliderOnValueChange,
+
+    /// Current zoom percent, shown in the label and placing the thumb.
+    pub percent: f32,
+
+    /// Slider window minimum (thumb far left).
+    pub min: f32,
+
+    /// Slider window maximum (thumb far right).
+    pub max: f32,
+
     /// Renders the "100%" label after the + button.
     pub show_label: bool,
 }

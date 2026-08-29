@@ -166,14 +166,14 @@ impl_option!(
 
 /// Handle to a running E2E script, so it can be cancelled.
 ///
-/// Minted by `execute_e2e_json` BEFORE the script runs — that is what makes it
+/// Minted by `execute_e2e_json` BEFORE the script runs - that is what makes it
 /// returnable from a call that may not have executed anything yet, and it is
 /// also what makes cancelling a queued-but-not-started script possible.
 ///
 /// A 128-bit random UUID is what this wants to be; there is no `uuid`
 /// dependency in the tree and adding one to azul-core for a process-local
 /// handle is not worth it. A monotonic counter gives the property actually
-/// needed — no two live scripts in this process share a handle — and cannot
+/// needed - no two live scripts in this process share a handle - and cannot
 /// collide. It is NOT stable across runs and must not be persisted.
 /// Whether an E2E script blocks its caller or runs alongside the UI.
 ///
@@ -181,7 +181,7 @@ impl_option!(
 /// `execute_e2e_json(script, Sync)` says at the call site what
 /// `execute_e2e_json(script, true)` does not.
 ///
-/// The debug HTTP server is SYNCHRONOUS — it waits on `rx.recv_timeout(..)`
+/// The debug HTTP server is SYNCHRONOUS - it waits on `rx.recv_timeout(..)`
 /// (`e2e/full.rs:3837`) until the UI thread replies, which works because the
 /// waiting thread is not the UI thread. A UI callback runs ON the UI thread;
 /// `Sync` there is still SUPPORTED and is usually what an AGENT wants, but it
@@ -237,7 +237,7 @@ pub enum CallbackChange {
     /// the app, with no debug HTTP server anywhere in the picture (build with
     /// the dll's `e2e-scripting` feature).
     ///
-    /// Deferred BY CONSTRUCTION — a `CallbackChange` is applied after the
+    /// Deferred BY CONSTRUCTION - a `CallbackChange` is applied after the
     /// callback returns, which is what makes this safe at all: a callback runs
     /// mid-frame and a scenario DRIVES frames, so executing inline would
     /// re-enter the frame loop. `E2eSession::running` guards the remaining
@@ -246,7 +246,7 @@ pub enum CallbackChange {
         script: azul_core::json::Json,
         /// Identifies this run, for `StopE2eJson`.
         handle: E2eScriptHandle,
-        /// `true` blocks the UI until the script finishes — which an AGENT
+        /// `true` blocks the UI until the script finishes - which an AGENT
         /// generally wants, since it needs the result before deciding what to
         /// do next. `false` runs it alongside the UI, so a person can keep
         /// interacting while it works.
@@ -255,7 +255,7 @@ pub enum CallbackChange {
         /// completion. Implementing it as "wait on a channel the UI thread
         /// feeds" deadlocks, because the waiting thread is the one that must
         /// do the feeding.
-        /// Blocking or not — see `E2eExecutionMode`. No default.
+        /// Blocking or not - see `E2eExecutionMode`. No default.
         mode: E2eExecutionMode,
     },
     /// Cancel a script started by `ExecuteE2eJson`, running or still queued.
@@ -330,8 +330,8 @@ pub enum CallbackChange {
     /// Advance layout animations by an EXACT step, bypassing the wall clock.
     ///
     /// Emitted only by the E2E `tick_animations` op. A headless scenario cannot
-    /// sample real time — the same test would land on a different point of the
-    /// curve on a fast machine than a slow one — so stepping by a fixed `dt`
+    /// sample real time - the same test would land on a different point of the
+    /// curve on a fast machine than a slow one - so stepping by a fixed `dt`
     /// makes the trajectory a pure function of how many steps ran.
     ///
     /// Integer microseconds, not `f32` seconds: an exact integer step is what
@@ -343,7 +343,7 @@ pub enum CallbackChange {
     /// Create/overwrite animation MOMENTUM on a node: kick its in-flight
     /// presence/move animation with the given velocity (logical px/s), or
     /// start an identity-anchored spring carrying that velocity when nothing
-    /// is animating. Reversing a direction is `set(-get())` — see
+    /// is animating. Reversing a direction is `set(-get())` - see
     /// [`CallbackInfo::get_animation_momentum`].
     SetAnimationMomentum {
         node: DomNodeId,
@@ -375,7 +375,7 @@ pub enum CallbackChange {
     ///
     /// Widgets publish their role and state when they build their DOM, which is
     /// correct only if every state change rebuilds. Many do not: the accordion
-    /// toggles by `set_css_property` on the body, the switch flips a style — no
+    /// toggles by `set_css_property` on the body, the switch flips a style - no
     /// rebuild, so a build-time `Expanded` would keep announcing "expanded"
     /// after the section closed. This is how a callback corrects that without
     /// forcing a relayout, and applying it marks the a11y tree dirty so the
@@ -399,7 +399,7 @@ pub enum CallbackChange {
         update_type: UpdateImageType,
     },
     /// Record a STRUCTURAL document edit (Enter split / merge / wrap…) for
-    /// the app to apply to ITS model — azul never mutates the `StyledDom`.
+    /// the app to apply to ITS model - azul never mutates the `StyledDom`.
     RecordDocumentEdit {
         changeset: crate::managers::changeset::DocumentChangeset,
     },
@@ -407,7 +407,7 @@ pub enum CallbackChange {
     MarkDocumentEditApplied {
         id: u64,
     },
-    /// The handshake WITH the applier's inverse operation — the edit becomes
+    /// The handshake WITH the applier's inverse operation - the edit becomes
     /// structurally undoable.
     MarkDocumentEditAppliedWithInverse {
         id: u64,
@@ -483,7 +483,7 @@ pub enum CallbackChange {
     /// change to correct the scrollbar live. Applied post-callback as the two
     /// stores a normal invoke writes (`VirtualViewManager::
     /// update_virtual_view_info` + `ScrollManager::update_virtual_scroll_
-    /// bounds`) — the rendered window (`scroll_size`) is deliberately NOT
+    /// bounds`) - the rendered window (`scroll_size`) is deliberately NOT
     /// touched, only the virtual extent.
     SetVirtualViewGeometry {
         dom_id: DomId,
@@ -495,8 +495,8 @@ pub enum CallbackChange {
         /// `virtual_rect` is what the scrollbar represents. Each: `Some` =
         /// set, `None` = keep the current value.
         ///
-        /// The streaming case this exists for — a background exact-pagination
-        /// pass correcting the document extent — sets `virtual_rect` only, so
+        /// The streaming case this exists for - a background exact-pagination
+        /// pass correcting the document extent - sets `virtual_rect` only, so
         /// the scrollbar re-scales while the materialized window, and every
         /// pixel on screen, stays exactly where it is.
         materialized: OptionLogicalRect,
@@ -534,7 +534,7 @@ pub enum CallbackChange {
     },
 
     /// Hold a `<transient-window>` node open (or let it close) regardless of
-    /// its `open` attribute — how a self-contained widget opens its own popup
+    /// its `open` attribute - how a self-contained widget opens its own popup
     /// without the app carrying a flag. Node-keyed in the window's transient
     /// manager, so it survives rebuilds; a user dismissal clears it.
     SetTransientWindowOpen {
@@ -543,7 +543,7 @@ pub enum CallbackChange {
     },
 
     /// Tear a `tearoff`-capable `<transient-window>` off into a free toplevel
-    /// (`torn = true`) or dock it back onto its anchor (`false`) — what the
+    /// (`torn = true`) or dock it back onto its anchor (`false`) - what the
     /// user's drag of its `-azul-app-region: drag` strip does, available to a
     /// "float" / "dock" button as well.
     SetTransientWindowTorn {
@@ -850,8 +850,8 @@ pub enum CallbackChange {
 /// `box-shadow`, the border colours/styles and the scrollbar paint properties
 /// are all paint-only), and the property cache already consults it in
 /// `check_layout_properties_changed`. The two `apply_user_change`
-/// implementations — the headless E2E host and
-/// `dll/src/desktop/shell2/common/event.rs` — did not: both answered
+/// implementations - the headless E2E host and
+/// `dll/src/desktop/shell2/common/event.rs` - did not: both answered
 /// `ChangeNodeCssProperties` and `OverrideNodeCssProperties` with an
 /// unconditional `ShouldIncrementalRelayout`, so animating a colour, a
 /// `:hover` background or an `opacity` re-laid-out the whole DOM every frame.
@@ -875,10 +875,10 @@ pub type CallbackType = extern "C" fn(RefAny, CallbackInfo) -> Update;
 /// (`-azul-animation-in` / `-azul-animation-out: myFn 1s` next to a
 /// `NodeData::add_animation_callback("myFn", ..)`). Stored type-erased as
 /// `usize` in `azul_core::resources::ZombieAnimCallback` (the `CoreCallback`
-/// pattern — `TimerCallbackInfo` lives in this crate, above azul-core).
+/// pattern - `TimerCallbackInfo` lives in this crate, above azul-core).
 ///
 /// Receives the registered data, a FULL `TimerCallbackInfo` (the live dom,
-/// change queue, momentum API, node measurement — everything a timer can
+/// change queue, momentum API, node measurement - everything a timer can
 /// do), and the zombie-specific `ZombieAnimInfo` (the retained tree, rect,
 /// RAW linear `t`, the DECLARED timing, entry velocity). The callback owns
 /// the easing math: apply the requested timing via
@@ -1210,18 +1210,18 @@ impl CallbackInfo {
     /// returns.
     ///
     /// **NOT YET EXECUTED BY THE DESKTOP SHELL.** The variant is delivered and
-    /// the shell logs an ERROR and drops it — the continuation slot it needs
+    /// the shell logs an ERROR and drops it - the continuation slot it needs
     /// (`E2eSession`) is not reachable from the change-application site yet.
     /// Documented here rather than left to be discovered, because an API that
     /// looks like it works is worse than one that is absent.
     ///
     /// Returns nothing on purpose. Execution is DEFERRED, so there is no
-    /// result to hand back yet — and a function named `execute_*` that
+    /// result to hand back yet - and a function named `execute_*` that
     /// returned a value here would be handing the caller something that reads
     /// as the script's outcome and is not. Poll the app's own state, or the
     /// op results, for that.
     /// Returns the handle immediately, before the script has necessarily
-    /// started — pass it to `stop_e2e_json` to cancel. The handle is NOT the
+    /// started - pass it to `stop_e2e_json` to cancel. The handle is NOT the
     /// script's result; under `Async` there is no result yet.
     pub fn execute_e2e_json(
         &mut self,
@@ -1245,7 +1245,7 @@ impl CallbackInfo {
     }
 
     /// #28 (a): update a `VirtualView`'s VIRTUAL geometry (scrollbar math)
-    /// WITHOUT re-invoking its callback or re-laying-out its child DOM —
+    /// WITHOUT re-invoking its callback or re-laying-out its child DOM -
     /// see [`CallbackChange::UpdateVirtualView`]. `node_id` addresses the
     /// `VirtualView` node in its parent DOM. Intended for streaming
     /// corrections: a background exact-pagination writeback fixes the
@@ -1353,7 +1353,7 @@ impl CallbackInfo {
     /// reads `AppConfig.updates` (manifest URL, current version, mode),
     /// applies the install-kind backstops (package-managed binaries never
     /// self-update) and the anti-downgrade/suspend policy, optionally STAGES
-    /// the artifact (`options.download_automatically` — staging is not
+    /// the artifact (`options.download_automatically` - staging is not
     /// installing), and invokes `callback(data, info, check)` on the main
     /// thread with the result. Returns the thread's id.
     #[cfg(feature = "updater")]
@@ -1443,7 +1443,7 @@ impl CallbackInfo {
         }
     }
 
-    /// Opens one of the built-in system dialogs (always CPU-rendered — a
+    /// Opens one of the built-in system dialogs (always CPU-rendered - a
     /// dialog reporting a problem must not depend on the GPU working):
     ///
     /// * `ReportProblem`: captures a screenshot of THIS window, then opens
@@ -1644,8 +1644,8 @@ impl CallbackInfo {
     ///
     /// Goes to the same place every engine lint goes: the installed diagnostic
     /// sink (stderr by default, so it shows in a terminal), the in-process ring
-    /// that `assert_stderr` reads in e2e, and — once
-    /// `telemetry::install_diagnostics_bridge()` is called — the OTLP pipeline
+    /// that `assert_stderr` reads in e2e, and - once
+    /// `telemetry::install_diagnostics_bridge()` is called - the OTLP pipeline
     /// behind Loki and Grafana, tagged with the running e2e scenario.
     ///
     /// Use it where a widget can SEE that it has been used wrongly and the
@@ -1673,7 +1673,7 @@ impl CallbackInfo {
     /// Update a node's accessibility STATE and/or VALUE without rebuilding.
     ///
     /// Use it wherever a control changes what it announces but not its
-    /// structure — a toggle flipping checked, a section expanding, a slider
+    /// structure - a toggle flipping checked, a section expanding, a slider
     /// moving. Publishing only at build time leaves the accessibility tree
     /// describing a state the widget left behind, and a screen-reader user has
     /// no way to notice.
@@ -1693,7 +1693,7 @@ impl CallbackInfo {
         self.push_change(CallbackChange::ChangeNodeAccessibilityState { node_id, states });
     }
 
-    /// Update a node's accessibility VALUE without rebuilding — a slider's
+    /// Update a node's accessibility VALUE without rebuilding - a slider's
     /// position, a progress bar's percentage, a field's contents.
     pub fn set_accessibility_value(&mut self, node_id: DomNodeId, value: AzString) {
         self.push_change(CallbackChange::ChangeNodeAccessibilityValue { node_id, value });
@@ -2077,7 +2077,7 @@ impl CallbackInfo {
     }
 
     /// Record a structural document edit programmatically (the bold/italic
-    /// toolbar path — keyboard defaults record through the default-action
+    /// toolbar path - keyboard defaults record through the default-action
     /// layer instead). Applied after the callback returns; azul never applies
     /// it to the `StyledDom`.
     pub fn record_document_edit(
@@ -2095,7 +2095,7 @@ impl CallbackInfo {
     }
 
     /// The handshake carrying the applier's INVERSE operation (from
-    /// `document_edit::AppliedEdit::inverse`) — makes the edit structurally
+    /// `document_edit::AppliedEdit::inverse`) - makes the edit structurally
     /// undoable (Ctrl+Z re-records the inverse through the same loop).
     pub fn mark_document_edit_applied_with_inverse(
         &mut self,
@@ -2106,7 +2106,7 @@ impl CallbackInfo {
     }
 
     /// Undo the newest structural edit: a NEW changeset (the inverse) is
-    /// recorded for the app to apply — nothing mutates here.
+    /// recorded for the app to apply - nothing mutates here.
     pub fn undo_structural_edit(&mut self) {
         self.push_change(CallbackChange::UndoStructuralEdit);
     }
@@ -2326,11 +2326,11 @@ impl CallbackInfo {
     /// Open (or close) the `<transient-window>` at `node` regardless of its
     /// `open` attribute. The popup appears after this callback's layout pass;
     /// it stays open across rebuilds until closed here, by the attribute
-    /// going false, or by the user dismissing it (outside click / Escape —
+    /// going false, or by the user dismissing it (outside click / Escape -
     /// which also fires `ComponentEventFilter::Dismissed` on the node).
     ///
     /// `node` must be in THIS window's dom: a popup's own callbacks cannot
-    /// reach into the parent's manager this way — close from inside a popup
+    /// reach into the parent's manager this way - close from inside a popup
     /// is the dismiss path.
     pub fn set_transient_window_open(&mut self, node: DomNodeId, open: bool) {
         self.push_change(CallbackChange::SetTransientWindowOpen { node, open });
@@ -2401,7 +2401,7 @@ impl CallbackInfo {
 
     /// Capture the pointer for `node`: until the mouse button is released,
     /// `MouseOver` and `MouseUp` are delivered to `node` even when the cursor
-    /// has left it — a drag that must follow the mouse (a slider thumb, a
+    /// has left it - a drag that must follow the mouse (a slider thumb, a
     /// colour plane) calls this from its `MouseDown` handler.
     /// `get_cursor_relative_to_node` keeps reading against the node's rect
     /// while captured, so coordinates may run outside `[0, size]`.
@@ -2663,7 +2663,7 @@ impl CallbackInfo {
     }
 
     /// #28: "what WOULD the page breaks be for this content at this page
-    /// size?" — a SPECULATIVE pagination query answered from the window's
+    /// size?" - a SPECULATIVE pagination query answered from the window's
     /// live caches (shaping shared read-only, nothing committed, nothing
     /// polluted). The result is bbox-level only: break positions, page
     /// count, total content height. See [`LayoutWindow::query_pagination`]
@@ -3867,7 +3867,7 @@ impl CallbackInfo {
     /// `Pdf::from_styled_dom_with_resources`) can run off-thread.
     ///
     /// Images embedded DIRECTLY in the DOM (an `ImageRef` on an image node)
-    /// do NOT need this snapshot — they travel with the DOM clone itself
+    /// do NOT need this snapshot - they travel with the DOM clone itself
     /// (`get_styled_dom_clone` / `get_dom_subtree` clone the refcounted
     /// handles). This snapshot covers the INDIRECT case: images registered
     /// by css id and resolved through the cache at layout time.
@@ -3884,7 +3884,7 @@ impl CallbackInfo {
     /// pool, resolved fallback chains, embedded/in-memory fonts) as an ABI
     /// handle ([`crate::resource_handles::FontCacheSnapshot`]).
     ///
-    /// Consumers lay text out with EXACTLY the fonts the screen resolved —
+    /// Consumers lay text out with EXACTLY the fonts the screen resolved -
     /// same fallback chains, no re-discovery, no re-parse from disk.
     ///
     /// Fonts embedded DIRECTLY in the DOM (`FontStack::Ref`, e.g. icon
@@ -3901,7 +3901,7 @@ impl CallbackInfo {
         )
     }
 
-    /// Clone of the CURRENT fully-styled root DOM — CSS cascade already
+    /// Clone of the CURRENT fully-styled root DOM - CSS cascade already
     /// applied, exactly what is on screen right now.
     ///
     /// This is the parity input for typed exporters: hand it to
@@ -4177,8 +4177,8 @@ impl CallbackInfo {
     /// the live window is drawing from.
     ///
     /// The window is rendered exactly as [`take_screenshot`](Self::take_screenshot)
-    /// does — same compositor, same caches, so the result is what the user
-    /// sees — and the node's box is then cut out of it. That keeps clipping,
+    /// does - same compositor, same caches, so the result is what the user
+    /// sees - and the node's box is then cut out of it. That keeps clipping,
     /// overlap and effects from ancestors correct: a node re-rendered in
     /// isolation would show none of them.
     ///
@@ -4879,7 +4879,7 @@ impl CallbackInfo {
     ///
     /// Returns true if either a node drag or file drag is in progress.
     /// `gesture_drag_manager` is the single source of truth (the old
-    /// `drag_drop_manager` mirror has been deleted — see `managers/drag_drop.rs`).
+    /// `drag_drop_manager` mirror has been deleted - see `managers/drag_drop.rs`).
     #[must_use]
     pub const fn is_drag_active(&self) -> bool {
         self.get_layout_window().gesture_drag_manager.is_dragging()
@@ -5140,7 +5140,7 @@ impl CallbackInfo {
         false
     }
 
-    /// The closest scrollable STRICT ancestor of a node — `node_id` itself is
+    /// The closest scrollable STRICT ancestor of a node - `node_id` itself is
     /// never the answer.
     ///
     /// This is the "chain outwards" question: which OTHER container takes over
@@ -5152,7 +5152,7 @@ impl CallbackInfo {
         self.find_scroll_container(dom_id, node_id, Inclusivity::AncestorsOnly)
     }
 
-    /// The scroll box `node_id` LIVES IN — itself, if it is one.
+    /// The scroll box `node_id` LIVES IN - itself, if it is one.
     ///
     /// Drag-autoscroll wants this, not [`Self::find_scroll_parent`]: the caret
     /// in a `TextInput` sits on the value `<p>`, which is simultaneously the
@@ -6244,7 +6244,7 @@ mod autotest_generated {
 
     /// Runs `f` with a fully-constructed `CallbackInfo` backed by an *empty*
     /// `LayoutWindow` (no layout results, no timers, no threads, no routes).
-    /// Every query API therefore hits its "nothing there" path — which is
+    /// Every query API therefore hits its "nothing there" path - which is
     /// exactly the path adversarial tests need to exercise.
     fn with_info<R>(hit: DomNodeId, f: impl FnOnce(&mut CallbackInfo) -> R) -> R {
         let layout_window =
