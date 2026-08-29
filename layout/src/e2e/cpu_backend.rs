@@ -42,6 +42,10 @@ pub(super) struct CpuBackend {
     /// `LayoutCache::build_seq` at the last present — drains the patch log
     /// from there, so two patched builds between presents both repaint.
     pub(super) last_consumed_build_seq: u64,
+    /// Arc pointer of the display list the translate blit last shifted —
+    /// the already-shifted guard (a re-present of the same list must not
+    /// blit twice). Mirrors the dll headless backend.
+    pub(super) last_patch_shift_dl: usize,
     /// PAINT damage of the most recent `render_frame` — the region actually
     /// re-rasterised.
     pub(super) last_frame_damage: FrameDamage,
@@ -79,6 +83,7 @@ impl CpuBackend {
             glyph_cache: azul_layout::glyph_cache::GlyphCache::new(),
             previous_display_list: None,
             last_consumed_build_seq: 0,
+            last_patch_shift_dl: 0,
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
             previous_scroll_offsets: cpurender::ScrollOffsetMap::new(),
@@ -243,15 +248,36 @@ impl CpuBackend {
         // were copied over verbatim). No on a shrink / first allocation.
         let can_reuse_previous_frame = !needs_resize || resize_preserved_pixels;
 
+        // Translate hint: identical decision to the dll headless backend, so
+        // the harness executes the SAME blit path a device does (it used to
+        // have no notion of a TranslateHint at all — every mover-blit bug was
+        // structurally untestable here).
+        let dl_arc_ptr = std::sync::Arc::as_ptr(display_list) as usize;
+        let patch_hint = cpurender::translate_hint_for_patch(
+            layout_window.layout_cache.last_patch_move.as_ref(),
+            dpi_factor,
+            can_reuse_previous_frame,
+            self.last_patch_shift_dl == dl_arc_ptr,
+            layout_window.scroll_manager.any_nonzero_offset(),
+        );
+
         // Display-list damage (incremental path)
+        let mut patch_moved_union: Option<LogicalRect> = None;
         let dl_damage = match &self.previous_display_list {
             Some(old_dl) if can_reuse_previous_frame && !gpu_damage.needs_full => {
-                cpurender::compute_display_list_damage(
+                match cpurender::compute_display_list_damage_translated(
                     old_dl,
                     display_list,
                     &self.previous_scroll_offsets,
                     &scroll_offsets,
-                )
+                    patch_hint.as_ref().map(|(h, _)| h),
+                ) {
+                    Some((damage, moved)) => {
+                        patch_moved_union = moved;
+                        Some(damage)
+                    }
+                    None => None,
+                }
             }
             _ => None, // first frame, shrink or ref-frame transform → full repaint
         };
@@ -351,6 +377,11 @@ impl CpuBackend {
             let pending = layout_window
                 .layout_cache
                 .pending_patch_damage(self.last_consumed_build_seq);
+            // Patch rects are CONTENT-space (no scroll projection on the
+            // producer); with any active offset they land offset-pixels away
+            // from the changed pixels. Demote to full-build semantics then —
+            // same gate as the dll present path.
+            let patch_rects_trustworthy = !layout_window.scroll_manager.any_nonzero_offset();
             match (dl_damage, pending) {
                 // An EMPTY diff on a patched build means the splice produced a
                 // byte-identical list (same-text re-shape) — the frame is IDLE
@@ -358,6 +389,7 @@ impl CpuBackend {
                 // idle-skip and drifts the frame scheduling (scrollbar-fade
                 // clock) off the baseline.
                 (Some(d), P::Rects(_)) if d.is_empty() => Some(d),
+                (d, P::Rects(_)) if !patch_rects_trustworthy => d,
                 (Some(mut d), P::Rects(p)) => {
                     d.extend(p);
                     Some(d)
@@ -456,6 +488,29 @@ impl CpuBackend {
         // damage (only a strip was rasterised).
         let mut present_extra: Vec<LogicalRect> = Vec::new();
         if is_incremental {
+            if let (Some((hint, exceptions)), Some(moved)) =
+                (patch_hint.as_ref(), patch_moved_union)
+            {
+                self.last_patch_shift_dl = dl_arc_ptr;
+                let _ = moved;
+                let mover_rects = layout_window
+                    .layout_cache
+                    .last_patch_move
+                    .as_ref()
+                    .map(|m| m.mover_rects_old.clone())
+                    .unwrap_or_default();
+                let blit = cpurender::execute_translate_blit(
+                    &mut output,
+                    hint,
+                    exceptions,
+                    &mover_rects,
+                    display_list,
+                    dpi_factor,
+                    false, // e2e twin renders owned pixmaps, never pool-order
+                );
+                all_damage.extend(blit.damage);
+                present_extra.extend(blit.present_extra);
+            }
             for (scroll_id, clip, delta, offset) in &scroll_shifts {
                 let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
                 if cpurender::scroll_fast_path_eligible(

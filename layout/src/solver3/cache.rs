@@ -640,6 +640,13 @@ impl LayoutCache {
         self.last_full_build_seq = self.build_seq;
         self.last_build_was_patched = false;
         self.last_patch_damage = None;
+        // The mover blit belongs to the PATCHED list it was computed for; a
+        // full emission invalidates it exactly like the patch rects. Callers
+        // used to clear this themselves (regenerate_display_list_for_dom
+        // does), but the Step-1.1 cache-hit and early-exit paths called only
+        // this function and left a stale TranslateHint armed - neutralized
+        // today by the Arc-pointer guard, but nothing pinned that.
+        self.last_patch_move = None;
         self.patch_damage_log.clear();
     }
 

@@ -603,6 +603,7 @@ impl CpuBackend {
                 dpi_factor,
                 can_reuse_previous_frame,
                 self.last_patch_shift_dl == dl_arc_ptr,
+                layout_window.scroll_manager.any_nonzero_offset(),
             );
 
         // Compute display list damage (incremental path)
@@ -757,6 +758,14 @@ impl CpuBackend {
         let pending = layout_window
             .layout_cache
             .pending_patch_damage(self.last_consumed_build_seq);
+        // Patch rects are built from calculated_positions in CONTENT space
+        // (no scroll projection on the producer side); with any active scroll
+        // offset they would land offset-pixels away from the pixels that
+        // changed — stale bands rescued by rects in the wrong place. Until
+        // the producer projects, a scrolled window demotes them to
+        // FullBuildSincePresent semantics (item diff decides; its bail is a
+        // full repaint).
+        let patch_rects_trustworthy = !layout_window.scroll_manager.any_nonzero_offset();
         let dl_damage = if diff_path_ran && layout_window.layout_cache.last_build_was_patched {
             use azul_layout::solver3::cache::PendingPatchDamage as P;
             // On a PATCHED build the patch's own damage AUGMENTS the item
@@ -770,6 +779,7 @@ impl CpuBackend {
                 // idle-skip and drifts the frame scheduling (scrollbar-fade
                 // clock) off the baseline.
                 (Some(d), P::Rects(_)) if d.is_empty() => Some(d),
+                (d, P::Rects(_)) if !patch_rects_trustworthy => d,
                 (Some(mut d), P::Rects(p)) => {
                     d.extend(p);
                     Some(d)
@@ -955,121 +965,29 @@ impl CpuBackend {
                 (patch_hint.as_ref(), patch_moved_union)
             {
                 self.last_patch_shift_dl = dl_arc_ptr;
-                let d = hint.delta;
                 let _ = moved;
-                // One blit PER MOVER RECT (never the union — the gaps
-                // between movers are static backdrop that must not be
-                // dragged). Clip per mover = old∪(old+delta) so both the
-                // vacated source and the destination lie inside the
-                // memmove region; exposed strips repaint per mover.
                 let mover_rects = layout_window
                     .layout_cache
                     .last_patch_move
                     .as_ref()
                     .map(|m| m.mover_rects_old.clone())
                     .unwrap_or_default();
-                if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
-                    eprintln!(
-                        "[blit] delta={:?} movers={} exceptions={}",
-                        d,
-                        mover_rects.len(),
-                        exceptions.len()
-                    );
-                    for m in &mover_rects {
-                        eprintln!("[blit]   mover {:?}", m);
-                    }
-                    for e in exceptions.iter() {
-                        eprintln!("[blit]   exception {:?}", e);
-                    }
-                }
-                for mr in &mover_rects {
-                    let dest = azul_core::geom::LogicalRect {
-                        origin: azul_core::geom::LogicalPosition {
-                            x: mr.origin.x + d.0,
-                            y: mr.origin.y + d.1,
-                        },
-                        size: mr.size,
-                    };
-                    let x0 = mr.origin.x.min(dest.origin.x);
-                    let y0 = mr.origin.y.min(dest.origin.y);
-                    let x1 = (mr.origin.x + mr.size.width).max(dest.origin.x + dest.size.width);
-                    let y1 = (mr.origin.y + mr.size.height).max(dest.origin.y + dest.size.height);
-                    let clip = azul_core::geom::LogicalRect {
-                        origin: azul_core::geom::LogicalPosition { x: x0, y: y0 },
-                        size: azul_core::geom::LogicalSize {
-                            width: x1 - x0,
-                            height: y1 - y0,
-                        },
-                    };
-                    let shift_exact = if self.rendered_native && self.native_target_pool_order {
-                        cpurender::scroll_shift_region_exact_pool_order
-                    } else {
-                        cpurender::scroll_shift_region_exact
-                    };
-                    let strips =
-                        shift_exact(&mut output, &clip, (-d.0, -d.1), (0.0, 0.0), dpi_factor);
-                    // Inflate the vacated strips by 1px: LCD fringe of a run
-                    // hugging the mover's edge hangs one device pixel OUTSIDE
-                    // the mover rect, so the un-inflated vacated region leaves
-                    // that column stale after the move (the full-repaint
-                    // control clears it via the diff's own text inflation —
-                    // the gate diverged by exactly that column). A wider strip
-                    // that now cuts a destination run is already handled by
-                    // the fringe-touching-runs-damaged-whole rule below.
-                    let strips: Vec<azul_core::geom::LogicalRect> = strips
-                        .iter()
-                        .map(|r| azul_core::geom::LogicalRect {
-                            origin: azul_core::geom::LogicalPosition {
-                                x: r.origin.x - 1.0,
-                                y: r.origin.y - 1.0,
-                            },
-                            size: azul_core::geom::LogicalSize {
-                                width: r.size.width + 2.0,
-                                height: r.size.height + 2.0,
-                            },
-                        })
-                        .collect();
-                    all_damage.extend(strips.iter().copied());
-                    // LCD text is FIR-fringed: a run STARTING at the blit
-                    // destination hangs 1px of fringe INTO the vacated
-                    // strip. A strip-clipped repaint cannot reproduce that
-                    // fringe (the colorimetric blend reads neighbours), so
-                    // any text run whose 1px-inflated bounds touch a strip
-                    // is damaged WHOLE — cleared and re-rendered exactly
-                    // like the full-repaint control.
-                    for strip in &strips {
-                        for (idx, item) in display_list.items.iter().enumerate() {
-                            let _ = idx;
-                            if let azul_layout::solver3::display_list::DisplayListItem::Text {
-                                ..
-                            } = item
-                            {
-                                if let Some(b) = item.bounds() {
-                                    let inflated = azul_core::geom::LogicalRect {
-                                        origin: azul_core::geom::LogicalPosition {
-                                            x: b.origin.x - 1.0,
-                                            y: b.origin.y - 1.0,
-                                        },
-                                        size: azul_core::geom::LogicalSize {
-                                            width: b.size.width + 2.0,
-                                            height: b.size.height + 2.0,
-                                        },
-                                    };
-                                    let ix = inflated.origin.x < strip.origin.x + strip.size.width
-                                        && strip.origin.x < inflated.origin.x + inflated.size.width
-                                        && inflated.origin.y < strip.origin.y + strip.size.height
-                                        && strip.origin.y
-                                            < inflated.origin.y + inflated.size.height;
-                                    if ix {
-                                        all_damage.push(inflated);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    present_extra.push(clip);
-                }
-                all_damage.extend(exceptions.iter().copied());
+                // The whole blit (per-mover memmove, LCD fringe strips, the
+                // fringe-touching-runs rule) lives in cpurender so the e2e
+                // twin executes the IDENTICAL path — it used to be inlined
+                // here only, making every mover-blit bug untestable in the
+                // harness.
+                let blit = cpurender::execute_translate_blit(
+                    &mut output,
+                    hint,
+                    exceptions,
+                    &mover_rects,
+                    display_list,
+                    dpi_factor,
+                    self.rendered_native && self.native_target_pool_order,
+                );
+                all_damage.extend(blit.damage);
+                present_extra.extend(blit.present_extra);
             }
             for (scroll_id, clip, delta, offset) in &scroll_shifts {
                 // The pixels being dragged were composited at the PREVIOUS

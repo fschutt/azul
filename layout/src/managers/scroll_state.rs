@@ -1117,6 +1117,19 @@ impl ScrollManager {
     /// The round trip is the identity: `LayoutWindow::set_scroll_position`
     /// feeds `children_rect.origin` straight back into `set_scroll_position`.
     #[must_use]
+    /// Whether ANY node in any dom currently has a non-zero scroll offset -
+    /// the cheap guard for consumers whose rects are content-space and only
+    /// valid at zero scroll (patch damage replay, mover blits).
+    #[must_use]
+    pub fn any_nonzero_offset(&self) -> bool {
+        if self.states.is_empty() {
+            return false;
+        }
+        self.states
+            .values()
+            .any(|s| s.current_offset.x != 0.0 || s.current_offset.y != 0.0)
+    }
+
     pub fn get_scroll_states_for_dom(&self, dom_id: DomId) -> BTreeMap<NodeId, ScrollPosition> {
         // M12.7: iterating an EMPTY hashbrown map (RawIterRange) mis-lifts to
         // wasm and loops forever (same class as the font-id / GPU-cache loops).

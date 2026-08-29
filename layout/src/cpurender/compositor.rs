@@ -2437,7 +2437,17 @@ pub fn translate_hint_for_patch(
     dpi_factor: f32,
     can_reuse_previous_frame: bool,
     already_shifted: bool,
+    any_scroll_nonzero: bool,
 ) -> Option<(TranslateHint, Vec<LogicalRect>)> {
+    // The mover rects/regions come from `compute_patch_move_summary` in
+    // CONTENT space - no scroll projection exists on that producer. At zero
+    // scroll the spaces coincide; with any active offset a blit would memmove
+    // the wrong pixels (garbled bands during a scrolled resize). Until the
+    // producer projects through the scroll chain, a scrolled window falls
+    // back to plain damage.
+    if any_scroll_nonzero {
+        return None;
+    }
     let m = last_patch_move?;
     let px = m.dominant_delta.x * dpi_factor;
     let py = m.dominant_delta.y * dpi_factor;
@@ -2454,6 +2464,139 @@ pub fn translate_hint_for_patch(
     } else {
         None
     }
+}
+
+/// What [`execute_translate_blit`] produced: paint damage to merge, and
+/// present-only regions (whole mover clips — every pixel in them changed on
+/// screen even though only strips were rasterised).
+#[derive(Debug, Default)]
+pub struct TranslateBlitResult {
+    pub damage: Vec<LogicalRect>,
+    pub present_extra: Vec<LogicalRect>,
+}
+
+/// ROUND 3 of the incremental present — the layout-translation blit. The
+/// translated diff classified the dominant movers as MOVES (no damage);
+/// shift their pixels here and repaint only the exceptions + exposed strips.
+/// Sign map: the shifter takes SCROLL deltas (offset +d moves content by
+/// −d), so a layout move BY +d passes delta −d anchored at offset (0,0).
+///
+/// Extracted from the dll headless present so BOTH backends (the shells'
+/// `render_frame` and the e2e twin) execute the identical blit — before
+/// this, the twin had no notion of a TranslateHint at all, so every
+/// mover-blit bug was structurally untestable in the harness.
+///
+/// One blit PER MOVER RECT (never the union — the gaps between movers are
+/// static backdrop that must not be dragged). Clip per mover =
+/// old∪(old+delta) so both the vacated source and the destination lie
+/// inside the memmove region; exposed strips repaint per mover.
+#[must_use]
+pub fn execute_translate_blit(
+    output: &mut AzulPixmap,
+    hint: &TranslateHint,
+    exceptions: &[LogicalRect],
+    mover_rects: &[LogicalRect],
+    new_display_list: &DisplayList,
+    dpi_factor: f32,
+    pool_order: bool,
+) -> TranslateBlitResult {
+    let mut res = TranslateBlitResult::default();
+    let d = hint.delta;
+    if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+        eprintln!(
+            "[blit] delta={:?} movers={} exceptions={}",
+            d,
+            mover_rects.len(),
+            exceptions.len()
+        );
+        for m in mover_rects {
+            eprintln!("[blit]   mover {m:?}");
+        }
+        for e in exceptions {
+            eprintln!("[blit]   exception {e:?}");
+        }
+    }
+    for mr in mover_rects {
+        let dest = LogicalRect {
+            origin: LogicalPosition {
+                x: mr.origin.x + d.0,
+                y: mr.origin.y + d.1,
+            },
+            size: mr.size,
+        };
+        let x0 = mr.origin.x.min(dest.origin.x);
+        let y0 = mr.origin.y.min(dest.origin.y);
+        let x1 = (mr.origin.x + mr.size.width).max(dest.origin.x + dest.size.width);
+        let y1 = (mr.origin.y + mr.size.height).max(dest.origin.y + dest.size.height);
+        let clip = LogicalRect {
+            origin: LogicalPosition { x: x0, y: y0 },
+            size: LogicalSize {
+                width: x1 - x0,
+                height: y1 - y0,
+            },
+        };
+        let shift_exact = if pool_order {
+            scroll_shift_region_exact_pool_order
+        } else {
+            scroll_shift_region_exact
+        };
+        let strips = shift_exact(output, &clip, (-d.0, -d.1), (0.0, 0.0), dpi_factor);
+        // Inflate the vacated strips by 1px: LCD fringe of a run hugging the
+        // mover's edge hangs one device pixel OUTSIDE the mover rect, so the
+        // un-inflated vacated region leaves that column stale after the move
+        // (the full-repaint control clears it via the diff's own text
+        // inflation — the gate diverged by exactly that column). A wider
+        // strip that now cuts a destination run is already handled by the
+        // fringe-touching-runs-damaged-whole rule below.
+        let strips: Vec<LogicalRect> = strips
+            .iter()
+            .map(|r| LogicalRect {
+                origin: LogicalPosition {
+                    x: r.origin.x - 1.0,
+                    y: r.origin.y - 1.0,
+                },
+                size: LogicalSize {
+                    width: r.size.width + 2.0,
+                    height: r.size.height + 2.0,
+                },
+            })
+            .collect();
+        res.damage.extend(strips.iter().copied());
+        // LCD text is FIR-fringed: a run STARTING at the blit destination
+        // hangs 1px of fringe INTO the vacated strip. A strip-clipped repaint
+        // cannot reproduce that fringe (the colorimetric blend reads
+        // neighbours), so any text run whose 1px-inflated bounds touch a
+        // strip is damaged WHOLE — cleared and re-rendered exactly like the
+        // full-repaint control.
+        for strip in &strips {
+            for item in &new_display_list.items {
+                if let DisplayListItem::Text { .. } = item {
+                    if let Some(b) = item.bounds() {
+                        let inflated = LogicalRect {
+                            origin: LogicalPosition {
+                                x: b.origin.x - 1.0,
+                                y: b.origin.y - 1.0,
+                            },
+                            size: LogicalSize {
+                                width: b.size.width + 2.0,
+                                height: b.size.height + 2.0,
+                            },
+                        };
+                        let ix = inflated.origin.x < strip.origin.x + strip.size.width
+                            && strip.origin.x < inflated.origin.x + inflated.size.width
+                            && inflated.origin.y < strip.origin.y + strip.size.height
+                            && strip.origin.y < inflated.origin.y + inflated.size.height;
+                        if ix {
+                            res.damage.push(inflated);
+                        }
+                    }
+                }
+            }
+        }
+        res.present_extra.push(clip);
+    }
+    res.damage.extend(exceptions.iter().copied());
+    res
 }
 
 /// [`compute_display_list_damage`] + the translate hint. Returns
@@ -2513,6 +2656,20 @@ fn windowed_structural_damage(
         }
     }
 
+    // A text-shadow's extent is not representable per item (the shadow
+    // paints around every glyph run until the Pop) — if EITHER changed
+    // window contains one, bail to the full-repaint path rather than
+    // under-damage the fringe. This must abort the WHOLE fallback: bailing
+    // from just one window's union would return the other window's rect as
+    // if it were complete coverage.
+    let shadow_in_window = o[prefix..o.len() - suffix]
+        .iter()
+        .chain(n[prefix..n.len() - suffix].iter())
+        .any(|i| matches!(i, DisplayListItem::PushTextShadow { .. }));
+    if shadow_in_window {
+        return None;
+    }
+
     // Union the middle window of one list, tracking Push/Pop inside it.
     let union_window = |items: &[DisplayListItem],
                         offsets: &ScrollOffsetMap,
@@ -2534,15 +2691,30 @@ fn windowed_structural_damage(
                 }
                 _ => {}
             }
-            let Some(b) = item.bounds() else { continue };
+            // INK bounds, not box bounds: a box-shadow's blur/spread and a
+            // glyph run's overhang paint OUTSIDE `bounds()`. Unioning the
+            // un-expanded rects left the moved shadow's fringe stale — the
+            // Switch toggle's 2830 stale px — and, for Text, the LCD
+            // subpixel fringe one column outside the box.
+            let Some(b) = item.visual_bounds().or_else(|| item.bounds()) else {
+                continue;
+            };
             let (ox, oy) = *stack.last().unwrap_or(&(0.0, 0.0));
-            let visual = LogicalRect {
+            let mut visual = LogicalRect {
                 origin: LogicalPosition {
                     x: b.origin.x - ox,
                     y: b.origin.y - oy,
                 },
                 size: b.size,
             };
+            // Mirror the paired path's rule: LCD subpixel AA (the shipping
+            // default) bleeds 1 logical px past the glyph ink.
+            if matches!(item, DisplayListItem::Text { .. }) {
+                visual.origin.x -= 1.0;
+                visual.origin.y -= 1.0;
+                visual.size.width += 2.0;
+                visual.size.height += 2.0;
+            }
             acc = Some(match acc {
                 Some(a) => {
                     let x0 = a.origin.x.min(visual.origin.x);
@@ -3229,31 +3401,35 @@ mod translate_hint_contract {
     /// subpixel phase, so the frame has to re-render.
     #[test]
     fn a_fractional_delta_is_not_blittable() {
-        assert!(translate_hint_for_patch(Some(&mv(0.0, 10.5)), 1.0, true, false).is_none());
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 10.5)), 1.0, true, false, false).is_none());
         // ... but the SAME logical delta at 2x dpi is integral in physical px.
-        assert!(translate_hint_for_patch(Some(&mv(0.0, 10.5)), 2.0, true, false).is_some());
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 10.5)), 2.0, true, false, false).is_some());
     }
 
     /// A sub-pixel move is not a move.
     #[test]
     fn a_delta_that_moves_no_physical_pixel_is_not_blittable() {
-        assert!(translate_hint_for_patch(Some(&mv(0.0, 0.0)), 1.0, true, false).is_none());
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 0.0)), 1.0, true, false, false).is_none());
     }
 
     /// The two guards that make a blit safe at all.
     #[test]
     fn an_untrustworthy_previous_frame_or_a_second_shift_is_refused() {
-        assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, true, false).is_some());
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, true, false, false).is_some());
         // previous frame cannot be reused -> no source pixels to blit
-        assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, false, false).is_none());
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, false, false, false).is_none());
         // this display list was already shifted -> shifting twice doubles it
-        assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, true, true).is_none());
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, true, true, false).is_none());
     }
 
     /// No patch, no hint.
     #[test]
     fn no_patch_move_means_no_hint() {
-        assert!(translate_hint_for_patch(None, 1.0, true, false).is_none());
+        assert!(translate_hint_for_patch(None, 1.0, true, false, false).is_none());
+        // Content-space movers are only valid at zero scroll: any active
+        // offset must kill the blit (the memmove would garble scrolled
+        // content) and fall back to plain damage.
+        assert!(translate_hint_for_patch(Some(&mv(0.0, 12.0)), 1.0, true, false, true).is_none());
     }
 }
 
