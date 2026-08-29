@@ -1,19 +1,20 @@
 //! The the Office-2013-era look ribbon composition — HOME tab cloned control-by-control.
 //!
 //! Adapted from the verified `azul/examples/rust/src/ribbon.rs` (pixel-close
-//! against the real the Office-2013-era look HOME tab), rebased onto the raw
-//! `azul_layout::widgets::ribbon` API. The FILE app button opens the
+//! against the real the Office-2013-era look HOME tab), rebased onto the
+//! public `azul::widgets` ribbon API. The FILE app button opens the
 //! backstage (`crate::on_file_button`).
 
-use azul_core::{callbacks::Update, dom::Dom, refany::RefAny};
-use azul_css::AzString;
-use azul_layout::callbacks::CallbackInfo;
-use azul_layout::widgets::button::ButtonOnClickCallbackType;
-use azul_layout::widgets::combobox::{ComboBoxOnSelectCallbackType, ComboBoxState};
-use azul_layout::widgets::ribbon::{
-    Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonColumn, RibbonGallery,
-    RibbonGalleryCell, RibbonGalleryOnSelectCallbackType, RibbonGroup, RibbonItem,
-    RibbonOnTabClickCallbackType, RibbonRow, RibbonStyle, RibbonTab, RibbonTabVec,
+use azul::callbacks::{
+    ButtonOnClickCallbackType, CallbackInfo, ComboBoxOnSelectCallbackType,
+    RibbonGalleryOnSelectCallbackType, RibbonOnTabClickCallbackType, RefAny, Update,
+};
+use azul::dom::{ComboBoxOnSelectCallback, Dom, RibbonGalleryOnSelectCallback};
+use azul::option::OptionRefAny;
+use azul::str::String as AzString;
+use azul::widgets::{
+    ComboBoxState, Ribbon, RibbonAppButton, RibbonArrow, RibbonButton, RibbonColumn,
+    RibbonGallery, RibbonGalleryCell, RibbonGroup, RibbonItem, RibbonRow, RibbonStyle, RibbonTab,
 };
 
 use crate::AppState;
@@ -172,9 +173,15 @@ fn home_tab(state: &AppState, data: &RefAny) -> RibbonTab {
         .map(|f| s(f))
         .collect();
 
-    let mut name_combo = ribbon_style.styled_combo_box(font_names.into(), s("Calibri (Body)"), 133);
-    name_combo.set_on_select(data.clone(), on_font_select as ComboBoxOnSelectCallbackType);
-    let mut size_combo = ribbon_style.styled_combo_box(font_sizes.into(), s("11"), 45);
+    let mut name_combo = ribbon_style.styled_combo_box(font_names, s("Calibri (Body)"), 133);
+    name_combo.set_on_select(
+        data.clone(),
+        ComboBoxOnSelectCallback {
+            cb: on_font_select as ComboBoxOnSelectCallbackType,
+            callable: OptionRefAny::None,
+        },
+    );
+    let mut size_combo = ribbon_style.styled_combo_box(font_sizes, s("11"), 45);
     // WORKAROUND(engine): pin the static UI font (see crate::fonts).
     crate::fonts::push_ui_font(&mut name_combo.text_style);
     crate::fonts::push_ui_font(&mut size_combo.text_style);
@@ -278,10 +285,13 @@ fn home_tab(state: &AppState, data: &RefAny) -> RibbonTab {
         ),
         cell("font-size: 13px; color: #4472c4;", "AaBbCcDi", "Emphasis"),
     ];
-    let mut gallery = RibbonGallery::new(cells.into()).with_selected(state.selected_style);
+    let mut gallery = RibbonGallery::new(cells).with_selected(state.selected_style);
     gallery.set_on_select(
         data.clone(),
-        on_style_select as RibbonGalleryOnSelectCallbackType,
+        RibbonGalleryOnSelectCallback {
+            cb: on_style_select as RibbonGalleryOnSelectCallbackType,
+            callable: OptionRefAny::None,
+        },
     );
 
     let styles = RibbonGroup::new(s("Styles"))
@@ -325,7 +335,7 @@ pub fn build(state: &AppState, data: &RefAny) -> Dom {
         placeholder_tab("VIEW"),
     ];
 
-    let mut ribbon = Ribbon::new(RibbonTabVec::from_vec(tabs))
+    let mut ribbon = Ribbon::new(tabs)
         .with_app_button(RibbonAppButton::new(s("FILE")).with_on_click(
             data.clone(),
             crate::on_file_button as ButtonOnClickCallbackType,

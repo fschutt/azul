@@ -45,13 +45,9 @@ dependencies = [
 name = "AzWriter"
 version = "0.1.0"
 dependencies = [
- "azul-core",
- "azul-css",
  "azul-dll",
- "azul-layout",
  "ctor",
  "pulldown-cmark",
- "rust-fontconfig",
 ]
 
 [[package]]

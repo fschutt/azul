@@ -12,13 +12,12 @@
 //! "Liberation Sans" is metric-compatible with Arial — the closest
 //! stand-in for the Office-2013-era Segoe UI that ships on stock Ubuntu.
 
-use azul_core::dom::Dom;
-use azul_css::dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec};
-use azul_css::props::basic::color::ColorU;
-use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec, StyleFontSize};
-use azul_css::props::layout::{LayoutMarginBottom, LayoutMarginTop};
-use azul_css::props::property::CssProperty;
-use azul_css::props::style::text::StyleTextColor;
+use azul::css::{
+    ColorU, CssProperty, CssPropertyWithConditions, LayoutMarginBottom, LayoutMarginTop,
+    PixelValue, StyleFontFamily, StyleFontSize, StyleTextColor,
+};
+use azul::dom::Dom;
+use azul::vec::{CssPropertyWithConditionsVec, StyleFontFamilyVec};
 
 /// The pinned UI family, as a CSS string fragment for `with_css` blocks.
 pub const UI_FONT_CSS: &str = "font-family: \"Liberation Sans\";";
@@ -26,7 +25,7 @@ pub const UI_FONT_CSS: &str = "font-family: \"Liberation Sans\";";
 /// One `font-family: "Liberation Sans"` declaration.
 fn ui_font_cond() -> CssPropertyWithConditions {
     CssPropertyWithConditions::simple(CssProperty::const_font_family(
-        StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("Liberation Sans".into())]),
+        StyleFontFamilyVec::from(vec![StyleFontFamily::System("Liberation Sans".into())]),
     ))
 }
 
@@ -36,7 +35,7 @@ fn ui_font_cond() -> CssPropertyWithConditions {
 pub fn push_ui_font(style: &mut CssPropertyWithConditionsVec) {
     let mut v: Vec<CssPropertyWithConditions> = style.as_ref().to_vec();
     v.push(ui_font_cond());
-    *style = CssPropertyWithConditionsVec::from_vec(v);
+    *style = CssPropertyWithConditionsVec::from(v);
 }
 
 // -- the Office-2013-era look palette shared by the app-side compositions --
@@ -93,9 +92,9 @@ pub const WHITE: ColorU = ColorU {
 /// Every app-side label goes through this helper; wrapping DIVs still own
 /// margins and layout.
 pub fn text(contents: &str, size_px: isize, color: ColorU) -> Dom {
-    Dom::create_p_with_text(contents).with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
-        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(
-            size_px,
+    Dom::create_p_with_text(contents).with_css_props(CssPropertyWithConditionsVec::from(vec![
+        CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::px(
+            size_px as f32,
         ))),
         CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
             inner: color,
@@ -104,11 +103,11 @@ pub fn text(contents: &str, size_px: isize, color: ColorU) -> Dom {
         // `<p>` carries the UA 1em block margins; the bare text node this
         // helper used to return carried none, and every margin in this app
         // belongs to the wrapping DIVs.
-        CssPropertyWithConditions::simple(CssProperty::const_margin_top(
-            LayoutMarginTop::const_px(0),
-        )),
-        CssPropertyWithConditions::simple(CssProperty::const_margin_bottom(
-            LayoutMarginBottom::const_px(0),
-        )),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_top(LayoutMarginTop {
+            inner: PixelValue::zero(),
+        })),
+        CssPropertyWithConditions::simple(CssProperty::const_margin_bottom(LayoutMarginBottom {
+            inner: PixelValue::zero(),
+        })),
     ]))
 }

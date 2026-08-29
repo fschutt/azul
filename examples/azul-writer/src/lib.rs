@@ -16,6 +16,9 @@
 //! `AZWRITER_SHOT=/path/out.png [AZWRITER_SCREEN=editor|backstage-info|
 //! backstage-open] AZ_BACKEND=headless ./azwriter` renders the requested
 //! screen, writes the PNG and exits.
+//!
+//! Built entirely on the PUBLIC `azul::` api.json surface (link-dynamic on
+//! desktop) — no internal engine crates.
 
 mod backstage_ui;
 mod document;
@@ -26,29 +29,30 @@ mod ribbon_ui;
 
 use std::path::{Path, PathBuf};
 
-use azul_core::{
-    callbacks::{LayoutCallbackInfo, TimerCallbackReturn, Update},
-    dom::{Dom, DomId},
-    refany::RefAny,
-    resources::AppConfig,
-    task::{Duration, SystemTimeDiff, TerminateTimer, TimerId},
+use azul::app::{App, AppConfig};
+use azul::callbacks::{
+    CallbackInfo, DocumentChangeset, LayoutCallbackInfo, RefAny, TimerCallback,
+    TimerCallbackInfo, TimerCallbackReturn, Update, WriteBackCallback,
 };
-use azul_css::{AzString, OptionString, StringVec};
-// The azul-dll package names its lib target `azul`; `unified::app::App` is
-// the raw-typed desktop App (no generated wrappers involved).
-use azul::unified::app::App;
-use azul_layout::{
-    callbacks::{Callback, CallbackInfo},
-    desktop::dialogs::{FileDialog, FileTypeList, OptionFileTypeList},
-    timer::{Timer, TimerCallback, TimerCallbackInfo},
-    window_state::WindowCreateOptions,
+use azul::css::{DocumentOperation, LayoutSize, NodePosition};
+use azul::dialog::FileDialog;
+use azul::dom::{Callback, Dom, DomId, DomNodeId, NodeHierarchyItemId};
+use azul::widgets::SliderState;
+use azul::misc::EditResumePoint;
+use azul::option::{
+    OptionFileTypeList, OptionLogicalRect, OptionRefAny, OptionString, OptionThreadSendMsg,
 };
+use azul::pdf::Pdf;
+use azul::str::String as AzString;
+use azul::svg::{CssPath, CssPathSelector, LogicalRect};
+use azul::task::{
+    TerminateTimer, Thread, ThreadId, ThreadReceiveMsg, ThreadReceiver, ThreadSendMsg,
+    ThreadSender, ThreadWriteBackMsg, Timer, TimerId,
+};
+use azul::time::{Duration, Instant, SystemTimeDiff};
+use azul::window::{WindowCreateOptions, WindowFrame};
 
-use azul_layout::managers::changeset::{
-    DocumentChangeset, DocumentOperation, EditResumePoint, NodePosition,
-};
-
-use crate::document::DocumentModel;
+use crate::document::{DocumentModel, FontCacheSnapshot};
 
 /// Diagnostic: log any layout() call slower than the frame budget. A client
 /// that spends too long here cannot answer the compositor's configure/ping
@@ -77,6 +81,31 @@ impl Drop for FrameTimer {
         for (name, dur) in phases {
             eprintln!("[frame #{n}]   {name:<22} {dur:?}");
         }
+    }
+}
+
+/// `DomId::ROOT_ID` (the constant is not part of the generated surface; the
+/// root window DOM is id 0 by definition).
+fn root_dom_id() -> DomId {
+    DomId { inner: 0 }
+}
+
+/// The "no node" id — the crate-internal `from_crate_internal(None)`
+/// encoding (inner 0).
+fn null_node_id() -> DomNodeId {
+    DomNodeId {
+        dom: root_dom_id(),
+        node: NodeHierarchyItemId::from_raw(0),
+    }
+}
+
+/// Coarse label for a document-edit error (the ABI enum carries no Debug).
+fn edit_err_str(e: &azul::error::DocumentEditError) -> &'static str {
+    use azul::error::DocumentEditError;
+    match e {
+        DocumentEditError::HostNotFound => "host not found",
+        DocumentEditError::TargetNotFound => "target not found",
+        DocumentEditError::Unsupported => "unsupported operation",
     }
 }
 
@@ -130,7 +159,7 @@ pub struct AppState {
     /// #28(c): the pages `VirtualView` node, stored at `AfterMount` so the
     /// background writeback can address `update_virtual_view` (scrollbar
     /// correction without re-invoking the callback).
-    pub pages_vv_node: Option<azul_core::dom::DomNodeId>,
+    pub pages_vv_node: Option<DomNodeId>,
     /// #28(c): the in-flight background pagination — `(generation it was
     /// started for, its azul ThreadId)`. `None` = nothing running. The
     /// generation guards staleness (edits supersede the run); the ThreadId
@@ -139,7 +168,7 @@ pub struct AppState {
     /// loading finishes (USER design 2026-08-12). Cancellation today drops
     /// the writeback registration (no stale result can land); true
     /// mid-compute abort needs chunked pagination — a recorded refinement.
-    pub pagination_thread: Option<(u64, azul_core::task::ThreadId)>,
+    pub pagination_thread: Option<(u64, ThreadId)>,
 }
 
 impl Default for AppState {
@@ -177,11 +206,13 @@ impl Default for AppState {
 const PAGINATION_CHUNK_BLOCKS: u32 = 64;
 
 /// Init data moved INTO the pagination worker (markdown, not Dom — Dom is
-/// not Send; the worker rebuilds content thread-side).
+/// not Send; the worker rebuilds content thread-side). The font-cache
+/// snapshot handle IS designed for off-thread pagination (its shared state
+/// is Arc/Mutex-guarded).
 struct PaginationThreadInit {
     markdown: String,
     generation: u64,
-    fonts: Option<rust_fontconfig::FcFontCache>,
+    fonts: Option<FontCacheSnapshot>,
 }
 
 /// One streamed chunk result (worker → main-thread writeback).
@@ -202,11 +233,10 @@ struct PaginationChunk {
 /// (USER design).
 extern "C" fn pagination_worker(
     mut init: RefAny,
-    mut sender: azul_layout::thread::ThreadSender,
-    mut recv: azul_core::task::ThreadReceiver,
+    mut sender: ThreadSender,
+    mut recv: ThreadReceiver,
 ) {
-    use azul_core::task::{OptionThreadSendMsg, ThreadSendMsg};
-    use azul_layout::thread::{ThreadReceiveMsg, ThreadWriteBackMsg};
+    use azul::dom::DomSplit;
 
     let (markdown, generation, fonts) = {
         let Some(init) = init.downcast_ref::<PaginationThreadInit>() else {
@@ -232,8 +262,8 @@ extern "C" fn pagination_worker(
             return;
         }
 
-        let (chunk, tail) =
-            azul_layout::document_edit::split_dom_at_path(&remaining, &[PAGINATION_CHUNK_BLOCKS]);
+        let split = DomSplit::at_path(&remaining, vec![PAGINATION_CHUNK_BLOCKS]);
+        let (chunk, tail) = (split.head, split.tail);
         let rel = document::break_paths_for(&chunk, fonts.clone());
         for p in &rel {
             let mut abs = p.clone();
@@ -261,9 +291,9 @@ extern "C" fn pagination_worker(
                 paths_so_far: paths_acc.clone(),
                 done,
             }),
-            callback: azul_layout::thread::WriteBackCallback {
+            callback: WriteBackCallback {
                 cb: pagination_writeback,
-                ctx: azul_core::refany::OptionRefAny::None,
+                ctx: OptionRefAny::None,
             },
         }));
         if !sent || done {
@@ -321,6 +351,7 @@ extern "C" fn pagination_writeback(
     // Scrollbar correction: virtual size grows → the bar shrinks live while
     // the scroll POSITION stays where it was (the op clamps, not resets).
     if let Some(vv) = vv_node {
+        use azul::css::{LogicalPosition, LogicalSize};
         let stride = editor_ui::page_stride(zoom);
         let width = (editor_ui::page_sheet_w() * zoom).round() + 2.0;
         // `materialized: None` = keep the rendered window exactly as it is.
@@ -328,11 +359,14 @@ extern "C" fn pagination_writeback(
         // so the bar re-scales and not one pixel of the page moves.
         info.update_virtual_view(
             vv,
-            azul_core::geom::OptionLogicalRect::None,
-            azul_core::geom::OptionLogicalRect::Some(azul_core::geom::LogicalRect::new(
-                azul_core::geom::LogicalPosition::zero(),
-                azul_core::geom::LogicalSize::new(width, pages as f32 * stride),
-            )),
+            OptionLogicalRect::None,
+            OptionLogicalRect::Some(LogicalRect {
+                origin: LogicalPosition::zero(),
+                size: LogicalSize {
+                    width,
+                    height: pages as f32 * stride,
+                },
+            }),
         );
     }
 
@@ -374,13 +408,9 @@ pub extern "C" fn on_pages_mounted(mut data: RefAny, mut info: CallbackInfo) -> 
         generation,
         fonts,
     });
-    let thread = azul_layout::thread::Thread::create(
-        init,
-        app_for_thread,
-        azul_layout::thread::ThreadCallback::new(pagination_worker),
-    );
-    let thread_id = azul_core::task::ThreadId::unique();
-    info.add_thread(thread_id.clone(), thread);
+    let thread = Thread::create(init, app_for_thread, pagination_worker);
+    let thread_id = ThreadId::unique();
+    info.add_thread(thread_id, thread);
     state.pagination_thread = Some((generation, thread_id));
     Update::DoNothing
 }
@@ -412,15 +442,16 @@ pub extern "C" fn on_pages_unmounted(mut data: RefAny, mut info: CallbackInfo) -
 
 /// Sets the native window title to "<name> - AzWriter".
 fn set_window_title(info: &mut CallbackInfo, name: &str) {
-    let mut st = info.get_current_window_state().clone();
+    let mut st = info.get_current_window_state();
     st.title = AzString::from(format!("{name} - AzWriter"));
     info.modify_window_state(st);
 }
 
 /// The `*.md` filter for the native open dialog.
 fn markdown_filter() -> OptionFileTypeList {
+    use azul::css::FileTypeList;
     OptionFileTypeList::Some(FileTypeList {
-        document_types: StringVec::from_vec(vec![AzString::from("*.md")]),
+        document_types: vec![AzString::from("*.md")].into(),
         document_descriptor: AzString::from("Markdown documents (*.md)"),
     })
 }
@@ -441,11 +472,17 @@ fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Upda
         // model's own text for anything not currently rendered.
         let mut provider = |path: &[u32]| -> Option<String> {
             let id = document::path_dom_id(path)?;
-            let node = info.get_node_id_by_id_attribute(DomId::ROOT_ID, &id)?;
-            info.get_node_text_content(azul_core::dom::DomNodeId {
-                dom: DomId::ROOT_ID,
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(node)),
+            let node = info.get_node_id_by_id_attribute(root_dom_id(), id);
+            // inner 0 = the None encoding (id not present in the DOM).
+            if node.into_raw() == 0 {
+                return None;
+            }
+            info.get_node_text_content(DomNodeId {
+                dom: root_dom_id(),
+                node,
             })
+            .into_option()
+            .map(|s| s.as_str().to_string())
         };
         snapshot.markdown = document::dom_to_markdown(&snapshot.content, &mut provider);
         (state.document.path.clone(), snapshot)
@@ -538,7 +575,7 @@ fn do_save(data: &mut RefAny, info: &mut CallbackInfo, always_ask: bool) -> Upda
 /// The engine recorded a structural edit on a page subtree. Apply it to the
 /// app's MODEL (`state.document.content`, which the pages are cut from),
 /// acknowledge with the inverse (making it undoable), and re-render — the
-/// Path-2 loop from `azul_layout::document_edit`.
+/// Path-2 loop over the public `DocumentChangeset::apply_to_dom`.
 ///
 /// Page->model mapping: pages are contiguous slices of the model's block
 /// list, so a changeset recorded against page `p` shifts by that page's
@@ -567,14 +604,13 @@ pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> 
     // resume path inside the changeset already names the block index.
     let host_path = document::page_path_to_model_path(page_offset, &[]);
 
-    let applied = match azul_layout::document_edit::apply_document_operation(
-        &mut state.document.content,
-        &host_path,
-        &changeset,
-    ) {
+    let applied = match changeset
+        .apply_to_dom(&mut state.document.content, host_path)
+        .into_result()
+    {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("[azwriter] edit apply failed: {e:?}");
+            eprintln!("[azwriter] edit apply failed: {}", edit_err_str(&e));
             return Update::DoNothing;
         }
     };
@@ -601,6 +637,19 @@ pub extern "C" fn on_document_edit(mut data: RefAny, mut info: CallbackInfo) -> 
     Update::RefreshDom
 }
 
+/// A shallow re-borrow of a `CallbackInfo` for the by-value public entry
+/// points (`Pdf::from_dom_in_callback`). The struct is plain pointer data;
+/// the engine only reads through it for the duration of the call.
+fn reborrow_info(info: &CallbackInfo) -> CallbackInfo {
+    CallbackInfo {
+        ref_data: info.ref_data,
+        hit_dom_node: info.hit_dom_node,
+        cursor_relative_to_item: info.cursor_relative_to_item,
+        cursor_in_viewport: info.cursor_in_viewport,
+        changes: info.changes,
+    }
+}
+
 /// Render the document to PDF bytes. Shared by the backstage "Export PDF"
 /// button and by Save-with-a-.pdf-extension, so the two cannot drift.
 fn pdf_bytes(content: &Dom, info: &mut CallbackInfo) -> Vec<u8> {
@@ -612,24 +661,23 @@ fn pdf_bytes(content: &Dom, info: &mut CallbackInfo) -> Vec<u8> {
     // when the variable is unset.
     std::env::set_var("AZ_PAGINATION_ENGINE", "tokens");
 
-    let mut doc = Dom::create_body().with_css(&format!(
-        "margin: 0; padding: {}px; background: white; {}",
-        96,
-        fonts::UI_FONT_CSS
-    ));
+    let mut doc = Dom::create_body().with_css(
+        format!(
+            "margin: 0; padding: {}px; background: white; {}",
+            96,
+            fonts::UI_FONT_CSS
+        )
+        .as_str(),
+    );
     doc.add_child(content.clone());
-    let styled = azul_core::styled_dom::StyledDom::create_from_dom(doc);
 
-    let pdf = azul::unified::pdf::Pdf::new();
-    pdf.from_styled_dom_with_resources(
-        styled,
-        A4_W_PX,
-        A4_H_PX,
-        &info.get_font_cache_clone(),
-        &info.get_image_cache_clone(),
-    )
-    .as_slice()
-    .to_vec()
+    // `from_dom_in_callback` styles the DOM and pulls the font/image caches
+    // out of the live callback context — the same resources the canvas
+    // renders with.
+    let pdf = Pdf::new();
+    pdf.from_dom_in_callback(reborrow_info(info), doc, A4_W_PX, A4_H_PX)
+        .as_ref()
+        .to_vec()
 }
 
 /// Backstage Export -> "Create PDF/XPS": run the whole document through
@@ -663,17 +711,17 @@ pub extern "C" fn on_export_pdf(mut data: RefAny, mut info: CallbackInfo) -> Upd
         path.set_extension("pdf");
     }
 
-    let bytes = azul_css::U8Vec::from_vec(pdf_bytes(&content, &mut info));
+    let bytes = pdf_bytes(&content, &mut info);
 
-    if bytes.as_slice().is_empty() {
+    if bytes.is_empty() {
         eprintln!("[azwriter] PDF export produced no bytes");
         return Update::DoNothing;
     }
-    match std::fs::write(&path, bytes.as_slice()) {
+    match std::fs::write(&path, &bytes) {
         Ok(()) => {
             eprintln!(
                 "[azwriter] exported {} bytes to {}",
-                bytes.as_slice().len(),
+                bytes.len(),
                 path.display()
             );
             Update::RefreshDom
@@ -693,10 +741,7 @@ fn replay(
     resume_path: &[u32],
 ) -> Option<(DocumentOperation, Vec<u32>)> {
     let changeset = DocumentChangeset::new(
-        azul_core::dom::DomNodeId {
-            dom: DomId::ROOT_ID,
-            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(None),
-        },
+        null_node_id(),
         op.clone(),
         EditResumePoint {
             anchor_key: 0,
@@ -706,10 +751,12 @@ fn replay(
                 text_byte: Some(0).into(),
             },
         },
-        azul_core::task::Instant::from(std::time::Instant::now()),
+        Instant::now(),
     );
-    let applied =
-        azul_layout::document_edit::apply_document_operation(model, &[], &changeset).ok()?;
+    let applied = changeset
+        .apply_to_dom(model, Vec::<u32>::new())
+        .into_result()
+        .ok()?;
     Some((
         applied.inverse,
         applied.inverse_resume.node_path.as_ref().to_vec(),
@@ -792,7 +839,7 @@ pub extern "C" fn on_backstage_nav(mut data: RefAny, mut info: CallbackInfo, idx
     match idx {
         SAVE | SAVE_AS => {
             let update = do_save(&mut data, &mut info, idx == SAVE_AS);
-            if update == Update::RefreshDom {
+            if matches!(update, Update::RefreshDom) {
                 // Word returns to the document after a backstage save.
                 if let Some(mut state) = data.downcast_mut::<AppState>() {
                     state.screen = Screen::Editor;
@@ -879,11 +926,7 @@ pub extern "C" fn on_zoom_in(mut data: RefAny, _: CallbackInfo) -> Update {
 }
 
 /// Dragging the status-bar zoom slider.
-pub extern "C" fn on_zoom_slider(
-    mut data: RefAny,
-    _: CallbackInfo,
-    slider: azul_layout::widgets::slider::SliderState,
-) -> Update {
+pub extern "C" fn on_zoom_slider(mut data: RefAny, _: CallbackInfo, slider: SliderState) -> Update {
     let Some(mut state) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
@@ -907,28 +950,31 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
         }
     };
 
-    let viewport_w = info.window_size.dimensions.width;
-    let viewport_h = info.window_size.dimensions.height;
     let font_cache = {
         let _p = perf::Phase::start("get_font_cache");
-        Some(info.get_font_cache())
+        // The snapshot handle over the engine's system-font cache — what
+        // `Pdf::compute_pagination` (and the background worker) paginate
+        // with. Built per layout() call; the underlying cache is shared.
+        Some(FontCacheSnapshot::from_layout_info(&info))
     };
     // #28(c/d): the largest monitor bounds how much content the FIRST
     // pagination builds (huge files must not paginate unbounded up front —
     // the background thread delivers the exact count afterwards).
-    let max_monitor: Option<azul_css::props::basic::LayoutSize> =
-        info.get_max_monitor_size().into();
+    let max_monitor: Option<LayoutSize> = info.get_max_monitor_size().into_option();
     let screen = match state.screen {
         Screen::Editor => editor_ui::editor_screen(&state, &data, font_cache, max_monitor),
         Screen::Backstage => backstage_ui::backstage_screen(&state, &data),
     };
 
     Dom::create_body()
-        .with_css(&format!(
-            "display: flex; flex-direction: column; margin: 0; padding: 0; height: 100%; \
-             background: white; {} font-size: 12px; color: #444444;",
-            fonts::UI_FONT_CSS
-        ))
+        .with_css(
+            format!(
+                "display: flex; flex-direction: column; margin: 0; padding: 0; height: 100%; \
+                 background: white; {} font-size: 12px; color: #444444;",
+                fonts::UI_FONT_CSS
+            )
+            .as_str(),
+        )
         .with_child(screen)
 }
 
@@ -949,7 +995,8 @@ extern "C" fn shot_tick(mut data: RefAny, info: TimerCallbackInfo) -> TimerCallb
     };
     match info
         .callback_info
-        .take_screenshot_to_file(DomId::ROOT_ID, &cfg.path)
+        .take_screenshot_to_file(root_dom_id(), cfg.path.as_str())
+        .into_result()
     {
         Ok(()) => {
             eprintln!("[azwriter] screenshot written: {}", cfg.path);
@@ -973,11 +1020,10 @@ extern "C" fn startup_focus_tick(
     _data: RefAny,
     mut info: TimerCallbackInfo,
 ) -> TimerCallbackReturn {
-    use azul_css::css::{CssPath, CssPathSelector};
     info.callback_info.set_focus_to_path(
-        azul_core::dom::DomId::ROOT_ID,
+        root_dom_id(),
         CssPath {
-            selectors: vec![CssPathSelector::Class("mw-doc".to_string().into())].into(),
+            selectors: vec![CssPathSelector::Class("mw-doc".into())].into(),
         },
     );
     TimerCallbackReturn {
@@ -996,7 +1042,10 @@ extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update 
     {
         let timer = Timer::create(
             RefAny::new(()),
-            TimerCallback::create(startup_focus_tick),
+            TimerCallback {
+                cb: startup_focus_tick,
+                ctx: OptionRefAny::None,
+            },
             info.get_system_time_fn(),
         )
         .with_delay(Duration::System(SystemTimeDiff::from_millis(150)));
@@ -1009,7 +1058,10 @@ extern "C" fn on_window_created(data: RefAny, mut info: CallbackInfo) -> Update 
             .unwrap_or(2500);
         let timer = Timer::create(
             RefAny::new(ShotConfig { path }),
-            TimerCallback::create(shot_tick),
+            TimerCallback {
+                cb: shot_tick,
+                ctx: OptionRefAny::None,
+            },
             info.get_system_time_fn(),
         )
         .with_delay(Duration::System(SystemTimeDiff::from_millis(delay_ms)));
@@ -1048,27 +1100,18 @@ pub fn start() {
         state.document = DocumentModel::from_path(Path::new(&p));
     }
 
-    // PRIME THE PAGINATION MEMO BEFORE THE WINDOW EXISTS.
-    //
-    // The first pagination of a document is the expensive one (font
-    // resolution + a full document layout): measured 1.8s here, 5.1s when
-    // it also had to scan the system fonts. Paying that inside the first
-    // layout() call means the client cannot answer the compositor's
-    // configure/ping handshake while its surface is being mapped - the
-    // window then gets dropped and the app looks like it crashed. Doing it
-    // HERE turns the same work into ordinary startup latency: there is no
-    // surface yet, so nobody is waiting on a frame.
     // NO PRIMER. This used to paginate here, before the window existed, so the
     // first frame would not block the compositor's configure/ping handshake.
     // It cost more than it saved: with no window there is no engine yet, so it
-    // passed `fonts: None` and `build_font_cache()` SCANNED THE WHOLE SYSTEM
-    // on the main thread — 96 ms — and the engine then built its own cache
-    // anyway.
+    // passed `fonts: None` and the pagination SCANNED THE WHOLE SYSTEM for
+    // fonts on the main thread — 96 ms — and the engine then built its own
+    // cache anyway.
     //
-    // `App::create` spawns an async font scout and hands the layout callback a
-    // registry-backed cache through `LayoutCallbackInfo::get_font_cache()`,
-    // which `editor_ui` already passes to `paginate_cached_with_fonts`. So the
-    // first layout() paginates with fonts somebody else already found.
+    // `App::create` spawns an async font scout, and the layout callback wraps
+    // the resulting registry-backed cache via
+    // `FontCacheSnapshot::from_layout_info`, which `editor_ui` already passes
+    // to `paginate_cached_with_fonts`. So the first layout() paginates with
+    // fonts somebody else already found.
     //
     // Measured on a 24-line markdown (AZWRITER_FRAME_LOG=all):
     //   with primer:     96 ms scan + 126 ms pagination BEFORE the window,
@@ -1097,8 +1140,7 @@ pub fn start() {
     config.updates.current_version = AzString::from(env!("CARGO_PKG_VERSION"));
     let app = App::create(data, config);
 
-    let mut window =
-        WindowCreateOptions::create(layout as azul_core::callbacks::LayoutCallbackType);
+    let mut window = WindowCreateOptions::create(layout);
     window.window_state.title = AzString::from("Document1 - AzWriter");
     // Open MAXIMIZED. A document editor that starts in a 1280x800 box on a 5K
     // display is the first thing every user fixes by hand.
@@ -1108,7 +1150,7 @@ pub fn start() {
     // X11 _NET_WM_STATE_MAXIMIZED_{HORZ,VERT}, Wayland
     // xdg_toplevel.set_maximized — so this is one flag rather than four
     // per-platform paths.
-    window.window_state.flags.frame = azul_core::window::WindowFrame::Maximized;
+    window.window_state.flags.frame = WindowFrame::Maximized;
     // The dimensions still matter: they are the size the window RESTORES to
     // when the user un-maximizes, and the size every headless/screenshot run
     // uses (nothing maximizes a stub window).
@@ -1124,10 +1166,7 @@ pub fn start() {
             }
         }
     }
-    window.create_callback = Some(Callback::create(
-        on_window_created as azul_layout::callbacks::CallbackType,
-    ))
-    .into();
+    window.create_callback = Some(Callback::create(on_window_created)).into();
 
     app.run(window);
 }

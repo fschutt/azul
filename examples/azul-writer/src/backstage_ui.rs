@@ -1,26 +1,28 @@
 //! Backstage pane content (the Office-2013-era look "FILE" screen): the Info and Open
 //! panes per the reference screenshots; every other nav entry shows an
 //! empty pane with its title. The chrome (nav column, back ring, Esc
-//! behavior) is the `azul_layout::widgets::backstage` widget.
+//! behavior) is the `azul::widgets::Backstage` widget.
 //!
 //! Every label goes through `fonts::text` (programmatic styling — see
 //! ENGINE-ISSUES.md #4 for why inline `with_css` strings on text nodes are
 //! avoided); wrapper DIVs own the margins and layout.
 
-use azul_core::callbacks::{CoreCallback, CoreCallbackData};
-use azul_core::{
-    dom::{Dom, EventFilter, HoverEventFilter},
-    refany::RefAny,
-};
-use azul_css::AzString;
-use azul_layout::widgets::backstage::{
-    Backstage, BackstageOnNavSelectCallbackType, OFFICE_2013_NAV_LABELS,
-};
-use azul_layout::widgets::button::ButtonOnClickCallbackType;
-use azul_layout::widgets::quick_access::QuickAccessBar;
+use azul::callbacks::{BackstageOnNavSelectCallbackType, ButtonOnClickCallbackType, RefAny};
+use azul::css::{EventFilter, HoverEventFilter};
+use azul::dom::{BackstageOnNavSelectCallback, Dom};
+use azul::option::OptionRefAny;
+use azul::str::String as AzString;
+use azul::widgets::{Backstage, Button, QuickAccessAction, QuickAccessBar};
 
 use crate::fonts::{self, OFFICE_BLUE, TEXT, TEXT_FAINT, TEXT_GRAY, TITLE_GRAY, WHITE};
 use crate::AppState;
+
+/// The nav labels `Backstage::office_2013()` builds its column from (the
+/// widget-crate const is not part of the public api.json surface, so the
+/// list lives here; indices must match the widget's nav order).
+const OFFICE_2013_NAV_LABELS: &[&str] = &[
+    "Info", "New", "Open", "Save", "Save As", "Print", "Share", "Export", "Close",
+];
 
 /// Export pane: "Create PDF/XPS Document" (the Office-2013-era wording), wired to
 /// the engine's DOM->PDF path.
@@ -32,11 +34,10 @@ fn export_pane(state: &AppState, data: &RefAny) -> Dom {
         pages.len(),
         if pages.len() == 1 { "" } else { "s" }
     );
-    let button = azul_layout::widgets::button::Button::create(AzString::from("Create PDF/XPS"))
-        .with_on_click(
-            data.clone(),
-            crate::on_export_pdf as ButtonOnClickCallbackType,
-        );
+    let button = Button::create(AzString::from("Create PDF/XPS")).with_on_click(
+        data.clone(),
+        crate::on_export_pdf as ButtonOnClickCallbackType,
+    );
     pane_frame().with_child(pane_title("Export")).with_child(
         Dom::create_div()
             .with_css("flex-grow: 0; margin-top: 18px; display: flex; flex-direction: column;")
@@ -81,9 +82,9 @@ fn doc_icon() -> Dom {
 /// A margin-owning wrapper around a text node.
 fn boxed(css: &str, child: Dom) -> Dom {
     Dom::create_div()
-        .with_css(&format!(
-            "display: flex; flex-direction: row; flex-grow: 0; {css}"
-        ))
+        .with_css(
+            format!("display: flex; flex-direction: row; flex-grow: 0; {css}").as_str(),
+        )
         .with_child(child)
 }
 
@@ -208,10 +209,13 @@ fn place_row(icon: &str, label: &str, active: bool) -> Dom {
         "background: transparent; :hover { background: #e8eff9; }"
     };
     Dom::create_div()
-        .with_css(&format!(
-            "display: flex; flex-direction: row; align-items: center; flex-grow: 0; \
-             height: 46px; padding-left: 14px; cursor: pointer; {bg}",
-        ))
+        .with_css(
+            format!(
+                "display: flex; flex-direction: row; align-items: center; flex-grow: 0; \
+                 height: 46px; padding-left: 14px; cursor: pointer; {bg}",
+            )
+            .as_str(),
+        )
         .with_child(
             Dom::create_icon(icon).with_css("font-size: 20px; color: #2b579a; margin-right: 12px;"),
         )
@@ -247,16 +251,10 @@ fn browse_button(data: &RefAny) -> Dom {
                 .with_css("font-size: 18px; color: #2b579a; margin-right: 8px;"),
         )
         .with_child(fonts::text("Browse", 13, TEXT))
-        .with_callbacks(
-            vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseUp),
-                callback: CoreCallback {
-                    cb: crate::on_browse_clicked as *const () as usize,
-                    ctx: azul_core::refany::OptionRefAny::None,
-                },
-                refany: data.clone(),
-            }]
-            .into(),
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::MouseUp),
+            data.clone(),
+            crate::on_browse_clicked,
         )
 }
 
@@ -310,11 +308,7 @@ pub fn backstage_screen(state: &AppState, data: &RefAny) -> Dom {
     // screenshots, which show "? − ⧉ ✕" top right in the backstage).
     let mut strip = QuickAccessBar::new(AzString::from(title));
     strip.trailing_actions =
-        azul_layout::widgets::quick_access::QuickAccessActionVec::from_vec(vec![
-            azul_layout::widgets::quick_access::QuickAccessAction::new(AzString::from(
-                "help_outline",
-            )),
-        ]);
+        vec![QuickAccessAction::new(AzString::from("help_outline"))].into();
     crate::fonts::push_ui_font(&mut strip.style.bar_style);
     let title_strip = strip.dom();
 
@@ -336,7 +330,10 @@ pub fn backstage_screen(state: &AppState, data: &RefAny) -> Dom {
         .with_active_item(state.backstage_pane)
         .with_on_nav_select(
             data.clone(),
-            crate::on_backstage_nav as BackstageOnNavSelectCallbackType,
+            BackstageOnNavSelectCallback {
+                cb: crate::on_backstage_nav as BackstageOnNavSelectCallbackType,
+                callable: OptionRefAny::None,
+            },
         )
         .with_on_back(
             data.clone(),
