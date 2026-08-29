@@ -1319,8 +1319,11 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         }
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
-        // A field deleted to empty shows its placeholder again.
-        set_placeholder_visible(&mut info, placeholder_node_id, len == 0);
+        // A field deleted to empty shows its placeholder again —
+        // transition-only, same-value writes cost a full relayout.
+        if (len == 0) != before.is_empty() {
+            set_placeholder_visible(&mut info, placeholder_node_id, len == 0);
+        }
         let result = {
             let text_input = &mut *text_input;
             let inner_clone = text_input.inner.clone();
@@ -1413,8 +1416,12 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     };
 
     if result.valid == TextInputValid::Yes {
-        // hide the placeholder text
-        set_placeholder_visible(&mut info, placeholder_node_id, false);
+        // Empty -> non-empty transition only: the placeholder can only be
+        // showing when the pre-edit value was empty, and a same-value
+        // `display` override write charges a full relayout per keystroke.
+        if text_input.inner.get_text().is_empty() {
+            set_placeholder_visible(&mut info, placeholder_node_id, false);
+        }
 
         mirror_insertion(&mut text_input.inner, &inserted_text, caret);
         let len = text_input.inner.get_text().len();

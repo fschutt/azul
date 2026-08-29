@@ -2821,6 +2821,28 @@ fn render_glyphs_lcd(
     let p_outline = crate::probe::Probe::span("glyph_lcd_outline");
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
+
+        let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
+        let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
+
+        // Horizontal cull BEFORE decode: a glyph whose ink cannot reach the
+        // clip contributes nothing to the sweep. Pad = 2px for the FIR
+        // fringe (ink just outside the clip lightens the boundary column if
+        // dropped) plus a generous 4-em width bound — `GlyphInstance`
+        // carries no ink extents. Without this, a horizontally scrolled
+        // single-line TextInput decoded, cache-probed and ACCUMULATED every
+        // glyph in the value on every damage repaint, and the sweep covered
+        // the whole run — the LCD pipeline sat at the top of the raster
+        // profile on pure caret traffic.
+        if let Some(c) = clip {
+            let max_ink_w = f32::from(ppem) * 4.0;
+            let cx0 = c.x;
+            let cx1 = c.x + c.width;
+            if glyph_x > cx1 + 2.0 || glyph_x + max_ink_w < cx0 - 2.0 {
+                continue;
+            }
+        }
+
         let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
             continue;
         };
@@ -2836,9 +2858,6 @@ fn render_glyphs_lcd(
             continue;
         };
         let is_hinted = cached.is_hinted;
-
-        let glyph_x = (glyph.point.x - scroll_offset.0) * dpi_factor;
-        let glyph_baseline_y = (glyph.point.y - scroll_offset.1) * dpi_factor;
 
         // Cells are rasterized once per (glyph, ppem, scale, 1/3-px bucket)
         // and replayed here at an integer offset. `int_x` is in whole pixels
