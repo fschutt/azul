@@ -366,7 +366,12 @@ impl App {
                 font_registry,
                 dialog,
                 // The crash reporter is a standalone dialog, not the app: it
-                // must not inherit the app's tray.
+                // must not inherit the app's tray, font manager, or icon.
+                // (This arm is telemetry-gated and had drifted behind run()'s
+                // signature - it only compiles when the feature is on, which
+                // build-dll now turns on by default.)
+                None,
+                None,
                 None,
             );
             if let Err(e) = err {
