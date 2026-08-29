@@ -71,6 +71,10 @@ struct Probe {
     first: usize,
     count: usize,
     scroll_y: f32,
+    /// When set, the next materialisation prepends a banner subtree before
+    /// the pages — every page/paragraph NodeId shifts, the way inserting a
+    /// block above the viewport shifts a real document's arena.
+    prepend_banner: bool,
 }
 
 type Shared = Arc<Mutex<Probe>>;
@@ -114,6 +118,13 @@ extern "C" fn pages_view(mut data: RefAny, info: VirtualViewCallbackInfo) -> Vir
 
     let mut col =
         Dom::create_div().with_css("display: flex; flex-direction: column; align-items: center;");
+    if probe.prepend_banner {
+        col.add_child(
+            Dom::create_div()
+                .with_css("height: 24px;")
+                .with_child(Dom::create_p_with_text("banner")),
+        );
+    }
     for page_idx in first..(first + count) {
         col.add_child(page_dom(probe.doc, page_idx));
     }
@@ -143,6 +154,7 @@ impl Harness {
             first: 0,
             count: 0,
             scroll_y: 0.0,
+            prepend_banner: false,
         }));
         let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
         let mut window_state = FullWindowState::default();
@@ -477,5 +489,80 @@ fn focusing_a_blank_documents_editing_host_anchors_the_caret_on_its_empty_line()
         "the blank page must paint exactly one caret — with the session \
          anchored on the host block instead, `paint_cursor` finds no inline \
          layout and the new document shows no caret at all"
+    );
+}
+
+/// The paragraph in `dom` whose text contains `needle`.
+fn paragraph_containing(h: &Harness, dom: DomId, needle: &str) -> NodeId {
+    let lr = h.lw.get_layout_result(&dom).expect("nested layout");
+    let nd = lr.styled_dom.node_data.as_container();
+    (0..nd.len())
+        .map(NodeId::new)
+        .find(|id| {
+            matches!(nd[*id].get_node_type(), NodeType::P)
+                && h.edited_text(dom, *id).contains(needle)
+        })
+        .unwrap_or_else(|| panic!("no paragraph containing {needle:?}"))
+}
+
+impl Harness {
+    /// The text the ENGINE currently holds for a node — overlay included.
+    fn edited_text(&self, dom: DomId, node: NodeId) -> String {
+        let content = self.lw.get_text_before_textinput(dom, node);
+        self.lw.extract_text_from_inline_content(&content)
+    }
+}
+
+/// Re-materialisation must be a RECONCILE, not a rebirth: state keyed
+/// (DomId, NodeId) has to follow the CONTENT it was attached to when a fresh
+/// arena renumbers every node.
+///
+/// The failure this pins was found live: with a document that had text, typing
+/// painted the edited paragraph's text over a DIFFERENT paragraph after the
+/// full-relayout funnel re-materialised the VirtualView — the overlay entry
+/// kept its old NodeId, the new arena assigned that id to another block, and
+/// only hover state was ever purged. Every prior test here asserts a caret
+/// EXISTS; this one asserts the CONTENT lands where the user typed it.
+#[test]
+fn typed_text_follows_its_paragraph_across_a_rematerialisation() {
+    let mut h = Harness::new(Doc::Paragraphs);
+    let (nested, _vv) = h.virtual_view();
+
+    // Type into paragraph 0 through the same seam the shells use.
+    let target = paragraph_containing(&h, nested, "Paragraph 0");
+    h.lw.focus_manager.set_focused_node(Some(DomNodeId {
+        dom: nested,
+        node: NodeHierarchyItemId::from_crate_internal(Some(target)),
+    }));
+    h.lw.record_text_input("ZZZ");
+    let _ = h.lw.apply_text_changeset();
+    assert!(
+        h.edited_text(nested, target).contains("ZZZ"),
+        "premise: the edit landed on paragraph 0"
+    );
+
+    // Re-materialise with a SHIFTED arena: a banner subtree now precedes the
+    // pages, so every page/paragraph NodeId moves — the exact shape a
+    // keystroke-driven full relayout produces on a paginating document.
+    h.probe.lock().unwrap().prepend_banner = true;
+    h.relayout();
+
+    let (nested_after, _) = h.virtual_view();
+    let p0_after = paragraph_containing(&h, nested_after, "Paragraph 0");
+    assert_ne!(
+        p0_after, target,
+        "premise: the banner actually shifted paragraph 0's NodeId"
+    );
+
+    assert!(
+        h.edited_text(nested_after, p0_after).contains("ZZZ"),
+        "the edit must FOLLOW paragraph 0 across the re-materialisation — \
+         without reconcile+remap it stays keyed to the old NodeId and lands \
+         on whatever block bears that id in the new arena"
+    );
+    let banner = paragraph_containing(&h, nested_after, "banner");
+    assert!(
+        !h.edited_text(nested_after, banner).contains("ZZZ"),
+        "the node now wearing the OLD id must not inherit the edit"
     );
 }
