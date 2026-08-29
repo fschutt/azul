@@ -197,6 +197,30 @@ define_class!(
 /// Leaked on purpose: a tick may still be inside the callback when the
 /// window goes away, and a freed context would be the same bug one level
 /// up. A few dozen bytes per window is the price.
+/// `AZ_PACE_TRACE=1`: stderr timeline of the frame-pacing pipeline —
+/// display-link fire (its own thread), the main-queue dirty-marking, drawRect
+/// entry/exit, and explicit redraw requests. Timestamps are monotonic µs from
+/// process start so the four stations can be correlated into one timeline.
+/// Costs one relaxed atomic load when off.
+#[inline]
+fn pace_trace(station: &str) {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    static ON: AtomicU8 = AtomicU8::new(2); // 2 = unknown, 1 = on, 0 = off
+    let on = match ON.load(Ordering::Relaxed) {
+        2 => {
+            let v = u8::from(std::env::var_os("AZ_PACE_TRACE").is_some());
+            ON.store(v, Ordering::Relaxed);
+            v == 1
+        }
+        v => v == 1,
+    };
+    if on {
+        static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        let t0 = START.get_or_init(std::time::Instant::now);
+        eprintln!("[pace] {:>10}us {station}", t0.elapsed().as_micros());
+    }
+}
+
 struct DisplayLinkTarget {
     lock: std::sync::Mutex<()>,
     alive: std::sync::atomic::AtomicBool,
@@ -925,6 +949,7 @@ define_class!(
     impl GLView {
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, _rect: NSRect) {
+            pace_trace("drawrect-gl-enter");
             log_trace!(LogCategory::Rendering, "[GLView] drawRect: called - this is where ALL rendering happens");
 
             // Get the back-pointer to our MacOSWindow
@@ -1755,6 +1780,7 @@ define_class!(
     impl CPUView {
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, dirty_rect: NSRect) {
+            pace_trace("drawrect-cpu-enter");
             let bounds = unsafe { self.bounds() };
             // Convert to backing pixels (2x on Retina)
             let backing = unsafe { self.convertRectToBacking(bounds) };
@@ -4079,6 +4105,7 @@ impl MacOSWindow {
                 if !context.is_null() {
                     use objc2::msg_send;
                     let ns_window = context as *const NSWindow;
+                    pace_trace("mark-dirty-on-main");
                     let _: () = msg_send![ns_window, setViewsNeedDisplay: true];
                     // Balance the retain taken in display_link_callback.
                     objc2::ffi::objc_release(context.cast());
@@ -4108,6 +4135,7 @@ impl MacOSWindow {
                 if target.alive.load(std::sync::atomic::Ordering::Acquire)
                     && !target.window.is_null()
                 {
+                    pace_trace("cvdisplaylink-fire");
                     objc2::ffi::objc_retain(target.window.cast());
                     dispatch_async_f(
                         std::ptr::addr_of!(_dispatch_main_q),
@@ -7894,6 +7922,7 @@ impl MacOSWindow {
     }
 
     pub fn request_redraw(&mut self) {
+        pace_trace("request-redraw");
         log_trace!(
             LogCategory::Rendering,
             "[request_redraw] Marking view as needing display"
