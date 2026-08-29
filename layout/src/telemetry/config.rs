@@ -45,6 +45,19 @@ fn value_u64(v: &Value) -> Option<u64> {
 }
 
 /// Environment variable selecting the consent tier.
+/// The ONE-VAR local-observability switch. `AZ_OBSERVE=1` (or `local`) =
+/// "give me everything against the local Grafana stack": tier `metrics`,
+/// endpoint `http://127.0.0.1:4318`, the local stack's token, 5s flushes.
+/// `AZ_OBSERVE=<url>` targets a different collector. The granular
+/// `AZ_TELEMETRY*` variables still override individual pieces.
+pub const ENV_OBSERVE: &str = "AZ_OBSERVE";
+/// Default endpoint for `AZ_OBSERVE=1` - the local stack from
+/// `layout/examples/telemetry-grafana/`.
+pub const OBSERVE_LOCAL_ENDPOINT: &str = "http://127.0.0.1:4318";
+/// Default bearer token for `AZ_OBSERVE` - matches the local collector's
+/// configured token, so one variable really is enough.
+pub const OBSERVE_LOCAL_TOKEN: &str = "azul-demo-token";
+
 pub const ENV_TIER: &str = "AZ_TELEMETRY";
 /// Environment variable overriding the OTLP base endpoint.
 pub const ENV_ENDPOINT: &str = "AZ_TELEMETRY_ENDPOINT";
@@ -491,6 +504,29 @@ pub fn load_with_channel(app_id: &str, channel: &str) -> TelemetryConfig {
 
 /// Applies the environment layer (highest precedence).
 fn apply_env(config: &mut TelemetryConfig) {
+    // AZ_OBSERVE first, so the granular variables below can still override
+    // any single piece of it.
+    if let Ok(raw) = std::env::var(ENV_OBSERVE) {
+        let v = raw.trim();
+        if !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("off") {
+            config.tier = TelemetryTier::Metrics;
+            config.tier_source = TierSource::Env;
+            config.endpoint = if v == "1"
+                || v.eq_ignore_ascii_case("local")
+                || v.eq_ignore_ascii_case("on")
+                || v.eq_ignore_ascii_case("true")
+            {
+                OBSERVE_LOCAL_ENDPOINT.to_owned()
+            } else {
+                v.to_owned()
+            };
+            if config.auth_token.is_none() {
+                config.auth_token = Some(OBSERVE_LOCAL_TOKEN.to_owned());
+            }
+            // Snappy dashboards for a local debugging loop.
+            config.flush_interval_secs = config.flush_interval_secs.min(5);
+        }
+    }
     if let Ok(raw) = std::env::var(ENV_TIER) {
         match TelemetryTier::from_name(&raw) {
             Some(tier) => {
