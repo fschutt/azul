@@ -1555,6 +1555,11 @@ fn scroll_shift_region_impl(
     // repainted fresh right after this returns, so including them here is
     // harmless — the swizzled bytes are overwritten.
     if unswizzle_rb_moved {
+        if std::env::var("AZ_BB_DEBUG").is_ok() {
+            eprintln!(
+                "[bb] UNSWIZZLE clip px=({cx0},{cy0})..({cx1},{cy1}) delta=({px_dx},{px_dy})"
+            );
+        }
         for y in cy0..cy1 {
             let row = (y * stride_px) as usize;
             for x in cx0..cx1 {
@@ -2185,15 +2190,28 @@ pub fn execute_scroll_shift(
         } else {
             scroll_shift_region(pixmap, clip, delta, offset, dpi_factor)
         };
+        // Empty strips = the delta rounded to ZERO physical pixels: no
+        // memmove ran and (pool-order targets) NOTHING was unswizzled. The
+        // clip must then stay OUT of present_extra - on the in-place
+        // commit-swizzle path an extra rect is not "harmless over-coverage"
+        // but a byte swap of pixels nobody wrote: AzWriter's caret blink
+        // carried a stationary scroll clip here every frame, and each
+        // present TOGGLED the whole document area R<->B (blue UI one frame,
+        // brown the next - KDE Wayland session, 2026-08-29). The swizzle
+        // contract: present_extra covers exactly what the shifter
+        // unswizzled, never more.
+        let moved = !strips.is_empty();
         damage.extend(strips);
-        for g in overlay_rects_after_frame(display_list, scroll_id, clip) {
-            damage.push(g);
-            let mut ghost = g;
-            ghost.origin.x -= delta.0;
-            ghost.origin.y -= delta.1;
-            damage.push(ghost);
+        if moved {
+            for g in overlay_rects_after_frame(display_list, scroll_id, clip) {
+                damage.push(g);
+                let mut ghost = g;
+                ghost.origin.x -= delta.0;
+                ghost.origin.y -= delta.1;
+                damage.push(ghost);
+            }
+            present_extra.push(*clip);
         }
-        present_extra.push(*clip);
     } else {
         damage.push(*clip);
     }

@@ -5979,6 +5979,23 @@ impl WaylandWindow {
                                     match cpu_state.acquire_slot() {
                                         Some(slot) => {
                                             cpu_state.catch_up_slot(slot);
+                                            if !cpu_state.slots[slot].valid {
+                                                // A never-filled slot (fresh
+                                                // pool after a resize with no
+                                                // valid sibling to copy from)
+                                                // must receive a FULL render:
+                                                // the incremental path rasters
+                                                // only damage strips directly
+                                                // into the slot and the rest
+                                                // stays TRANSPARENT zeroed shm
+                                                // - maximize let the window
+                                                // below shine through (KDE
+                                                // Wayland, 2026-08-29).
+                                                // Dropping the previous DL
+                                                // forces the diff onto the
+                                                // full-repaint arm.
+                                                self.cpu_backend.previous_display_list = None;
+                                            }
                                             self.cpu_backend.native_target_pool_order =
                                                 cpu_state.needs_commit_swizzle();
                                             self.cpu_backend.native_target = unsafe {
@@ -6032,6 +6049,21 @@ impl WaylandWindow {
                                 // dies on resize.
                                 self.cpu_backend.native_target = None;
 
+                                if std::env::var("AZ_BB_DEBUG").is_ok() {
+                                    eprintln!(
+                                        "[bb] native={} slot={:?} frame_damage={:?} present_damage_rects={:?}",
+                                        self.cpu_backend.rendered_native,
+                                        native_slot,
+                                        match self.cpu_backend.last_frame_damage {
+                                            crate::desktop::shell2::headless::FrameDamage::Full => "FULL".to_string(),
+                                            crate::desktop::shell2::headless::FrameDamage::None => "NONE".to_string(),
+                                            crate::desktop::shell2::headless::FrameDamage::Rects(ref r) => format!("{} rects {:?}", r.len(), r.iter().take(4).collect::<Vec<_>>()),
+                                        },
+                                        self.cpu_backend.last_present_damage
+                                            .to_present_rects_physical(dpi, native_expected_w, native_expected_h, false)
+                                            .map(|r| r.len()),
+                                    );
+                                }
                                 if self.cpu_backend.rendered_native {
                                     // #27: the frame was rasterised directly
                                     // into `native_slot`. Present = damage
@@ -6095,15 +6127,54 @@ impl WaylandWindow {
                                         // B,G,R,A in place, exactly once,
                                         // before the shared attach/commit
                                         // below picks the slot up.
+                                        //
+                                        // The swizzle set is computed WITHOUT
+                                        // force_full, independently of the
+                                        // present set: presenting extra
+                                        // damage is harmless over-coverage
+                                        // for the compositor, but an in-place
+                                        // byte swap of pixels nobody wrote
+                                        // TOGGLES them R<->B on every
+                                        // repetition. Swizzle exactly what
+                                        // this frame wrote (paint rects ∪
+                                        // shift-unswizzled clips), never the
+                                        // whole buffer on someone's expose
+                                        // request.
                                         if cpu_state.needs_commit_swizzle() {
                                             let stride = cpu_state.stride.max(0) as usize;
                                             let h = cpu_state.height.max(0) as usize;
-                                            let int_rects: Vec<(i32, i32, i32, i32)> = rects
-                                                .iter()
-                                                .map(|(x, y, w, h)| {
-                                                    (*x as i32, *y as i32, *w as i32, *h as i32)
-                                                })
-                                                .collect();
+                                            let swizzle_rects = if full_render {
+                                                // A genuinely full render
+                                                // wrote every pixel.
+                                                Some(vec![(
+                                                    0u32,
+                                                    0u32,
+                                                    native_expected_w,
+                                                    native_expected_h,
+                                                )])
+                                            } else {
+                                                self.cpu_backend
+                                                    .last_present_damage
+                                                    .to_present_rects_physical(
+                                                        dpi,
+                                                        native_expected_w,
+                                                        native_expected_h,
+                                                        false,
+                                                    )
+                                            };
+                                            let int_rects: Vec<(i32, i32, i32, i32)> =
+                                                swizzle_rects
+                                                    .unwrap_or_default()
+                                                    .iter()
+                                                    .map(|(x, y, w, h)| {
+                                                        (*x as i32, *y as i32, *w as i32, *h as i32)
+                                                    })
+                                                    .collect();
+                                            if std::env::var("AZ_BB_DEBUG").is_ok() {
+                                                eprintln!(
+                                                    "[bb] SWIZZLE slot={slot} rects={int_rects:?}"
+                                                );
+                                            }
                                             crate::desktop::shell2::headless::swizzle_rb_in_rects(
                                                 cpu_state.slot_buffer_mut(slot),
                                                 stride,
@@ -6358,6 +6429,16 @@ impl WaylandWindow {
                         );
                         *cpu_state.slots[cpu_state.active].busy = true;
                         surface_committed = true;
+                        // The GPU branch sets this after its first present;
+                        // the CPU branch NEVER did, so `force_full =
+                        // .. || !display_list_initialized` stayed true for
+                        // the window's whole life: every present claimed
+                        // FULL-buffer damage (compositor recomposited the
+                        // world per caret blink) and - far worse - the
+                        // in-place commit-swizzle used the same rect set,
+                        // TOGGLING every unwritten pixel R<->B per frame
+                        // (AzWriter's blue/brown flip, 2026-08-29).
+                        self.common.display_list_initialized = true;
                         if fractional {
                             // Fractional path: buffer scale stays 1 (reset a
                             // stale integer value if any); the viewport maps
@@ -7249,6 +7330,16 @@ impl CpuFallbackState {
     /// buffer violate the protocol), and the slots never overlap.
     fn catch_up_slot(&mut self, slot: usize) {
         let other = 1 - slot;
+        if std::env::var("AZ_BB_DEBUG").is_ok() {
+            eprintln!(
+                "[bb] catch_up slot={} valid={} overflow={} stale={:?} other_valid={}",
+                slot,
+                self.slots[slot].valid,
+                self.slots[slot].stale_overflow,
+                self.slots[slot].stale.iter().take(4).collect::<Vec<_>>(),
+                self.slots[other].valid,
+            );
+        }
         if self.slots[slot].stale_overflow {
             if self.slots[other].valid {
                 let buf_bytes = (self.stride * self.height) as usize;

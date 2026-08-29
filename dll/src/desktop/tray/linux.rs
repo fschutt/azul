@@ -400,7 +400,11 @@ unsafe fn append_prop_value(dbus: &DBusLib, it: &mut DBusMessageIter, st: &SniSt
         }
         "OverlayIconPixmap" | "AttentionIconPixmap" => append_pixmaps(dbus, it, &[]),
         "ToolTip" => append_tooltip(dbus, it, &st.tooltip),
-        "ItemIsMenu" => append_bool(dbus, it, false),
+        // TRUE whenever a menu exists: KDE opens the dbusmenu on LEFT click
+        // only for ItemIsMenu items - with false it sent Activate and the
+        // menu never showed (dbus-monitor capture of the user's click,
+        // 2026-08-29). Menu-less items keep false so Activate still works.
+        "ItemIsMenu" => append_bool(dbus, it, st.menu.len() > 1),
         // With a menu: the dbusmenu object the panel renders itself. Without:
         // the root path makes hosts fall back to ContextMenu(), surfaced as a
         // TrayEvent.
