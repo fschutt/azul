@@ -1130,7 +1130,20 @@ fn parse_font_name_and_size(s: &str) -> Option<(String, f32)> {
     if let Some(last_space) = s.rfind(' ') {
         let (name_part, size_part) = s.split_at(last_space);
         if let Ok(size) = size_part.trim().parse::<f32>() {
-            return Some((name_part.trim().to_string(), size));
+            // The value can be a font LIST with the size appended — Mint
+            // ships `font-name: 'Noto Sans,  10'` — and a comma left inside
+            // the family name makes every downstream cache lookup miss (the
+            // measured "ui_font=Noto Sans," tofu). Take the first list entry.
+            let name = name_part
+                .split(',')
+                .map(str::trim)
+                .find(|part| !part.is_empty())
+                .unwrap_or("")
+                .to_string();
+            if name.is_empty() {
+                return None;
+            }
+            return Some((name, size));
         }
     }
     None

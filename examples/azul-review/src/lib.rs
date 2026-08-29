@@ -207,6 +207,16 @@ pub fn run() {
 
 /// Pen/touch down: start a stroke.
 pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    // The generic MouseDown filter fires for EVERY button. A right or middle
+    // press must not start ink: the right button is the nib-back cycle (and
+    // the stylus barrel button), and letting it open a stroke turned each
+    // right-click into a phantom tap whose click-cycle re-advanced the tool
+    // right after on_cycle_tool_back had moved it back — the tool looked
+    // stuck while a parked clip appeared per click.
+    let ms = info.get_current_mouse_state();
+    if ms.right_down || ms.middle_down {
+        return Update::DoNothing;
+    }
     let Some(page) = ui::page_of(&mut info) else {
         return Update::DoNothing;
     };
@@ -282,6 +292,9 @@ pub extern "C" fn on_cycle_tool(mut data: RefAny, _: CallbackInfo) -> Update {
 /// `BTN_STYLUS` as the pointer's right button), so "left click forward,
 /// right click back" is equally true for a mouse and for the pen in hand.
 pub extern "C" fn on_cycle_tool_back(mut data: RefAny, _: CallbackInfo) -> Update {
+    if std::env::var("AZ_REVIEW_DEBUG").is_ok() {
+        eprintln!("[review] on_cycle_tool_back FIRED");
+    }
     cycle_tool(&mut data, true)
 }
 

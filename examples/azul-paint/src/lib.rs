@@ -1259,6 +1259,16 @@ extern "C" fn on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         eprintln!("[paint] on_pointer_down FIRED");
     }
+    // The generic MouseDown filter fires for EVERY button; only the primary
+    // one paints. The right button belongs to the context menu (and the
+    // stylus barrel button), and painting a dab under the opening menu was
+    // exactly the kind of stray mark nobody can explain afterwards.
+    {
+        let ms = info.get_current_mouse_state();
+        if ms.right_down || ms.middle_down {
+            return Update::DoNothing;
+        }
+    }
     let hud = hud_from(&info);
     let (point, is_eraser) = match extract_point(&info) {
         Some(p) => p,

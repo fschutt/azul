@@ -289,9 +289,28 @@ pub fn regenerate_layout(
                 LogCategory::Layout,
                 "[regenerate_layout] Requesting fonts from registry..."
             );
-            let font_stacks = rust_fontconfig::config::tokenize_common_families(
+            let mut font_stacks = rust_fontconfig::config::tokenize_common_families(
                 rust_fontconfig::OperatingSystem::current(),
             );
+            // The DETECTED system fonts come first: the crate's list is a
+            // static per-OS guess, and the one font the first frame will
+            // definitely shape with is the DE's configured UI font (the DOM
+            // styles resolve through SystemStyle). A desktop configured to
+            // an off-list family (a riced Mint, a corporate theme) otherwise
+            // pays the whole first layout in tofu for exactly that font.
+            for f in [
+                system_style.fonts.ui_font.as_ref(),
+                system_style.fonts.title_font.as_ref(),
+                system_style.fonts.monospace_font.as_ref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                let tokens = rust_fontconfig::config::tokenize_lowercase(f.as_str());
+                if !tokens.is_empty() && !font_stacks.contains(&tokens) {
+                    font_stacks.insert(0, tokens);
+                }
+            }
             azul_layout::probe::emit_phase_heap_extra(
                 "after_tokenize",
                 registry.chain_cache_len() as u64,
@@ -312,10 +331,60 @@ pub fn regenerate_layout(
                 "[regenerate_layout] Font registry snapshot complete"
             );
         } else {
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] Using existing font cache (build still in progress)"
-            );
+            // Build complete: the registry snapshot is complete BY DEFINITION,
+            // so replacing is always safe — and sometimes REQUIRED. The
+            // window's own cache can still be the EMPTY pre-scan clone (cold
+            // start: the app-level cache was `default()` and the window
+            // cloned it before the builder drained), and keeping it shaped
+            // the whole first frame against the two bundled memory fonts —
+            // every family missed and the UI rendered .notdef end to end
+            // (the measured Mint cold-start tofu, 2026-08-29; same class as
+            // the macOS `should_request_fonts` bug, one seam deeper). The
+            // length gate keeps the steady state free: once the caches
+            // agree this branch costs one usize compare per pass.
+            let registry_len = registry.cache.len();
+            if layout_window.font_manager.fc_cache.len() != registry_len {
+                layout_window
+                    .font_manager
+                    .replace_fc_cache(registry.shared_cache());
+                log_debug!(
+                    LogCategory::Layout,
+                    "[regenerate_layout] Font build complete — refreshed the stale window \
+                     snapshot ({} fonts)",
+                    registry_len
+                );
+            } else {
+                log_debug!(
+                    LogCategory::Layout,
+                    "[regenerate_layout] Font cache in sync with the completed build"
+                );
+            }
+        }
+
+        // VERIFY the detected system UI font actually resolved, whichever
+        // branch ran. A configured family the scan cannot locate must degrade
+        // to the fallback list with a LOUD warning, never silently — a
+        // screen of .notdef is corrupted output, and the warning is the only
+        // difference between "misconfigured theme" and "font system broke".
+        if let Some(ui) = system_style.fonts.ui_font.as_ref() {
+            let pattern = rust_fontconfig::FcPattern {
+                name: Some(ui.as_str().to_string()),
+                ..Default::default()
+            };
+            let mut trace = Vec::new();
+            if layout_window
+                .font_manager
+                .fc_cache
+                .query(&pattern, &mut trace)
+                .is_none()
+            {
+                crate::plog_warn!(
+                    "[fonts] the system UI font {:?} (from SystemStyle) was NOT found by the \
+                     font scan — text set in it falls back to the platform default list. \
+                     Check the family name and the scanned font directories.",
+                    ui.as_str()
+                );
+            }
         }
     } else {
         azul_layout::probe::emit_phase_heap("before_fc_clone");
