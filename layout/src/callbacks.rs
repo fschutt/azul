@@ -3025,13 +3025,27 @@ impl CallbackInfo {
         node_data.get_dataset().cloned()
     }
 
-    /// Find the root-level node whose dataset matches the type of `search_key`
-    // owned RefAny passed by value per the azul FFI / api.json convention.
+    /// Resolve an app-chosen MARKER string (`Dom::with_marker`) to the node
+    /// carrying it, across every DOM in the window.
+    ///
+    /// This is the clean spelling of the "find that other widget from this
+    /// callback" jump: mint a unique string at build time, stamp it on the
+    /// target node with `with_marker`, keep the same string wherever the
+    /// jumping callback can reach it, and resolve here. The node id is then
+    /// usable with the target widget's own update API (which downcasts its
+    /// private dataset internally) plus `trigger_virtual_view_rerender` for
+    /// a repaint of just that widget — no full `layout()` pass.
+    ///
+    /// Replaces the removed `get_node_id_of_root_dataset`, which searched by
+    /// DATASET TYPE and therefore needed an empty instance of the target's
+    /// private dataset type just to name it — coupling the caller to widget
+    /// internals the architecture forbids it from seeing (and ambiguous the
+    /// moment two instances of one widget existed).
+    // owned AzString passed by value per the azul FFI / api.json convention.
     #[allow(clippy::needless_pass_by_value)]
-    pub fn get_node_id_of_root_dataset(&mut self, search_key: RefAny) -> Option<DomNodeId> {
-        let mut found: Option<(u64, DomNodeId)> = None;
-        let search_type_id = search_key.get_type_id();
-
+    #[must_use]
+    pub fn get_node_id_by_marker(&mut self, marker: AzString) -> Option<DomNodeId> {
+        let want = marker.as_str();
         for dom_id in self.get_dom_ids().as_ref().iter().copied() {
             let layout_window = self.get_layout_window();
             let Some(layout_result) = layout_window.get_layout_result(&dom_id) else {
@@ -3040,30 +3054,17 @@ impl CallbackInfo {
 
             let node_data_cont = layout_result.styled_dom.node_data.as_container();
             for (node_idx, node_data) in node_data_cont.iter().enumerate() {
-                if let Some(dataset) = node_data.get_dataset().cloned() {
-                    if dataset.get_type_id() == search_type_id {
-                        let node_id = DomNodeId {
-                            dom: dom_id,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(
-                                node_idx,
-                            ))),
-                        };
-                        let instance_id = dataset.instance_id;
-
-                        match found {
-                            None => found = Some((instance_id, node_id)),
-                            Some((prev_instance, _)) => {
-                                if instance_id < prev_instance {
-                                    found = Some((instance_id, node_id));
-                                }
-                            }
-                        }
-                    }
+                if node_data.get_marker().is_some_and(|m| m.as_str() == want) {
+                    return Some(DomNodeId {
+                        dom: dom_id,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(
+                            node_idx,
+                        ))),
+                    });
                 }
             }
         }
-
-        found.map(|s| s.1)
+        None
     }
 
     /// Get the text content of a text node, or `None` if the node is not a text node

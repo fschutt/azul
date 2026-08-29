@@ -103,7 +103,6 @@ fn canvas_bg() -> ColorU {
 /// would change, not per 140 Hz pen packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PenHud {
-    pressure_pct: u8,
     tilt_x_deg: i8,
     tilt_y_deg: i8,
     /// Barrel roll / twist, degrees.
@@ -144,6 +143,21 @@ struct PaintState {
     export_path: Option<String>,
     /// Bumps on every change so the canvas cache knows to re-rasterize.
     rev: u64,
+    /// MARKER stamped on the header's pressure `ProgressBar`
+    /// (`Dom::with_marker`): a FRESH `Uuid::short()` string minted at every
+    /// `layout()` and carried here - in the same `RefAny` the canvas pointer
+    /// callbacks receive - so those callbacks can resolve the bar's node
+    /// again (`CallbackInfo::get_node_id_by_marker`) and drive it through
+    /// `ProgressBar::update_progress`: the inter-widget FAST PATH (see
+    /// `push_pressure_to_meter`). A UUID collides with nothing by
+    /// construction, and markers are excluded from node equality, so the
+    /// per-rebuild re-mint never churns the DOM diff.
+    pressure_marker: String,
+    /// Last pressure pushed through the fast path, ONLY so a full rebuild
+    /// (heavy path) seeds the fresh `ProgressBar` at the current value
+    /// instead of flashing back to zero. Deliberately NOT part of `PenHud`:
+    /// pressure changes alone must never trigger a `RefreshDom`.
+    last_pressure: f32,
 }
 
 impl PaintState {
@@ -164,6 +178,8 @@ impl PaintState {
             background: None,
             export_path: None,
             rev: 1,
+            pressure_marker: String::new(), // minted in layout() - Uuid::short()
+            last_pressure: 0.0,
         }
     }
 
@@ -965,7 +981,26 @@ const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (n_strokes, n_undone, metaballs, hud, device_line) = data
+    // MARKER MINT - at layout() time, the architecture chapter's rule: a
+    // UUID string (nothing hard-coded, collides with nothing), stamped on
+    // the ProgressBar below AND stored in the state the canvas callbacks
+    // read. Minted ONCE, on the first layout(), then REUSED verbatim: the
+    // engine may run layout() more than once per displayed frame (sizing
+    // passes), and a fresh mint per call left the state holding pass K+1's
+    // string while the displayed DOM carried pass K's - every lookup right
+    // after a rebuild missed (verified via AZ_PAINT_DEBUG, 2026-08-29).
+    // Reuse costs nothing: markers are excluded from node equality either
+    // way, and the string is still a layout()-minted UUID.
+    let pressure_marker = match data.downcast_mut::<PaintState>() {
+        Some(mut s) => {
+            if s.pressure_marker.is_empty() {
+                s.pressure_marker = azul::uuid::Uuid::short().as_str().to_string();
+            }
+            s.pressure_marker.clone()
+        }
+        None => String::new(),
+    };
+    let (n_strokes, n_undone, metaballs, hud, device_line, last_pressure) = data
         .downcast_ref::<PaintState>()
         .map(|s| {
             (
@@ -974,9 +1009,10 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 s.metaball_mode,
                 s.hud,
                 s.device_line.clone(),
+                s.last_pressure,
             )
         })
-        .unwrap_or((0, 0, true, None, None));
+        .unwrap_or((0, 0, true, None, None, 0.0));
     let _ = n_undone;
 
     // Actions (Undo/Redo/Clear/Import/Export/effect toggle) live in the menu bar
@@ -1005,9 +1041,8 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         Some(h) => {
             header.add_child(Dom::create_p_with_text(
                 format!(
-                    "Pen {}  ·  p {:>3}%  tilt {:+}° / {:+}°  twist {:+}°{}{}{}",
+                    "Pen {}  ·  tilt {:+}° / {:+}°  twist {:+}°{}{}{}",
                     h.device_id,
-                    h.pressure_pct,
                     h.tilt_x_deg,
                     h.tilt_y_deg,
                     h.twist_deg,
@@ -1017,21 +1052,6 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 )
                 .as_str(),
             ));
-            // Live pressure meter as TEXT cells. The first version was a
-            // child div whose ONLY change between rebuilds was an inline-CSS
-            // width — and it never visually updated (pen-verified
-            // 2026-08-29; ledgered as a suspected inline-style-only-diff
-            // repaint gap). Text provably repaints: the numeric readout next
-            // to this updates live. Ten cells, one per 10% of pressure.
-            let filled = ((h.pressure_pct as usize) + 5) / 10;
-            let mut meter = String::with_capacity(40);
-            for i in 0..10 {
-                meter.push(if i < filled { '\u{25B0}' } else { '\u{25B1}' });
-            }
-            header.add_child(
-                Dom::create_p_with_text(meter.as_str())
-                    .with_css("margin-left: 12px; color: #7CFC00; letter-spacing: 2px;"),
-            );
         }
         None => {
             header.add_child(Dom::create_p_with_text(
@@ -1039,6 +1059,29 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
             ));
         }
     }
+    // Live pressure meter: a REAL `ProgressBar`, driven through the
+    // inter-widget FAST PATH (`push_pressure_to_meter`): the canvas pointer
+    // callbacks resolve this node by the marker stamped here and update it
+    // per input packet via the widget's own public API + a single-node
+    // VirtualView re-render - NO `RefreshDom`, no full layout(). (Its two
+    // predecessors are ledgered: an inline-width div that never repainted,
+    // then text cells the user rejected.) Always present - a mouse drives it
+    // too, with the same synthetic pressure the stroke path uses - so the
+    // fast path is verifiable without a tablet. `last_pressure` only seeds a
+    // heavy-path rebuild so the bar does not flash to zero when some other
+    // readout digit changes.
+    header.add_child(
+        Dom::create_div()
+            .with_css("width: 140px; margin-left: 12px;")
+            .with_child(
+                azul::widgets::ProgressBar::create(last_pressure)
+                    .with_height(azul::css::PixelValue::px(12.0))
+                    .dom()
+                    .with_marker(azul::option::OptionString::Some(
+                        pressure_marker.as_str().into(),
+                    )),
+            ),
+    );
 
     // The canvas: a single image driven by render_canvas. Its dataset is a
     // CanvasCache that shares the PaintState; the merge callback persists the
@@ -1214,7 +1257,6 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
 /// [`PenHud`]).
 fn hud_from(info: &CallbackInfo) -> Option<PenHud> {
     info.get_pen_state().into_option().map(|p| PenHud {
-        pressure_pct: (p.pressure.clamp(0.0, 1.0) * 100.0).round() as u8,
         tilt_x_deg: p.tilt.x_tilt.clamp(-90.0, 90.0).round() as i8,
         tilt_y_deg: p.tilt.y_tilt.clamp(-90.0, 90.0).round() as i8,
         twist_deg: p.barrel_roll_rad.to_degrees().round() as i16,
@@ -1264,7 +1306,45 @@ fn tablet_device_line(info: &CallbackInfo) -> Option<String> {
     ))
 }
 
-extern "C" fn on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
+/// THE INTER-WIDGET FAST PATH, end to end (see `layout/widgets/progressbar.rs`
+/// module docs + the guide's architecture chapter): resolve the header's
+/// pressure `ProgressBar` by the MARKER `layout()` stamped on it, then drive
+/// the widget through its own public API. `ProgressBar::update_progress`
+/// downcasts the bar's PRIVATE dataset (this app never sees the type) and
+/// queues a re-render of just that node's `VirtualView` - the meter moves per
+/// pen packet with NO `Update::RefreshDom`, no full layout(), no DOM diff,
+/// and no pressure field in the app's data model. Returns the pushed
+/// percentage so the caller can seed `PaintState::last_pressure` (heavy-path
+/// rebuilds start the fresh bar there instead of at zero).
+fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> {
+    let pct = match info.get_pen_state().into_option() {
+        Some(pen) => pen.pressure.clamp(0.0, 1.0) * 100.0,
+        // No pen: mirror the stroke path's synthetic 0.5 while the primary
+        // button paints, so the meter (and the fast path behind it) is
+        // verifiable with a plain mouse.
+        None => {
+            let ms = info.get_current_mouse_state();
+            if ms.left_down {
+                50.0
+            } else {
+                0.0
+            }
+        }
+    };
+    let node_id = info.get_node_id_by_marker(marker.to_string()).into_option();
+    let ok = node_id
+        .map(|n| azul::widgets::ProgressBar::update_progress(*info, n, pct))
+        .unwrap_or(false);
+    if std::env::var("AZ_PAINT_DEBUG").is_ok() {
+        eprintln!(
+            "[paint] fast-path: marker={marker:?} node={:?} pct={pct} update_progress={ok}",
+            node_id.map(|n| (n.dom.inner, n.node.inner)),
+        );
+    }
+    ok.then_some(pct)
+}
+
+extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         eprintln!("[paint] on_pointer_down FIRED");
     }
@@ -1289,12 +1369,27 @@ extern "C" fn on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
     };
     update_hud(&mut state, hud);
     state.begin_stroke(point, is_eraser);
+    let marker = state.pressure_marker.clone();
+    drop(state);
+    if let Some(pct) = push_pressure_to_meter(&mut info, &marker) {
+        if let Some(mut s) = data.downcast_mut::<PaintState>() {
+            s.last_pressure = pct;
+        }
+    }
     Update::RefreshDom
 }
 
-extern "C" fn on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
+extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let hud = hud_from(&info);
     let point = extract_point(&info);
+    // FAST PATH first, decoupled from the Update below: the meter must track
+    // hover pressure even when this callback returns DoNothing - that is the
+    // whole demonstration (the queued VirtualView re-render repaints the bar
+    // by itself).
+    let pushed = data
+        .downcast_ref::<PaintState>()
+        .map(|s| s.pressure_marker.clone())
+        .and_then(|m| push_pressure_to_meter(&mut info, &m));
     let device_line = data
         .downcast_ref::<PaintState>()
         .is_some_and(|s| s.device_line.is_none())
@@ -1304,6 +1399,9 @@ extern "C" fn on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
         Some(s) => s,
         None => return Update::DoNothing,
     };
+    if let Some(pct) = pushed {
+        state.last_pressure = pct;
+    }
     let mut hud_changed = false;
     if device_line.is_some() {
         state.device_line = device_line;
@@ -1329,14 +1427,20 @@ extern "C" fn on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
     }
 }
 
-extern "C" fn on_pointer_up(mut data: RefAny, info: CallbackInfo) -> Update {
+extern "C" fn on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
     let hud = hud_from(&info);
-    match data.downcast_mut::<PaintState>() {
+    let marker = match data.downcast_mut::<PaintState>() {
         Some(mut s) => {
             update_hud(&mut s, hud);
             s.end_stroke();
+            s.pressure_marker.clone()
         }
         None => return Update::DoNothing,
+    };
+    if let Some(pct) = push_pressure_to_meter(&mut info, &marker) {
+        if let Some(mut s) = data.downcast_mut::<PaintState>() {
+            s.last_pressure = pct;
+        }
     }
     Update::RefreshDom
 }

@@ -64,6 +64,8 @@ zune-jpeg               = { version = "0.5", default-features = false, features 
 rust-fontconfig = { version = ">=4.6, <4.7", default-features = false, optional = true }
 libc                    = { version = "0.2", default-features = false, optional = true }
 serde                   = { version = "1.0", features = ["derive"] }
+short-uuid              = { version = "0.2" }
+uuid                    = { version = "1.7", default-features = false, features = ["v4"] }
 brotli-decompressor     = { version = "5", default-features = false, features = ["std"], optional = true }
 accesskit               = { version = "0.24", default-features = false, optional = true }
 tinyvec                 = { version = "1.9.0", default-features = false, optional = true  }

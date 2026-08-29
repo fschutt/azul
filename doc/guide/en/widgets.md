@@ -195,6 +195,41 @@ let dom = ProgressBar::create(42.5).dom();
 `set_height` overrides the bar height. The rendered bar scales with its
 container.
 
+`dom()` mounts the bar as a `VirtualView` node carrying a private dataset,
+which is what makes the *live update* API work: from any callback,
+`ProgressBar::update_progress(callback_info, node_id, percent)` moves the bar
+**without a relayout** - the framework re-invokes only this node's
+`VirtualView` callback and repaints just the bar. Resolve `node_id` by
+minting a UUID marker (`Uuid::short()`) during layout and stamping it on the
+widget - markers are excluded from node equality, so the fresh string never
+churns the DOM diff:
+
+```rust,no_run
+use azul::prelude::*;
+
+// In your layout(): mint, stamp, and keep the string in your state.
+let marker = Uuid::short();
+let bar = ProgressBar::create(0.0)
+    .dom()
+    .with_marker(Some(marker.clone()).into());
+
+// In any callback (a timer tick, a network writeback, a pen-pressure event):
+extern "C" fn on_tick(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let marker = data.downcast_ref::<MyApp>().unwrap().meter_marker.clone();
+    if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
+        ProgressBar::update_progress(info, node, 63.0);
+    }
+    Update::DoNothing // the queued VirtualView re-render repaints the bar
+}
+```
+
+This is the reference implementation of the *inter-widget fast path* - the
+pattern, when to use it, and when to prefer a plain `RefreshDom` are covered
+in [the architecture chapter](architecture.md#the-inter-widget-fast-path-markers--virtualview-re-renders).
+The heavy path stays valid: store the percentage in your data model, return
+`Update::RefreshDom`, and the rebuilt DOM carries the new value like any
+other widget.
+
 ## Frame
 
 `Frame` is a titled border container, analogous to an HTML fieldset or a Win32

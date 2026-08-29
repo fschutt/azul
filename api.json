@@ -9565,20 +9565,30 @@
                                 },
                                 "fn_body": "object.get_dataset(node_id).into()"
                             },
-                            "get_node_id_of_root_dataset": {
+                            "get_node_id_by_marker": {
+                                "doc": [
+                                    "Resolve an app-chosen MARKER string (stamped on a node with `Dom::with_marker`)",
+                                    "to that node's `DomNodeId`, searching every DOM of the current window.",
+                                    "",
+                                    "This is the address half of the inter-widget fast path: a callback on one node",
+                                    "finds another widget's node without touching the app data model, then drives it",
+                                    "through that widget's public API (for example `ProgressBar::update_progress`).",
+                                    "Unlike an `Id` attribute, a marker is invisible to CSS matching. Returns `None`",
+                                    "when no node carries the string; the FIRST match in DOM order wins."
+                                ],
                                 "priority": 76.0,
                                 "fn_args": [
                                     {
                                         "self": "refmut"
                                     },
                                     {
-                                        "search_key": "RefAny"
+                                        "marker": "String"
                                     }
                                 ],
                                 "returns": {
                                     "type": "OptionDomNodeId"
                                 },
-                                "fn_body": "object.get_node_id_of_root_dataset(search_key).into()"
+                                "fn_body": "object.get_node_id_by_marker(marker).into()"
                             },
                             "get_string_contents": {
                                 "fn_args": [
@@ -18682,6 +18692,55 @@
                                 },
                                 "fn_body": "object.with_dataset(data)"
                             },
+                            "set_dataset": {
+                                "doc": [
+                                    "Setter form of `with_dataset`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "OptionRefAny"
+                                    }
+                                ],
+                                "fn_body": "object.set_dataset(data)"
+                            },
+                            "with_marker": {
+                                "doc": [
+                                    "Stamp an app-chosen MARKER string on the root node, resolvable to the node's",
+                                    "`DomNodeId` from any callback via `CallbackInfo::get_node_id_by_marker` -",
+                                    "the address half of the inter-widget fast path (see the guide's",
+                                    "architecture chapter). Unlike an `Id` attribute, a marker is invisible to",
+                                    "CSS matching. Pass `None` to remove a previously set marker."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "marker": "OptionString"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_marker(marker)"
+                            },
+                            "set_marker": {
+                                "doc": [
+                                    "Setter form of `with_marker`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "marker": "OptionString"
+                                    }
+                                ],
+                                "fn_body": "object.set_marker(marker)"
+                            },
                             "with_ids_and_classes": {
                                 "priority": 66.0,
                                 "fn_args": [
@@ -19082,6 +19141,20 @@
                                 },
                                 "fn_body": "object.with_attributes(attributes)"
                             },
+                            "set_attributes": {
+                                "doc": [
+                                    "Setter form of `with_attributes`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "attributes": "AttributeTypeVec"
+                                    }
+                                ],
+                                "fn_body": "object.set_attributes(attributes)"
+                            },
                             "fixup_children_estimated": {
                                 "fn_args": [
                                     {
@@ -19116,6 +19189,20 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.with_merge_callback(callback)"
+                            },
+                            "set_merge_callback": {
+                                "doc": [
+                                    "Setter form of `with_merge_callback`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "callback": "DatasetMergeCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_merge_callback(callback)"
                             },
                             "with_css": {
                                 "doc": [
@@ -19374,14 +19461,14 @@
                             "Clone",
                             "Default",
                             "Display",
-                            "Hash"
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
                         ],
                         "derive": [
-                            "PartialEq",
-                            "Debug",
-                            "PartialOrd",
-                            "Ord",
-                            "Eq"
+                            "Debug"
                         ],
                         "struct_fields": [
                             {
@@ -19700,6 +19787,40 @@
                                     }
                                 ],
                                 "fn_body": "object.set_dataset(data)"
+                            },
+                            "with_marker": {
+                                "doc": [
+                                    "Stamp an app-chosen MARKER string on this node, resolvable to the node's",
+                                    "`DomNodeId` from any callback via `CallbackInfo::get_node_id_by_marker`.",
+                                    "Unlike an `Id` attribute, a marker is invisible to CSS matching.",
+                                    "Pass `None` to remove a previously set marker."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "marker": "OptionString"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "NodeData"
+                                },
+                                "fn_body": "object.with_marker(marker)"
+                            },
+                            "set_marker": {
+                                "doc": [
+                                    "Setter form of `with_marker`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "marker": "OptionString"
+                                    }
+                                ],
+                                "fn_body": "object.set_marker(marker)"
                             },
                             "set_ids_and_classes": {
                                 "priority": 72.0,
@@ -50037,8 +50158,12 @@
                             },
                             "dom": {
                                 "doc": [
-                                    "Renders this progress bar into a [`Dom`] tree consisting of a container div",
-                                    "with two children: the filled bar and the remaining empty space."
+                                    "Build the widget: a `VirtualView` node whose callback renders the bar",
+                                    "(container div + filled bar + remaining space) into the node's bounds.",
+                                    "",
+                                    "The node carries the widget's private dataset, so `update_progress` can",
+                                    "move the bar later WITHOUT a relayout - stamp a marker on the returned",
+                                    "`Dom` (`with_marker`) to be able to find the node again from any callback."
                                 ],
                                 "priority": 94.0,
                                 "fn_args": [
@@ -50050,6 +50175,54 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
+                            },
+                            "render_bar": {
+                                "doc": [
+                                    "Renders the BARE progress bar (container div with the filled bar and the",
+                                    "remaining empty space) - the tree the `VirtualView` callback inside `dom()`",
+                                    "returns on every re-render. Use it directly only when embedding the bar in",
+                                    "a context that manages its own updates; `dom()` is the normal entry point."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.render_bar()"
+                            },
+                            "update_progress": {
+                                "doc": [
+                                    "Update the percentage of the progress bar at `node_id` without a relayout -",
+                                    "the widget half of the inter-widget fast path.",
+                                    "",
+                                    "`node_id` is the widget's root node, typically resolved via",
+                                    "`CallbackInfo::get_node_id_by_marker` from a marker the app stamped on",
+                                    "`ProgressBar::dom()` during layout. The widget's PRIVATE dataset is updated",
+                                    "and only this node's `VirtualView` is re-rendered in place (damage rect of",
+                                    "just the bar; no full layout, no DOM diff, no app-data-model round trip).",
+                                    "",
+                                    "Returns `false` (and changes nothing) when `node_id` does not name a live",
+                                    "progress bar. The value is clamped to 0..=100 when the bar renders."
+                                ],
+                                "priority": 90.0,
+                                "fn_args": [
+                                    {
+                                        "callback_info": "CallbackInfo"
+                                    },
+                                    {
+                                        "node_id": "DomNodeId"
+                                    },
+                                    {
+                                        "percent_done": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "{ let mut callback_info = callback_info; azul_layout::widgets::progressbar::ProgressBar::update_progress(&mut callback_info, node_id, percent_done) }"
                             },
                             "swap_with_default": {
                                 "doc": [
@@ -117097,6 +117270,80 @@
                                     "type": "ResultUrlUrlParseError"
                                 },
                                 "fn_body": "object.join(path.as_str()).into()"
+                            }
+                        },
+                        "repr": "C"
+                    }
+                }
+            },
+            "uuid": {
+                "doc": [
+                    "UUID string generation - mint collision-free MARKER strings at layout() time"
+                ],
+                "classes": {
+                    "Uuid": {
+                        "doc": [
+                            "Static-method namespace for UUID string generation (`Uuid::v4`, `Uuid::short`).",
+                            "",
+                            "The intended mint for MARKER strings (`Dom::with_marker` +",
+                            "`CallbackInfo::get_node_id_by_marker`): markers are created fresh at layout()",
+                            "time, and a UUID guarantees - with no coordination - that the string collides",
+                            "with nothing else in the process."
+                        ],
+                        "priority": 55.0,
+                        "external": "azul_layout::uuid::Uuid",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "_reserved": {
+                                    "type": "u8"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Returns a zero-initialised handle. The struct only exists so the FFI layer can hang static methods off it."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::uuid::Uuid::new()"
+                            }
+                        },
+                        "functions": {
+                            "v4": {
+                                "doc": [
+                                    "A fresh random (version 4) UUID in canonical hyphenated lowercase form,",
+                                    "e.g. \"550e8400-e29b-41d4-a716-446655440000\" (36 characters)."
+                                ],
+                                "priority": 90.0,
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "azul_layout::uuid::Uuid::v4()"
+                            },
+                            "short": {
+                                "doc": [
+                                    "A fresh random (version 4) UUID as a 22-character flickrBase58 string -",
+                                    "the short-uuid encoding of the same 128 bits `v4` would print. The compact",
+                                    "spelling for markers, log lines and URLs."
+                                ],
+                                "priority": 90.0,
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "String"
+                                },
+                                "fn_body": "azul_layout::uuid::Uuid::short()"
                             }
                         },
                         "repr": "C"

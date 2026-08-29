@@ -1,8 +1,37 @@
 //! Native progress bar widget with customizable backgrounds, height, and
 //! gradient styling. The main type is [`ProgressBar`], which is rendered
 //! into a DOM via [`ProgressBar::dom()`].
+//!
+//! # The fast path: updating the bar without a relayout
+//!
+//! `dom()` wraps the bar in a **`VirtualView`** node whose private dataset
+//! holds the [`ProgressBar`]. That makes the widget the reference
+//! implementation of the *inter-widget fast path* (see
+//! `doc/guide/*/architecture.md`): a callback on some OTHER node (say, a paint
+//! area receiving pen pressure) can move this bar live - no app-data-model
+//! write, no full `layout()`, no DOM diff - in three steps:
+//!
+//! 1. The app stamps a MARKER string on the widget's root during `layout()`
+//!    (`ProgressBar::dom().with_marker(...)`) and keeps the same string in the
+//!    RefAny of the callback that wants to drive the bar.
+//! 2. The callback resolves the marker to the node:
+//!    `CallbackInfo::get_node_id_by_marker`.
+//! 3. It calls [`ProgressBar::update_progress`] with that node id - which
+//!    downcasts the widget's PRIVATE dataset (the caller never sees the type),
+//!    stores the new percentage, and triggers
+//!    `CallbackInfo::trigger_virtual_view_rerender` on the node. The framework
+//!    re-invokes ONLY this widget's `VirtualView` callback in place; the
+//!    resulting DOM is restyled/relaid out inside the existing bounds and the
+//!    damage rect covers just the bar.
+//!
+//! The heavy path stays valid: store the value in the app data model, return
+//! `Update::RefreshDom`, and the full `layout()` + DOM diff repaints the bar
+//! like any other widget.
 
-use azul_core::dom::{Dom, IdOrClass, IdOrClass::Class, IdOrClassVec};
+use azul_core::callbacks::{VirtualViewCallbackInfo, VirtualViewReturn};
+use azul_core::dom::{Dom, DomNodeId, IdOrClass, IdOrClass::Class, IdOrClassVec};
+use azul_core::geom::{LogicalPosition, LogicalRect};
+use azul_core::refany::RefAny;
 use azul_css::css::BoxOrStatic;
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
@@ -16,6 +45,8 @@ use azul_css::{
     },
     *,
 };
+
+use crate::callbacks::CallbackInfo;
 
 const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
@@ -188,6 +219,16 @@ pub struct ProgressBarState {
     pub display_percentage: bool,
 }
 
+/// The widget's PRIVATE `VirtualView` dataset: the whole [`ProgressBar`],
+/// downcast only inside this module ([`ProgressBar::update_progress`] and the
+/// `VirtualView` callback). Callers drive it exclusively through the public
+/// API - the "RefAny datasets are private to the widget module" rule from
+/// `architecture.md`.
+#[derive(Debug)]
+struct ProgressBarLocalDataset {
+    bar: ProgressBar,
+}
+
 impl ProgressBar {
     /// Creates a new progress bar with the given completion percentage (0.0 to 100.0).
     #[inline]
@@ -247,24 +288,143 @@ impl ProgressBar {
         self
     }
 
-    /// Renders this progress bar into a [`Dom`] tree consisting of a container div
-    /// with two children: the filled bar and the remaining empty space.
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// Build the widget: a `VirtualView` node (explicitly sized to
+    /// [`height`](Self::height)) whose callback renders [`render_bar`]
+    /// (Self::render_bar) into the node's bounds. The node carries the
+    /// widget's private dataset so [`update_progress`](Self::update_progress)
+    /// can find and mutate it later - see the module docs for the fast path.
     #[must_use]
     pub fn dom(self) -> Dom {
+        // The VV node itself must have a DEFINITE height: the callback's DOM
+        // is laid out INSIDE the node's bounds, it can never size the node.
+        let height = self.height;
+        let dataset = RefAny::new(ProgressBarLocalDataset { bar: self });
+        Dom::create_virtual_view(
+            dataset.clone(),
+            azul_core::callbacks::VirtualViewCallback::create(progressbar_render_virtual_view),
+        )
+            .with_dataset(Some(dataset).into())
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
+                    LayoutHeight::Px(height),
+                ))),
+                // materialized == bounds, so nothing ever overflows - this
+                // just guarantees the VirtualView machinery never decides to
+                // show a scrollbar on a progress bar.
+                CssPropertyWithConditions::simple(CssProperty::OverflowX(
+                    LayoutOverflowValue::Exact(LayoutOverflow::Hidden),
+                )),
+                CssPropertyWithConditions::simple(CssProperty::OverflowY(
+                    LayoutOverflowValue::Exact(LayoutOverflow::Hidden),
+                )),
+            ]))
+    }
+
+    /// Update the percentage of the progress bar at `node_id` - the WIDGET
+    /// half of the inter-widget fast path (module docs).
+    ///
+    /// `node_id` is the widget's root node, typically resolved from another
+    /// callback via `CallbackInfo::get_node_id_by_marker`. The bar's private
+    /// dataset is downcast INSIDE this function, the new value stored, and the
+    /// node's `VirtualView` re-render queued
+    /// (`CallbackInfo::trigger_virtual_view_rerender`) - so only this widget
+    /// re-renders, inside its existing bounds, with a damage rect of just the
+    /// bar. No full `layout()`, no DOM diff, no app-data-model round trip.
+    ///
+    /// Returns `false` (and changes nothing) when `node_id` does not name a
+    /// live progress-bar node: no layout result, no dataset, or a dataset of
+    /// some other widget's type. The value is stored raw like
+    /// [`create`](Self::create) does; `dom()`-side clamping applies when the
+    /// bar renders.
+    pub fn update_progress(info: &mut CallbackInfo, node_id: DomNodeId, percent_done: f32) -> bool {
+        let Some(mut dataset) = info.get_dataset(node_id) else {
+            return false;
+        };
+        {
+            // Scoped: the downcast guard must drop before the re-render
+            // trigger runs the queue drain path.
+            let Some(mut state) = dataset.downcast_mut::<ProgressBarLocalDataset>() else {
+                return false;
+            };
+            state.bar.progressbar_state.percent_done = percent_done;
+        }
+        let Some(node) = node_id.node.into_crate_internal() else {
+            return false;
+        };
+        info.trigger_virtual_view_rerender(node_id.dom, node);
+        true
+    }
+
+    /// Renders this progress bar into a [`Dom`] tree consisting of a container div
+    /// with two children: the filled bar and the remaining empty space.
+    ///
+    /// This is the tree the `VirtualView` callback returns on every
+    /// (re-)render; [`dom`](Self::dom) is the wrapper that mounts it. Calling
+    /// it directly gives the bare bar with NO fast-path machinery - useful for
+    /// embedding in a context that manages its own updates.
+    #[must_use]
+    pub fn render_bar(self) -> Dom {
+        render_bar_impl(self, None)
+    }
+}
+
+/// The render core behind [`ProgressBar::render_bar`] (percentage widths,
+/// `bounds_px: None`) and the `VirtualView` callback (absolute pixel sizes
+/// computed from the node's known bounds, `Some((width, height))`).
+///
+/// The split exists because the two contexts size differently: in normal flow
+/// the children can use CSS percentages of the container, but inside a
+/// `VirtualView` a child's percentage width does not resolve against the
+/// materialized bounds (engine gap, 2026-08-29 - the fill rendered
+/// full-width regardless of the percentage). The VV callback KNOWS its
+/// bounds in pixels, so it renders exact pixel sizes instead - which is also
+/// the more honest spelling for a bounds-aware renderer. In the bounds mode
+/// the container is additionally sized to `bounds - 2px borders` so its
+/// 1px border ring lands INSIDE the box: with the normal-flow sizing
+/// (content height + borders) the ring overflowed the VV node and was
+/// clipped away at the right and bottom ("oddly cut off", user report
+/// 2026-08-29).
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[must_use]
+fn render_bar_impl(bar: ProgressBar, bounds_px: Option<(f32, f32)>) -> Dom {
+    {
         use azul_core::dom::DomVec;
 
-        // Use percentage widths for the progress bar and remaining space.
-        // The container uses flex-direction: row, and we set explicit widths
-        // on the children using CSS percentages.
-        let percent_done = self.progressbar_state.percent_done.clamp(0.0, 100.0);
+        let this = bar;
+        let percent_done = this.progressbar_state.percent_done.clamp(0.0, 100.0);
+        // Sizes resolved per context (see fn docs). The bounds branch
+        // subtracts the container's 1px border ring so children + borders
+        // exactly fill the VV box.
+        let (bar_width, remaining_width) = match bounds_px {
+            Some((w, _)) => {
+                let inner = (w - 2.0).max(0.0);
+                let filled = inner * percent_done / 100.0;
+                (PixelValue::px(filled), PixelValue::px(inner - filled))
+            }
+            None => (
+                PixelValue::percent(percent_done),
+                PixelValue::percent(100.0 - percent_done),
+            ),
+        };
+        let container_height = match bounds_px {
+            Some((_, h)) => PixelValue::px((h - 2.0).max(0.0)),
+            None => this.height,
+        };
 
-        Dom::create_div()
-            .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+        let mut container_props = vec![
                 // .__azul-native-progress-bar-container
                 CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
-                    LayoutHeight::Px(self.height),
+                    LayoutHeight::Px(container_height),
                 ))),
+                // `display: flex` is LOAD-BEARING: azul's default display is
+                // BLOCK, so `flex-direction: row` alone stacks the two
+                // children as full-width, zero-height block boxes - the fill
+                // never painted anywhere the widget was used (found 2026-08-29
+                // via the azpaint pressure meter; also the real culprit behind
+                // the "inline-width meter never repaints" ledger entry).
+                CssPropertyWithConditions::simple(CssProperty::Display(
+                    LayoutDisplayValue::Exact(LayoutDisplay::Flex),
+                )),
                 CssPropertyWithConditions::simple(CssProperty::FlexDirection(
                     LayoutFlexDirectionValue::Exact(LayoutFlexDirection::Row),
                 )),
@@ -461,9 +621,17 @@ impl ProgressBar {
                     }),
                 )),
                 CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-                    StyleBackgroundContentVecValue::Exact(self.container_background.clone()),
+                    StyleBackgroundContentVecValue::Exact(this.container_background.clone()),
                 )),
-            ]))
+        ];
+        if let Some((w, _)) = bounds_px {
+            container_props.push(CssPropertyWithConditions::simple(CssProperty::Width(
+                LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px((w - 2.0).max(0.0)))),
+            )));
+        }
+
+        Dom::create_div()
+            .with_css_props(CssPropertyWithConditionsVec::from_vec(container_props))
             .with_ids_and_classes({
                 const IDS_AND_CLASSES_10874511710181900075: &[IdOrClass] = &[Class(
                     AzString::from_const_str("__azul-native-progress-bar-container"),
@@ -492,9 +660,7 @@ impl ProgressBar {
                         // .__azul-native-progress-bar-bar
                         // Use percentage width instead of flex-grow hack
                         CssPropertyWithConditions::simple(CssProperty::Width(
-                            LayoutWidthValue::Exact(LayoutWidth::Px(
-                                PixelValue::percent(percent_done),
-                            )),
+                            LayoutWidthValue::Exact(LayoutWidth::Px(bar_width)),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
                             StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
@@ -611,7 +777,7 @@ impl ProgressBar {
                             }),
                         )),
                         CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-                            StyleBackgroundContentVecValue::Exact(self.bar_background),
+                            StyleBackgroundContentVecValue::Exact(this.bar_background),
                         )),
                     ]))
                     .with_ids_and_classes({
@@ -625,9 +791,7 @@ impl ProgressBar {
                         // .__azul-native-progress-bar-remaining
                         // Use percentage width for the remaining space
                         CssPropertyWithConditions::simple(CssProperty::Width(
-                            LayoutWidthValue::Exact(LayoutWidth::Px(
-                                PixelValue::percent(100.0 - percent_done),
-                            )),
+                            LayoutWidthValue::Exact(LayoutWidth::Px(remaining_width)),
                         )),
                     ]))
                     .with_ids_and_classes({
@@ -638,6 +802,34 @@ impl ProgressBar {
                     }),
             ]))
     }
+}
+
+/// The widget's `VirtualView` callback: render the CURRENT state of the bar
+/// into the node's bounds. Invoked on mount and again every time
+/// [`ProgressBar::update_progress`] queues a re-render.
+///
+/// The bar is not scrollable content, so all three rects collapse to one:
+/// `materialized` == `virtual_rect` == the container's box at origin zero.
+extern "C" fn progressbar_render_virtual_view(
+    mut data: RefAny,
+    info: VirtualViewCallbackInfo,
+) -> VirtualViewReturn {
+    let Some(state) = data.downcast_ref::<ProgressBarLocalDataset>() else {
+        // Foreign payload: render nothing rather than lying about bounds.
+        return VirtualViewReturn::default();
+    };
+    let size = info.bounds.get_logical_size();
+    let rect = LogicalRect::new(LogicalPosition::zero(), size);
+    // Clone-per-render is two enum copies + an `AzString`-less state copy; the
+    // backgrounds are either `&'static` (shared, no alloc) or a caller-owned
+    // heap vec that must be preserved for the NEXT render anyway. Pixel
+    // widths, not percentages: the callback knows its bounds (see
+    // `render_bar_impl`).
+    VirtualViewReturn::with_dom(
+        render_bar_impl(state.bar.clone(), Some((size.width, size.height))),
+        rect,
+        rect,
+    )
 }
 
 #[cfg(test)]
@@ -1154,7 +1346,7 @@ mod autotest_generated {
         assert_eq!(pb.bar_background.len(), 0);
         assert!(pb.container_background.is_empty());
 
-        let dom = pb.dom();
+        let dom = pb.render_bar();
         assert_eq!(
             background_of(bar(&dom)),
             Some(Vec::new()),
@@ -1202,7 +1394,7 @@ mod autotest_generated {
             "the setter deep-copied a 10k-layer background"
         );
 
-        let dom = pb.dom();
+        let dom = pb.render_bar();
         assert_eq!(
             background_of(bar(&dom)).map(|v| v.len()),
             Some(10_000),
@@ -1346,8 +1538,8 @@ mod autotest_generated {
     // ------------------------------------------------------------------
 
     #[test]
-    fn dom_is_a_container_div_with_exactly_two_leaf_children() {
-        let dom = ProgressBar::create(50.0).dom();
+    fn render_bar_is_a_container_div_with_exactly_two_leaf_children() {
+        let dom = ProgressBar::create(50.0).render_bar();
 
         assert!(matches!(dom.root.get_node_type(), NodeType::Div));
         assert_eq!(
@@ -1380,7 +1572,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_clamps_every_out_of_range_percentage_into_zero_to_one_hundred() {
+    fn render_bar_clamps_every_out_of_range_percentage_into_zero_to_one_hundred() {
         // (input, bar width, remaining width) — widths in 1/1000 of a percent.
         const CASES: [(f32, isize, isize); 12] = [
             (0.0, 0, 100_000),
@@ -1398,7 +1590,7 @@ mod autotest_generated {
         ];
 
         for (input, bar_width, remaining_width) in CASES {
-            let dom = ProgressBar::create(input).dom();
+            let dom = ProgressBar::create(input).render_bar();
             let b = width_of(bar(&dom)).expect("the bar must declare a width");
             let r = width_of(remaining(&dom)).expect("the remaining space must declare a width");
 
@@ -1424,12 +1616,12 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_collapses_a_nan_percentage_to_two_empty_children() {
+    fn render_bar_collapses_a_nan_percentage_to_two_empty_children() {
         // `f32::clamp` propagates NaN rather than clamping it, and the `f32 -> isize`
         // cast inside `FloatValue::new` then turns it into 0. The documented result:
         // BOTH children get 0% — the bar renders as an empty container instead of
         // falling back to 0%/100%. It does not panic, and it is deterministic.
-        let dom = ProgressBar::create(f32::NAN).dom();
+        let dom = ProgressBar::create(f32::NAN).render_bar();
         let b = width_of(bar(&dom)).expect("the bar must declare a width");
         let r = width_of(remaining(&dom)).expect("the remaining space must declare a width");
 
@@ -1445,9 +1637,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_splits_the_container_exactly_for_whole_percentages() {
+    fn render_bar_splits_the_container_exactly_for_whole_percentages() {
         for i in 0..=100_isize {
-            let dom = ProgressBar::create(i as f32).dom();
+            let dom = ProgressBar::create(i as f32).render_bar();
             let b = raw(width_of(bar(&dom)).unwrap());
             let r = raw(width_of(remaining(&dom)).unwrap());
 
@@ -1461,7 +1653,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_loses_at_most_the_encoding_truncation_for_fractional_percentages() {
+    fn render_bar_loses_at_most_the_encoding_truncation_for_fractional_percentages() {
         // Each side is truncated to 1/1000 of a percent independently, so the pair
         // may under-fill by two ticks — but never overflow the container, and never
         // go negative.
@@ -1476,7 +1668,7 @@ mod autotest_generated {
             f32::EPSILON,
             f32::MIN_POSITIVE,
         ] {
-            let dom = ProgressBar::create(p).dom();
+            let dom = ProgressBar::create(p).render_bar();
             let b = raw(width_of(bar(&dom)).unwrap());
             let r = raw(width_of(remaining(&dom)).unwrap());
 
@@ -1492,7 +1684,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_routes_each_background_to_its_own_node() {
+    fn render_bar_routes_each_background_to_its_own_node() {
         let bar_bg = solid(3);
         let container_bg = solid(5);
         let bar_ptr = bar_bg.as_ptr();
@@ -1501,7 +1693,7 @@ mod autotest_generated {
         let dom = ProgressBar::create(25.0)
             .with_bar_background(bar_bg)
             .with_container_background(container_bg)
-            .dom();
+            .render_bar();
 
         assert_eq!(
             background_of(&dom).map(|v| v.len()),
@@ -1526,7 +1718,7 @@ mod autotest_generated {
             "the bar background was copied instead of moved",
         );
         // The container background is cloned, because `self` — and with it the
-        // original buffer — is dropped at the end of `dom()`. Handing the DOM the
+        // original buffer — is dropped at the end of `render_bar()`. Handing the DOM the
         // same pointer would be a use-after-free.
         assert_ne!(
             background_ptr(&dom),
@@ -1536,9 +1728,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_forwards_any_height_to_the_container_and_to_nobody_else() {
+    fn render_bar_forwards_any_height_to_the_container_and_to_nobody_else() {
         for h in adversarial_heights() {
-            let dom = ProgressBar::create(50.0).with_height(h).dom();
+            let dom = ProgressBar::create(50.0).with_height(h).render_bar();
             let got = height_of(&dom).expect("the container must declare a height");
 
             assert_eq!(
@@ -1569,14 +1761,14 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_declares_the_expected_style_blocks_and_no_property_twice() {
+    fn render_bar_declares_the_expected_style_blocks_and_no_property_twice() {
         let dom = ProgressBar::create(50.0)
             .with_bar_background(solid(1))
-            .dom();
+            .render_bar();
 
         assert_eq!(
             inline_props(&dom).len(),
-            23,
+            24,
             "the container style block drifted"
         );
         assert_eq!(
@@ -1610,11 +1802,11 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_chrome_lengths_are_all_absolute_pixels() {
+    fn render_bar_chrome_lengths_are_all_absolute_pixels() {
         // Only the two child widths are relative. A border or radius that slipped
         // into `em`/`%` would resolve against the parent font or box and either
         // vanish or blow up.
-        let dom = ProgressBar::create(50.0).dom();
+        let dom = ProgressBar::create(50.0).render_bar();
         for node in [&dom, bar(&dom), remaining(&dom)] {
             for p in inline_props(node) {
                 for length in lengths_of(&p) {
@@ -1629,30 +1821,30 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_ignores_display_percentage() {
-        // The field is public and settable, but nothing in `dom()` reads it: the
+    fn render_bar_ignores_display_percentage() {
+        // The field is public and settable, but nothing in `render_bar()` reads it: the
         // rendered tree has to be byte-identical either way.
         let mut with_label = ProgressBar::create(40.0);
         with_label.progressbar_state.display_percentage = true;
         let without_label = ProgressBar::create(40.0);
 
         assert_eq!(
-            with_label.dom(),
-            without_label.dom(),
+            with_label.render_bar(),
+            without_label.render_bar(),
             "display_percentage started changing the tree",
         );
     }
 
     #[test]
-    fn dom_is_deterministic_for_equal_inputs() {
+    fn render_bar_is_deterministic_for_equal_inputs() {
         let a = ProgressBar::create(37.5)
             .with_bar_background(solid(2))
             .with_height(PixelValue::px(7.25))
-            .dom();
+            .render_bar();
         let b = ProgressBar::create(37.5)
             .with_bar_background(solid(2))
             .with_height(PixelValue::px(7.25))
-            .dom();
+            .render_bar();
 
         assert_eq!(
             a, b,
@@ -1665,7 +1857,7 @@ mod autotest_generated {
     /// instead of two anonymous divs. Out-of-range and NaN inputs announce
     /// what the bar draws (clamped / empty), never "NaN%".
     #[test]
-    fn dom_publishes_its_percentage_as_the_accessibility_value() {
+    fn render_bar_publishes_its_percentage_as_the_accessibility_value() {
         use azul_core::a11y::AccessibilityRole;
 
         for (input, expected) in [
@@ -1678,7 +1870,7 @@ mod autotest_generated {
             (f32::NAN, "0%"),
             (f32::INFINITY, "100%"),
         ] {
-            let dom = ProgressBar::create(input).dom();
+            let dom = ProgressBar::create(input).render_bar();
             let info = dom
                 .root
                 .get_accessibility_info()
@@ -1693,14 +1885,14 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_survives_every_extreme_percentage_and_background_size() {
+    fn render_bar_survives_every_extreme_percentage_and_background_size() {
         for p in ADVERSARIAL_PERCENTS.into_iter().chain([f32::NAN]) {
             for layers in [0_usize, 1, 64] {
                 let dom = ProgressBar::create(p)
                     .with_bar_background(solid(layers))
                     .with_container_background(solid(layers))
                     .with_height(PixelValue::px(f32::MAX))
-                    .dom();
+                    .render_bar();
 
                 assert_eq!(
                     kids(&dom).len(),
@@ -1719,5 +1911,173 @@ mod autotest_generated {
                 );
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // ProgressBar::dom — the VirtualView wrapper (the fast path's mount)
+    // ------------------------------------------------------------------
+
+    /// Runs `f` against a `VirtualViewCallbackInfo` reporting `w x h` bounds
+    /// (the same harness shape the map widget's VV tests use).
+    fn with_virtual_view_info<R>(
+        w: f32,
+        h: f32,
+        f: impl FnOnce(VirtualViewCallbackInfo) -> R,
+    ) -> R {
+        use azul_core::callbacks::{HidpiAdjustedBounds, VirtualViewCallbackReason};
+        use azul_core::geom::LogicalSize;
+        use azul_core::resources::{DpiScaleFactor, ImageCache};
+        use azul_core::window::WindowTheme;
+        use rust_fontconfig::FcFontCache;
+
+        let fonts = FcFontCache::default();
+        let images = ImageCache::default();
+        let size = LogicalSize::new(w, h);
+        let info = VirtualViewCallbackInfo::new(
+            VirtualViewCallbackReason::InitialRender,
+            &fonts,
+            &images,
+            WindowTheme::LightMode,
+            HidpiAdjustedBounds {
+                logical_size: size,
+                hidpi_factor: DpiScaleFactor::new(1.0),
+            },
+            LogicalRect::new(LogicalPosition::zero(), size),
+            LogicalRect::new(LogicalPosition::zero(), size),
+            LogicalPosition::zero(),
+        );
+        f(info)
+    }
+
+    #[test]
+    fn dom_mounts_a_virtual_view_leaf_carrying_the_private_dataset() {
+        let dom = ProgressBar::create(30.0).dom();
+
+        assert!(
+            dom.root.is_virtual_view_node(),
+            "dom() must mount the bar as a VirtualView, or update_progress has \
+             nothing to re-render"
+        );
+        assert!(
+            kids(&dom).is_empty(),
+            "the wrapper is a LEAF - the bar's tree comes from the VV callback, \
+             never from the outer DOM"
+        );
+
+        let mut ds = dom
+            .root
+            .get_dataset()
+            .cloned()
+            .expect("the wrapper must carry the dataset update_progress looks up");
+        let state = ds
+            .downcast_ref::<ProgressBarLocalDataset>()
+            .expect("the dataset is the widget's private type");
+        assert_eq!(state.bar.progressbar_state.percent_done, 30.0);
+    }
+
+    #[test]
+    fn dom_wrapper_declares_its_height_and_hides_overflow_and_nothing_else() {
+        // The VV node's box is what the callback renders INTO, so it must be
+        // definitely sized by the wrapper itself - and only sized: all visual
+        // chrome lives in the rendered tree where a re-render can change it.
+        let dom = ProgressBar::create(50.0)
+            .with_height(PixelValue::const_px(22))
+            .dom();
+
+        let h = height_of(&dom).expect("the wrapper must declare the height");
+        assert_eq!(h.metric, SizeMetric::Px);
+        assert_eq!(raw(h), 22_000);
+        assert_eq!(
+            inline_props(&dom).len(),
+            3,
+            "wrapper style must stay height + overflow-x + overflow-y: {:?}",
+            inline_props(&dom)
+        );
+    }
+
+    #[test]
+    fn virtual_view_callback_renders_the_stored_bar_into_the_bounds() {
+        let dom = ProgressBar::create(40.0).dom();
+        let vv = dom
+            .root
+            .get_virtual_view_node_ref()
+            .expect("a VirtualView node stores its callback + refany");
+        let payload = vv.refany.clone();
+
+        let ret =
+            with_virtual_view_info(200.0, 15.0, |info| progressbar_render_virtual_view(payload, info));
+
+        let rendered = match &ret.dom {
+            azul_core::dom::OptionDom::Some(d) => d,
+            azul_core::dom::OptionDom::None => panic!("the callback must render the bar"),
+        };
+        assert_eq!(kids(rendered).len(), 2, "bar + remaining");
+        // Inside the VV the callback renders PIXEL widths from its known
+        // bounds (percent children do not resolve against VV bounds):
+        // 200px - 2px borders = 198px content, 40% of that = 79.2px.
+        let b = width_of(bar(rendered)).unwrap();
+        assert_eq!(b.metric, SizeMetric::Px);
+        assert_eq!(raw(b), 79_200);
+        // The container is sized to bounds MINUS its 1px border ring, so the
+        // borders land INSIDE the materialized area instead of overflowing
+        // it and being clipped ("oddly cut off", user report 2026-08-29).
+        assert_eq!(raw(width_of(rendered).unwrap()), 198_000);
+        assert_eq!(raw(height_of(rendered).unwrap()), 13_000);
+
+        // Not scrollable content: one rect, three names.
+        let want = LogicalRect::new(
+            LogicalPosition::zero(),
+            azul_core::geom::LogicalSize::new(200.0, 15.0),
+        );
+        assert_eq!(ret.materialized, want, "materialized must be the bounds");
+        assert_eq!(ret.virtual_rect, want, "virtual_rect must be the bounds");
+    }
+
+    #[test]
+    fn virtual_view_callback_and_dataset_share_one_allocation() {
+        // THE fast-path contract: `update_progress` writes through the NODE
+        // dataset, the re-render reads through the VV refany - they must be
+        // clones of one allocation or the bar re-renders its stale self.
+        let dom = ProgressBar::create(10.0).dom();
+
+        let mut ds = dom.root.get_dataset().cloned().expect("node dataset");
+        ds.downcast_mut::<ProgressBarLocalDataset>()
+            .expect("private type")
+            .bar
+            .progressbar_state
+            .percent_done = 80.0;
+
+        let payload = dom
+            .root
+            .get_virtual_view_node_ref()
+            .expect("vv node")
+            .refany
+            .clone();
+        let ret =
+            with_virtual_view_info(100.0, 15.0, |info| progressbar_render_virtual_view(payload, info));
+
+        let rendered = match &ret.dom {
+            azul_core::dom::OptionDom::Some(d) => d,
+            azul_core::dom::OptionDom::None => panic!("the callback must render the bar"),
+        };
+        // 100px bounds - 2px borders = 98px content; 80% of that = 78.4px.
+        assert_eq!(
+            raw(width_of(bar(rendered)).unwrap()),
+            78_400,
+            "a write through the node dataset did not reach the VV re-render",
+        );
+    }
+
+    #[test]
+    fn virtual_view_callback_rejects_a_foreign_payload() {
+        let ret = with_virtual_view_info(100.0, 15.0, |info| {
+            progressbar_render_virtual_view(RefAny::new(0_u8), info)
+        });
+        assert!(
+            matches!(ret.dom, azul_core::dom::OptionDom::None),
+            "a foreign payload must render nothing, not panic or invent a bar",
+        );
+        assert_eq!(ret.materialized, LogicalRect::zero());
+        assert_eq!(ret.virtual_rect, LogicalRect::zero());
     }
 }

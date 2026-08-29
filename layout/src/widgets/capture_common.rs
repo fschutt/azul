@@ -20,6 +20,7 @@ use azul_core::geom::PhysicalSizeU32;
 use azul_core::gl::gl::{RGBA, TEXTURE_2D, UNSIGNED_BYTE};
 use azul_core::gl::{GlContextPtr, OptionU8VecRef, U8VecRef};
 use azul_core::refany::RefAny;
+use azul_css::AzString;
 use azul_core::resources::ImageRef;
 use azul_core::resources::UpdateImageType;
 use azul_core::task::{OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadSendMsg};
@@ -118,6 +119,25 @@ pub fn invoke_on_frame(
     }
 }
 
+/// Mint a process-unique MARKER string for a capture widget's tile node.
+///
+/// The widget stamps it on the node (`Dom::with_marker`) *and* stores it in its
+/// private dataset; the frame writeback later resolves it back to the node via
+/// `CallbackInfo::get_node_id_by_marker`. One fresh string per `dom()` build,
+/// so two widgets of the same type can never collide - the old lookup
+/// (`get_node_id_of_root_dataset`) matched by dataset TYPE and did.
+#[must_use]
+pub fn next_capture_marker(kind: &str) -> AzString {
+    use core::sync::atomic::AtomicU64;
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    format!(
+        "azul-{}-{:x}",
+        kind,
+        NEXT.fetch_add(1, core::sync::atomic::Ordering::Relaxed)
+    )
+    .into()
+}
+
 /// Present `frame` for a video-ish widget.
 ///
 /// ONE path on every backend: install the frame as a raw RGBA `ImageRef` on
@@ -136,13 +156,13 @@ pub fn invoke_on_frame(
 /// pool it used to name is gone).
 pub fn present_frame(
     info: &mut CallbackInfo,
-    dataset: RefAny,
+    marker: AzString,
     current_id: Option<u32>,
     frame: &VideoFrame,
 ) -> Option<u32> {
     present_frame_pixels(
         info,
-        dataset,
+        marker,
         current_id,
         frame.bytes.clone(),
         frame.width,
@@ -159,7 +179,7 @@ pub fn present_frame(
 /// `load_rgba8` then skips its per-pixel multiply.
 pub fn present_frame_pixels(
     info: &mut CallbackInfo,
-    dataset: RefAny,
+    marker: AzString,
     current_id: Option<u32>,
     bytes: azul_css::U8Vec,
     width: u32,
@@ -175,7 +195,7 @@ pub fn present_frame_pixels(
         data_format: RawImageFormat::RGBA8,
         tag: b"azul-capture-frame".to_vec().into(),
     }) {
-        if let Some(node) = info.get_node_id_of_root_dataset(dataset) {
+        if let Some(node) = info.get_node_id_by_marker(marker) {
             if let Some(nid) = node.node.into_crate_internal() {
                 info.change_node_image(node.dom, nid, img, UpdateImageType::Content);
             }
@@ -554,7 +574,7 @@ pub struct CapturedFrames {
 /// for.
 pub fn present_captured(
     info: &mut CallbackInfo,
-    dataset: RefAny,
+    marker: AzString,
     on_frame: &OptionOnVideoFrame,
     on_consumer_frame: &OptionOnConsumerFrame,
     captured: &mut CapturedFrames,
@@ -570,7 +590,7 @@ pub fn present_captured(
     let shown = captured.preview.take().or_else(|| captured.source.take());
     if let Some(frame) = shown {
         let _texture_id: Option<u32> =
-            present_frame_pixels(info, dataset, None, frame.bytes, frame.width, frame.height);
+            present_frame_pixels(info, marker, None, frame.bytes, frame.width, frame.height);
     }
     update
 }
@@ -1143,29 +1163,23 @@ mod autotest_generated {
     // Fixtures
     // ------------------------------------------------------------------
 
-    /// The dataset type a capture widget stores on its node.
-    #[derive(Debug, Default)]
-    struct CamState {
-        _texture_id: Option<u32>,
-    }
+    /// The MARKER a capture widget stamps on its tile node (and stores in its
+    /// dataset) so the writeback can resolve the node again.
+    const CAM_MARKER: &str = "azul-camera-test";
+    /// A *different* marker, to prove the lookup is exact-string-scoped.
+    const OTHER_MARKER: &str = "azul-other-test";
 
-    /// A *different* dataset type, to prove the node lookup is type-scoped.
-    #[derive(Debug, Default)]
-    struct OtherState {
-        _unused: u8,
-    }
-
-    /// A `div`, carrying `ds` as its dataset when there is one.
-    fn div_with(ds: Option<RefAny>) -> Dom {
+    /// A `div`, carrying `marker` when there is one.
+    fn div_with(marker: Option<&str>) -> Dom {
         let d = Dom::create_node(NodeType::Div);
-        match ds {
-            Some(r) => d.with_dataset(OptionRefAny::Some(r)),
+        match marker {
+            Some(m) => d.with_marker(Some(AzString::from(m)).into()),
             None => d,
         }
     }
 
-    /// `body(0) -> div(1) -> div(2)`, where a `Some(ds)` gives that div a dataset.
-    fn dom_with_datasets(first: Option<RefAny>, second: Option<RefAny>) -> StyledDom {
+    /// `body(0) -> div(1) -> div(2)`, where a `Some(marker)` stamps that div.
+    fn dom_with_markers(first: Option<&str>, second: Option<&str>) -> StyledDom {
         let dom = Dom::create_node(NodeType::Body)
             .with_child(div_with(first))
             .with_child(div_with(second));
@@ -1359,7 +1373,7 @@ mod autotest_generated {
     fn invoke_on_frame_hook_writes_through_the_shared_callback_info() {
         // `invoke_on_frame` passes `*info` (CallbackInfo is Copy) — the copy must
         // still write into the *caller's* transaction container.
-        let h = hook(hook_recomposite, RefAny::new(OtherState::default()));
+        let h = hook(hook_recomposite, RefAny::new(0_u8));
         let (update, changes) = with_callback_info(None, OptionGlContextPtr::None, |info| {
             invoke_on_frame(&h, info, &frame(1, 1))
         });
@@ -1478,12 +1492,11 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn present_frame_without_gl_installs_a_raw_image_on_the_dataset_node() {
-        let ds = RefAny::new(CamState::default());
-        let styled = dom_with_datasets(Some(ds.clone()), None);
+    fn present_frame_without_gl_installs_a_raw_image_on_the_marked_node() {
+        let styled = dom_with_markers(Some(CAM_MARKER), None);
 
         let (id, changes) = with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
-            present_frame(info, ds.clone(), None, &frame(4, 4))
+            present_frame(info, CAM_MARKER.into(), None, &frame(4, 4))
         });
 
         // The CPU path never allocates a GL texture, so it must hand back the id it
@@ -1494,7 +1507,7 @@ mod autotest_generated {
         assert_eq!(installs.len(), 1, "exactly one image install per frame");
         let (dom_id, node_idx, image, update_type) = installs[0];
         assert_eq!(dom_id, DomId::ROOT_ID);
-        assert_eq!(node_idx, 1, "the image must land on the dataset's node");
+        assert_eq!(node_idx, 1, "the image must land on the MARKED node");
         assert_eq!(update_type, UpdateImageType::Content);
         match image.get_data() {
             DecodedImage::Raw((descriptor, _)) => {
@@ -1516,11 +1529,10 @@ mod autotest_generated {
     #[test]
     fn present_frame_without_gl_returns_the_current_id_verbatim() {
         for current in [None, Some(0_u32), Some(1), Some(u32::MAX)] {
-            let ds = RefAny::new(CamState::default());
-            let styled = dom_with_datasets(Some(ds.clone()), None);
+            let styled = dom_with_markers(Some(CAM_MARKER), None);
             let (id, changes) =
                 with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
-                    present_frame(info, ds.clone(), current, &frame(2, 2))
+                    present_frame(info, CAM_MARKER.into(), current, &frame(2, 2))
                 });
             assert_eq!(
                 id, current,
@@ -1535,28 +1547,25 @@ mod autotest_generated {
     }
 
     #[test]
-    fn present_frame_without_gl_and_without_a_matching_dataset_installs_nothing() {
-        // Node carries `OtherState`, the widget looks for `CamState`.
-        let node_ds = RefAny::new(OtherState::default());
-        let styled = dom_with_datasets(Some(node_ds), None);
-        let search = RefAny::new(CamState::default());
+    fn present_frame_without_gl_and_without_a_matching_marker_installs_nothing() {
+        // Node carries OTHER_MARKER, the widget looks for CAM_MARKER.
+        let styled = dom_with_markers(Some(OTHER_MARKER), None);
 
         let (id, changes) = with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
-            present_frame(info, search.clone(), Some(9), &frame(2, 2))
+            present_frame(info, CAM_MARKER.into(), Some(9), &frame(2, 2))
         });
 
         assert_eq!(id, Some(9), "a failed node lookup must not lose the id");
         assert!(
             changes.is_empty(),
-            "no node owns the dataset, so nothing may be installed: {changes:?}"
+            "no node carries the marker, so nothing may be installed: {changes:?}"
         );
     }
 
     #[test]
     fn present_frame_without_gl_and_without_any_layout_result_installs_nothing() {
-        let ds = RefAny::new(CamState::default());
         let (id, changes) = with_callback_info(None, OptionGlContextPtr::None, |info| {
-            present_frame(info, ds.clone(), Some(3), &frame(2, 2))
+            present_frame(info, CAM_MARKER.into(), Some(3), &frame(2, 2))
         });
         assert_eq!(id, Some(3));
         assert!(
@@ -1575,11 +1584,15 @@ mod autotest_generated {
             (4, 4, vec![0_u8; 65]),        // one byte long
             (2, 2, Vec::new()),            // no pixels at all
         ] {
-            let ds = RefAny::new(CamState::default());
-            let styled = dom_with_datasets(Some(ds.clone()), None);
+            let styled = dom_with_markers(Some(CAM_MARKER), None);
             let (id, changes) =
                 with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
-                    present_frame(info, ds.clone(), Some(5), &frame_raw(w, h, bytes.clone()))
+                    present_frame(
+                        info,
+                        CAM_MARKER.into(),
+                        Some(5),
+                        &frame_raw(w, h, bytes.clone()),
+                    )
                 });
 
             assert_eq!(id, Some(5), "a rejected frame must not disturb the id");
@@ -1596,10 +1609,9 @@ mod autotest_generated {
         // 0*0*4 == 0 == len(bytes), so a 0x0 frame passes RawImage's length check
         // and IS installed (as a 0x0 image). Pin the behaviour: it must at least
         // not panic and must not corrupt the returned id.
-        let ds = RefAny::new(CamState::default());
-        let styled = dom_with_datasets(Some(ds.clone()), None);
+        let styled = dom_with_markers(Some(CAM_MARKER), None);
         let (id, changes) = with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
-            present_frame(info, ds.clone(), Some(2), &frame_raw(0, 0, Vec::new()))
+            present_frame(info, CAM_MARKER.into(), Some(2), &frame_raw(0, 0, Vec::new()))
         });
 
         assert_eq!(id, Some(2));
@@ -1625,15 +1637,14 @@ mod autotest_generated {
         // autotest report. What must hold in *both* modes is the one invariant we
         // can still assert: the caller's texture id is never corrupted, and no GL
         // work is attempted.
-        let ds = RefAny::new(CamState::default());
-        let styled = dom_with_datasets(Some(ds.clone()), None);
+        let styled = dom_with_markers(Some(CAM_MARKER), None);
 
         let (result, _changes) =
             with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
                 catch_unwind(AssertUnwindSafe(|| {
                     present_frame(
                         info,
-                        ds.clone(),
+                        CAM_MARKER.into(),
                         Some(11),
                         &frame_raw(1_u32 << 31, 1_u32 << 31, Vec::new()),
                     )
@@ -1654,19 +1665,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn present_frame_installs_exactly_one_image_when_two_nodes_share_a_dataset_type() {
-        // Two capture widgets of the same state type in one DOM: the lookup scores
-        // candidates by RefAny instance id, so *which* node wins is an internal
-        // detail — but it must pick exactly ONE, and it must be a node that
-        // actually owns a dataset (never the body at index 0, never both).
-        let styled = dom_with_datasets(
-            Some(RefAny::new(CamState::default())),
-            Some(RefAny::new(CamState::default())),
-        );
-        let search = RefAny::new(CamState::default());
+    fn present_frame_targets_exactly_the_node_whose_marker_matches() {
+        // Two capture widgets of the same type in one DOM: with per-build
+        // markers each writeback resolves ITS OWN node - the old
+        // lookup-by-dataset-TYPE ambiguity ("which of the two wins is an
+        // internal detail") is gone by construction.
+        let second = "azul-camera-test-2";
+        let styled = dom_with_markers(Some(CAM_MARKER), Some(second));
 
         let (id, changes) = with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
-            present_frame(info, search.clone(), Some(4), &frame(2, 2))
+            present_frame(info, second.into(), Some(4), &frame(2, 2))
         });
 
         assert_eq!(id, Some(4));
@@ -1676,31 +1684,31 @@ mod autotest_generated {
             1,
             "a frame must never be installed on two nodes at once: {changes:?}"
         );
-        assert!(
-            installs[0].1 == 1 || installs[0].1 == 2,
-            "the image must land on a node that owns a dataset, not on node {}",
-            installs[0].1
+        assert_eq!(
+            installs[0].1, 2,
+            "the frame must land on the node carrying ITS marker, not the first \
+             capture node in document order"
         );
     }
 
     #[test]
-    fn present_frame_matches_datasets_by_type_id_not_by_identity() {
-        // FOOTGUN: the lookup compares *type ids*, so a completely unrelated
-        // RefAny of the same type finds the node. Two capture widgets sharing a
-        // state type would therefore fight over one node.
-        let node_ds = RefAny::new(CamState::default());
-        let styled = dom_with_datasets(Some(node_ds), None);
+    fn present_frame_matches_markers_by_string_equality_not_identity() {
+        // A marker is a plain string: any `AzString` with the same characters
+        // resolves the node, no matter where it was allocated. (What makes two
+        // widgets not collide is that `next_capture_marker` never mints the
+        // same string twice - not any pointer identity.)
+        let styled = dom_with_markers(Some(CAM_MARKER), None);
 
-        let unrelated = RefAny::new(CamState::default()); // a different allocation
+        let same_chars: AzString = String::from(CAM_MARKER).into(); // a different allocation
         let (id, changes) = with_callback_info(Some(styled), OptionGlContextPtr::None, |info| {
-            present_frame(info, unrelated.clone(), None, &frame(2, 2))
+            present_frame(info, same_chars.clone(), None, &frame(2, 2))
         });
 
         assert_eq!(id, None);
         assert_eq!(
             image_installs(&changes).len(),
             1,
-            "an unrelated RefAny of the same type still resolves to the node"
+            "an equal-content AzString from a different allocation must resolve the node"
         );
     }
 
@@ -1715,12 +1723,11 @@ mod autotest_generated {
 
     #[test]
     fn present_frame_with_gl_still_installs_a_raw_image_and_touches_no_gl() {
-        let ds = RefAny::new(CamState::default());
-        let styled = dom_with_datasets(Some(ds.clone()), None);
+        let styled = dom_with_markers(Some(CAM_MARKER), None);
 
         let ((id, changes), log) = with_recorded_gl(|gl| {
             with_callback_info(Some(styled), OptionGlContextPtr::Some(gl), |info| {
-                present_frame(info, ds.clone(), None, &frame(4, 4))
+                present_frame(info, CAM_MARKER.into(), None, &frame(4, 4))
             })
         });
 
@@ -1759,12 +1766,16 @@ mod autotest_generated {
         // Re-installing per frame is CORRECT now: the chokepoint patches the
         // display list in place (no rebuild), and the ImageRef identity change
         // is exactly what makes the CPU diff damage the tile.
-        let ds = RefAny::new(CamState::default());
-        let styled = dom_with_datasets(Some(ds.clone()), None);
+        let styled = dom_with_markers(Some(CAM_MARKER), None);
 
         let ((id, changes), log) = with_recorded_gl(|gl| {
             with_callback_info(Some(styled), OptionGlContextPtr::Some(gl), |info| {
-                present_frame(info, ds.clone(), Some(RECORDED_TEXTURE_ID), &frame(4, 4))
+                present_frame(
+                    info,
+                    CAM_MARKER.into(),
+                    Some(RECORDED_TEXTURE_ID),
+                    &frame(4, 4),
+                )
             })
         });
 
@@ -1784,12 +1795,11 @@ mod autotest_generated {
     #[test]
     fn present_frame_with_gl_round_trips_extreme_texture_ids() {
         for current in [Some(0_u32), Some(u32::MAX)] {
-            let ds = RefAny::new(CamState::default());
-            let styled = dom_with_datasets(Some(ds.clone()), None);
+            let styled = dom_with_markers(Some(CAM_MARKER), None);
 
             let ((id, changes), log) = with_recorded_gl(|gl| {
                 with_callback_info(Some(styled), OptionGlContextPtr::Some(gl), |info| {
-                    present_frame(info, ds.clone(), current, &frame(1, 1))
+                    present_frame(info, CAM_MARKER.into(), current, &frame(1, 1))
                 })
             });
 
@@ -1804,21 +1814,20 @@ mod autotest_generated {
 
     #[test]
     fn present_frame_with_gl_without_a_matching_node_installs_nothing() {
-        // The node lookup fails (no dataset of that type): nothing is
+        // The node lookup fails (no node carries the marker): nothing is
         // installed, nothing is allocated, and the id still passes through.
-        let styled = dom_with_datasets(Some(RefAny::new(OtherState::default())), None);
-        let search = RefAny::new(CamState::default());
+        let styled = dom_with_markers(Some(OTHER_MARKER), None);
 
         let ((id, changes), log) = with_recorded_gl(|gl| {
             with_callback_info(Some(styled), OptionGlContextPtr::Some(gl), |info| {
-                present_frame(info, search.clone(), None, &frame(2, 2))
+                present_frame(info, CAM_MARKER.into(), None, &frame(2, 2))
             })
         });
 
         assert_eq!(id, None);
         assert!(
             changes.is_empty(),
-            "nothing may be installed when no node owns the dataset: {changes:?}"
+            "nothing may be installed when no node carries the marker: {changes:?}"
         );
         assert!(log.is_empty(), "and no GL resource may leak: {log:?}");
     }

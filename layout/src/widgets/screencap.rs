@@ -27,6 +27,7 @@ use azul_core::resources::{ImageRef, RawImageFormat};
 use azul_core::screencap::{ScreenCaptureConfig, ScreenCaptureSource};
 use azul_core::task::{ThreadId, ThreadReceiver, ThreadSendMsg};
 use azul_core::video::{FrameConsumer, FrameConsumerVec};
+use azul_css::AzString;
 
 use super::capture_common::{
     frame_resampler, present_captured, preview_size_for_node, run_capture_loop, screen_backend,
@@ -71,6 +72,11 @@ pub struct ScreenCaptureWidgetState {
     pub consumers: FrameConsumerVec,
     /// Optional hook receiving every consumer's cut of every frame.
     pub on_consumer_frame: OptionOnConsumerFrame,
+    /// The MARKER stamped on the tile node (`Dom::with_marker`); the frame
+    /// writeback resolves it back to the node via
+    /// `CallbackInfo::get_node_id_by_marker`. Adopted forward on merge so the
+    /// persistent allocation always names the CURRENT build's node.
+    pub marker: AzString,
     /// The capture worker, once started (`NodeResized` messages it).
     pub thread_id: Option<ThreadId>,
     /// The main->worker sender, cloned at mount so the merge callback can
@@ -188,6 +194,7 @@ impl ScreenCaptureWidget {
     /// capture thread started on mount.
     #[must_use]
     pub fn dom(self) -> Dom {
+        let marker = super::capture_common::next_capture_marker("screencap");
         let state = ScreenCaptureWidgetState {
             config: self.config,
             started: false,
@@ -195,6 +202,7 @@ impl ScreenCaptureWidget {
             on_frame: self.on_frame,
             consumers: self.consumers,
             on_consumer_frame: self.on_consumer_frame,
+            marker: marker.clone(),
             thread_id: None,
             control: None,
             preview: None,
@@ -210,6 +218,7 @@ impl ScreenCaptureWidget {
 
         Dom::create_image(placeholder)
             .with_dataset(OptionRefAny::Some(dataset.clone()))
+            .with_marker(Some(marker).into())
             .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(merge_screencap_state))
             .with_callback(
                 EventFilter::Component(ComponentEventFilter::AfterMount),
@@ -346,18 +355,24 @@ extern "C" fn screencap_writeback(
     mut frame_data: RefAny,
     mut info: CallbackInfo,
 ) -> Update {
-    let (on_frame, on_consumer_frame) = writeback_data
+    let (on_frame, on_consumer_frame, marker) = writeback_data
         .downcast_ref::<ScreenCaptureWidgetState>()
         .map_or_else(
-            || (OptionOnVideoFrame::None, OptionOnConsumerFrame::None),
-            |s| (s.on_frame.clone(), s.on_consumer_frame.clone()),
+            || {
+                (
+                    OptionOnVideoFrame::None,
+                    OptionOnConsumerFrame::None,
+                    AzString::from_const_str(""),
+                )
+            },
+            |s| (s.on_frame.clone(), s.on_consumer_frame.clone(), s.marker.clone()),
         );
     let Some(mut captured) = frame_data.downcast_mut::<CapturedFrames>() else {
         return Update::DoNothing;
     };
     present_captured(
         &mut info,
-        writeback_data.clone(),
+        marker,
         &on_frame,
         &on_consumer_frame,
         &mut captured,
@@ -368,11 +383,8 @@ extern "C" fn screencap_writeback(
 extern "C" fn merge_screencap_state(mut new_data: RefAny, mut old_data: RefAny) -> RefAny {
     // Return the OLD allocation (the one live capture backends may hold a
     // clone of), adopting config forward — the merge_map_tile_cache rule.
-    // Returning new_data re-points the DOM at a fresh allocation; today the
-    // frame writeback survives that only because present_frame finds its
-    // node by RefAny TYPE id, which also means two widgets of the same type
-    // collide. Keeping the persistent allocation makes dataset identity
-    // stable so that search can become an identity lookup.
+    // Returning new_data would re-point the DOM at a fresh allocation the
+    // running worker's writeback clone never sees.
     let merged_into_old = {
         let new_guard = new_data.downcast_ref::<ScreenCaptureWidgetState>();
         let old_guard = old_data.downcast_mut::<ScreenCaptureWidgetState>();
@@ -383,6 +395,9 @@ extern "C" fn merge_screencap_state(mut new_data: RefAny, mut old_data: RefAny) 
             old_g.on_frame = new_g.on_frame.clone();
             old_g.consumers = new_g.consumers.clone();
             old_g.on_consumer_frame = new_g.on_consumer_frame.clone();
+            // The reconciled NODE carries the NEW build's marker string, so
+            // the surviving allocation must resolve by that string too.
+            old_g.marker = new_g.marker.clone();
             if worker_cares {
                 let targets = old_g.targets();
                 if let Some(snd) = old_g.control.as_ref() {
@@ -523,6 +538,7 @@ mod autotest_generated {
             on_frame: OptionOnVideoFrame::None,
             consumers: FrameConsumerVec::from_const_slice(&[]),
             on_consumer_frame: OptionOnConsumerFrame::None,
+            marker: "azul-screencap-test".into(),
             thread_id: None,
             control: None,
             preview: None,
@@ -621,6 +637,7 @@ mod autotest_generated {
             .into(),
             consumers: FrameConsumerVec::from_const_slice(&[]),
             on_consumer_frame: OptionOnConsumerFrame::None,
+            marker: "azul-screencap-test".into(),
             thread_id: None,
             control: None,
             preview: None,
@@ -1550,6 +1567,7 @@ mod autotest_generated {
             on_frame: OptionOnVideoFrame::None,
             consumers: FrameConsumerVec::from_const_slice(&[]),
             on_consumer_frame: OptionOnConsumerFrame::None,
+            marker: "azul-screencap-test".into(),
             thread_id: None,
             control: None,
             preview: None,

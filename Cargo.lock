@@ -942,6 +942,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "short-uuid",
  "smallvec",
  "spmc",
  "strfmt",
@@ -955,6 +956,7 @@ dependencies = [
  "unicode-normalization",
  "unicode-segmentation",
  "ureq",
+ "uuid",
  "webpki-roots",
  "writeable",
  "xmlparser",
@@ -7470,6 +7472,15 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "short-uuid"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5cb9a7452a33ab94fd48d5f533d181a400bf56ec5a55cf788c470ad430f52a5"
+dependencies = [
+ "uuid",
+]
 
 [[package]]
 name = "shuttle"

@@ -696,6 +696,11 @@ In the "real-world" NodeGraph, the flow is more complex, but the pattern scales 
 irrespective of the number of events that the graph needs to handle or the complexity of the 
 graphs features.
 
+One practical note: the visual nodes of the graph are addressed with *markers*
+(`Dom::with_marker` + `CallbackInfo::get_node_id_by_marker`, next section) - the drag
+handler resolves "which on-screen element is node 5?" by a string the widget stamped
+during rendering, not by searching for a dataset.
+
 ```mermaid
 graph TD
     E3["I/O Port Clicked"] -->|triggers| UI3["Div.on_click callback<br/>CallbackInfo has RefAny dataset"]
@@ -727,6 +732,133 @@ graph TD
     
     linkStyle 2,3,8,9 stroke:#0a0,stroke-width:2px
 ```
+
+## The inter-widget fast path: markers + VirtualView re-renders
+
+Backreferences answer "how does a *child* widget reach *up* into state it was
+composed from?". The opposite direction has its own pattern: a callback firing
+on one part of the UI wants to update a **sibling widget it did not create and
+whose internals it must not know** - and it wants to do so *live*, per input
+event, without paying for a full `layout()`.
+
+The motivating example (from the `azul-paint` demo): a drawing canvas receives
+pen input at up to 140 packets per second, and a `ProgressBar` in the header
+should show the current pen pressure. The obvious "heavy path" works:
+
+1. store the pressure in the app's data model,
+2. return `Update::RefreshDom`,
+3. `layout()` runs again, the DOM is diffed, the bar is rebuilt at the new width.
+
+That is correct, and it stays the right choice for state the application
+actually owns. But for *transient, high-frequency, presentation-only* values it
+does three things nobody asked for: it pollutes the app data model with a
+live-input sample, it rebuilds the whole window's DOM to move one bar, and it
+couples the canvas callback to the header's structure.
+
+The fast path solves the same problem with three pieces:
+
+**1. A marker: the address of a node.** During `layout()`, the app mints a
+fresh UUID string (`Uuid::short()` - 22 chars of flickrBase58; `Uuid::v4()`
+for the canonical form) and stamps it on the widget's DOM with
+`Dom::with_marker`. The same string is kept wherever the driving callback can
+see it - typically in the `RefAny` that callback already receives. A marker is
+like an HTML `id`, with two deliberate differences: it is **invisible to CSS
+matching** (it exists purely to be resolved back to a node, so stamping one
+can never restyle anything), and it is **excluded from node equality** - so
+minting a fresh UUID on every rebuild never makes the DOM diff consider the
+node "changed".
+
+```rust,no_run
+// layout(): mint the address and stamp it on the widget...
+let marker = Uuid::short();
+let bar = ProgressBar::create(0.0)
+    .dom()
+    .with_marker(Some(marker.clone()).into());
+// ...and keep the same string in the state the canvas callbacks get.
+```
+
+Why a UUID and not a name? Decoupling: with `"pressure-meter"` the connection
+between the two components rests on a hard-coded string that anything else in
+the process - another widget instance, a library, a copy-pasted snippet -
+could also use. A UUID minted at layout() time collides with nothing by
+construction, so the connection is exactly as private as the state that
+carries it.
+
+**2. Resolution + a public widget API.** When the canvas receives pressure, its
+callback resolves the marker to a live node id, then hands that node to a
+function *the widget itself exports*:
+
+```rust,no_run
+extern "C" fn on_pen_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let pressure = 63.0; // from info.get_pen_state()
+    let marker = match data.downcast_ref::<PaintState>() {
+        Some(s) => s.pressure_marker.clone(), // the Uuid layout() minted
+        None => return Update::DoNothing,
+    };
+    if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
+        ProgressBar::update_progress(info, node, pressure);
+    }
+    Update::DoNothing // nothing else changed - and the bar STILL moves
+}
+```
+
+`update_progress` is the crucial boundary: the caller never sees the
+`ProgressBar`'s dataset type. The widget downcasts its **own private** `RefAny`
+(the same "datasets are private to the widget module" rule the backreference
+pattern relies on), stores the value, and asks the framework for step three.
+
+**3. A single-node `VirtualView` re-render.** `ProgressBar::dom()` mounts the
+bar as a `VirtualView` node - a node whose content is produced by a callback
+rendering into the node's already-laid-out bounds. `update_progress` ends with
+`CallbackInfo::trigger_virtual_view_rerender(node)`, which queues exactly one
+piece of work: re-invoke *that node's* `VirtualView` callback against the
+updated dataset. The callback returns the bar's new DOM, the framework restyles
+and lays it out *inside the existing bounds*, and damage tracking repaints just
+the bar's rectangle. The rest of the window is untouched: no `layout()`, no
+window-wide DOM diff, no app-data-model round trip - the canvas callback can
+return `Update::DoNothing` and the meter still moves.
+
+```mermaid
+graph TD
+    L["layout(): ProgressBar::dom()<br/>.with_marker(Some(uuid))"] -->|stamps| N["VirtualView node<br/>marker: uuid, dataset: private"]
+    E["Pen pressure event<br/>(canvas callback)"] -->|"get_node_id_by_marker(uuid)"| N
+    E -->|"ProgressBar::update_progress(info, node, 63.0)"| P["widget downcasts its PRIVATE dataset<br/>stores 63.0"]
+    P -->|trigger_virtual_view_rerender| F["framework re-invokes ONE VirtualView callback"]
+    F -->|"returns new bar DOM"| R["restyle + layout inside existing bounds<br/>damage rect = just the bar"]
+
+    classDef event fill:#cfc,stroke:#333,stroke-width:2px
+    classDef dataset fill:#ccf,stroke:#333,stroke-width:2px
+    classDef data fill:#f9f,stroke:#333,stroke-width:2px
+    class E event
+    class N,P dataset
+    class F,R data
+```
+
+Three properties make this a *pattern* rather than a progress-bar trick:
+
+- **The address is data, not structure.** A marker lives for one layout():
+  each rebuild mints a fresh UUID and stamps it again, and because markers
+  are excluded from node equality the re-mint is free - the diff never sees
+  it. Nothing is hard-coded, so the connection between the two components
+  cannot collide with any other widget, library, or copy-pasted snippet. The
+  old alternative - searching for a node by its dataset - was ambiguous the
+  moment two widgets of the same type existed.
+- **Widget internals stay private.** The contract is the widget's exported
+  update function (`update_progress` here). A widget opts into live updates by
+  wrapping itself in a `VirtualView` and exporting such a function; callers
+  need the node id and nothing else. This is the same encapsulation the
+  backreference chain gives, applied in the other direction.
+- **The cost is proportional to the widget, not the window.** A `VirtualView`
+  re-render re-runs one callback and relayouts one subtree in fixed bounds.
+  (For updates that change only CSS properties there is an even smaller
+  hammer - `CallbackInfo::set_css_property` patches a computed style in
+  place; the node graph uses it for drag positioning. The `VirtualView` route
+  is for updates that change the widget's *content*.)
+
+Choose the path by the nature of the value: state the application owns and
+other UI depends on belongs in the data model behind `RefreshDom`; transient
+presentation values a single widget displays (live meters, previews,
+scrub positions) belong on the fast path.
 
 ## Summary
 

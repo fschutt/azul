@@ -292,46 +292,75 @@ virtual view's source data changed but the parent layout hasn't.
 of an `ImageCallback`-backed node — the GPU canvas pattern documented
 in [SVG and Canvas](../images/svg.md).
 
+## Finding another node: markers
+
+A callback sometimes needs to act on a node it did *not* fire on — a
+canvas callback moving a meter in the header, a timer updating a
+preview tile. The address for that jump is a **marker**: a string you
+mint at `layout()` time (use `Uuid::short()` — collision-free with no
+coordination), stamp on the target with `Dom::with_marker`, and keep
+wherever the driving callback can see it. Resolve it back to a node
+with `get_node_id_by_marker`:
+
+```rust,no_run
+use azul::prelude::*;
+
+struct App { meter_marker: String } // filled with Uuid::short() in layout()
+
+extern "C" fn on_pen_move(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let marker = match data.downcast_ref::<App>() {
+        Some(a) => a.meter_marker.clone(),
+        None => return Update::DoNothing,
+    };
+    if let Some(node) = info.get_node_id_by_marker(marker).into_option() {
+        // Drive the widget through ITS public API - its dataset stays private.
+        ProgressBar::update_progress(info, node, 63.0);
+    }
+    Update::DoNothing // the widget repaints itself, no relayout needed
+}
+```
+
+Markers are invisible to CSS matching and **excluded from node
+equality**, so minting a fresh UUID every `layout()` never makes the
+DOM diff consider a node "changed". The full pattern — when to prefer
+it over `RefreshDom`, and how widgets like `ProgressBar` expose update
+functions for it — is the architecture guide's
+["inter-widget fast path"](../architecture.md#the-inter-widget-fast-path-markers--virtualview-re-renders)
+section.
+
 ## A complete example
 
-A "delete row" button that lives inside a row's dataset, finds its
-row, removes it from the model, and refreshes:
+A "delete row" button: each row's button callback carries a dataset
+naming its row plus a backreference to the app (the
+[backreference pattern](../architecture.md)), mutates the model, and
+refreshes:
 
 ```rust,no_run
 use azul::prelude::*;
 
 struct App { rows: Vec<String> }
 
-#[repr(C)]
-struct RowMarker { index: usize }
+/// Attached as the RefAny of each row's delete-button callback.
+struct DeleteRow { index: usize, app: RefAny }
 
-extern "C" fn on_delete(mut data: RefAny, mut info: CallbackInfo) -> Update {
-    let mut app = match data.downcast_mut::<App>() {
+extern "C" fn on_delete(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let (index, mut app_ref) = match data.downcast_ref::<DeleteRow>() {
+        Some(d) => (d.index, d.app.clone()),
+        None => return Update::DoNothing,
+    };
+    let mut app = match app_ref.downcast_mut::<App>() {
         Some(a) => a,
         None => return Update::DoNothing,
     };
 
-    let row_node = match info.get_node_id_of_root_dataset(
-        RefAny::new(RowMarker { index: 0 }) // type-id only, value is ignored
-    ) {
-        Some(n) => n,
-        None => return Update::DoNothing,
-    };
-    let marker = match info.get_dataset(row_node)
-        .and_then(|d| d.downcast_ref::<RowMarker>().map(|r| r.index))
-    {
-        Some(i) => i,
-        None => return Update::DoNothing,
-    };
-
-    if marker < app.rows.len() {
-        app.rows.remove(marker);
+    if index < app.rows.len() {
+        app.rows.remove(index);
     }
 
     Update::RefreshDom
 }
 ```
 
-The pattern — dataset on the row, generic callback that walks up to
-find its row marker, mutate the model, return `RefreshDom` — works for
-nearly every "this widget acts on its container" interaction.
+The pattern — a per-row dataset naming the row, a backreference to the
+model, mutate, return `RefreshDom` — works for nearly every "this
+widget acts on its container" interaction.

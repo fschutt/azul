@@ -390,6 +390,10 @@ pub use json::{
     OptionJson, OptionJsonKeyValueVec, OptionJsonVec, ResultJsonJsonParseError,
 };
 
+/// UUID string generation (`Uuid::v4` / `Uuid::short`) - the mint for
+/// collision-free MARKER strings (`Dom::with_marker`).
+pub mod uuid;
+
 /// ZIP file creation, extraction, and listing.
 #[cfg(feature = "zip")]
 pub mod zip;

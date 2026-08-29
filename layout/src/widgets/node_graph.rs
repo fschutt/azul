@@ -984,13 +984,15 @@ impl NodeGraph {
             CssPropertyWithConditions::simple(CssProperty::position(LayoutPosition::Relative)),
         ];
 
-        let node_connection_marker = RefAny::new(NodeConnectionMarkerDataset {});
+        let marker_prefix = next_marker_prefix();
+        let connections_marker: AzString =
+            format!("{}-connections", marker_prefix.as_str()).into();
 
         let node_graph_local_dataset = RefAny::new(NodeGraphLocalDataset {
             node_graph: self.clone(), // TODO: expensive
             last_input_or_output_clicked: None,
             active_node_being_dragged: None,
-            node_connection_marker: node_connection_marker.clone(),
+            marker_prefix: marker_prefix.clone(),
             callbacks: self.callbacks.clone(),
         });
 
@@ -1058,7 +1060,7 @@ impl NodeGraph {
                     .with_children({
                         vec![
                             // connections
-                            render_connections(&self, node_connection_marker),
+                            render_connections(&self, connections_marker),
                             // nodes
                             self.nodes
                                 .iter()
@@ -1078,6 +1080,7 @@ impl NodeGraph {
                                         &node_type_info.node_type_info,
                                         node_local_dataset,
                                         self.scale_factor,
+                                        node_marker(&marker_prefix, *node_id),
                                     ))
                                 })
                                 .collect::<Dom>()
@@ -1093,7 +1096,25 @@ impl NodeGraph {
                 .into(),
             )
             .with_dataset(Some(node_graph_local_dataset).into())
+            // The wrapper's marker: what the context-menu callback resolves
+            // to place a new node relative to this graph's on-screen box.
+            .with_marker(Some(marker_prefix).into())
     }
+}
+
+/// Process-unique prefix for one `NodeGraph::dom()` render's marker strings.
+/// The prefix (and every marker derived from it) is rebuilt together with the
+/// dataset that stores it on each `layout()` pass, so lookups made through
+/// the live dataset always match the live DOM.
+fn next_marker_prefix() -> AzString {
+    use core::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    format!("azul-nodegraph-{:x}", NEXT.fetch_add(1, Ordering::Relaxed)).into()
+}
+
+/// Marker string of one visual node: `{prefix}-node-{id}`.
+fn node_marker(prefix: &AzString, node_id: NodeGraphNodeId) -> AzString {
+    format!("{}-node-{:x}", prefix.as_str(), node_id.inner).into()
 }
 
 // dataset set on the top-level nodegraph node,
@@ -1101,9 +1122,16 @@ impl NodeGraph {
 struct NodeGraphLocalDataset {
     node_graph: NodeGraph,
     last_input_or_output_clicked: Option<(NodeGraphNodeId, InputOrOutput)>,
-    // Ref<NodeLocalDataSet> - used as a marker for getting the visual node ID
-    active_node_being_dragged: Option<(NodeGraphNodeId, RefAny)>,
-    node_connection_marker: RefAny, // Ref<NodeConnectionMarkerDataset>
+    /// The graph node currently being dragged. Its VISUAL node is resolved
+    /// via `node_marker(&marker_prefix, id)` — no dataset handle needed.
+    active_node_being_dragged: Option<NodeGraphNodeId>,
+    /// Prefix of this render's marker strings (see `next_marker_prefix`):
+    /// the wrapper carries `{prefix}`, the connections container
+    /// `{prefix}-connections`, each visual node `{prefix}-node-{id}`.
+    /// Replaces the old empty-marker-dataset type searches
+    /// (`get_node_id_of_root_dataset`), which were ambiguous the moment two
+    /// datasets of one type existed.
+    marker_prefix: AzString,
     callbacks: NodeGraphCallbacks,
 }
 
@@ -1111,8 +1139,6 @@ struct ContextMenuEntryLocalDataset {
     node_type: NodeTypeId,
     backref: RefAny, // RefAny<NodeGraphLocalDataset>
 }
-
-struct NodeConnectionMarkerDataset {}
 
 struct NodeLocalDataset {
     node_id: NodeGraphNodeId,
@@ -1154,6 +1180,7 @@ fn render_node(
     node_info: &NodeTypeInfo,
     mut node_local_dataset: NodeLocalDataset,
     scale_factor: f32,
+    visual_marker: AzString,
 ) -> Dom {
     use azul_core::dom::{
         CssPropertyWithConditions, CssPropertyWithConditionsVec, Dom, DomVec, IdOrClass,
@@ -2734,11 +2761,14 @@ fn render_node(
                ])),
         ]))
         .with_dataset(Some(node_local_dataset).into())
+        // Resolvable from the drag callback via `node_marker(prefix, id)` —
+        // the fast-path jump that positions this node without a relayout.
+        .with_marker(Some(visual_marker).into())
     ].into())
 }
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> Dom {
+fn render_connections(node_graph: &NodeGraph, connections_marker: AzString) -> Dom {
     static NODEGRAPH_CONNECTIONS_CONTAINER_CLASS: &[IdOrClass] = &[Class(
         AzString::from_const_str("nodegraph-connections-container"),
     )];
@@ -2755,7 +2785,7 @@ fn render_connections(node_graph: &NodeGraph, root_marker_nodedata: RefAny) -> D
         .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
             NODEGRAPH_CONNECTIONS_CONTAINER_PROPS,
         ))
-        .with_dataset(Some(root_marker_nodedata).into())
+        .with_marker(Some(connections_marker).into())
         .with_children({
             let mut children = Vec::new();
 
@@ -2938,11 +2968,10 @@ fn get_rect(
 }
 
 extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
-    let data_clone = refany.clone();
     if let Some(mut refany) = refany.downcast_mut::<NodeLocalDataset>() {
         let node_id = refany.node_id;
         if let Some(mut backref) = refany.backref.downcast_mut::<NodeGraphLocalDataset>() {
-            backref.active_node_being_dragged = Some((node_id, data_clone));
+            backref.active_node_being_dragged = Some(node_id);
         }
     }
     Update::DoNothing
@@ -2984,10 +3013,12 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
     let dy = (current_mouse_pos.y - previous_mouse_pos.y) * (1.0 / refany.node_graph.scale_factor);
     let nodegraph_node = info.get_hit_node();
 
-    let should_update = match refany.active_node_being_dragged.clone() {
+    let should_update = match refany.active_node_being_dragged {
         // drag node
-        Some((node_graph_node_id, data_marker)) => {
-            let node_connection_marker = &mut refany.node_connection_marker;
+        Some(node_graph_node_id) => {
+            let dragged_node_marker = node_marker(&refany.marker_prefix, node_graph_node_id);
+            let connections_marker: AzString =
+                format!("{}-connections", refany.marker_prefix.as_str()).into();
 
             let _nodegraph_node = info.get_hit_node();
             let result = match refany.callbacks.on_node_dragged.as_ref() {
@@ -3015,7 +3046,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 None => return Update::DoNothing,
             };
 
-            let Some(visual_node_id) = info.get_node_id_of_root_dataset(data_marker) else {
+            let Some(visual_node_id) = info.get_node_id_by_marker(dragged_node_marker) else {
                 return Update::DoNothing;
             };
 
@@ -3046,7 +3077,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
 
             // get the NodeId of the node containing all the connection lines
             let Some(connection_container_nodeid) =
-                info.get_node_id_of_root_dataset(node_connection_marker.clone())
+                info.get_node_id_by_marker(connections_marker)
             else {
                 return result;
             };
@@ -3207,11 +3238,12 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 };
             }
 
-            let node_connection_marker = &mut refany.node_connection_marker;
+            let connections_marker: AzString =
+                format!("{}-connections", refany.marker_prefix.as_str()).into();
 
             // Update the connection positions
             let Some(connection_container_nodeid) =
-                info.get_node_id_of_root_dataset(node_connection_marker.clone())
+                info.get_node_id_by_marker(connections_marker)
             else {
                 return result;
             };
@@ -3304,12 +3336,16 @@ extern "C" fn nodegraph_context_menu_click(mut refany: RefAny, mut info: Callbac
 
     let new_node_type = refany.node_type;
 
-    let Some(node_graph_wrapper_id) = info.get_node_id_of_root_dataset(refany.backref.clone())
-    else {
+    let Some(mut backref) = refany.backref.downcast_mut::<NodeGraphLocalDataset>() else {
         return Update::DoNothing;
     };
 
-    let Some(mut backref) = refany.backref.downcast_mut::<NodeGraphLocalDataset>() else {
+    // The wrapper root carries the render's marker prefix (see
+    // `NodeGraph::dom`); resolving it is what tells us whether this graph is
+    // actually in the DOM right now.
+    let Some(node_graph_wrapper_id) =
+        info.get_node_id_by_marker(backref.marker_prefix.clone())
+    else {
         return Update::DoNothing;
     };
 
@@ -3961,7 +3997,7 @@ mod autotest_generated {
             node_graph: g.clone(),
             last_input_or_output_clicked: None,
             active_node_being_dragged: None,
-            node_connection_marker: RefAny::new(NodeConnectionMarkerDataset {}),
+            marker_prefix: "azul-nodegraph-test".into(),
             callbacks: g.callbacks.clone(),
         })
     }
@@ -5045,6 +5081,7 @@ mod autotest_generated {
             &ty.node_type_info,
             node_dataset(g, id),
             scale,
+            node_marker(&"azul-nodegraph-test".into(), id),
         )
     }
 
@@ -5135,6 +5172,7 @@ mod autotest_generated {
                 backref: RefAny::new(0xDEAD_BEEF_u32),
             },
             1.0,
+            node_marker(&"azul-nodegraph-test".into(), N1),
         );
         let intact = render_one(&g, N1, (0.0, 0.0), 1.0);
 
@@ -5264,8 +5302,8 @@ mod autotest_generated {
     // 10. render_connections
     // ==================================================================
 
-    fn marker() -> RefAny {
-        RefAny::new(NodeConnectionMarkerDataset {})
+    fn marker() -> AzString {
+        "azul-nodegraph-test-connections".into()
     }
 
     #[test]
@@ -5273,8 +5311,8 @@ mod autotest_generated {
         let dom = render_connections(&graph(), marker());
         assert_eq!(dom.children.len(), 0);
         assert!(
-            dom.root.get_dataset().is_some(),
-            "the container must keep the marker dataset that drag-handling looks up",
+            dom.root.get_marker().is_some(),
+            "the container must keep the MARKER that drag-handling resolves",
         );
     }
 
@@ -5368,7 +5406,7 @@ mod autotest_generated {
     #[test]
     fn draw_connection_ignores_a_payload_of_the_wrong_type() {
         for payload in [
-            RefAny::new(NodeConnectionMarkerDataset {}),
+            RefAny::new(1_u16),
             RefAny::new(0_u8),
             RefAny::new(String::new()),
         ] {
@@ -5547,7 +5585,7 @@ mod autotest_generated {
             let mut probe = gd.clone();
             let d = probe.downcast_ref::<NodeGraphLocalDataset>().expect("gd");
             assert_eq!(
-                d.active_node_being_dragged.as_ref().map(|(id, _)| *id),
+                d.active_node_being_dragged,
                 Some(N2),
             );
         }
@@ -5719,7 +5757,7 @@ mod autotest_generated {
         {
             let mut probe = gd.clone();
             let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
-            d.active_node_being_dragged = Some((MISSING, RefAny::new(0_u8)));
+            d.active_node_being_dragged = Some(MISSING);
         }
         assert_eq!(
             fire(|info| nodegraph_drag_graph_or_nodes(gd.clone(), info)),
@@ -6047,7 +6085,7 @@ mod autotest_generated {
 
     #[test]
     fn context_menu_click_does_nothing_when_the_graph_is_not_in_the_dom() {
-        // `get_node_id_of_root_dataset` finds nothing in an empty window, so the handler
+        // `get_node_id_by_marker` finds nothing in an empty window, so the handler
         // must bail out before touching the (still valid) backref.
         let (g, log) = graph_with_log();
         let cm = RefAny::new(ContextMenuEntryLocalDataset {

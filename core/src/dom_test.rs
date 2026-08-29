@@ -2365,4 +2365,41 @@ mod autotest_generated {
         assert_eq!(AttributeType::Autofocus.value().as_str(), "true");
     }
 
+
+    // =====================================================================
+    // Markers
+    // =====================================================================
+
+    /// USER ruling 2026-08-29: markers are minted FRESH (UUID strings) at
+    /// every `layout()` and exist only to be resolved back to a node - they
+    /// must never factor into equality or hashing, or every marked node
+    /// would look "changed" to the DOM diff on every frame.
+    #[test]
+    fn markers_are_excluded_from_node_equality_and_hashing() {
+        use core::hash::{Hash, Hasher};
+
+        let a = NodeData::create_div().with_marker(Some("uuid-of-frame-1".into()).into());
+        let b = NodeData::create_div().with_marker(Some("uuid-of-frame-2".into()).into());
+        let none = NodeData::create_div();
+
+        assert_eq!(a, b, "two nodes differing only in marker must be EQUAL");
+        assert_eq!(a, none, "a marked node must equal its unmarked twin");
+        assert_eq!(
+            a.partial_cmp(&b),
+            Some(core::cmp::Ordering::Equal),
+            "ordering must ignore the marker too",
+        );
+
+        let hash_of = |nd: &NodeData| {
+            let mut h = crate::hash::DefaultHasher::new();
+            nd.hash(&mut h);
+            h.finish()
+        };
+        assert_eq!(hash_of(&a), hash_of(&b), "hashes must ignore the marker");
+        assert_eq!(hash_of(&a), hash_of(&none));
+
+        // The marker is still THERE - excluded from identity, not dropped.
+        assert_eq!(a.get_marker().map(|m| m.as_str()), Some("uuid-of-frame-1"));
+        assert_eq!(none.get_marker(), None);
+    }
 }

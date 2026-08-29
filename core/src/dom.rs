@@ -1667,7 +1667,7 @@ impl AttributeType {
 /// Represents all data associated with a single DOM node, such as its type,
 /// classes, IDs, callbacks, and inline styles.
 #[repr(C)]
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug)]
 pub struct NodeData {
     /// `div`, `p`, `img`, etc.
     pub node_type: NodeType,
@@ -1700,6 +1700,56 @@ impl_option!(
     copy = false,
     [Debug, PartialEq, Eq, PartialOrd, Ord]
 );
+
+// Manual equality/ordering (was derived) for ONE reason: an `extra` that is
+// identity-empty - it exists only to carry a MARKER - must compare equal to
+// no `extra` at all. Markers are minted fresh (UUID strings) every `layout()`
+// and are excluded from node identity wholesale (USER ruling 2026-08-29); the
+// `NodeDataExt` impls already skip the field, and this normalization covers
+// the marked-vs-never-extended pair.
+impl NodeData {
+    /// `extra` as it counts toward IDENTITY: `None` when absent or when the
+    /// ext carries nothing but a marker.
+    fn identity_extra(&self) -> Option<&NodeDataExt> {
+        self.extra.as_deref().filter(|e| !e.is_identity_empty())
+    }
+}
+impl PartialEq for NodeData {
+    fn eq(&self, other: &Self) -> bool {
+        self.node_type == other.node_type
+            && self.callbacks == other.callbacks
+            && self.style == other.style
+            && self.flags == other.flags
+            && self.accessibility == other.accessibility
+            && self.identity_extra() == other.identity_extra()
+    }
+}
+impl Eq for NodeData {}
+impl PartialOrd for NodeData {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for NodeData {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        (
+            &self.node_type,
+            &self.callbacks,
+            &self.style,
+            &self.flags,
+            &self.accessibility,
+            self.identity_extra(),
+        )
+            .cmp(&(
+                &other.node_type,
+                &other.callbacks,
+                &other.style,
+                &other.flags,
+                &other.accessibility,
+                other.identity_extra(),
+            ))
+    }
+}
 
 impl Hash for NodeData {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -2185,7 +2235,7 @@ impl Hash for SvgNodeData {
 /// not commonly used information for the `NodeData`.
 /// This helps keep the primary `NodeData` struct smaller for common cases.
 #[repr(C)]
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Default, Clone)]
 pub struct NodeDataExt {
     /// Strongly-typed HTML attributes (aria-*, href, alt, etc.)
     /// IDs and classes are stored as `AttributeType::Id` and `AttributeType::Class` entries.
@@ -2205,6 +2255,17 @@ pub struct NodeDataExt {
     /// this node across frames even if its position in the array changes.
     /// This is crucial for correct lifecycle events when lists are reordered.
     pub key: Option<u64>,
+    /// App-chosen MARKER string, resolvable to this node's `(DomId, NodeId)`
+    /// via `CallbackInfo::get_node_id_by_marker`. The clean spelling of the
+    /// "find that other widget from this callback" jump: the app mints a
+    /// unique string at build time (a UUID, a counter — anything unique in
+    /// the window), stamps it on the node AND keeps it in whatever dataset
+    /// the jumping callback holds. Replaces the old
+    /// `get_node_id_of_root_dataset` search, which needed an EMPTY instance
+    /// of the target's private dataset type just to name it — coupling the
+    /// caller to widget internals the architecture forbids it from seeing.
+    /// Unlike an `Id` attribute, a marker is invisible to CSS matching.
+    pub marker: Option<AzString>,
     /// Callback to merge dataset state from a previous frame's node into the current node.
     /// This enables heavy resource preservation (video decoders, GL textures) across frames.
     pub dataset_merge_callback: Option<DatasetMergeCallback>,
@@ -2221,6 +2282,86 @@ pub struct NodeDataExt {
     /// ruling 2026-08-17): a sidebar widget ships its fly-out next to its
     /// own DOM, not in app-global state.
     pub animation_callbacks: Vec<crate::resources::AnimationFunction>,
+}
+
+// The MARKER is EXCLUDED from equality, ordering and hashing (USER ruling
+// 2026-08-29): markers are minted fresh - UUID strings - at every `layout()`
+// and exist only to be RESOLVED back to a node, never to describe it. Two
+// otherwise identical nodes must compare equal across rebuilds, or every
+// marked node would look "changed" to the DOM diff on every frame, defeating
+// reconciliation for exactly the widgets the fast path is for.
+impl NodeDataExt {
+    /// Every field EXCEPT `marker`, as one comparable/hashable tuple - the
+    /// single place that decides what "same ext" means.
+    #[allow(clippy::type_complexity)]
+    fn cmp_key(
+        &self,
+    ) -> (
+        &AttributeTypeVec,
+        &Option<VirtualViewNode>,
+        &Option<RefAny>,
+        &Option<SvgNodeData>,
+        &Option<Box<Menu>>,
+        &Option<Box<Menu>>,
+        &Option<u64>,
+        &Option<DatasetMergeCallback>,
+        &Option<ComponentOrigin>,
+        &Vec<crate::resources::AnimationFunction>,
+    ) {
+        (
+            &self.attributes,
+            &self.virtual_view,
+            &self.dataset,
+            &self.svg_data,
+            &self.menu_bar,
+            &self.context_menu,
+            &self.key,
+            &self.dataset_merge_callback,
+            &self.component_origin,
+            &self.animation_callbacks,
+        )
+    }
+}
+
+impl NodeDataExt {
+    /// `true` when every identity-relevant field (everything [`cmp_key`]
+    /// (Self::cmp_key) compares, i.e. everything but the marker) is at its
+    /// default - such an ext exists only to carry a marker, and
+    /// `NodeData::identity_extra` treats it as absent.
+    fn is_identity_empty(&self) -> bool {
+        self.attributes.as_ref().is_empty()
+            && self.virtual_view.is_none()
+            && self.dataset.is_none()
+            && self.svg_data.is_none()
+            && self.menu_bar.is_none()
+            && self.context_menu.is_none()
+            && self.key.is_none()
+            && self.dataset_merge_callback.is_none()
+            && self.component_origin.is_none()
+            && self.animation_callbacks.is_empty()
+    }
+}
+
+impl PartialEq for NodeDataExt {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp_key() == other.cmp_key()
+    }
+}
+impl Eq for NodeDataExt {}
+impl PartialOrd for NodeDataExt {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for NodeDataExt {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.cmp_key().cmp(&other.cmp_key())
+    }
+}
+impl core::hash::Hash for NodeDataExt {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        self.cmp_key().hash(state);
+    }
 }
 
 /// A callback function used to merge the state of an old dataset into a new one.
@@ -3027,6 +3168,37 @@ impl NodeData {
                 callback,
                 data,
             });
+    }
+
+    /// Stamp an app-chosen marker string on this node — see
+    /// [`NodeDataExt::marker`]. `None` clears it.
+    pub fn set_marker(&mut self, marker: azul_css::OptionString) {
+        match marker {
+            azul_css::OptionString::None => {
+                if let Some(ext) = self.extra.as_mut() {
+                    ext.marker = None;
+                }
+            }
+            azul_css::OptionString::Some(s) => {
+                self.extra
+                    .get_or_insert_with(|| Box::new(NodeDataExt::default()))
+                    .marker = Some(s);
+            }
+        }
+    }
+
+    /// The marker string stamped on this node, if any.
+    #[must_use]
+    pub fn get_marker(&self) -> Option<&AzString> {
+        self.extra.as_ref().and_then(|ext| ext.marker.as_ref())
+    }
+
+    /// Builder form of [`Self::set_marker`].
+    #[inline]
+    #[must_use]
+    pub fn with_marker(mut self, marker: azul_css::OptionString) -> Self {
+        self.set_marker(marker);
+        self
     }
 
     pub fn set_dataset(&mut self, data: OptionRefAny) {
@@ -6879,6 +7051,46 @@ impl Dom {
     pub fn with_dataset(mut self, data: OptionRefAny) -> Self {
         self.root.set_dataset(data);
         self
+    }
+    /// Setter form of [`Self::with_dataset`].
+    #[inline]
+    pub fn set_dataset(&mut self, data: OptionRefAny) {
+        self.root.set_dataset(data);
+    }
+    /// Stamp an app-chosen marker string on the root node, resolvable to a
+    /// `(DomId, NodeId)` via `CallbackInfo::get_node_id_by_marker` — the
+    /// clean way for one widget's callback to find another widget without
+    /// knowing its internals. Invisible to CSS matching, unlike an id.
+    #[inline]
+    #[must_use]
+    pub fn with_marker(mut self, marker: azul_css::OptionString) -> Self {
+        self.root.set_marker(marker);
+        self
+    }
+    /// Setter form of [`Self::with_marker`].
+    #[inline]
+    pub fn set_marker(&mut self, marker: azul_css::OptionString) {
+        self.root.set_marker(marker);
+    }
+    /// Setter form of [`Self::with_key`].
+    #[inline]
+    pub fn set_key<K: Hash>(&mut self, key: K) {
+        self.root.set_key(key);
+    }
+    /// Setter form of [`Self::with_merge_callback`].
+    #[inline]
+    pub fn set_merge_callback<C: Into<DatasetMergeCallback>>(&mut self, callback: C) {
+        self.root.set_merge_callback(callback);
+    }
+    /// Setter form of [`Self::with_svg_data`].
+    #[inline]
+    pub fn set_svg_data(&mut self, data: SvgNodeData) {
+        self.root.set_svg_data(data);
+    }
+    /// Setter form of [`Self::with_attributes`].
+    #[inline]
+    pub fn set_attributes(&mut self, attributes: AttributeTypeVec) {
+        self.root.set_attributes(attributes);
     }
 
     /// Attach a presence-animation function to this node — see

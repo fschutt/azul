@@ -50,6 +50,7 @@ pub const MODULES: &[&str] = &[
     "fmt",
     "pdf",
     "url",
+    "uuid",
 ];
 
 /// Keywords that map to specific modules
@@ -771,6 +772,11 @@ fn module_from_external_path(path: &str) -> Option<String> {
     }
     if path.starts_with("azul_layout::desktop::dialogs::") {
         return Some("dialog".to_string());
+    }
+    // The UUID mint (`Uuid::v4` / `Uuid::short`). Routed by path: the bare
+    // name "Uuid" carries no keyword any other module could not also claim.
+    if path.starts_with("azul_layout::uuid::") {
+        return Some("uuid".to_string());
     }
     // azul_dll::unified::* backends
     if path.starts_with("azul_dll::unified::audio::") {
