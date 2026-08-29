@@ -187,7 +187,11 @@ tikv-jemalloc-sys = { version = "0.6", default-features = false, optional = true
 text3-suite-wip = []
 # Default: Full layout engine with text, fonts, SVG, images, accessibility
 # Uses multithreaded font loading for faster startup on desktop
-default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "font_async_registry", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons"]
+# `probe` is DEFAULT-ON (USER ruling 2026-08-29): spans are one relaxed
+# atomic when not recording, and every real build (build-dll, telemetry)
+# wants them anyway - the only observability piece that stays opt-in is the
+# HTTP debug server (`e2e-server-http`), which opens a listening socket.
+default = ["std", "text_layout", "text_layout_hyphenation", "font_loading_multithreaded", "font_async_registry", "svg", "image_decoding", "cpurender", "a11y", "widgets", "extra", "icons", "probe"]
 
 # Fine-grained timing + RSS instrumentation. Enables `probe::Probe::span`
 # guards across the layout pipeline. Off by default — consumer crates

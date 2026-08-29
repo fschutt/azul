@@ -177,11 +177,29 @@ mod imp {
     /// Span names are `&'static str`, so each distinct callback leaks ONE
     /// small string for the process lifetime — bounded by the number of
     /// distinct callbacks an app has.
-    pub(super) fn resolve_fn_name(fn_ptr: usize) -> &'static str {
+    /// Pointer→name cache shared with the BACKGROUND addr2line upgrade
+    /// thread (`spawn_addr2line_upgrade` replaces an offset placeholder with
+    /// the real symbol once the subprocess returns).
+    fn fn_name_cache() -> &'static std::sync::Mutex<std::collections::HashMap<usize, &'static str>>
+    {
         use std::collections::HashMap;
         use std::sync::{Mutex, OnceLock};
         static CACHE: OnceLock<Mutex<HashMap<usize, &'static str>>> = OnceLock::new();
-        let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    /// Is this pointer resolved? Lets tests observe that a gated call did
+    /// NOT resolve, robust against concurrent tests resolving THEIR pointers.
+    #[cfg(test)]
+    pub(super) fn fn_name_cache_contains(fn_ptr: usize) -> bool {
+        fn_name_cache()
+            .lock()
+            .map(|m| m.contains_key(&fn_ptr))
+            .unwrap_or(false)
+    }
+
+    pub(super) fn resolve_fn_name(fn_ptr: usize) -> &'static str {
+        let cache = fn_name_cache();
         if let Ok(map) = cache.lock() {
             if let Some(name) = map.get(&fn_ptr) {
                 return name;
@@ -219,10 +237,20 @@ mod imp {
                             .ok()
                             .map(str::to_owned)
                     };
-                    match addr2line_name(module.as_deref(), offset, fn_ptr) {
-                        Some(sym) => Box::leak(format!("cb:{sym}").into_boxed_str()),
-                        None => Box::leak(format!("cb:+0x{offset:x}").into_boxed_str()),
-                    }
+                    // The name lives in DEBUG symbols only - recovering it
+                    // means shelling out to addr2line, which loads the
+                    // module's DWARF: SECONDS on a debuginfo build of
+                    // libazul.so, and this used to run synchronously on the
+                    // MAIN THREAD inside the first span of every distinct
+                    // callback (the azpaint first-stroke stall: each newly
+                    // fired callback froze the event loop for seconds,
+                    // 2026-08-29). Return the stable offset name NOW and let
+                    // a detached thread upgrade the cache entry in place -
+                    // early histogram samples file under `cb:+0x<offset>`,
+                    // later ones under the real name, and nothing ever
+                    // blocks on symbolization.
+                    spawn_addr2line_upgrade(fn_ptr, module, offset);
+                    Box::leak(format!("cb:+0x{offset:x}").into_boxed_str())
                 } else {
                     // dladdr failed outright: the raw address still separates
                     // one callback from another within this run.
@@ -240,16 +268,41 @@ mod imp {
         resolved
     }
 
+    /// Replace `fn_ptr`'s cached offset placeholder with the real symbol
+    /// name, resolved by `addr2line` on a DETACHED thread. At most one
+    /// spawn per pointer (the caller inserts the placeholder into the cache
+    /// in the same miss, so a second call is a cache hit and never gets
+    /// here). Failure or a missing tool simply leaves the offset name.
+    #[cfg(unix)]
+    fn spawn_addr2line_upgrade(fn_ptr: usize, module: Option<String>, offset: usize) {
+        if !cfg!(target_os = "linux") {
+            return;
+        }
+        std::thread::Builder::new()
+            .name("azul-addr2line".into())
+            .spawn(move || {
+                if let Some(sym) = addr2line_name(module.as_deref(), offset, fn_ptr) {
+                    let pretty: &'static str =
+                        Box::leak(format!("cb:{sym}").into_boxed_str());
+                    if let Ok(mut map) = fn_name_cache().lock() {
+                        map.insert(fn_ptr, pretty);
+                    }
+                }
+            })
+            .ok(); // spawn failure: the offset name stands
+    }
+
     /// DEBUG-SYMBOL fallback: asks the system's `addr2line` for the function
     /// name at `offset` inside `module` (Linux; other unixes rarely ship
     /// it). Recovers real names on statically linked binaries whose own
     /// functions are absent from `.dynsym` — exactly the case `dladdr`
     /// cannot answer.
     ///
-    /// Runs AT MOST ONCE per distinct callback pointer (the leak-once cache
-    /// above), so the subprocess cost — up to a few hundred ms the first
-    /// time addr2line loads a big binary's DWARF — is a one-time price per
-    /// callback, not per span. `AZ_PROBE_ADDR2LINE=0` disables it.
+    /// Called from the detached `azul-addr2line` upgrade thread ONLY (never
+    /// on a caller's thread): loading a big binary's DWARF costs anywhere
+    /// from hundreds of ms to SECONDS, which is jank if anything waits on
+    /// it. Runs at most once per distinct callback pointer.
+    /// `AZ_PROBE_ADDR2LINE=0` disables it.
     ///
     /// PIE executables and shared objects map file offsets 1:1 to link-time
     /// addresses, so the module-relative offset is the right query; for a
@@ -322,6 +375,27 @@ mod imp {
         ask(offset).or_else(|| ask(raw_ptr))
     }
 
+    /// [`super::Probe::span_for_fn`]: the recording gate runs BEFORE name
+    /// resolution. With recording off this is one atomic load and an inert
+    /// guard - `resolve_fn_name` (dladdr; on a miss, a background addr2line
+    /// spawn) does not run at all. The old order resolved unconditionally,
+    /// which paid symbolization for every distinct callback even with the
+    /// probe entirely off.
+    pub(super) fn open_for_fn(fn_ptr: usize) -> Span {
+        open_for_fn_gated(recording(), fn_ptr)
+    }
+
+    /// The gate itself, with the recording state as a PARAMETER so the test
+    /// can pin it without touching the process-global flag (toggling that
+    /// mid-suite kills other tests' spans - the flag is shared).
+    pub(super) fn open_for_fn_gated(is_recording: bool, fn_ptr: usize) -> Span {
+        if is_recording {
+            open(resolve_fn_name(fn_ptr))
+        } else {
+            open("cb:off")
+        }
+    }
+
     pub(super) fn drop_events() {
         let _ = EVENTS.try_with(|cell| cell.borrow_mut().clear());
     }
@@ -358,6 +432,11 @@ mod imp {
     #[inline]
     pub(super) const fn resolve_fn_name(_fn_ptr: usize) -> &'static str {
         "cb:?"
+    }
+
+    #[inline]
+    pub(super) const fn open_for_fn(_fn_ptr: usize) -> Span {
+        Span
     }
 
     #[inline]
@@ -483,22 +562,29 @@ impl Probe {
     /// `cb:my_button_click`, so the per-phase histogram answers
     /// "`my_button_click` takes 0.2 ms on 1.5.0, took 0.1 ms on 1.4.3".
     ///
-    /// Resolution runs ONCE per distinct pointer (a leak-once cache bounded
-    /// by the number of distinct callbacks); every later call is one map
-    /// lookup. When the symbol is unresolvable (static non-`-rdynamic`
-    /// binaries keep their own functions out of `.dynsym`), the fallback
-    /// ladder is: `addr2line` against the module's debug symbols (Linux,
-    /// when installed — recovers the real name; `AZ_PROBE_ADDR2LINE=0`
-    /// disables), then the module-relative offset `cb:+0x<offset>` — stable
-    /// across runs of the same binary, so distinct callbacks remain
-    /// distinguishable and per-version comparisons still work; `cb:0x<addr>`
-    /// is the last resort when `dladdr` fails entirely.
+    /// With recording OFF this is one relaxed atomic load and an inert
+    /// guard - NO resolution runs (it used to run unconditionally, which
+    /// shelled out to `addr2line` on the caller's thread the first time
+    /// each distinct callback fired: seconds per callback on a debuginfo
+    /// build, with the probe entirely off - the azpaint first-stroke
+    /// stall, 2026-08-29).
+    ///
+    /// While recording, resolution runs ONCE per distinct pointer (a
+    /// leak-once cache bounded by the number of distinct callbacks); every
+    /// later call is one map lookup. When the symbol is unresolvable
+    /// (static non-`-rdynamic` binaries keep their own functions out of
+    /// `.dynsym`), the span opens under the stable module-relative offset
+    /// `cb:+0x<offset>` immediately while a DETACHED thread asks
+    /// `addr2line` (Linux, when installed; `AZ_PROBE_ADDR2LINE=0`
+    /// disables) and upgrades the cache to the real name for every span
+    /// after it; `cb:0x<addr>` is the last resort when `dladdr` fails
+    /// entirely.
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn span_for_fn(fn_ptr: usize) -> Span {
-        imp::open(imp::resolve_fn_name(fn_ptr))
+        imp::open_for_fn(fn_ptr)
     }
 
     /// Discard the per-thread event buffer without allocating a `Vec` to
@@ -1360,6 +1446,40 @@ mod autotest_generated {
         ));
         assert_eq!(Probe::enabled(), expected);
         assert_eq!(imp::enabled(), expected);
+    }
+
+    /// THE FIRST-STROKE STALL (azpaint, 2026-08-29): `span_for_fn` resolved
+    /// the callback name BEFORE the recording gate, so the first span of
+    /// every distinct callback shelled out to addr2line on the caller's
+    /// thread - seconds per callback on a debuginfo build, with the probe
+    /// entirely off. The gate now runs first: recording off = no resolution.
+    #[test]
+    #[cfg(all(
+        feature = "probe",
+        not(target_family = "wasm"),
+        not(feature = "web_lift")
+    ))]
+    fn span_for_fn_resolves_only_while_recording() {
+        extern "C" fn gated_probe_fixture_a() {}
+        extern "C" fn gated_probe_fixture_b() {}
+        let a = gated_probe_fixture_a as usize;
+        let b = gated_probe_fixture_b as usize;
+
+        // The gate is tested through its parameterized form: flipping the
+        // PROCESS-GLOBAL recording flag here would race the other probe
+        // tests (they record concurrently and count their events).
+        drop(imp::open_for_fn_gated(false, a));
+        assert!(
+            !imp::fn_name_cache_contains(a),
+            "recording OFF must not resolve the callback name (that is where \
+             the synchronous addr2line jank lived)",
+        );
+
+        drop(imp::open_for_fn_gated(true, b));
+        assert!(
+            imp::fn_name_cache_contains(b),
+            "recording ON must resolve (and cache) the callback name",
+        );
     }
 
     #[test]
@@ -2626,16 +2746,27 @@ mod allocator_stats_tests {
             "span name keeps the cb: family prefix: {names}"
         );
         // With addr2line installed (Linux), the DEBUG-symbol fallback must
-        // recover the REAL name — the test binary carries debuginfo.
+        // recover the REAL name — the test binary carries debuginfo. It runs
+        // on a DETACHED thread now (the synchronous form stalled the caller
+        // for seconds per callback on a big-debuginfo binary — the azpaint
+        // first-stroke stall, 2026-08-29), so the first resolution returns
+        // the offset placeholder and the cache upgrades in place: poll for
+        // the upgrade instead of asserting on the first return.
         if cfg!(target_os = "linux")
             && std::process::Command::new("addr2line")
                 .arg("--version")
                 .output()
                 .is_ok_and(|o| o.status.success())
         {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            let mut latest = names;
+            while !latest.contains("f_one") && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                latest = super::imp::resolve_fn_name(f_one as usize);
+            }
             assert!(
-                names.contains("f_one"),
-                "addr2line fallback must name the function, got: {names}"
+                latest.contains("f_one"),
+                "the background addr2line upgrade must land, got: {latest}"
             );
         }
     }
