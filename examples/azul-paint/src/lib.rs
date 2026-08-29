@@ -1336,9 +1336,12 @@ fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> 
         .map(|n| azul::widgets::ProgressBar::update_progress(*info, n, pct))
         .unwrap_or(false);
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
+        // NodeHierarchyItemId is 1-BASED (0 = None); print the real index.
+        // The raw value once read as "node 20" while the meter was node 19,
+        // and an evening was spent chasing a hit-test bug that wasn't there.
         eprintln!(
             "[paint] fast-path: marker={marker:?} node={:?} pct={pct} update_progress={ok}",
-            node_id.map(|n| (n.dom.inner, n.node.inner)),
+            node_id.map(|n| (n.dom.inner, n.node.inner as i64 - 1)),
         );
     }
     ok.then_some(pct)
@@ -1428,6 +1431,10 @@ extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
 }
 
 extern "C" fn on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    if std::env::var("AZ_PAINT_DEBUG").is_ok() {
+        let ms = info.get_current_mouse_state();
+        eprintln!("[paint] on_pointer_up FIRED (left_down={})", ms.left_down);
+    }
     let hud = hud_from(&info);
     let marker = match data.downcast_mut::<PaintState>() {
         Some(mut s) => {
@@ -1448,6 +1455,9 @@ extern "C" fn on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update 
 /// Cursor or pen left: drop the readout (and see the stroke out — a pen that
 /// leaves proximity mid-stroke never delivers a MouseUp).
 extern "C" fn on_pointer_gone(mut data: RefAny, _info: CallbackInfo) -> Update {
+    if std::env::var("AZ_PAINT_DEBUG").is_ok() {
+        eprintln!("[paint] on_pointer_gone FIRED");
+    }
     let mut state = match data.downcast_mut::<PaintState>() {
         Some(s) => s,
         None => return Update::DoNothing,

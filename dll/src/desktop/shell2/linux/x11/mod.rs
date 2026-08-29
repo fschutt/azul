@@ -4062,6 +4062,13 @@ impl X11Window {
                     ProcessEventResult::DoNothing
                 } else {
                     self.snapshot_window_state_baseline("x11.handle_event.focus_out");
+                    if std::env::var("AZ_HIT_DEBUG").is_ok() {
+                        let f = unsafe { &event.focus };
+                        eprintln!(
+                            "[hit-debug] FocusOut clears buttons (mode={} detail={})",
+                            f.mode, f.detail
+                        );
+                    }
                     self.common.update_unsynced_state(|ws| {
                         ws.window_focused = false;
                         // Release the mouse buttons: focus left while a button was down, so the
@@ -6099,6 +6106,9 @@ impl X11Window {
         // drag the next press diffed `true → true` (no MouseDown) and every
         // motion read as a drag. Release the buttons at the hand-off: the
         // pointer is the WM's from here until it comes up.
+        if std::env::var("AZ_HIT_DEBUG").is_ok() {
+            eprintln!("[hit-debug] begin_interactive_move clears buttons");
+        }
         self.common.update_unsynced_state(|ws| {
             ws.mouse_state.left_down = false;
             ws.mouse_state.right_down = false;

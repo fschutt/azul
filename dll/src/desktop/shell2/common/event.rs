@@ -6909,6 +6909,30 @@ pub trait PlatformWindow {
     fn drag_source_node(&mut self) -> Option<azul_core::dom::DomNodeId> {
         let start = self.drag_press_position()?;
         let hit = self.get_common_mut().perform_hit_test(start);
+        if std::env::var("AZ_HIT_DEBUG").is_ok() {
+            for (dom_id, h) in &hit.hovered_nodes {
+                let mut nodes: Vec<_> = h
+                    .regular_hit_test_nodes
+                    .iter()
+                    .map(|(n, item)| (n.index(), item.hit_depth))
+                    .collect();
+                nodes.sort_by_key(|(_, d)| *d);
+                eprintln!(
+                    "[hit-debug] drag_source start={start:?} dom={dom_id:?} nodes(id,depth)={nodes:?}"
+                );
+                if let Some(tester) = self.get_common_mut().cpu_hit_tester.as_ref() {
+                    for (n, _) in &nodes {
+                        for (rect, chain, clips) in
+                            tester.debug_entries_for(*dom_id, azul_core::id::NodeId::new(*n))
+                        {
+                            eprintln!(
+                                "[hit-debug]   node {n}: rect={rect:?} chain={chain} clips={clips:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
         // The front-most hit (by hit depth, not by NodeId: a grafted
         // inline-docked panel sits under a zone with a higher id).
         azul_layout::managers::hover::deepest_node_across_doms(&hit)

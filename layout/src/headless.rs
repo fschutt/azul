@@ -751,6 +751,30 @@ impl CpuHitTester {
         self.scroll_containers.iter().map(|e| e.node_id).collect()
     }
 
+    /// Test/introspection helper: every registered entry for `node` in `dom`
+    /// as `(rect, chain-index, clip-rects)`. A DOM node can own several
+    /// layout nodes, hence several entries.
+    #[must_use]
+    pub fn debug_entries_for(
+        &self,
+        dom: DomId,
+        node: NodeId,
+    ) -> Vec<(LogicalRect, u32, Vec<LogicalRect>)> {
+        self.node_rects
+            .get(&dom)
+            .into_iter()
+            .flatten()
+            .filter(|e| e.node_id == node)
+            .map(|e| {
+                (
+                    e.rect,
+                    e.chain,
+                    e.clips.iter().map(|(r, _)| *r).collect(),
+                )
+            })
+            .collect()
+    }
+
     pub fn rebuild_from_layout_with_gpu(
         &mut self,
         layout_results: &BTreeMap<DomId, DomLayoutResult>,
