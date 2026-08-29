@@ -111,6 +111,9 @@ fn dbg_ms() -> u128 {
 /// would change, not per 140 Hz pen packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PenHud {
+    /// Measured report rate, rounded to 5Hz steps so EMA jitter does not
+    /// churn the (RefreshDom-driving) readout.
+    rate_hz5: u16,
     tilt_x_deg: i8,
     tilt_y_deg: i8,
     /// Barrel roll / twist, degrees.
@@ -1212,8 +1215,9 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         Some(h) => {
             header.add_child(Dom::create_p_with_text(
                 format!(
-                    "Pen {}  ·  tilt {:+}° / {:+}°  twist {:+}°{}{}{}",
+                    "Pen {}  ·  {}Hz  ·  tilt {:+}° / {:+}°  twist {:+}°{}{}{}",
                     h.device_id,
+                    h.rate_hz5,
                     h.tilt_x_deg,
                     h.tilt_y_deg,
                     h.twist_deg,
@@ -1432,6 +1436,7 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
 /// [`PenHud`]).
 fn hud_from(info: &CallbackInfo) -> Option<PenHud> {
     info.get_pen_state().into_option().map(|p| PenHud {
+        rate_hz5: ((p.report_rate_hz / 5.0).round() * 5.0) as u16,
         tilt_x_deg: p.tilt.x_tilt.clamp(-90.0, 90.0).round() as i8,
         tilt_y_deg: p.tilt.y_tilt.clamp(-90.0, 90.0).round() as i8,
         twist_deg: p.barrel_roll_rad.to_degrees().round() as i16,

@@ -14857,6 +14857,9 @@
                                 },
                                 "tool_id": {
                                     "type": "u32"
+                                },
+                                "report_rate_hz": {
+                                    "type": "f32"
                                 }
                             }
                         ],

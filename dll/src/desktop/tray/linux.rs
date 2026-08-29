@@ -55,7 +55,8 @@ use crate::desktop::shell2::linux::dbus::{
     DBusConnection, DBusError, DBusLib, DBusMessage, DBusMessageIter, DBusObjectPathVTable,
     DBUS_BUS_SESSION, DBUS_HANDLER_RESULT_HANDLED, DBUS_HANDLER_RESULT_NOT_YET_HANDLED,
     DBUS_TYPE_ARRAY, DBUS_TYPE_BOOLEAN, DBUS_TYPE_BYTE, DBUS_TYPE_DICT_ENTRY, DBUS_TYPE_INT32,
-    DBUS_TYPE_OBJECT_PATH, DBUS_TYPE_STRING, DBUS_TYPE_STRUCT, DBUS_TYPE_VARIANT,
+    DBUS_TYPE_OBJECT_PATH, DBUS_TYPE_STRING, DBUS_TYPE_STRUCT, DBUS_TYPE_UINT32,
+    DBUS_TYPE_VARIANT,
 };
 use crate::desktop::shell2::linux::gnome_menu::get_shared_dbus_lib;
 
@@ -64,6 +65,8 @@ const SNI_PATH: &str = "/StatusNotifierItem";
 const WATCHER_NAME: &str = "org.kde.StatusNotifierWatcher";
 const WATCHER_PATH: &str = "/StatusNotifierWatcher";
 const PROPS_IFACE: &str = "org.freedesktop.DBus.Properties";
+const MENU_IFACE: &str = "com.canonical.dbusmenu";
+const MENU_PATH: &str = "/MenuBar";
 const INTROSPECT_IFACE: &str = "org.freedesktop.DBus.Introspectable";
 
 /// Everything the property handler serves, plus the D-Bus handles it needs.
@@ -81,6 +84,80 @@ struct SniState {
     icon_name: String,
     /// `(width, height, ARGB32 big-endian bytes)`, largest last.
     pixmaps: Vec<(i32, i32, Vec<u8>)>,
+    /// The dbusmenu tree, flattened: index = dbusmenu item id, `[0]` = the
+    /// invisible root whose children are the top-level items. Length 1 (root
+    /// only) = no menu; the `Menu` property then points at `/` so hosts fall
+    /// back to `ContextMenu()`.
+    menu: Vec<MenuNode>,
+    /// dbusmenu layout revision, bumped by `update()`.
+    menu_revision: u32,
+    /// Item ids clicked by the host since the last `pump()`. A Mutex rather
+    /// than a RefCell purely so the raw-pointer vtable handler and `pump`
+    /// cannot alias UB-wise; both run on the main thread.
+    clicked: std::sync::Mutex<Vec<i32>>,
+}
+
+/// One flattened dbusmenu item - see [`SniState::menu`].
+struct MenuNode {
+    /// Empty for a separator.
+    label: String,
+    separator: bool,
+    enabled: bool,
+    children: Vec<i32>,
+    callback: Option<azul_core::menu::CoreMenuCallback>,
+}
+
+/// Flatten an azul [`Menu`](azul_core::menu::Menu) into the id-indexed
+/// dbusmenu node list. `BreakLine` renders as a separator - dbusmenu has no
+/// horizontal-flow concept.
+fn flatten_menu(menu: Option<&azul_core::menu::Menu>) -> Vec<MenuNode> {
+    use azul_core::menu::MenuItem;
+    fn push_items(nodes: &mut Vec<MenuNode>, items: &[MenuItem], parent: usize) {
+        for item in items {
+            let id = nodes.len();
+            match item {
+                MenuItem::String(sm) => {
+                    nodes.push(MenuNode {
+                        label: sm.label.as_str().to_owned(),
+                        separator: false,
+                        enabled: !matches!(
+                            sm.menu_item_state,
+                            azul_core::menu::MenuItemState::Greyed
+                                | azul_core::menu::MenuItemState::Disabled
+                        ),
+                        children: Vec::new(),
+                        callback: sm.callback.as_ref().cloned(),
+                    });
+                    nodes[parent].children.push(id as i32);
+                    let kids: &[MenuItem] = sm.children.as_ref();
+                    if !kids.is_empty() {
+                        push_items(nodes, kids, id);
+                    }
+                }
+                MenuItem::Separator | MenuItem::BreakLine => {
+                    nodes.push(MenuNode {
+                        label: String::new(),
+                        separator: true,
+                        enabled: false,
+                        children: Vec::new(),
+                        callback: None,
+                    });
+                    nodes[parent].children.push(id as i32);
+                }
+            }
+        }
+    }
+    let mut nodes = vec![MenuNode {
+        label: String::new(),
+        separator: false,
+        enabled: true,
+        children: Vec::new(),
+        callback: None,
+    }];
+    if let Some(menu) = menu {
+        push_items(&mut nodes, menu.items.as_ref(), 0);
+    }
+    nodes
 }
 
 pub(super) struct PlatformTray {
@@ -207,6 +284,14 @@ unsafe fn append_i32(dbus: &DBusLib, it: *mut DBusMessageIter, v: i32) {
     );
 }
 
+unsafe fn append_u32(dbus: &DBusLib, it: *mut DBusMessageIter, v: u32) {
+    (dbus.dbus_message_iter_append_basic)(
+        it,
+        DBUS_TYPE_UINT32,
+        &v as *const u32 as *const c_void,
+    );
+}
+
 unsafe fn append_bool(dbus: &DBusLib, it: *mut DBusMessageIter, v: bool) {
     let b: c_uint = if v { 1 } else { 0 };
     (dbus.dbus_message_iter_append_basic)(
@@ -316,9 +401,15 @@ unsafe fn append_prop_value(dbus: &DBusLib, it: &mut DBusMessageIter, st: &SniSt
         "OverlayIconPixmap" | "AttentionIconPixmap" => append_pixmaps(dbus, it, &[]),
         "ToolTip" => append_tooltip(dbus, it, &st.tooltip),
         "ItemIsMenu" => append_bool(dbus, it, false),
-        // No dbusmenu yet (module docs): the root path makes hosts fall back
-        // to calling ContextMenu(), which we surface as a TrayEvent.
-        "Menu" => append_str(dbus, it, DBUS_TYPE_OBJECT_PATH, "/"),
+        // With a menu: the dbusmenu object the panel renders itself. Without:
+        // the root path makes hosts fall back to ContextMenu(), surfaced as a
+        // TrayEvent.
+        "Menu" => append_str(
+            dbus,
+            it,
+            DBUS_TYPE_OBJECT_PATH,
+            if st.menu.len() > 1 { MENU_PATH } else { "/" },
+        ),
         _ => append_str(dbus, it, DBUS_TYPE_STRING, ""),
     }
 }
@@ -517,6 +608,400 @@ fn introspection_xml() -> String {
     )
 }
 
+// ---- the dbusmenu object (/MenuBar) ------------------------------------------
+//
+// com.canonical.dbusmenu, the protocol every SNI host (KDE, most Wayland
+// panels, Ayatana) uses to render a tray MENU: the panel calls GetLayout,
+// draws the tree itself, and reports clicks back through Event("clicked").
+// Serving it is what turns the silent heart-icon into a working menu - the
+// item's `Menu` property points here whenever the app supplied one.
+
+/// The a{sv} property map of one layout node.
+unsafe fn append_menu_props(dbus: &DBusLib, it: *mut DBusMessageIter, node: &MenuNode) {
+    let esig = CString::new("{sv}").unwrap();
+    let mut ait: DBusMessageIter = std::mem::zeroed();
+    (dbus.dbus_message_iter_open_container)(it, DBUS_TYPE_ARRAY, esig.as_ptr(), &mut ait);
+    let mut put = |k: &str, sig: &str, f: &dyn Fn(&mut DBusMessageIter)| {
+        let mut eit: DBusMessageIter = std::mem::zeroed();
+        (dbus.dbus_message_iter_open_container)(
+            &mut ait,
+            DBUS_TYPE_DICT_ENTRY,
+            std::ptr::null(),
+            &mut eit,
+        );
+        append_str(dbus, &mut eit, DBUS_TYPE_STRING, k);
+        in_variant(dbus, &mut eit, sig, |vit| f(vit));
+        (dbus.dbus_message_iter_close_container)(&mut ait, &mut eit);
+    };
+    if node.separator {
+        put("type", "s", &|vit| {
+            append_str(dbus, vit, DBUS_TYPE_STRING, "separator");
+        });
+    } else {
+        put("label", "s", &|vit| {
+            append_str(dbus, vit, DBUS_TYPE_STRING, &node.label);
+        });
+        put("enabled", "b", &|vit| append_bool(dbus, vit, node.enabled));
+        if !node.children.is_empty() {
+            put("children-display", "s", &|vit| {
+                append_str(dbus, vit, DBUS_TYPE_STRING, "submenu");
+            });
+        }
+    }
+    put("visible", "b", &|vit| append_bool(dbus, vit, true));
+    (dbus.dbus_message_iter_close_container)(it, &mut ait);
+}
+
+/// One `(ia{sv}av)` layout node, recursively (depth < 0 = unlimited, the
+/// value KDE sends).
+unsafe fn append_layout_node(
+    dbus: &DBusLib,
+    it: *mut DBusMessageIter,
+    menu: &[MenuNode],
+    id: i32,
+    depth: i32,
+) {
+    let Some(node) = menu.get(id as usize) else {
+        return;
+    };
+    let mut sit: DBusMessageIter = std::mem::zeroed();
+    (dbus.dbus_message_iter_open_container)(it, DBUS_TYPE_STRUCT, std::ptr::null(), &mut sit);
+    append_i32(dbus, &mut sit, id);
+    append_menu_props(dbus, &mut sit, node);
+    let vsig = CString::new("v").unwrap();
+    let mut cit: DBusMessageIter = std::mem::zeroed();
+    (dbus.dbus_message_iter_open_container)(&mut sit, DBUS_TYPE_ARRAY, vsig.as_ptr(), &mut cit);
+    if depth != 0 {
+        let child_depth = if depth < 0 { -1 } else { depth - 1 };
+        for &child in &node.children {
+            let ssig = CString::new("(ia{sv}av)").unwrap();
+            let mut vit: DBusMessageIter = std::mem::zeroed();
+            (dbus.dbus_message_iter_open_container)(
+                &mut cit,
+                DBUS_TYPE_VARIANT,
+                ssig.as_ptr(),
+                &mut vit,
+            );
+            append_layout_node(dbus, &mut vit, menu, child, child_depth);
+            (dbus.dbus_message_iter_close_container)(&mut cit, &mut vit);
+        }
+    }
+    (dbus.dbus_message_iter_close_container)(&mut sit, &mut cit);
+    (dbus.dbus_message_iter_close_container)(it, &mut sit);
+}
+
+fn menu_introspection_xml() -> String {
+    r#"<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node>
+  <interface name="com.canonical.dbusmenu">
+    <property name="Version" type="u" access="read"/>
+    <property name="Status" type="s" access="read"/>
+    <property name="TextDirection" type="s" access="read"/>
+    <method name="GetLayout">
+      <arg type="i" name="parentId" direction="in"/>
+      <arg type="i" name="recursionDepth" direction="in"/>
+      <arg type="as" name="propertyNames" direction="in"/>
+      <arg type="u" name="revision" direction="out"/>
+      <arg type="(ia{sv}av)" name="layout" direction="out"/>
+    </method>
+    <method name="GetGroupProperties">
+      <arg type="ai" name="ids" direction="in"/>
+      <arg type="as" name="propertyNames" direction="in"/>
+      <arg type="a(ia{sv})" name="properties" direction="out"/>
+    </method>
+    <method name="Event">
+      <arg type="i" name="id" direction="in"/>
+      <arg type="s" name="eventId" direction="in"/>
+      <arg type="v" name="data" direction="in"/>
+      <arg type="u" name="timestamp" direction="in"/>
+    </method>
+    <method name="EventGroup">
+      <arg type="a(isvu)" name="events" direction="in"/>
+      <arg type="ai" name="idErrors" direction="out"/>
+    </method>
+    <method name="AboutToShow">
+      <arg type="i" name="id" direction="in"/>
+      <arg type="b" name="needUpdate" direction="out"/>
+    </method>
+    <method name="AboutToShowGroup">
+      <arg type="ai" name="ids" direction="in"/>
+      <arg type="ai" name="updatesNeeded" direction="out"/>
+      <arg type="ai" name="idErrors" direction="out"/>
+    </method>
+    <signal name="LayoutUpdated">
+      <arg type="u" name="revision"/>
+      <arg type="i" name="parent"/>
+    </signal>
+    <signal name="ItemsPropertiesUpdated">
+      <arg type="a(ia{sv})" name="updatedProps"/>
+      <arg type="a(ias)" name="removedProps"/>
+    </signal>
+  </interface>
+  <interface name="org.freedesktop.DBus.Properties">
+    <method name="Get">
+      <arg type="s" name="interface_name" direction="in"/>
+      <arg type="s" name="property_name" direction="in"/>
+      <arg type="v" name="value" direction="out"/>
+    </method>
+    <method name="GetAll">
+      <arg type="s" name="interface_name" direction="in"/>
+      <arg type="a{sv}" name="properties" direction="out"/>
+    </method>
+  </interface>
+</node>"#
+        .to_owned()
+}
+
+/// The first `i32` argument of a message (dbusmenu ids), if any.
+unsafe fn read_first_i32(dbus: &DBusLib, msg: *mut DBusMessage) -> Option<i32> {
+    let mut it: DBusMessageIter = std::mem::zeroed();
+    if (dbus.dbus_message_iter_init)(msg, &mut it) == 0 {
+        return None;
+    }
+    if (dbus.dbus_message_iter_get_arg_type)(&mut it) != DBUS_TYPE_INT32 {
+        return None;
+    }
+    let mut v: i32 = 0;
+    (dbus.dbus_message_iter_get_basic)(&mut it, &mut v as *mut i32 as *mut c_void);
+    Some(v)
+}
+
+unsafe extern "C" fn menu_message(
+    conn: *mut DBusConnection,
+    msg: *mut DBusMessage,
+    user_data: *mut c_void,
+) -> c_int {
+    let st = &*(user_data as *const SniState);
+    let dbus = &st.dbus;
+
+    let iface = (dbus.dbus_message_get_interface)(msg);
+    let member = (dbus.dbus_message_get_member)(msg);
+    if iface.is_null() || member.is_null() {
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+    }
+    let iface = CStr::from_ptr(iface).to_string_lossy();
+    let member = CStr::from_ptr(member).to_string_lossy();
+
+    let reply = match (iface.as_ref(), member.as_ref()) {
+        (INTROSPECT_IFACE, "Introspect") => {
+            let reply = (dbus.dbus_message_new_method_return)(msg);
+            if !reply.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_init_append)(reply, &mut it);
+                append_str(dbus, &mut it, DBUS_TYPE_STRING, &menu_introspection_xml());
+            }
+            reply
+        }
+        (PROPS_IFACE, "Get") => {
+            let (_, Some(prop)) = read_two_strings(dbus, msg) else {
+                return error_reply(dbus, conn, msg, "org.freedesktop.DBus.Error.InvalidArgs");
+            };
+            let reply = (dbus.dbus_message_new_method_return)(msg);
+            if !reply.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_init_append)(reply, &mut it);
+                match prop.as_str() {
+                    "Version" => in_variant(dbus, &mut it, "u", |vit| append_u32(dbus, vit, 3)),
+                    "TextDirection" => in_variant(dbus, &mut it, "s", |vit| {
+                        append_str(dbus, vit, DBUS_TYPE_STRING, "ltr");
+                    }),
+                    _ => in_variant(dbus, &mut it, "s", |vit| {
+                        append_str(dbus, vit, DBUS_TYPE_STRING, "normal");
+                    }),
+                }
+            }
+            reply
+        }
+        (PROPS_IFACE, "GetAll") => {
+            let reply = (dbus.dbus_message_new_method_return)(msg);
+            if !reply.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_init_append)(reply, &mut it);
+                let esig = CString::new("{sv}").unwrap();
+                let mut ait: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_open_container)(
+                    &mut it,
+                    DBUS_TYPE_ARRAY,
+                    esig.as_ptr(),
+                    &mut ait,
+                );
+                let mut put = |k: &str, sig: &str, f: &dyn Fn(&mut DBusMessageIter)| {
+                    let mut eit: DBusMessageIter = std::mem::zeroed();
+                    (dbus.dbus_message_iter_open_container)(
+                        &mut ait,
+                        DBUS_TYPE_DICT_ENTRY,
+                        std::ptr::null(),
+                        &mut eit,
+                    );
+                    append_str(dbus, &mut eit, DBUS_TYPE_STRING, k);
+                    in_variant(dbus, &mut eit, sig, |vit| f(vit));
+                    (dbus.dbus_message_iter_close_container)(&mut ait, &mut eit);
+                };
+                put("Version", "u", &|vit| append_u32(dbus, vit, 3));
+                put("Status", "s", &|vit| {
+                    append_str(dbus, vit, DBUS_TYPE_STRING, "normal");
+                });
+                put("TextDirection", "s", &|vit| {
+                    append_str(dbus, vit, DBUS_TYPE_STRING, "ltr");
+                });
+                (dbus.dbus_message_iter_close_container)(&mut it, &mut ait);
+            }
+            reply
+        }
+        (MENU_IFACE, "GetLayout") => {
+            let parent = read_first_i32(dbus, msg).unwrap_or(0);
+            // recursionDepth is the SECOND i32; -1 (KDE's value) = unlimited.
+            let depth = {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                let mut depth = -1;
+                if (dbus.dbus_message_iter_init)(msg, &mut it) != 0
+                    && (dbus.dbus_message_iter_next)(&mut it) != 0
+                    && (dbus.dbus_message_iter_get_arg_type)(&mut it) == DBUS_TYPE_INT32
+                {
+                    (dbus.dbus_message_iter_get_basic)(
+                        &mut it,
+                        &mut depth as *mut i32 as *mut c_void,
+                    );
+                }
+                depth
+            };
+            let reply = (dbus.dbus_message_new_method_return)(msg);
+            if !reply.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_init_append)(reply, &mut it);
+                append_u32(dbus, &mut it, st.menu_revision);
+                append_layout_node(dbus, &mut it, &st.menu, parent, depth);
+            }
+            reply
+        }
+        (MENU_IFACE, "GetGroupProperties") => {
+            // ids: ai. Reply a(ia{sv}) for every KNOWN id requested (all of
+            // them when the array is absent/empty - KDE asks for all).
+            let mut ids: Vec<i32> = Vec::new();
+            let mut it: DBusMessageIter = std::mem::zeroed();
+            if (dbus.dbus_message_iter_init)(msg, &mut it) != 0
+                && (dbus.dbus_message_iter_get_arg_type)(&mut it) == DBUS_TYPE_ARRAY
+            {
+                let mut ait: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_recurse)(&mut it, &mut ait);
+                while (dbus.dbus_message_iter_get_arg_type)(&mut ait) == DBUS_TYPE_INT32 {
+                    let mut v: i32 = 0;
+                    (dbus.dbus_message_iter_get_basic)(&mut ait, &mut v as *mut i32 as *mut c_void);
+                    ids.push(v);
+                    if (dbus.dbus_message_iter_next)(&mut ait) == 0 {
+                        break;
+                    }
+                }
+            }
+            if ids.is_empty() {
+                ids = (0..st.menu.len() as i32).collect();
+            }
+            let reply = (dbus.dbus_message_new_method_return)(msg);
+            if !reply.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_init_append)(reply, &mut it);
+                let ssig = CString::new("(ia{sv})").unwrap();
+                let mut ait: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_open_container)(
+                    &mut it,
+                    DBUS_TYPE_ARRAY,
+                    ssig.as_ptr(),
+                    &mut ait,
+                );
+                for id in ids {
+                    if let Some(node) = st.menu.get(id as usize) {
+                        let mut sit: DBusMessageIter = std::mem::zeroed();
+                        (dbus.dbus_message_iter_open_container)(
+                            &mut ait,
+                            DBUS_TYPE_STRUCT,
+                            std::ptr::null(),
+                            &mut sit,
+                        );
+                        append_i32(dbus, &mut sit, id);
+                        append_menu_props(dbus, &mut sit, node);
+                        (dbus.dbus_message_iter_close_container)(&mut ait, &mut sit);
+                    }
+                }
+                (dbus.dbus_message_iter_close_container)(&mut it, &mut ait);
+            }
+            reply
+        }
+        (MENU_IFACE, "Event") => {
+            // (id i32, eventId s, data v, timestamp u) - only "clicked" acts.
+            let mut it: DBusMessageIter = std::mem::zeroed();
+            if (dbus.dbus_message_iter_init)(msg, &mut it) != 0
+                && (dbus.dbus_message_iter_get_arg_type)(&mut it) == DBUS_TYPE_INT32
+            {
+                let mut id: i32 = 0;
+                (dbus.dbus_message_iter_get_basic)(&mut it, &mut id as *mut i32 as *mut c_void);
+                if (dbus.dbus_message_iter_next)(&mut it) != 0
+                    && (dbus.dbus_message_iter_get_arg_type)(&mut it) == DBUS_TYPE_STRING
+                {
+                    let mut sp: *const c_char = std::ptr::null();
+                    (dbus.dbus_message_iter_get_basic)(
+                        &mut it,
+                        &mut sp as *mut *const c_char as *mut c_void,
+                    );
+                    if !sp.is_null() && CStr::from_ptr(sp).to_string_lossy() == "clicked" {
+                        if let Ok(mut q) = st.clicked.lock() {
+                            q.push(id);
+                        }
+                    }
+                }
+            }
+            (dbus.dbus_message_new_method_return)(msg)
+        }
+        (MENU_IFACE, "AboutToShow") => {
+            let reply = (dbus.dbus_message_new_method_return)(msg);
+            if !reply.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_init_append)(reply, &mut it);
+                append_bool(dbus, &mut it, false);
+            }
+            reply
+        }
+        (MENU_IFACE, "AboutToShowGroup") | (MENU_IFACE, "EventGroup") => {
+            // Group forms: acknowledge with empty arrays - KDE's importer
+            // sends the singular calls for actual interaction.
+            let reply = (dbus.dbus_message_new_method_return)(msg);
+            if !reply.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_init_append)(reply, &mut it);
+                let isig = CString::new("i").unwrap();
+                let n_arrays = if member.as_ref() == "AboutToShowGroup" { 2 } else { 1 };
+                for _ in 0..n_arrays {
+                    let mut ait: DBusMessageIter = std::mem::zeroed();
+                    (dbus.dbus_message_iter_open_container)(
+                        &mut it,
+                        DBUS_TYPE_ARRAY,
+                        isig.as_ptr(),
+                        &mut ait,
+                    );
+                    (dbus.dbus_message_iter_close_container)(&mut it, &mut ait);
+                }
+            }
+            reply
+        }
+        _ => return DBUS_HANDLER_RESULT_NOT_YET_HANDLED,
+    };
+
+    if !reply.is_null() {
+        (dbus.dbus_connection_send)(conn, reply, std::ptr::null_mut());
+        (dbus.dbus_message_unref)(reply);
+        (dbus.dbus_connection_flush)(conn);
+    }
+    DBUS_HANDLER_RESULT_HANDLED
+}
+
+static MENU_VTABLE: DBusObjectPathVTable = DBusObjectPathVTable {
+    unregister_function: None,
+    message_function: Some(menu_message),
+    dbus_internal_padding1: None,
+    dbus_internal_padding2: None,
+    dbus_internal_padding3: None,
+    dbus_internal_padding4: None,
+};
+
 static SNI_VTABLE: DBusObjectPathVTable = DBusObjectPathVTable {
     unregister_function: None,
     message_function: Some(sni_message),
@@ -603,6 +1088,9 @@ fn build_state(
             String::new()
         },
         pixmaps,
+        menu: flatten_menu(data.menu.as_ref()),
+        menu_revision: 1,
+        clicked: std::sync::Mutex::new(Vec::new()),
     }
 }
 
@@ -658,6 +1146,22 @@ impl PlatformTray {
                 ));
             }
 
+            // The dbusmenu object (same state box). Registered even for a
+            // menu-less item: the Menu property then points at "/" and the
+            // path simply never gets called.
+            let mpath_c = CString::new(MENU_PATH).unwrap();
+            let ok = (dbus.dbus_connection_register_object_path)(
+                conn,
+                mpath_c.as_ptr(),
+                &MENU_VTABLE,
+                &*state as *const SniState as *mut c_void,
+            );
+            if ok == 0 {
+                return Err(TrayError::Platform(
+                    "dbus_connection_register_object_path (/MenuBar) failed".into(),
+                ));
+            }
+
             // RegisterStatusNotifierItem(our bus name) at the watcher.
             let dest = CString::new(WATCHER_NAME).unwrap();
             let wpath = CString::new(WATCHER_PATH).unwrap();
@@ -701,14 +1205,36 @@ impl PlatformTray {
         provider: &azul_core::icon::SharedIconProvider,
         font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
     ) -> Result<(), TrayError> {
-        // Mutate through the SAME box the vtable points at.
+        // Mutate through the SAME box the vtable points at. The layout
+        // revision must move FORWARD across the rebuild or hosts ignore the
+        // LayoutUpdated below as stale.
+        let next_revision = self.state.menu_revision.wrapping_add(1);
         *self.state = build_state(self.dbus.clone(), new, provider, font_manager);
+        self.state.menu_revision = next_revision;
         // Hosts only re-read a property after its New* signal.
         unsafe {
             for signal in ["NewIcon", "NewTitle", "NewToolTip"] {
                 self.emit_signal(signal, None);
             }
             self.emit_signal("NewStatus", Some(self.state.status));
+            // dbusmenu: tell the panel the tree changed (revision, parent 0).
+            let path = CString::new(MENU_PATH).unwrap();
+            let iface = CString::new(MENU_IFACE).unwrap();
+            let member = CString::new("LayoutUpdated").unwrap();
+            let msg = (self.dbus.dbus_message_new_signal)(
+                path.as_ptr(),
+                iface.as_ptr(),
+                member.as_ptr(),
+            );
+            if !msg.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (self.dbus.dbus_message_iter_init_append)(msg, &mut it);
+                append_u32(&self.dbus, &mut it, next_revision);
+                append_i32(&self.dbus, &mut it, 0);
+                (self.dbus.dbus_connection_send)(self.conn, msg, std::ptr::null_mut());
+                (self.dbus.dbus_message_unref)(msg);
+                (self.dbus.dbus_connection_flush)(self.conn);
+            }
         }
         Ok(())
     }
@@ -732,13 +1258,25 @@ impl PlatformTray {
         (self.dbus.dbus_connection_flush)(self.conn);
     }
 
-    /// Dispatch incoming D-Bus traffic (property reads, Activate calls). The
-    /// events those calls queue are drained by `tray/mod.rs`; there are no
-    /// menu callbacks until the dbusmenu half exists.
+    /// Dispatch incoming D-Bus traffic (property reads, Activate calls,
+    /// dbusmenu GetLayout/Event), then hand back the menu callbacks the
+    /// host's clicks selected - the run loop invokes them against a window
+    /// exactly like macOS's `pump_tray_into_windows`.
     pub(super) fn pump(&mut self) -> Vec<azul_core::menu::CoreMenuCallback> {
         unsafe {
             (self.dbus.dbus_connection_read_write_dispatch)(self.conn, 0);
         }
-        Vec::new()
+        let ids: Vec<i32> = match self.state.clicked.lock() {
+            Ok(mut q) => q.drain(..).collect(),
+            Err(_) => Vec::new(),
+        };
+        ids.into_iter()
+            .filter_map(|id| {
+                self.state
+                    .menu
+                    .get(id as usize)
+                    .and_then(|n| n.callback.as_ref().cloned())
+            })
+            .collect()
     }
 }

@@ -361,6 +361,14 @@ pub struct PenState {
     /// hardware (`device_id`) *and* which tip / lead / button cluster is
     /// in use (`tool_id`).
     pub tool_id: u32,
+    /// MEASURED report rate of this tool in Hz - an exponential moving
+    /// average of the interval between pen samples, because no platform
+    /// protocol carries the nominal rate (tablet-v2, XI2 and Wintab all
+    /// omit it). `0.0` until two samples arrive in the current proximity
+    /// session; re-converges within ~10 packets after proximity-in. Apps
+    /// use it to size smoothing windows and interpolation ("this pen
+    /// reports at 133Hz, the display at 60Hz").
+    pub report_rate_hz: f32,
 }
 
 impl_option!(PenState, OptionPenState, [Debug, Clone, Copy, PartialEq]);
@@ -381,6 +389,7 @@ impl Default for PenState {
             tangential_pressure: 0.0,
             barrel_roll_rad: 0.0,
             tool_id: 0,
+            report_rate_hz: 0.0,
         }
     }
 }
@@ -580,6 +589,11 @@ pub struct GestureAndDragManager {
     pub previous_pen_state: Option<PenState>,
     /// Set when pen state changed; gates one pen-event diff (cleared by the event loop).
     pub pen_event_pending: bool,
+    /// Monotonic nanos of the previous pen sample (rate measurement);
+    /// cleared on proximity-out so a gap never reads as a slow rate.
+    pub last_pen_sample_nanos: Option<u64>,
+    /// The EMA behind [`PenState::report_rate_hz`].
+    pub pen_rate_ema_hz: f32,
     /// Latest Wacom tablet-pad state (`ExpressKeys` + touch-ring), or `None`
     /// until a pad backend delivers one.
     pub pad_state: Option<WacomPadState>,
@@ -672,6 +686,8 @@ impl GestureAndDragManager {
             pen_state: None,
             previous_pen_state: None,
             pen_event_pending: false,
+            last_pen_sample_nanos: None,
+            pen_rate_ema_hz: 0.0,
             pad_state: None,
             tablet_devices: Vec::new(),
             long_press_callbacks_invoked: Vec::new(),
@@ -1010,7 +1026,7 @@ impl GestureAndDragManager {
     /// extended fields (`tangential_pressure`, `barrel_roll_rad`,
     /// `tool_id`) default to `0` — pass [`update_pen_state_full`] when
     /// the platform reports them.
-    pub const fn update_pen_state(
+    pub fn update_pen_state(
         &mut self,
         position: LogicalPosition,
         pressure: f32,
@@ -1036,7 +1052,7 @@ impl GestureAndDragManager {
 
     /// Update pen/stylus state including the extended axes (W3C
     /// `PointerEvent.tangentialPressure` + `twist`) and per-tool id.
-    pub const fn update_pen_state_full(
+    pub fn update_pen_state_full(
         &mut self,
         position: LogicalPosition,
         pressure: f32,
@@ -1049,6 +1065,26 @@ impl GestureAndDragManager {
         barrel_roll_rad: f32,
         tool_id: u32,
     ) {
+        // Report-rate measurement: EMA over the inter-sample interval on the
+        // shared monotonic clock. A gap over one second (left and re-entered
+        // proximity without a proximity-out, app stall) restarts the
+        // estimate instead of averaging in a bogus slow sample.
+        let now = crate::probe::monotonic_now_nanos();
+        if let Some(prev) = self.last_pen_sample_nanos {
+            let dt_s = now.saturating_sub(prev) as f32 / 1e9;
+            if dt_s > 0.0 && dt_s < 1.0 {
+                let inst = 1.0 / dt_s.max(1e-4);
+                self.pen_rate_ema_hz = if self.pen_rate_ema_hz > 0.0 {
+                    self.pen_rate_ema_hz * 0.9 + inst * 0.1
+                } else {
+                    inst
+                };
+            } else {
+                self.pen_rate_ema_hz = 0.0;
+            }
+        }
+        self.last_pen_sample_nanos = Some(now);
+
         self.previous_pen_state = self.pen_state;
         self.pen_state = Some(PenState {
             position,
@@ -1064,6 +1100,7 @@ impl GestureAndDragManager {
             tangential_pressure,
             barrel_roll_rad,
             tool_id,
+            report_rate_hz: self.pen_rate_ema_hz,
         });
         self.pen_event_pending = true;
     }
@@ -1073,6 +1110,9 @@ impl GestureAndDragManager {
         self.previous_pen_state = self.pen_state;
         self.pen_state = None;
         self.pen_event_pending = true;
+        // Proximity ended: the next session measures afresh.
+        self.last_pen_sample_nanos = None;
+        self.pen_rate_ema_hz = 0.0;
     }
 
     /// Get current pen state (read-only)

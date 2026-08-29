@@ -2025,13 +2025,60 @@ pub fn run(
 
         // Tray: dispatch D-Bus traffic. This is what ANSWERS the panel — SNI
         // is ~90% property reads, and a host whose GetAll times out shows no
-        // icon at all. The macOS loop has pumped its tray since it landed;
-        // the Linux loop never did, so the item registered with the watcher
-        // and then went silent. The returned menu callbacks are empty until
-        // the dbusmenu half exists (see tray/linux.rs) — when it does, they
-        // get dispatched against the first window like macOS's
-        // pump_tray_into_windows does.
-        let _ = crate::desktop::tray::pump_tray();
+        // icon at all. The returned callbacks are the panel-drawn dbusmenu's
+        // clicks (tray/linux.rs serves com.canonical.dbusmenu); run them
+        // against the first window, the same shape as macOS's
+        // pump_tray_into_windows — a CallbackInfo needs a window to exist.
+        {
+            let tray_callbacks = crate::desktop::tray::pump_tray();
+            if !tray_callbacks.is_empty() {
+                use crate::desktop::shell2::common::event::{MenuInvocation, PlatformWindow};
+                use azul_core::events::ProcessEventResult;
+                if let Some(win_ptr) = window_ids
+                    .first()
+                    .and_then(|wid| unsafe { registry::get_window(*wid) })
+                {
+                    match unsafe { &mut *win_ptr } {
+                        LinuxWindow::X11(w) => {
+                            for cb in tray_callbacks {
+                                if !matches!(
+                                    w.invoke_menu_callback(
+                                        cb,
+                                        MenuInvocation::Native {
+                                            site: "linux.tray_menu"
+                                        }
+                                    ),
+                                    ProcessEventResult::DoNothing
+                                ) {
+                                    w.request_redraw();
+                                }
+                            }
+                        }
+                        LinuxWindow::Wayland(w) => {
+                            for cb in tray_callbacks {
+                                if !matches!(
+                                    w.invoke_menu_callback(
+                                        cb,
+                                        MenuInvocation::Native {
+                                            site: "linux.tray_menu"
+                                        }
+                                    ),
+                                    ProcessEventResult::DoNothing
+                                ) {
+                                    w.request_redraw();
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    log_debug!(
+                        debug_server::LogCategory::Callbacks,
+                        "[tray] {} menu callback(s) had no window to run against",
+                        tray_callbacks.len()
+                    );
+                }
+            }
+        }
 
         // Process events for all windows
         for wid in &window_ids {
