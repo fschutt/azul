@@ -602,6 +602,11 @@ build-dll = [
     # (linux/windows) `gpu-video`, so libazul.so gives the C video player real
     # frames instead of the stub. No-op decoder on platforms without a backend.
     "video-native",
+    # OTLP telemetry compiled into the shipped dylib so any app (and the
+    # link-dynamic demos) can opt in at RUNTIME via AZ_TELEMETRY=... without a
+    # special build. Consent stays dual-keyed: linking this in sends NOTHING
+    # until the user/env turns a tier on (default Off).
+    "telemetry",
 ]
 
 # SQLite-backed `Db` API (P4.3). Pulls the bundled-SQLite `rusqlite`
