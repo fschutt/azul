@@ -334,6 +334,8 @@ mod text3_shaping_cache_identity;
 mod text3_shaping_exact;
 #[path = "text3_visual.rs"]
 mod text3_visual;
+#[path = "scroll_degenerate_ifc.rs"]
+mod scroll_degenerate_ifc;
 #[path = "radio_group_geometry.rs"]
 mod radio_group_geometry;
 #[path = "text_edit_seam_regressions.rs"]
