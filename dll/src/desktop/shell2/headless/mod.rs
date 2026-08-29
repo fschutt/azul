@@ -609,6 +609,18 @@ impl CpuBackend {
         // Compute display list damage (incremental path)
         let mut patch_moved_union: Option<azul_core::geom::LogicalRect> = None;
         let dl_damage = match &self.previous_display_list {
+            // SAME Arc = the DL cache served the identical list (the scroll
+            // steady state): zero items changed BY DEFINITION, and the
+            // shift/strip path owns every changed pixel. The O(items) walk
+            // below cost ~6ms/frame on a multi-thousand-item page for a
+            // provably-empty answer.
+            Some(old_dl)
+                if can_reuse_previous_frame
+                    && !gpu_damage.needs_full
+                    && std::sync::Arc::ptr_eq(old_dl, display_list) =>
+            {
+                Some(Vec::new())
+            }
             Some(old_dl) if can_reuse_previous_frame && !gpu_damage.needs_full => {
                 // The per-frame OLD-vs-NEW item walk - O(items) visual
                 // equality over the whole list, every frame. Spanned so the
