@@ -2671,6 +2671,11 @@ impl CPUView {
         pixmap_h: usize,
         damage: Option<&[(u32, u32, u32, u32)]>,
     ) {
+        // The engine-pixmap -> NSView-framebuffer copy, as a phase: together
+        // with scroll_shift_memmove and the AppKit dirty-rect draw this is
+        // the whole per-frame present cost of the CPU backend.
+        let _p = azul_layout::probe::Probe::span("present_view_blit");
+
         let ivars = self.ivars();
         let mut view_w = ivars.width.get();
         let mut view_h = ivars.height.get();

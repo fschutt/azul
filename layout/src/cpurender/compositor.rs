@@ -1472,6 +1472,11 @@ fn scroll_shift_region_impl(
     exact_strips: bool,
     unswizzle_rb_moved: bool,
 ) -> Vec<LogicalRect> {
+    // The "just move the pixels" cost of a scroll frame, made visible as a
+    // phase: this memmove inside OUR pixmap (plus the strip raster the
+    // caller does after) IS the scroll fast path on the CPU backend - there
+    // is no OS-compositor layer move below it.
+    let _p = crate::probe::Probe::span("scroll_shift_memmove");
     // Physical shift = difference of the ROUNDED offsets, not the rounded
     // difference. Rounding each frame's delta independently accumulates up to
     // 0.5px of error per step at fractional dpi (the moved block drifts away
