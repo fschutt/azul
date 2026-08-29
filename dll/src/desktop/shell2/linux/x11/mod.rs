@@ -3628,7 +3628,17 @@ impl X11Window {
                 .as_ref()
                 .map(|lw| !lw.threads.is_empty())
                 .unwrap_or(false);
-            let timeout_ms: i32 = if has_threads { 16 } else { -1 };
+            // A live tray talks D-Bus, whose fd is not in this poll set — the
+            // panel's property reads sit unanswered until the loop wakes. Cap
+            // the park so the run loop's tray pump runs a few times a second.
+            let has_tray = crate::desktop::tray::has_live_tray();
+            let timeout_ms: i32 = if has_threads {
+                16
+            } else if has_tray {
+                100
+            } else {
+                -1
+            };
             // A trackpad gesture end is inferred from SILENCE (XI2 has no
             // gesture-end event), so nothing will wake this poll to observe
             // it. Shorten the park to the remaining idle budget instead —

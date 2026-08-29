@@ -2667,10 +2667,16 @@ impl WaylandWindow {
             // While closing, poll with 0 so the iteration completes and the run
             // loop reaches its `get_all_window_ids()` check and unregisters.
             let closing = !self.is_open || self.common.current_window_state().flags.close_requested;
+            // A live tray talks D-Bus, whose fd is not in this poll set — cap
+            // the park so the run loop's tray pump answers the panel's
+            // property reads (same reasoning as `has_threads`).
+            let has_tray = crate::desktop::tray::has_live_tray();
             let timeout_ms: i32 = if closing {
                 0
             } else if has_threads {
                 16
+            } else if has_tray {
+                100
             } else {
                 -1
             };

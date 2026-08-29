@@ -136,6 +136,15 @@ pub fn install_tray(
     }
 }
 
+/// Is a tray icon currently installed? The Linux event loops read this to
+/// bound their poll: the tray's D-Bus fd is not in the wait set, so an
+/// unbounded park would leave the panel's property reads unanswered until
+/// some unrelated window event happened to wake the loop.
+#[must_use]
+pub fn has_live_tray() -> bool {
+    LIVE_TRAY.with(|c| c.borrow().is_some())
+}
+
 /// Per-iteration tray work — currently draining menu clicks into the event
 /// mailbox. Cheap and self-gating when there is no tray.
 ///

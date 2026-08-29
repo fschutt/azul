@@ -2023,6 +2023,16 @@ pub fn run(
             break;
         }
 
+        // Tray: dispatch D-Bus traffic. This is what ANSWERS the panel — SNI
+        // is ~90% property reads, and a host whose GetAll times out shows no
+        // icon at all. The macOS loop has pumped its tray since it landed;
+        // the Linux loop never did, so the item registered with the watcher
+        // and then went silent. The returned menu callbacks are empty until
+        // the dbusmenu half exists (see tray/linux.rs) — when it does, they
+        // get dispatched against the first window like macOS's
+        // pump_tray_into_windows does.
+        let _ = crate::desktop::tray::pump_tray();
+
         // Process events for all windows
         for wid in &window_ids {
             if let Some(win_ptr) = unsafe { registry::get_window(*wid) } {
