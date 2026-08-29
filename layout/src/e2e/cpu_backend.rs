@@ -264,6 +264,17 @@ impl CpuBackend {
         // Display-list damage (incremental path)
         let mut patch_moved_union: Option<LogicalRect> = None;
         let dl_damage = match &self.previous_display_list {
+            // SAME Arc = the DL cache served the identical list (scroll
+            // steady state): zero item changes by definition - mirror of the
+            // dll present path's shortcut, so the twin measures what the
+            // device does.
+            Some(old_dl)
+                if can_reuse_previous_frame
+                    && !gpu_damage.needs_full
+                    && std::sync::Arc::ptr_eq(old_dl, display_list) =>
+            {
+                Some(Vec::new())
+            }
             Some(old_dl) if can_reuse_previous_frame && !gpu_damage.needs_full => {
                 match cpurender::compute_display_list_damage_translated(
                     old_dl,
