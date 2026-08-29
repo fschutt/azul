@@ -634,23 +634,15 @@ fn insert_text_with_line_breaks(
 /// keep the PRODUCER of such a cursor loud in dev builds.
 fn sanitize_cursor(content: &[InlineContent], cursor: &TextCursor) -> TextCursor {
     let mut c = *cursor;
-    let n_runs = content.len();
-    let run_idx = c.cluster_id.source_run as usize;
-    if run_idx >= n_runs && n_runs > 0 {
-        debug_assert!(
-            false,
-            "cursor run {run_idx} is out of range ({n_runs} runs) - a stale \
-             cursor survived a content swap",
-        );
-        c.cluster_id.source_run = (n_runs - 1) as u32;
-        c.cluster_id.start_byte_in_run = u32::MAX; // clamped to len below
-    }
+    // An out-of-range RUN index keeps the ops' documented NO-OP semantics
+    // (redirecting to a different run would edit text the user never
+    // targeted) - only the BYTE within the addressed text run is repaired.
     if let Some(InlineContent::Text(run)) = content.get(c.cluster_id.source_run as usize) {
         let byte = c.cluster_id.start_byte_in_run as usize;
         let len = run.text.len();
         if byte > len {
             debug_assert!(
-                c.cluster_id.start_byte_in_run == u32::MAX,
+                false,
                 "cursor byte {byte} is past the run text (len {len}) - a \
                  stale cursor survived a content swap",
             );
@@ -1897,13 +1889,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn insert_text_leading_past_the_end_is_a_noop() {
-        // Asymmetry with the Trailing case above: a Leading offset beyond the run
-        // is NOT clamped, the insert is dropped and the caret is returned as-is.
+    fn insert_text_leading_past_the_end_clamps_to_the_end() {
+        // CONTRACT CHANGE (2026-08-29): a Leading offset beyond the run used
+        // to DROP the insert - the silent lost-keystroke channel, and the
+        // same stale-cursor family whose delete twin ABORTED the app on
+        // device. A stale past-end cursor now clamps to the end: the typed
+        // character lands where the user was looking (after the text).
         let content = vec![text("hi")];
         let (new_content, cursor) = insert_text(&content, &lead(0, 999), "!");
-        assert_eq!(dump(&new_content), vec!["hi"]);
-        assert_eq!(cursor, lead(0, 999));
+        assert_eq!(dump(&new_content), vec!["hi!"]);
+        assert_eq!(cursor, lead(0, 3));
     }
 
     #[test]
