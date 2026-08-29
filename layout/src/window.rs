@@ -799,7 +799,11 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         focus_manager: _,
         text_edit_manager: _,
         last_revealed_caret_rect: _,
-        text_selection_drag_anchor: _,
+        // NOT WALKED: transient reconcile input, alive only between the
+        // funnel's stash and the next re-materialization; typically empty at
+        // report time.
+        previous_child_arenas: _,
+            text_selection_drag_anchor: _,
         prev_left_down: _,
         file_drop_manager: _,
         clipboard_manager: _,
@@ -1189,6 +1193,31 @@ pub struct LayoutWindow {
     /// appeared, while the autoscroll derived from that degenerate pair still
     /// ran and scrolled the field.
     pub text_selection_drag_anchor: Option<LogicalPosition>,
+
+    /// The node arenas of every VirtualView child dom as of the previous full
+    /// pass, kept ONLY so re-materialization can reconcile instead of being a
+    /// rebirth.
+    ///
+    /// The full-relayout funnel destroys `layout_results` wholesale before the
+    /// VirtualView callbacks run again, so by the time a child dom is
+    /// re-materialized its old arena is gone — and with it any chance of
+    /// mapping old `NodeId`s to new ones. Every manager keyed
+    /// `(DomId, NodeId)` (overlay text, edit sessions, selections, focus,
+    /// undo) then silently crossed the generation onto a LIVE BUT WRONG node:
+    /// typing painted over the wrong paragraph, a drag-selection continued
+    /// against dangling cluster ids. Stashing (node_data, hierarchy) here —
+    /// the exact inputs `reconcile_dom` needs, nothing more — lets
+    /// `reconcile_rematerialized_child` drive the exhaustive
+    /// [`Self::remap_node_ids`] driver for child doms the same way root
+    /// migration does. Rebuilt from scratch each funnel pass; consumed
+    /// (removed) per dom at re-materialization.
+    pub previous_child_arenas: std::collections::BTreeMap<
+        DomId,
+        (
+            Vec<azul_core::dom::NodeData>,
+            Vec<azul_core::styled_dom::NodeHierarchyItem>,
+        ),
+    >,
     /// `left_down` as of the previous input pass, so the press EDGE can be
     /// detected where the shell does not hand over the previous window state.
     pub prev_left_down: bool,
@@ -1709,6 +1738,7 @@ impl LayoutWindow {
             text_edit_manager: crate::managers::text_edit::TextEditManager::new(),
             last_revealed_caret_rect: None,
             text_selection_drag_anchor: None,
+            previous_child_arenas: std::collections::BTreeMap::new(),
             prev_left_down: false,
             file_drop_manager: crate::managers::file_drop::FileDropManager::new(),
             clipboard_manager: crate::managers::clipboard::ClipboardManager::new(),
@@ -1891,6 +1921,23 @@ impl LayoutWindow {
                 self.document_edit_notified = None;
                 self.end_structural_previews();
             }
+        }
+
+        // Stash every child dom's arena before the clear, so re-materialization
+        // can reconcile against it (see `previous_child_arenas`). Rebuilt fresh
+        // each pass so a vanished host cannot leak a stale stash.
+        self.previous_child_arenas.clear();
+        for (dom_id, result) in &self.layout_results {
+            if *dom_id == DomId::ROOT_ID {
+                continue;
+            }
+            self.previous_child_arenas.insert(
+                *dom_id,
+                (
+                    result.styled_dom.node_data.as_ref().to_vec(),
+                    result.styled_dom.node_hierarchy.as_ref().to_vec(),
+                ),
+            );
         }
 
         // Clear previous results for a full relayout
@@ -6444,6 +6491,21 @@ impl LayoutWindow {
             .virtual_view_manager
             .get_or_create_nested_dom_id(parent_dom_id, node_id);
         child_styled_dom.dom_id = child_dom_id;
+
+        // RE-MATERIALIZATION IS A RECONCILE, NOT A REBIRTH. The fresh arena's
+        // NodeIds share nothing with the previous materialization's, and every
+        // manager keyed (DomId, NodeId) — overlay text, edit sessions,
+        // selections, focus, undo — would otherwise cross the generation onto
+        // a live but wrong node (typing painted over the WRONG paragraph; a
+        // drag-selection continued against dangling cluster ids; only hover
+        // was purged). Diff old vs new and drive the same exhaustive
+        // `remap_node_ids` driver root migration uses, so state follows
+        // content and unmatched nodes are GC'd.
+        self.reconcile_rematerialized_child(
+            child_dom_id,
+            &child_styled_dom,
+            (system_callbacks.get_system_time_fn.cb)(),
+        );
 
         // Update the VirtualViewManager with the new scroll sizes from the callback
         self.virtual_view_manager.update_virtual_view_info(
@@ -16577,6 +16639,54 @@ impl LayoutWindow {
     /// New node-keyed managers should implement [`crate::managers::NodeIdRemap`]
     /// and be driven from here.
     #[allow(clippy::too_many_lines)]
+    /// Map a re-materialized VirtualView child's manager state onto its new
+    /// arena. See the call site in `invoke_virtual_view_callback_impl` for why;
+    /// see `previous_child_arenas` for where the old arena survives the
+    /// full-relayout funnel's `layout_results.clear()`.
+    ///
+    /// Deliberately THIN: the diff is [`azul_core::diff::reconcile_dom`] (the
+    /// same one root migration and the e2e reconciliation use) and the state
+    /// walk is the exhaustive [`Self::remap_node_ids`] driver — this function
+    /// only finds the old arena and connects the two.
+    fn reconcile_rematerialized_child(
+        &mut self,
+        child_dom_id: DomId,
+        new_styled_dom: &StyledDom,
+        now: Instant,
+    ) {
+        // The old arena: still live on the programmatic re-invoke path, or
+        // stashed by the funnel just before it cleared `layout_results`.
+        let old = self.layout_results.get(&child_dom_id).map_or_else(
+            || self.previous_child_arenas.remove(&child_dom_id),
+            |r| {
+                Some((
+                    r.styled_dom.node_data.as_ref().to_vec(),
+                    r.styled_dom.node_hierarchy.as_ref().to_vec(),
+                ))
+            },
+        );
+        let Some((old_node_data, old_hierarchy)) = old else {
+            // First materialization: nothing to map from.
+            return;
+        };
+
+        let new_node_data = new_styled_dom.node_data.as_ref().to_vec();
+        let new_hierarchy = new_styled_dom.node_hierarchy.as_ref().to_vec();
+        let empty_layout = azul_core::OrderedMap::default();
+        let diff = azul_core::diff::reconcile_dom(
+            &old_node_data,
+            &new_node_data,
+            &old_hierarchy,
+            &new_hierarchy,
+            &empty_layout,
+            &empty_layout,
+            child_dom_id,
+            now,
+        );
+        let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+        self.remap_node_ids(child_dom_id, &map);
+    }
+
     pub fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
         use crate::managers::NodeIdRemap;
 
@@ -16594,6 +16704,10 @@ impl LayoutWindow {
             // it would compare against a rect that no longer means anything.
             last_revealed_caret_rect: _,
             text_selection_drag_anchor: _,
+            // OLD-arena data BY DESIGN: this is the reconcile INPUT for child
+            // doms, keyed by DomId and holding pre-remap NodeIds on purpose.
+            // Remapping it would corrupt the very diff it exists to feed.
+            previous_child_arenas: _,
             prev_left_down: _,
             laid_out_dock_generation: _,
             inline_tear,
