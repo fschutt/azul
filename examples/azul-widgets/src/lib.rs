@@ -629,6 +629,11 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
                 "ComboBox",
                 ComboBox::new(strs(&["Apple", "Banana", "Cherry", "Date"]))
                     .with_placeholder("Pick a fruit")
+                    // The widget is rebuilt from this state on every layout
+                    // (the comment on `combo_text` says why) — without feeding
+                    // the stored text back in, any `RefreshDom` from anywhere
+                    // blanks the field back to its placeholder.
+                    .with_text(s.combo_text.clone())
                     .with_on_select(
                         data.clone(),
                         ComboBoxOnSelectCallback {

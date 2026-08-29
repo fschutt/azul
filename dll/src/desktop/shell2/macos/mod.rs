@@ -446,6 +446,13 @@ mod view_handlers {
             };
             if let Some(pending_menu) = pending_menu {
                 present_pending_context_menu(&pending_menu);
+                // The pop-up returned; a picked item's action tag is already in
+                // the pending queue. Drain on a fresh borrow so the callback +
+                // redraw run now — in the manual loop no further NSEvent is
+                // guaranteed (the tracking session consumed the click).
+                unsafe {
+                    (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
+                }
             }
         }
     }
@@ -1363,6 +1370,21 @@ define_class!(
             };
             if let Some(pending) = pending {
                 present_pending_context_menu(&pending);
+                // The pop-up returned: if the user picked an item, its action
+                // tag is sitting in the pending-menu-action queue RIGHT NOW —
+                // and in the manual event loop nothing is guaranteed to run
+                // `drain_loop_work` again before the loop blocks in
+                // `runMode:beforeDate:` (the tracking loop consumed the click,
+                // so no NSEvent follows). Drain here, on a fresh short-lived
+                // borrow (the presenting borrow ended above), so the item's
+                // callback runs and its redraw is scheduled immediately
+                // instead of on the next unrelated event.
+                let window_ptr = *self.ivars().window_ptr.borrow();
+                if let Some(window_ptr) = window_ptr {
+                    unsafe {
+                        (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
+                    }
+                }
             }
         }
 
@@ -2241,6 +2263,15 @@ define_class!(
             };
             if let Some(pending) = pending {
                 present_pending_context_menu(&pending);
+                // Same as the GLView twin: the selected item's tag is queued by
+                // the time the pop-up returns — drain it now so the callback
+                // and its redraw do not wait for the next unrelated event.
+                let window_ptr = *self.ivars().window_ptr.borrow();
+                if let Some(window_ptr) = window_ptr {
+                    unsafe {
+                        (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
+                    }
+                }
             }
         }
 

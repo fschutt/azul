@@ -919,20 +919,29 @@ extern "C" fn on_day_click(mut data: RefAny, mut info: CallbackInfo) -> Update {
 
     restyle_days(&mut info, clicked);
 
-    // Reflect the pick in the FIELD and shut the calendar — the popup is a real
+    // Shut the calendar and reflect the pick in the FIELD — the popup is a real
     // window now, so it does not go away by itself on a click inside it.
-    // clicked -> week row -> grid -> panel -> <transient-window> -> field.
+    // clicked -> week row -> grid -> panel -> popup. All five exist in BOTH
+    // doms: in the parent, `popup` is the `<transient-window>` node; inside the
+    // popup WINDOW's extracted dom it is the popup's own root, and
+    // `set_transient_window_open(false)` on it is the shell's "this popup
+    // dismisses itself" (it posts `dismissed` and the parent then fires
+    // `Dismissed` on the node). The FIELD only exists in the parent dom — the
+    // old version nested the close under `get_parent(popup)`, so a day click
+    // inside the real popup window closed NOTHING and filled NOTHING.
     if let Some(row) = info.get_parent(clicked) {
         if let Some(grid) = info.get_parent(row) {
             if let Some(panel) = info.get_parent(grid) {
                 if let Some(popup) = info.get_parent(panel) {
+                    info.set_transient_window_open(popup, false);
+                    // Parent dom only; the popup-side pick reaches the field
+                    // through `on_date_picker_dismissed` instead.
                     if let Some(field) = info.get_parent(popup) {
                         if let Some(value_p) = info.get_first_child(field) {
                             if let Some(text) = info.get_first_child(value_p) {
                                 info.change_node_text(text, AzString::from(new_label));
                             }
                         }
-                        info.set_transient_window_open(popup, false);
                     }
                 }
             }
@@ -1020,11 +1029,29 @@ extern "C" fn on_date_field_toggle(mut data: RefAny, mut info: CallbackInfo) -> 
 
 /// The popup dismissed itself (outside click / Escape). Clear `open` so the
 /// next field click opens instead of "closing" an already-closed calendar.
-extern "C" fn on_date_picker_dismissed(mut data: RefAny, _info: CallbackInfo) -> Update {
-    let Some(mut w) = data.downcast_mut::<DatePickerData>() else {
-        return Update::DoNothing;
+extern "C" fn on_date_picker_dismissed(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let label = {
+        let Some(mut w) = data.downcast_mut::<DatePickerData>() else {
+            return Update::DoNothing;
+        };
+        w.open = false;
+        format_date(&w.state.inner)
     };
-    w.open = false;
+    // Runs in the PARENT window (the `Dismissed` event targets the
+    // `<transient-window>` node there): the one place a day picked INSIDE the
+    // popup window — which mutated the shared state but cannot address the
+    // parent's field — reaches the field text. For an outside-click dismissal
+    // the state is unchanged, so this re-writes what the field already shows
+    // (`ChangeNodeText` short-circuits identical text).
+    // popup (= event target) -> field -> value <p> -> text leaf.
+    let popup = info.get_hit_node();
+    if let Some(field) = info.get_parent(popup) {
+        if let Some(value_p) = info.get_first_child(field) {
+            if let Some(text) = info.get_first_child(value_p) {
+                info.change_node_text(text, AzString::from(label));
+            }
+        }
+    }
     Update::DoNothing
 }
 
