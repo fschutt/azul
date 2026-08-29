@@ -4252,10 +4252,27 @@ impl MacOSWindow {
                         ns_window as *mut objc2::runtime::AnyObject,
                     ) {
                         let win = &mut *win;
-                        if win.redraw_requested
+                        let pending = win.redraw_requested
                             || win.common.display_list_dirty
-                            || win.common.regeneration_pending()
-                        {
+                            || win.common.regeneration_pending();
+                        if pending && win.backend == RenderBackend::CPU {
+                            // RENDER AT THE TICK, not in drawRect. The old
+                            // flow rendered frame N inside drawRect while
+                            // DISPLAYING frame N-1's marks - a one-frame-lag
+                            // self-chain that paced at ~20ms regardless of a
+                            // ~11ms frame cost. Rendering here (main queue,
+                            // outside drawing; the CPU path needs no GL
+                            // context) issues the damage marks NOW, AppKit
+                            // displays them at the end of THIS runloop
+                            // cycle, and drawRect degenerates to the pure
+                            // blit its own pending-work check already makes
+                            // it. One frame per vsync, no self-chain.
+                            pace_trace("vsync-render");
+                            let _ = win.render_and_present_in_draw_rect();
+                        } else if pending {
+                            // GL (and any backend that must render inside
+                            // drawRect): deliver the invalidation and let
+                            // drawRect do the work, still vsync-aligned.
                             pace_trace("vsync-deliver");
                             win.deliver_invalidation_now();
                         }
