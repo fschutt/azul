@@ -916,11 +916,61 @@ impl Runner {
                 azul_core::events::default_input_interpreter(&info)
             };
             for change in &pre_filter.system_changes {
-                if let SystemChange::ApplySelectionOp { target, op } = change {
-                    if self.layout_window.apply_selection_op(*target, op) {
-                        result =
-                            result.max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                match change {
+                    SystemChange::ApplySelectionOp { target, op } => {
+                        if self.layout_window.apply_selection_op(*target, op) {
+                            result = result
+                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        }
                     }
+                    // Port of the DLL's `apply_system_change` arm
+                    // (`event.rs`, `SystemChange::TextSelectionClick`): the
+                    // interpreter turns a MouseDown over a hovered node into
+                    // this change, and applying it is what places the caret
+                    // AT THE CLICKED CHARACTER. This arm DID NOT EXIST here:
+                    // only `ApplySelectionOp` was applied, so in every e2e
+                    // scenario a click focused the editable (caret seeded at
+                    // the END by the focus path) but never moved the caret to
+                    // the click — `e2e/bug-textinput-resize-select-visual.json`
+                    // is the scenario that caught it.
+                    SystemChange::TextSelectionClick {
+                        position,
+                        timestamp,
+                    } => {
+                        let time_ms = self.now().duration_since(timestamp).as_millis_u64();
+                        if self
+                            .layout_window
+                            .process_mouse_click_for_selection(*position, time_ms)
+                            .is_some()
+                        {
+                            result = result
+                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        }
+                    }
+                    // Port of the DLL's `TextSelectionDrag` arm, including its
+                    // node-drag suppression.
+                    SystemChange::TextSelectionDrag {
+                        start_position,
+                        current_position,
+                    } => {
+                        if !self.layout_window.gesture_drag_manager.is_node_drag_active()
+                            && self
+                                .layout_window
+                                .process_mouse_drag_for_selection(
+                                    *start_position,
+                                    *current_position,
+                                )
+                                .is_some()
+                        {
+                            result = result
+                                .max(ProcessEventResult::ShouldUpdateDisplayListCurrentWindow);
+                        }
+                    }
+                    // Still unported (dropped, as the whole set was before):
+                    // AddCursorAtClick (Cmd+click multi-cursor), the clipboard
+                    // trio (deferred post-callback in the DLL), auto-scroll
+                    // timer arms. Port them next to a scenario that needs them.
+                    _ => {}
                 }
             }
         }

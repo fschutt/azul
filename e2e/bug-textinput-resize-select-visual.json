@@ -1,0 +1,192 @@
+{
+ "name": "bug_textinput_resize_select_visual",
+ "description": "DEVICE BUG PIN (AzWidgets TextInput, macOS CPU mode, 2026-08-29): after a live resize shrank the field so its value clipped, then grew the window back so the text was fully visible again, clicking the text placed no VISIBLE caret and dragging painted no selection - while drag auto-scroll still worked, so a hit path was alive but the caret/selection VISUAL path was dead. The azul-layout harness (tests/textinput_resize_selection.rs) validates every crate-internal layer green (session state, CursorRect/SelectionRect display-list items, rasterized pixels, compute_display_list_damage coverage), so this scenario pins the remaining headless layers: the REAL event pipeline (mouse_down state diff -> TextSelectionClick), the REAL frame loop, the CpuBackend retained-pixmap damage/present split, and the PRESENTED pixels. BEAT 1 (premise): at 800px the value fits; a click paints a caret (frame changes, cursor state exists). BEAT 2: shrink to 200px (value clips), grow back to 800px - the exact user repro. BEAT 3 (the bug): a click on visible text must still create a cursor, the caret must be visible, and the frame MUST CHANGE - a green assert_changed here means the caret reached the glass; the device failure mode is exactly this assert going red. BEAT 4: a drag across the text must paint selection bands (frame changes again). DEVICE-FAITHFUL REGEN: each resize is followed by a re-mount of the IDENTICAL document (the shells re-invoke the app layout() on a full regeneration - orientation crossing does that unconditionally, window.rs resize_needs_full_regeneration line 1637), so the click after the cycle ALSO validates that the editing session, cursor, focus and scroll survive the reconciliation/migration path (begin/finish_reconciliation + manager remap) - the user-stated contract of the diffing.",
+ "setup": {
+  "window_width": 800,
+  "window_height": 200,
+  "dpi": 96
+ },
+ "steps": [
+  {
+   "op": "mount",
+   "html": [
+    "<div id=\"ed\" contenteditable=\"true\"><p id=\"v\">a quick brown fox jumps over the lazy dog</p></div>"
+   ],
+   "css": [
+    "html, body { margin: 0; padding: 0; }",
+    "body { font-size: 24px; color: black; background: white; }",
+    "#ed { width: 100%; background: white; }",
+    "#v { display: block; margin: 0; overflow-x: auto; overflow-y: hidden; white-space: pre; scrollbar-width: none; }"
+   ]
+  },
+  {
+   "op": "wait_frame"
+  },
+  {
+   "op": "wait",
+   "ms": 120
+  },
+  {
+   "op": "assert_exists",
+   "selector": "#v"
+  },
+  {
+   "op": "reset_frame_counters"
+  },
+  {
+   "op": "snapshot_frame",
+   "as": "pre_click1"
+  },
+  {
+   "op": "mouse_down",
+   "x": 60,
+   "y": 15
+  },
+  {
+   "op": "mouse_up",
+   "x": 60,
+   "y": 15
+  },
+  {
+   "op": "wait_frame"
+  },
+  {
+   "op": "wait",
+   "ms": 50
+  },
+  {
+   "op": "get_cursor_state"
+  },
+  {
+   "op": "assert_response",
+   "type": "cursor_state",
+   "contains": "\"has_cursor\":true"
+  },
+  {
+   "op": "assert_changed",
+   "vs": "pre_click1",
+   "min_damage_rects": 1
+  },
+  {
+   "op": "resize",
+   "width": 200,
+   "height": 200
+  },
+  {
+   "op": "mount",
+   "html": [
+    "<div id=\"ed\" contenteditable=\"true\"><p id=\"v\">a quick brown fox jumps over the lazy dog</p></div>"
+   ],
+   "css": [
+    "html, body { margin: 0; padding: 0; }",
+    "body { font-size: 24px; color: black; background: white; }",
+    "#ed { width: 100%; background: white; }",
+    "#v { display: block; margin: 0; overflow-x: auto; overflow-y: hidden; white-space: pre; scrollbar-width: none; }"
+   ]
+  },
+  {
+   "op": "wait_frame"
+  },
+  {
+   "op": "wait",
+   "ms": 120
+  },
+  {
+   "op": "resize",
+   "width": 800,
+   "height": 200
+  },
+  {
+   "op": "mount",
+   "html": [
+    "<div id=\"ed\" contenteditable=\"true\"><p id=\"v\">a quick brown fox jumps over the lazy dog</p></div>"
+   ],
+   "css": [
+    "html, body { margin: 0; padding: 0; }",
+    "body { font-size: 24px; color: black; background: white; }",
+    "#ed { width: 100%; background: white; }",
+    "#v { display: block; margin: 0; overflow-x: auto; overflow-y: hidden; white-space: pre; scrollbar-width: none; }"
+   ]
+  },
+  {
+   "op": "wait_frame"
+  },
+  {
+   "op": "wait",
+   "ms": 120
+  },
+  {
+   "op": "snapshot_frame",
+   "as": "after_grow"
+  },
+  {
+   "op": "mouse_down",
+   "x": 200,
+   "y": 15
+  },
+  {
+   "op": "mouse_up",
+   "x": 200,
+   "y": 15
+  },
+  {
+   "op": "wait_frame"
+  },
+  {
+   "op": "wait",
+   "ms": 50
+  },
+  {
+   "op": "get_cursor_state"
+  },
+  {
+   "op": "assert_response",
+   "type": "cursor_state",
+   "contains": "\"has_cursor\":true"
+  },
+  {
+   "op": "assert_response",
+   "type": "cursor_state",
+   "contains": "\"is_visible\":true"
+  },
+  {
+   "op": "assert_changed",
+   "vs": "after_grow",
+   "min_damage_rects": 1
+  },
+  {
+   "op": "snapshot_frame",
+   "as": "pre_drag"
+  },
+  {
+   "op": "mouse_down",
+   "x": 60,
+   "y": 15
+  },
+  {
+   "op": "mouse_move",
+   "x": 200,
+   "y": 15
+  },
+  {
+   "op": "wait_frame"
+  },
+  {
+   "op": "mouse_up",
+   "x": 200,
+   "y": 15
+  },
+  {
+   "op": "wait_frame"
+  },
+  {
+   "op": "wait",
+   "ms": 50
+  },
+  {
+   "op": "assert_changed",
+   "vs": "pre_drag",
+   "min_damage_rects": 1
+  }
+ ]
+}
