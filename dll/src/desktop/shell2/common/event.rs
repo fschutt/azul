@@ -9104,9 +9104,16 @@ pub trait PlatformWindow {
                                         layout_results,
                                         focused_node,
                                     );
-                                    if let Ok(new_focus_node) = resolve_result {
+                                    // Tab with nothing tabbable (NotFound) no
+                                    // longer clears focus — a miss is not a
+                                    // clear (browser behavior). Only a real
+                                    // resolution moves it.
+                                    use azul_layout::managers::focus_cursor::FocusResolution;
+                                    if let Ok(FocusResolution::Resolved(new_focus_node)) =
+                                        resolve_result
+                                    {
                                         let r = self.apply_system_change(&SystemChange::SetFocus {
-                                            new_focus: new_focus_node,
+                                            new_focus: Some(new_focus_node),
                                             old_focus: focused_node,
                                         });
                                         result = result.max(r);
