@@ -616,3 +616,89 @@ fn the_virtualized_documents_scrollbar_is_painted_once_its_size_is_published() {
          published virtual size is not reaching the display-list build"
     );
 }
+
+/// The IME/window-space lift must agree with the RENDERER's composition: the
+/// nested dom's window-space origin is, by definition, where the host display
+/// list's `VirtualView` item composites it (`bounds.origin + content_offset`).
+/// `window_space_offset_of_dom` used to re-derive this from layout positions —
+/// a fourth, chain-unaware answer — which is exactly how an IME candidate
+/// window drifted off a caret that clicks could still hit.
+#[test]
+fn the_window_space_lift_agrees_with_what_the_renderer_composites() {
+    let h = Harness::new(Doc::Paragraphs);
+    let (nested, _host) = h.virtual_view();
+
+    let item = h
+        .lw
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("root layout")
+        .display_list
+        .items
+        .iter()
+        .find_map(|item| match item {
+            DisplayListItem::VirtualView {
+                child_dom_id,
+                bounds,
+                content_offset,
+                ..
+            } if *child_dom_id == nested => Some((*bounds.inner(), *content_offset)),
+            _ => None,
+        })
+        .expect("the host display list mounts the nested dom");
+    let (bounds, content_offset) = item;
+
+    let lifted = h.lw.window_space_offset_of_dom(nested);
+    let composited = LogicalPosition::new(
+        bounds.origin.x + content_offset.x,
+        bounds.origin.y + content_offset.y,
+    );
+    assert!(
+        (lifted.x - composited.x).abs() < 0.01 && (lifted.y - composited.y).abs() < 0.01,
+        "window_space_offset_of_dom answers {lifted:?} but the renderer \
+         composites the child at {composited:?} — the two derivations drifted"
+    );
+    assert!(
+        composited.y > 0.0,
+        "premise: the host does not sit at the window origin (chrome above it)"
+    );
+}
+
+/// The device symptom "typed text sits at the very TOP of the page": the sheet
+/// declares `padding: 96px`, so the first editable line's window-space y must
+/// sit at least that far below the sheet's top edge. If this holds headlessly,
+/// the AzWriter symptom is app-CSS-specific; if it fails, the padding is lost
+/// inside the VirtualView child layout itself.
+#[test]
+fn the_blank_pages_first_line_respects_the_sheet_padding() {
+    let h = Harness::new(Doc::Blank);
+    let (nested, _vv) = h.virtual_view();
+    let line = h.first_editable_line(nested);
+    let (line_origin, _) = h
+        .window_rect(nested, line)
+        .expect("the empty paragraph keeps a strut line box");
+
+    // The sheet is the page-sized ancestor of the line.
+    let lr = h.lw.get_layout_result(&nested).expect("nested layout");
+    let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+    let mut cur = line;
+    let mut sheet = None;
+    while let Some(parent) = hierarchy.get(cur).and_then(|n| n.parent_id()) {
+        if let Some((_, size)) = h.window_rect(nested, parent) {
+            if (size.width - PAGE_W).abs() < 2.0 && (size.height - PAGE_H).abs() < 2.0 {
+                sheet = Some(parent);
+                break;
+            }
+        }
+        cur = parent;
+    }
+    let sheet = sheet.expect("a page-sized ancestor above the first line");
+    let (sheet_origin, _) = h.window_rect(nested, sheet).expect("sheet rect");
+
+    assert!(
+        line_origin.y >= sheet_origin.y + PAGE_PAD - 1.0,
+        "the first line sits {}px below the sheet top; the sheet declares \
+         {PAGE_PAD}px padding — the padding is being lost inside the \
+         VirtualView child layout",
+        line_origin.y - sheet_origin.y,
+    );
+}

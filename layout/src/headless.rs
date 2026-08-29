@@ -517,6 +517,39 @@ struct Placement {
 /// `VirtualView` item — the same nesting the renderer applies when it
 /// composites the child. Reference-frame owners come from
 /// `DisplayList::node_mapping` (item index → source node).
+/// WINDOW-space origin of a nested (VirtualView-mounted) dom's 0-relative
+/// coordinate space, by the raster's own composition rule
+/// `screen = T_total(pos − scroll_total)`.
+///
+/// THE one cross-dom lift: it reads the host display lists' `VirtualView`
+/// items via [`resolve_virtual_view_placements`] — the same records the CPU
+/// raster composites from and the hit-tester translates by — so an IME caret
+/// rect, a transient-window anchor and the painted pixels cannot disagree.
+/// (`LayoutWindow::window_space_offset_of_dom` used to re-derive this from
+/// `calculated_positions`, which knows nothing of ancestor scroll frames or
+/// reference-frame transforms in the host.)
+///
+/// `None` for the root dom or a dom no display list currently mounts.
+pub fn nested_dom_window_origin(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    dom_id: DomId,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> Option<LogicalPosition> {
+    let placements = resolve_virtual_view_placements(layout_results);
+    let p = placements.get(&dom_id)?;
+    let resolved = resolve_chain(&p.chain, resolve_scroll, resolve_transform);
+    let shifted = LogicalPosition {
+        x: p.rect.origin.x - resolved.scroll.x,
+        y: p.rect.origin.y - resolved.scroll.y,
+    };
+    Some(if resolved.has_transform {
+        resolved.forward.apply(shifted)
+    } else {
+        shifted
+    })
+}
+
 fn resolve_virtual_view_placements(
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
 ) -> BTreeMap<DomId, Placement> {
