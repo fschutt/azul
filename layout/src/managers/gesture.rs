@@ -480,15 +480,17 @@ pub struct TabletDeviceInfo {
     /// Human-readable vendor ("Wacom", "Huion", ...) resolved from
     /// `vendor_id` via [`tablet_usb_vendor_name`]; empty when unknown.
     pub vendor_name: AzString,
+    /// Kernel device node (`/dev/input/event..`) where known, else empty.
+    pub path: AzString,
+    /// The id [`PenState::device_id`] / [`WacomPadState::device_id`] report
+    /// on the same backend, so live state can be matched to an entry here.
+    pub device_id: u64,
     /// USB vendor id (0 = unknown).
     pub vendor_id: u32,
     /// USB product id (0 = unknown).
     pub product_id: u32,
     /// What this device is.
     pub kind: TabletToolKind,
-    /// The id [`PenState::device_id`] / [`WacomPadState::device_id`] report
-    /// on the same backend, so live state can be matched to an entry here.
-    pub device_id: u64,
     /// `TABLET_CAP_*` bitset.
     pub capabilities: u32,
     /// The driver's RAW pressure maximum (X11: the valuator range; Wayland:
@@ -502,8 +504,6 @@ pub struct TabletDeviceInfo {
     pub physical_height_mm: f32,
     /// Number of buttons the device reports (a pad: its `ExpressKeys`).
     pub num_buttons: u32,
-    /// Kernel device node (`/dev/input/event..`) where known, else empty.
-    pub path: AzString,
 }
 
 impl_option!(

@@ -55,7 +55,14 @@ pub fn set_app_icon(
     {
         macos::set_app_icon(spec, provider, font_manager)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    {
+        linux::set_app_icon(spec, provider, font_manager)
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        all(target_os = "linux", not(target_arch = "wasm32"))
+    )))]
     {
         let _ = (spec, provider, font_manager);
         IconOutcome::Unsupported
@@ -76,6 +83,85 @@ pub fn set_badge(label: Option<&str>) -> IconOutcome {
     {
         let _ = label;
         IconOutcome::Unsupported
+    }
+}
+
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+pub(crate) use linux::default_window_icons;
+
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+mod linux {
+    use std::sync::{Arc, Mutex};
+
+    use super::IconOutcome;
+
+    /// The rendered app icon, kept for windows created AFTER `set_app_icon`.
+    /// `(width, height, RGBA8)` per size. X11 window creation reads this when
+    /// the window options carry no icon of their own.
+    static DEFAULT_ICONS: Mutex<Option<Arc<Vec<(u32, u32, Vec<u8>)>>>> = Mutex::new(None);
+
+    /// The process-default window icon (set via `App::set_app_icon`), for the
+    /// X11 backend to apply at window creation.
+    pub(crate) fn default_window_icons() -> Option<Arc<Vec<(u32, u32, Vec<u8>)>>> {
+        DEFAULT_ICONS.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// X11: render the spec at the sizes `_NET_WM_ICON` consumers actually
+    /// use and set it on every live window + park it for future ones. The WM
+    /// picks the size (titlebar wants 16-32, Alt-Tab / taskbar previews want
+    /// 48-128).
+    ///
+    /// Wayland windows are left alone: without `xdg-toplevel-icon-v1` (which
+    /// KWin < 6.1 and all Mutter lack) there is no pixel path at all — the
+    /// icon comes from the `.desktop` file matched by `app_id`, and
+    /// pretending otherwise is how the generic-icon bug survives in other
+    /// toolkits. The outcome reflects what actually happened.
+    pub(super) fn set_app_icon(
+        spec: &str,
+        provider: &azul_core::icon::SharedIconProvider,
+        font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+    ) -> IconOutcome {
+        let mut icons: Vec<(u32, u32, Vec<u8>)> = Vec::new();
+        for size in [16u32, 32, 48, 128] {
+            if let Some(r) =
+                crate::desktop::tray::render_named_icon(spec, size, provider, font_manager)
+            {
+                icons.push((r.width, r.height, r.rgba));
+            }
+        }
+        if icons.is_empty() {
+            return IconOutcome::NotFound;
+        }
+        let icons = Arc::new(icons);
+        if let Ok(mut g) = DEFAULT_ICONS.lock() {
+            *g = Some(icons.clone());
+        }
+
+        // Apply to every live X11 window now; count what actually took it.
+        let mut applied = 0usize;
+        let mut saw_wayland = false;
+        for id in crate::desktop::shell2::linux::registry::get_all_window_ids() {
+            let Some(ptr) = (unsafe { crate::desktop::shell2::linux::registry::get_window(id) })
+            else {
+                continue;
+            };
+            match unsafe { &mut *ptr } {
+                crate::desktop::shell2::linux::LinuxWindow::X11(w) => {
+                    w.apply_app_icon(&icons);
+                    applied += 1;
+                }
+                crate::desktop::shell2::linux::LinuxWindow::Wayland(_) => {
+                    saw_wayland = true;
+                }
+            }
+        }
+        if applied > 0 || !saw_wayland {
+            // Applied to live windows, or parked for the windows to come on
+            // an X11 session that has none open yet.
+            IconOutcome::Applied
+        } else {
+            IconOutcome::Unsupported
+        }
     }
 }
 

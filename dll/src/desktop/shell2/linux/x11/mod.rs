@@ -2328,6 +2328,20 @@ impl X11Window {
         Ok(())
     }
 
+    /// Set this live window's `_NET_WM_ICON` — the `App::set_app_icon` path
+    /// for windows that already exist when the icon is set.
+    pub(crate) fn apply_app_icon(&mut self, icons: &[(u32, u32, Vec<u8>)]) {
+        let refs: Vec<(u32, u32, &[u8])> = icons
+            .iter()
+            .map(|(w, h, bytes)| (*w, *h, bytes.as_slice()))
+            .collect();
+        if !refs.is_empty() {
+            unsafe {
+                apply_net_wm_icon(&self.xlib, self.display, self.window, &refs);
+            }
+        }
+    }
+
     /// Create a new X11 window with shared resources
     ///
     /// This is the preferred way to create X11 windows, as it allows
@@ -2642,6 +2656,20 @@ impl X11Window {
                 match icon {
                     WindowIcon::Small(i) => icons.push((16, 16, i.rgba_bytes.as_ref())),
                     WindowIcon::Large(i) => icons.push((32, 32, i.rgba_bytes.as_ref())),
+                }
+            }
+            // No per-window icon: fall back to the process default from
+            // `App::set_app_icon`, so an app icon set at startup reaches
+            // every window (macOS gets this via the Dock; X11's app icon IS
+            // the window icon).
+            let default_icons = if icons.is_empty() {
+                crate::desktop::app_icon::default_window_icons()
+            } else {
+                None
+            };
+            if let Some(ref d) = default_icons {
+                for (w, h, bytes) in d.iter() {
+                    icons.push((*w, *h, bytes.as_slice()));
                 }
             }
             if !icons.is_empty() {

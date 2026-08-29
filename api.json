@@ -111810,6 +111810,25 @@
                                     }
                                 ],
                                 "fn_body": "object.run_tray_only()"
+                            },
+                            "is_tray_available": {
+                                "doc": [
+                                    "Whether anything on this system would DISPLAY a tray icon right now.",
+                                    "Always true on Windows and macOS. On Linux this checks that",
+                                    "org.kde.StatusNotifierWatcher is owned on the session bus AND that a",
+                                    "host (a panel) has registered with it - a vanilla GNOME has neither.",
+                                    "Lets an app be honest in its UI about whether the icon from",
+                                    "`App::set_tray` can appear."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.is_tray_available()"
                             }
                         },
                         "repr": "C"
@@ -115378,68 +115397,90 @@
                                     "doc": [
                                         "Driver-reported device name."
                                     ]
-                                },
+                                }
+                            },
+                            {
                                 "vendor_name": {
                                     "type": "String",
                                     "doc": [
                                         "Vendor display name resolved from vendor_id; empty when unknown."
                                     ]
-                                },
-                                "vendor_id": {
-                                    "type": "u32",
+                                }
+                            },
+                            {
+                                "path": {
+                                    "type": "String",
                                     "doc": [
-                                        "USB vendor id (0 = unknown)."
+                                        "Kernel device node (/dev/input/event..) where known, else empty."
                                     ]
-                                },
-                                "product_id": {
-                                    "type": "u32",
-                                    "doc": [
-                                        "USB product id (0 = unknown)."
-                                    ]
-                                },
-                                "kind": {
-                                    "type": "TabletToolKind"
-                                },
+                                }
+                            },
+                            {
                                 "device_id": {
                                     "type": "u64",
                                     "doc": [
                                         "Matches PenState.device_id / WacomPadState.device_id on the same backend."
                                     ]
-                                },
+                                }
+                            },
+                            {
+                                "vendor_id": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "USB vendor id (0 = unknown)."
+                                    ]
+                                }
+                            },
+                            {
+                                "product_id": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "USB product id (0 = unknown)."
+                                    ]
+                                }
+                            },
+                            {
+                                "kind": {
+                                    "type": "TabletToolKind"
+                                }
+                            },
+                            {
                                 "capabilities": {
                                     "type": "u32",
                                     "doc": [
                                         "TABLET_CAP_* bitset: 1 pressure, 2 tilt, 4 rotation, 8 slider, 16 wheel, 32 touch-ring."
                                     ]
-                                },
+                                }
+                            },
+                            {
                                 "pressure_max": {
                                     "type": "f32",
                                     "doc": [
                                         "Raw driver pressure maximum (diagnostic; PenState.pressure is normalized)."
                                     ]
-                                },
+                                }
+                            },
+                            {
                                 "physical_width_mm": {
                                     "type": "f32",
                                     "doc": [
                                         "Active-area width in millimeters, 0.0 = unknown."
                                     ]
-                                },
+                                }
+                            },
+                            {
                                 "physical_height_mm": {
                                     "type": "f32",
                                     "doc": [
                                         "Active-area height in millimeters, 0.0 = unknown."
                                     ]
-                                },
+                                }
+                            },
+                            {
                                 "num_buttons": {
                                     "type": "u32",
                                     "doc": [
                                         "Number of buttons the device reports (pad: ExpressKeys)."
-                                    ]
-                                },
-                                "path": {
-                                    "type": "String",
-                                    "doc": [
-                                        "Kernel device node (/dev/input/event..) where known, else empty."
                                     ]
                                 }
                             }
@@ -117492,28 +117533,6 @@
                             {
                                 "Popup": {},
                                 "Inline": {}
-                            }
-                        ],
-                        "repr": "C"
-                    },
-                    "OverscrollBehavior": {
-                        "external": "azul_css::props::style::scrollbar::OverscrollBehavior",
-                        "derive": [
-                            "Debug",
-                            "Copy",
-                            "Clone",
-                            "PartialEq",
-                            "Eq",
-                            "PartialOrd",
-                            "Ord",
-                            "Hash",
-                            "Default"
-                        ],
-                        "enum_fields": [
-                            {
-                                "Auto": {},
-                                "Contain": {},
-                                "None": {}
                             }
                         ],
                         "repr": "C"

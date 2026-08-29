@@ -105,9 +105,9 @@ fn main() {
     // uses, then renders to RGBA at whatever size the platform asks for.
     // Try any other Material Icons name - "home", "favorite", "cloud".
     let data = RefAny::new(TrayDemo {
-        // set_tray is best-effort and never fails the app; this is read only so
-        // the window can be honest about whether an icon actually appeared.
-        available: cfg!(target_os = "macos"),
+        // Filled in below via App::is_tray_available — a runtime question on
+        // Linux (watcher + host on the session bus), a constant elsewhere.
+        available: false,
         clicks: 0,
     });
 
@@ -134,10 +134,18 @@ fn main() {
         Dom::create_icon(String::from("favorite")).with_css("color: #d7263d;"),
     );
 
-    let mut app = App::create(data, config);
+    let mut app = App::create(data.clone(), config);
+    // The runtime answer (Linux: is a StatusNotifier host actually listening?)
+    // so the window text reports what the panel will really show.
+    let available = app.is_tray_available();
+    if let Some(mut d) = data.clone().downcast_mut::<TrayDemo>() {
+        d.available = available;
+    }
+    println!("[tray] tray available on this desktop: {available}");
     app.set_tray(tray);
-    // The Dock tile, from the same registry + pipeline as the tray icon. macOS
-    // documents this as temporary: it is process-local and resets next launch.
+    // The app icon, from the same registry + pipeline as the tray icon. On
+    // macOS this is the Dock tile (process-local, resets next launch); on
+    // X11 it is `_NET_WM_ICON` on every window (titlebar / taskbar / Alt-Tab).
     app.set_app_icon(String::from("red-heart"));
 
     let mut window = WindowCreateOptions::create(layout);

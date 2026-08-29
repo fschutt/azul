@@ -219,6 +219,17 @@ impl App {
         self.ptr.app_icon = Some(spec);
     }
 
+    /// Whether anything on this system would DISPLAY a tray icon right now.
+    ///
+    /// Always true on Windows and macOS. On Linux this is a real question:
+    /// it checks that `org.kde.StatusNotifierWatcher` is owned on the session
+    /// bus AND that a host (a panel) has registered with it — a vanilla GNOME
+    /// has neither. Apps use it to be honest in their UI about whether the
+    /// icon set via [`App::set_tray`] can appear.
+    pub fn is_tray_available(&self) -> bool {
+        crate::desktop::tray::TrayIcon::is_available()
+    }
+
     /// Run with a tray and NO window.
     ///
     /// For a menu-bar / system-tray utility that has no main window at all.

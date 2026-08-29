@@ -1,148 +1,744 @@
 //! Linux system tray — `org.kde.StatusNotifierItem` over D-Bus.
-//! **NOT IMPLEMENTED YET.**
 //!
-//! This stub exists so the branch cross-compiles while the backend is written.
-//! It reports the tray as unavailable rather than pretending to work — which,
-//! on this platform, is also frequently the TRUE answer (see below).
+//! Implemented: item registration with the watcher, the full property set
+//! (icon pixmaps in ARGB32 big-endian, tooltip, status, title), the
+//! `Activate` / `SecondaryActivate` / `ContextMenu` / `Scroll` methods (posted
+//! into the process-wide [`TrayEvent`] mailbox), `Introspectable`, an
+//! `org.freedesktop.DBus.Properties` handler, and the `New*` signals on
+//! update. Verified against xfce4-panel 4.18's StatusNotifier host.
 //!
-//! The DBus plumbing in `linux/dbus/` is reusable for the StatusNotifierItem
-//! implementation this needs.
+//! # Deliberately not here yet
 //!
-//! # The thing to know before starting
+//! * **`com.canonical.dbusmenu`** — the panel-drawn context menu. SNI's `Menu`
+//!   property points at a *dbusmenu* object: a recursive `(id, a{sv}, av)`
+//!   tree served through `GetLayout`, which is a different protocol from the
+//!   `org.gtk.Menus` scheme in `linux/gnome_menu/` (that one is roughly 30%
+//!   reusable, and it is the boring 30%). Until it exists the `Menu` property
+//!   answers the root path `/` — hosts that find no dbusmenu there fall back
+//!   to calling `ContextMenu()`, which arrives as
+//!   [`TrayEventType::ContextMenu`], so an app can still react.
+//! * **Watcher restarts.** The panel restarting (plasmashell/waybar do this
+//!   routinely) tears down the registration; re-registering needs a
+//!   `NameOwnerChanged` match + filter, which needs `dbus_bus_add_match` /
+//!   `dbus_connection_add_filter` in the dlopen wrapper. Until then a panel
+//!   restart loses the icon until the app restarts.
 //!
-//! **`linux/gnome_menu/` implements `org.gtk.Menus` + `org.gtk.Actions`, NOT
-//! `com.canonical.dbusmenu`.** SNI's `Menu` property points at a *dbusmenu*
-//! object — a recursive `(id, a{sv}, av)` tree served through
-//! `GetLayout(parentId, recursionDepth, propertyNames)` — which is a different
-//! model from `org.gtk.Menus`' flat `(group_id, menu_id)` scheme. The protocol
-//! layer is a rewrite, not an adaptation. Roughly 30% of the existing D-Bus
-//! code carries over, and it is the boring 30%.
+//! # The registration rules (measured conventions, not the published spec)
 //!
-//! # Reusable as-is
-//!
-//! * `dbus/dlopen.rs` — the whole `DBusLib` wrapper (the "no compile-time
-//!   libdbus" property comes free).
-//! * `gnome_menu/shared_dbus.rs::get_shared_dbus_lib()` — genuinely generic.
-//! * `dbus/mod.rs:25-47` — the `dbus_bus_name_has_owner` probe; retarget one
-//!   string literal to `org.kde.StatusNotifierWatcher`.
-//! * `gnome_menu/actions_protocol.rs:31-63` — the deferred-callback mailbox
-//!   (`PendingMenuCallback` + `LazyLock<Mutex<Vec<_>>>`). Exactly the pattern
-//!   needed here, since a D-Bus handler thread cannot hold a `CallbackInfo`.
-//!   `super::queue_tray_event` is the tray's equivalent.
-//!
-//! # Blockers to clear first
-//!
-//! None of these symbols are in `dbus/dlopen.rs` today:
-//!
-//! * **`dbus_message_new_signal` — hard blocker.** SNI requires emitting
-//!   `NewIcon`/`NewStatus`/`NewAttentionIcon`/`NewToolTip`; dbusmenu requires
-//!   `LayoutUpdated`/`ItemsPropertiesUpdated`. The code can currently only
-//!   *reply*, never *emit*.
-//! * `dbus_bus_add_match` + `dbus_connection_add_filter` — to watch
-//!   `NameOwnerChanged` for the watcher and re-register when the tray applet
-//!   restarts (plasmashell/waybar restarts are routine).
-//! * `dbus_message_iter_append_fixed_array` — for `IconPixmap` (`a(iiay)`).
-//! * `dbus_message_get_path` / `_get_sender`.
-//! * **An `org.freedesktop.DBus.Properties` handler — SNI is ~90% properties**,
-//!   and there is none anywhere in the tree today. `Introspectable` too; several
-//!   hosts call it first.
-//!
-//! `GnomeMenuManager::new` also fuses connect + `request_name` + register-two-
-//! fixed-interfaces into one non-parameterisable function with the bus name and
-//! object path hardcoded to the GTK convention (`manager.rs:79-80`), so a
-//! generic `register_service(bus_name, path, vtable)` has to be extracted.
-//!
-//! # Registration sequence
-//!
-//! 1. Own `org.kde.StatusNotifierItem-<pid>-<n>` on the session bus. **Use
-//!    `org.kde.*`, not `org.freedesktop.*`** — the published fd.o text says the
-//!    latter but the reference implementation and the entire KDE stack use the
-//!    former, and Electron 43 broke Waybar by switching (Waybar#5240).
-//! 2. Export `org.kde.StatusNotifierItem` at `/StatusNotifierItem`.
-//! 3. Export `com.canonical.dbusmenu` (conventionally `/MenuBar`); point the
-//!    `Menu` property at it.
-//! 4. `org.kde.StatusNotifierWatcher.RegisterStatusNotifierItem` at
-//!    `/StatusNotifierWatcher`.
-//! 5. Watch `NameOwnerChanged` for the watcher and **redo step 4** when it
-//!    returns. Make that the same code path as initial creation so it cannot rot.
-//!
-//! # Availability is a real question here
-//!
-//! `is_available()` must check that the watcher name is owned **AND** that
-//! `IsStatusNotifierHostRegistered` is true — a watcher with no host is a real
-//! state, because the watcher can win the startup race against the panel
-//! (cinnamon#13740). Poll/retry rather than deciding once at startup.
-//!
-//! **On a vanilla GNOME there is no watcher at all**: registration fails
-//! silently and no icon ever appears. That is not a bug to work around; the app
-//! needs a story for having no tray.
-//!
-//! # Icons
-//!
-//! Prefer `IconPixmap` (`a(iiay)`, ARGB32 **big-endian** — use
-//! `TrayIconImage::to_argb32_be`, which exists for exactly this) over
-//! `IconName`. `IconName` needs the icon installed in an XDG theme, and
-//! `IconThemePath` is non-standard and ignored by several hosts. Publish 2-3
-//! sizes (22/24/48) and let the host pick.
-//!
-//! Emit **both** the `New*` signals and `PropertiesChanged` — several hosts
-//! (notably KDE historically) ignore the latter for SNI.
-//!
-//! Model to copy: [`ksni`](https://github.com/iovxw/ksni) — pure D-Bus, no GTK,
-//! correct watcher offline/online handling. Model to avoid: Tauri's `tray-icon`
-//! (GTK + libxdo + libayatana; its bug list is a catalogue of why).
-//!
-//! # Do NOT implement XEmbed
-//!
-//! X11-only (dead under Wayland), makes us responsible for rendering into a
-//! reparented window with the tray's `_NET_SYSTEM_TRAY_VISUAL`, and duplicates
-//! icons where a bridge already exists (Cinnamon). Point users at `snixembed`.
+//! * The bus name is `org.kde.StatusNotifierItem-<pid>-<n>` — **`org.kde.*`,
+//!   not `org.freedesktop.*`**: the published fd.o text says the latter, but
+//!   the reference implementation and the entire KDE stack use the former
+//!   (Electron 43 broke Waybar by switching — Waybar#5240).
+//! * `is_available()` checks that the watcher name is owned **AND** that
+//!   `IsStatusNotifierHostRegistered` is true — a watcher with no host is a
+//!   real state, because the watcher can win the startup race against the
+//!   panel (cinnamon#13740). On a vanilla GNOME there is no watcher at all;
+//!   that is not a bug to work around.
+//! * Icons go as `IconPixmap` (`a(iiay)`, ARGB32 **big-endian** —
+//!   [`azul_core::tray::TrayIconImage::to_argb32_be`] exists for exactly
+//!   this). Named icons are rasterized through the icon registry instead of
+//!   being passed as theme names the panel may not have.
+//! * Hosts only re-read a property after the matching `New*` signal, which is
+//!   why `update()` emits them (and why `dbus_message_new_signal` is in the
+//!   dlopen wrapper).
 
-use azul_core::tray::TrayIconData;
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_int, c_uint, c_void};
+use std::sync::Arc;
 
-use super::TrayError;
+use azul_core::tray::{
+    TrayEvent, TrayEventType, TrayIconData, TrayIconSource, TrayScrollAxis, TrayStatus,
+};
 
-/// Whether a tray exists is a genuine question on Linux, but this backend does
-/// not exist yet, so the answer is a flat no rather than a probe that would
-/// then fail to produce an icon.
-pub(super) fn is_available() -> bool {
-    false
+use super::{queue_tray_event, render_named_icon, TrayError};
+use crate::desktop::shell2::linux::dbus::{
+    DBusConnection, DBusError, DBusLib, DBusMessage, DBusMessageIter, DBusObjectPathVTable,
+    DBUS_BUS_SESSION, DBUS_HANDLER_RESULT_HANDLED, DBUS_HANDLER_RESULT_NOT_YET_HANDLED,
+    DBUS_TYPE_ARRAY, DBUS_TYPE_BOOLEAN, DBUS_TYPE_BYTE, DBUS_TYPE_DICT_ENTRY, DBUS_TYPE_INT32,
+    DBUS_TYPE_OBJECT_PATH, DBUS_TYPE_STRING, DBUS_TYPE_STRUCT, DBUS_TYPE_VARIANT,
+};
+use crate::desktop::shell2::linux::gnome_menu::get_shared_dbus_lib;
+
+const SNI_IFACE: &str = "org.kde.StatusNotifierItem";
+const SNI_PATH: &str = "/StatusNotifierItem";
+const WATCHER_NAME: &str = "org.kde.StatusNotifierWatcher";
+const WATCHER_PATH: &str = "/StatusNotifierWatcher";
+const PROPS_IFACE: &str = "org.freedesktop.DBus.Properties";
+const INTROSPECT_IFACE: &str = "org.freedesktop.DBus.Introspectable";
+
+/// Everything the property handler serves, plus the D-Bus handles it needs.
+/// Boxed by [`PlatformTray`]; the box's address is the vtable user_data, so it
+/// must stay put for the tray's lifetime (updates mutate through the box).
+struct SniState {
+    dbus: Arc<DBusLib>,
+    id: String,
+    title: String,
+    tooltip: String,
+    /// "Active" / "Passive" / "NeedsAttention".
+    status: &'static str,
+    /// Themed-icon fallback served as `IconName` when `pixmaps` is empty —
+    /// an item with neither is invisible, which looks exactly like a bug.
+    icon_name: String,
+    /// `(width, height, ARGB32 big-endian bytes)`, largest last.
+    pixmaps: Vec<(i32, i32, Vec<u8>)>,
 }
 
-#[derive(Debug)]
 pub(super) struct PlatformTray {
-    _never: core::convert::Infallible,
+    dbus: Arc<DBusLib>,
+    conn: *mut DBusConnection,
+    /// Kept alive for the vtable's user_data pointer.
+    state: Box<SniState>,
+}
+
+impl core::fmt::Debug for PlatformTray {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PlatformTray")
+            .field("conn", &self.conn)
+            .field("state", &self.state)
+            .finish()
+    }
+}
+
+impl core::fmt::Debug for SniState {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SniState")
+            .field("id", &self.id)
+            .field("status", &self.status)
+            .field("pixmaps", &self.pixmaps.len())
+            .finish()
+    }
+}
+
+fn fresh_error() -> DBusError {
+    DBusError {
+        name: std::ptr::null(),
+        message: std::ptr::null(),
+        dummy1: 0,
+        dummy2: 0,
+        dummy3: 0,
+        dummy4: 0,
+        dummy5: 0,
+        padding1: std::ptr::null_mut(),
+    }
+}
+
+/// Is a StatusNotifier host actually listening? Both halves matter — see the
+/// module docs.
+pub(super) fn is_available() -> bool {
+    let Some(dbus) = get_shared_dbus_lib() else {
+        return false;
+    };
+    unsafe {
+        let mut err = fresh_error();
+        (dbus.dbus_error_init)(&mut err);
+        let conn = (dbus.dbus_bus_get)(DBUS_BUS_SESSION, &mut err);
+        if conn.is_null() {
+            (dbus.dbus_error_free)(&mut err);
+            return false;
+        }
+        let watcher = CString::new(WATCHER_NAME).unwrap();
+        let owned = (dbus.dbus_bus_name_has_owner)(conn, watcher.as_ptr(), &mut err) != 0;
+        if (dbus.dbus_error_is_set)(&err) != 0 {
+            (dbus.dbus_error_free)(&mut err);
+            return false;
+        }
+        if !owned {
+            return false;
+        }
+        watcher_host_registered(&dbus, conn).unwrap_or(false)
+    }
+}
+
+/// `Properties.Get(org.kde.StatusNotifierWatcher, IsStatusNotifierHostRegistered)`.
+unsafe fn watcher_host_registered(dbus: &DBusLib, conn: *mut DBusConnection) -> Option<bool> {
+    let dest = CString::new(WATCHER_NAME).ok()?;
+    let path = CString::new(WATCHER_PATH).ok()?;
+    let iface = CString::new(PROPS_IFACE).ok()?;
+    let member = CString::new("Get").ok()?;
+    let msg =
+        (dbus.dbus_message_new_method_call)(dest.as_ptr(), path.as_ptr(), iface.as_ptr(), member.as_ptr());
+    if msg.is_null() {
+        return None;
+    }
+    let mut it: DBusMessageIter = std::mem::zeroed();
+    (dbus.dbus_message_iter_init_append)(msg, &mut it);
+    append_str(dbus, &mut it, DBUS_TYPE_STRING, WATCHER_NAME);
+    append_str(dbus, &mut it, DBUS_TYPE_STRING, "IsStatusNotifierHostRegistered");
+    let mut err = fresh_error();
+    (dbus.dbus_error_init)(&mut err);
+    let reply = (dbus.dbus_connection_send_with_reply_and_block)(conn, msg, 1000, &mut err);
+    (dbus.dbus_message_unref)(msg);
+    if reply.is_null() {
+        (dbus.dbus_error_free)(&mut err);
+        return None;
+    }
+    // Reply: VARIANT containing BOOLEAN.
+    let mut rit: DBusMessageIter = std::mem::zeroed();
+    let mut result = None;
+    if (dbus.dbus_message_iter_init)(reply, &mut rit) != 0
+        && (dbus.dbus_message_iter_get_arg_type)(&mut rit) == DBUS_TYPE_VARIANT
+    {
+        let mut vit: DBusMessageIter = std::mem::zeroed();
+        (dbus.dbus_message_iter_recurse)(&mut rit, &mut vit);
+        if (dbus.dbus_message_iter_get_arg_type)(&mut vit) == DBUS_TYPE_BOOLEAN {
+            let mut b: c_uint = 0;
+            (dbus.dbus_message_iter_get_basic)(&mut vit, &mut b as *mut c_uint as *mut c_void);
+            result = Some(b != 0);
+        }
+    }
+    (dbus.dbus_message_unref)(reply);
+    result
+}
+
+// ---- marshalling helpers -----------------------------------------------------
+
+/// Append one string-ish basic value (STRING or OBJECT_PATH).
+unsafe fn append_str(dbus: &DBusLib, it: *mut DBusMessageIter, ty: c_int, s: &str) {
+    let c = CString::new(s).unwrap_or_default();
+    let p = c.as_ptr();
+    (dbus.dbus_message_iter_append_basic)(it, ty, &p as *const *const c_char as *mut c_void);
+}
+
+unsafe fn append_i32(dbus: &DBusLib, it: *mut DBusMessageIter, v: i32) {
+    (dbus.dbus_message_iter_append_basic)(
+        it,
+        DBUS_TYPE_INT32,
+        &v as *const i32 as *mut c_void,
+    );
+}
+
+unsafe fn append_bool(dbus: &DBusLib, it: *mut DBusMessageIter, v: bool) {
+    let b: c_uint = if v { 1 } else { 0 };
+    (dbus.dbus_message_iter_append_basic)(
+        it,
+        DBUS_TYPE_BOOLEAN,
+        &b as *const c_uint as *mut c_void,
+    );
+}
+
+/// Open a VARIANT of `sig`, run `f` inside it, close it.
+unsafe fn in_variant(
+    dbus: &DBusLib,
+    it: *mut DBusMessageIter,
+    sig: &str,
+    f: impl FnOnce(&mut DBusMessageIter),
+) {
+    let sig_c = CString::new(sig).unwrap();
+    let mut vit: DBusMessageIter = std::mem::zeroed();
+    (dbus.dbus_message_iter_open_container)(it, DBUS_TYPE_VARIANT, sig_c.as_ptr(), &mut vit);
+    f(&mut vit);
+    (dbus.dbus_message_iter_close_container)(it, &mut vit);
+}
+
+/// The `a(iiay)` pixmap list.
+unsafe fn append_pixmaps(dbus: &DBusLib, it: *mut DBusMessageIter, pix: &[(i32, i32, Vec<u8>)]) {
+    let sig = CString::new("(iiay)").unwrap();
+    let mut ait: DBusMessageIter = std::mem::zeroed();
+    (dbus.dbus_message_iter_open_container)(it, DBUS_TYPE_ARRAY, sig.as_ptr(), &mut ait);
+    for (w, h, bytes) in pix {
+        let mut sit: DBusMessageIter = std::mem::zeroed();
+        (dbus.dbus_message_iter_open_container)(
+            &mut ait,
+            DBUS_TYPE_STRUCT,
+            std::ptr::null(),
+            &mut sit,
+        );
+        append_i32(dbus, &mut sit, *w);
+        append_i32(dbus, &mut sit, *h);
+        let ysig = CString::new("y").unwrap();
+        let mut bit: DBusMessageIter = std::mem::zeroed();
+        (dbus.dbus_message_iter_open_container)(
+            &mut sit,
+            DBUS_TYPE_ARRAY,
+            ysig.as_ptr(),
+            &mut bit,
+        );
+        // Byte-at-a-time keeps the dlopen surface small
+        // (`dbus_message_iter_append_fixed_array` would be the fast path);
+        // a 48x48 icon is 9216 appends, invisible next to the bus round trip.
+        for b in bytes {
+            (dbus.dbus_message_iter_append_basic)(
+                &mut bit,
+                DBUS_TYPE_BYTE,
+                b as *const u8 as *mut c_void,
+            );
+        }
+        (dbus.dbus_message_iter_close_container)(&mut sit, &mut bit);
+        (dbus.dbus_message_iter_close_container)(&mut ait, &mut sit);
+    }
+    (dbus.dbus_message_iter_close_container)(it, &mut ait);
+}
+
+/// The `(s a(iiay) s s)` tooltip struct.
+unsafe fn append_tooltip(dbus: &DBusLib, it: *mut DBusMessageIter, title: &str) {
+    let mut sit: DBusMessageIter = std::mem::zeroed();
+    (dbus.dbus_message_iter_open_container)(it, DBUS_TYPE_STRUCT, std::ptr::null(), &mut sit);
+    append_str(dbus, &mut sit, DBUS_TYPE_STRING, ""); // icon name
+    append_pixmaps(dbus, &mut sit, &[]); // icon pixmaps
+    append_str(dbus, &mut sit, DBUS_TYPE_STRING, title);
+    append_str(dbus, &mut sit, DBUS_TYPE_STRING, ""); // rich body
+    (dbus.dbus_message_iter_close_container)(it, &mut sit);
+}
+
+/// Every SNI property, in (name, variant-signature) order — the single source
+/// for `Get`, `GetAll` and the introspection XML.
+const SNI_PROPS: &[(&str, &str)] = &[
+    ("Category", "s"),
+    ("Id", "s"),
+    ("Title", "s"),
+    ("Status", "s"),
+    ("WindowId", "i"),
+    ("IconName", "s"),
+    ("IconPixmap", "a(iiay)"),
+    ("OverlayIconName", "s"),
+    ("OverlayIconPixmap", "a(iiay)"),
+    ("AttentionIconName", "s"),
+    ("AttentionIconPixmap", "a(iiay)"),
+    ("AttentionMovieName", "s"),
+    ("ToolTip", "(sa(iiay)ss)"),
+    ("ItemIsMenu", "b"),
+    ("Menu", "o"),
+];
+
+/// Append one property's VALUE (inside a variant of its signature).
+unsafe fn append_prop_value(dbus: &DBusLib, it: &mut DBusMessageIter, st: &SniState, name: &str) {
+    match name {
+        "Category" => append_str(dbus, it, DBUS_TYPE_STRING, "ApplicationStatus"),
+        "Id" => append_str(dbus, it, DBUS_TYPE_STRING, &st.id),
+        "Title" => append_str(dbus, it, DBUS_TYPE_STRING, &st.title),
+        "Status" => append_str(dbus, it, DBUS_TYPE_STRING, st.status),
+        "WindowId" => append_i32(dbus, it, 0),
+        "IconName" => append_str(dbus, it, DBUS_TYPE_STRING, &st.icon_name),
+        "IconPixmap" => append_pixmaps(dbus, it, &st.pixmaps),
+        "OverlayIconName" | "AttentionIconName" | "AttentionMovieName" => {
+            append_str(dbus, it, DBUS_TYPE_STRING, "");
+        }
+        "OverlayIconPixmap" | "AttentionIconPixmap" => append_pixmaps(dbus, it, &[]),
+        "ToolTip" => append_tooltip(dbus, it, &st.tooltip),
+        "ItemIsMenu" => append_bool(dbus, it, false),
+        // No dbusmenu yet (module docs): the root path makes hosts fall back
+        // to calling ContextMenu(), which we surface as a TrayEvent.
+        "Menu" => append_str(dbus, it, DBUS_TYPE_OBJECT_PATH, "/"),
+        _ => append_str(dbus, it, DBUS_TYPE_STRING, ""),
+    }
+}
+
+// ---- the object-path handler -------------------------------------------------
+
+unsafe extern "C" fn sni_message(
+    conn: *mut DBusConnection,
+    msg: *mut DBusMessage,
+    user_data: *mut c_void,
+) -> c_int {
+    let st = &*(user_data as *const SniState);
+    let dbus = &st.dbus;
+
+    let iface = (dbus.dbus_message_get_interface)(msg);
+    let member = (dbus.dbus_message_get_member)(msg);
+    if iface.is_null() || member.is_null() {
+        return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
+    }
+    let iface = CStr::from_ptr(iface).to_string_lossy();
+    let member = CStr::from_ptr(member).to_string_lossy();
+
+    let reply = match (iface.as_ref(), member.as_ref()) {
+        (INTROSPECT_IFACE, "Introspect") => {
+            let reply = (dbus.dbus_message_new_method_return)(msg);
+            if !reply.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_init_append)(reply, &mut it);
+                append_str(dbus, &mut it, DBUS_TYPE_STRING, &introspection_xml());
+            }
+            reply
+        }
+        (PROPS_IFACE, "Get") => {
+            let (Some(_prop_iface), Some(prop)) = read_two_strings(dbus, msg) else {
+                return error_reply(dbus, conn, msg, "org.freedesktop.DBus.Error.InvalidArgs");
+            };
+            let Some((_, sig)) = SNI_PROPS.iter().find(|(n, _)| *n == prop) else {
+                return error_reply(dbus, conn, msg, "org.freedesktop.DBus.Error.UnknownProperty");
+            };
+            let reply = (dbus.dbus_message_new_method_return)(msg);
+            if !reply.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_init_append)(reply, &mut it);
+                in_variant(dbus, &mut it, sig, |vit| {
+                    append_prop_value(dbus, vit, st, &prop);
+                });
+            }
+            reply
+        }
+        (PROPS_IFACE, "GetAll") => {
+            let reply = (dbus.dbus_message_new_method_return)(msg);
+            if !reply.is_null() {
+                let mut it: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_init_append)(reply, &mut it);
+                let esig = CString::new("{sv}").unwrap();
+                let mut ait: DBusMessageIter = std::mem::zeroed();
+                (dbus.dbus_message_iter_open_container)(
+                    &mut it,
+                    DBUS_TYPE_ARRAY,
+                    esig.as_ptr(),
+                    &mut ait,
+                );
+                for (name, sig) in SNI_PROPS {
+                    let mut eit: DBusMessageIter = std::mem::zeroed();
+                    (dbus.dbus_message_iter_open_container)(
+                        &mut ait,
+                        DBUS_TYPE_DICT_ENTRY,
+                        std::ptr::null(),
+                        &mut eit,
+                    );
+                    append_str(dbus, &mut eit, DBUS_TYPE_STRING, name);
+                    in_variant(dbus, &mut eit, sig, |vit| {
+                        append_prop_value(dbus, vit, st, name);
+                    });
+                    (dbus.dbus_message_iter_close_container)(&mut ait, &mut eit);
+                }
+                (dbus.dbus_message_iter_close_container)(&mut it, &mut ait);
+            }
+            reply
+        }
+        (SNI_IFACE, "Activate") => {
+            queue_tray_event(TrayEvent::simple(TrayEventType::Activate));
+            (dbus.dbus_message_new_method_return)(msg)
+        }
+        (SNI_IFACE, "SecondaryActivate") => {
+            queue_tray_event(TrayEvent::simple(TrayEventType::SecondaryActivate));
+            (dbus.dbus_message_new_method_return)(msg)
+        }
+        (SNI_IFACE, "ContextMenu") => {
+            queue_tray_event(TrayEvent::simple(TrayEventType::ContextMenu));
+            (dbus.dbus_message_new_method_return)(msg)
+        }
+        (SNI_IFACE, "Scroll") => {
+            let mut ev = TrayEvent::simple(TrayEventType::Scroll);
+            let mut it: DBusMessageIter = std::mem::zeroed();
+            if (dbus.dbus_message_iter_init)(msg, &mut it) != 0
+                && (dbus.dbus_message_iter_get_arg_type)(&mut it) == DBUS_TYPE_INT32
+            {
+                let mut delta: i32 = 0;
+                (dbus.dbus_message_iter_get_basic)(&mut it, &mut delta as *mut i32 as *mut c_void);
+                ev.scroll_delta = delta;
+                if (dbus.dbus_message_iter_next)(&mut it) != 0
+                    && (dbus.dbus_message_iter_get_arg_type)(&mut it) == DBUS_TYPE_STRING
+                {
+                    let mut sp: *const c_char = std::ptr::null();
+                    (dbus.dbus_message_iter_get_basic)(
+                        &mut it,
+                        &mut sp as *mut *const c_char as *mut c_void,
+                    );
+                    if !sp.is_null()
+                        && CStr::from_ptr(sp).to_string_lossy().eq_ignore_ascii_case("horizontal")
+                    {
+                        ev.scroll_axis = TrayScrollAxis::Horizontal;
+                    }
+                }
+            }
+            queue_tray_event(ev);
+            (dbus.dbus_message_new_method_return)(msg)
+        }
+        _ => return DBUS_HANDLER_RESULT_NOT_YET_HANDLED,
+    };
+
+    if !reply.is_null() {
+        (dbus.dbus_connection_send)(conn, reply, std::ptr::null_mut());
+        (dbus.dbus_message_unref)(reply);
+        (dbus.dbus_connection_flush)(conn);
+    }
+    DBUS_HANDLER_RESULT_HANDLED
+}
+
+unsafe fn error_reply(
+    dbus: &DBusLib,
+    conn: *mut DBusConnection,
+    msg: *mut DBusMessage,
+    name: &str,
+) -> c_int {
+    let n = CString::new(name).unwrap();
+    let e = (dbus.dbus_message_new_error)(msg, n.as_ptr(), std::ptr::null());
+    if !e.is_null() {
+        (dbus.dbus_connection_send)(conn, e, std::ptr::null_mut());
+        (dbus.dbus_message_unref)(e);
+    }
+    DBUS_HANDLER_RESULT_HANDLED
+}
+
+/// The first two STRING arguments of a message.
+unsafe fn read_two_strings(dbus: &DBusLib, msg: *mut DBusMessage) -> (Option<String>, Option<String>) {
+    let mut it: DBusMessageIter = std::mem::zeroed();
+    if (dbus.dbus_message_iter_init)(msg, &mut it) == 0 {
+        return (None, None);
+    }
+    let mut out: [Option<String>; 2] = [None, None];
+    for slot in &mut out {
+        if (dbus.dbus_message_iter_get_arg_type)(&mut it) != DBUS_TYPE_STRING {
+            break;
+        }
+        let mut sp: *const c_char = std::ptr::null();
+        (dbus.dbus_message_iter_get_basic)(&mut it, &mut sp as *mut *const c_char as *mut c_void);
+        if !sp.is_null() {
+            *slot = Some(CStr::from_ptr(sp).to_string_lossy().into_owned());
+        }
+        (dbus.dbus_message_iter_next)(&mut it);
+    }
+    (out[0].take(), out[1].take())
+}
+
+fn introspection_xml() -> String {
+    let mut props = String::new();
+    for (name, sig) in SNI_PROPS {
+        props.push_str(&format!(
+            "    <property name=\"{name}\" type=\"{sig}\" access=\"read\"/>\n"
+        ));
+    }
+    format!(
+        "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\" \
+         \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n\
+         <node>\n\
+         <interface name=\"{SNI_IFACE}\">\n{props}\
+         \x20   <method name=\"Activate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>\n\
+         \x20   <method name=\"SecondaryActivate\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>\n\
+         \x20   <method name=\"ContextMenu\"><arg name=\"x\" type=\"i\" direction=\"in\"/><arg name=\"y\" type=\"i\" direction=\"in\"/></method>\n\
+         \x20   <method name=\"Scroll\"><arg name=\"delta\" type=\"i\" direction=\"in\"/><arg name=\"orientation\" type=\"s\" direction=\"in\"/></method>\n\
+         \x20   <signal name=\"NewIcon\"/>\n\
+         \x20   <signal name=\"NewTitle\"/>\n\
+         \x20   <signal name=\"NewToolTip\"/>\n\
+         \x20   <signal name=\"NewStatus\"><arg name=\"status\" type=\"s\"/></signal>\n\
+         </interface>\n\
+         <interface name=\"{PROPS_IFACE}\">\n\
+         \x20   <method name=\"Get\"><arg type=\"s\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/><arg type=\"v\" direction=\"out\"/></method>\n\
+         \x20   <method name=\"GetAll\"><arg type=\"s\" direction=\"in\"/><arg type=\"a{{sv}}\" direction=\"out\"/></method>\n\
+         </interface>\n\
+         <interface name=\"{INTROSPECT_IFACE}\">\n\
+         \x20   <method name=\"Introspect\"><arg type=\"s\" direction=\"out\"/></method>\n\
+         </interface>\n\
+         </node>\n"
+    )
+}
+
+static SNI_VTABLE: DBusObjectPathVTable = DBusObjectPathVTable {
+    unregister_function: None,
+    message_function: Some(sni_message),
+    dbus_internal_padding1: None,
+    dbus_internal_padding2: None,
+    dbus_internal_padding3: None,
+    dbus_internal_padding4: None,
+};
+
+// ---- state building ----------------------------------------------------------
+
+/// RGBA8 (non-premultiplied) to the ARGB32 big-endian bytes SNI wants.
+fn rgba_to_argb_be(rgba: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(rgba.len());
+    for px in rgba.chunks_exact(4) {
+        out.extend_from_slice(&[px[3], px[0], px[1], px[2]]);
+    }
+    out
+}
+
+fn build_pixmaps(
+    data: &TrayIconData,
+    provider: &azul_core::icon::SharedIconProvider,
+    font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+) -> Vec<(i32, i32, Vec<u8>)> {
+    let mut out = Vec::new();
+    match &data.icon {
+        TrayIconSource::Named(spec) => {
+            // Rasterize through the icon registry at the panel's common sizes;
+            // never pass the spec as a theme IconName the panel may not have.
+            for size in [22u32, 48u32] {
+                if let Some(icon) = render_named_icon(spec.as_str(), size, provider, font_manager)
+                {
+                    out.push((
+                        icon.width as i32,
+                        icon.height as i32,
+                        rgba_to_argb_be(&icon.rgba),
+                    ));
+                }
+            }
+        }
+        TrayIconSource::Rgba(_) => {
+            for size in [22u32, 48u32] {
+                if let azul_core::tray::OptionTrayIconImage::Some(img) = data.best_icon(size) {
+                    let (w, h) = (img.width as i32, img.height as i32);
+                    if !out.iter().any(|(ow, oh, _)| *ow == w && *oh == h) {
+                        out.push((w, h, img.to_argb32_be().as_ref().to_vec()));
+                    }
+                }
+            }
+        }
+        TrayIconSource::None => {}
+    }
+    out
+}
+
+fn build_state(
+    dbus: Arc<DBusLib>,
+    data: &TrayIconData,
+    provider: &azul_core::icon::SharedIconProvider,
+    font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+) -> SniState {
+    let pixmaps = build_pixmaps(data, provider, font_manager);
+    SniState {
+        dbus,
+        id: data.id.as_str().to_owned(),
+        title: data.title.as_str().to_owned(),
+        tooltip: data
+            .tooltip
+            .as_ref()
+            .map(|t| t.as_str().to_owned())
+            .unwrap_or_else(|| data.title.as_str().to_owned()),
+        status: match data.status {
+            TrayStatus::Passive => "Passive",
+            TrayStatus::Active => "Active",
+            TrayStatus::NeedsAttention => "NeedsAttention",
+        },
+        // An item with neither pixmap nor name is invisible, which looks
+        // exactly like a working icon nobody can find. Fall back to a themed
+        // name every icon theme carries.
+        icon_name: if pixmaps.is_empty() {
+            "application-x-executable".to_owned()
+        } else {
+            String::new()
+        },
+        pixmaps,
+    }
 }
 
 impl PlatformTray {
     pub(super) fn new(
-        _data: &TrayIconData,
-        _provider: &azul_core::icon::SharedIconProvider,
-        _font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+        data: &TrayIconData,
+        provider: &azul_core::icon::SharedIconProvider,
+        font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
     ) -> Result<Self, TrayError> {
-        Err(TrayError::Unsupported)
+        let dbus = get_shared_dbus_lib().ok_or(TrayError::Unavailable)?;
+        if !is_available() {
+            return Err(TrayError::Unavailable);
+        }
+        unsafe {
+            let mut err = fresh_error();
+            (dbus.dbus_error_init)(&mut err);
+            let conn = (dbus.dbus_bus_get)(DBUS_BUS_SESSION, &mut err);
+            if conn.is_null() {
+                (dbus.dbus_error_free)(&mut err);
+                return Err(TrayError::Platform("no session bus".into()));
+            }
+
+            // org.kde.*, not org.freedesktop.* — see the module docs.
+            let bus_name = format!(
+                "org.kde.StatusNotifierItem-{}-1",
+                std::process::id()
+            );
+            let bus_name_c = CString::new(bus_name.clone()).unwrap();
+            let got = (dbus.dbus_bus_request_name)(
+                conn,
+                bus_name_c.as_ptr(),
+                crate::desktop::shell2::linux::dbus::DBUS_NAME_FLAG_DO_NOT_QUEUE,
+                &mut err,
+            );
+            if (dbus.dbus_error_is_set)(&err) != 0 || got != 1 {
+                (dbus.dbus_error_free)(&mut err);
+                return Err(TrayError::Platform(format!(
+                    "could not own {bus_name} (result {got})"
+                )));
+            }
+
+            let state = Box::new(build_state(dbus.clone(), data, provider, font_manager));
+            let path_c = CString::new(SNI_PATH).unwrap();
+            let ok = (dbus.dbus_connection_register_object_path)(
+                conn,
+                path_c.as_ptr(),
+                &SNI_VTABLE,
+                &*state as *const SniState as *mut c_void,
+            );
+            if ok == 0 {
+                return Err(TrayError::Platform(
+                    "dbus_connection_register_object_path failed".into(),
+                ));
+            }
+
+            // RegisterStatusNotifierItem(our bus name) at the watcher.
+            let dest = CString::new(WATCHER_NAME).unwrap();
+            let wpath = CString::new(WATCHER_PATH).unwrap();
+            let wiface = CString::new(WATCHER_NAME).unwrap();
+            let member = CString::new("RegisterStatusNotifierItem").unwrap();
+            let msg = (dbus.dbus_message_new_method_call)(
+                dest.as_ptr(),
+                wpath.as_ptr(),
+                wiface.as_ptr(),
+                member.as_ptr(),
+            );
+            if msg.is_null() {
+                return Err(TrayError::Platform("message alloc failed".into()));
+            }
+            let mut it: DBusMessageIter = std::mem::zeroed();
+            (dbus.dbus_message_iter_init_append)(msg, &mut it);
+            append_str(&dbus, &mut it, DBUS_TYPE_STRING, &bus_name);
+            let reply =
+                (dbus.dbus_connection_send_with_reply_and_block)(conn, msg, 2000, &mut err);
+            (dbus.dbus_message_unref)(msg);
+            if reply.is_null() {
+                let m = if !err.message.is_null() {
+                    CStr::from_ptr(err.message).to_string_lossy().into_owned()
+                } else {
+                    "watcher did not answer RegisterStatusNotifierItem".into()
+                };
+                (dbus.dbus_error_free)(&mut err);
+                return Err(TrayError::Platform(m));
+            }
+            (dbus.dbus_message_unref)(reply);
+            (dbus.dbus_connection_flush)(conn);
+
+            Ok(Self { dbus, conn, state })
+        }
     }
 
     pub(super) fn update(
         &mut self,
         _old: &TrayIconData,
-        _new: &TrayIconData,
-        _provider: &azul_core::icon::SharedIconProvider,
-        _font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
+        new: &TrayIconData,
+        provider: &azul_core::icon::SharedIconProvider,
+        font_manager: &azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
     ) -> Result<(), TrayError> {
-        match self._never {}
+        // Mutate through the SAME box the vtable points at.
+        *self.state = build_state(self.dbus.clone(), new, provider, font_manager);
+        // Hosts only re-read a property after its New* signal.
+        unsafe {
+            for signal in ["NewIcon", "NewTitle", "NewToolTip"] {
+                self.emit_signal(signal, None);
+            }
+            self.emit_signal("NewStatus", Some(self.state.status));
+        }
+        Ok(())
     }
-}
 
-impl PlatformTray {
-    /// Unreachable — `new()` never returns a value on this platform yet.
+    unsafe fn emit_signal(&self, name: &str, arg: Option<&str>) {
+        let path = CString::new(SNI_PATH).unwrap();
+        let iface = CString::new(SNI_IFACE).unwrap();
+        let member = CString::new(name).unwrap();
+        let msg =
+            (self.dbus.dbus_message_new_signal)(path.as_ptr(), iface.as_ptr(), member.as_ptr());
+        if msg.is_null() {
+            return;
+        }
+        if let Some(arg) = arg {
+            let mut it: DBusMessageIter = std::mem::zeroed();
+            (self.dbus.dbus_message_iter_init_append)(msg, &mut it);
+            append_str(&self.dbus, &mut it, DBUS_TYPE_STRING, arg);
+        }
+        (self.dbus.dbus_connection_send)(self.conn, msg, std::ptr::null_mut());
+        (self.dbus.dbus_message_unref)(msg);
+        (self.dbus.dbus_connection_flush)(self.conn);
+    }
+
+    /// Dispatch incoming D-Bus traffic (property reads, Activate calls). The
+    /// events those calls queue are drained by `tray/mod.rs`; there are no
+    /// menu callbacks until the dbusmenu half exists.
     pub(super) fn pump(&mut self) -> Vec<azul_core::menu::CoreMenuCallback> {
-        // No menu backend yet, so nothing can be delivered.
+        unsafe {
+            (self.dbus.dbus_connection_read_write_dispatch)(self.conn, 0);
+        }
         Vec::new()
-    }
-
-    #[allow(dead_code)]
-    fn pump_unused(&mut self) {
-        match self._never {}
     }
 }
