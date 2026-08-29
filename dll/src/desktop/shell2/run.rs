@@ -666,6 +666,15 @@ pub fn run(
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             crate::desktop::shell2::macos::setup_main_menu(&app, mtm);
         }
+        // Application delegate: activation + dock-reopen bring the registered
+        // windows to the front. Leaked on purpose - one per process, lives as
+        // long as NSApp itself (releasing it would leave NSApp with a dangling
+        // delegate).
+        {
+            let delegate = crate::desktop::shell2::macos::AppDelegate::new(mtm);
+            app.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*delegate)));
+            core::mem::forget(delegate);
+        }
 
         // Create the root window with fc_cache and app_data
         // The window is automatically made visible after the first frame is ready

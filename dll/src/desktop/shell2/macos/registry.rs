@@ -49,6 +49,10 @@ impl WindowRegistry {
         self.windows.values().copied().collect()
     }
 
+    fn get_all_ns_windows(&self) -> Vec<*mut AnyObject> {
+        self.windows.keys().copied().collect()
+    }
+
     fn is_empty(&self) -> bool {
         self.windows.is_empty()
     }
@@ -106,4 +110,12 @@ pub fn is_empty() -> bool {
 /// Get number of registered windows
 pub fn window_count() -> usize {
     WINDOW_REGISTRY.with(|registry| registry.borrow().len())
+}
+
+/// Every registered `NSWindow` pointer (creation order). For the app
+/// delegate's activation/reopen handling - the pointers stay valid while
+/// registered (windows unregister in `windowWillClose`).
+#[must_use]
+pub fn all_ns_windows() -> Vec<*mut AnyObject> {
+    WINDOW_REGISTRY.with(|registry| registry.borrow().get_all_ns_windows())
 }
