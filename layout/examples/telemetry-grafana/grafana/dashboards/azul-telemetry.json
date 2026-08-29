@@ -548,7 +548,7 @@
             "type": "prometheus",
             "uid": "azul-metrics"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, phase) (rate(app_phase_seconds_bucket{channel=~\"$channel\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, phase) (rate(app_phase_seconds_bucket{channel=~\"$channel\"}[$__rate_interval])))",
           "legendFormat": "{{phase}}"
         }
       ]
