@@ -98,6 +98,14 @@ fn canvas_bg() -> ColorU {
     }
 }
 
+/// Milliseconds since first call — a shared monotonic clock for the
+/// AZ_PAINT_DEBUG timing lines, so callback and render timestamps correlate.
+fn dbg_ms() -> u128 {
+    use std::sync::OnceLock;
+    static START: OnceLock<std::time::Instant> = OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_millis()
+}
+
 /// Live pen telemetry for the header readout — QUANTIZED so `PartialEq`
 /// dampens the redraw rate: a DOM rebuild happens when a displayed digit
 /// would change, not per 140 Hz pen packet.
@@ -782,16 +790,37 @@ extern "C" fn render_canvas(mut data: RefAny, mut info: RenderImageCallbackInfo)
     // `get_bounds().get_hidpi_factor()` at raster time (CPU + GPU paths).
     let size = info.get_bounds().get_logical_size();
     let (w, h) = (size.width.max(1.0) as u32, size.height.max(1.0) as u32);
-    if std::env::var("AZ_PAINT_DEBUG").is_ok() {
-        eprintln!("[paint] render_canvas logical size = {}x{}", w, h);
-    }
+    let dbg = std::env::var("AZ_PAINT_DEBUG").is_ok();
+    let t0 = dbg.then(std::time::Instant::now);
+    let rev_before = dbg
+        .then(|| {
+            data.downcast_ref::<CanvasCache>()
+                .map(|c| c.rendered_rev)
+                .unwrap_or(0)
+        })
+        .unwrap_or(0);
     let placeholder = ImageRef::null_image(
         w as usize,
         h as usize,
         RawImageFormat::RGBA8,
         U8VecRef::from(&[][..]),
     );
-    render_canvas_inner(&mut data, &mut info, w, h).unwrap_or(placeholder)
+    let out = render_canvas_inner(&mut data, &mut info, w, h).unwrap_or(placeholder);
+    if let Some(t0) = t0 {
+        let rev_after = data
+            .downcast_ref::<CanvasCache>()
+            .map(|c| c.rendered_rev)
+            .unwrap_or(0);
+        eprintln!(
+            "[paint] t={}ms render_canvas {}x{} took {:?} ({})",
+            dbg_ms(),
+            w,
+            h,
+            t0.elapsed(),
+            if rev_after != rev_before { "RASTER" } else { "cache-hit" },
+        );
+    }
+    out
 }
 
 fn render_canvas_inner(
@@ -1340,7 +1369,8 @@ fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> 
         // The raw value once read as "node 20" while the meter was node 19,
         // and an evening was spent chasing a hit-test bug that wasn't there.
         eprintln!(
-            "[paint] fast-path: marker={marker:?} node={:?} pct={pct} update_progress={ok}",
+            "[paint] t={}ms fast-path: marker={marker:?} node={:?} pct={pct} update_progress={ok}",
+            dbg_ms(),
             node_id.map(|n| (n.dom.inner, n.node.inner as i64 - 1)),
         );
     }
@@ -1349,7 +1379,7 @@ fn push_pressure_to_meter(info: &mut CallbackInfo, marker: &str) -> Option<f32> 
 
 extern "C" fn on_pointer_down(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
-        eprintln!("[paint] on_pointer_down FIRED");
+        eprintln!("[paint] t={}ms on_pointer_down FIRED", dbg_ms());
     }
     // The generic MouseDown filter fires for EVERY button; only the primary
     // one paints. The right button belongs to the context menu (and the
@@ -1433,7 +1463,11 @@ extern "C" fn on_pointer_move(mut data: RefAny, mut info: CallbackInfo) -> Updat
 extern "C" fn on_pointer_up(mut data: RefAny, mut info: CallbackInfo) -> Update {
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         let ms = info.get_current_mouse_state();
-        eprintln!("[paint] on_pointer_up FIRED (left_down={})", ms.left_down);
+        eprintln!(
+            "[paint] t={}ms on_pointer_up FIRED (left_down={})",
+            dbg_ms(),
+            ms.left_down
+        );
     }
     let hud = hud_from(&info);
     let marker = match data.downcast_mut::<PaintState>() {
