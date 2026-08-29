@@ -38,15 +38,13 @@ pub struct FontCacheSnapshot {
 }
 
 impl FontCacheSnapshot {
-    /// Wrap a font manager into an ABI handle.
-    #[cfg(feature = "text_layout")]
-    #[must_use]
     /// Snapshot for use inside a LAYOUT callback: builds family resolution +
     /// fallback chains over the system font cache the callback exposes. No
     /// per-window embedded fonts exist yet at layout time, so nothing is
     /// lost versus `CallbackInfo::get_font_cache_clone` - this is the
     /// off-thread-pagination input an app can hand to
     /// `Pdf::compute_pagination` without ever seeing the internal manager.
+    #[cfg(feature = "text_layout")]
     #[must_use]
     pub fn from_layout_info(info: &azul_core::callbacks::LayoutCallbackInfo) -> Self {
         match crate::font_traits::FontManager::new(info.get_font_cache()) {
@@ -55,6 +53,9 @@ impl FontCacheSnapshot {
         }
     }
 
+    /// Wrap a font manager into an ABI handle.
+    #[cfg(feature = "text_layout")]
+    #[must_use]
     pub fn from_font_manager(fm: InnerFontManager) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(fm)).cast(),
