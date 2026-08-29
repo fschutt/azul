@@ -111,8 +111,12 @@ fn main() {
         clicks: 0,
     });
 
+    // The red heart, same as the app icon: the Material "settings" gear
+    // renders in its default near-black and disappears on a dark panel
+    // (pen-session feedback, 2026-08-29). One colored icon for both slots
+    // also makes the pairing obvious in the tray + taskbar.
     let tray = TrayIconData::new("rs.azul.tray-demo", "Azul Tray Demo")
-        .with_named_icon("settings")
+        .with_named_icon("red-heart")
         .with_tooltip("Azul tray demo")
         .with_menu(Menu::create(vec![
             // A tray menu item takes the SAME callback a menu-bar item takes:

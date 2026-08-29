@@ -495,10 +495,14 @@ fn render_metaballs(
         for p in &s.points {
             // pressure -> ball size
             let r = (BASE_RADIUS * (0.6 + p.pressure * 2.0)).max(2.0);
-            // tilt magnitude -> eccentricity; tilt direction (+ roll) -> angle
+            // tilt magnitude -> eccentricity; tilt direction (+ roll) -> angle.
+            // The AZIMUTH of the tilt is atan2(y, x) — the angle from the +X
+            // axis, matching the SVG export. atan2(x, y) measured from the
+            // Y-axis with mirrored handedness, so the dab rotated 90° off the
+            // pen (measured with the real pen, 2026-08-29).
             let tilt_mag = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt();
             let ecc = (tilt_mag / 60.0).max(0.0).min(0.85);
-            let theta = p.tilt_x.atan2(p.tilt_y) + p.barrel_roll_rad;
+            let theta = p.tilt_y.atan2(p.tilt_x) + p.barrel_roll_rad;
             let ax = r * (1.0 + ecc * 1.6);
             let ay = (r * (1.0 - ecc * 0.5)).max(r * 0.35);
             let (st, ct) = theta.sin_cos();
@@ -689,7 +693,8 @@ fn render_metaballs_gpu(
             let r = (BASE_RADIUS * (0.6 + p.pressure * 2.0)).max(2.0);
             let tilt = (p.tilt_x * p.tilt_x + p.tilt_y * p.tilt_y).sqrt();
             let ecc = (tilt / 60.0).max(0.0).min(0.85);
-            let ang = p.tilt_x.atan2(p.tilt_y) + p.barrel_roll_rad;
+            // Azimuth = atan2(y, x), same as the CPU raster + SVG export.
+            let ang = p.tilt_y.atan2(p.tilt_x) + p.barrel_roll_rad;
             balls.extend_from_slice(&[p.x, p.y, r, ang]);
             balls2.extend_from_slice(&[ecc, cr, cg, cb]);
         }
@@ -1012,17 +1017,21 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
                 )
                 .as_str(),
             ));
-            // Live pressure bar: outer 120 px track, inner scaled by pressure.
-            let fill = ((h.pressure_pct as f32) * 1.18) as u32;
-            let bar = Dom::create_div()
-                .with_css(
-                    "width: 120px; height: 12px; border: 1px solid #777; \
-                     background: #1a1a1a; margin-left: 12px;",
-                )
-                .with_child(Dom::create_div().with_css(
-                    format!("width: {}px; height: 10px; background: #7CFC00;", fill).as_str(),
-                ));
-            header.add_child(bar);
+            // Live pressure meter as TEXT cells. The first version was a
+            // child div whose ONLY change between rebuilds was an inline-CSS
+            // width — and it never visually updated (pen-verified
+            // 2026-08-29; ledgered as a suspected inline-style-only-diff
+            // repaint gap). Text provably repaints: the numeric readout next
+            // to this updates live. Ten cells, one per 10% of pressure.
+            let filled = ((h.pressure_pct as usize) + 5) / 10;
+            let mut meter = String::with_capacity(40);
+            for i in 0..10 {
+                meter.push(if i < filled { '\u{25B0}' } else { '\u{25B1}' });
+            }
+            header.add_child(
+                Dom::create_p_with_text(meter.as_str())
+                    .with_css("margin-left: 12px; color: #7CFC00; letter-spacing: 2px;"),
+            );
         }
         None => {
             header.add_child(Dom::create_p_with_text(
