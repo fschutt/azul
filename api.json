@@ -46621,6 +46621,13 @@
                                     }
                                 ],
                                 "fn_body": "azul_layout::resource_handles::FontCacheSnapshot::from_layout_info(unsafe { &*info })"
+                            },
+                            "empty": {
+                                "doc": [
+                                    "An empty handle (also what the non-`text_layout` build returns)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::resource_handles::FontCacheSnapshot::empty()"
                             }
                         },
                         "repr": "C"
@@ -75523,6 +75530,15 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "empty": {
+                                "doc": [
+                                    "An empty handle."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::resource_handles::ImageCacheSnapshot::empty()"
+                            }
+                        },
                         "repr": "C"
                     },
                     "ZombieAnimInfo": {
@@ -116803,6 +116819,15 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "empty": {
+                                "doc": [
+                                    "An empty handle (0 pages - the failure value)."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::resource_handles::PaginationSnapshot::empty()"
+                            }
+                        },
                         "functions": {
                             "page_count": {
                                 "doc": [

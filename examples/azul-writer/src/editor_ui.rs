@@ -1,30 +1,36 @@
 //! The main editing screen: title band (QAT), ribbon, page canvas and
 //! status bar — the Office-2013-era look print-layout look.
 
-use azul_core::{dom::Dom, refany::RefAny};
-use azul_css::AzString;
-use azul_layout::widgets::button::ButtonOnClickCallbackType;
-use azul_layout::widgets::quick_access::{QuickAccessAction, QuickAccessActionVec, QuickAccessBar};
-use azul_layout::widgets::slider::SliderOnValueChangeCallbackType;
-use azul_layout::widgets::statusbar::{
-    StatusBar, StatusBarOnViewSelectCallbackType, StatusBarSegment, StatusBarSegmentVec,
-    StatusBarViewSwitcher, StatusBarZoom,
+use azul::callbacks::{
+    ButtonOnClickCallbackType, RefAny, SliderOnValueChangeCallbackType,
+    StatusBarOnViewSelectCallbackType, VirtualViewCallbackInfo, VirtualViewReturn,
+};
+use azul::component::ComponentEventFilter;
+use azul::css::{EventFilter, FocusEventFilter, LayoutSize, LogicalPosition, LogicalSize};
+use azul::dom::{Dom, IdOrClass, SliderOnValueChangeCallback, StatusBarOnViewSelectCallback};
+use azul::option::{OptionDom, OptionRefAny};
+use azul::str::String as AzString;
+use azul::svg::LogicalRect;
+use azul::widgets::{
+    ButtonOnClick, QuickAccessAction, QuickAccessBar, SliderOnValueChange, StatusBar,
+    StatusBarSegment, StatusBarViewSwitcher, StatusBarZoom,
 };
 
-use crate::{document, AppState};
+use crate::document::{self, FontCacheSnapshot};
+use crate::AppState;
 
-/// #28 (b): sheet geometry derives from the ONE `document::a4_page_setup()`
-/// source — the engine's own page-setup type — instead of app-side A4/margin
-/// duplicates. (The sheet frame is the FULL page; the pagination content box
-/// subtracts the margins via `PageSetup::content_*` in `document`.)
+/// #28 (b): sheet geometry derives from the ONE `document::A4_*` source —
+/// the same constants the pagination content box is computed from. (The
+/// sheet frame is the FULL page; the pagination content box subtracts the
+/// margins in `document::page_content_size`.)
 pub fn page_sheet_w() -> f32 {
-    document::a4_page_setup().page_size.width
+    document::A4_PAGE_W
 }
 pub fn page_sheet_h() -> f32 {
-    document::a4_page_setup().page_size.height
+    document::A4_PAGE_H
 }
 fn page_pad() -> f32 {
-    document::a4_page_setup().margins.left
+    document::A4_MARGIN
 }
 /// #28(c): one page plus its bottom margin at `zoom` — the sheet-stack row
 /// stride shared by the VirtualView window math and the background
@@ -52,7 +58,7 @@ fn word_logo() -> Dom {
 pub fn title_band(state: &AppState, data: &RefAny) -> Dom {
     let title = format!("{} - AzWriter", state.document.display_name());
     let mut band = QuickAccessBar::office_2013(AzString::from(title)).with_leading(word_logo());
-    band.actions = QuickAccessActionVec::from_vec(vec![
+    band.actions = vec![
         QuickAccessAction::new(s("save")).with_on_click(
             data.clone(),
             crate::on_save_clicked as ButtonOnClickCallbackType,
@@ -61,7 +67,8 @@ pub fn title_band(state: &AppState, data: &RefAny) -> Dom {
             .with_on_click(data.clone(), crate::on_undo as ButtonOnClickCallbackType),
         QuickAccessAction::new(s("redo"))
             .with_on_click(data.clone(), crate::on_redo as ButtonOnClickCallbackType),
-    ]);
+    ]
+    .into();
     crate::fonts::push_ui_font(&mut band.style.bar_style);
     // The title band IS the window's drag handle — `-azul-app-region: drag`,
     // the same rule Electron spells `-webkit-app-region`. Dragging it hands the
@@ -87,7 +94,7 @@ pub fn title_band(state: &AppState, data: &RefAny) -> Dom {
 fn canvas(
     state: &AppState,
     data: &RefAny,
-    fonts: Option<rust_fontconfig::FcFontCache>,
+    fonts: Option<FontCacheSnapshot>,
     total_pages: usize,
 ) -> Dom {
     let _ = state;
@@ -123,32 +130,25 @@ fn canvas(
         fonts: mount_fonts,
     });
     area.add_child(
-        Dom::create_virtual_view(vv_payload, azul_core::callbacks::VirtualViewCallback {
-            cb: pages_virtual_view,
-            ctx: azul_core::refany::OptionRefAny::None,
-        })
-        .with_callback(
-            azul_core::dom::EventFilter::Component(
-                azul_core::dom::ComponentEventFilter::AfterMount,
-            ),
-            mount_ctx.clone(),
-            crate::on_pages_mounted as azul_layout::callbacks::CallbackType as usize,
-        )
-        .with_callback(
-            azul_core::dom::EventFilter::Component(
-                azul_core::dom::ComponentEventFilter::BeforeUnmount,
-            ),
-            mount_ctx,
-            crate::on_pages_unmounted as azul_layout::callbacks::CallbackType as usize,
-        )
-        // The VirtualView node IS the scroll container (same as
-        // examples/rust/src/infinity.rs). No overflow CSS needed: the UA
-        // stylesheet defaults a VirtualView to `overflow: auto`, and the
-        // virtual-size-aware necessity rule paints/updates the bar exactly
-        // when the published `virtual_scroll_size` overflows the viewport.
-        // (A VV that must not wheel-scroll opts out with `overflow: hidden`,
-        // as the map and video widgets do.)
-        .with_css("flex-grow: 1; min-height: 0px; width: 100%;"),
+        Dom::create_virtual_view(vv_payload, pages_virtual_view)
+            .with_callback(
+                EventFilter::Component(ComponentEventFilter::AfterMount),
+                mount_ctx.clone(),
+                crate::on_pages_mounted,
+            )
+            .with_callback(
+                EventFilter::Component(ComponentEventFilter::BeforeUnmount),
+                mount_ctx,
+                crate::on_pages_unmounted,
+            )
+            // The VirtualView node IS the scroll container (same as
+            // examples/rust/src/infinity.rs). No overflow CSS needed: the UA
+            // stylesheet defaults a VirtualView to `overflow: auto`, and the
+            // virtual-size-aware necessity rule paints/updates the bar exactly
+            // when the published `virtual_scroll_size` overflows the viewport.
+            // (A VV that must not wheel-scroll opts out with `overflow: hidden`,
+            // as the map and video widgets do.)
+            .with_css("flex-grow: 1; min-height: 0px; width: 100%;"),
     );
     area
 }
@@ -158,7 +158,7 @@ fn canvas(
 /// fonts as the main thread, or the thread's break metrics would diverge).
 pub struct PagesMountCtx {
     pub app: RefAny,
-    pub fonts: Option<rust_fontconfig::FcFontCache>,
+    pub fonts: Option<FontCacheSnapshot>,
 }
 
 /// Payload of the page-canvas `VirtualView` (#28).
@@ -173,7 +173,7 @@ struct PagesVv {
     /// The app data — for reading `AppState` at materialization time and for
     /// wiring the `DocumentEdit` callback onto materialized pages.
     app: RefAny,
-    fonts: Option<rust_fontconfig::FcFontCache>,
+    fonts: Option<FontCacheSnapshot>,
 }
 
 /// #28: materialize pages `first−1 ..= last_visible+1` around the scroll
@@ -183,12 +183,8 @@ struct PagesVv {
 /// and DOM regeneration.
 extern "C" fn pages_virtual_view(
     mut data: RefAny,
-    info: azul_core::callbacks::VirtualViewCallbackInfo,
-) -> azul_core::callbacks::VirtualViewReturn {
-    use azul_core::callbacks::VirtualViewReturn;
-    use azul_core::dom::OptionDom;
-    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-
+    info: VirtualViewCallbackInfo,
+) -> VirtualViewReturn {
     // RefAny downcasts take `&mut self` (borrow bookkeeping), so clone the
     // handles out of the payload borrow first (refcount bumps only).
     let (mut app, fonts, payload_total) = {
@@ -252,18 +248,16 @@ extern "C" fn pages_virtual_view(
         // and fires DocumentEdit; the app applies them to its model.
         let page = page
             .with_callback(
-                azul_core::dom::EventFilter::Focus(
-                    azul_core::dom::FocusEventFilter::DocumentEdit,
-                ),
+                EventFilter::Focus(FocusEventFilter::DocumentEdit),
                 app.clone(),
-                crate::on_document_edit as azul_layout::callbacks::CallbackType as usize,
+                crate::on_document_edit,
             )
             // Focus anchor: startup focus targets this class so the caret
             // exists the moment the window opens (classic office-suite behavior). The window
             // includes page 0 at startup by construction.
-            .with_ids_and_classes(
-                vec![azul_core::dom::IdOrClass::Class("mw-doc".into())].into(),
-            )
+            .with_ids_and_classes(azul::vec::IdOrClassVec::from(vec![IdOrClass::Class(
+                "mw-doc".into(),
+            )]))
             // The WHOLE writable area of the sheet is the editing host, the way
             // a word processor's page is: `with_css` appends, so this only adds
             // a floor to the content root's height.
@@ -277,7 +271,7 @@ extern "C" fn pages_virtual_view(
             // border-box`) makes every click inside the margins reach the
             // editable host, which then seeds the caret at the end of the text.
             .with_css("min-height: 100%;");
-        col.add_child(Dom::create_div().with_css(&page_css).with_child(page));
+        col.add_child(Dom::create_div().with_css(page_css.as_str()).with_child(page));
     }
 
     VirtualViewReturn {
@@ -285,17 +279,26 @@ extern "C" fn pages_virtual_view(
         // What we just materialized, and WHERE it sits in the document: pages
         // `first..first+count`, so the window starts at `first * stride`. The
         // engine places it at `window_origin - scroll_offset`.
-        materialized: LogicalRect::new(
-            LogicalPosition::new(0.0, first as f32 * stride),
-            LogicalSize::new(page_w + 2.0, count as f32 * stride),
-        ),
+        materialized: LogicalRect {
+            origin: LogicalPosition {
+                x: 0.0,
+                y: first as f32 * stride,
+            },
+            size: LogicalSize {
+                width: page_w + 2.0,
+                height: count as f32 * stride,
+            },
+        },
         // The whole document — scrollbar geometry only. A background exact
         // pagination pass may refine `total` later; that re-scales the bar
         // without moving the page under the cursor.
-        virtual_rect: LogicalRect::new(
-            LogicalPosition::zero(),
-            LogicalSize::new(page_w + 2.0, total as f32 * stride),
-        ),
+        virtual_rect: LogicalRect {
+            origin: LogicalPosition::zero(),
+            size: LogicalSize {
+                width: page_w + 2.0,
+                height: total as f32 * stride,
+            },
+        },
     }
 }
 
@@ -303,34 +306,32 @@ extern "C" fn pages_virtual_view(
 /// and zoom cluster right.
 pub fn status_bar(state: &AppState, data: &RefAny, page_count: usize) -> Dom {
     let words = state.document.word_count();
-    let segments = StatusBarSegmentVec::from_vec(vec![
+    let segments = vec![
         StatusBarSegment::new(AzString::from(format!("PAGE 1 OF {page_count}"))),
         StatusBarSegment::new(AzString::from(format!("{words} WORDS"))),
         StatusBarSegment::new(s("")).with_icon(s("spellcheck")),
         StatusBarSegment::new(s("ENGLISH (UNITED STATES)")),
-    ]);
+    ];
 
     let views = StatusBarViewSwitcher::office_2013()
         .with_active_view(state.view_mode)
         .with_on_select(
             data.clone(),
-            crate::on_view_select as StatusBarOnViewSelectCallbackType,
+            StatusBarOnViewSelectCallback {
+                cb: crate::on_view_select as StatusBarOnViewSelectCallbackType,
+                callable: OptionRefAny::None,
+            },
         );
 
     let mut zoom = StatusBarZoom::office_2013().with_percent(state.zoom_percent);
-    zoom.on_zoom_out = Some(azul_layout::widgets::button::ButtonOnClick {
-        refany: data.clone(),
-        callback: (crate::on_zoom_out as ButtonOnClickCallbackType).into(),
-    })
-    .into();
-    zoom.on_zoom_in = Some(azul_layout::widgets::button::ButtonOnClick {
-        refany: data.clone(),
-        callback: (crate::on_zoom_in as ButtonOnClickCallbackType).into(),
-    })
-    .into();
-    zoom.on_slider_change = Some(azul_layout::widgets::slider::SliderOnValueChange {
-        refany: data.clone(),
-        callback: (crate::on_zoom_slider as SliderOnValueChangeCallbackType).into(),
+    zoom.on_zoom_out = Some(button_click(data, crate::on_zoom_out)).into();
+    zoom.on_zoom_in = Some(button_click(data, crate::on_zoom_in)).into();
+    zoom.on_slider_change = Some(SliderOnValueChange {
+        data: data.clone(),
+        callback: SliderOnValueChangeCallback {
+            cb: crate::on_zoom_slider as SliderOnValueChangeCallbackType,
+            callable: OptionRefAny::None,
+        },
     })
     .into();
 
@@ -339,13 +340,26 @@ pub fn status_bar(state: &AppState, data: &RefAny, page_count: usize) -> Dom {
     bar.dom()
 }
 
+/// A `ButtonOnClick` wrapper for a bare callback fn (the field-assigned
+/// zoom hooks take the wrapper struct, unlike the `with_on_click` setters).
+fn button_click(data: &RefAny, cb: ButtonOnClickCallbackType) -> ButtonOnClick {
+    use azul::dom::ButtonOnClickCallback;
+    ButtonOnClick {
+        data: data.clone(),
+        callback: ButtonOnClickCallback {
+            cb,
+            callable: OptionRefAny::None,
+        },
+    }
+}
+
 /// The complete editor screen (vertical: title band / ribbon / canvas /
 /// status bar).
 pub fn editor_screen(
     state: &AppState,
     data: &RefAny,
-    fonts: Option<rust_fontconfig::FcFontCache>,
-    max_monitor: Option<azul_css::props::basic::LayoutSize>,
+    fonts: Option<FontCacheSnapshot>,
+    max_monitor: Option<LayoutSize>,
 ) -> Dom {
     // Dynamic pagination: the engine cuts the cached content DOM at its
     // structural break paths; pages build LAZILY inside the canvas
@@ -384,11 +398,14 @@ pub fn editor_screen(
     };
 
     Dom::create_div()
-        .with_css(&format!(
-            "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
-             background: white; {}",
-            crate::fonts::UI_FONT_CSS
-        ))
+        .with_css(
+            format!(
+                "display: flex; flex-direction: column; flex-grow: 1; min-height: 0px; \
+                 background: white; {}",
+                crate::fonts::UI_FONT_CSS
+            )
+            .as_str(),
+        )
         .with_child(title)
         .with_child(ribbon)
         .with_child(canvas_dom)

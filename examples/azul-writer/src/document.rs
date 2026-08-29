@@ -9,45 +9,72 @@
 //!    attached to `Dom.css`, cascading inside the app's own DOM).
 //! 2. [`save_markdown`]  — document model -> file.
 //! 3. [`paginate`]       — content DOM -> `Vec<Page>` via the ENGINE's
-//!    pagination: `compute_document_pagination` estimates the breaks,
-//!    `pagination_to_dom_breaks` maps each break to a root-to-node
-//!    child-index path, and `split_dom_at_path` cuts the content along
-//!    those paths (reverse order, so earlier paths stay valid). One DOM
-//!    per page — the classic office-suite page model, driven by the real layout engine.
+//!    pagination: `Pdf::compute_pagination` estimates the breaks and hands
+//!    back one root-to-node child-index path per page boundary
+//!    (`PaginationSnapshot::break_path`), and `DomSplit::at_path` cuts the
+//!    content along those paths (reverse order, so earlier paths stay
+//!    valid). One DOM per page — the classic office-suite page model,
+//!    driven by the real layout engine.
 
 use std::path::{Path, PathBuf};
 
-use azul_core::dom::Dom;
+use azul::css::{BoxOrStaticString, Css, LayoutSize, LogicalSize};
+use azul::dom::{Dom, DomSplit, NodeType};
+use azul::error::XmlError;
+use azul::misc::PaginationSnapshot;
+use azul::pdf::Pdf;
+use azul::xml::Xml;
 
-/// #28 (b): THE single source of page geometry — the engine's own classic office suites
-/// page-setup type instead of scattered constants. `editor_ui` derives the
-/// sheet frame (`page_size`) and padding (`margins`) from this, and the
-/// pagination content box comes from its `content_width/height()` math.
-/// A4 @96dpi CSS px with the classic office-suite default 1" margins.
+/// Snapshot handles the pagination call takes. Re-exported through this
+/// module so every caller names ONE source.
+pub use azul::css::FontCacheSnapshot;
+pub use azul::image::ImageCacheSnapshot;
+
+/// #28 (b): THE single source of page geometry. A4 @96dpi CSS px with the
+/// classic office-suite default 1" margins.
 ///
-/// TODO(#28): also hand this to the engine via
-/// `FakePageConfig.page_sequence` (the paged pipeline then owns headers/
-/// footers + per-page setups) — deferred because `page_sequence: Some`
-/// switches the engine's per-index break path, which needs a live run to
-/// verify; geometry is identical either way.
-pub fn a4_page_setup() -> azul_layout::solver3::pagination::PageSetup {
-    use azul_layout::solver3::pagination::{HeaderFooterConfig, PageMargins, PageSetup};
-    PageSetup {
-        page_size: azul_core::geom::LogicalSize::new(794.0, 1123.0),
-        margins: PageMargins {
-            top: 96.0,
-            right: 96.0,
-            bottom: 96.0,
-            left: 96.0,
-        },
-        header_footer: HeaderFooterConfig::default(),
+/// (The engine's `PageSetup` type is not part of the public api.json
+/// surface, so the geometry lives here as plain constants; the pagination
+/// content box below is page minus margins, the same math
+/// `PageSetup::content_width/height()` did.)
+pub const A4_PAGE_W: f32 = 794.0;
+pub const A4_PAGE_H: f32 = 1123.0;
+/// 1" margin on every side, @96dpi.
+pub const A4_MARGIN: f32 = 96.0;
+
+/// Content box the engine paginates into (page minus margins/decoration).
+pub fn page_content_size() -> LogicalSize {
+    LogicalSize {
+        width: A4_PAGE_W - 2.0 * A4_MARGIN,
+        height: A4_PAGE_H - 2.0 * A4_MARGIN,
     }
 }
 
-/// Content box the engine paginates into (page minus margins/decoration).
-pub fn page_content_size() -> azul_core::geom::LogicalSize {
-    let s = a4_page_setup();
-    azul_core::geom::LogicalSize::new(s.content_width(), s.content_height())
+/// An EMPTY font-cache handle: the engine then resolves fresh system fonts.
+/// Contexts with neither `from_layout_info` (layout callbacks) nor
+/// `get_font_cache_clone` (event callbacks) — tests, worker fallbacks —
+/// use the engine's own empty constructor.
+pub fn empty_font_cache() -> FontCacheSnapshot {
+    FontCacheSnapshot::empty()
+}
+
+/// An EMPTY image-cache handle. The markdown pipeline registers no app
+/// images, so pagination and PDF export always ran against an empty image
+/// cache — this preserves that exactly.
+pub fn empty_image_cache() -> ImageCacheSnapshot {
+    ImageCacheSnapshot::empty()
+}
+
+/// Read the text out of a `NodeType::Text` / `NodeType::Icon` payload.
+/// `BoxOrStaticString` is the ABI's boxed-or-static pointer enum; both
+/// variants point at a live `AzString` for the lifetime of the node.
+fn box_str(s: &BoxOrStaticString) -> &str {
+    unsafe {
+        match s {
+            BoxOrStaticString::Boxed(p) => (**p).as_str(),
+            BoxOrStaticString::Static(p) => (**p).as_str(),
+        }
+    }
 }
 
 /// The document stylesheet: the Office-2013-era default look for markdown content.
@@ -75,7 +102,7 @@ const DOC_CSS: &str = "
 
 /// The application-side document model: origin path, raw markdown source,
 /// and the parsed content DOM (cached so `layout()` never re-parses).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct DocumentModel {
     /// Where the document came from / was last saved to. `None` = the
     /// unsaved "Document1".
@@ -157,8 +184,8 @@ impl DocumentModel {
     /// status-bar update). Returns `(count, exact)`.
     pub fn page_count_bounded(
         &self,
-        fonts: Option<rust_fontconfig::FcFontCache>,
-        monitor_px: Option<azul_css::props::basic::LayoutSize>,
+        fonts: Option<FontCacheSnapshot>,
+        monitor_px: Option<LayoutSize>,
     ) -> (usize, bool) {
         let (mon_w, mon_h) = match monitor_px {
             Some(m) if m.width > 0 && m.height > 0 => (m.width as usize, m.height as usize),
@@ -204,8 +231,8 @@ impl DocumentModel {
         let prefix_blocks = prefix_blocks.max(1);
 
         // First `prefix_blocks` children of the content DOM = the prefix.
-        let (prefix, _tail) =
-            azul_layout::document_edit::split_dom_at_path(&self.content, &[prefix_blocks as u32]);
+        let split = DomSplit::at_path(&self.content, vec![prefix_blocks as u32]);
+        let prefix = split.head;
         // Direct computation — NOT page_count_cached: that path memoizes
         // COMPLETE entries only.
         let prefix_paths = compute_break_paths_with_fonts(&prefix, fonts);
@@ -270,6 +297,26 @@ pub fn blank_document() -> Dom {
 // SEAM 1: load  (markdown -> HTML -> azul XML parser -> Dom)
 // ============================================================================
 
+/// Coarse human-readable tag for an [`XmlError`] (the ABI enum carries no
+/// Display impl; the exact byte position matters less than WHICH failure).
+fn xml_error_kind(e: &XmlError) -> &'static str {
+    match e {
+        XmlError::NoParserAvailable => "no XML parser available",
+        XmlError::NoRootNode => "no root node",
+        XmlError::SizeLimit => "size limit reached",
+        XmlError::DtdDetected => "DTD detected",
+        XmlError::MalformedHierarchy(_) => "malformed hierarchy",
+        XmlError::ParserError(_) => "parser error",
+        XmlError::UnclosedRootNode => "unclosed root node",
+        XmlError::UnexpectedCloseTag(_) => "unexpected close tag",
+        XmlError::UnknownEntityReference(_) => "unknown entity reference",
+        XmlError::DuplicatedAttribute(_) => "duplicated attribute",
+        XmlError::InvalidAttributeValue(_) => "invalid attribute value",
+        XmlError::UnexpectedEndOfStream => "unexpected end of stream",
+        _ => "invalid XML",
+    }
+}
+
 /// markdown source -> content `Dom`, through the full pipeline:
 /// pulldown-cmark renders HTML, the azul XML parser turns it into an
 /// unstyled `Dom` with the `<style>` document stylesheet attached to
@@ -296,16 +343,16 @@ pub fn markdown_to_content_dom(markdown: &str) -> Dom {
     if let Ok(dump) = std::env::var("AZWRITER_DUMP_XML") {
         let _ = std::fs::write(&dump, &xml);
     }
-    match azul_layout::xml::parse_xml_string(&xml) {
-        Ok(root) => {
-            let parsed = azul_layout::xml::Xml { root: root.into() };
-            let full = azul_layout::xml::dom_from_parsed_xml(parsed);
+    match Xml::from_str(xml).into_result() {
+        Ok(parsed) => {
+            let full = Dom::create_from_parsed_xml(parsed);
             unwrap_html_shell(full)
         }
         Err(e) => Dom::create_div()
             .with_css(DOC_CSS)
             .with_child(Dom::create_p_with_text(format!(
-                "markdown parse error: {e}"
+                "markdown parse error: {}",
+                xml_error_kind(&e)
             ))),
     }
 }
@@ -319,16 +366,15 @@ pub fn markdown_to_content_dom(markdown: &str) -> Dom {
 ///
 /// `pre` is skipped: there whitespace is content, not markup formatting.
 fn strip_layout_whitespace(children: &[Dom]) -> Vec<Dom> {
-    use azul_core::dom::NodeType;
     children
         .iter()
-        .filter(|c| match c.root.get_node_type() {
-            NodeType::Text(t) => !t.as_str().trim().is_empty(),
+        .filter(|c| match &c.root.node_type {
+            NodeType::Text(t) => !box_str(t).trim().is_empty(),
             _ => true,
         })
         .map(|c| {
             let mut kept = c.clone();
-            if !matches!(kept.root.get_node_type(), NodeType::Pre) {
+            if !matches!(kept.root.node_type, NodeType::Pre) {
                 kept.children = strip_layout_whitespace(kept.children.as_ref()).into();
                 kept.fixup_children_estimated();
             }
@@ -344,8 +390,6 @@ fn strip_layout_whitespace(children: &[Dom]) -> Vec<Dom> {
 /// `<style>` blocks (attached to the html node) on the new root so the
 /// document stylesheet still scopes the subtree.
 fn unwrap_html_shell(full: Dom) -> Dom {
-    use azul_core::dom::NodeType;
-
     let mut content = Dom::create_div();
     // The document is editable: the flag lives on the content ROOT, so the
     // per-page split clones (same NodeData shape) are all editable too.
@@ -355,7 +399,7 @@ fn unwrap_html_shell(full: Dom) -> Dom {
         .children
         .as_ref()
         .iter()
-        .find(|c| matches!(c.root.get_node_type(), NodeType::Body));
+        .find(|c| matches!(c.root.node_type, NodeType::Body));
     if let Some(body) = body {
         // Drop inter-block whitespace-only text nodes. CSS 2.1 §9.2.2.1
         // collapses them away (they generate no boxes), and keeping them
@@ -366,8 +410,8 @@ fn unwrap_html_shell(full: Dom) -> Dom {
         // edit by one.
         content.children = strip_layout_whitespace(body.children.as_ref()).into();
         // body-level <style> blocks (rare) must survive too.
-        let mut css = content.css.clone().into_library_owned_vec();
-        css.extend(body.css.clone().into_library_owned_vec());
+        let mut css: Vec<Css> = content.css.as_ref().to_vec();
+        css.extend(body.css.as_ref().iter().cloned());
         content.css = css.into();
     } else {
         // No shell (already a fragment): keep as-is.
@@ -433,15 +477,15 @@ pub fn paginate_cached(content: &Dom, generation: u64) -> Vec<Page> {
 
 /// [`paginate_cached`], reusing the window's already-built font cache.
 ///
-/// Without this the first pagination calls `build_font_cache()` and
-/// re-scans every font on the machine — ~5 SECONDS on the first frame,
-/// long enough for the compositor to drop the surface. A layout callback
-/// gets the engine's own cache from `LayoutCallbackInfo::get_font_cache()`.
+/// Without this the first pagination scans every font on the machine —
+/// ~5 SECONDS on the first frame, long enough for the compositor to drop
+/// the surface. A layout callback builds the handle from the engine's own
+/// cache via `FontCacheSnapshot::from_layout_info`.
 #[must_use]
 pub fn paginate_cached_with_fonts(
     content: &Dom,
     generation: u64,
-    fonts: Option<rust_fontconfig::FcFontCache>,
+    fonts: Option<FontCacheSnapshot>,
 ) -> Vec<Page> {
     let paths = cached_break_paths(content, generation, fonts);
     let _p = crate::perf::Phase::start("  split_content_at");
@@ -465,7 +509,7 @@ thread_local! {
 fn cached_break_paths(
     content: &Dom,
     generation: u64,
-    fonts: Option<rust_fontconfig::FcFontCache>,
+    fonts: Option<FontCacheSnapshot>,
 ) -> Vec<Vec<u32>> {
     BREAK_MEMO.with(|m| {
         let mut m = m.borrow_mut();
@@ -475,7 +519,7 @@ fn cached_break_paths(
             }
         }
         let _p = crate::perf::Phase::start("  break_paths (MISS)");
-        let paths = compute_break_paths_with_fonts(content, fonts.clone());
+        let paths = compute_break_paths_with_fonts(content, fonts);
         *m = Some((generation, paths.clone(), true));
         paths
     })
@@ -501,10 +545,7 @@ pub fn pagination_is_complete(generation: u64) -> bool {
 /// #28(c): raw break-path computation for the BACKGROUND thread's chunk
 /// loop (no memo interaction — the writeback seeds the memo on the main
 /// thread).
-pub fn break_paths_for(
-    content: &Dom,
-    fonts: Option<rust_fontconfig::FcFontCache>,
-) -> Vec<Vec<u32>> {
+pub fn break_paths_for(content: &Dom, fonts: Option<FontCacheSnapshot>) -> Vec<Vec<u32>> {
     compute_break_paths_with_fonts(content, fonts)
 }
 
@@ -547,7 +588,7 @@ pub fn seed_break_paths(generation: u64, paths: Vec<Vec<u32>>, complete: bool) {
 pub fn page_count_cached(
     content: &Dom,
     generation: u64,
-    fonts: Option<rust_fontconfig::FcFontCache>,
+    fonts: Option<FontCacheSnapshot>,
 ) -> usize {
     cached_break_paths(content, generation, fonts).len() + 1
 }
@@ -561,7 +602,7 @@ pub fn page_count_cached(
 pub fn paginate_range_cached(
     content: &Dom,
     generation: u64,
-    fonts: Option<rust_fontconfig::FcFontCache>,
+    fonts: Option<FontCacheSnapshot>,
     first: usize,
     count: usize,
 ) -> Vec<Page> {
@@ -586,10 +627,10 @@ pub fn paginate_range_cached(
 }
 
 /// Splits the content DOM into pages using the ENGINE's pagination:
-/// `compute_document_pagination` + `pagination_to_dom_breaks` produce one
-/// structural (root-to-node child-index) path per page boundary, and
-/// `split_dom_at_path` cuts the content there. Splitting runs in REVERSE
-/// break order so earlier paths stay valid on the shrinking head.
+/// `Pdf::compute_pagination` produces one structural (root-to-node
+/// child-index) path per page boundary, and `DomSplit::at_path` cuts the
+/// content there. Splitting runs in REVERSE break order so earlier paths
+/// stay valid on the shrinking head.
 #[must_use]
 pub fn paginate(content: Dom) -> Vec<Page> {
     let break_paths = compute_break_paths(&content);
@@ -602,9 +643,9 @@ fn split_content_at(content: Dom, break_paths: &[Vec<u32>]) -> Vec<Page> {
     let mut head = content;
     let mut tails: Vec<Dom> = Vec::new();
     for path in break_paths.iter().rev() {
-        let (h, t) = azul_layout::document_edit::split_dom_at_path(&head, path);
-        head = h;
-        tails.push(t);
+        let split = DomSplit::at_path(&head, path.clone());
+        head = split.head;
+        tails.push(split.tail);
     }
     let mut pages = vec![Page { dom: head }];
     pages.extend(tails.into_iter().rev().map(|dom| Page { dom }));
@@ -620,196 +661,85 @@ fn compute_break_paths(content: &Dom) -> Vec<Vec<u32>> {
 
 fn compute_break_paths_with_fonts(
     content: &Dom,
-    fonts: Option<rust_fontconfig::FcFontCache>,
+    fonts: Option<FontCacheSnapshot>,
 ) -> Vec<Vec<u32>> {
-    use std::collections::{BTreeMap, HashMap};
-
-    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
-    use azul_core::resources::RendererResources;
-    use azul_layout::font_traits::TextLayoutCache;
-    use azul_layout::paged::FragmentationContext;
-    use azul_layout::solver3::paged_layout::{
-        compute_document_pagination, pagination_to_dom_breaks,
-    };
-    use azul_layout::solver3::pagination::FakePageConfig;
-    use azul_layout::text3::default::PathLoader;
-    use azul_layout::Solver3LayoutCache;
+    use azul::css::StyledDom;
 
     // The styled copy the engine measures. Same tree shape as `content`, so
     // the returned paths address `content`'s children directly.
     let styled_dom = {
         let _p = crate::perf::Phase::start("    dom_clone+cascade");
-        let mut for_styling = content.clone();
-        azul_core::styled_dom::StyledDom::create_from_dom(core::mem::replace(
-            &mut for_styling,
-            Dom::create_div(),
-        ))
+        StyledDom::create_from_dom(content.clone())
     };
 
-    // REUSE the layout cache across paginations. A fresh cache means every
-    // node is a per-node cache MISS (`size_cache_miss` fires on all of
-    // them), so the whole document re-measures from scratch; keeping it
-    // halves pagination (224ms -> 105ms measured in azul's
-    // layout/tests/pagination_perf.rs). It lives per thread alongside the
-    // font manager, and holds only derived data — the document itself is
-    // passed in fresh each call.
-    thread_local! {
-        static LAYOUT_CACHE: std::cell::RefCell<Solver3LayoutCache> =
-            std::cell::RefCell::new(Solver3LayoutCache {
-                tree: None,
-                calculated_positions: Vec::new(),
-                viewport: None,
-                scroll_ids: HashMap::new(),
-                scroll_id_to_node_id: HashMap::new(),
-                counters: HashMap::new(),
-                float_cache: HashMap::new(),
-                cache_map: Default::default(),
-                previous_positions: Vec::new(),
-                cached_display_list: None,
-                prev_dom_ptr: 0,
-                prev_viewport: LogicalRect {
-                    origin: LogicalPosition::zero(),
-                    size: LogicalSize::zero(),
-                },
-                // Struct-update so future engine-side cache fields (e.g. the
-                // 2026-08-08 reconcile census) don't break the app build.
-                ..Default::default()
-            });
-    }
-    // #28: REUSE the shaping cache across paginations too, exactly like
-    // LAYOUT_CACHE above. A fresh `TextLayoutCache` per call re-shaped the
-    // ENTIRE document every pagination (the shaping key hashes
-    // text/bidi/script/style — never a width — so nothing about a repeat
-    // pagination invalidates it). fork_shared() hands this call a snapshot
-    // (Arc bumps, no shaped data copied): unchanged text costs zero shaping,
-    // this call's new entries die with the fork, and the retained cache only
-    // grows when the retained copy itself is refreshed below.
-    thread_local! {
-        static TEXT_CACHE: std::cell::RefCell<TextLayoutCache> =
-            std::cell::RefCell::new(TextLayoutCache::new());
-    }
-    let mut text_cache = TEXT_CACHE.with(|tc| tc.borrow().fork_shared());
+    // PERF NOTE (public-API migration): pagination now goes through
+    // `Pdf::compute_pagination`, and the ENGINE owns the layout + shaping
+    // caches behind that snapshot API. The old in-app thread-local
+    // `Solver3LayoutCache`/`TextLayoutCache` reuse (which halved repeated
+    // paginations, 224ms -> 105ms measured) is no longer reachable from the
+    // public surface — repeat paginations therefore re-measure from scratch.
+    // The app-side BREAK_MEMO above still guarantees at most ONE pagination
+    // per document generation, which is what keeps resize drags free.
     let content_size = page_content_size();
-    let fragmentation_context = FragmentationContext::new_paged(content_size);
-    let viewport = LogicalRect {
-        origin: LogicalPosition::zero(),
-        size: content_size,
-    };
-    let renderer_resources = RendererResources::default();
-    let mut debug_messages = None;
-    let loader = PathLoader::new();
-    let font_loader = |bytes: std::sync::Arc<rust_fontconfig::FontBytes>, index: usize| {
-        loader.load_font_shared(bytes, index)
-    };
-
-    let _p_pag = crate::perf::Phase::start("    compute_document_pagination");
-    let pagination = LAYOUT_CACHE.with(|lc| {
-        let layout_cache = &mut *lc.borrow_mut();
-        with_font_manager(fonts, |font_manager| {
-            compute_document_pagination(
-                layout_cache,
-                &mut text_cache,
-                fragmentation_context,
-                &styled_dom,
-                viewport,
-                font_manager,
-                &BTreeMap::new(),
-                &mut debug_messages,
-                None,
-                &renderer_resources,
-                azul_core::resources::IdNamespace(0),
-                azul_core::dom::DomId::ROOT_ID,
-                font_loader,
-                FakePageConfig::new(),
-                &azul_core::resources::ImageCache::default(),
-                azul_core::task::GetSystemTimeCallback {
-                    cb: azul_core::task::get_system_time_libstd,
-                },
-            )
-        })
-    });
-
+    let _p_pag = crate::perf::Phase::start("    compute_pagination");
+    let pdf = Pdf::new();
+    let snapshot: PaginationSnapshot = pdf.compute_pagination(
+        styled_dom,
+        content_size.width,
+        content_size.height,
+        fonts.unwrap_or_else(empty_font_cache),
+        empty_image_cache(),
+    );
     drop(_p_pag);
-    // #28: retain this call's shaping for the next pagination (the fork
-    // above starts from what is stored here). `begin_generation` then evicts
-    // every entry THIS pagination did not touch — edited-away text is
-    // released instead of accumulating, so the retained cache is always
-    // exactly the last pagination's working set.
-    TEXT_CACHE.with(|tc| {
-        let mut retained = tc.borrow_mut();
-        *retained = text_cache;
-        retained.begin_generation();
-    });
-    let Ok(pagination) = pagination else {
-        return Vec::new();
-    };
-    let _p_brk = crate::perf::Phase::start("    pagination_to_dom_breaks");
-    // TEMPORARY PROBE — the ~40 MiB a window resize retains has one candidate
-    // left, and a hypothesis that merely fits the arithmetic is not an answer.
-    // Prints the app-side pagination cache so the claim has to produce a
-    // number. Remove once the retention is attributed.
-    if std::env::var("AZ_PROFILE").as_deref() == Ok("memory") {
-        LAYOUT_CACHE.with(|lc| {
-            let c = lc.borrow();
-            let r = c.memory_report();
-            eprintln!(
-                "[MEM][app] pagination LAYOUT_CACHE = {} KiB (tree {}, positions {})",
-                r.total_bytes() / 1024,
-                c.tree.is_some(),
-                c.calculated_positions.len(),
-            );
-        });
-    }
 
-    let breaks =
-        LAYOUT_CACHE.with(|lc| pagination_to_dom_breaks(&lc.borrow(), &styled_dom, &pagination));
-    let Some(breaks) = breaks else {
-        return Vec::new();
-    };
-    breaks.into_iter().filter_map(|b| b.path).collect()
-}
-
-/// Font parsing is the expensive part of pagination, so ONE `FontManager`
-/// (and its parsed-font store) is shared across every `paginate()` call on
-/// the UI thread. The layout/text caches stay per-call: each call measures
-/// a fresh DOM.
-fn with_font_manager<R>(
-    fonts: Option<rust_fontconfig::FcFontCache>,
-    f: impl FnOnce(&mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>) -> R,
-) -> R {
-    use std::cell::RefCell;
-    thread_local! {
-        static FONT_MANAGER: RefCell<
-            Option<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
-        > = const { RefCell::new(None) };
+    let _p_brk = crate::perf::Phase::start("    break_paths_extract");
+    let mut out: Vec<Vec<u32>> = Vec::new();
+    for i in 0..snapshot.break_count() {
+        let path: Vec<u32> = snapshot.break_path(i).as_ref().to_vec();
+        // An EMPTY path = the engine found no structural position for this
+        // break — skipped, exactly like the old `filter_map(|b| b.path)`.
+        if !path.is_empty() {
+            out.push(path);
+        }
     }
-    FONT_MANAGER.with(|fm| {
-        let mut fm = fm.borrow_mut();
-        let manager = fm.get_or_insert_with(|| {
-            let _p = crate::perf::Phase::start("      FontManager::new (once)");
-            // Prefer the window's cache; only scan the system if an app
-            // context could not supply one (tests, headless helpers).
-            let cache = fonts.unwrap_or_else(|| {
-                let _p = crate::perf::Phase::start("      build_font_cache (SCAN)");
-                azul_layout::font::loading::build_font_cache()
-            });
-            azul_layout::font_traits::FontManager::new(cache).expect("font manager")
-        });
-        f(manager)
-    })
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Human-readable tag for the node types the markdown pipeline emits
+    /// (the ABI enum carries no Debug impl).
+    pub(super) fn node_type_label(nt: &NodeType) -> String {
+        match nt {
+            NodeType::Html => "Html".into(),
+            NodeType::Head => "Head".into(),
+            NodeType::Body => "Body".into(),
+            NodeType::Div => "Div".into(),
+            NodeType::P => "P".into(),
+            NodeType::H1 => "H1".into(),
+            NodeType::H2 => "H2".into(),
+            NodeType::H3 => "H3".into(),
+            NodeType::Ul => "Ul".into(),
+            NodeType::Ol => "Ol".into(),
+            NodeType::Li => "Li".into(),
+            NodeType::Pre => "Pre".into(),
+            NodeType::BlockQuote => "BlockQuote".into(),
+            NodeType::Hr => "Hr".into(),
+            NodeType::Style => "Style".into(),
+            NodeType::Text(t) => format!("Text({:?})", box_str(t)),
+            _ => "<other>".into(),
+        }
+    }
+
     fn walk(d: &Dom, depth: usize, out: &mut String) {
         use std::fmt::Write;
         let _ = writeln!(
             out,
-            "{:indent$}{:?} css={} kids={}",
+            "{:indent$}{} css={} kids={}",
             "",
-            d.root.get_node_type(),
+            node_type_label(&d.root.node_type),
             d.css.as_ref().len(),
             d.children.as_ref().len(),
             indent = depth * 2
@@ -902,13 +832,11 @@ mod sample_tests {
 /// (`CallbackInfo::get_node_text_content`, which sees the text overlay's
 /// live edits), tests pass a pure model walk.
 pub fn dom_to_markdown(content: &Dom, text_of: &mut dyn FnMut(&[u32]) -> Option<String>) -> String {
-    use azul_core::dom::NodeType;
-
     fn own_text(d: &Dom) -> String {
         let mut s = String::new();
         for c in d.children.as_ref() {
-            match c.root.get_node_type() {
-                NodeType::Text(t) => s.push_str(t.as_str()),
+            match &c.root.node_type {
+                NodeType::Text(t) => s.push_str(box_str(t)),
                 _ => s.push_str(&own_text(c)),
             }
         }
@@ -921,7 +849,7 @@ pub fn dom_to_markdown(content: &Dom, text_of: &mut dyn FnMut(&[u32]) -> Option<
         let text = |p: &mut dyn FnMut(&[u32]) -> Option<String>| {
             p(&path).unwrap_or_else(|| own_text(block))
         };
-        match block.root.get_node_type() {
+        match &block.root.node_type {
             NodeType::H1 => {
                 out.push_str("# ");
                 out.push_str(text(text_of).trim());
@@ -942,10 +870,10 @@ pub fn dom_to_markdown(content: &Dom, text_of: &mut dyn FnMut(&[u32]) -> Option<
                 out.push_str("\n\n");
             }
             NodeType::Ul | NodeType::Ol => {
-                let ordered = matches!(block.root.get_node_type(), NodeType::Ol);
+                let ordered = matches!(block.root.node_type, NodeType::Ol);
                 let mut li_index = 0usize;
                 for (j, li) in block.children.as_ref().iter().enumerate() {
-                    if !matches!(li.root.get_node_type(), NodeType::Li) {
+                    if !matches!(li.root.node_type, NodeType::Li) {
                         continue;
                     }
                     li_index += 1;
@@ -1024,9 +952,7 @@ pub fn tag_pages_with_block_ids(pages: &mut [Page], offsets: &[usize]) {
             .enumerate()
             .map(|(i, child)| {
                 let model_index = base + i;
-                let mut tagged = child
-                    .clone()
-                    .with_id(azul_css::AzString::from(block_dom_id(model_index)));
+                let mut tagged = child.clone().with_id(block_dom_id(model_index));
                 // Containers (ul/ol) also tag their direct children so the
                 // serializer's [block, child] paths resolve too - list items
                 // are edited like any other text and must round-trip.
@@ -1035,10 +961,7 @@ pub fn tag_pages_with_block_ids(pages: &mut [Page], offsets: &[usize]) {
                     .as_ref()
                     .iter()
                     .enumerate()
-                    .map(|(j, sub)| {
-                        sub.clone()
-                            .with_id(azul_css::AzString::from(nested_dom_id(model_index, j)))
-                    })
+                    .map(|(j, sub)| sub.clone().with_id(nested_dom_id(model_index, j)))
                     .collect();
                 tagged.children = nested.into();
                 tagged.fixup_children_estimated();
@@ -1079,9 +1002,83 @@ pub fn page_path_to_model_path(page_offset: usize, page_path: &[u32]) -> Vec<u32
     out
 }
 
+// ============================================================================
+// Test helpers shared by the cfg(test) modules below (public-API shapes)
+// ============================================================================
+
+#[cfg(test)]
+mod test_edit_support {
+    use azul::callbacks::DocumentChangeset;
+    use azul::css::DocumentOperation;
+    use azul::dom::{Dom, DomId, DomNodeId, NodeHierarchyItemId};
+    use azul::error::DocumentEditError;
+    use azul::misc::EditResumePoint;
+    use azul::time::Instant;
+
+    pub(super) use azul::app::AppliedEdit;
+    pub(super) use azul::css::NodePosition;
+    pub(super) use azul::dom::DocOpSplitNode;
+
+    /// The "no node" id (the crate-internal `from_crate_internal(None)`
+    /// encoding: inner 0).
+    pub(super) fn null_node() -> DomNodeId {
+        DomNodeId {
+            dom: DomId { inner: 0 },
+            node: NodeHierarchyItemId::from_raw(0),
+        }
+    }
+
+    /// A changeset targeting the model root, resuming at `resume_path`.
+    pub(super) fn changeset(op: DocumentOperation, resume_path: Vec<u32>) -> DocumentChangeset {
+        DocumentChangeset::new(
+            null_node(),
+            op,
+            EditResumePoint {
+                anchor_key: 0,
+                node_path: resume_path.into(),
+                position: NodePosition {
+                    child_index: 0,
+                    text_byte: Some(0).into(),
+                },
+            },
+            Instant::now(),
+        )
+    }
+
+    /// `DocumentChangeset::apply_to_dom` as a plain Rust `Result`. The error
+    /// is mapped to a label because the ABI enum implements no `Debug` (so
+    /// `.expect()` would not compile on it).
+    pub(super) fn apply(
+        model: &mut Dom,
+        host_path: &[u32],
+        cs: &DocumentChangeset,
+    ) -> Result<AppliedEdit, &'static str> {
+        cs.apply_to_dom(model, host_path.to_vec())
+            .into_result()
+            .map_err(|e| match e {
+                DocumentEditError::HostNotFound => "host not found",
+                DocumentEditError::TargetNotFound => "target not found",
+                DocumentEditError::Unsupported => "unsupported operation",
+            })
+    }
+
+    /// Split-`op` shorthand used by several tests.
+    pub(super) fn split_op(text_byte: u32) -> DocumentOperation {
+        DocumentOperation::SplitNode(DocOpSplitNode {
+            node: null_node(),
+            at: NodePosition {
+                child_index: 0,
+                text_byte: Some(text_byte).into(),
+            },
+        })
+    }
+}
+
 #[cfg(test)]
 mod edit_loop_tests {
+    use super::test_edit_support::{apply, changeset, split_op};
     use super::*;
+    use azul::css::DocumentOperation;
 
     fn model_text_provider(content: &Dom) -> impl FnMut(&[u32]) -> Option<String> + '_ {
         move |path: &[u32]| {
@@ -1092,8 +1089,8 @@ mod edit_loop_tests {
             fn own_text(d: &Dom) -> String {
                 let mut s = String::new();
                 for c in d.children.as_ref() {
-                    match c.root.get_node_type() {
-                        azul_core::dom::NodeType::Text(t) => s.push_str(t.as_str()),
+                    match &c.root.node_type {
+                        NodeType::Text(t) => s.push_str(box_str(t)),
                         _ => s.push_str(&own_text(c)),
                     }
                 }
@@ -1152,8 +1149,8 @@ mod edit_loop_tests {
         let page_block = &pages[1].dom.children.as_ref()[2];
         let model_block = &model.children.as_ref()[mapped[0] as usize];
         assert_eq!(
-            format!("{:?}", page_block.root.get_node_type()),
-            format!("{:?}", model_block.root.get_node_type()),
+            std::mem::discriminant(&page_block.root.node_type),
+            std::mem::discriminant(&model_block.root.node_type),
         );
     }
 
@@ -1161,46 +1158,16 @@ mod edit_loop_tests {
     fn structural_apply_updates_the_serialized_markdown() {
         // Forge the C11 loop app-side: split the first paragraph, apply via
         // the engine helper with the page->model mapped host path, reserialize.
-        use azul_layout::managers::changeset::{
-            DocOpSplitNode, DocumentChangeset, DocumentOperation, EditResumePoint, NodePosition,
-        };
-
         let md = "First paragraph here.\n\nSecond paragraph.\n";
         let mut model = markdown_to_content_dom(md);
 
         // Split block 0's text at byte 5 ("First| paragraph here.").
-        let changeset = DocumentChangeset::new(
-            azul_core::dom::DomNodeId {
-                dom: azul_core::dom::DomId::ROOT_ID,
-                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(None),
-            },
-            DocumentOperation::SplitNode(DocOpSplitNode {
-                node: azul_core::dom::DomNodeId {
-                    dom: azul_core::dom::DomId::ROOT_ID,
-                    node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(None),
-                },
-                at: NodePosition {
-                    child_index: 0,
-                    text_byte: Some(5).into(),
-                },
-            }),
-            EditResumePoint {
-                anchor_key: 0,
-                node_path: vec![1u32].into(), // resume names the NEW second node
-                position: NodePosition {
-                    child_index: 0,
-                    text_byte: Some(0).into(),
-                },
-            },
-            azul_core::task::Instant::from(std::time::Instant::now()),
-        );
+        // Resume names the NEW second node.
+        let cs = changeset(split_op(5), vec![1u32]);
 
         // Page 0 hosts everything (single page); offset 0; host = model root.
         let host_path = page_path_to_model_path(0, &[]);
-        let applied = azul_layout::document_edit::apply_document_operation(
-            &mut model, &host_path, &changeset,
-        )
-        .expect("apply split");
+        let applied = apply(&mut model, &host_path, &cs).expect("apply split");
         assert!(matches!(applied.inverse, DocumentOperation::MergeNodes(_)));
 
         let mut provider = model_text_provider(&model);
@@ -1214,6 +1181,7 @@ mod edit_loop_tests {
 
 #[cfg(test)]
 mod save_round_trip_tests {
+    use super::test_edit_support::{apply, changeset, split_op};
     use super::*;
 
     /// load -> (structural edit on the model) -> serialize -> save -> reload:
@@ -1222,10 +1190,6 @@ mod save_round_trip_tests {
     /// closing on itself.
     #[test]
     fn save_round_trip_preserves_an_applied_edit() {
-        use azul_layout::managers::changeset::{
-            DocOpSplitNode, DocumentChangeset, DocumentOperation, EditResumePoint, NodePosition,
-        };
-
         let dir = std::env::temp_dir().join("azwriter_round_trip");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("doc.md");
@@ -1240,31 +1204,9 @@ mod save_round_trip_tests {
         assert_eq!(before_pages, 1);
 
         // Split block 1 ("First paragraph here.") after "First".
-        let null_node = azul_core::dom::DomNodeId {
-            dom: azul_core::dom::DomId::ROOT_ID,
-            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(None),
-        };
-        let changeset = DocumentChangeset::new(
-            null_node,
-            DocumentOperation::SplitNode(DocOpSplitNode {
-                node: null_node,
-                at: NodePosition {
-                    child_index: 0,
-                    text_byte: Some(5).into(),
-                },
-            }),
-            EditResumePoint {
-                anchor_key: 0,
-                node_path: vec![2u32].into(), // NEW second part sits at index 2
-                position: NodePosition {
-                    child_index: 0,
-                    text_byte: Some(0).into(),
-                },
-            },
-            azul_core::task::Instant::from(std::time::Instant::now()),
-        );
-        azul_layout::document_edit::apply_document_operation(&mut model.content, &[], &changeset)
-            .expect("apply");
+        // NEW second part sits at index 2.
+        let cs = changeset(split_op(5), vec![2u32]);
+        apply(&mut model.content, &[], &cs).expect("apply");
 
         // Re-serialize from the model (what the live loop + save do).
         let mut none_provider = |_: &[u32]| None;
@@ -1298,6 +1240,7 @@ mod save_round_trip_tests {
 #[cfg(test)]
 mod pdf_export_tests {
     use super::*;
+    use azul::css::StyledDom;
 
     /// The capstone's f(markdown -> Dom -> PDF): the content DOM the canvas
     /// shows, styled and handed to the engine's typed PDF path, must yield
@@ -1310,19 +1253,19 @@ mod pdf_export_tests {
 
         let mut doc = Dom::create_body().with_css("margin: 0; padding: 96px; background: white;");
         doc.add_child(content);
-        let styled = azul_core::styled_dom::StyledDom::create_from_dom(doc);
+        let styled = StyledDom::create_from_dom(doc);
 
         // Same call the Export button makes, with empty resource handles
         // (the engine falls back to fresh system fonts).
-        let pdf = azul::unified::pdf::Pdf::new();
+        let pdf = Pdf::new();
         let bytes = pdf.from_styled_dom_with_resources(
             styled,
             794.0,
             1123.0,
-            &azul_layout::resource_handles::FontCacheSnapshot::empty(),
-            &azul_layout::resource_handles::ImageCacheSnapshot::empty(),
+            empty_font_cache(),
+            empty_image_cache(),
         );
-        let out = bytes.as_slice();
+        let out = bytes.as_ref();
 
         assert!(
             out.len() > 1000,
@@ -1369,20 +1312,20 @@ mod pdf_export_tests {
         );
         // Negative control: an EMPTY document must produce fewer bytes than
         // the real one (i.e. the content actually reached the PDF).
-        let empty_styled = azul_core::styled_dom::StyledDom::create_from_dom(
+        let empty_styled = StyledDom::create_from_dom(
             Dom::create_body().with_css("margin: 0; padding: 96px;"),
         );
         let empty = pdf.from_styled_dom_with_resources(
             empty_styled,
             794.0,
             1123.0,
-            &azul_layout::resource_handles::FontCacheSnapshot::empty(),
-            &azul_layout::resource_handles::ImageCacheSnapshot::empty(),
+            empty_font_cache(),
+            empty_image_cache(),
         );
         assert!(
-            empty.as_slice().len() < out.len(),
+            empty.as_ref().len() < out.len(),
             "content must add bytes: empty={} full={}",
-            empty.as_slice().len(),
+            empty.as_ref().len(),
             out.len()
         );
         if let Ok(dst) = std::env::var("AZWRITER_DUMP_PDF") {
@@ -1395,6 +1338,21 @@ mod pdf_export_tests {
 #[cfg(test)]
 mod live_text_tests {
     use super::*;
+    use azul::dom::IdOrClass;
+
+    /// The `id` attributes on a node, through the public ids-and-classes
+    /// accessor (the tagging path writes ids there via `Dom::with_id`).
+    fn ids_of(d: &Dom) -> Vec<String> {
+        d.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|ic| match ic {
+                IdOrClass::Id(s) => Some(s.as_str().to_string()),
+                IdOrClass::Class(_) => None,
+            })
+            .collect()
+    }
 
     #[test]
     fn block_ids_are_model_indices_across_pages() {
@@ -1416,12 +1374,7 @@ mod live_text_tests {
         let mut seen: Vec<String> = Vec::new();
         for page in &pages {
             for block in page.dom.children.as_ref() {
-                let ids: Vec<String> = block
-                    .root
-                    .attributes()
-                    .iter()
-                    .filter_map(|attr| attr.as_id().map(str::to_string))
-                    .collect();
+                let ids = ids_of(block);
                 assert_eq!(ids.len(), 1, "each block gets exactly one id, got {ids:?}");
                 seen.push(ids[0].clone());
             }
@@ -1440,7 +1393,7 @@ mod live_text_tests {
                 .children
                 .as_ref()
                 .iter()
-                .any(|b| b.root.attributes().iter().any(|a| a.as_id().is_some()))
+                .any(|b| !ids_of(b).is_empty())
         });
         assert!(!any_id, "untagged pages must carry no block ids");
     }
@@ -1458,18 +1411,13 @@ mod live_text_tests {
             .children
             .as_ref()
             .iter()
-            .find(|b| matches!(b.root.get_node_type(), azul_core::dom::NodeType::Ul))
+            .find(|b| matches!(b.root.node_type, NodeType::Ul))
             .expect("ul present");
         let li_ids: Vec<String> = ul
             .children
             .as_ref()
             .iter()
-            .filter_map(|c| {
-                c.root
-                    .attributes()
-                    .iter()
-                    .find_map(|a| a.as_id().map(str::to_string))
-            })
+            .flat_map(ids_of)
             .collect();
         assert!(
             li_ids.contains(&nested_dom_id(1, 0)) && li_ids.contains(&nested_dom_id(1, 1)),
@@ -1586,40 +1534,15 @@ mod resize_cost_tests {
 
 #[cfg(test)]
 mod undo_api_validation {
+    use super::test_edit_support::{apply, changeset, split_op};
     use super::*;
-    use azul_layout::managers::changeset::{
-        DocOpSplitNode, DocumentChangeset, DocumentOperation, EditResumePoint, NodePosition,
-    };
-
-    fn null_node() -> azul_core::dom::DomNodeId {
-        azul_core::dom::DomNodeId {
-            dom: azul_core::dom::DomId::ROOT_ID,
-            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(None),
-        }
-    }
-
-    fn changeset(op: DocumentOperation, resume_path: Vec<u32>) -> DocumentChangeset {
-        DocumentChangeset::new(
-            null_node(),
-            op,
-            EditResumePoint {
-                anchor_key: 0,
-                node_path: resume_path.into(),
-                position: NodePosition {
-                    child_index: 0,
-                    text_byte: Some(0).into(),
-                },
-            },
-            azul_core::task::Instant::from(std::time::Instant::now()),
-        )
-    }
 
     fn texts(d: &Dom) -> Vec<String> {
         fn own(d: &Dom) -> String {
             let mut s = String::new();
             for c in d.children.as_ref() {
-                match c.root.get_node_type() {
-                    azul_core::dom::NodeType::Text(t) => s.push_str(t.as_str()),
+                match &c.root.node_type {
+                    NodeType::Text(t) => s.push_str(box_str(t)),
                     _ => s.push_str(&own(c)),
                 }
             }
@@ -1636,19 +1559,8 @@ mod undo_api_validation {
         let mut model = markdown_to_content_dom("First paragraph here.\n\nSecond.\n");
         let original = texts(&model);
 
-        let cs_split = changeset(
-            DocumentOperation::SplitNode(DocOpSplitNode {
-                node: null_node(),
-                at: NodePosition {
-                    child_index: 0,
-                    text_byte: Some(5).into(),
-                },
-            }),
-            vec![1],
-        );
-        let applied =
-            azul_layout::document_edit::apply_document_operation(&mut model, &[], &cs_split)
-                .expect("split");
+        let cs_split = changeset(split_op(5), vec![1]);
+        let applied = apply(&mut model, &[], &cs_split).expect("split");
         let split_result = texts(&model);
         assert_ne!(split_result, original);
 
@@ -1657,9 +1569,7 @@ mod undo_api_validation {
             applied.inverse.clone(),
             applied.inverse_resume.node_path.as_ref().to_vec(),
         );
-        let undone =
-            azul_layout::document_edit::apply_document_operation(&mut model, &[], &undo_cs)
-                .expect("undo");
+        let undone = apply(&mut model, &[], &undo_cs).expect("undo");
         assert_eq!(texts(&model), original, "undo restores");
 
         // REDO: replay what the undo handed back.
@@ -1667,9 +1577,7 @@ mod undo_api_validation {
             undone.inverse.clone(),
             undone.inverse_resume.node_path.as_ref().to_vec(),
         );
-        let redone =
-            azul_layout::document_edit::apply_document_operation(&mut model, &[], &redo_cs)
-                .expect("redo");
+        let redone = apply(&mut model, &[], &redo_cs).expect("redo");
         assert_eq!(texts(&model), split_result, "redo re-applies the split");
 
         // UNDO again, from the redo's own inverse.
@@ -1677,8 +1585,7 @@ mod undo_api_validation {
             redone.inverse.clone(),
             redone.inverse_resume.node_path.as_ref().to_vec(),
         );
-        azul_layout::document_edit::apply_document_operation(&mut model, &[], &undo2)
-            .expect("undo 2");
+        apply(&mut model, &[], &undo2).expect("undo 2");
         assert_eq!(texts(&model), original, "the cycle is stable");
     }
 
@@ -1692,18 +1599,8 @@ mod undo_api_validation {
         assert_eq!(before, vec!["First paragraph here.", "Second."]);
 
         // DO: split block 0 after "First" (resume names the NEW second part).
-        let cs = changeset(
-            DocumentOperation::SplitNode(DocOpSplitNode {
-                node: null_node(),
-                at: NodePosition {
-                    child_index: 0,
-                    text_byte: Some(5).into(),
-                },
-            }),
-            vec![1],
-        );
-        let applied = azul_layout::document_edit::apply_document_operation(&mut model, &[], &cs)
-            .expect("apply split");
+        let cs = changeset(split_op(5), vec![1]);
+        let applied = apply(&mut model, &[], &cs).expect("apply split");
         assert_eq!(texts(&model), vec!["First", " paragraph here.", "Second."]);
 
         // UNDO: re-record the inverse through the same loop. The app knows
@@ -1715,10 +1612,9 @@ mod undo_api_validation {
             applied.inverse.clone(),
             applied.inverse_resume.node_path.as_ref().to_vec(),
         );
-        let undone =
-            azul_layout::document_edit::apply_document_operation(&mut model, &[], &undo_cs);
+        let undone = apply(&mut model, &[], &undo_cs);
 
-        assert!(undone.is_ok(), "the inverse must apply: {:?}", undone.err());
+        assert!(undone.is_ok(), "the inverse must apply");
         assert_eq!(
             texts(&model),
             before,
