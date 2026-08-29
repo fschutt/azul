@@ -2076,6 +2076,14 @@ impl LayoutWindow {
             }
         }
 
+        // Mirror AGAIN after the tail: `reapply_dirty_text_node` runs
+        // `regenerate_display_list_for_dom` (a full emission) for every dirty
+        // overlay node, so on a typing pass the pre-tail mirror above reports
+        // "patched" while the build that actually ships is a full one - any
+        // test asserting on the report during typing measured the wrong
+        // build.
+        self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
+
         // After successful layout, update the accessibility tree
         #[cfg(feature = "a11y")]
         if result.is_ok() {

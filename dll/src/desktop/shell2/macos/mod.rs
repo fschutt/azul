@@ -1675,6 +1675,16 @@ pub struct CPUViewIvars {
     framebuffer: RefCell<Vec<u8>>,
     width: Cell<usize>,
     height: Cell<usize>,
+    /// Whether `framebuffer` still holds the last PRESENTED frame. drawRect's
+    /// resize branch reallocates + white-fills the buffer, which silently
+    /// broke the retained-frame contract every partial present relies on: a
+    /// GROW resize reports only the exposed strips + item diff, paints those
+    /// into the white buffer, and everything else on screen turns white and
+    /// STAYS white (the engine believes those pixels are valid). While this
+    /// is `false`, `native_target_ptr` refuses direct rendering and
+    /// `update_framebuffer` ignores partial damage — one full copy
+    /// revalidates.
+    fb_content_valid: Cell<bool>,
     needs_redraw: Cell<bool>,
     tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
     mtm: MainThreadMarker,
@@ -1802,6 +1812,10 @@ define_class!(
                 for chunk in fb.chunks_exact_mut(4) {
                     chunk[0] = 255; chunk[1] = 255; chunk[2] = 255; chunk[3] = 255;
                 }
+                // The retained frame is GONE - a partial present against this
+                // buffer would leave everything outside its rects white. Force
+                // the next present through a full copy.
+                ivars.fb_content_valid.set(false);
             }
 
             // CPU render on every drawRect that needs it (first frame, after
@@ -2275,6 +2289,7 @@ define_class!(
                 framebuffer: RefCell::new(Vec::new()),
                 width: Cell::new(0),
                 height: Cell::new(0),
+                fb_content_valid: Cell::new(false),
                 needs_redraw: Cell::new(true),
                 tracking_area: RefCell::new(None),
                 mtm,
@@ -2645,10 +2660,17 @@ impl CPUView {
 
         fb.resize(view_w * view_h * 4, 255);
 
+        // While the retained content is invalid (drawRect reallocated and
+        // white-filled on a resize, or first frame), a partial copy would
+        // leave every un-damaged pixel white - take the full path below and
+        // revalidate. This also closes the resize-shear window: a stale-sized
+        // buffer never receives a partial copy.
+        let content_valid = self.ivars().fb_content_valid.get();
+
         // Partial path: copy only the damaged rows, invalidate only the
         // damaged rects (converted physical px → points, Y-flipped: the view
         // is NOT `isFlipped`, so view coords are bottom-left-origin).
-        if let Some(rects) = damage {
+        if let Some(rects) = damage.filter(|_| content_valid) {
             if pixmap_w == view_w && pixmap_h == view_h && !rects.is_empty() {
                 let stride = view_w * 4;
                 for (rx, ry, rw, rh) in rects {
@@ -2683,6 +2705,8 @@ impl CPUView {
             }
         }
 
+        // Every branch below rewrites the whole buffer.
+        self.ivars().fb_content_valid.set(true);
         if pixmap_w == view_w && pixmap_h == view_h {
             let len = (view_w * view_h * 4).min(pixmap_data.len()).min(fb.len());
             fb[..len].copy_from_slice(&pixmap_data[..len]);
@@ -2735,6 +2759,14 @@ impl CPUView {
         // copy path (which also handles DPI-mismatch rescaling).
         let (vw, vh) = (ivars.width.get(), ivars.height.get());
         if (vw != 0 || vh != 0) && (vw != w || vh != h) {
+            return None;
+        }
+        // A resize just white-filled the buffer: the engine would render only
+        // its damage rects into it and present white everywhere else. Refuse
+        // direct rendering for this frame - render_frame falls back to the
+        // owned pixmap, and the full copy in `update_framebuffer`
+        // revalidates.
+        if !ivars.fb_content_valid.get() {
             return None;
         }
         ivars.width.set(w);
