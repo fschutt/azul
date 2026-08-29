@@ -23,7 +23,12 @@ serde_derive = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 
 [features]
-default = ["link-static"]
+# link-dynamic by DEFAULT (USER ruling 2026-08-29: "all should link
+# dynamically") - a self-contained example freezes the engine at ITS build
+# time, so redeploying libazul.so silently tested stale code (the dbusmenu
+# session). `--no-default-features --features link-static` restores the old
+# behaviour where a single-file binary is wanted.
+default = ["link-dynamic"]
 serde = ["dep:serde", "dep:serde_derive", "dep:serde_json"]
 link-static = ["azul/link-static", "azul_css"]
 link-dynamic = ["azul/link-dynamic"]
