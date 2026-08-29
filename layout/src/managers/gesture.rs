@@ -25,7 +25,7 @@ use azul_core::{
     task::{Duration as CoreDuration, Instant as CoreInstant},
     window::WindowPosition,
 };
-use azul_css::{impl_option, impl_option_inner};
+use azul_css::{impl_option, impl_option_inner, AzString};
 
 #[cfg(feature = "std")]
 static NEXT_EVENT_ID: AtomicU64 = AtomicU64::new(1);
@@ -432,6 +432,120 @@ impl WacomPadState {
     }
 }
 
+/// [`TabletDeviceInfo::capabilities`]: the device reports pressure.
+pub const TABLET_CAP_PRESSURE: u32 = 1;
+/// [`TabletDeviceInfo::capabilities`]: the device reports tilt.
+pub const TABLET_CAP_TILT: u32 = 2;
+/// [`TabletDeviceInfo::capabilities`]: the device reports barrel rotation.
+pub const TABLET_CAP_ROTATION: u32 = 4;
+/// [`TabletDeviceInfo::capabilities`]: airbrush wheel / tangential pressure.
+pub const TABLET_CAP_SLIDER: u32 = 8;
+/// [`TabletDeviceInfo::capabilities`]: a relative wheel on the tool.
+pub const TABLET_CAP_WHEEL: u32 = 16;
+/// [`TabletDeviceInfo::capabilities`]: a pad touch-ring or touch-strip.
+pub const TABLET_CAP_TOUCHRING: u32 = 32;
+
+/// What kind of input device a [`TabletDeviceInfo`] describes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum TabletToolKind {
+    /// The pen tip.
+    Stylus,
+    /// The inverted / eraser end (X11: a device of its own; Wayland: a tool
+    /// whose type is `eraser`).
+    Eraser,
+    /// The tablet's pad: `ExpressKeys` plus touch-ring / strip.
+    Pad,
+    /// A touch surface (tablet touch or touchscreen).
+    Touch,
+    /// Recognised as tablet-adjacent, kind unknown.
+    Unknown,
+}
+
+/// Identity and capabilities of one tablet input device — the `xinput list`
+/// level of information: enough for an app to tell the user WHICH tablet is
+/// in use, offer a device picker, or configure a custom mapping.
+///
+/// Produced by the platform backends (X11: `XIQueryDevice` plus the
+/// `Device Product ID` / `Device Node` properties; Wayland: the
+/// `zwp_tablet_v2` descriptive events). A field the backend cannot know is
+/// zero / empty rather than guessed — Wayland, for example, does not report
+/// a physical size.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(C)]
+pub struct TabletDeviceInfo {
+    /// Driver-reported device name (X11: the slave device's name, e.g.
+    /// "Wacom One Pen Display 13 Pen stylus"; Wayland: the tablet's name).
+    pub name: AzString,
+    /// Human-readable vendor ("Wacom", "Huion", ...) resolved from
+    /// `vendor_id` via [`tablet_usb_vendor_name`]; empty when unknown.
+    pub vendor_name: AzString,
+    /// USB vendor id (0 = unknown).
+    pub vendor_id: u32,
+    /// USB product id (0 = unknown).
+    pub product_id: u32,
+    /// What this device is.
+    pub kind: TabletToolKind,
+    /// The id [`PenState::device_id`] / [`WacomPadState::device_id`] report
+    /// on the same backend, so live state can be matched to an entry here.
+    pub device_id: u64,
+    /// `TABLET_CAP_*` bitset.
+    pub capabilities: u32,
+    /// The driver's RAW pressure maximum (X11: the valuator range; Wayland:
+    /// 65535). [`PenState::pressure`] is already normalized to 0..=1 — this
+    /// is diagnostic, for apps that build their own curves.
+    pub pressure_max: f32,
+    /// Active-area width in millimeters, 0.0 = unknown. On X11 this comes
+    /// from the `Abs X` valuator's range and resolution (units per meter).
+    pub physical_width_mm: f32,
+    /// Active-area height in millimeters, 0.0 = unknown.
+    pub physical_height_mm: f32,
+    /// Number of buttons the device reports (a pad: its `ExpressKeys`).
+    pub num_buttons: u32,
+    /// Kernel device node (`/dev/input/event..`) where known, else empty.
+    pub path: AzString,
+}
+
+impl_option!(
+    TabletDeviceInfo,
+    OptionTabletDeviceInfo,
+    copy = false,
+    [Debug, Clone, PartialEq]
+);
+azul_css::impl_vec!(
+    TabletDeviceInfo,
+    TabletDeviceInfoVec,
+    TabletDeviceInfoVecDestructor,
+    TabletDeviceInfoVecDestructorType,
+    TabletDeviceInfoVecSlice,
+    OptionTabletDeviceInfo
+);
+azul_css::impl_vec_debug!(TabletDeviceInfo, TabletDeviceInfoVec);
+azul_css::impl_vec_clone!(
+    TabletDeviceInfo,
+    TabletDeviceInfoVec,
+    TabletDeviceInfoVecDestructor
+);
+azul_css::impl_vec_partialeq!(TabletDeviceInfo, TabletDeviceInfoVec);
+
+/// Resolve the well-known graphics-tablet USB vendor ids to a display name.
+/// Empty for a vendor not in the table — show the hex id instead, never a
+/// guess.
+#[must_use]
+pub const fn tablet_usb_vendor_name(vendor_id: u32) -> &'static str {
+    match vendor_id {
+        0x056a => "Wacom",
+        0x256c => "Huion",
+        0x28bd => "XP-Pen",
+        0x5543 => "UC-Logic",
+        0x04f3 => "ELAN",
+        0x045e => "Microsoft",
+        0x05ac => "Apple",
+        0x04e8 => "Samsung",
+        _ => "",
+    }
+}
+
 /// Manager for multi-frame gestures and drag operations
 ///
 /// This collects raw input samples and analyzes them to detect gestures.
@@ -469,6 +583,9 @@ pub struct GestureAndDragManager {
     /// Latest Wacom tablet-pad state (`ExpressKeys` + touch-ring), or `None`
     /// until a pad backend delivers one.
     pub pad_state: Option<WacomPadState>,
+    /// Enumerated tablet input devices (see [`TabletDeviceInfo`]), set by the
+    /// platform backend at window init / device hotplug. Empty = none found.
+    pub tablet_devices: Vec<TabletDeviceInfo>,
     /// Session IDs where long press callback has been invoked
     long_press_callbacks_invoked: Vec<u64>,
     /// Counter for generating unique session IDs
@@ -556,6 +673,7 @@ impl GestureAndDragManager {
             previous_pen_state: None,
             pen_event_pending: false,
             pad_state: None,
+            tablet_devices: Vec::new(),
             long_press_callbacks_invoked: Vec::new(),
             native_gesture: None,
             touch_sessions: alloc::collections::btree_map::BTreeMap::new(),
@@ -988,6 +1106,19 @@ impl GestureAndDragManager {
     /// Clear the tablet-pad state (pad disconnected / proximity left).
     pub const fn clear_pad_state(&mut self) {
         self.pad_state = None;
+    }
+
+    /// Replace the enumerated tablet-device list. Called by the platform
+    /// backend at window init and on device hotplug.
+    pub fn set_tablet_devices(&mut self, devices: Vec<TabletDeviceInfo>) {
+        self.tablet_devices = devices;
+    }
+
+    /// The enumerated tablet devices (empty when the backend found none, or
+    /// none exist).
+    #[must_use]
+    pub fn get_tablet_devices(&self) -> &[TabletDeviceInfo] {
+        &self.tablet_devices
     }
 
     // Gesture Detection Methods (query state without mutation)

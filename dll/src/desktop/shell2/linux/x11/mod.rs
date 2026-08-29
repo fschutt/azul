@@ -757,12 +757,52 @@ fn query_modifier_masks(xlib: &Xlib, display: *mut Display) -> ModifierMasks {
     masks
 }
 
+/// One `XIGetProperty` read, returned as raw bytes plus the property format
+/// (8/16/32). `None` when the property does not exist on the device.
+///
+/// libXi does NOT apply Xlib's format-32-becomes-C-long expansion — the reply
+/// bytes are packed wire format, so a format-32 property is stepped in `u32`s
+/// (this is also how `xinput list-props` reads it).
+unsafe fn xi_get_property_bytes(
+    xlib: &Rc<Xlib>,
+    xi: &dlopen::Xi,
+    display: *mut Display,
+    deviceid: c_int,
+    prop: defines::Atom,
+) -> Option<(Vec<u8>, c_int)> {
+    if prop == 0 {
+        return None;
+    }
+    let mut type_ret: defines::Atom = 0;
+    let mut fmt: c_int = 0;
+    let mut nitems: std::os::raw::c_ulong = 0;
+    let mut after: std::os::raw::c_ulong = 0;
+    let mut data: *mut u8 = std::ptr::null_mut();
+    let status = (xi.XIGetProperty)(
+        display, deviceid, prop, 0, 64, 0, 0, // AnyPropertyType
+        &mut type_ret, &mut fmt, &mut nitems, &mut after, &mut data,
+    );
+    if status != 0 || data.is_null() {
+        return None;
+    }
+    let len = (nitems as usize).saturating_mul((fmt.max(0) as usize) / 8);
+    let bytes = std::slice::from_raw_parts(data, len).to_vec();
+    (xlib.XFree)(data as *mut _);
+    Some((bytes, fmt))
+}
+
 /// Initialise XInput2 for touch + pen/tablet + smooth scroll. Best-effort:
-/// returns `(None, 0, empty, empty)` if libXi or the XInputExtension is
+/// returns `(None, 0, empty, ...)` if libXi or the XInputExtension is
 /// unavailable (the shell then falls back to core pointer events). Selects
 /// Button/Motion/Touch for all master devices, maps each device's pressure/tilt
 /// valuator numbers via their label atoms and records its scroll axes.
 /// ABI per scripts/ideas/platform/WACOM_TOUCH_API_RESEARCH.md.
+///
+/// Also enumerates every tablet-shaped device into a
+/// [`azul_layout::managers::gesture::TabletDeviceInfo`] list — name, USB ids
+/// (the `Device Product ID` property), device node, capabilities, raw
+/// pressure range and physical size (from the Abs X/Y valuator resolution,
+/// units per meter) — surfaced to apps via `CallbackInfo::get_tablet_devices`.
 fn init_xinput2(
     xlib: &Rc<Xlib>,
     display: *mut Display,
@@ -774,6 +814,7 @@ fn init_xinput2(
     std::collections::HashMap<c_int, ScrollAxes>,
     std::collections::HashSet<c_int>,
     std::collections::HashMap<c_int, PadAxes>,
+    Vec<azul_layout::managers::gesture::TabletDeviceInfo>,
 ) {
     use std::collections::HashMap;
     unsafe {
@@ -794,6 +835,7 @@ fn init_xinput2(
                 HashMap::new(),
                 std::collections::HashSet::new(),
                 HashMap::new(),
+                Vec::new(),
             );
         }
         let xi = match dlopen::Xi::new() {
@@ -813,6 +855,7 @@ fn init_xinput2(
                     HashMap::new(),
                     std::collections::HashSet::new(),
                     HashMap::new(),
+                    Vec::new(),
                 );
             }
         };
@@ -851,10 +894,20 @@ fn init_xinput2(
             (xlib.XInternAtom)(display, b"Abs Strip X\0".as_ptr() as *const _, 0),
             (xlib.XInternAtom)(display, b"Abs Strip Y\0".as_ptr() as *const _, 0),
         ];
+        // Device-identity sources for `TabletDeviceInfo`: position axes carry
+        // the physical size (max at `resolution` units/m), rotation is the
+        // Art-Pen axis, and the two device properties carry USB ids + node.
+        let abs_x_atom = (xlib.XInternAtom)(display, b"Abs X\0".as_ptr() as *const _, 0);
+        let abs_y_atom = (xlib.XInternAtom)(display, b"Abs Y\0".as_ptr() as *const _, 0);
+        let rot_atom = (xlib.XInternAtom)(display, b"Abs Rotary Z\0".as_ptr() as *const _, 0);
+        let prod_id_atom =
+            (xlib.XInternAtom)(display, b"Device Product ID\0".as_ptr() as *const _, 0);
+        let node_atom = (xlib.XInternAtom)(display, b"Device Node\0".as_ptr() as *const _, 0);
         let mut map = HashMap::new();
         let mut scroll: HashMap<c_int, ScrollAxes> = HashMap::new();
         let mut erasers: std::collections::HashSet<c_int> = std::collections::HashSet::new();
         let mut pads: HashMap<c_int, PadAxes> = HashMap::new();
+        let mut infos: Vec<azul_layout::managers::gesture::TabletDeviceInfo> = Vec::new();
         let mut ndev = 0i32;
         let devs = (xi.XIQueryDevice)(display, defines::XIAllDevices, &mut ndev);
         if !devs.is_null() {
@@ -864,21 +917,36 @@ fn init_xinput2(
                 // device NAME is the only signal — `xf86-input-wacom` emits
                 // "<tablet> Pen stylus", "<tablet> Pen eraser", "<tablet> Pad pad".
                 // Same convention the touchpad detection below already relies on.
-                let dev_name = if dev.name.is_null() {
+                let dev_name_raw = if dev.name.is_null() {
                     String::new()
                 } else {
                     std::ffi::CStr::from_ptr(dev.name)
                         .to_string_lossy()
-                        .to_lowercase()
+                        .into_owned()
                 };
+                let dev_name = dev_name_raw.to_lowercase();
                 let is_eraser = dev_name.contains("eraser");
                 let is_pad = dev_name.ends_with(" pad") || dev_name.contains(" pad ");
                 let (mut p, mut tx, mut ty, mut pmax) = (-1i32, -1i32, -1i32, 1.0f64);
                 let mut axes = ScrollAxes::default();
                 let mut pad_axes = PadAxes::default();
+                let mut has_touch_class = false;
+                let mut num_buttons = 0u32;
+                let mut has_rotation = false;
+                let mut has_slider = false;
+                let (mut phys_w_mm, mut phys_h_mm) = (0.0f32, 0.0f32);
                 for c in 0..dev.num_classes as isize {
                     let cls = *dev.classes.offset(c);
                     if cls.is_null() {
+                        continue;
+                    }
+                    if (*cls).type_ == defines::XITouchClass {
+                        has_touch_class = true;
+                        continue;
+                    }
+                    if (*cls).type_ == defines::XIButtonClass {
+                        let b = &*(cls as *const defines::XIButtonClassInfo);
+                        num_buttons = b.num_buttons.max(0) as u32;
                         continue;
                     }
                     if (*cls).type_ == defines::XIScrollClass {
@@ -914,6 +982,100 @@ fn init_xinput2(
                         tx = v.number;
                     } else if v.label == ty_atom {
                         ty = v.number;
+                    } else if v.label == rot_atom {
+                        has_rotation = true;
+                    } else if !is_pad && v.label == ring_atoms[0] {
+                        // `Abs Wheel` on a TOOL (not a pad) is the airbrush
+                        // wheel — W3C tangentialPressure.
+                        has_slider = true;
+                    } else if v.label == abs_x_atom && v.resolution > 0 && v.max > v.min {
+                        // Physical size: the axis range at `resolution`
+                        // units per METER.
+                        phys_w_mm = ((v.max - v.min) / v.resolution as f64 * 1000.0) as f32;
+                    } else if v.label == abs_y_atom && v.resolution > 0 && v.max > v.min {
+                        phys_h_mm = ((v.max - v.min) / v.resolution as f64 * 1000.0) as f32;
+                    }
+                }
+                // Everything tablet-shaped becomes a TabletDeviceInfo; mice
+                // and keyboards (no pressure, no touch, not pad/eraser) are
+                // not enumerated.
+                {
+                    use azul_layout::managers::gesture as gest;
+                    let kind = if is_pad {
+                        gest::TabletToolKind::Pad
+                    } else if is_eraser {
+                        gest::TabletToolKind::Eraser
+                    } else if p >= 0 {
+                        gest::TabletToolKind::Stylus
+                    } else if has_touch_class {
+                        gest::TabletToolKind::Touch
+                    } else {
+                        gest::TabletToolKind::Unknown
+                    };
+                    if kind != gest::TabletToolKind::Unknown {
+                        let (mut vid, mut pid) = (0u32, 0u32);
+                        if let Some((bytes, fmt)) = xi_get_property_bytes(
+                            xlib,
+                            &xi,
+                            display,
+                            dev.deviceid,
+                            prod_id_atom,
+                        ) {
+                            // Format-32, two items: vendor, product (packed
+                            // u32 wire format — see xi_get_property_bytes).
+                            if fmt == 32 && bytes.len() >= 8 {
+                                vid = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
+                                pid = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
+                            }
+                        }
+                        let path = xi_get_property_bytes(
+                            xlib,
+                            &xi,
+                            display,
+                            dev.deviceid,
+                            node_atom,
+                        )
+                        .filter(|(_, fmt)| *fmt == 8)
+                        .map(|(bytes, _)| {
+                            String::from_utf8_lossy(
+                                bytes.split(|b| *b == 0).next().unwrap_or(&[]),
+                            )
+                            .into_owned()
+                        })
+                        .unwrap_or_default();
+                        let mut caps = 0u32;
+                        if p >= 0 {
+                            caps |= gest::TABLET_CAP_PRESSURE;
+                        }
+                        if tx >= 0 || ty >= 0 {
+                            caps |= gest::TABLET_CAP_TILT;
+                        }
+                        if has_rotation {
+                            caps |= gest::TABLET_CAP_ROTATION;
+                        }
+                        if has_slider {
+                            caps |= gest::TABLET_CAP_SLIDER;
+                        }
+                        if pad_axes.ring.is_some() {
+                            caps |= gest::TABLET_CAP_TOUCHRING;
+                        }
+                        infos.push(gest::TabletDeviceInfo {
+                            name: dev_name_raw.clone().into(),
+                            vendor_name: gest::tablet_usb_vendor_name(vid).into(),
+                            vendor_id: vid,
+                            product_id: pid,
+                            kind,
+                            // The SLAVE deviceid — the same id
+                            // `PenState.device_id` reports (events are keyed
+                            // by sourceid, which is this).
+                            device_id: dev.deviceid as u64,
+                            capabilities: caps,
+                            pressure_max: if p >= 0 { pmax as f32 } else { 0.0 },
+                            physical_width_mm: phys_w_mm,
+                            physical_height_mm: phys_h_mm,
+                            num_buttons,
+                            path: path.into(),
+                        });
                     }
                 }
                 if p >= 0 || tx >= 0 || ty >= 0 {
@@ -962,7 +1124,7 @@ fn init_xinput2(
             }
             (xi.XIFreeDeviceInfo)(devs);
         }
-        (Some(xi), opcode, map, scroll, erasers, pads)
+        (Some(xi), opcode, map, scroll, erasers, pads, infos)
     }
 }
 
@@ -1383,12 +1545,56 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
             // pen device — and pen_valuators is keyed by the slave's id from
             // XIQueryDevice. (X11 API audit, finding 9.)
             if let Some(&(p, tx, ty, pmax)) = win.pen_valuators.get(&ev.sourceid) {
-                let pressure = decode_valuator(ev, p)
+                // XI2 valuators are SPARSE: an event carries only the axes
+                // that changed since the last one. An absent axis means
+                // "unchanged", not zero — zeroing pressure on an event that
+                // only moved tilt would stutter every stroke to hairline
+                // width mid-draw. Reuse the previous pen state for whatever
+                // this event does not carry.
+                let prev = win
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .and_then(|lw| lw.gesture_drag_manager.get_pen_state().copied());
+                let mut pressure = decode_valuator(ev, p)
                     .map(|v| (v / pmax).clamp(0.0, 1.0) as f32)
+                    .or_else(|| prev.map(|s| s.pressure))
                     .unwrap_or(0.0);
-                let tilt_x = decode_valuator(ev, tx).unwrap_or(0.0) as f32;
-                let tilt_y = decode_valuator(ev, ty).unwrap_or(0.0) as f32;
-                let in_contact = pressure > 0.0;
+                let tilt_x = decode_valuator(ev, tx)
+                    .map(|v| v as f32)
+                    .or_else(|| prev.map(|s| s.tilt.x_tilt))
+                    .unwrap_or(0.0);
+                let tilt_y = decode_valuator(ev, ty)
+                    .map(|v| v as f32)
+                    .or_else(|| prev.map(|s| s.tilt.y_tilt))
+                    .unwrap_or(0.0);
+                // Contact tracks the TIP BUTTON on tip-button events: the
+                // release often carries no pressure valuator at all, so the
+                // sparse-reuse above would otherwise leave the pen "down"
+                // forever. Between button events, pressure > 0 is contact.
+                let mut barrel = prev.is_some_and(|s| s.barrel_button_pressed);
+                let mut in_contact = pressure > 0.0;
+                match evtype {
+                    defines::XI_ButtonPress => match ev.detail {
+                        1 => in_contact = true,
+                        // Lower/upper barrel button (xf86-input-wacom's
+                        // default mapping). The event still falls through to
+                        // the pointer translation below as a middle/right
+                        // click — that is deliberate, it is what lets a
+                        // barrel press drive right-click UI.
+                        2 | 3 => barrel = true,
+                        _ => {}
+                    },
+                    defines::XI_ButtonRelease => match ev.detail {
+                        1 => {
+                            in_contact = false;
+                            pressure = 0.0;
+                        }
+                        2 | 3 => barrel = false,
+                        _ => {}
+                    },
+                    _ => {}
+                }
                 if let Some(lw) = win.common.layout_window.as_mut() {
                     lw.gesture_drag_manager.update_pen_state_full(
                         pos,
@@ -1396,8 +1602,11 @@ fn handle_xi_device_event(win: &mut X11Window, ev: &defines::XIDeviceEvent) -> P
                         (tilt_x, tilt_y),
                         in_contact,
                         win.eraser_devices.contains(&ev.sourceid),
-                        false,
-                        ev.deviceid as u64,
+                        barrel,
+                        // The SLAVE id — the master carried by `deviceid`
+                        // ("Virtual core pointer") says nothing about which
+                        // tablet produced this. Same rule as the map key.
+                        ev.sourceid as u64,
                         0.0,
                         0.0,
                         0,
@@ -1648,6 +1857,10 @@ pub struct X11Window {
     pad_devices: std::collections::HashMap<c_int, PadAxes>,
     /// Accumulated pad state, published to the gesture manager on each event.
     pad_state: azul_layout::managers::gesture::WacomPadState,
+    /// Enumerated tablet devices (identity + capabilities), handed to the
+    /// gesture manager when the layout window exists. Static per window —
+    /// X11 hotplug (XIHierarchyChanged) is not selected here.
+    tablet_device_infos: Vec<azul_layout::managers::gesture::TabletDeviceInfo>,
     /// `(deviceid, valuator number)` -> last absolute value seen. Scroll
     /// valuators accumulate, so a delta needs the previous reading.
     scroll_last_values: std::collections::HashMap<(c_int, c_int), f64>,
@@ -2105,6 +2318,13 @@ impl X11Window {
             *guard = crate::desktop::display::get_monitors();
         }
         self.common.layout_window = Some(layout_window);
+        // The tablet-device list was enumerated at window creation, before
+        // any layout window existed to hold it; hand it over now so
+        // `CallbackInfo::get_tablet_devices` answers from the first frame.
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.gesture_drag_manager
+                .set_tablet_devices(self.tablet_device_infos.clone());
+        }
         Ok(())
     }
 
@@ -2333,8 +2553,15 @@ impl X11Window {
         unsafe { (xlib.XSelectInput)(display, window_handle, event_mask) };
 
         // XInput2: select touch + pen/tablet events (best-effort; core events otherwise).
-        let (xi, xi_opcode, pen_valuators, scroll_valuators, eraser_devices, pad_devices) =
-            init_xinput2(&xlib, display, window_handle);
+        let (
+            xi,
+            xi_opcode,
+            pen_valuators,
+            scroll_valuators,
+            eraser_devices,
+            pad_devices,
+            tablet_device_infos,
+        ) = init_xinput2(&xlib, display, window_handle);
         let modifier_masks = query_modifier_masks(&xlib, display);
 
         let wm_delete_window_atom =
@@ -2803,6 +3030,7 @@ impl X11Window {
             eraser_devices,
             pad_devices,
             pad_state: azul_layout::managers::gesture::WacomPadState::default(),
+            tablet_device_infos,
             scroll_last_values: std::collections::HashMap::new(),
             modifier_masks,
             pressed_key_vks: std::collections::BTreeMap::new(),
@@ -3796,6 +4024,20 @@ impl X11Window {
                             azul_core::window::ScanCodeVec::from_vec(Vec::new());
                     });
                     self.dynamic_selector_context.window_focused = false;
+                    // Tablet reset. Wayland gets this from `pad_leave` /
+                    // `pad_removed` / `proximity_out`; X11 has no equivalent
+                    // events, so focus loss is the reset point. A pad
+                    // ExpressKey or pen held across a focus change would
+                    // otherwise stay latched forever — its release is
+                    // delivered to whatever window took the focus. (A pen
+                    // merely leaving the window does NOT need this: the
+                    // implicit grab of the tip press routes the release back
+                    // here regardless.)
+                    self.pad_state = azul_layout::managers::gesture::WacomPadState::default();
+                    if let Some(lw) = self.common.layout_window.as_mut() {
+                        lw.gesture_drag_manager.update_pad_state(self.pad_state);
+                        lw.gesture_drag_manager.clear_pen_state();
+                    }
                     // Releases that happen while another window has focus are
                     // never delivered here, so anything still held would stay
                     // held forever (the classic stuck Alt after Alt-Tab).

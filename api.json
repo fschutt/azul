@@ -13513,6 +13513,25 @@
                                     }
                                 ],
                                 "fn_body": "object.mark_document_edit_applied_with_inverse(id, inverse)"
+                            },
+                            "get_tablet_devices": {
+                                "doc": [
+                                    "Enumerate the tablet input devices the platform backend found - name,",
+                                    "vendor, USB ids, kind (stylus / eraser / pad / touch), capabilities,",
+                                    "raw pressure range, physical size and device node where known. The",
+                                    "`xinput list` level of information: enough to tell the user WHICH",
+                                    "tablet is in use or to configure per-device mappings. Empty when no",
+                                    "tablet is attached (or the backend cannot enumerate)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "object.get_tablet_devices()"
                             }
                         },
                         "repr": "C"
@@ -47059,6 +47078,32 @@
                             {
                                 "NoDrag": {},
                                 "Drag": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TabletDeviceInfoVecSlice": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TabletDeviceInfo",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"
@@ -92715,6 +92760,231 @@
                             "returns": null
                         }
                     },
+                    "TabletDeviceInfoVecDestructor": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "TabletDeviceInfoVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "TabletDeviceInfoVecDestructorType": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "TabletDeviceInfoVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "TabletDeviceInfoVec": {
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfoVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "PartialEq"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TabletDeviceInfo",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "TabletDeviceInfoVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `TabletDeviceInfoVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "TabletDeviceInfoVec::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `TabletDeviceInfoVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "TabletDeviceInfoVec::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tablet_device_info_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "tablet_device_info_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "tablet_device_info_vec.is_empty()"
+                            },
+                            "get": {
+                                "doc": [
+                                    "Returns a reference to the element at the given index, or None if out of bounds"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTabletDeviceInfo"
+                                },
+                                "fn_body": "tablet_device_info_vec.get(index).cloned().into()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `TabletDeviceInfoVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "TabletDeviceInfo"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "TabletDeviceInfoVec::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `TabletDeviceInfoVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const TabletDeviceInfo"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVec"
+                                },
+                                "fn_body": "unsafe { TabletDeviceInfoVec::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionTabletDeviceInfo"
+                                },
+                                "fn_body": "tablet_device_info_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `TabletDeviceInfoVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVecSlice"
+                                },
+                                "fn_body": "tablet_device_info_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TabletDeviceInfoVecSlice"
+                                },
+                                "fn_body": "tablet_device_info_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
                     "StyledTextRunVec": {
                         "external": "azul_layout::managers::selection::StyledTextRunVec",
                         "custom_impls": [
@@ -107171,6 +107441,23 @@
                         ],
                         "repr": "C, u8"
                     },
+                    "OptionTabletDeviceInfo": {
+                        "external": "azul_layout::managers::gesture::OptionTabletDeviceInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "TabletDeviceInfo"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
                     "OptionOnVideoFrame": {
                         "external": "azul_layout::widgets::capture_common::OptionOnVideoFrame",
                         "custom_impls": [
@@ -115020,6 +115307,145 @@
                         ],
                         "repr": "C"
                     },
+                    "TabletToolKind": {
+                        "doc": [
+                            "What kind of input device a `TabletDeviceInfo` describes."
+                        ],
+                        "external": "azul_layout::managers::gesture::TabletToolKind",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Stylus": {
+                                    "doc": [
+                                        "The pen tip."
+                                    ]
+                                }
+                            },
+                            {
+                                "Eraser": {
+                                    "doc": [
+                                        "The inverted / eraser end of a stylus."
+                                    ]
+                                }
+                            },
+                            {
+                                "Pad": {
+                                    "doc": [
+                                        "The tablet pad: ExpressKeys plus touch-ring / strip."
+                                    ]
+                                }
+                            },
+                            {
+                                "Touch": {
+                                    "doc": [
+                                        "A touch surface (tablet touch or touchscreen)."
+                                    ]
+                                }
+                            },
+                            {
+                                "Unknown": {
+                                    "doc": [
+                                        "Recognised as tablet-adjacent, kind unknown."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TabletDeviceInfo": {
+                        "doc": [
+                            "Identity and capabilities of one tablet input device - the `xinput list`",
+                            "level of information: enough for an app to tell the user WHICH tablet is",
+                            "in use, offer a device picker, or configure a custom mapping. Fields a",
+                            "backend cannot know are zero / empty rather than guessed."
+                        ],
+                        "external": "azul_layout::managers::gesture::TabletDeviceInfo",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "name": {
+                                    "type": "String",
+                                    "doc": [
+                                        "Driver-reported device name."
+                                    ]
+                                },
+                                "vendor_name": {
+                                    "type": "String",
+                                    "doc": [
+                                        "Vendor display name resolved from vendor_id; empty when unknown."
+                                    ]
+                                },
+                                "vendor_id": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "USB vendor id (0 = unknown)."
+                                    ]
+                                },
+                                "product_id": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "USB product id (0 = unknown)."
+                                    ]
+                                },
+                                "kind": {
+                                    "type": "TabletToolKind"
+                                },
+                                "device_id": {
+                                    "type": "u64",
+                                    "doc": [
+                                        "Matches PenState.device_id / WacomPadState.device_id on the same backend."
+                                    ]
+                                },
+                                "capabilities": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "TABLET_CAP_* bitset: 1 pressure, 2 tilt, 4 rotation, 8 slider, 16 wheel, 32 touch-ring."
+                                    ]
+                                },
+                                "pressure_max": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Raw driver pressure maximum (diagnostic; PenState.pressure is normalized)."
+                                    ]
+                                },
+                                "physical_width_mm": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Active-area width in millimeters, 0.0 = unknown."
+                                    ]
+                                },
+                                "physical_height_mm": {
+                                    "type": "f32",
+                                    "doc": [
+                                        "Active-area height in millimeters, 0.0 = unknown."
+                                    ]
+                                },
+                                "num_buttons": {
+                                    "type": "u32",
+                                    "doc": [
+                                        "Number of buttons the device reports (pad: ExpressKeys)."
+                                    ]
+                                },
+                                "path": {
+                                    "type": "String",
+                                    "doc": [
+                                        "Kernel device node (/dev/input/event..) where known, else empty."
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
                     "DetectedLongPress": {
                         "doc": [
                             "Result of long-press detection (position + hold duration)."
@@ -117066,6 +117492,28 @@
                             {
                                 "Popup": {},
                                 "Inline": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "OverscrollBehavior": {
+                        "external": "azul_css::props::style::scrollbar::OverscrollBehavior",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Contain": {},
+                                "None": {}
                             }
                         ],
                         "repr": "C"

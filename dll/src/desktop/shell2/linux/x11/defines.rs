@@ -698,9 +698,21 @@ pub const XI_TouchUpdate: c_int = 19;
 pub const XI_TouchEnd: c_int = 20;
 pub const XIAllDevices: c_int = 0;
 pub const XIAllMasterDevices: c_int = 1;
+pub const XIButtonClass: c_int = 1;
 pub const XIValuatorClass: c_int = 2;
 pub const XIScrollClass: c_int = 3;
 pub const XITouchClass: c_int = 8;
+
+/// `XIButtonClassInfo` — how many buttons a device has (and their labels).
+/// (Its `state` reuses the `XIButtonState` defined below.)
+#[repr(C)]
+pub struct XIButtonClassInfo {
+    pub type_: c_int,
+    pub sourceid: c_int,
+    pub num_buttons: c_int,
+    pub labels: *mut Atom,
+    pub state: XIButtonState,
+}
 pub const XIModeAbsolute: c_int = 1;
 pub const XIScrollTypeVertical: c_int = 1;
 pub const XIScrollTypeHorizontal: c_int = 2;
@@ -828,6 +840,22 @@ pub type XISelectEvents =
     unsafe extern "C" fn(*mut Display, Window, *mut XIEventMask, c_int) -> c_int;
 pub type XIQueryDevice = unsafe extern "C" fn(*mut Display, c_int, *mut c_int) -> *mut XIDeviceInfo;
 pub type XIFreeDeviceInfo = unsafe extern "C" fn(*mut XIDeviceInfo);
+/// `XIGetProperty` — reads a device property (`Device Product ID`,
+/// `Device Node`, ...). The returned `data` is freed with `XFree`.
+pub type XIGetProperty = unsafe extern "C" fn(
+    *mut Display,
+    c_int,                    // deviceid
+    Atom,                     // property
+    std::os::raw::c_long,     // offset (in 32-bit longwords)
+    std::os::raw::c_long,     // length (in 32-bit longwords)
+    c_int,                    // delete
+    Atom,                     // type filter (0 = AnyPropertyType)
+    *mut Atom,                // type_return
+    *mut c_int,               // format_return
+    *mut std::os::raw::c_ulong, // num_items_return
+    *mut std::os::raw::c_ulong, // bytes_after_return
+    *mut *mut u8,             // data (XFree)
+) -> c_int;
 pub type XGetEventData = unsafe extern "C" fn(*mut Display, *mut XGenericEventCookie) -> c_int;
 pub type XFreeEventData = unsafe extern "C" fn(*mut Display, *mut XGenericEventCookie);
 pub type XQueryExtension =

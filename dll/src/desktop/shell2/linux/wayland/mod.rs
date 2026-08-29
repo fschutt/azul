@@ -482,6 +482,14 @@ pub struct WaylandWindow {
     drag: events::WaylandDragState,
     tablet_pen: events::TabletPenPending,
     tablet_pad: events::TabletPadPending,
+    /// One-shot descriptive data per `zwp_tablet_tool_v2` (type / hardware
+    /// serial), keyed by tool proxy address; applied to `tablet_pen` at
+    /// `proximity_in`. See `events::TabletToolStatic` for why per-tool.
+    tablet_tools: std::collections::HashMap<usize, events::TabletToolStatic>,
+    /// Identity (name + USB ids) of the announced `zwp_tablet_v2` device.
+    tablet_info: events::TabletStatic,
+    /// Announced `zwp_tablet_pad_v2` (button count, ring/strip); `None` = no pad.
+    tablet_pad_static: Option<events::TabletPadStatic>,
     // False until the first poll rebinds all proxy listeners to the stable boxed `self`.
     listeners_rebound: bool,
     /// EVERY proxy whose listener dereferences its user-data as `*mut WaylandWindow`,
@@ -1792,6 +1800,9 @@ impl WaylandWindow {
             drag: events::WaylandDragState::default(),
             tablet_pen: events::TabletPenPending::default(),
             tablet_pad: events::TabletPadPending::default(),
+            tablet_tools: std::collections::HashMap::new(),
+            tablet_info: events::TabletStatic::default(),
+            tablet_pad_static: None,
             frame_callback_pending: false,
             frame_callback_armed_at: None,
             needs_redraw: super::super::common::event::LatchedRequest::default(),
@@ -2325,6 +2336,9 @@ impl WaylandWindow {
                     *guard = crate::desktop::display::refresh_monitors();
                 }
                 window.common.layout_window = Some(layout_window);
+                // A fresh layout window starts with no tablet-device list;
+                // re-publish what the descriptive listeners accumulated.
+                window.sync_tablet_devices();
             }
 
             // Get mutable references needed for invoke_single_callback
@@ -2385,6 +2399,8 @@ impl WaylandWindow {
                         *guard = crate::desktop::display::refresh_monitors();
                     }
                     window.common.layout_window = Some(layout_window);
+                    // Fresh layout window: re-publish the tablet-device list.
+                    window.sync_tablet_devices();
                 }
             }
 
@@ -3399,8 +3415,73 @@ impl WaylandWindow {
     /// published straight into the gesture manager, where
     /// `CallbackInfo::get_wacom_pad` reads it — that accessor existed and
     /// returned `None` on every platform until this producer.
+    /// (Re)build the published tablet-device list from the accumulated
+    /// `zwp_tablet_v2` descriptive state and hand it to the gesture manager
+    /// (`CallbackInfo::get_tablet_devices`). Called from the `done` /
+    /// `removed` listeners and again after the layout window is created —
+    /// the descriptive burst usually arrives during the initial roundtrips,
+    /// before any layout window exists to hold the result.
+    pub(super) fn sync_tablet_devices(&mut self) {
+        use azul_layout::managers::gesture as gest;
+        let mut devices = Vec::new();
+        let composite_id =
+            ((self.tablet_info.vendor_id as u64) << 32) | self.tablet_info.product_id as u64;
+        for stat in self.tablet_tools.values() {
+            devices.push(gest::TabletDeviceInfo {
+                name: self.tablet_info.name.clone().into(),
+                vendor_name: gest::tablet_usb_vendor_name(self.tablet_info.vendor_id).into(),
+                vendor_id: self.tablet_info.vendor_id,
+                product_id: self.tablet_info.product_id,
+                kind: if stat.is_eraser {
+                    gest::TabletToolKind::Eraser
+                } else {
+                    gest::TabletToolKind::Stylus
+                },
+                // Matches what the pen bridge reports as PenState.device_id.
+                device_id: composite_id,
+                capabilities: stat.capabilities,
+                // zwp_tablet_tool_v2.pressure is always 0..=65535 on the wire.
+                pressure_max: if stat.capabilities & gest::TABLET_CAP_PRESSURE != 0 {
+                    65535.0
+                } else {
+                    0.0
+                },
+                // Wayland reports no physical size; 0 = unknown, not a guess.
+                physical_width_mm: 0.0,
+                physical_height_mm: 0.0,
+                num_buttons: 0,
+                path: self.tablet_info.path.clone().into(),
+            });
+        }
+        if let Some(pad) = self.tablet_pad_static {
+            devices.push(gest::TabletDeviceInfo {
+                name: self.tablet_info.name.clone().into(),
+                vendor_name: gest::tablet_usb_vendor_name(self.tablet_info.vendor_id).into(),
+                vendor_id: self.tablet_info.vendor_id,
+                product_id: self.tablet_info.product_id,
+                kind: gest::TabletToolKind::Pad,
+                device_id: composite_id,
+                capabilities: if pad.has_ring || pad.has_strip {
+                    gest::TABLET_CAP_TOUCHRING
+                } else {
+                    0
+                },
+                pressure_max: 0.0,
+                physical_width_mm: 0.0,
+                physical_height_mm: 0.0,
+                num_buttons: pad.buttons,
+                path: self.tablet_info.path.clone().into(),
+            });
+        }
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.gesture_drag_manager.set_tablet_devices(devices);
+        }
+    }
+
     pub fn handle_tablet_pad_frame(&mut self) {
         let pad = self.tablet_pad;
+        let device_id =
+            ((self.tablet_info.vendor_id as u64) << 32) | self.tablet_info.product_id as u64;
         self.snapshot_window_state_baseline("wayland.handle_tablet_pad_frame");
         if let Some(lw) = self.common.layout_window.as_mut() {
             lw.gesture_drag_manager.update_pad_state(
@@ -3408,7 +3489,7 @@ impl WaylandWindow {
                     express_keys: pad.express_keys,
                     touch_ring: pad.touch_ring,
                     touch_ring_active: pad.touch_ring_active,
-                    device_id: 0,
+                    device_id,
                 },
             );
         }
@@ -3416,10 +3497,49 @@ impl WaylandWindow {
         self.handle_process_event_result(result);
     }
 
-    /// Feed the accumulated tablet pen state on the tool's `frame` event.
+    /// Feed the accumulated tablet pen state on the tool's `frame` event —
+    /// and drive the POINTER pipeline from it.
+    ///
+    /// The second half is not optional: once a client binds tablet-v2, the
+    /// compositor routes a tool in proximity through these events INSTEAD of
+    /// `wl_pointer`. Without the bridge the cursor froze, nothing hit-tested
+    /// and no Mouse* callback ever fired while drawing — the pen updated
+    /// `get_pen_state()` and did nothing else. X11 never had the problem
+    /// because the pen rides the master pointer there; this bridge is what
+    /// makes the two backends agree.
+    ///
+    /// Mapping (W3C PointerEvent, pointerType "pen"): tip contact = LEFT
+    /// button, either barrel button = RIGHT button, tool position = pointer
+    /// position. Deliberate v1 limits: no scrollbar / CSD-resize-edge
+    /// interaction and no popup routing from the pen — those stay
+    /// pointer-only until a pen needs them.
     pub fn handle_tablet_frame(&mut self) {
         let p = self.tablet_pen;
         self.snapshot_window_state_baseline("wayland.handle_tablet_frame");
+
+        if !p.in_proximity {
+            // proximity_out: the tool is gone. Clear the engine pen state
+            // (the Some→None diff fires PenLeave) and release the
+            // synthesized buttons so nothing stays latched down.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.gesture_drag_manager.clear_pen_state();
+            }
+            let ms = self.common.mouse_state_mut();
+            ms.left_down = false;
+            ms.right_down = false;
+            let result = self.process_window_events(0);
+            self.handle_process_event_result(result);
+            return;
+        }
+
+        let (was_left, was_right) = {
+            let ms = &self.common.current_window_state().mouse_state;
+            (ms.left_down, ms.right_down)
+        };
+        let now_left = p.in_contact;
+        let now_right = p.barrel_button;
+
+        // 1) Full-fidelity pen state for CallbackInfo::get_pen_state().
         if let Some(lw) = self.common.layout_window.as_mut() {
             lw.gesture_drag_manager.update_pen_state_full(
                 p.position,
@@ -3427,14 +3547,53 @@ impl WaylandWindow {
                 (p.tilt_x, p.tilt_y),
                 p.in_contact,
                 p.is_eraser,
-                false,
-                p.tool_id,
-                0.0,
+                p.barrel_button,
+                // Device identity = the TABLET's USB vid/pid; the per-tool
+                // hardware serial goes in tool_id (truncated — Wintab tool
+                // ids are 32-bit as well).
+                ((self.tablet_info.vendor_id as u64) << 32)
+                    | self.tablet_info.product_id as u64,
+                p.tangential,
                 p.rotation,
-                0,
+                p.tool_id as u32,
             );
         }
+
+        // 2) The pointer bridge: position, hover hit-test, button edges.
+        self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(p.position);
+        self.common.mouse_state_mut().left_down = now_left;
+        self.common.mouse_state_mut().right_down = now_right;
+        self.update_hit_test(p.position);
+
+        let button_state = if now_left {
+            BUTTON_STATE_LEFT
+        } else {
+            BUTTON_STATE_NONE
+        } | if now_right {
+            BUTTON_STATE_RIGHT
+        } else {
+            BUTTON_STATE_NONE
+        };
+        let any_down_edge = (!was_left && now_left) || (!was_right && now_right);
+        let any_up_edge = (was_left && !now_left) || (was_right && !now_right);
+        self.record_input_sample(p.position, button_state, any_down_edge, any_up_edge, None);
+
+        // Barrel press over a node with a context menu behaves like a right
+        // click (parity with handle_pointer_button).
+        if now_right && !was_right {
+            if let Some(hit_node) = self.get_first_hovered_node() {
+                if self.try_show_context_menu(hit_node, p.position) {
+                    self.request_redraw();
+                }
+            }
+        }
+
         let result = self.process_window_events(0);
+        // The pen-up that ends a selection gesture claims PRIMARY, exactly
+        // like a left-button release does on the pointer path.
+        if was_left && !now_left {
+            self.publish_primary_selection();
+        }
         self.handle_process_event_result(result);
     }
 

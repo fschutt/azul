@@ -67,6 +67,56 @@ pub struct TabletPenPending {
     pub in_contact: bool,
     pub is_eraser: bool,
     pub tool_id: u64,
+    /// Either barrel button (`BTN_STYLUS` / `BTN_STYLUS2`) held.
+    pub barrel_button: bool,
+    /// Between `proximity_in` and `proximity_out`. The frame handler clears
+    /// the engine pen state (and releases the synthesized pointer buttons)
+    /// when this is false — proximity-out is the only "pen went away" signal
+    /// the protocol has.
+    pub in_proximity: bool,
+    /// Airbrush wheel (`slider`), normalized. 0.0 = not reported.
+    pub tangential: f32,
+}
+
+/// Descriptive (one-shot, pre-first-proximity) data of one `zwp_tablet_tool_v2`.
+///
+/// `type`/`hardware_serial`/`hardware_id_wacom` arrive ONCE when the tool is
+/// announced, not per proximity — with a pen AND an eraser announced on the
+/// same seat, folding them straight into the shared [`TabletPenPending`] would
+/// leave whichever tool was announced LAST as the permanent identity. So they
+/// are kept per tool proxy here and applied to the accumulator at
+/// `proximity_in`, which is the moment "the tool in hand" becomes known.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TabletToolStatic {
+    pub is_eraser: bool,
+    /// `hardware_serial` (hi << 32 | lo). 0 when the tool has none.
+    pub serial: u64,
+    /// `hardware_id_wacom` (hi << 32 | lo). 0 when not a Wacom-id tool.
+    pub wacom_id: u64,
+    /// `TABLET_CAP_*` bitset accumulated from the tool's `capability` events.
+    pub capabilities: u32,
+}
+
+/// Descriptive data of the `zwp_tablet_v2` device itself (name + USB ids),
+/// the Wayland spelling of the "xinput information" an app needs to tell the
+/// user WHICH tablet is in use. Filled by the tablet listener's one-shot
+/// `name`/`id`/`path` events.
+#[derive(Debug, Clone, Default)]
+pub struct TabletStatic {
+    pub name: String,
+    pub vendor_id: u32,
+    pub product_id: u32,
+    /// Kernel device node (`/dev/input/event..`), from the `path` event.
+    pub path: String,
+}
+
+/// Descriptive data of the announced `zwp_tablet_pad_v2` (button count +
+/// whether any group carries a ring / strip). `None` on the window = no pad.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TabletPadStatic {
+    pub buttons: u32,
+    pub has_ring: bool,
+    pub has_strip: bool,
 }
 
 /// Pad state accumulated between `frame` events, mirroring `TabletPenPending`.
@@ -987,8 +1037,16 @@ extern "C" fn pad_group(
     window.track_listener(id);
 }
 extern "C" fn pad_path(_d: *mut c_void, _p: *mut zwp_tablet_pad_v2, _path: *const c_char) {}
-extern "C" fn pad_buttons(_d: *mut c_void, _p: *mut zwp_tablet_pad_v2, _n: u32) {}
-extern "C" fn pad_done(_d: *mut c_void, _p: *mut zwp_tablet_pad_v2) {}
+extern "C" fn pad_buttons(data: *mut c_void, _p: *mut zwp_tablet_pad_v2, n: u32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_pad_static.get_or_insert_with(Default::default).buttons = n;
+}
+extern "C" fn pad_done(data: *mut c_void, _p: *mut zwp_tablet_pad_v2) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // Make the pad exist in the device list even when it has zero buttons.
+    window.tablet_pad_static.get_or_insert_with(Default::default);
+    window.sync_tablet_devices();
+}
 extern "C" fn pad_button(
     data: *mut c_void,
     _p: *mut zwp_tablet_pad_v2,
@@ -1033,6 +1091,8 @@ extern "C" fn pad_leave(
 extern "C" fn pad_removed(data: *mut c_void, _p: *mut zwp_tablet_pad_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.tablet_pad = TabletPadPending::default();
+    window.tablet_pad_static = None;
+    window.sync_tablet_devices();
     window.handle_tablet_pad_frame();
 }
 static ZWP_TABLET_PAD_LISTENER: zwp_tablet_pad_v2_listener = zwp_tablet_pad_v2_listener {
@@ -1058,6 +1118,7 @@ extern "C" fn pad_group_ring(
     id: *mut zwp_tablet_pad_ring_v2,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_pad_static.get_or_insert_with(Default::default).has_ring = true;
     unsafe {
         (window.wayland.zwp_tablet_pad_ring_v2_add_listener)(
             id,
@@ -1073,6 +1134,7 @@ extern "C" fn pad_group_strip(
     id: *mut zwp_tablet_pad_strip_v2,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_pad_static.get_or_insert_with(Default::default).has_strip = true;
     unsafe {
         (window.wayland.zwp_tablet_pad_strip_v2_add_listener)(
             id,
@@ -1158,45 +1220,136 @@ static ZWP_TABLET_SEAT_LISTENER: zwp_tablet_seat_v2_listener = zwp_tablet_seat_v
     pad_added: tablet_seat_pad_added,
 };
 
-// zwp_tablet_v2 descriptive events — ignored (the pen comes via the tool).
-extern "C" fn tablet_noop_name(_d: *mut c_void, _t: *mut zwp_tablet_v2, _n: *const c_char) {}
-extern "C" fn tablet_noop_id(_d: *mut c_void, _t: *mut zwp_tablet_v2, _v: u32, _p: u32) {}
-extern "C" fn tablet_noop_path(_d: *mut c_void, _t: *mut zwp_tablet_v2, _p: *const c_char) {}
-extern "C" fn tablet_noop_done(_d: *mut c_void, _t: *mut zwp_tablet_v2) {}
-extern "C" fn tablet_noop_removed(_d: *mut c_void, _t: *mut zwp_tablet_v2) {}
+// zwp_tablet_v2 descriptive events — the device's identity (one-shot, before
+// `done`). The Wayland spelling of the "which tablet is this" information
+// `xinput list` shows on X11; kept on the window so the pad/pen state can
+// carry a real device identity and an app can name the hardware.
+extern "C" fn tablet_name(data: *mut c_void, _t: *mut zwp_tablet_v2, name: *const c_char) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    if !name.is_null() {
+        window.tablet_info.name = unsafe { CStr::from_ptr(name) }
+            .to_string_lossy()
+            .into_owned();
+    }
+}
+extern "C" fn tablet_id(data: *mut c_void, _t: *mut zwp_tablet_v2, vid: u32, pid: u32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_info.vendor_id = vid;
+    window.tablet_info.product_id = pid;
+}
+extern "C" fn tablet_path(data: *mut c_void, _t: *mut zwp_tablet_v2, path: *const c_char) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    if !path.is_null() {
+        window.tablet_info.path = unsafe { CStr::from_ptr(path) }
+            .to_string_lossy()
+            .into_owned();
+    }
+}
+extern "C" fn tablet_done(data: *mut c_void, _t: *mut zwp_tablet_v2) {
+    // All descriptive events for this tablet have arrived — publish the
+    // (re)built device list to the gesture manager.
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.sync_tablet_devices();
+}
+extern "C" fn tablet_removed(data: *mut c_void, _t: *mut zwp_tablet_v2) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_info = TabletStatic::default();
+    window.sync_tablet_devices();
+}
 extern "C" fn tablet_noop_bustype(_d: *mut c_void, _t: *mut zwp_tablet_v2, _b: u32) {}
 static ZWP_TABLET_V2_LISTENER: zwp_tablet_v2_listener = zwp_tablet_v2_listener {
-    name: tablet_noop_name,
-    id: tablet_noop_id,
-    path: tablet_noop_path,
-    done: tablet_noop_done,
-    removed: tablet_noop_removed,
+    name: tablet_name,
+    id: tablet_id,
+    path: tablet_path,
+    done: tablet_done,
+    removed: tablet_removed,
     bustype: tablet_noop_bustype,
 };
 
 // zwp_tablet_tool_v2 — the pen. Accumulate into window.tablet_pen; feed on `frame`.
-extern "C" fn tool_type(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, tool_type: u32) {
-    let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pen.is_eraser = tool_type == 0x141; // eraser
+//
+// `type_` / `hardware_serial` / `hardware_id_wacom` are ONE-SHOT descriptive
+// events: they precede the tool's `done` and never repeat. With a pen AND an
+// eraser announced on the same seat, folding them straight into the shared
+// accumulator left whichever tool was announced LAST as the permanent
+// identity (every stroke of both tools reported `is_eraser` of the second
+// one). So they land in the per-tool `tablet_tools` map, and `proximity_in` —
+// the moment "the tool in hand" becomes known — copies them into the live
+// accumulator.
+fn tool_static_mut<'a>(
+    window: &'a mut WaylandWindow,
+    t: *mut zwp_tablet_tool_v2,
+) -> &'a mut TabletToolStatic {
+    window.tablet_tools.entry(t as usize).or_default()
 }
-extern "C" fn tool_noop_uu(_d: *mut c_void, _t: *mut zwp_tablet_tool_v2, _a: u32, _b: u32) {}
-extern "C" fn tool_noop_u(_d: *mut c_void, _t: *mut zwp_tablet_tool_v2, _a: u32) {}
-extern "C" fn tool_noop(_d: *mut c_void, _t: *mut zwp_tablet_tool_v2) {}
+extern "C" fn tool_type(data: *mut c_void, t: *mut zwp_tablet_tool_v2, tool_type: u32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // zwp_tablet_tool_v2.type: 0x140 pen, 0x141 eraser, 0x142 brush, ...
+    tool_static_mut(window, t).is_eraser = tool_type == 0x141;
+}
+extern "C" fn tool_hw_serial(data: *mut c_void, t: *mut zwp_tablet_tool_v2, hi: u32, lo: u32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    tool_static_mut(window, t).serial = ((hi as u64) << 32) | lo as u64;
+}
+extern "C" fn tool_hw_wacom(data: *mut c_void, t: *mut zwp_tablet_tool_v2, hi: u32, lo: u32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    tool_static_mut(window, t).wacom_id = ((hi as u64) << 32) | lo as u64;
+}
+extern "C" fn tool_removed(data: *mut c_void, t: *mut zwp_tablet_tool_v2) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_tools.remove(&(t as usize));
+    window.sync_tablet_devices();
+}
+extern "C" fn tool_capability(data: *mut c_void, t: *mut zwp_tablet_tool_v2, capability: u32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    use azul_layout::managers::gesture as gest;
+    // zwp_tablet_tool_v2.capability values (one event per capability).
+    let bit = match capability {
+        1 => gest::TABLET_CAP_TILT,
+        2 => gest::TABLET_CAP_PRESSURE,
+        4 => gest::TABLET_CAP_ROTATION,
+        5 => gest::TABLET_CAP_SLIDER,
+        6 => gest::TABLET_CAP_WHEEL,
+        _ => 0, // 3 = distance: not surfaced
+    };
+    tool_static_mut(window, t).capabilities |= bit;
+}
+extern "C" fn tool_done(data: *mut c_void, _t: *mut zwp_tablet_tool_v2) {
+    // The tool's descriptive burst (type / serial / capabilities) is
+    // complete — rebuild the published device list.
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.sync_tablet_devices();
+}
 extern "C" fn tool_proximity_in(
-    _d: *mut c_void,
-    _t: *mut zwp_tablet_tool_v2,
-    _serial: u32,
+    data: *mut c_void,
+    t: *mut zwp_tablet_tool_v2,
+    serial: u32,
     _tablet: *mut zwp_tablet_v2,
     _surface: *mut wl_surface,
 ) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // Proximity is user input: a copy made with only the pen in hand needs
+    // this serial for wl_data_device.set_selection.
+    window.last_input_serial = serial;
+    let stat = *tool_static_mut(window, t);
+    window.tablet_pen.in_proximity = true;
+    window.tablet_pen.is_eraser = stat.is_eraser;
+    window.tablet_pen.tool_id = if stat.serial != 0 {
+        stat.serial
+    } else {
+        stat.wacom_id
+    };
 }
 extern "C" fn tool_proximity_out(data: *mut c_void, _t: *mut zwp_tablet_tool_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.tablet_pen.in_proximity = false;
     window.tablet_pen.in_contact = false;
     window.tablet_pen.pressure = 0.0;
+    window.tablet_pen.barrel_button = false;
 }
-extern "C" fn tool_down(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, _serial: u32) {
+extern "C" fn tool_down(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, serial: u32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.last_input_serial = serial;
     window.tablet_pen.in_contact = true;
 }
 extern "C" fn tool_up(data: *mut c_void, _t: *mut zwp_tablet_tool_v2) {
@@ -1222,7 +1375,12 @@ extern "C" fn tool_rotation(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, degr
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.tablet_pen.rotation = (degrees as f32 / 256.0) * core::f32::consts::PI / 180.0;
 }
-extern "C" fn tool_slider(_d: *mut c_void, _t: *mut zwp_tablet_tool_v2, _position: i32) {}
+extern "C" fn tool_slider(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, position: i32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // Protocol: normalized -65535..=65535; an airbrush wheel rests at 0.
+    // Maps to `PenState.tangential_pressure` (W3C tangentialPressure).
+    window.tablet_pen.tangential = (position as f32 / 65535.0).clamp(-1.0, 1.0);
+}
 extern "C" fn tool_wheel(
     _d: *mut c_void,
     _t: *mut zwp_tablet_tool_v2,
@@ -1231,12 +1389,24 @@ extern "C" fn tool_wheel(
 ) {
 }
 extern "C" fn tool_button(
-    _d: *mut c_void,
+    data: *mut c_void,
     _t: *mut zwp_tablet_tool_v2,
-    _serial: u32,
-    _button: u32,
-    _state: u32,
+    serial: u32,
+    button: u32,
+    state: u32,
 ) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.last_input_serial = serial;
+    // input-event-codes: BTN_STYLUS 0x14b, BTN_STYLUS2 0x14c. Either barrel
+    // button sets the one flag `PenState` carries; the frame handler also
+    // mirrors it as the pointer's RIGHT button (the W3C pen mapping), which
+    // is what lets a barrel press open context menus / cycle nibs in apps
+    // written against mouse events.
+    const BTN_STYLUS: u32 = 0x14b;
+    const BTN_STYLUS2: u32 = 0x14c;
+    if button == BTN_STYLUS || button == BTN_STYLUS2 {
+        window.tablet_pen.barrel_button = state == 1;
+    }
 }
 extern "C" fn tool_frame(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, _time: u32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
@@ -1244,11 +1414,11 @@ extern "C" fn tool_frame(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, _time: 
 }
 static ZWP_TABLET_TOOL_LISTENER: zwp_tablet_tool_v2_listener = zwp_tablet_tool_v2_listener {
     type_: tool_type,
-    hardware_serial: tool_noop_uu,
-    hardware_id_wacom: tool_noop_uu,
-    capability: tool_noop_u,
-    done: tool_noop,
-    removed: tool_noop,
+    hardware_serial: tool_hw_serial,
+    hardware_id_wacom: tool_hw_wacom,
+    capability: tool_capability,
+    done: tool_done,
+    removed: tool_removed,
     proximity_in: tool_proximity_in,
     proximity_out: tool_proximity_out,
     down: tool_down,

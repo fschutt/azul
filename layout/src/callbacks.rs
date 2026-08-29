@@ -4497,6 +4497,20 @@ impl CallbackInfo {
         self.get_gesture_drag_manager().get_pad_state().copied()
     }
 
+    /// Enumerate the tablet input devices the platform backend found — name,
+    /// vendor, USB ids, kind (stylus / eraser / pad / touch), capabilities,
+    /// raw pressure range, physical size and device node where known. The
+    /// `xinput list` level of information: enough to tell the user WHICH
+    /// tablet is in use or to configure per-device mappings. Empty when no
+    /// tablet is attached (or the backend cannot enumerate).
+    #[must_use]
+    pub fn get_tablet_devices(&self) -> crate::managers::gesture::TabletDeviceInfoVec {
+        self.get_gesture_drag_manager()
+            .get_tablet_devices()
+            .to_vec()
+            .into()
+    }
+
     /// Get the most recent geolocation fix, or `None` if no `GeolocationProbe`
     /// is mounted or no platform backend has delivered a fix yet. The fix is
     /// kept live by the platform backends (Android `FusedLocationProvider`,

@@ -311,6 +311,7 @@ pub struct Xi {
     pub XISelectEvents: XISelectEvents,
     pub XIQueryDevice: XIQueryDevice,
     pub XIFreeDeviceInfo: XIFreeDeviceInfo,
+    pub XIGetProperty: XIGetProperty,
 }
 
 impl Xi {
@@ -321,6 +322,7 @@ impl Xi {
             XISelectEvents: load_symbol!(lib, _, "XISelectEvents"),
             XIQueryDevice: load_symbol!(lib, _, "XIQueryDevice"),
             XIFreeDeviceInfo: load_symbol!(lib, _, "XIFreeDeviceInfo"),
+            XIGetProperty: load_symbol!(lib, _, "XIGetProperty"),
             _lib: lib,
         }))
     }
