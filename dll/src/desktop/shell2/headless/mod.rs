@@ -610,6 +610,11 @@ impl CpuBackend {
         let mut patch_moved_union: Option<azul_core::geom::LogicalRect> = None;
         let dl_damage = match &self.previous_display_list {
             Some(old_dl) if can_reuse_previous_frame && !gpu_damage.needs_full => {
+                // The per-frame OLD-vs-NEW item walk - O(items) visual
+                // equality over the whole list, every frame. Spanned so the
+                // "what eats the frame" question has its biggest hidden
+                // candidate on the board.
+                let _p = azul_layout::probe::Probe::span("damage_dl_diff");
                 cpurender::compute_display_list_damage_translated(
                     old_dl,
                     display_list,
@@ -625,6 +630,7 @@ impl CpuBackend {
             _ => None, // first frame, shrink or ref-frame transform → full repaint
         };
 
+        let vview_span = azul_layout::probe::Probe::span("damage_vview_scan");
         // VirtualView child-DOM damage. A child DOM (e.g. the MapWidget tile
         // grid) re-renders IN PLACE when async content arrives (a tile writeback
         // re-invokes the VirtualView), but the PARENT display list's VirtualView
@@ -755,6 +761,7 @@ impl CpuBackend {
         // before it, and the second knows nothing about the rect the first
         // vacated. Replaying only the last one left a thumb behind on every
         // slider drag.
+        drop(vview_span);
         let pending = layout_window
             .layout_cache
             .pending_patch_damage(self.last_consumed_build_seq);
