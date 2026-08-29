@@ -77,21 +77,21 @@ pub fn page_of(info: &mut CallbackInfo) -> Option<usize> {
 /// Falls back to the plain cursor so a finger or a mouse still draws — the app
 /// must not be dead on a machine with no tablet attached.
 pub fn sample(info: &mut CallbackInfo) -> Option<(crate::model::InkPoint, bool)> {
+    // Coordinates come from the CURSOR in both branches, never from
+    // `PenState.position`: the pen state's position is WINDOW-space, and the
+    // ink layer sits inside a toolbar'd, scrolled sheet — using it put every
+    // pen stroke off by that offset. The platform pen paths drive the
+    // pointer, so the cursor IS the pen tip, already node-relative here; the
+    // pen state contributes pressure / tilt / eraser.
+    let p = info.get_cursor_relative_to_node().into_option()?;
     if let Some(pen) = info.get_pen_state().into_option() {
         if pen.in_contact {
             return Some((
-                ink::point_from(
-                    pen.position.x,
-                    pen.position.y,
-                    pen.pressure,
-                    pen.tilt.x_tilt,
-                    pen.tilt.y_tilt,
-                ),
+                ink::point_from(p.x, p.y, pen.pressure, pen.tilt.x_tilt, pen.tilt.y_tilt),
                 pen.is_eraser,
             ));
         }
     }
-    let p = info.get_cursor_relative_to_node().into_option()?;
     Some((ink::point_from(p.x, p.y, 0.0, 0.0, 0.0), false))
 }
 
@@ -736,6 +736,15 @@ fn page_sheet(s: &AppState, data: &RefAny, file: &code::SourceFile, page: usize)
             EventFilter::Hover(HoverEventFilter::MouseUp),
             data.clone(),
             crate::on_ink_up,
+        )
+        // Nib switching, both directions without leaving the page: left
+        // click (a no-drag pen tap) cycles FORWARD via on_ink_up above;
+        // right click — the stylus barrel button on every backend — cycles
+        // BACKWARD.
+        .with_callback(
+            EventFilter::Hover(HoverEventFilter::RightMouseUp),
+            data.clone(),
+            crate::on_cycle_tool_back,
         ),
     );
     sheet

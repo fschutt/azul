@@ -242,6 +242,16 @@ impl Tool {
         }
     }
 
+    /// Previous tool — the right-click / stylus-barrel direction, so a
+    /// missed cycle costs one click back instead of two forward.
+    pub const fn prev(self) -> Self {
+        match self {
+            Self::Marker => Self::AudioPen,
+            Self::Pen => Self::Marker,
+            Self::AudioPen => Self::Pen,
+        }
+    }
+
     /// The marker always means "region"; the others carry the palette choice.
     pub const fn semantic_for(self, selected: Semantic) -> Semantic {
         match self {

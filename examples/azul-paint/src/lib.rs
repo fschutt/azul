@@ -98,6 +98,22 @@ fn canvas_bg() -> ColorU {
     }
 }
 
+/// Live pen telemetry for the header readout — QUANTIZED so `PartialEq`
+/// dampens the redraw rate: a DOM rebuild happens when a displayed digit
+/// would change, not per 140 Hz pen packet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PenHud {
+    pressure_pct: u8,
+    tilt_x_deg: i8,
+    tilt_y_deg: i8,
+    /// Barrel roll / twist, degrees.
+    twist_deg: i16,
+    is_eraser: bool,
+    barrel: bool,
+    in_contact: bool,
+    device_id: u64,
+}
+
 struct PaintState {
     /// Committed strokes — the source of truth (re-rasterized into the cache).
     strokes: Vec<Stroke>,
@@ -107,6 +123,14 @@ struct PaintState {
     current: Option<Stroke>,
     /// Current brush color (config).
     color: ColorU,
+    /// Last-seen pen state, displayed live in the header (`None` = no pen in
+    /// proximity — mouse/touch input shows no readout).
+    hud: Option<PenHud>,
+    /// One-line description of the attached tablet from
+    /// `CallbackInfo::get_tablet_devices()` (name, vendor, physical size).
+    /// Resolved on the first pointer callback; `None` until then or when no
+    /// tablet is attached.
+    device_line: Option<String>,
     /// When true, strokes render as 2D **metaballs** (a scalar field summed from
     /// every dab + thresholded, so nearby blobs merge organically) instead of
     /// alpha-over brush dabs. A separate, binary-only effect from the core brush.
@@ -134,6 +158,8 @@ impl PaintState {
                 b: 40,
                 a: 255,
             },
+            hud: None,
+            device_line: None,
             metaball_mode: true,
             background: None,
             export_path: None,
@@ -934,24 +960,76 @@ const CANVAS: &str = "flex-grow: 1; position: relative; overflow: hidden;";
 const ROOT: &str = "display: flex; flex-direction: column; height: 100%;";
 
 extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
-    let (n_strokes, n_undone, metaballs) = data
+    let (n_strokes, n_undone, metaballs, hud, device_line) = data
         .downcast_ref::<PaintState>()
-        .map(|s| (s.strokes.len(), s.undone.len(), s.metaball_mode))
-        .unwrap_or((0, 0, true));
+        .map(|s| {
+            (
+                s.strokes.len(),
+                s.undone.len(),
+                s.metaball_mode,
+                s.hud,
+                s.device_line.clone(),
+            )
+        })
+        .unwrap_or((0, 0, true, None, None));
     let _ = n_undone;
 
     // Actions (Undo/Redo/Clear/Import/Export/effect toggle) live in the menu bar
-    // below — not as inline buttons. The header is just the title + live status.
+    // below — not as inline buttons. The header is the title + live status,
+    // including the PEN TELEMETRY readout: pressure / tilt / twist / eraser /
+    // barrel, straight from `CallbackInfo::get_pen_state()`. This is the
+    // "see it working" surface for tablet verification — if the numbers move,
+    // the platform backend is feeding the engine.
     let mode_label = if metaballs { "Metaballs" } else { "Brush" };
-    let header = Dom::create_div()
+    let title = match device_line {
+        Some(dev) => format!(
+            "AzPaint  ·  {} strokes  ·  Effect: {}  ·  {}",
+            n_strokes, mode_label, dev
+        ),
+        None => format!(
+            "AzPaint  ·  {} strokes  ·  Effect: {}",
+            n_strokes, mode_label
+        ),
+    };
+    let mut header = Dom::create_div()
         .with_css(HEADER)
-        .with_child(Dom::create_p_with_text(
-            format!(
-                "AzPaint  ·  {} strokes  ·  Effect: {}",
-                n_strokes, mode_label
-            )
-            .as_str(),
-        ));
+        .with_child(Dom::create_p_with_text(title.as_str()));
+    // Spacer pushes the pen readout to the right edge.
+    header.add_child(Dom::create_div().with_css("flex-grow: 1;"));
+    match hud {
+        Some(h) => {
+            header.add_child(Dom::create_p_with_text(
+                format!(
+                    "Pen {}  ·  p {:>3}%  tilt {:+}° / {:+}°  twist {:+}°{}{}{}",
+                    h.device_id,
+                    h.pressure_pct,
+                    h.tilt_x_deg,
+                    h.tilt_y_deg,
+                    h.twist_deg,
+                    if h.in_contact { "  [contact]" } else { "  [hover]" },
+                    if h.is_eraser { "  [ERASER]" } else { "" },
+                    if h.barrel { "  [BARREL]" } else { "" },
+                )
+                .as_str(),
+            ));
+            // Live pressure bar: outer 120 px track, inner scaled by pressure.
+            let fill = ((h.pressure_pct as f32) * 1.18) as u32;
+            let bar = Dom::create_div()
+                .with_css(
+                    "width: 120px; height: 12px; border: 1px solid #777; \
+                     background: #1a1a1a; margin-left: 12px;",
+                )
+                .with_child(Dom::create_div().with_css(
+                    format!("width: {}px; height: 10px; background: #7CFC00;", fill).as_str(),
+                ));
+            header.add_child(bar);
+        }
+        None => {
+            header.add_child(Dom::create_p_with_text(
+                "Pen: none in proximity (hover the stylus to see live values)",
+            ));
+        }
+    }
 
     // The canvas: a single image driven by render_canvas. Its dataset is a
     // CanvasCache that shares the PaintState; the merge callback persists the
@@ -1002,6 +1080,16 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         EventFilter::Hover(HoverEventFilter::TouchEnd),
         data.clone(),
         on_pointer_up,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::MouseLeave),
+        data.clone(),
+        on_pointer_gone,
+    )
+    .with_callback(
+        EventFilter::Hover(HoverEventFilter::PenLeave),
+        data.clone(),
+        on_pointer_gone,
     );
 
     // Window menu bar. On Windows this resolves to a native HMENU, on macOS to the
@@ -1069,12 +1157,28 @@ extern "C" fn layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
 // ───────── Input ────────────────────────────────────────────────────────
 
 fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
+    // Coordinates come from the CURSOR in both branches, never from
+    // `PenState.position`: the pen state's position is WINDOW-space, and the
+    // canvas sits below the header, so using it painted every pen stroke
+    // offset upward by the header height. The platform pen paths drive the
+    // pointer (X11 via the master pointer, Wayland via the tablet→pointer
+    // bridge), so the cursor IS the pen tip — already node-relative here.
+    // The pen state contributes what the cursor cannot: pressure, tilt,
+    // twist and the eraser flag.
+    let pos_opt = info.get_cursor_relative_to_node().into_option();
+    if std::env::var("AZ_PAINT_DEBUG").is_ok() {
+        match &pos_opt {
+            Some(p) => eprintln!("[paint] cursor_relative_to_node = Some({}, {})", p.x, p.y),
+            None => eprintln!("[paint] cursor_relative_to_node = None"),
+        }
+    }
+    let pos = pos_opt?;
     if let Some(pen) = info.get_pen_state().into_option() {
         if pen.in_contact {
             return Some((
                 StrokePoint {
-                    x: pen.position.x,
-                    y: pen.position.y,
+                    x: pos.x,
+                    y: pos.y,
                     pressure: pen.pressure.max(0.05).min(1.0),
                     tilt_x: pen.tilt.x_tilt,
                     tilt_y: pen.tilt.y_tilt,
@@ -1084,14 +1188,6 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
             ));
         }
     }
-    let pos_opt = info.get_cursor_relative_to_node().into_option();
-    if std::env::var("AZ_PAINT_DEBUG").is_ok() {
-        match &pos_opt {
-            Some(p) => eprintln!("[paint] cursor_relative_to_node = Some({}, {})", p.x, p.y),
-            None => eprintln!("[paint] cursor_relative_to_node = None"),
-        }
-    }
-    let pos = pos_opt?;
     Some((
         StrokePoint {
             x: pos.x,
@@ -1105,10 +1201,65 @@ fn extract_point(info: &CallbackInfo) -> Option<(StrokePoint, bool)> {
     ))
 }
 
+/// Snapshot the live pen state for the header readout (quantized — see
+/// [`PenHud`]).
+fn hud_from(info: &CallbackInfo) -> Option<PenHud> {
+    info.get_pen_state().into_option().map(|p| PenHud {
+        pressure_pct: (p.pressure.clamp(0.0, 1.0) * 100.0).round() as u8,
+        tilt_x_deg: p.tilt.x_tilt.clamp(-90.0, 90.0).round() as i8,
+        tilt_y_deg: p.tilt.y_tilt.clamp(-90.0, 90.0).round() as i8,
+        twist_deg: p.barrel_roll_rad.to_degrees().round() as i16,
+        is_eraser: p.is_eraser,
+        barrel: p.barrel_button_pressed,
+        in_contact: p.in_contact,
+        device_id: p.device_id,
+    })
+}
+
+/// Store the latest pen telemetry; `true` when the readout needs a rebuild.
+fn update_hud(state: &mut PaintState, hud: Option<PenHud>) -> bool {
+    if state.hud == hud {
+        false
+    } else {
+        state.hud = hud;
+        true
+    }
+}
+
+/// Describe the attached tablet from `get_tablet_devices()` — the device
+/// identity half of the readout (the live axes are the `PenHud`). Picks the
+/// most capable entry (the stylus outranks pad/touch by capability count).
+fn tablet_device_line(info: &CallbackInfo) -> Option<String> {
+    let devices = info.get_tablet_devices();
+    let devices = devices.as_slice();
+    let d = devices.iter().max_by_key(|d| d.capabilities.count_ones())?;
+    let vendor = d.vendor_name.as_str();
+    let vendor = if vendor.is_empty() {
+        format!("vendor {:04x}", d.vendor_id)
+    } else {
+        vendor.to_string()
+    };
+    let size = if d.physical_width_mm > 0.0 {
+        format!(", {:.0}x{:.0} mm", d.physical_width_mm, d.physical_height_mm)
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "{} ({}{}, {} device(s), caps 0x{:x}, pmax {:.0})",
+        d.name.as_str(),
+        vendor,
+        size,
+        devices.len(),
+        d.capabilities,
+        d.pressure_max,
+    ))
+}
+
 extern "C" fn on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
     if std::env::var("AZ_PAINT_DEBUG").is_ok() {
         eprintln!("[paint] on_pointer_down FIRED");
     }
+    let hud = hud_from(&info);
     let (point, is_eraser) = match extract_point(&info) {
         Some(p) => p,
         None => return Update::DoNothing,
@@ -1117,38 +1268,77 @@ extern "C" fn on_pointer_down(mut data: RefAny, info: CallbackInfo) -> Update {
         Some(s) => s,
         None => return Update::DoNothing,
     };
+    update_hud(&mut state, hud);
     state.begin_stroke(point, is_eraser);
     Update::RefreshDom
 }
 
 extern "C" fn on_pointer_move(mut data: RefAny, info: CallbackInfo) -> Update {
-    {
-        let read = match data.downcast_ref::<PaintState>() {
-            Some(s) => s,
-            None => return Update::DoNothing,
-        };
-        if read.current.is_none() {
-            return Update::DoNothing;
-        }
-    }
-    let (point, _) = match extract_point(&info) {
-        Some(p) => p,
-        None => return Update::DoNothing,
-    };
+    let hud = hud_from(&info);
+    let point = extract_point(&info);
+    let device_line = data
+        .downcast_ref::<PaintState>()
+        .is_some_and(|s| s.device_line.is_none())
+        .then(|| tablet_device_line(&info))
+        .flatten();
     let mut state = match data.downcast_mut::<PaintState>() {
         Some(s) => s,
         None => return Update::DoNothing,
     };
-    state.extend_stroke(point);
-    Update::RefreshDom
+    let mut hud_changed = false;
+    if device_line.is_some() {
+        state.device_line = device_line;
+        hud_changed = true;
+    }
+    // The HUD tracks HOVER too — that is the point of the readout: pressure /
+    // tilt move in the header while the pen approaches, before any stroke.
+    let hud_changed = update_hud(&mut state, hud) || hud_changed;
+    if state.current.is_none() {
+        return if hud_changed {
+            Update::RefreshDom
+        } else {
+            Update::DoNothing
+        };
+    }
+    match point {
+        Some((p, _)) => {
+            state.extend_stroke(p);
+            Update::RefreshDom
+        }
+        None if hud_changed => Update::RefreshDom,
+        None => Update::DoNothing,
+    }
 }
 
-extern "C" fn on_pointer_up(mut data: RefAny, _info: CallbackInfo) -> Update {
+extern "C" fn on_pointer_up(mut data: RefAny, info: CallbackInfo) -> Update {
+    let hud = hud_from(&info);
     match data.downcast_mut::<PaintState>() {
-        Some(mut s) => s.end_stroke(),
+        Some(mut s) => {
+            update_hud(&mut s, hud);
+            s.end_stroke();
+        }
         None => return Update::DoNothing,
     }
     Update::RefreshDom
+}
+
+/// Cursor or pen left: drop the readout (and see the stroke out — a pen that
+/// leaves proximity mid-stroke never delivers a MouseUp).
+extern "C" fn on_pointer_gone(mut data: RefAny, _info: CallbackInfo) -> Update {
+    let mut state = match data.downcast_mut::<PaintState>() {
+        Some(s) => s,
+        None => return Update::DoNothing,
+    };
+    let had_hud = state.hud.take().is_some();
+    let had_stroke = state.current.is_some();
+    if had_stroke {
+        state.end_stroke();
+    }
+    if had_hud || had_stroke {
+        Update::RefreshDom
+    } else {
+        Update::DoNothing
+    }
 }
 
 extern "C" fn on_undo(mut data: RefAny, _info: CallbackInfo) -> Update {

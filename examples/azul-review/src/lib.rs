@@ -272,10 +272,24 @@ pub extern "C" fn on_ink_down(mut data: RefAny, mut info: CallbackInfo) -> Updat
 /// changes tool without moving the hand is the whole reason this is not a
 /// toolbar button.
 pub extern "C" fn on_cycle_tool(mut data: RefAny, _: CallbackInfo) -> Update {
+    cycle_tool(&mut data, false)
+}
+
+/// Right click / stylus barrel button: cycle the nib BACKWARD.
+///
+/// The barrel button reaches this as a right click on every backend (X11
+/// maps the wacom barrel to button 3; the Wayland tablet bridge mirrors
+/// `BTN_STYLUS` as the pointer's right button), so "left click forward,
+/// right click back" is equally true for a mouse and for the pen in hand.
+pub extern "C" fn on_cycle_tool_back(mut data: RefAny, _: CallbackInfo) -> Update {
+    cycle_tool(&mut data, true)
+}
+
+fn cycle_tool(data: &mut RefAny, backward: bool) -> Update {
     let Some(mut s) = data.downcast_mut::<AppState>() else {
         return Update::DoNothing;
     };
-    s.tool = s.tool.next();
+    s.tool = if backward { s.tool.prev() } else { s.tool.next() };
     // Leaving the audio pen closes the clip rather than leaving it open: the
     // binding is to the strokes drawn WITH that nib, and a clip that kept
     // running would bind speech to marks made by a different tool.
