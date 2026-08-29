@@ -843,6 +843,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         text_input_manager: _,
         pending_document_edit: _,
         document_edit_notified: _,
+        document_text_revision: _,
+        acked_text_revision: _,
         undo_redo_manager: _,
         text_constraints_cache: _,
         pending_virtual_view_updates: _,
@@ -1335,6 +1337,17 @@ pub struct LayoutWindow {
     /// without an ack means rejection — `layout_and_generate_display_list`
     /// then drops the edit with a warning, honoring the documented promise.
     pub document_edit_notified: Option<u64>,
+    /// Monotonic revision of the document's TEXT content: bumped once per
+    /// committed character-level edit in [`Self::update_text_cache_after_edit`]
+    /// (the ONE overlay text writer) and stamped onto the entry it writes.
+    /// `0` = no edits yet. This is what makes "which generation of the text is
+    /// this" a tracked fact instead of an equality inference.
+    pub document_text_revision: u64,
+    /// High-water mark of text revisions the APP has declared incorporated
+    /// into its model ([`Self::mark_text_revision_synced`]). Overlay entries
+    /// at or below it are committed and GC'd at the layout tail without any
+    /// text comparison — normalization-proof, unlike the equality rule.
+    pub acked_text_revision: u64,
     /// Resume point of an ACKED structural edit, waiting for the app's
     /// re-render to land so the caret can be re-established against the NEW
     /// generation (resolved + cleared at the tail of
@@ -1777,6 +1790,8 @@ impl LayoutWindow {
             text_input_manager: crate::managers::text_input::TextInputManager::new(),
             pending_document_edit: None,
             document_edit_notified: None,
+            document_text_revision: 0,
+            acked_text_revision: 0,
             pending_caret_restore: None,
             structural_history_suppression: None,
             pagination_dirty_from: None,
@@ -1989,8 +2004,24 @@ impl LayoutWindow {
         // stay authoritative. Before this, overlay text was remapped forward
         // FOREVER and DOM-reading exports silently saw pre-edit text.
         if result.is_ok() {
+            // Stale-generation sanity: no overlay entry may carry a revision
+            // from the future — that would mean a second writer bumped or
+            // stamped outside `update_text_cache_after_edit`.
+            #[cfg(debug_assertions)]
+            for (key, dirty) in self.content_overlay.iter_text() {
+                debug_assert!(
+                    dirty.revision <= self.document_text_revision,
+                    "overlay entry {key:?} carries text revision {} but the document is at {}",
+                    dirty.revision,
+                    self.document_text_revision,
+                );
+            }
             let doms: Vec<DomId> = self.layout_results.keys().copied().collect();
             for dom_id in doms {
+                // Explicitly acked revisions first (no text comparison),
+                // then the equality fallback for un-acked/un-stamped entries.
+                self.content_overlay
+                    .gc_acked_text(dom_id, self.acked_text_revision);
                 if let Some(lr) = self.layout_results.get(&dom_id) {
                     // Split borrow: overlay and layout_results are separate fields.
                     let styled_dom = &lr.styled_dom;
@@ -2159,6 +2190,51 @@ impl LayoutWindow {
             drop(stale);
         }
         id
+    }
+
+    /// Current document TEXT revision — the stamp of the latest committed
+    /// character-level edit (`0` = none yet). An app that folds azul's text
+    /// state back into its own model records this value and acks it with
+    /// [`Self::mark_text_revision_synced`] after re-rendering.
+    #[must_use]
+    pub const fn document_text_revision(&self) -> u64 {
+        self.document_text_revision
+    }
+
+    /// The app declares its model has incorporated every text edit up to and
+    /// including `revision` (usually a value previously read from
+    /// [`Self::document_text_revision`]). Monotonic; clamped to the current
+    /// revision so a garbage ack cannot pre-commit FUTURE edits. Overlay
+    /// entries at or below the mark are dropped at the next layout tail
+    /// WITHOUT text comparison — so an app that normalizes text on ingest
+    /// (trimming, canonicalization) still converges, where the equality rule
+    /// would have kept the entry authoritative forever.
+    pub fn mark_text_revision_synced(&mut self, revision: u64) {
+        let clamped = revision.min(self.document_text_revision);
+        self.acked_text_revision = self.acked_text_revision.max(clamped);
+    }
+
+    /// Every text edit the app has NOT yet acked: `(node, flattened text,
+    /// revision)`. One call inside a layout/VirtualView callback lets a
+    /// document app fold live typing back into its model, then ack the
+    /// highest revision it saw — closing the loop that previously did not
+    /// exist for character-level edits (the app model never heard typing).
+    #[must_use]
+    pub fn unsynced_text_edits(&self) -> Vec<(DomNodeId, String, u64)> {
+        self.content_overlay
+            .iter_text()
+            .filter(|(_, dirty)| dirty.revision > self.acked_text_revision)
+            .map(|(&(dom, node), dirty)| {
+                (
+                    DomNodeId {
+                        dom,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+                    },
+                    crate::overlay::flatten_inline_content(&dirty.content),
+                    dirty.revision,
+                )
+            })
+            .collect()
     }
 
     /// The pending structural edit, if any (the app's callback inspects it).
@@ -13710,7 +13786,11 @@ impl LayoutWindow {
         node_id: NodeId,
         new_inline_content: Vec<InlineContent>,
     ) {
-        // 1. Store the new content in dirty_text_nodes for tracking
+        // 1. Store the new content in dirty_text_nodes for tracking.
+        // This is the ONE overlay text writer, so the revision bump lives
+        // here: every committed character-level edit advances the document
+        // text revision and stamps the entry it produced.
+        self.document_text_revision += 1;
         let cursor = self.text_edit_manager.get_primary_cursor();
         self.content_overlay.set_text(
             dom_id,
@@ -13719,6 +13799,7 @@ impl LayoutWindow {
                 content: new_inline_content.clone(),
                 cursor,
                 needs_ancestor_relayout: false, // Will be set if size changes
+                revision: self.document_text_revision,
             },
         );
 
@@ -16868,6 +16949,11 @@ impl LayoutWindow {
             // Dropped together with the pending edit below (a notification id
             // without its edit is meaningless).
             document_edit_notified,
+            // Plain monotonic counters, no NodeIds to remap; the overlay
+            // entries CARRYING revisions are remapped as part of
+            // `content_overlay`.
+            document_text_revision: _,
+            acked_text_revision: _,
             // Deliberately generation-STABLE (host key + child-index path) —
             // that is its whole point; resolved against the new tree at the
             // layout tail, nothing to remap here.

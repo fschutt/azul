@@ -49,6 +49,12 @@ pub struct DirtyTextNode {
     pub cursor: Option<TextCursor>,
     /// Whether this edit requires ancestor relayout (e.g., text grew taller)
     pub needs_ancestor_relayout: bool,
+    /// The document text revision that wrote this entry
+    /// (`LayoutWindow::document_text_revision` after its bump). `0` = written
+    /// by a path that predates revisions (tests, direct construction) — such
+    /// entries are exempt from the acked-revision GC and fall back to the
+    /// text-equality rule.
+    pub revision: u64,
 }
 
 /// Flatten inline content to the plain string it displays.
@@ -435,6 +441,22 @@ impl ContentOverlay {
                     preview,
                 });
         }
+    }
+
+    /// Acked-revision GC — the EXPLICIT half of convergence: the app declared
+    /// (via `LayoutWindow::mark_text_revision_synced`) that its model has
+    /// incorporated every text edit up to and including `acked`, so entries
+    /// stamped at or below it are committed and dropped — even when the app
+    /// NORMALIZED the text on the way in (trimming, canonicalization), which
+    /// the equality rule in [`Self::gc_converged_text`] can never see past.
+    /// Un-stamped entries (`revision == 0`) are left for the equality rule.
+    pub(crate) fn gc_acked_text(&mut self, dom_id: DomId, acked: u64) {
+        if acked == 0 {
+            return;
+        }
+        self.text.retain(|&(d, _), dirty| {
+            d != dom_id || dirty.revision == 0 || dirty.revision > acked
+        });
     }
 
     /// Drop every pending structural delta of `dom` — called when a new
@@ -1025,6 +1047,54 @@ mod tests {
     }
 
     #[test]
+    fn acked_revision_gc_converges_where_text_equality_cannot() {
+        use crate::text3::cache::{InlineContent, StyledRun};
+        use std::sync::Arc;
+
+        fn dirty_rev(text: &str, revision: u64) -> DirtyTextNode {
+            DirtyTextNode {
+                content: vec![InlineContent::Text(StyledRun {
+                    text: Arc::from(text),
+                    style: Arc::new(Default::default()),
+                    logical_start_byte: 0,
+                    source_node_id: None,
+                })],
+                cursor: None,
+                needs_ancestor_relayout: false,
+                revision,
+            }
+        }
+
+        let mut overlay = ContentOverlay::default();
+        let committed = NodeId::new(1); // acked (rev 3 ≤ 3): drops WITHOUT text comparison
+        let unacked = NodeId::new(2); // typed after the ack (rev 5 > 3): stays
+        let unstamped = NodeId::new(3); // rev 0: exempt, left for the equality rule
+        overlay.set_text(dom0(), committed, dirty_rev("  hello  ", 3));
+        overlay.set_text(dom0(), unacked, dirty_rev("newer typing", 5));
+        overlay.set_text(dom0(), unstamped, dirty_rev("legacy path", 0));
+
+        // acked == 0 (nothing ever acked) must be a no-op.
+        overlay.gc_acked_text(dom0(), 0);
+        assert!(overlay.text_for_node(dom0(), committed).is_some());
+
+        overlay.gc_acked_text(dom0(), 3);
+        assert!(
+            overlay.text_for_node(dom0(), committed).is_none(),
+            "an acked entry retires even though the app NORMALIZED the text \
+             (\"  hello  \" vs whatever the DOM now carries) — the case the \
+             equality rule keeps authoritative forever"
+        );
+        assert!(
+            overlay.text_for_node(dom0(), unacked).is_some(),
+            "an edit typed AFTER the acked revision must stay authoritative"
+        );
+        assert!(
+            overlay.text_for_node(dom0(), unstamped).is_some(),
+            "an un-stamped (revision 0) entry is exempt from the acked GC"
+        );
+    }
+
+    #[test]
     fn text_gc_drops_converged_entries_and_keeps_diverged_ones() {
         use crate::text3::cache::{InlineContent, StyledRun};
         use std::sync::Arc;
@@ -1039,6 +1109,7 @@ mod tests {
                 })],
                 cursor: None,
                 needs_ancestor_relayout: false,
+                revision: 0,
             }
         }
 
