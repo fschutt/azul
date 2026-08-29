@@ -14432,6 +14432,77 @@ impl LayoutWindow {
     /// Stages 1-3 of the text3 pipeline (logical items, bidi reorder, shape).
     /// Returned separately so an incremental relayout path can skip stage 4
     /// (line breaking + positioning) when the cached layout is reusable.
+    /// Load the font bytes for every styled text run in `content` that the
+    /// full layout path never loaded.
+    ///
+    /// The full path resolves chains for the text the DOM CONTAINS and
+    /// pre-loads exactly those fonts (`load_missing_for_chains` in
+    /// `regenerate_layout`). The incremental reshape path then shapes against
+    /// that pool — an invariant that holds for every edit EXCEPT the first
+    /// character of an editable that was EMPTY at full-layout time: no text
+    /// run existed, so no chain was resolved and no font loaded, and stage 3
+    /// silently dropped every glyph (`loaded_fonts.get` miss returns zero
+    /// shaped clusters). The character landed in the buffer and painted
+    /// nothing — a brand-new document looked dead no matter what was typed.
+    ///
+    /// Chains come from the manager's cache when present, or the same
+    /// on-miss resolution shaping itself uses, so the result is identical to
+    /// what the pre-pass would have produced — just later. Idempotent and
+    /// cheap when everything is already loaded: the manager diffs against its
+    /// pool and early-returns on an empty to-load set, which is the steady
+    /// state for every keystroke after the first.
+    fn ensure_fonts_loaded_for_content(&self, content: &[InlineContent]) {
+        use std::collections::HashMap;
+
+        use crate::{
+            solver3::getters::ResolvedFontChains,
+            text3::{
+                cache::{resolve_chain_on_miss, FontChainKey, FontChainKeyOrRef, FontStack},
+                default::PathLoader,
+            },
+        };
+
+        let mut chains: HashMap<FontChainKeyOrRef, rust_fontconfig::FontFallbackChain> =
+            HashMap::new();
+        for item in content {
+            // A `FontStack::Ref` is an already-parsed handle — nothing to load.
+            let InlineContent::Text(run) = item else {
+                continue;
+            };
+            let FontStack::Stack(selectors) = &run.style.font_stack else {
+                continue;
+            };
+            let key = FontChainKey::from_selectors(selectors);
+            let entry = FontChainKeyOrRef::Chain(key.clone());
+            if chains.contains_key(&entry) {
+                continue;
+            }
+            let chain = self
+                .font_manager
+                .get_font_chain_cache()
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| resolve_chain_on_miss(&key, &self.font_manager.fc_cache));
+            chains.insert(entry, chain);
+        }
+        if chains.is_empty() {
+            return;
+        }
+        let resolved = ResolvedFontChains {
+            chains,
+            ..Default::default()
+        };
+        let loader = PathLoader::new();
+        // Failures degrade to the pre-fix behavior for exactly the affected
+        // runs (no glyphs from a font that does not exist on disk); the full
+        // path drops them the same way.
+        let _failed = self
+            .font_manager
+            .load_missing_for_chains(&resolved, |bytes, index| {
+                loader.load_font_shared(bytes, index)
+            });
+    }
+
     fn shape_text_for_relayout(
         &self,
         content: &[InlineContent],
@@ -14445,6 +14516,12 @@ impl LayoutWindow {
         if logical_items.is_empty() {
             return Some((logical_items, Vec::new()));
         }
+
+        // See the doc on `ensure_fonts_loaded_for_content`: the pool this
+        // function shapes against only contains fonts a previous FULL layout
+        // needed, and the first character of a previously-empty editable
+        // introduces a style no full layout has seen.
+        self.ensure_fonts_loaded_for_content(content);
 
         let base_direction = constraints.direction.unwrap_or(BidiDirection::Ltr);
         let visual_items = reorder_logical_items(

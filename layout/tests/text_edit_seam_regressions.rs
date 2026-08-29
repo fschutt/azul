@@ -792,14 +792,10 @@ fn an_ime_composition_in_a_deeply_nested_editable_is_shaped() {
 /// the editing host) and the shape every text widget has before its first
 /// character.
 ///
-/// NOT yet fixed, and deliberately not asserted here: the character lands in
-/// the BUFFER but still paints no glyph. `reshape_text_node` shapes through
-/// `shape_text_for_relayout`, which can only use fonts a previous layout
-/// already LOADED — an editable that has never held text never loaded one, so
-/// stage 3 returns zero shaped items for the first character and the IFC keeps
-/// its empty strut layout. `cargo test ... the_first_character` is green while
-/// AzWriter still looks dead on a new document; the missing half is font
-/// loading on the incremental reshape path.
+/// The OTHER half — the character must also PAINT — is
+/// [`the_first_character_typed_into_an_empty_editable_paints_glyphs`] below:
+/// the buffer landing and the glyph appearing failed for two independent
+/// reasons, and a green buffer test was hiding a dead screen.
 #[test]
 fn the_first_character_typed_into_an_empty_p_wrapped_editable_lands() {
     // body(0) > div[contenteditable](1) > div.p(2) — no text node anywhere.
@@ -871,4 +867,54 @@ fn the_first_character_typed_into_an_empty_editable_keeps_the_blocks_style() {
         (size - 40.0).abs() < 0.01,
         "the seeded run must inherit the editable's own font-size, got {size}"
     );
+}
+
+/// The buffer half above is necessary but nowhere near sufficient: the first
+/// character must also appear ON SCREEN. It did not — `shape_text_for_relayout`
+/// shapes against `font_manager.get_loaded_fonts()`, the pool the FULL layout
+/// pre-loaded for the text the DOM contained. An editable that was EMPTY at
+/// full-layout time contributed no text run, so no chain was resolved and no
+/// font loaded, and the first character's shaping hit a `loaded_fonts` miss
+/// that silently returns zero clusters. The buffer said "X", the display list
+/// said nothing, and a brand-new document looked dead no matter what was
+/// typed. The fix loads the missing fonts on the reshape path
+/// (`ensure_fonts_loaded_for_content`) exactly the way full layout does.
+#[test]
+fn the_first_character_typed_into_an_empty_editable_paints_glyphs() {
+    let mut lw =
+        layout(Dom::create_body().with_child(Dom::create_div().with_contenteditable(true)));
+    const HOST: usize = 1;
+    assert_eq!(glyph_count(&lw), 0, "premise: an empty document paints no glyph");
+
+    lw.focus_manager.set_focused_node(Some(dnid(HOST)));
+    lw.record_text_input("X");
+    let _ = lw.apply_text_changeset();
+
+    assert_eq!(text_of(&lw, HOST), "X", "premise: the buffer half landed");
+    assert!(
+        glyph_count(&lw) >= 1,
+        "the first character of a blank document must PAINT, not just land in          the buffer — its font was never loaded by any full layout, and the          reshape path silently shaped it to zero glyphs"
+    );
+}
+
+/// Same assertion through AzWriter's actual shape: the empty `<p>` line under
+/// the editing host, focused the way the shell focuses it.
+#[test]
+fn the_first_character_of_a_p_wrapped_blank_document_paints_glyphs() {
+    let mut lw = layout(
+        Dom::create_body().with_child(
+            Dom::create_div()
+                .with_contenteditable(true)
+                .with_child(with_class(Dom::create_div(), "p")),
+        ),
+    );
+    const HOST: usize = 1;
+    assert_eq!(glyph_count(&lw), 0, "premise: an empty document paints no glyph");
+
+    lw.focus_manager.set_focused_node(Some(dnid(HOST)));
+    lw.record_text_input("X");
+    let _ = lw.apply_text_changeset();
+
+    assert_eq!(text_of(&lw, HOST), "X");
+    assert!(glyph_count(&lw) >= 1, "the character must paint inside the wrapper too");
 }
