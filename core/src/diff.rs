@@ -538,6 +538,36 @@ pub struct DiffResult {
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use]
+/// Per-node hash of the node's own content PLUS its entire subtree, children
+/// folded in document order. Two equal values mean the subtrees are
+/// content-identical for reconciliation purposes — the strong-identity tier
+/// `reconcile_dom` uses before falling back to positional matching.
+///
+/// The arena is depth-first pre-order (a parent's index is always lower than
+/// its children's), so one REVERSE walk sees every child before its parent.
+fn compute_subtree_hashes(node_data: &[NodeData], hierarchy: &[NodeHierarchyItem]) -> Vec<u64> {
+    use core::hash::{Hash, Hasher};
+    let mut hashes = vec![0u64; node_data.len()];
+    for idx in (0..node_data.len()).rev() {
+        let mut h = crate::hash::DefaultHasher::new();
+        node_data[idx].calculate_node_data_hash().hash(&mut h);
+        let mut child = hierarchy
+            .get(idx)
+            .and_then(|item| item.first_child_id(NodeId::new(idx)));
+        while let Some(c) = child {
+            if c.index() >= hashes.len() {
+                break;
+            }
+            hashes[c.index()].hash(&mut h);
+            child = hierarchy
+                .get(c.index())
+                .and_then(NodeHierarchyItem::next_sibling_id);
+        }
+        hashes[idx] = h.finish();
+    }
+    hashes
+}
+
 pub fn reconcile_dom(
     old_node_data: &[NodeData],
     new_node_data: &[NodeData],
@@ -610,69 +640,186 @@ pub fn reconcile_dom(
             .push_back(id);
     }
 
-    // --- STEP 2: ITERATE NEW DOM AND CLAIM MATCHES ---
+    // --- STEP 2: CLAIM MATCHES, STRONG IDENTITY BEFORE POSITIONAL ---
+    //
+    // The old single loop ran every tier per new node, in new-document order.
+    // That let a PREPENDED subtree steal identity: the auto "structural"
+    // reconciliation key hashes an nth-of-type sibling index, so prepending a
+    // banner shifts every following sibling's key by one and Tier 1 pairs
+    // banner↔page0, page0↔page1, … — and (DomId, NodeId)-keyed state (text
+    // overlay, focus, selections) follows the WRONG element. Shallow
+    // content-hash tiers cannot save it either: a wrapper div's own hash
+    // ignores the child text that actually distinguishes it.
+    //
+    // So matching now runs in PASSES over all new nodes, strongest evidence
+    // first, positional evidence last:
+    //   A1: terminal identity (explicit `.with_key()` / CSS ID)
+    //   A2: exact SUBTREE hash (node + entire subtree content-identical) —
+    //       deliberately NOT parent-gated: re-pagination moves a paragraph's
+    //       whole subtree under a different page container, and following it
+    //       there is the point.
+    //   B1: positional structural key (the old Tier 1 fallback)
+    //   B2: shallow content hash   (parent-gated, as before)
+    //   B3: shallow structural hash (parent-gated, as before — text edits)
+    let old_subtree_hashes = compute_subtree_hashes(old_node_data, old_hierarchy);
+    let new_subtree_hashes = compute_subtree_hashes(new_node_data, new_hierarchy);
+    let mut old_by_subtree: OrderedMap<u64, VecDeque<NodeId>> = OrderedMap::default();
+    for (idx, h) in old_subtree_hashes.iter().enumerate() {
+        old_by_subtree
+            .entry(*h)
+            .or_default()
+            .push_back(NodeId::new(idx));
+    }
 
+    let has_terminal_identity = |node: &NodeData| -> bool {
+        node.get_key().is_some()
+            || node
+                .attributes()
+                .as_ref()
+                .iter()
+                .any(|attr| attr.as_id().is_some())
+    };
+
+    let n_new = new_node_data.len();
+    let mut matched: Vec<Option<NodeId>> = vec![None; n_new];
+    let mut matched_by_rec_key: Vec<bool> = vec![false; n_new];
+
+    // Pass A1: terminal identity (explicit key / CSS ID). Their reconciliation
+    // key IS the terminal key, so the existing queue serves them.
     for (new_idx, new_node) in new_node_data.iter().enumerate() {
-        let new_id = NodeId::new(new_idx);
-        let mut matched_old_id = None;
-        let mut matched_by_rec_key = false;
-        let has_explicit_key = new_node.get_key().is_some();
-
-        // Tier 1: Reconciliation key (explicit `.with_key()`, CSS ID, or structural key)
-        let new_rec_key = new_rec_keys[new_idx];
-        if let Some(queue) = old_by_rec_key.get_mut(&new_rec_key) {
+        if !has_terminal_identity(new_node) {
+            continue;
+        }
+        if let Some(queue) = old_by_rec_key.get_mut(&new_rec_keys[new_idx]) {
             if let Some(old_id) = pop_first_unconsumed(queue, &old_nodes_consumed) {
-                matched_old_id = Some(old_id);
-                matched_by_rec_key = true;
+                old_nodes_consumed[old_id.index()] = true;
+                matched[new_idx] = Some(old_id);
+                matched_by_rec_key[new_idx] = true;
             }
         }
+    }
 
-        // AUDIT: parent-key of the new node. The keyless Tier-2/Tier-3 tiers are
+    // Pass A2: exact subtree identity. An explicit `.with_key()` that missed
+    // A1 stays unmatched (Mount) — a key is an intentional identity marker.
+    // Identical twins (equal subtrees) consume in document order, which is
+    // the same positional tie-break they got before.
+    //
+    // Cross-parent moves are ALLOWED between anonymous parents (that is the
+    // point: re-pagination shifts a paragraph's whole subtree under a
+    // different page container and state must follow it) — but NOT across a
+    // parent whose TERMINAL identity (explicit key / CSS ID) changed:
+    // `#left → #right` is the author saying "a different container", and the
+    // parent-key-gate test pins that a leaf must not migrate across it.
+    let terminal_key_of = |node: &NodeData| -> Option<u64> {
+        use core::hash::{Hash, Hasher};
+        if let Some(key) = node.get_key() {
+            return Some(key);
+        }
+        for attr in node.attributes().as_ref() {
+            if let Some(id) = attr.as_id() {
+                let mut hasher = crate::hash::DefaultHasher::new();
+                id.hash(&mut hasher);
+                return Some(hasher.finish());
+            }
+        }
+        None
+    };
+    let old_parent_terminal = |old_id: NodeId| -> Option<u64> {
+        old_hierarchy
+            .get(old_id.index())
+            .and_then(NodeHierarchyItem::parent_id)
+            .and_then(|p| terminal_key_of(&old_node_data[p.index()]))
+    };
+    for new_idx in 0..n_new {
+        if matched[new_idx].is_some() || new_node_data[new_idx].get_key().is_some() {
+            continue;
+        }
+        let new_parent_terminal: Option<u64> = new_hierarchy
+            .get(new_idx)
+            .and_then(NodeHierarchyItem::parent_id)
+            .and_then(|p| terminal_key_of(&new_node_data[p.index()]));
+        if let Some(queue) = old_by_subtree.get_mut(&new_subtree_hashes[new_idx]) {
+            if let Some(pos) = queue.iter().position(|&old_id| {
+                !old_nodes_consumed[old_id.index()]
+                    && old_parent_terminal(old_id) == new_parent_terminal
+            }) {
+                if let Some(old_id) = queue.remove(pos) {
+                    old_nodes_consumed[old_id.index()] = true;
+                    matched[new_idx] = Some(old_id);
+                }
+            }
+        }
+    }
+
+    // Pass B1: positional structural key — the old Tier 1 for keyless nodes,
+    // now running only for what strong evidence left over.
+    for (new_idx, new_node) in new_node_data.iter().enumerate() {
+        if matched[new_idx].is_some() || new_node.get_key().is_some() {
+            continue;
+        }
+        if let Some(queue) = old_by_rec_key.get_mut(&new_rec_keys[new_idx]) {
+            if let Some(old_id) = pop_first_unconsumed(queue, &old_nodes_consumed) {
+                old_nodes_consumed[old_id.index()] = true;
+                matched[new_idx] = Some(old_id);
+                matched_by_rec_key[new_idx] = true;
+            }
+        }
+    }
+
+    // Passes B2/B3: shallow content / structural hash.
+    for (new_idx, new_node) in new_node_data.iter().enumerate() {
+        if matched[new_idx].is_some() || new_node.get_key().is_some() {
+            continue;
+        }
+        // AUDIT: parent-key of the new node. The keyless shallow tiers are
         // only allowed to claim an old node whose parent's reconciliation key
         // agrees — otherwise two structurally-identical nodes under DIFFERENT
         // parents would match and migrate focus/scroll/dataset state to an
-        // unrelated subtree. When either hierarchy is unavailable this is `None`
-        // on both sides, so the gate is a no-op (flat-DOM behavior preserved).
+        // unrelated subtree. When either hierarchy is unavailable this is
+        // `None` on both sides, so the gate is a no-op.
         let new_parent_key: Option<u64> = new_hierarchy
             .get(new_idx)
             .and_then(NodeHierarchyItem::parent_id)
             .map(|p| new_rec_keys[p.index()]);
 
-        // An explicit `.with_key()` is a strong, intentional identity marker: if it
-        // doesn't match anything in the old DOM we treat the new node as genuinely
-        // new (Mount), rather than falling through to coarser content/structural
-        // tiers and silently matching an unrelated node.
-        if !has_explicit_key && matched_old_id.is_none() {
-            // Tier 2: Content hash (exact match — catches pure reorders)
-            let hash = new_node.calculate_node_data_hash();
-            if let Some(queue) = old_hashed.get_mut(&hash) {
-                if let Some(pos) = queue.iter().position(|&old_id| {
-                    !old_nodes_consumed[old_id.index()] && old_parent_key(old_id) == new_parent_key
-                }) {
-                    matched_old_id = queue.remove(pos);
-                }
-            }
-
-            // Tier 3: Structural hash (text-node fallback — ignores text content)
-            if matched_old_id.is_none() {
-                let structural_hash = new_node.calculate_structural_hash();
-                if let Some(queue) = old_structural.get_mut(&structural_hash) {
-                    if let Some(pos) = queue.iter().position(|&old_id| {
-                        !old_nodes_consumed[old_id.index()]
-                            && old_parent_key(old_id) == new_parent_key
-                    }) {
-                        matched_old_id = queue.remove(pos);
-                    }
+        // B2: Content hash (exact match — catches pure reorders)
+        let hash = new_node.calculate_node_data_hash();
+        if let Some(queue) = old_hashed.get_mut(&hash) {
+            if let Some(pos) = queue.iter().position(|&old_id| {
+                !old_nodes_consumed[old_id.index()] && old_parent_key(old_id) == new_parent_key
+            }) {
+                if let Some(old_id) = queue.remove(pos) {
+                    old_nodes_consumed[old_id.index()] = true;
+                    matched[new_idx] = Some(old_id);
+                    continue;
                 }
             }
         }
 
-        // --- STEP 3: PROCESS MATCH OR MOUNT ---
+        // B3: Structural hash (text-node fallback — ignores text content)
+        let structural_hash = new_node.calculate_structural_hash();
+        if let Some(queue) = old_structural.get_mut(&structural_hash) {
+            if let Some(pos) = queue.iter().position(|&old_id| {
+                !old_nodes_consumed[old_id.index()] && old_parent_key(old_id) == new_parent_key
+            }) {
+                if let Some(old_id) = queue.remove(pos) {
+                    old_nodes_consumed[old_id.index()] = true;
+                    matched[new_idx] = Some(old_id);
+                }
+            }
+        }
+    }
+
+    // --- STEP 3: PROCESS MATCHES / MOUNTS, in new-document order ---
+
+    for (new_idx, new_node) in new_node_data.iter().enumerate() {
+        let new_id = NodeId::new(new_idx);
+        let matched_old_id = matched[new_idx];
+        let matched_by_rec_key = matched_by_rec_key[new_idx];
 
         if let Some(old_id) = matched_old_id {
             // FOUND A MATCH (It might be at a different index, but it's the "same" node)
 
-            old_nodes_consumed[old_id.index()] = true;
             result.node_moves.push(NodeMove {
                 old_node_id: old_id,
                 new_node_id: new_id,
