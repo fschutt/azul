@@ -10122,6 +10122,20 @@ pub trait PlatformWindow {
             changes_result = changes_result.max(r);
         }
 
+        // The whole timer batch's wall-clock, into app_timer_frame_seconds -
+        // the dashboard's timer-frame panel was permanently empty because
+        // nothing engine-side ever recorded it (only per-callback dispatch
+        // spans existed).
+        #[cfg(feature = "telemetry")]
+        {
+            let now = (azul_layout::callbacks::ExternalSystemCallbacks::rust_internal()
+                .get_system_time_fn
+                .cb)();
+            #[allow(clippy::cast_precision_loss)]
+            let seconds = now.duration_since(&frame_start).as_nanos() as f64 / 1e9;
+            azul_layout::telemetry::record_timer_frame(seconds);
+        }
+
         (changes_result, all_results)
     }
 
