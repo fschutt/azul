@@ -334,6 +334,8 @@ mod text3_shaping_cache_identity;
 mod text3_shaping_exact;
 #[path = "text3_visual.rs"]
 mod text3_visual;
+#[path = "radio_group_geometry.rs"]
+mod radio_group_geometry;
 #[path = "text_edit_seam_regressions.rs"]
 mod text_edit_seam_regressions;
 #[path = "token_vs_slicer_differential.rs"]
