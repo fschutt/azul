@@ -13594,8 +13594,65 @@ impl LayoutWindow {
         // Extract text content from the node
         match node_data.get_node_type() {
             NodeType::Text(text) => {
-                // Simple text node - create a single StyledRun
                 let style = self.get_text_style_for_node(dom_id, node_id);
+
+                // THE EDIT MODEL MUST MATCH THE LAYOUT MODEL. Every cursor in
+                // the system addresses `source_run` = the run's index in the
+                // IFC content that `solver3/fc.rs` built — which splits
+                // preserved newlines into `Text · LineBreak · Text`
+                // (`split_text_for_whitespace`). Handing the editor ONE raw
+                // run instead meant, in a `white-space: pre-wrap` host (the
+                // multi-line TextArea contract):
+                //   - Enter at the end of the text spliced at
+                //     `content[cursor.source_run]` = a run that does not
+                //     exist, so the insert silently NO-OPPED and the caret
+                //     stayed where it was;
+                //   - Enter mid-text split the raw joined string, leaving the
+                //     tail with embedded '\n' bytes — which the shaper
+                //     renders as a tofu cluster and truncates at, garbling
+                //     every line below the break.
+                // Route through the SAME splitter the layout used, so run
+                // indices and per-run byte offsets agree with the shaped
+                // clusters. Normal/nowrap keep the raw single run: their
+                // collapse would rewrite the stored value, and a single-line
+                // host vetoes '\n' upstream anyway.
+                let preserves_newlines = {
+                    use crate::solver3::getters::{get_white_space_property, MultiValue};
+                    use azul_css::props::style::StyleWhiteSpace;
+                    let hierarchy = layout_result.styled_dom.node_hierarchy.as_container();
+                    let ws_node = hierarchy
+                        .get(node_id)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                        .unwrap_or(node_id);
+                    layout_result
+                        .styled_dom
+                        .styled_nodes
+                        .as_container()
+                        .get(ws_node)
+                        .is_some_and(|n| {
+                            matches!(
+                                get_white_space_property(
+                                    &layout_result.styled_dom,
+                                    ws_node,
+                                    &n.styled_node_state,
+                                ),
+                                MultiValue::Exact(
+                                    StyleWhiteSpace::Pre
+                                        | StyleWhiteSpace::PreWrap
+                                        | StyleWhiteSpace::BreakSpaces
+                                        | StyleWhiteSpace::PreLine
+                                )
+                            )
+                        })
+                };
+                if preserves_newlines {
+                    return crate::solver3::fc::split_text_for_whitespace(
+                        &layout_result.styled_dom,
+                        node_id,
+                        text.as_str(),
+                        &style,
+                    );
+                }
 
                 vec![InlineContent::Text(StyledRun {
                     text: Arc::from(text.as_str()),

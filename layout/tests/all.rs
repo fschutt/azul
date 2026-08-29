@@ -340,6 +340,10 @@ mod scroll_degenerate_ifc;
 mod radio_group_geometry;
 #[path = "text_edit_seam_regressions.rs"]
 mod text_edit_seam_regressions;
+#[path = "textarea_enter_repaint.rs"]
+mod textarea_enter_repaint;
+#[path = "textinput_resize_selection.rs"]
+mod textinput_resize_selection;
 #[path = "token_vs_slicer_differential.rs"]
 mod token_vs_slicer_differential;
 #[path = "unresolved_family_render.rs"]
