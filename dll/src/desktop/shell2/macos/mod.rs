@@ -2234,14 +2234,17 @@ define_class!(
                         );
                     }
                     let needs_redraw = macos_window.process_timers_and_threads();
-                    // CPU mode: run the full render pipeline (layout → cpurender → framebuffer)
-                    // then request drawRect to blit to screen.
+                    // CPU mode: FLAG the frame and let the CVDisplayLink tick
+                    // render it vsync-aligned (mirrors GLView). This used to
+                    // render DIRECTLY here - a free-running 16ms NSTimer
+                    // racing a 16.67ms display: it consumed the redraw flag
+                    // before ~90% of ticks arrived, beat against the refresh
+                    // (one dropped frame every ~25), and made the vsync
+                    // driver a bystander. request_redraw() falls back to an
+                    // immediate delivery when no link is running (occluded /
+                    // minimized), so nothing starves.
                     if needs_redraw || macos_window.common.regeneration_pending() {
-                        // Timer/thread changes (scroll physics ScrollTo above all)
-                        // must defeat the "No visual changes" early-return inside —
-                        // moved scroll offsets raise no flag that check can see.
-                        macos_window.redraw_requested = true;
-                        let _ = macos_window.render_and_present_in_draw_rect();
+                        macos_window.request_redraw();
                     }
                 }
             }

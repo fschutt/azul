@@ -1587,7 +1587,22 @@ pub fn render_display_list_damaged(
             // Always process state-management items (Push/Pop) regardless of bounds,
             // because skipping a Push while processing its matching Pop corrupts stacks.
             if !item.is_state_management() {
-                if let Some(item_bounds) = item.bounds() {
+                // INK bounds for the cull, not box bounds: `Text.bounds()`
+                // returns the IFC owner's WHOLE content box, so a 3px scroll
+                // strip touching one paragraph admitted EVERY line of it (and
+                // for a block that owns its own scroll, every text item in
+                // the document) - each admitted run then paid the full LCD
+                // accumulate+sweep even for glyphs nowhere near the strip.
+                // `visual_bounds()` is the tight per-line ink box (padded).
+                // EXCEPTION: with a text-shadow in effect the ink extends by
+                // offset+blur that visual_bounds does not model - keep the
+                // coarse box there or shadows get clipped at strip edges.
+                let cull_bounds = if text_shadow_stack.is_empty() {
+                    item.visual_bounds().or_else(|| item.bounds())
+                } else {
+                    item.bounds()
+                };
+                if let Some(item_bounds) = cull_bounds {
                     // Items inside a scroll frame are stored at CONTENT coords but
                     // RENDER at `pos - scroll_offset`. The damage rects are in viewport
                     // space, so we must apply the current scroll offset to the bounds
@@ -2733,6 +2748,21 @@ fn render_scanlines_aliased_solid<PF: agg_rust::pixfmt_rgba::PixelFormat>(
     }
 }
 
+/// FreeType default "light" 5-tap FIR LUT (0x56/0x4D/0x08) - the arguments
+/// are compile-time constants, but this was rebuilt per text run per frame
+/// (3x256 f64 mul+floor+cast), measurable inside glyph_lcd_sweep.
+fn lcd_distribution_lut() -> &'static agg_rust::pixfmt_lcd::LcdDistributionLut {
+    static LUT: std::sync::OnceLock<agg_rust::pixfmt_lcd::LcdDistributionLut> =
+        std::sync::OnceLock::new();
+    LUT.get_or_init(|| {
+        agg_rust::pixfmt_lcd::LcdDistributionLut::new(
+            f64::from(0x56u32),
+            f64::from(0x4Du32),
+            f64::from(0x08u32),
+        )
+    })
+}
+
 /// RGB LCD subpixel-AA glyph run. Rasterizes each glyph at **3× horizontal
 /// resolution** (one sub-sample per R/G/B stripe), then lets [`PixfmtRgba32Lcd`]
 /// run a 5-tap FIR (the `FreeType` default "light" filter `[08 4D 56 4D 08]`, which
@@ -2837,9 +2867,8 @@ fn render_glyphs_lcd(
     let h = pixmap.height;
     let stride = (w * 4) as i32;
     let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
-    // FreeType default "light" 5-tap FIR: primary 0x56, secondary 0x4D, tertiary
-    // 0x08 (0x08+0x4D+0x56+0x4D+0x08 = 256); the LUT normalizes prim+2·sec+2·tert.
-    let lut = LcdDistributionLut::new(f64::from(0x56u32), f64::from(0x4Du32), f64::from(0x08u32));
+    // FreeType default "light" 5-tap FIR (see lcd_distribution_lut).
+    let lut = lcd_distribution_lut();
     let mut sl = ScanlineU8::new();
     if let Some(params) = lcd_linear_params() {
         // Colorimetric path (default): per-stripe compositing in LINEAR
@@ -3102,7 +3131,7 @@ fn render_text_prerendered_lcd(
     } else {
         1.0
     };
-    let lut = LcdDistributionLut::new(f64::from(0x56u32), f64::from(0x4Du32), f64::from(0x08u32));
+    let lut = lcd_distribution_lut();
 
     // Combined clip: the item clip_rect ∩ the stack clip, device pixels.
     let cr = clip_rect;

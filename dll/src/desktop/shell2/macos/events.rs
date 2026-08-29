@@ -1251,12 +1251,21 @@ impl MacOSWindow {
             }
         }
 
-        // Resize CPU framebuffer if using CPU backend
+        // Resize CPU framebuffer if using CPU backend. The full-view
+        // invalidation is needed so drawRect runs and resizes the
+        // framebuffer - but windowDidResize already routed its event result
+        // through request_redraw()/incremental relayout above, so with a
+        // LIVE display link this bare mark only defeated the damage-rect
+        // present. Keep it solely as the no-link fallback.
         if let Some(cpu_view) = &self.cpu_view {
-            unsafe {
-                // Force the CPU view to resize its framebuffer on next draw
-                // The actual resize happens in CPUView::drawRect when bounds change
-                cpu_view.setNeedsDisplay(true);
+            let link_running = self
+                .display_link
+                .as_ref()
+                .is_some_and(super::corevideo::DisplayLink::is_running);
+            if !link_running {
+                unsafe {
+                    cpu_view.setNeedsDisplay(true);
+                }
             }
         }
 
