@@ -13499,6 +13499,40 @@
                                     }
                                 ],
                                 "fn_body": "object.release_pointer_capture()"
+                            },
+                            "get_document_edit_clone": {
+                                "doc": [
+                                    "The pending structural edit, if any (inspect in a callback before",
+                                    "deciding to apply or `prevent_default`)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionDocumentChangeset"
+                                },
+                                "fn_body": "object.get_document_edit_clone()"
+                            },
+                            "mark_document_edit_applied_with_inverse": {
+                                "doc": [
+                                    "The handshake carrying the applier's INVERSE operation (from",
+                                    "`document_edit::AppliedEdit::inverse`) - makes the edit structurally",
+                                    "undoable (Ctrl+Z re-records the inverse through the same loop)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "id": "u64"
+                                    },
+                                    {
+                                        "inverse": "DocumentOperation"
+                                    }
+                                ],
+                                "fn_body": "object.mark_document_edit_applied_with_inverse(id, inverse)"
                             }
                         },
                         "repr": "C"
@@ -14967,7 +15001,7 @@
                                     "type": "OptionRefAny"
                                 },
                                 {
-                                    "type": "StyledDom",
+                                    "type": "NodeData",
                                     "ref_kind": "ref"
                                 },
                                 {
@@ -14976,7 +15010,7 @@
                                 }
                             ],
                             "returns": {
-                                "type": "StyledDom"
+                                "type": "Dom"
                             }
                         }
                     },
@@ -15956,6 +15990,140 @@
                             }
                         },
                         "repr": "C"
+                    },
+                    "DocumentChangeset": {
+                        "external": "azul_layout::managers::changeset::DocumentChangeset",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "id": {
+                                    "type": "u64"
+                                },
+                                "target": {
+                                    "type": "DomNodeId"
+                                },
+                                "operation": {
+                                    "type": "DocumentOperation"
+                                },
+                                "resume": {
+                                    "type": "EditResumePoint"
+                                },
+                                "timestamp": {
+                                    "type": "Instant"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Create a changeset with a fresh monotonic id."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "target": "DomNodeId"
+                                    },
+                                    {
+                                        "operation": "DocumentOperation"
+                                    },
+                                    {
+                                        "resume": "EditResumePoint"
+                                    },
+                                    {
+                                        "timestamp": "Instant"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::managers::changeset::DocumentChangeset::new(target, operation, resume, timestamp)"
+                            }
+                        },
+                        "functions": {
+                            "changes_block_structure": {
+                                "doc": [
+                                    "Whether this operation restructures the node tree (vs inline-only wrap)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "object.changes_block_structure()"
+                            },
+                            "apply_to_dom": {
+                                "doc": [
+                                    "Apply this changeset to an app-model [`Dom`](azul_core::dom::Dom) -",
+                                    "the Path-2 helper [`crate::document_edit::apply_document_operation`]",
+                                    "as a method, so API consumers reach it without free-function plumbing.",
+                                    "",
+                                    "`host_path` is the root-to-host child-index path (empty = the model",
+                                    "root hosts the blocks). On success the returned",
+                                    "[`AppliedEdit`](crate::document_edit::AppliedEdit) carries the resume",
+                                    "point and the INVERSE operation to hand back to",
+                                    "`CallbackInfo::mark_document_edit_applied_with_inverse`.",
+                                    "",
+                                    "# Errors",
+                                    "The tree is left unchanged on error (host/target not found)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "model": "*mut Dom"
+                                    },
+                                    {
+                                        "host_path": "U32Vec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "ResultAppliedEditDocumentEditError"
+                                },
+                                "fn_body": "object.apply_to_dom(unsafe { &mut *model }, host_path)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StatusBarOnViewSelectCallbackType": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarOnViewSelectCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "usize"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
+                    },
+                    "BackstageOnNavSelectCallbackType": {
+                        "external": "azul_layout::widgets::backstage::BackstageOnNavSelectCallbackType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "RefAny"
+                                },
+                                {
+                                    "type": "CallbackInfo"
+                                },
+                                {
+                                    "type": "usize"
+                                }
+                            ],
+                            "returns": {
+                                "type": "Update"
+                            }
+                        }
                     }
                 }
             },
@@ -25871,6 +26039,173 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "DomSplit": {
+                        "external": "azul_layout::document_edit::DomSplit",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "head": {
+                                    "type": "Dom"
+                                },
+                                "tail": {
+                                    "type": "Dom"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "at_path": {
+                                "doc": [
+                                    "[`split_dom_at_path`] for API consumers (the tuple return does not",
+                                    "cross the ABI): split `dom` at the root-to-node child-index `path` -",
+                                    "the same paths [`crate::solver3::paged_layout::StructuralBreak`]",
+                                    "carries and `PaginationSnapshot::break_path` hands out."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "dom": "*const Dom"
+                                    },
+                                    {
+                                        "path": "U32Vec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::document_edit::DomSplit::at_path(unsafe { &*dom }, path)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DocOpSplitNode": {
+                        "external": "azul_layout::managers::changeset::DocOpSplitNode",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node": {
+                                    "type": "DomNodeId"
+                                },
+                                "at": {
+                                    "type": "NodePosition"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocOpMergeNodes": {
+                        "external": "azul_layout::managers::changeset::DocOpMergeNodes",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "first": {
+                                    "type": "DomNodeId"
+                                },
+                                "second": {
+                                    "type": "DomNodeId"
+                                },
+                                "join": {
+                                    "type": "NodePosition"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StatusBarOnViewSelectCallback": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarOnViewSelectCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "StatusBarOnViewSelectCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BackstageOnNavSelectCallback": {
+                        "external": "azul_layout::widgets::backstage::BackstageOnNavSelectCallback",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "cb": {
+                                    "type": "BackstageOnNavSelectCallbackType"
+                                },
+                                "callable": {
+                                    "type": "OptionRefAny"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BackstageNavItemVecSlice": {
+                        "external": "azul_layout::widgets::backstage::BackstageNavItemVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "BackstageNavItem",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -26835,6 +27170,12 @@
                                 },
                                 "ScrollbarWidth": {
                                     "type": "LayoutScrollbarWidthValue"
+                                },
+                                "OverscrollBehaviorX": {
+                                    "type": "OverscrollBehaviorValue"
+                                },
+                                "OverscrollBehaviorY": {
+                                    "type": "OverscrollBehaviorValue"
                                 },
                                 "ScrollbarColor": {
                                     "type": "StyleScrollbarColorValue"
@@ -38394,7 +38735,28 @@
                                 }
                             }
                         ],
-                        "constructors": {},
+                        "constructors": {
+                            "create_from_dom": {
+                                "doc": [
+                                    "Creates a `StyledDom` from a recursive Dom tree with deferred CSS.",
+                                    "",
+                                    "This is the Phase 7.2 entry point: the layout callback returns a recursive",
+                                    "`Dom` with `css: Vec<Css>` on each node. This function:",
+                                    "",
+                                    "1. Collects all CSS objects from the recursive tree",
+                                    "2. Flattens the Dom into contiguous arrays (`CompactDom`)",
+                                    "3. Merges all CSS objects and runs a single cascade pass",
+                                    "4. Runs `apply_ua_css` -> `compute_inherited_values` -> `build_compact_cache`",
+                                    "5. Generates anonymous table elements"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "dom": "Dom"
+                                    }
+                                ],
+                                "fn_body": "azul_core::styled_dom::StyledDom::create_from_dom(dom)"
+                            }
+                        },
                         "functions": {
                             "append_child": {
                                 "doc": [
@@ -39402,6 +39764,8 @@
                                 "ScrollbarCorner": {},
                                 "ScrollbarResizer": {},
                                 "ScrollbarWidth": {},
+                                "OverscrollBehaviorX": {},
+                                "OverscrollBehaviorY": {},
                                 "ScrollbarColor": {},
                                 "ScrollbarVisibility": {},
                                 "ScrollbarFadeDelay": {},
@@ -42554,6 +42918,7 @@
                             {
                                 "BorderRadius": {},
                                 "Overflow": {},
+                                "OverscrollBehavior": {},
                                 "Margin": {},
                                 "Border": {},
                                 "BorderLeft": {},
@@ -46239,6 +46604,25 @@
                                 }
                             }
                         ],
+                        "constructors": {
+                            "from_layout_info": {
+                                "doc": [
+                                    "Wrap a font manager into an ABI handle.",
+                                    "Snapshot for use inside a LAYOUT callback: builds family resolution +",
+                                    "fallback chains over the system font cache the callback exposes. No",
+                                    "per-window embedded fonts exist yet at layout time, so nothing is",
+                                    "lost versus `CallbackInfo::get_font_cache_clone` - this is the",
+                                    "off-thread-pagination input an app can hand to",
+                                    "`Pdf::compute_pagination` without ever seeing the internal manager."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "info": "*const LayoutCallbackInfo"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::resource_handles::FontCacheSnapshot::from_layout_info(unsafe { &*info })"
+                            }
+                        },
                         "repr": "C"
                     },
                     "Handedness": {
@@ -46682,6 +47066,162 @@
                             {
                                 "NoDrag": {},
                                 "Drag": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "NodePosition": {
+                        "external": "azul_layout::managers::changeset::NodePosition",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "child_index": {
+                                    "type": "u32"
+                                },
+                                "text_byte": {
+                                    "type": "OptionU32"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "before_child": {
+                                "doc": [
+                                    "A pure structural boundary before child `child_index`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "child_index": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::managers::changeset::NodePosition::before_child(child_index)"
+                            },
+                            "in_text_child": {
+                                "doc": [
+                                    "A position inside the text child at `child_index`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "child_index": "u32"
+                                    },
+                                    {
+                                        "text_byte": "u32"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::managers::changeset::NodePosition::in_text_child(child_index, text_byte)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "DocOpWrapRange": {
+                        "external": "azul_layout::managers::changeset::DocOpWrapRange",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node": {
+                                    "type": "DomNodeId"
+                                },
+                                "start": {
+                                    "type": "NodePosition"
+                                },
+                                "end": {
+                                    "type": "NodePosition"
+                                },
+                                "wrapper": {
+                                    "type": "Dom"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocOpUnwrapRange": {
+                        "external": "azul_layout::managers::changeset::DocOpUnwrapRange",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "node": {
+                                    "type": "DomNodeId"
+                                },
+                                "at": {
+                                    "type": "NodePosition"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocumentOperation": {
+                        "external": "azul_layout::managers::changeset::DocumentOperation",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "SplitNode": {
+                                    "type": "DocOpSplitNode"
+                                },
+                                "MergeNodes": {
+                                    "type": "DocOpMergeNodes"
+                                },
+                                "InsertChildren": {
+                                    "type": "DocOpInsertChildren"
+                                },
+                                "RemoveChildren": {
+                                    "type": "DocOpRemoveChildren"
+                                },
+                                "ReplaceChildren": {
+                                    "type": "DocOpReplaceChildren"
+                                },
+                                "WrapRange": {
+                                    "type": "DocOpWrapRange"
+                                },
+                                "UnwrapRange": {
+                                    "type": "DocOpUnwrapRange"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OverscrollBehaviorValue": {
+                        "external": "azul_css::props::property::OverscrollBehaviorValue",
+                        "repr": "C",
+                        "type_alias": {
+                            "target": "CssPropertyValue",
+                            "generic_args": [
+                                "OverscrollBehavior"
+                            ]
+                        }
+                    },
+                    "OverscrollBehavior": {
+                        "external": "azul_css::props::style::scrollbar::OverscrollBehavior",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash",
+                            "Default"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Auto": {},
+                                "Contain": {},
+                                "None": {}
                             }
                         ],
                         "repr": "C"
@@ -58986,6 +59526,1432 @@
                             {
                                 "ptr": {
                                     "type": "FrameConsumer",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "QuickAccessTheme": {
+                        "external": "azul_layout::widgets::quick_access::QuickAccessTheme",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "bg": {
+                                    "type": "ColorU"
+                                },
+                                "text": {
+                                    "type": "ColorU"
+                                },
+                                "icon": {
+                                    "type": "ColorU"
+                                },
+                                "hover_bg": {
+                                    "type": "ColorU"
+                                },
+                                "pressed_bg": {
+                                    "type": "ColorU"
+                                },
+                                "close_hover_bg": {
+                                    "type": "ColorU"
+                                },
+                                "close_hover_icon": {
+                                    "type": "ColorU"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "QuickAccessBar": {
+                        "external": "azul_layout::widgets::quick_access::QuickAccessBar",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "style": {
+                                    "type": "QuickAccessStyle"
+                                },
+                                "leading": {
+                                    "type": "OptionDom"
+                                },
+                                "on_minimize": {
+                                    "type": "OptionButtonOnClick"
+                                },
+                                "on_maximize": {
+                                    "type": "OptionButtonOnClick"
+                                },
+                                "on_close": {
+                                    "type": "OptionButtonOnClick"
+                                },
+                                "title": {
+                                    "type": "String"
+                                },
+                                "actions": {
+                                    "type": "QuickAccessActionVec"
+                                },
+                                "trailing_actions": {
+                                    "type": "QuickAccessActionVec"
+                                },
+                                "show_menu_arrow": {
+                                    "type": "bool"
+                                },
+                                "show_minimize": {
+                                    "type": "bool"
+                                },
+                                "show_maximize": {
+                                    "type": "bool"
+                                },
+                                "show_close": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a band with the given title, no actions and all three",
+                                    "window buttons, in the the Office-2013-era look style."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::quick_access::QuickAccessBar::new(title)"
+                            },
+                            "office_2013": {
+                                "doc": [
+                                    "The the Office-2013-era look band: save / undo / redo quick-access actions (inert",
+                                    "until callbacks are set), the customize chevron, and help before the",
+                                    "window buttons."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "title": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::quick_access::QuickAccessBar::office_2013(title)"
+                            }
+                        },
+                        "functions": {
+                            "with_leading": {
+                                "doc": [
+                                    "Builder method: sets the leading content."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "leading": "Dom"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessBar"
+                                },
+                                "fn_body": "object.with_leading(leading)"
+                            },
+                            "with_actions": {
+                                "doc": [
+                                    "Builder method: replaces the quick-access actions."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "actions": "QuickAccessActionVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessBar"
+                                },
+                                "fn_body": "object.with_actions(actions)"
+                            },
+                            "with_trailing_actions": {
+                                "doc": [
+                                    "Builder method: replaces the trailing actions."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "trailing_actions": "QuickAccessActionVec"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessBar"
+                                },
+                                "fn_body": "object.with_trailing_actions(trailing_actions)"
+                            },
+                            "with_style": {
+                                "doc": [
+                                    "Builder method: replaces the style bundle."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "style": "QuickAccessStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessBar"
+                                },
+                                "fn_body": "object.with_style(style)"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "Renders the band."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "QuickAccessAction": {
+                        "external": "azul_layout::widgets::quick_access::QuickAccessAction",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "icon": {
+                                    "type": "String"
+                                },
+                                "on_click": {
+                                    "type": "OptionButtonOnClick"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates an inert action with the given icon name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::quick_access::QuickAccessAction::new(icon)"
+                            }
+                        },
+                        "functions": {
+                            "set_on_click": {
+                                "doc": [
+                                    "Sets the click callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_click(data, on_click)"
+                            },
+                            "with_on_click": {
+                                "doc": [
+                                    "Builder method: sets the click callback and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessAction"
+                                },
+                                "fn_body": "object.with_on_click(data, on_click)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "QuickAccessStyle": {
+                        "external": "azul_layout::widgets::quick_access::QuickAccessStyle",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "theme": {
+                                    "type": "QuickAccessTheme"
+                                },
+                                "bar_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "leading_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "action_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "action_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "menu_arrow_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "title_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "window_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "window_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "close_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StatusBarViewSwitcher": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarViewSwitcher",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "views": {
+                                    "type": "StatusBarViewVec"
+                                },
+                                "active_view": {
+                                    "type": "usize"
+                                },
+                                "on_select": {
+                                    "type": "OptionStatusBarOnViewSelect"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a view switcher with the given views; view 0 is active."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "views": "StatusBarViewVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::statusbar::StatusBarViewSwitcher::new(views)"
+                            },
+                            "office_2013": {
+                                "doc": [
+                                    "The the Office-2013-era look trio: read mode, print layout (active), web layout."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::statusbar::StatusBarViewSwitcher::office_2013()"
+                            }
+                        },
+                        "functions": {
+                            "with_active_view": {
+                                "doc": [
+                                    "Builder method: sets the active view index."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "active_view": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarViewSwitcher"
+                                },
+                                "fn_body": "object.with_active_view(active_view)"
+                            },
+                            "set_on_select": {
+                                "doc": [
+                                    "Sets the view-select callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_select": "StatusBarOnViewSelectCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_select(data, on_select)"
+                            },
+                            "with_on_select": {
+                                "doc": [
+                                    "Builder method: sets the view-select callback and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_select": "StatusBarOnViewSelectCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarViewSwitcher"
+                                },
+                                "fn_body": "object.with_on_select(data, on_select)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StatusBarView": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarView",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "icon": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StatusBar": {
+                        "external": "azul_layout::widgets::statusbar::StatusBar",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "segments": {
+                                    "type": "StatusBarSegmentVec"
+                                },
+                                "views": {
+                                    "type": "OptionStatusBarViewSwitcher"
+                                },
+                                "zoom": {
+                                    "type": "OptionStatusBarZoom"
+                                },
+                                "style": {
+                                    "type": "StatusBarStyle"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a status bar with the given left segments, no view switcher",
+                                    "and no zoom cluster, in the the Office-2013-era look style."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "segments": "StatusBarSegmentVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::statusbar::StatusBar::new(segments)"
+                            }
+                        },
+                        "functions": {
+                            "set_views": {
+                                "doc": [
+                                    "Sets the view-switcher cluster."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "views": "StatusBarViewSwitcher"
+                                    }
+                                ],
+                                "fn_body": "object.set_views(views)"
+                            },
+                            "with_views": {
+                                "doc": [
+                                    "Builder method: sets the view-switcher cluster and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "views": "StatusBarViewSwitcher"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBar"
+                                },
+                                "fn_body": "object.with_views(views)"
+                            },
+                            "set_zoom": {
+                                "doc": [
+                                    "Sets the zoom cluster."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "zoom": "StatusBarZoom"
+                                    }
+                                ],
+                                "fn_body": "object.set_zoom(zoom)"
+                            },
+                            "with_zoom": {
+                                "doc": [
+                                    "Builder method: sets the zoom cluster and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "zoom": "StatusBarZoom"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBar"
+                                },
+                                "fn_body": "object.with_zoom(zoom)"
+                            },
+                            "with_style": {
+                                "doc": [
+                                    "Builder method: replaces the style bundle."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "style": "StatusBarStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBar"
+                                },
+                                "fn_body": "object.with_style(style)"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "Renders the status bar."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StatusBarZoom": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarZoom",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "on_zoom_out": {
+                                    "type": "OptionButtonOnClick"
+                                },
+                                "on_zoom_in": {
+                                    "type": "OptionButtonOnClick"
+                                },
+                                "on_slider_change": {
+                                    "type": "OptionSliderOnValueChange"
+                                },
+                                "percent": {
+                                    "type": "f32"
+                                },
+                                "min": {
+                                    "type": "f32"
+                                },
+                                "max": {
+                                    "type": "f32"
+                                },
+                                "show_label": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "office_2013": {
+                                "doc": [
+                                    "100% zoom over the the Office-2013-era look `[10, 190]` window, label shown."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::statusbar::StatusBarZoom::office_2013()"
+                            }
+                        },
+                        "functions": {
+                            "with_percent": {
+                                "doc": [
+                                    "Builder method: sets the zoom percent."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "percent": "f32"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarZoom"
+                                },
+                                "fn_body": "object.with_percent(percent)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StatusBarStyle": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarStyle",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "theme": {
+                                    "type": "StatusBarTheme"
+                                },
+                                "bar_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "segment_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "segment_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "segment_label_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "filler_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "views_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "view_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "view_button_active_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "view_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "zoom_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "zoom_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "zoom_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "zoom_track_host_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "zoom_rail_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "zoom_tick_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "slider_track_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "slider_thumb_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "zoom_label_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StatusBarTheme": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarTheme",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "bar_bg": {
+                                    "type": "ColorU"
+                                },
+                                "text": {
+                                    "type": "ColorU"
+                                },
+                                "hover_bg": {
+                                    "type": "ColorU"
+                                },
+                                "pressed_bg": {
+                                    "type": "ColorU"
+                                },
+                                "view_active_bg": {
+                                    "type": "ColorU"
+                                },
+                                "rail": {
+                                    "type": "ColorU"
+                                },
+                                "thumb": {
+                                    "type": "ColorU"
+                                },
+                                "thumb_border": {
+                                    "type": "ColorU"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StatusBarSegment": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarSegment",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "icon": {
+                                    "type": "String"
+                                },
+                                "label": {
+                                    "type": "String"
+                                },
+                                "on_click": {
+                                    "type": "OptionButtonOnClick"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a text-only, inert segment."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::statusbar::StatusBarSegment::new(label)"
+                            }
+                        },
+                        "functions": {
+                            "with_icon": {
+                                "doc": [
+                                    "Builder method: sets the leading icon name."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "icon": "String"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarSegment"
+                                },
+                                "fn_body": "object.with_icon(icon)"
+                            },
+                            "set_on_click": {
+                                "doc": [
+                                    "Sets the click callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_click(data, on_click)"
+                            },
+                            "with_on_click": {
+                                "doc": [
+                                    "Builder method: sets the click callback and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_click": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarSegment"
+                                },
+                                "fn_body": "object.with_on_click(data, on_click)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StatusBarOnViewSelect": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarOnViewSelect",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "StatusBarOnViewSelectCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BackstageStyle": {
+                        "external": "azul_layout::widgets::backstage::BackstageStyle",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "theme": {
+                                    "type": "BackstageTheme"
+                                },
+                                "root_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "nav_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "back_button_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "back_icon_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "nav_item_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "nav_item_active_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "nav_item_gap_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "right_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                },
+                                "content_style": {
+                                    "type": "CssPropertyWithConditionsVec"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BackstageBehavior": {
+                        "external": "azul_layout::widgets::backstage::BackstageBehavior",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "close_on_escape": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "BackstageOnNavSelect": {
+                        "external": "azul_layout::widgets::backstage::BackstageOnNavSelect",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "struct_fields": [
+                            {
+                                "data": {
+                                    "type": "RefAny"
+                                },
+                                "callback": {
+                                    "type": "BackstageOnNavSelectCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "Backstage": {
+                        "external": "azul_layout::widgets::backstage::Backstage",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "nav_items": {
+                                    "type": "BackstageNavItemVec"
+                                },
+                                "active_item": {
+                                    "type": "usize"
+                                },
+                                "on_nav_select": {
+                                    "type": "OptionBackstageOnNavSelect"
+                                },
+                                "on_back": {
+                                    "type": "OptionButtonOnClick"
+                                },
+                                "title_strip": {
+                                    "type": "OptionDom"
+                                },
+                                "content": {
+                                    "type": "OptionDom"
+                                },
+                                "behavior": {
+                                    "type": "BackstageBehavior"
+                                },
+                                "style": {
+                                    "type": "BackstageStyle"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a backstage with the given nav items, item 0 active, no",
+                                    "callbacks and no content, in the the Office-2013-era look style."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "nav_items": "BackstageNavItemVec"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::backstage::Backstage::new(nav_items)"
+                            },
+                            "office_2013": {
+                                "doc": [
+                                    "The the Office-2013-era look nav: Info / New / Open / Save / Save As / Print /",
+                                    "Share / Export / Close, then a gap, then Account / Options."
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_layout::widgets::backstage::Backstage::office_2013()"
+                            }
+                        },
+                        "functions": {
+                            "set_active_item": {
+                                "doc": [
+                                    "Sets the active nav item."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "active_item": "usize"
+                                    }
+                                ],
+                                "fn_body": "object.set_active_item(active_item)"
+                            },
+                            "with_active_item": {
+                                "doc": [
+                                    "Builder method: sets the active nav item and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "active_item": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Backstage"
+                                },
+                                "fn_body": "object.with_active_item(active_item)"
+                            },
+                            "set_content": {
+                                "doc": [
+                                    "Sets the pane content for the active item."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "content": "Dom"
+                                    }
+                                ],
+                                "fn_body": "object.set_content(content)"
+                            },
+                            "with_content": {
+                                "doc": [
+                                    "Builder method: sets the pane content and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "content": "Dom"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Backstage"
+                                },
+                                "fn_body": "object.with_content(content)"
+                            },
+                            "set_title_strip": {
+                                "doc": [
+                                    "Sets the title strip rendered above the content."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "title_strip": "Dom"
+                                    }
+                                ],
+                                "fn_body": "object.set_title_strip(title_strip)"
+                            },
+                            "with_title_strip": {
+                                "doc": [
+                                    "Builder method: sets the title strip and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "title_strip": "Dom"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Backstage"
+                                },
+                                "fn_body": "object.with_title_strip(title_strip)"
+                            },
+                            "set_on_nav_select": {
+                                "doc": [
+                                    "Sets the nav-select callback."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_nav_select": "BackstageOnNavSelectCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_nav_select(data, on_nav_select)"
+                            },
+                            "with_on_nav_select": {
+                                "doc": [
+                                    "Builder method: sets the nav-select callback and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_nav_select": "BackstageOnNavSelectCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Backstage"
+                                },
+                                "fn_body": "object.with_on_nav_select(data, on_nav_select)"
+                            },
+                            "set_on_back": {
+                                "doc": [
+                                    "Sets the back callback (back button + Escape)."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_back": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "fn_body": "object.set_on_back(data, on_back)"
+                            },
+                            "with_on_back": {
+                                "doc": [
+                                    "Builder method: sets the back callback and returns `self`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "on_back": "ButtonOnClickCallback"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Backstage"
+                                },
+                                "fn_body": "object.with_on_back(data, on_back)"
+                            },
+                            "with_behavior": {
+                                "doc": [
+                                    "Builder method: replaces the behavior set."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "behavior": "BackstageBehavior"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Backstage"
+                                },
+                                "fn_body": "object.with_behavior(behavior)"
+                            },
+                            "with_style": {
+                                "doc": [
+                                    "Builder method: replaces the style bundle."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "style": "BackstageStyle"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Backstage"
+                                },
+                                "fn_body": "object.with_style(style)"
+                            },
+                            "dom": {
+                                "doc": [
+                                    "Renders the backstage."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.dom()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "BackstageNavItem": {
+                        "external": "azul_layout::widgets::backstage::BackstageNavItem",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "struct_fields": [
+                            {
+                                "label": {
+                                    "type": "String"
+                                },
+                                "gap_before": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "new": {
+                                "doc": [
+                                    "Creates a nav item without a gap."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "label": "String"
+                                    }
+                                ],
+                                "fn_body": "azul_layout::widgets::backstage::BackstageNavItem::new(label)"
+                            }
+                        },
+                        "functions": {
+                            "with_gap_before": {
+                                "doc": [
+                                    "Builder method: marks this item as starting a new group."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BackstageNavItem"
+                                },
+                                "fn_body": "object.with_gap_before()"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "BackstageTheme": {
+                        "external": "azul_layout::widgets::backstage::BackstageTheme",
+                        "custom_impls": [
+                            "Default"
+                        ],
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "nav_bg": {
+                                    "type": "ColorU"
+                                },
+                                "nav_text": {
+                                    "type": "ColorU"
+                                },
+                                "nav_hover_bg": {
+                                    "type": "ColorU"
+                                },
+                                "nav_active_bg": {
+                                    "type": "ColorU"
+                                },
+                                "content_bg": {
+                                    "type": "ColorU"
+                                },
+                                "back_ring": {
+                                    "type": "ColorU"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StatusBarViewVecSlice": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarViewVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StatusBarView",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "StatusBarSegmentVecSlice": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarSegmentVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StatusBarSegment",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "QuickAccessActionVecSlice": {
+                        "external": "azul_layout::widgets::quick_access::QuickAccessActionVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "QuickAccessAction",
                                     "ref_kind": "constptr",
                                     "doc": [
                                         "Pointer to the slice data"
@@ -76908,6 +78874,23 @@
                     },
                     "CssAppRegionParseErrorOwned": {
                         "external": "azul_css::props::style::transform::CssAppRegionParseErrorOwned",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "InvalidValue": {
+                                    "type": "String"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OverscrollBehaviorParseErrorOwned": {
+                        "external": "azul_css::props::style::scrollbar::OverscrollBehaviorParseErrorOwned",
                         "derive": [
                             "Debug",
                             "Clone",
@@ -100147,35 +102130,871 @@
                                     "type": "TrayIconImageVec"
                                 },
                                 "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `TrayIconImageVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrayIconImageVecSlice"
+                                },
+                                "fn_body": "tray_icon_image_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TrayIconImageVecSlice"
+                                },
+                                "fn_body": "tray_icon_image_vec.as_c_slice_range(start, end)"
                             }
                         },
                         "repr": "C"
                     },
-                    "TrayIconImageVecSlice": {
-                        "external": "azul_core::tray::TrayIconImageVecSlice",
-                        "derive": [
-                            "Debug",
+                    "StatusBarSegmentVecDestructorType": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarSegmentVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "StatusBarSegmentVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "QuickAccessActionVec": {
+                        "external": "azul_layout::widgets::quick_access::QuickAccessActionVec",
+                        "custom_impls": [
                             "Clone",
-                            "Copy"
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
                         ],
                         "struct_fields": [
                             {
                                 "ptr": {
-                                    "type": "TrayIconImage",
-                                    "ref_kind": "constptr",
-                                    "doc": [
-                                        "Pointer to the slice data"
-                                    ]
+                                    "type": "QuickAccessAction",
+                                    "ref_kind": "constptr"
                                 },
                                 "len": {
-                                    "type": "usize",
-                                    "doc": [
-                                        "Number of elements in the slice"
-                                    ]
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "QuickAccessActionVecDestructor"
                                 }
                             }
                         ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `QuickAccessActionVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "QuickAccessActionVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `QuickAccessActionVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessActionVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "quick_access_action_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "quick_access_action_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "quick_access_action_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `QuickAccessActionVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "QuickAccessAction"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessActionVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `QuickAccessActionVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const QuickAccessAction"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessActionVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionQuickAccessAction"
+                                },
+                                "fn_body": "quick_access_action_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `QuickAccessActionVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessActionVecSlice"
+                                },
+                                "fn_body": "quick_access_action_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "QuickAccessActionVecSlice"
+                                },
+                                "fn_body": "quick_access_action_vec.as_c_slice_range(start, end)"
+                            }
+                        },
                         "repr": "C"
+                    },
+                    "BackstageNavItemVec": {
+                        "external": "azul_layout::widgets::backstage::BackstageNavItemVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "BackstageNavItem",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "BackstageNavItemVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `BackstageNavItemVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "BackstageNavItemVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `BackstageNavItemVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BackstageNavItemVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "backstage_nav_item_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "backstage_nav_item_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "backstage_nav_item_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `BackstageNavItemVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "BackstageNavItem"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BackstageNavItemVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `BackstageNavItemVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const BackstageNavItem"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BackstageNavItemVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionBackstageNavItem"
+                                },
+                                "fn_body": "backstage_nav_item_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `BackstageNavItemVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BackstageNavItemVecSlice"
+                                },
+                                "fn_body": "backstage_nav_item_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "BackstageNavItemVecSlice"
+                                },
+                                "fn_body": "backstage_nav_item_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "StatusBarSegmentVecDestructor": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarSegmentVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "StatusBarSegmentVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "BackstageNavItemVecDestructorType": {
+                        "external": "azul_layout::widgets::backstage::BackstageNavItemVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "BackstageNavItemVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "StatusBarViewVecDestructorType": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarViewVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "StatusBarViewVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "StatusBarViewVec": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarViewVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StatusBarView",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "StatusBarViewVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `StatusBarViewVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "StatusBarViewVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `StatusBarViewVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarViewVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "status_bar_view_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "status_bar_view_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "status_bar_view_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `StatusBarViewVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "StatusBarView"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarViewVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `StatusBarViewVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const StatusBarView"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarViewVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionStatusBarView"
+                                },
+                                "fn_body": "status_bar_view_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `StatusBarViewVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarViewVecSlice"
+                                },
+                                "fn_body": "status_bar_view_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarViewVecSlice"
+                                },
+                                "fn_body": "status_bar_view_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "BackstageNavItemVecDestructor": {
+                        "external": "azul_layout::widgets::backstage::BackstageNavItemVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "BackstageNavItemVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StatusBarSegmentVec": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarSegmentVec",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "derive": [
+                            "Debug"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "StatusBarSegment",
+                                    "ref_kind": "constptr"
+                                },
+                                "len": {
+                                    "type": "usize"
+                                },
+                                "cap": {
+                                    "type": "usize"
+                                },
+                                "destructor": {
+                                    "type": "StatusBarSegmentVecDestructor"
+                                }
+                            }
+                        ],
+                        "functions": {
+                            "create": {
+                                "doc": [
+                                    "Creates an empty `StatusBarSegmentVec`"
+                                ],
+                                "fn_args": [],
+                                "returns": {
+                                    "type": "StatusBarSegmentVec"
+                                },
+                                "fn_body": "Self::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "Creates a `StatusBarSegmentVec` with a given capacity"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "cap": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarSegmentVec"
+                                },
+                                "fn_body": "Self::with_capacity(cap)"
+                            },
+                            "len": {
+                                "doc": [
+                                    "Returns the number of elements in the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "status_bar_segment_vec.len()"
+                            },
+                            "capacity": {
+                                "doc": [
+                                    "Returns the capacity of the Vec"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "status_bar_segment_vec.capacity()"
+                            },
+                            "is_empty": {
+                                "doc": [
+                                    "Returns whether the Vec is empty"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "bool"
+                                },
+                                "fn_body": "status_bar_segment_vec.is_empty()"
+                            },
+                            "from_item": {
+                                "doc": [
+                                    "Creates a `StatusBarSegmentVec` containing a single element"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "item": "StatusBarSegment"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarSegmentVec"
+                                },
+                                "fn_body": "Self::from_item(item)"
+                            },
+                            "copy_from_ptr": {
+                                "doc": [
+                                    "Copies elements from a C array into a `StatusBarSegmentVec`. The array must be valid for `len` elements."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "ptr": "*const StatusBarSegment"
+                                    },
+                                    {
+                                        "len": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarSegmentVec"
+                                },
+                                "fn_body": "unsafe { Self::copy_from_ptr(ptr, len) }"
+                            },
+                            "c_get": {
+                                "doc": [
+                                    "Returns a copy of the element at the given index, or None if out of bounds. C-API compatible."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "OptionStatusBarSegment"
+                                },
+                                "fn_body": "status_bar_segment_vec.c_get(index).into()"
+                            },
+                            "as_c_slice": {
+                                "doc": [
+                                    "Returns a C-compatible slice of the entire Vec as a `StatusBarSegmentVecSlice`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarSegmentVecSlice"
+                                },
+                                "fn_body": "status_bar_segment_vec.as_c_slice()"
+                            },
+                            "as_c_slice_range": {
+                                "doc": [
+                                    "Returns a C-compatible slice of a range within the Vec. Range is clamped to valid bounds."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "start": "usize"
+                                    },
+                                    {
+                                        "end": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "StatusBarSegmentVecSlice"
+                                },
+                                "fn_body": "status_bar_segment_vec.as_c_slice_range(start, end)"
+                            }
+                        },
+                        "repr": "C"
+                    },
+                    "QuickAccessActionVecDestructorType": {
+                        "external": "azul_layout::widgets::quick_access::QuickAccessActionVecDestructorType",
+                        "callback_typedef": {
+                            "fn_args": [
+                                {
+                                    "type": "QuickAccessActionVec",
+                                    "ref_kind": "mutptr"
+                                }
+                            ],
+                            "returns": null
+                        }
+                    },
+                    "QuickAccessActionVecDestructor": {
+                        "external": "azul_layout::widgets::quick_access::QuickAccessActionVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "QuickAccessActionVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "StatusBarViewVecDestructor": {
+                        "external": "azul_layout::widgets::statusbar::StatusBarViewVecDestructor",
+                        "derive": [
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "DefaultRust": {},
+                                "NoDestructor": {},
+                                "External": {
+                                    "type": "StatusBarViewVecDestructorType"
+                                },
+                                "AlreadyDestroyed": {}
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -105669,6 +108488,210 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionDocumentChangeset": {
+                        "external": "azul_layout::managers::changeset::OptionDocumentChangeset",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "DocumentChangeset"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionStatusBarZoom": {
+                        "external": "azul_layout::widgets::statusbar::OptionStatusBarZoom",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "StatusBarZoom"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionStatusBarOnViewSelect": {
+                        "external": "azul_layout::widgets::statusbar::OptionStatusBarOnViewSelect",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "StatusBarOnViewSelect"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionStatusBarViewSwitcher": {
+                        "external": "azul_layout::widgets::statusbar::OptionStatusBarViewSwitcher",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "StatusBarViewSwitcher"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionBackstageOnNavSelect": {
+                        "external": "azul_layout::widgets::backstage::OptionBackstageOnNavSelect",
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Eq",
+                            "Hash",
+                            "Ord",
+                            "PartialEq",
+                            "PartialOrd"
+                        ],
+                        "derive": [
+                            "Clone",
+                            "Debug",
+                            "Hash",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "BackstageOnNavSelect"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionStatusBarView": {
+                        "external": "azul_layout::widgets::statusbar::OptionStatusBarView",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "StatusBarView",
+                                    "doc": [
+                                        "Some value of type StatusBarView"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionBackstageNavItem": {
+                        "external": "azul_layout::widgets::backstage::OptionBackstageNavItem",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "BackstageNavItem",
+                                    "doc": [
+                                        "Some value of type BackstageNavItem"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionQuickAccessAction": {
+                        "external": "azul_layout::widgets::quick_access::OptionQuickAccessAction",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "QuickAccessAction",
+                                    "doc": [
+                                        "Some value of type QuickAccessAction"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
+                    },
+                    "OptionStatusBarSegment": {
+                        "external": "azul_layout::widgets::statusbar::OptionStatusBarSegment",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "PartialEq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {
+                                    "doc": [
+                                        "No value"
+                                    ]
+                                },
+                                "Some": {
+                                    "type": "StatusBarSegment",
+                                    "doc": [
+                                        "Some value of type StatusBarSegment"
+                                    ]
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -107645,6 +110668,9 @@
                                 "LayoutScrollbarWidth": {
                                     "type": "LayoutScrollbarWidthParseErrorOwned"
                                 },
+                                "OverscrollBehavior": {
+                                    "type": "OverscrollBehaviorParseErrorOwned"
+                                },
                                 "StyleScrollbarColor": {
                                     "type": "StyleScrollbarColorParseErrorOwned"
                                 },
@@ -108245,6 +111271,44 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "DocumentEditError": {
+                        "external": "azul_layout::document_edit::DocumentEditError",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq"
+                        ],
+                        "enum_fields": [
+                            {
+                                "HostNotFound": {},
+                                "TargetNotFound": {},
+                                "Unsupported": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "ResultAppliedEditDocumentEditError": {
+                        "external": "azul_layout::document_edit::ResultAppliedEditDocumentEditError",
+                        "derive": [
+                            "Clone",
+                            "Debug"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Ok": {
+                                    "type": "AppliedEdit"
+                                }
+                            },
+                            {
+                                "Err": {
+                                    "type": "DocumentEditError"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -108642,6 +111706,27 @@
                                 },
                                 "callback": {
                                     "type": "MapPinTapCallback"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "AppliedEdit": {
+                        "external": "azul_layout::document_edit::AppliedEdit",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "resume": {
+                                    "type": "EditResumePoint"
+                                },
+                                "inverse": {
+                                    "type": "DocumentOperation"
+                                },
+                                "inverse_resume": {
+                                    "type": "EditResumePoint"
                                 }
                             }
                         ],
@@ -113830,6 +116915,27 @@
                                     "type": "usize"
                                 },
                                 "fn_body": "object.page_of_y(y)"
+                            },
+                            "break_path": {
+                                "doc": [
+                                    "Root-to-node child-index DOM path of break `index` - where inserting a",
+                                    "break node BEFORE the addressed node reproduces this page boundary",
+                                    "structurally (consumable by `DomSplit::at_path`). EMPTY when out of",
+                                    "range, when the break has no block at/after it, or when the snapshot",
+                                    "was computed by a path without structural mapping."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    },
+                                    {
+                                        "index": "usize"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "U32Vec"
+                                },
+                                "fn_body": "object.break_path(index)"
                             }
                         },
                         "repr": "C"
@@ -114004,6 +117110,94 @@
                             {
                                 "Popup": {},
                                 "Inline": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocOpInsertChildren": {
+                        "external": "azul_layout::managers::changeset::DocOpInsertChildren",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "parent": {
+                                    "type": "DomNodeId"
+                                },
+                                "index": {
+                                    "type": "u32"
+                                },
+                                "content": {
+                                    "type": "Dom"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocOpRemoveChildren": {
+                        "external": "azul_layout::managers::changeset::DocOpRemoveChildren",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "parent": {
+                                    "type": "DomNodeId"
+                                },
+                                "start": {
+                                    "type": "u32"
+                                },
+                                "end": {
+                                    "type": "u32"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "DocOpReplaceChildren": {
+                        "external": "azul_layout::managers::changeset::DocOpReplaceChildren",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "parent": {
+                                    "type": "DomNodeId"
+                                },
+                                "start": {
+                                    "type": "u32"
+                                },
+                                "end": {
+                                    "type": "u32"
+                                },
+                                "content": {
+                                    "type": "Dom"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "EditResumePoint": {
+                        "external": "azul_layout::managers::changeset::EditResumePoint",
+                        "derive": [
+                            "Debug",
+                            "Clone"
+                        ],
+                        "struct_fields": [
+                            {
+                                "anchor_key": {
+                                    "type": "u64"
+                                },
+                                "node_path": {
+                                    "type": "U32Vec"
+                                },
+                                "position": {
+                                    "type": "NodePosition"
+                                }
                             }
                         ],
                         "repr": "C"
@@ -114381,6 +117575,32 @@
                                 "ContextMenu": {},
                                 "Scroll": {},
                                 "MenuItem": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TrayIconImageVecSlice": {
+                        "external": "azul_core::tray::TrayIconImageVecSlice",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "TrayIconImage",
+                                    "ref_kind": "constptr",
+                                    "doc": [
+                                        "Pointer to the slice data"
+                                    ]
+                                },
+                                "len": {
+                                    "type": "usize",
+                                    "doc": [
+                                        "Number of elements in the slice"
+                                    ]
+                                }
                             }
                         ],
                         "repr": "C"

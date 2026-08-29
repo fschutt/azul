@@ -533,15 +533,31 @@ fn convert_arg_type_for_ffi(ty: &str) -> (String, Option<String>) {
         );
     }
 
-    // Handle reference types - strip the & and use the underlying type
+    // Reference to an API type: crosses the ABI as a raw pointer (the FFI
+    // checker forbids bare `&T` in signatures) and the fn_body re-borrows
+    // it. The PREVIOUS behavior stripped the `&` down to a VALUE, so the
+    // generated call tried to MOVE a struct the caller still owns — a
+    // signature mismatch that broke codegen compilation, silently, on the
+    // first method imported with a reference argument. The accessor is a
+    // `{}` template (the whole argument expression is substituted), unlike
+    // the plain-suffix accessors above.
     if let Some(inner) = trimmed.strip_prefix("&mut ") {
-        return (inner.trim().to_string(), None);
+        return (
+            format!("*mut {}", inner.trim()),
+            Some("unsafe { &mut *{} }".to_string()),
+        );
     }
     if let Some(inner) = trimmed.strip_prefix("& ") {
-        return (inner.trim().to_string(), None);
+        return (
+            format!("*const {}", inner.trim()),
+            Some("unsafe { &*{} }".to_string()),
+        );
     }
     if let Some(inner) = trimmed.strip_prefix("&") {
-        return (inner.trim().to_string(), None);
+        return (
+        format!("*const {}", inner.trim()),
+        Some("unsafe { &*{} }".to_string()),
+    );
     }
 
     // No conversion needed
@@ -765,6 +781,32 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
     for arg in &method.args {
         let mut arg_map = IndexMap::new();
         let (ffi_type, accessor) = convert_arg_type_for_ffi(&arg.ty);
+        // The source parser splits `&mut Dom` into ty="Dom" + ref_kind=RefMut
+        // BEFORE this point, so the string-prefix arms in
+        // `convert_arg_type_for_ffi` never see a reference. Wrap API types
+        // here per the FFI checker's own policy — pointers, never `&T` — and
+        // re-borrow in the fn_body via a `{}` template accessor. Dropping the
+        // ref to a VALUE (the old behavior) generated a call that MOVED a
+        // struct the caller still owns: broken codegen, silently, on the
+        // first imported method with a reference argument.
+        let (ffi_type, accessor) = if accessor.is_none()
+            && ffi_type != "String"
+            && !ffi_type.ends_with("VecRef")
+        {
+            match arg.ref_kind {
+                crate::api::RefKind::Ref => (
+                    format!("*const {ffi_type}"),
+                    Some("unsafe { &*{} }".to_string()),
+                ),
+                crate::api::RefKind::RefMut => (
+                    format!("*mut {ffi_type}"),
+                    Some("unsafe { &mut *{} }".to_string()),
+                ),
+                _ => (ffi_type, accessor),
+            }
+        } else {
+            (ffi_type, accessor)
+        };
         arg_map.insert(arg.name.clone(), ffi_type);
         fn_args.push(arg_map);
         arg_accessors.push((arg.name.clone(), accessor));
@@ -814,6 +856,17 @@ fn method_to_function_data(method: &MethodDef, full_path: &str) -> FunctionData 
     // Replace each argument reference with the accessor version
     for (arg_name, accessor_opt) in &arg_accessors {
         if let Some(accessor) = accessor_opt {
+            if accessor.contains("{}") {
+                // Template accessor: the WHOLE argument expression is
+                // substituted (pointer re-borrows like `unsafe { &mut *x }`).
+                let wrapped = accessor.replace("{}", arg_name);
+                fn_body_str = fn_body_str
+                    .replace(&format!("({},", arg_name), &format!("({},", wrapped))
+                    .replace(&format!(", {},", arg_name), &format!(", {},", wrapped))
+                    .replace(&format!("({})", arg_name), &format!("({})", wrapped))
+                    .replace(&format!(", {})", arg_name), &format!(", {})", wrapped));
+                continue;
+            }
             // Replace "arg_name," or "arg_name)" patterns
             // This handles cases like func(arg_name, other) or func(arg_name)
             fn_body_str = fn_body_str.replace(

@@ -3,14 +3,14 @@
 //! [`FontCacheSnapshot`] and [`ImageCacheSnapshot`] are `#[repr(C)]` boxed handles a callback
 //! obtains via `CallbackInfo::get_font_cache_clone()` /
 //! `CallbackInfo::get_image_cache_clone()` and hands to consumers that lay
-//! content out OUTSIDE the window pipeline — `Pdf::from_styled_dom_with_resources`
+//! content out OUTSIDE the window pipeline - `Pdf::from_styled_dom_with_resources`
 //! being the canonical one ("print exactly what is on screen").
 //!
 //! Both are SNAPSHOT HANDLES, not live views: cloning is cheap because the
 //! heavy state is refcounted (parsed font faces sit behind
 //! `Arc<Mutex<HashMap<..>>>` shared by [`FontManager::clone_shared`]; decoded
 //! image pixels sit behind refcounted `ImageRef`s), so nothing is re-parsed,
-//! re-discovered or re-decoded — the point is speed, not memory. The handle
+//! re-discovered or re-decoded - the point is speed, not memory. The handle
 //! stays valid after the callback returns, so a print job can run off-thread.
 
 use core::ffi::c_void;
@@ -41,6 +41,20 @@ impl FontCacheSnapshot {
     /// Wrap a font manager into an ABI handle.
     #[cfg(feature = "text_layout")]
     #[must_use]
+    /// Snapshot for use inside a LAYOUT callback: builds family resolution +
+    /// fallback chains over the system font cache the callback exposes. No
+    /// per-window embedded fonts exist yet at layout time, so nothing is
+    /// lost versus `CallbackInfo::get_font_cache_clone` - this is the
+    /// off-thread-pagination input an app can hand to
+    /// `Pdf::compute_pagination` without ever seeing the internal manager.
+    #[must_use]
+    pub fn from_layout_info(info: &azul_core::callbacks::LayoutCallbackInfo) -> Self {
+        match crate::font_traits::FontManager::new(info.get_font_cache()) {
+            Ok(fm) => Self::from_font_manager(fm),
+            Err(_) => Self::empty(),
+        }
+    }
+
     pub fn from_font_manager(fm: InnerFontManager) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(fm)).cast(),
@@ -98,7 +112,7 @@ unsafe impl Send for FontCacheSnapshot {}
 /// Boxed snapshot of the app's registered images (`css id -> ImageRef`).
 ///
 /// Obtain via `CallbackInfo::get_image_cache_clone()`. The map is copied but
-/// every `ImageRef` is a refcounted handle — decoded pixel data is shared,
+/// every `ImageRef` is a refcounted handle - decoded pixel data is shared,
 /// never duplicated or re-decoded.
 #[repr(C)]
 #[derive(Debug)]
@@ -181,28 +195,69 @@ pub struct PaginationSnapshot {
     pub run_destructor: bool,
 }
 
+/// The boxed payload behind [`PaginationSnapshot::ptr`]: the break analysis
+/// plus (when the computing entry had the layout cache in scope) every
+/// break's STRUCTURAL DOM position. Internal - the handle is opaque over the
+/// ABI, which is exactly what lets this grow without an ABI change.
+#[cfg(feature = "text_layout")]
+#[derive(Debug)]
+pub struct PaginationAnalysis {
+    pub info: crate::solver3::page_breaks::PaginationInfo,
+    /// One entry per break of `info.breaks` when available; empty when the
+    /// computing path could not derive structural positions.
+    pub structural: Vec<crate::solver3::paged_layout::StructuralBreak>,
+}
+
 #[cfg(feature = "text_layout")]
 impl PaginationSnapshot {
-    /// Wrap a pagination analysis into an ABI handle.
+    /// Wrap a pagination analysis into an ABI handle (no structural breaks -
+    /// prefer [`Self::from_analysis`] where the layout cache was in scope).
     #[must_use]
     pub fn from_info(info: crate::solver3::page_breaks::PaginationInfo) -> Self {
+        Self::from_analysis(PaginationAnalysis {
+            info,
+            structural: Vec::new(),
+        })
+    }
+
+    /// Wrap the full analysis (break positions + structural DOM paths).
+    #[must_use]
+    pub fn from_analysis(analysis: PaginationAnalysis) -> Self {
         Self {
-            ptr: Box::into_raw(Box::new(info)).cast(),
+            ptr: Box::into_raw(Box::new(analysis)).cast(),
             run_destructor: true,
         }
+    }
+
+    /// Borrow the full boxed payload, if any.
+    #[must_use]
+    const fn as_analysis(&self) -> Option<&PaginationAnalysis> {
+        unsafe { self.ptr.cast::<PaginationAnalysis>().as_ref() }
     }
 
     /// Borrow the wrapped analysis, if any.
     #[must_use]
     pub const fn as_info(&self) -> Option<&crate::solver3::page_breaks::PaginationInfo> {
-        unsafe {
-            self.ptr
-                .cast::<crate::solver3::page_breaks::PaginationInfo>()
-                .as_ref()
+        match self.as_analysis() {
+            Some(a) => Some(&a.info),
+            None => None,
         }
     }
 
-    /// An empty handle (0 pages — the failure value).
+    /// Root-to-node child-index DOM path of break `index` - where inserting a
+    /// break node BEFORE the addressed node reproduces this page boundary
+    /// structurally (consumable by `DomSplit::at_path`). EMPTY when out of
+    /// range, when the break has no block at/after it, or when the snapshot
+    /// was computed by a path without structural mapping.
+    #[must_use]
+    pub fn break_path(&self, index: usize) -> azul_css::corety::U32Vec {
+        self.as_analysis()
+            .and_then(|a| a.structural.get(index))
+            .and_then(|b| b.path.clone())
+            .map_or_else(azul_css::corety::U32Vec::new, Into::into)
+    }
+
+    /// An empty handle (0 pages - the failure value).
     #[must_use]
     pub const fn empty() -> Self {
         Self {
@@ -260,7 +315,7 @@ impl PaginationSnapshot {
     }
 
     /// Which page a document-space Y lands on ("what page is this node on?"
-    /// — the editor query that needs NO page to be materialized).
+    /// - the editor query that needs NO page to be materialized).
     #[must_use]
     pub fn page_of_y(&self, y: f32) -> usize {
         self.as_info()
@@ -283,7 +338,7 @@ impl Drop for PaginationSnapshot {
             unsafe {
                 drop(Box::from_raw(
                     self.ptr
-                        .cast::<crate::solver3::page_breaks::PaginationInfo>(),
+                        .cast::<PaginationAnalysis>(),
                 ));
             }
             self.ptr = core::ptr::null_mut();

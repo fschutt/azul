@@ -193,7 +193,7 @@ use azul_css::corety::U32Vec;
 /// `child_index`, optionally at `text_byte` INSIDE that child when (and only
 /// when) it is a text node.
 ///
-/// This is the vocabulary's split/join coordinate — deliberately NOT a text
+/// This is the vocabulary's split/join coordinate - deliberately NOT a text
 /// cursor: a `<ul>` splits between two `<li>`s (`text_byte: None`), a `<p>`
 /// splits mid-word (`text_byte: Some(5)` inside its text child), a `<div>`
 /// splits between arbitrary subtrees. Element children always move WHOLESALE
@@ -280,7 +280,7 @@ pub struct DocOpWrapRange {
     /// includes that child's text up to the byte).
     pub end: NodePosition,
     /// The wrapper ELEMENT as a node payload: `wrapper.root` is the element
-    /// (its `NodeData` carries tag, classes and attributes — an `<a href>`
+    /// (its `NodeData` carries tag, classes and attributes - an `<a href>`
     /// rides its dataset/attributes); `wrapper.children` is ignored.
     pub wrapper: azul_core::dom::Dom,
 }
@@ -298,11 +298,11 @@ pub struct DocOpUnwrapRange {
     pub at: NodePosition,
 }
 
-/// Insert node SUBTREES under `parent` at child `index` — the immutable-DOM
+/// Insert node SUBTREES under `parent` at child `index` - the immutable-DOM
 /// analog of `.insertChild()`.
 ///
 /// The content is a [`azul_core::dom::Dom`] (the native tree apps already
-/// build), NOT a markup string: a paragraph, a list item, a whole table —
+/// build), NOT a markup string: a paragraph, a list item, a whole table -
 /// any subtree, the same op.
 #[derive(Debug, Clone)]
 #[repr(C)]
@@ -312,14 +312,14 @@ pub struct DocOpInsertChildren {
     /// Child index within `parent` (clamped by the applier).
     pub index: u32,
     /// The subtree(s) to insert. `content.root` is the FIRST inserted child;
-    /// `content.children`-siblings pattern: a `Dom` is one subtree — multiple
+    /// `content.children`-siblings pattern: a `Dom` is one subtree - multiple
     /// siblings are inserted by wrapping in a fragment container is NOT
     /// required: the applier inserts exactly this one subtree. (Insert
     /// several = several ops, or a `ReplaceChildren`.)
     pub content: azul_core::dom::Dom,
 }
 
-/// Remove a RANGE of direct children of `parent` (with their subtrees) —
+/// Remove a RANGE of direct children of `parent` (with their subtrees) -
 /// the analog of `.removeChild()`, generalized to a contiguous range.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -330,7 +330,7 @@ pub struct DocOpRemoveChildren {
     pub end: u32,
 }
 
-/// Replace a range of direct children of `parent` with a subtree — the
+/// Replace a range of direct children of `parent` with a subtree - the
 /// analog of `.replaceChild()`. `Insert` and `Remove` are its two
 /// degenerate forms; the three share one inverse algebra.
 #[derive(Debug, Clone)]
@@ -344,7 +344,7 @@ pub struct DocOpReplaceChildren {
     pub content: azul_core::dom::Dom,
 }
 
-/// A structural document edit — the vocabulary `TextOperation` lacks
+/// A structural document edit - the vocabulary `TextOperation` lacks
 /// (everything here crosses or creates block boundaries).
 ///
 /// The tree-mutation vocabulary a MUTABLE DOM would express as methods
@@ -403,7 +403,7 @@ pub struct EditResumePoint {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct DocumentChangeset {
-    /// Monotonic id — the commit-handshake token.
+    /// Monotonic id - the commit-handshake token.
     pub id: u64,
     /// Primary affected node (the event target), CURRENT generation.
     pub target: DomNodeId,
@@ -1242,5 +1242,27 @@ mod autotest_generated {
             }),
             timestamp,
         )
+    }
+}
+
+impl DocumentChangeset {
+    /// Apply this changeset to an app-model [`Dom`](azul_core::dom::Dom) -
+    /// the Path-2 helper [`crate::document_edit::apply_document_operation`]
+    /// as a method, so API consumers reach it without free-function plumbing.
+    ///
+    /// `host_path` is the root-to-host child-index path (empty = the model
+    /// root hosts the blocks). On success the returned
+    /// [`AppliedEdit`](crate::document_edit::AppliedEdit) carries the resume
+    /// point and the INVERSE operation to hand back to
+    /// `CallbackInfo::mark_document_edit_applied_with_inverse`.
+    ///
+    /// # Errors
+    /// The tree is left unchanged on error (host/target not found).
+    pub fn apply_to_dom(
+        &self,
+        model: &mut azul_core::dom::Dom,
+        host_path: U32Vec,
+    ) -> crate::document_edit::ResultAppliedEditDocumentEditError {
+        crate::document_edit::apply_document_operation(model, host_path.as_ref(), self).into()
     }
 }

@@ -261,7 +261,7 @@ impl Pdf {
             )
             .map_or_else(
                 azul_layout::resource_handles::PaginationSnapshot::empty,
-                azul_layout::resource_handles::PaginationSnapshot::from_info,
+                azul_layout::resource_handles::PaginationSnapshot::from_analysis,
             )
         }
         #[cfg(not(feature = "pdf"))]
@@ -613,7 +613,7 @@ mod engine {
         page_h_px: f32,
         font_manager: &mut azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>,
         image_cache: &azul_core::resources::ImageCache,
-    ) -> Option<azul_layout::solver3::page_breaks::PaginationInfo> {
+    ) -> Option<azul_layout::resource_handles::PaginationAnalysis> {
         use azul_core::dom::DomId;
         use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
         use azul_core::resources::{IdNamespace, RendererResources};
@@ -638,7 +638,7 @@ mod engine {
         let font_loader = |bytes, index| loader.load_font_shared(bytes, index);
         let page_config = FakePageConfig::new();
 
-        compute_document_pagination(
+        let info = compute_document_pagination(
             &mut layout_cache,
             &mut text_cache,
             fragmentation_context,
@@ -658,7 +658,19 @@ mod engine {
                 cb: azul_core::task::get_system_time_libstd,
             },
         )
-        .ok()
+        .ok()?;
+        // Map every break to its STRUCTURAL DOM position while the cache
+        // that computed it is still alive — this is the only moment the
+        // paths can be derived, and it is what `PaginationSnapshot::
+        // break_path` hands to API consumers (the document editor's
+        // page-split addresses).
+        let structural = azul_layout::solver3::paged_layout::pagination_to_dom_breaks(
+            &layout_cache,
+            styled_dom,
+            &info,
+        )
+        .unwrap_or_default();
+        Some(azul_layout::resource_handles::PaginationAnalysis { info, structural })
     }
 
     pub fn styled_dom_to_bytes_with(

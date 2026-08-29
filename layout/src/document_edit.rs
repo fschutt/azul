@@ -1,7 +1,7 @@
-//! Apply a [`DocumentOperation`] to a [`Dom`] tree — the helper for apps
+//! Apply a [`DocumentOperation`] to a [`Dom`] tree - the helper for apps
 //! WITHOUT their own document model (Path 2).
 //!
-//! The applier operates on azul's NATIVE node tree (`azul_core::dom::Dom` —
+//! The applier operates on azul's NATIVE node tree (`azul_core::dom::Dom` -
 //! what a layout callback returns, what `reconstruct_dom_subtree` hands
 //! back), not on markup. Operations are STRUCTURAL: subtrees move wholesale
 //! (`<b>…</b>` inside a split paragraph survives intact, a `<ul>` splits
@@ -10,22 +10,23 @@
 //! [`NodePosition`] points inside it.
 //!
 //! Azul records structural intent (`DocumentChangeset`); the app applies it
-//! to ITS model and regenerates the DOM — the `StyledDom` is never mutated.
+//! to ITS model and regenerates the DOM - the `StyledDom` is never mutated.
 //! An app holding a `Dom` calls [`apply_document_operation`], then
 //! `CallbackInfo::mark_document_edit_applied_with_inverse(changeset.id,
 //! applied.inverse)` (the commit handshake), then returns
 //! `Update::RefreshDom`.
 //!
-//! Every successful apply returns the INVERSE operation — tree-shaped undo
+//! Every successful apply returns the INVERSE operation - tree-shaped undo
 //! for free (undoing re-RECORDS the inverse through the same
 //! record→apply→ack loop; it never mutates either).
 //!
 //! **Fragment semantics**: `content: Dom` payloads are DocumentFragment-like
-//! — the fragment's ROOT is ignored, its CHILDREN are the inserted nodes.
+//! - the fragment's ROOT is ignored, its CHILDREN are the inserted nodes.
 //! This closes the inverse algebra for multi-child operations
 //! (`RemoveChildren [s, e)` ⇄ `InsertChildren` of the removed fragment).
 
 use azul_core::dom::{Dom, NodeType};
+use azul_css::{impl_result, impl_result_inner};
 
 use crate::managers::changeset::{
     DocOpInsertChildren, DocOpMergeNodes, DocOpRemoveChildren, DocOpReplaceChildren,
@@ -33,10 +34,11 @@ use crate::managers::changeset::{
 };
 
 /// The outcome of a successful apply.
+#[repr(C)]
 #[derive(Debug, Clone)]
 pub struct AppliedEdit {
     /// Where the caret/anchor should land (passed through from the changeset
-    /// — already expressed re-render-stably).
+    /// - already expressed re-render-stably).
     pub resume: crate::managers::changeset::EditResumePoint,
     /// The operation that undoes this one. `DomNodeId` fields are advisory
     /// (they refer to the generation the ORIGINAL changeset was recorded
@@ -45,9 +47,9 @@ pub struct AppliedEdit {
     pub inverse: DocumentOperation,
     /// The resume point to re-record [`inverse`] WITH.
     ///
-    /// Index resolution is asymmetric — a split targets
+    /// Index resolution is asymmetric - a split targets
     /// `resume.node_path.last() - 1` while a merge keeps
-    /// `resume.node_path.last()` — so replaying the inverse with the
+    /// `resume.node_path.last()` - so replaying the inverse with the
     /// ORIGINAL resume point lands one node off and edits the wrong pair.
     /// An application undoing an edit must not have to know that: this is
     /// the resume point that makes `inverse` apply to exactly the nodes the
@@ -57,13 +59,15 @@ pub struct AppliedEdit {
 
 /// Why an apply failed. Failures leave the tree UNCHANGED.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub enum DocumentEditError {
     /// `host_path` did not resolve to a node in the tree.
     HostNotFound,
     /// An index/range in the operation does not exist under the host.
     TargetNotFound,
-    /// The operation kind cannot be applied (reserved).
-    Unsupported(&'static str),
+    /// The operation kind cannot be applied (reserved). (Previously carried a
+    /// `&'static str` detail; dropped for ABI - the variant is still unused.)
+    Unsupported,
 }
 
 /// Wrap subtrees in a fragment `Dom` (root ignored by the applier).
@@ -78,12 +82,12 @@ pub fn fragment(children: Vec<Dom>) -> Dom {
 
 /// Apply a structural changeset to the `Dom` the app holds.
 ///
-/// * `root` — the app's document tree (e.g. from its own builder or
+/// * `root` - the app's document tree (e.g. from its own builder or
 ///   `reconstruct_dom_subtree`).
-/// * `host_path` — child-index path from `root` to the node whose CHILD LIST
+/// * `host_path` - child-index path from `root` to the node whose CHILD LIST
 ///   the operation edits (`[]` = `root` itself). For Split/Merge this is the
 ///   PARENT of the split/merged nodes.
-/// * `changeset` — as delivered by `CallbackInfo::get_document_edit_clone`.
+/// * `changeset` - as delivered by `CallbackInfo::get_document_edit_clone`.
 ///
 /// Index resolution for Split/Merge uses the changeset's OWN resume point
 /// (recorded by the same engine that computes it, so the two cannot drift):
@@ -190,7 +194,7 @@ fn split_text_dom(node: &mut Dom, byte: usize) -> Dom {
 
 /// Split `host.children[node_index]` at the structural position: children
 /// BEFORE the position stay, children AFTER move to a new sibling of the
-/// SAME node shape (the `NodeData` is cloned — a `<ul>` splits into two
+/// SAME node shape (the `NodeData` is cloned - a `<ul>` splits into two
 /// `<ul>`s, an `<h1>` into two `<h1>`s; tag conversion is an editing policy
 /// for the RECORDER, not the tree algebra). A text child AT the position is
 /// cut at its byte. Inverse: the merge at the same seam.
@@ -575,14 +579,14 @@ fn apply_unwrap(
     ))
 }
 
-/// Split a tree along a SPINE — the fragmentainer-flow cut.
+/// Split a tree along a SPINE - the fragmentainer-flow cut.
 ///
 /// `path` names, level by level, the child at which the document continues in
 /// the NEXT fragmentainer (page/section). At every spine level the node's
 /// shape (`NodeData`) is duplicated: children BEFORE the path index stay in
 /// the head, the path child itself splits recursively, children AFTER move to
 /// the tail. A `<section><ul>…` cut inside the `<ul>` yields two sections
-/// each holding a `<ul>` — exactly how CSS fragmentation clones box chains
+/// each holding a `<ul>` - exactly how CSS fragmentation clones box chains
 /// across fragmentainers (and how Word continues a list across a section
 /// break).
 ///
@@ -687,7 +691,7 @@ mod tests {
         }
     }
 
-    /// Flattened text of each direct child of the host (assertion helper —
+    /// Flattened text of each direct child of the host (assertion helper -
     /// the OPERATIONS never flatten anything).
     fn texts(host: &Dom) -> Vec<String> {
         host.children
@@ -1126,5 +1130,37 @@ mod tests {
         let (h, t) = split_dom_at_path(&doc, &[9]);
         assert_eq!(h.children.as_ref().len(), 2);
         assert_eq!(t.children.as_ref().len(), 0);
+    }
+}
+
+impl_result!(
+    AppliedEdit,
+    DocumentEditError,
+    ResultAppliedEditDocumentEditError,
+    copy = false,
+    [Debug, Clone]
+);
+
+/// The two halves of [`split_dom_at_path`] as an ABI-crossable pair.
+///
+/// `head` = everything strictly BEFORE the addressed node (document order),
+/// `tail` = the addressed node and everything after it. An empty/invalid
+/// path yields the documented `split_dom_at_path` fallback in each half.
+#[repr(C)]
+#[derive(Debug)]
+pub struct DomSplit {
+    pub head: Dom,
+    pub tail: Dom,
+}
+
+impl DomSplit {
+    /// [`split_dom_at_path`] for API consumers (the tuple return does not
+    /// cross the ABI): split `dom` at the root-to-node child-index `path` -
+    /// the same paths [`crate::solver3::paged_layout::StructuralBreak`]
+    /// carries and `PaginationSnapshot::break_path` hands out.
+    #[must_use]
+    pub fn at_path(dom: &Dom, path: azul_css::corety::U32Vec) -> Self {
+        let (head, tail) = split_dom_at_path(dom, path.as_ref());
+        Self { head, tail }
     }
 }
