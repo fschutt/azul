@@ -308,6 +308,14 @@ impl ProgressBar {
                 CssPropertyWithConditions::simple(CssProperty::Height(LayoutHeightValue::Exact(
                     LayoutHeight::Px(height),
                 ))),
+                // A VirtualView lays out like a REPLACED element: without an
+                // explicit width it takes the 300px intrinsic default instead
+                // of stretching to its parent (found 2026-08-29: a 140px-wide
+                // meter rendered a 300px bar, clipped at the window edge, so
+                // 50% read as ~93%). 100% = fill whatever box the app gives.
+                CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
+                    LayoutWidth::Px(PixelValue::percent(100.0)),
+                ))),
                 // materialized == bounds, so nothing ever overflows - this
                 // just guarantees the VirtualView machinery never decides to
                 // show a scrollbar on a progress bar.
@@ -1987,10 +1995,15 @@ mod autotest_generated {
         let h = height_of(&dom).expect("the wrapper must declare the height");
         assert_eq!(h.metric, SizeMetric::Px);
         assert_eq!(raw(h), 22_000);
+        // Width 100%: a VirtualView is replaced-element-like and would take
+        // the 300px intrinsic default instead of stretching to its parent.
+        let w = width_of(&dom).expect("the wrapper must declare width: 100%");
+        assert_eq!(w.metric, SizeMetric::Percent);
+        assert_eq!(raw(w), 100_000);
         assert_eq!(
             inline_props(&dom).len(),
-            3,
-            "wrapper style must stay height + overflow-x + overflow-y: {:?}",
+            4,
+            "wrapper style must stay height + width + overflow-x/y: {:?}",
             inline_props(&dom)
         );
     }
