@@ -105,12 +105,8 @@ pub extern "C" fn tile_fetch_worker(
 ) {
     use azul_core::refany::{OptionRefAny, RefAny};
     use azul_css::AzString;
-    use azul_layout::thread::{
-        ThreadReceiveMsg, ThreadWriteBackMsg, WriteBackCallback,
-    };
-    use azul_layout::widgets::map::{
-        map_tile_writeback, TileFetchInit, TileReadyMsg,
-    };
+    use azul_layout::thread::{ThreadReceiveMsg, ThreadWriteBackMsg, WriteBackCallback};
+    use azul_layout::widgets::map::{map_tile_writeback, TileFetchInit, TileReadyMsg};
 
     let (tile, url, mapcss, theme, cached_bytes) = match init.downcast_ref::<TileFetchInit>() {
         Some(i) => (
@@ -143,46 +139,56 @@ pub extern "C" fn tile_fetch_worker(
 
     let dbg = std::env::var("AZ_MAP_DEBUG").is_ok();
     if dbg {
-        eprintln!("[map] worker start tile=({},{},{}) url={}", tile.z, tile.x, tile.y, url);
+        eprintln!(
+            "[map] worker start tile=({},{},{}) url={}",
+            tile.z, tile.x, tile.y, url
+        );
     }
 
     // 1-2. Fetch — UNLESS the cache already handed us the payload, in which
     // case this job is a restyle and touches the network zero times. A tile's
     // geometry is downloaded once per session however often the look changes.
     let restyle = !cached_bytes.is_empty();
-    let bytes = if restyle {
-        if dbg {
-            eprintln!(
+    let bytes =
+        if restyle {
+            if dbg {
+                eprintln!(
                 "[map] worker restyle tile=({},{},{}) theme={theme:?} — {} cached bytes, no fetch",
                 tile.z, tile.x, tile.y, cached_bytes.len()
             );
-        }
-        cached_bytes
-    } else {
-        match azul_layout::http::http_get(&url) {
-            Ok(resp) => {
-                let b = resp.body.as_ref().to_vec();
-                if dbg {
-                    eprintln!(
-                        "[map] worker fetched tile=({},{},{}) {} bytes",
-                        tile.z, tile.x, tile.y, b.len()
-                    );
-                }
-                b
             }
-            Err(e) => {
-                if dbg {
-                    eprintln!("[map] worker fetch FAILED tile=({},{},{}): {e:?}", tile.z, tile.x, tile.y);
+            cached_bytes
+        } else {
+            match azul_layout::http::http_get(&url) {
+                Ok(resp) => {
+                    let b = resp.body.as_ref().to_vec();
+                    if dbg {
+                        eprintln!(
+                            "[map] worker fetched tile=({},{},{}) {} bytes",
+                            tile.z,
+                            tile.x,
+                            tile.y,
+                            b.len()
+                        );
+                    }
+                    b
                 }
-                sender.send(ThreadReceiveMsg::WriteBack(send_back(
-                    AzString::from(""),
-                    AzString::from(alloc::format!("fetch failed: {e:?}")),
-                    Vec::new(),
-                )));
-                return;
+                Err(e) => {
+                    if dbg {
+                        eprintln!(
+                            "[map] worker fetch FAILED tile=({},{},{}): {e:?}",
+                            tile.z, tile.x, tile.y
+                        );
+                    }
+                    sender.send(ThreadReceiveMsg::WriteBack(send_back(
+                        AzString::from(""),
+                        AzString::from(alloc::format!("fetch failed: {e:?}")),
+                        Vec::new(),
+                    )));
+                    return;
+                }
             }
-        }
-    };
+        };
 
     // Cancellation check between fetch and decode.
     if matches!(
@@ -199,7 +205,14 @@ pub extern "C" fn tile_fetch_worker(
         Ok(features) => {
             let svg = features_to_svg(&features, tile, &mapcss);
             if dbg {
-                eprintln!("[map] worker decoded tile=({},{},{}) theme={theme:?} {} features svg_len={}", tile.z, tile.x, tile.y, features.len(), svg.len());
+                eprintln!(
+                    "[map] worker decoded tile=({},{},{}) theme={theme:?} {} features svg_len={}",
+                    tile.z,
+                    tile.x,
+                    tile.y,
+                    features.len(),
+                    svg.len()
+                );
             }
             sender.send(ThreadReceiveMsg::WriteBack(send_back(
                 AzString::from(svg),
@@ -209,7 +222,10 @@ pub extern "C" fn tile_fetch_worker(
         }
         Err(e) => {
             if dbg {
-                eprintln!("[map] worker decode FAILED tile=({},{},{}): {e}", tile.z, tile.x, tile.y);
+                eprintln!(
+                    "[map] worker decode FAILED tile=({},{},{}): {e}",
+                    tile.z, tile.x, tile.y
+                );
             }
             sender.send(ThreadReceiveMsg::WriteBack(send_back(
                 AzString::from(""),
@@ -235,9 +251,7 @@ pub extern "C" fn tile_fetch_worker(
 ///
 /// When the `map-tiles` feature is off the worker doesn't exist, so we fall back to
 /// the placeholder `dom()` — keeping default/mobile builds free of the dep tree.
-pub fn map_widget_dom(
-    widget: azul_layout::widgets::map::MapWidget,
-) -> azul_core::dom::Dom {
+pub fn map_widget_dom(widget: azul_layout::widgets::map::MapWidget) -> azul_core::dom::Dom {
     #[cfg(feature = "map-tiles")]
     {
         widget.dom_with_fetch(azul_layout::thread::ThreadCallback {

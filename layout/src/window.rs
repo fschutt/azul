@@ -28,8 +28,7 @@ use std::{
 };
 
 use azul_core::{
-    resources::UpdateImageType,
-    callbacks::{FocusTarget, HidpiAdjustedBounds, VirtualViewCallbackReason, Update},
+    callbacks::{FocusTarget, HidpiAdjustedBounds, Update, VirtualViewCallbackReason},
     dom::{
         AccessibilityAction, AttributeType, Dom, DomId, DomIdVec, DomNodeId, NodeId, NodeType, On,
     },
@@ -39,6 +38,7 @@ use azul_core::{
     gpu::{GpuScrollbarOpacityEvent, GpuValueCache},
     hit_test::{DocumentId, ScrollPosition, ScrollbarHitId},
     refany::{OptionRefAny, RefAny},
+    resources::UpdateImageType,
     resources::{
         Epoch, FontKey, GlTextureCache, IdNamespace, ImageCache, ImageMask, ImageRef, ImageRefHash,
         OpacityKey, RendererResources,
@@ -75,14 +75,10 @@ use rust_fontconfig::FcFontCache;
 #[cfg(feature = "icu")]
 use crate::icu::IcuLocalizerHandle;
 use crate::{
-    callbacks::{
-        Callback, ExternalSystemCallbacks, MenuCallback,
-    },
+    callbacks::{Callback, ExternalSystemCallbacks, MenuCallback},
     managers::{
-        gpu_state::GpuStateManager,
-        selection::ClipboardExtract,
+        gpu_state::GpuStateManager, scroll_state::ScrollManager, selection::ClipboardExtract,
         virtual_view::VirtualViewManager,
-        scroll_state::ScrollManager,
     },
     solver3::{
         self, cache::LayoutCache as Solver3LayoutCache, display_list::DisplayList,
@@ -90,8 +86,8 @@ use crate::{
     },
     text3::{
         cache::{
-            FontManager, FontSelector, FontStyle, InlineContent, TextShapingCache as TextLayoutCache,
-            LayoutError, ShapedItem, StyleProperties, StyledRun, UnifiedConstraints,
+            FontManager, FontSelector, FontStyle, InlineContent, LayoutError, ShapedItem,
+            StyleProperties, StyledRun, TextShapingCache as TextLayoutCache, UnifiedConstraints,
             UnifiedLayout,
         },
         default::PathLoader,
@@ -196,7 +192,8 @@ extern "C" fn cursor_blink_timer_destructor(_: RefAny) {
 /// The callback returns:
 /// - `TerminateTimer::Continue` + `Update::RefreshDom` if cursor toggled
 /// - `TerminateTimer::Terminate` if focus is no longer on a contenteditable element
-#[must_use] pub extern "C" fn cursor_blink_timer_callback(
+#[must_use]
+pub extern "C" fn cursor_blink_timer_callback(
     _data: RefAny,
     mut info: crate::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
@@ -275,7 +272,8 @@ pub struct TweenTimerData {
 /// also regenerates the display list, which is what advances the tween via
 /// `LayoutWindow::apply_text_tweens`). When the tween state goes idle the
 /// callback terminates the timer.
-#[must_use] pub extern "C" fn caret_tween_timer_callback(
+#[must_use]
+pub extern "C" fn caret_tween_timer_callback(
     mut data: RefAny,
     mut info: crate::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
@@ -313,7 +311,8 @@ pub struct TweenTimerData {
 /// Movement to a different node (or any hover loss) removes and re-adds the
 /// timer from the platform layer, so the callback itself never needs to
 /// reschedule.
-#[must_use] pub extern "C" fn tooltip_delay_timer_callback(
+#[must_use]
+pub extern "C" fn tooltip_delay_timer_callback(
     _data: RefAny,
     mut info: crate::timer::TimerCallbackInfo,
 ) -> azul_core::callbacks::TimerCallbackReturn {
@@ -758,7 +757,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // that is exactly the mistake `layout_results` represented.
         e2e_mount: _,
         #[cfg(feature = "e2e-server")]
-        e2e_scratch: _,
+            e2e_scratch: _,
         skip_gpu_sync: _,
         frame_report: _,
         frame_report_reset_request: _,
@@ -791,7 +790,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // the tree; walked nowhere, listed so the destructure stays total.
         last_dom_fingerprints: _,
         #[cfg(feature = "pdf")]
-        fragmentation_context: _,
+            fragmentation_context: _,
         image_cache: _,
         content_overlay: _,
         content_journal: _,
@@ -859,7 +858,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         resize_watch: _,
         resize_watch_dpi: _,
         #[cfg(feature = "icu")]
-        icu_localizer: _,
+            icu_localizer: _,
     } = w;
 }
 
@@ -878,13 +877,11 @@ pub use crate::managers::text_input::PendingTextEdit;
 
 /// Cached text layout constraints for a node
 /// These are the layout parameters that were used to shape the text
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct TextConstraintsCache {
     /// Map from (`dom_id`, `node_id`) to their layout constraints
     pub constraints: BTreeMap<(DomId, NodeId), UnifiedConstraints>,
 }
-
 
 /// A text node that has been edited since the last full layout.
 /// This allows us to perform lightweight relayout without rebuilding the entire DOM.
@@ -988,8 +985,6 @@ const NESTED_DOM_HOST_WALK_LIMIT: usize = 32;
 /// small; the bound only stops a malformed hierarchy from spinning.
 const IFC_CANDIDATE_SCAN_LIMIT: usize = 4096;
 
-
-
 #[allow(clippy::struct_excessive_bools)]
 /// A tear-off drag of an inline-docked `<transient-window>`, running in
 /// the PARENT window (the panel has no window of its own to drag).
@@ -1089,10 +1084,7 @@ pub struct LayoutWindow {
     /// This is the bridge, and it is deliberately rebuilt rather than migrated:
     /// after a rebuild the old `NodeIds` are meaningless, so a stale entry here
     /// would write a transform onto whatever unrelated node inherited the slot.
-    pub anim_key_to_node: BTreeMap<
-        azul_core::animation::AnimKey,
-        NodeId,
-    >,
+    pub anim_key_to_node: BTreeMap<azul_core::animation::AnimKey, NodeId>,
     /// Diff-triggered `animation` transitions in flight (ROOT dom). See
     /// [`CssTransition`] for the governing semantics.
     pub css_transitions: Vec<CssTransition>,
@@ -1649,7 +1641,8 @@ impl LayoutWindow {
     /// font the parent can — its parsed system faces AND its embedded (icon)
     /// fonts — instead of rebuilding an empty manager and rendering the macOS
     /// last-resort "tofu" face for text and icons.
-    #[must_use] pub fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
+    #[must_use]
+    pub fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
         Self {
             pending_css_dirty: None,
             e2e_mount: E2eMountOverride::default(),
@@ -1677,18 +1670,18 @@ impl LayoutWindow {
             layout_cache: Solver3LayoutCache {
                 tree: None,
                 resize_only_hint: false,
-            last_reconcile_was_skipped: false,
-            last_reconcile_structure_preserved: false,
-            last_build_was_patched: false,
-            last_patch_damage: None,
-            build_seq: 0,
-            last_full_build_seq: 0,
-            patch_damage_log: Vec::new(),
-            last_dynamic_context: None,
-            previous_sizes: Vec::new(),
-            dom_diff_clean: None,
-            last_fingerprint_skips: 0,
-            last_patch_move: None,
+                last_reconcile_was_skipped: false,
+                last_reconcile_structure_preserved: false,
+                last_build_was_patched: false,
+                last_patch_damage: None,
+                build_seq: 0,
+                last_full_build_seq: 0,
+                patch_damage_log: Vec::new(),
+                last_dynamic_context: None,
+                previous_sizes: Vec::new(),
+                dom_diff_clean: None,
+                last_fingerprint_skips: 0,
+                last_patch_move: None,
                 calculated_positions: Vec::new(),
                 viewport: None,
                 scroll_ids: HashMap::new(),
@@ -1700,9 +1693,9 @@ impl LayoutWindow {
                 cached_display_list: None,
                 prev_dom_ptr: 0,
                 prev_viewport: LogicalRect::zero(),
-            last_reconcile_reused: 0,
-            last_reconcile_fresh: 0,
-            last_intrinsic_dirty: 0,
+                last_reconcile_reused: 0,
+                last_reconcile_fresh: 0,
+                last_intrinsic_dirty: 0,
             },
             text_cache: TextLayoutCache::new(),
             font_manager,
@@ -1795,7 +1788,9 @@ impl LayoutWindow {
     /// # Errors
     ///
     /// Returns a `LayoutError` if the layout window cannot be initialized.
-    pub fn from_font_context(ctx: &crate::text3::cache::FontContext) -> Result<Self, solver3::LayoutError> {
+    pub fn from_font_context(
+        ctx: &crate::text3::cache::FontContext,
+    ) -> Result<Self, solver3::LayoutError> {
         let fm = ctx.to_font_manager();
         let fc_cache = fm.fc_cache.clone();
         let parsed_fonts = fm.parsed_fonts.clone();
@@ -2132,7 +2127,8 @@ impl LayoutWindow {
     /// notification that replaces app-side polling). The shared dispatcher
     /// includes it in event determination and calls
     /// [`Self::mark_document_edit_notified`] afterwards.
-    #[must_use] pub fn document_edit_event_provider(
+    #[must_use]
+    pub fn document_edit_event_provider(
         &self,
     ) -> crate::event_determination::DocumentEditEventProvider {
         crate::event_determination::DocumentEditEventProvider {
@@ -2222,19 +2218,23 @@ impl LayoutWindow {
         // `white-space`: when newlines are preserved, `"\n"` is the native
         // line separator and Enter inserts one instead of splitting blocks.
         let host_preserves_newlines = self.layout_results.get(&focus.dom).is_some_and(|lr| {
-            use azul_css::props::style::StyleWhiteSpace;
             use crate::solver3::getters::{get_white_space_property, MultiValue};
-            lr.styled_dom.styled_nodes.as_container().get(host).is_some_and(|n| {
-                matches!(
-                    get_white_space_property(&lr.styled_dom, host, &n.styled_node_state),
-                    MultiValue::Exact(
-                        StyleWhiteSpace::Pre
-                            | StyleWhiteSpace::PreWrap
-                            | StyleWhiteSpace::BreakSpaces
-                            | StyleWhiteSpace::PreLine
+            use azul_css::props::style::StyleWhiteSpace;
+            lr.styled_dom
+                .styled_nodes
+                .as_container()
+                .get(host)
+                .is_some_and(|n| {
+                    matches!(
+                        get_white_space_property(&lr.styled_dom, host, &n.styled_node_state),
+                        MultiValue::Exact(
+                            StyleWhiteSpace::Pre
+                                | StyleWhiteSpace::PreWrap
+                                | StyleWhiteSpace::BreakSpaces
+                                | StyleWhiteSpace::PreLine
+                        )
                     )
-                )
-            })
+                })
         });
 
         // Caret at block start / end, judged against the CURRENT effective
@@ -2242,30 +2242,32 @@ impl LayoutWindow {
         // on multi-run content: a caret we cannot prove at the boundary keeps
         // Backspace/Delete on the plain per-IFC text path — safe fallback.
         let (at_start, at_end) =
-            self.text_edit_manager.get_primary_cursor().map_or((false, false), |cursor| {
-                let content = self.get_text_before_textinput(focus.dom, node_id);
-                let at_start = cursor.cluster_id.source_run == 0
-                    && cursor.cluster_id.start_byte_in_run == 0;
-                let last_text = content.iter().enumerate().rev().find_map(|(i, c)| {
-                    if let InlineContent::Text(run) = c {
-                        Some((
-                            u32::try_from(i).unwrap_or(u32::MAX),
-                            u32::try_from(run.text.len()).unwrap_or(u32::MAX),
-                        ))
-                    } else {
-                        None
-                    }
+            self.text_edit_manager
+                .get_primary_cursor()
+                .map_or((false, false), |cursor| {
+                    let content = self.get_text_before_textinput(focus.dom, node_id);
+                    let at_start = cursor.cluster_id.source_run == 0
+                        && cursor.cluster_id.start_byte_in_run == 0;
+                    let last_text = content.iter().enumerate().rev().find_map(|(i, c)| {
+                        if let InlineContent::Text(run) = c {
+                            Some((
+                                u32::try_from(i).unwrap_or(u32::MAX),
+                                u32::try_from(run.text.len()).unwrap_or(u32::MAX),
+                            ))
+                        } else {
+                            None
+                        }
+                    });
+                    let at_end = match last_text {
+                        Some((last_run, last_len)) => {
+                            cursor.cluster_id.source_run >= last_run
+                                && cursor.cluster_id.start_byte_in_run >= last_len
+                        }
+                        // No text at all: the caret is at both boundaries.
+                        None => true,
+                    };
+                    (at_start, at_end)
                 });
-                let at_end = match last_text {
-                    Some((last_run, last_len)) => {
-                        cursor.cluster_id.source_run >= last_run
-                            && cursor.cluster_id.start_byte_in_run >= last_len
-                    }
-                    // No text at all: the caret is at both boundaries.
-                    None => true,
-                };
-                (at_start, at_end)
-            });
 
         Some(crate::default_actions::EditingQueryState {
             is_contenteditable: true,
@@ -2315,9 +2317,7 @@ impl LayoutWindow {
                 .dom_to_layout
                 .get(&host_node)
                 .and_then(|indices| indices.first().copied())
-                .and_then(|idx| {
-                    solver3::pos_get(&parent_result.calculated_positions, idx.index())
-                });
+                .and_then(|idx| solver3::pos_get(&parent_result.calculated_positions, idx.index()));
             if let Some(host_pos) = host_pos {
                 let content = self.virtual_view_content_offset(parent_dom, host_node);
                 total.x += host_pos.x + content.x;
@@ -2329,11 +2329,7 @@ impl LayoutWindow {
         total
     }
 
-    pub fn virtual_view_content_offset(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> LogicalPosition {
+    pub fn virtual_view_content_offset(&self, dom_id: DomId, node_id: NodeId) -> LogicalPosition {
         let window_origin = self
             .virtual_view_manager
             .materialized_window_origin(dom_id, node_id)
@@ -2388,10 +2384,15 @@ impl LayoutWindow {
         let hierarchy = lr.styled_dom.node_hierarchy.as_container();
         let mut current = Some(node_id);
         while let Some(nid) = current {
-            if node_data.get(nid).is_some_and(azul_core::dom::NodeData::is_contenteditable) {
+            if node_data
+                .get(nid)
+                .is_some_and(azul_core::dom::NodeData::is_contenteditable)
+            {
                 return Some(nid);
             }
-            current = hierarchy.get(nid).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            current = hierarchy
+                .get(nid)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
     }
@@ -2432,9 +2433,12 @@ impl LayoutWindow {
         };
         self.undo_redo_manager
             .store_content_snapshot(changeset_id, pre_content, post_content);
-        self.undo_redo_manager.record_operation(changeset, pre_state);
+        self.undo_redo_manager
+            .record_operation(changeset, pre_state);
         if matches!(notify, TextEditNotify::QueueInput) {
-            self.text_edit_manager.pending_edit_notifications.push(target);
+            self.text_edit_manager
+                .pending_edit_notifications
+                .push(target);
         }
         changeset_id
     }
@@ -2498,10 +2502,7 @@ impl LayoutWindow {
                 let at = self.caret_node_position(target.dom, node_id)?;
                 (
                     *target,
-                    DocumentOperation::SplitNode(DocOpSplitNode {
-                        node: *target,
-                        at,
-                    }),
+                    DocumentOperation::SplitNode(DocOpSplitNode { node: *target, at }),
                 )
             }
             DefaultAction::MergeWithPrevious { target } => {
@@ -2540,12 +2541,7 @@ impl LayoutWindow {
         };
 
         let resume = self.compute_edit_resume_point(target, &operation)?;
-        let changeset = DocumentChangeset::new(
-            target,
-            operation,
-            resume,
-            Instant::now(),
-        );
+        let changeset = DocumentChangeset::new(target, operation, resume, Instant::now());
 
         // The preview materializes inside record_document_edit — the shared
         // chokepoint, so app-recorded changesets preview identically.
@@ -2580,7 +2576,10 @@ impl LayoutWindow {
         // Walk the caret's node up to the DIRECT child of `node`.
         let mut direct_child = caret_node;
         if direct_child != node_id {
-            while let Some(parent) = hierarchy.get(direct_child).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
+            while let Some(parent) = hierarchy
+                .get(direct_child)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            {
                 if parent == node_id {
                     break;
                 }
@@ -2594,10 +2593,14 @@ impl LayoutWindow {
 
         // Index of that direct child among ALL children.
         let mut index: u32 = 0;
-        let mut sib = hierarchy.get(direct_child).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
+        let mut sib = hierarchy
+            .get(direct_child)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
         while let Some(sn) = sib {
             index += 1;
-            sib = hierarchy.get(sn).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
+            sib = hierarchy
+                .get(sn)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
         }
 
         // Only a TEXT child carries a byte offset; anything else is a
@@ -2635,7 +2638,9 @@ impl LayoutWindow {
         while let Some(c) = child {
             count += 1;
             last_child = Some(c);
-            child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+            child = hierarchy
+                .get(c)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
         }
         let last_text_len = last_child.and_then(|c| {
             node_data.get(c).and_then(|n| match n.get_node_type() {
@@ -2652,11 +2657,7 @@ impl LayoutWindow {
     /// The end-of-text cursor of an IFC root: the byte AFTER the last text
     /// run's content (overlay-aware — sees uncommitted edits). `None` when
     /// the node has no text runs.
-    fn node_text_end_cursor(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Option<TextCursor> {
+    fn node_text_end_cursor(&self, dom_id: DomId, node_id: NodeId) -> Option<TextCursor> {
         // The LAYOUT knows the real grapheme clusters: end = Trailing on the
         // final cluster. A byte-length synthetic cursor (one past the last
         // cluster start) resolves to NOTHING in get_selection_rects and the
@@ -2733,32 +2734,53 @@ impl LayoutWindow {
         // A cross-block selection contributes exactly ONE range per node; the
         // list carrier exists for the multi-cursor sessions of the other path.
         let mut affected = BTreeMap::new();
-        affected.insert(first, vec![SelectionRange { start: first_cursor, end: first_end }]);
+        affected.insert(
+            first,
+            vec![SelectionRange {
+                start: first_cursor,
+                end: first_end,
+            }],
+        );
         for &m in &middles {
             // Text-less middles (images, rules) contribute a zero-width range
             // at their start: they are INSIDE the selection (deleted by
             // delete_cross_block_selection) but have no text to highlight.
-            let end = self.node_text_end_cursor(dom_id, m).unwrap_or_else(|| node_start(m));
-            affected.insert(m, vec![SelectionRange { start: node_start(m), end }]);
+            let end = self
+                .node_text_end_cursor(dom_id, m)
+                .unwrap_or_else(|| node_start(m));
+            affected.insert(
+                m,
+                vec![SelectionRange {
+                    start: node_start(m),
+                    end,
+                }],
+            );
         }
-        affected.insert(last, vec![SelectionRange { start: node_start(last), end: last_cursor }]);
+        affected.insert(
+            last,
+            vec![SelectionRange {
+                start: node_start(last),
+                end: last_cursor,
+            }],
+        );
 
-        self.text_edit_manager.set_cross_block_selection(TextSelection {
-            dom_id,
-            anchor: SelectionAnchor {
-                ifc_root_node_id: anchor_node,
-                cursor: anchor_cursor,
-                char_bounds: LogicalRect::zero(),
-                mouse_position: LogicalPosition::zero(),
-            },
-            focus: SelectionFocus {
-                ifc_root_node_id: focus_node,
-                cursor: focus_cursor,
-                mouse_position: LogicalPosition::zero(),
-            },
-            affected_nodes: affected,
-            is_forward,
-        });
+        self.text_edit_manager
+            .set_cross_block_selection(TextSelection {
+                dom_id,
+                anchor: SelectionAnchor {
+                    ifc_root_node_id: anchor_node,
+                    cursor: anchor_cursor,
+                    char_bounds: LogicalRect::zero(),
+                    mouse_position: LogicalPosition::zero(),
+                },
+                focus: SelectionFocus {
+                    ifc_root_node_id: focus_node,
+                    cursor: focus_cursor,
+                    mouse_position: LogicalPosition::zero(),
+                },
+                affected_nodes: affected,
+                is_forward,
+            });
         true
     }
 
@@ -2818,7 +2840,11 @@ impl LayoutWindow {
         use crate::text3::edit::cursor_byte_offset_in_run;
         let cut_run = first_range.start.cluster_id.source_run;
         let mut first_kept = String::new();
-        for (i, c) in self.get_text_before_textinput(dom_id, first).iter().enumerate() {
+        for (i, c) in self
+            .get_text_before_textinput(dom_id, first)
+            .iter()
+            .enumerate()
+        {
             let i = u32::try_from(i).unwrap_or(u32::MAX);
             if let InlineContent::Text(run) = c {
                 match i.cmp(&cut_run) {
@@ -2837,7 +2863,11 @@ impl LayoutWindow {
         // Text kept from the LAST block: everything after the range end.
         let cut_run = last_range.end.cluster_id.source_run;
         let mut last_kept = String::new();
-        for (i, c) in self.get_text_before_textinput(dom_id, last).iter().enumerate() {
+        for (i, c) in self
+            .get_text_before_textinput(dom_id, last)
+            .iter()
+            .enumerate()
+        {
             let i = u32::try_from(i).unwrap_or(u32::MAX);
             if let InlineContent::Text(run) = c {
                 match i.cmp(&cut_run) {
@@ -2852,12 +2882,9 @@ impl LayoutWindow {
             }
         }
 
-        let join_byte =
-            u32::try_from(first_kept.len() + insert.len()).unwrap_or(u32::MAX);
+        let join_byte = u32::try_from(first_kept.len() + insert.len()).unwrap_or(u32::MAX);
         let merged_text = {
-            let mut t = String::with_capacity(
-                first_kept.len() + insert.len() + last_kept.len(),
-            );
+            let mut t = String::with_capacity(first_kept.len() + insert.len() + last_kept.len());
             t.push_str(&first_kept);
             t.push_str(insert);
             t.push_str(&last_kept);
@@ -3019,8 +3046,7 @@ impl LayoutWindow {
             // First real sibling found: eligible iff its computed display is
             // a flow block. Anything else (inline, table, flex, grid,
             // display:none…) stops the merge — do NOT jump over it.
-            let MultiValue::Exact(display) = get_display_property(&lr.styled_dom, Some(sib))
-            else {
+            let MultiValue::Exact(display) = get_display_property(&lr.styled_dom, Some(sib)) else {
                 return None;
             };
             return match display {
@@ -3054,7 +3080,11 @@ impl LayoutWindow {
         let hierarchy_c = lr.styled_dom.node_hierarchy.as_container();
         let anchor = self
             .find_contenteditable_host(target.dom, node_id)
-            .or_else(|| hierarchy_c.get(node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id))
+            .or_else(|| {
+                hierarchy_c
+                    .get(node_id)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            })
             .unwrap_or(node_id);
         let node_data = lr.styled_dom.node_data.as_ref();
         let hierarchy = lr.styled_dom.node_hierarchy.as_ref();
@@ -3065,13 +3095,20 @@ impl LayoutWindow {
         let mut current = node_id;
         while current != anchor {
             let mut index: u32 = 0;
-            let mut sib = hierarchy_c.get(current).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
+            let mut sib = hierarchy_c
+                .get(current)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
             while let Some(sn) = sib {
                 index += 1;
-                sib = hierarchy_c.get(sn).and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
+                sib = hierarchy_c
+                    .get(sn)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::previous_sibling_id);
             }
             path_rev.push(index);
-            match hierarchy_c.get(current).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
+            match hierarchy_c
+                .get(current)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+            {
                 Some(p) => current = p,
                 None => break,
             }
@@ -3107,9 +3144,7 @@ impl LayoutWindow {
             DocumentOperation::RemoveChildren(r) => NodePosition::before_child(r.start),
             DocumentOperation::ReplaceChildren(r) => NodePosition::before_child(r.start),
             DocumentOperation::WrapRange(w) => w.start,
-            DocumentOperation::UnwrapRange(u) => {
-                NodePosition::before_child(u.at.child_index)
-            }
+            DocumentOperation::UnwrapRange(u) => NodePosition::before_child(u.at.child_index),
         };
 
         Some(EditResumePoint {
@@ -3126,7 +3161,11 @@ impl LayoutWindow {
     /// `layout_and_generate_display_list`), and returns true iff the ids
     /// matched.
     pub fn mark_document_edit_applied(&mut self, id: u64) -> bool {
-        if self.pending_document_edit.as_ref().is_some_and(|c| c.id == id) {
+        if self
+            .pending_document_edit
+            .as_ref()
+            .is_some_and(|c| c.id == id)
+        {
             if let Some(edit) = self.pending_document_edit.take() {
                 self.pending_caret_restore = Some(edit.resume);
             }
@@ -3157,10 +3196,7 @@ impl LayoutWindow {
         id: u64,
         inverse: crate::managers::changeset::DocumentOperation,
     ) -> bool {
-        let Some(edit) = self
-            .pending_document_edit
-            .take_if(|c| c.id == id)
-        else {
+        let Some(edit) = self.pending_document_edit.take_if(|c| c.id == id) else {
             return false;
         };
         self.pending_caret_restore = Some(edit.resume.clone());
@@ -3176,7 +3212,8 @@ impl LayoutWindow {
             Some(StructuralAckKind::Undo) => {}
             // The ack of a REDO re-record: back onto undo WITHOUT clearing redo.
             Some(StructuralAckKind::Redo) => {
-                self.undo_redo_manager.push_structural_undo_after_redo(entry);
+                self.undo_redo_manager
+                    .push_structural_undo_after_redo(entry);
             }
             // A fresh user edit.
             None => self.undo_redo_manager.push_structural(entry),
@@ -3227,7 +3264,8 @@ impl LayoutWindow {
             Instant::now(),
         );
         let id = self.record_document_edit(changeset);
-        self.undo_redo_manager.push_structural_undo_after_redo(entry);
+        self.undo_redo_manager
+            .push_structural_undo_after_redo(entry);
         self.structural_history_suppression = Some(StructuralAckKind::Redo);
         Some(id)
     }
@@ -3261,15 +3299,11 @@ impl LayoutWindow {
             }
             (Op::InsertChildren(_), Op::RemoveChildren(r)) => NodePosition::before_child(r.start),
             (Op::RemoveChildren(_), Op::InsertChildren(i)) => NodePosition::before_child(i.index),
-            (Op::ReplaceChildren(_), Op::ReplaceChildren(r)) => {
-                NodePosition::before_child(r.start)
-            }
+            (Op::ReplaceChildren(_), Op::ReplaceChildren(r)) => NodePosition::before_child(r.start),
             (Op::WrapRange(w), Op::UnwrapRange(_)) => {
                 NodePosition::before_child(w.start.child_index)
             }
-            (Op::UnwrapRange(u), Op::WrapRange(_)) => {
-                NodePosition::before_child(u.at.child_index)
-            }
+            (Op::UnwrapRange(u), Op::WrapRange(_)) => NodePosition::before_child(u.at.child_index),
             _ => return None,
         };
         Some(EditResumePoint {
@@ -3312,7 +3346,9 @@ impl LayoutWindow {
                     return Some(c);
                 }
                 i += 1;
-                child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+                child = hierarchy
+                    .get(c)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
             }
             None
         };
@@ -3320,7 +3356,9 @@ impl LayoutWindow {
         // Walk the child-index path; any miss falls back to the anchor.
         let mut target = anchor;
         for &idx in resume.node_path.as_ref() {
-            if let Some(c) = nth_child(target, idx) { target = c } else {
+            if let Some(c) = nth_child(target, idx) {
+                target = c
+            } else {
                 target = anchor;
                 break;
             }
@@ -3447,7 +3485,9 @@ impl LayoutWindow {
                     {
                         out.push(c);
                     }
-                    child = hierarchy.get(c).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
+                    child = hierarchy
+                        .get(c)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id);
                 }
             }
             out
@@ -3539,7 +3579,11 @@ impl LayoutWindow {
     /// Style + lay `styled_dom` out against `available` on fresh scratch
     /// caches — nothing of the window's live layout state is touched. The
     /// returned cache holds the tree and positions for the caller to read.
-    fn scratch_layout(&self, styled_dom: &StyledDom, available: LogicalSize) -> Option<Solver3LayoutCache> {
+    fn scratch_layout(
+        &self,
+        styled_dom: &StyledDom,
+        available: LogicalSize,
+    ) -> Option<Solver3LayoutCache> {
         let mut scratch_cache = Solver3LayoutCache {
             tree: None,
             resize_only_hint: false,
@@ -3672,10 +3716,11 @@ impl LayoutWindow {
     ) -> Option<crate::transient::OpenTransientWindow> {
         let closed = self.transient_windows.dismiss(source_node)?;
         self.layout_results.remove(&closed.content_dom);
-        self.pending_transient_diff.merge(crate::transient::TransientDiff {
-            closed: vec![closed.content_dom],
-            ..Default::default()
-        });
+        self.pending_transient_diff
+            .merge(crate::transient::TransientDiff {
+                closed: vec![closed.content_dom],
+                ..Default::default()
+            });
         let now = {
             #[cfg(feature = "std")]
             {
@@ -3686,12 +3731,13 @@ impl LayoutWindow {
                 azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
             }
         };
-        self.pending_lifecycle_events.push(azul_core::diff::create_dismiss_event(
-            source_node,
-            DomId::ROOT_ID,
-            &now,
-            closed.placement.anchor_rect,
-        ));
+        self.pending_lifecycle_events
+            .push(azul_core::diff::create_dismiss_event(
+                source_node,
+                DomId::ROOT_ID,
+                &now,
+                closed.placement.anchor_rect,
+            ));
         Some(closed)
     }
 
@@ -3715,7 +3761,10 @@ impl LayoutWindow {
         let mut current = Some(node);
         for _ in 0..256 {
             let n = current?;
-            if matches!(nodes.get(n).map(azul_core::dom::NodeData::get_node_type), Some(NodeType::TransientWindow(_))) {
+            if matches!(
+                nodes.get(n).map(azul_core::dom::NodeData::get_node_type),
+                Some(NodeType::TransientWindow(_))
+            ) {
                 let inline = self
                     .transient_windows
                     .open_windows()
@@ -3723,7 +3772,9 @@ impl LayoutWindow {
                     .any(|w| w.source_node == n && w.is_inline());
                 return inline.then_some(n);
             }
-            current = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            current = hierarchy
+                .get(n)
+                .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         None
     }
@@ -3757,7 +3808,12 @@ impl LayoutWindow {
         // event): it is a drag proxy, not an app-facing tear-off — the app
         // hears one event on release (`end_inline_tear`).
         self.transient_windows.set_content_size(panel, rect.size);
-        self.inline_tear = Some(InlineTear { node: panel, press, origin, was_zone });
+        self.inline_tear = Some(InlineTear {
+            node: panel,
+            press,
+            origin,
+            was_zone,
+        });
         self.apply_transient_drop_inner(panel, crate::transient::TearDrop::TearOff(origin), false)
     }
 
@@ -3766,7 +3822,10 @@ impl LayoutWindow {
     /// this into the proxy window's mailbox each move (the parent owns the
     /// gesture, so it drives the child). `None` if no inline tear is active.
     #[must_use]
-    pub fn inline_tear_origin_at(&self, cursor: LogicalPosition) -> Option<(NodeId, LogicalPosition)> {
+    pub fn inline_tear_origin_at(
+        &self,
+        cursor: LogicalPosition,
+    ) -> Option<(NodeId, LogicalPosition)> {
         let tear = self.inline_tear?;
         Some((
             tear.node,
@@ -3795,7 +3854,8 @@ impl LayoutWindow {
             dom: DomId::ROOT_ID,
             node: NodeHierarchyItemId::from_crate_internal(Some(tear.node)),
         }) {
-            self.transient_windows.set_content_size(tear.node, rect.size);
+            self.transient_windows
+                .set_content_size(tear.node, rect.size);
         }
         // Apply the drop SILENTLY (the proxy tear on drag-start was silent too),
         // then fire ONE lifecycle event for the NET change from the pre-drag
@@ -3843,13 +3903,14 @@ impl LayoutWindow {
                 azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
             }
         };
-        self.pending_lifecycle_events.push(azul_core::diff::create_tearoff_event(
-            node,
-            DomId::ROOT_ID,
-            &now,
-            torn,
-            bounds,
-        ));
+        self.pending_lifecycle_events
+            .push(azul_core::diff::create_tearoff_event(
+                node,
+                DomId::ROOT_ID,
+                &now,
+                torn,
+                bounds,
+            ));
     }
 
     /// The user's tear-off drag of the window at `source_node` ended with the
@@ -3878,7 +3939,9 @@ impl LayoutWindow {
         cursor: LogicalPosition,
         emit: bool,
     ) -> bool {
-        use crate::transient::{decide_drop, nodes_matching_selector, tearoff_zone_selector, TearDrop};
+        use crate::transient::{
+            decide_drop, nodes_matching_selector, tearoff_zone_selector, TearDrop,
+        };
         let Some(open) = self
             .transient_windows
             .open_windows()
@@ -3891,28 +3954,33 @@ impl LayoutWindow {
         // Zones: the nodes matching the window's `tearoff-zone` selector,
         // hit-tested by their viewport rects; the innermost (last in
         // document order) one under the pointer wins.
-        let zones: Vec<(NodeId, LogicalRect)> = if open.placement.tearoff == azul_core::transient::TransientTearoff::Zone {
-            let root = self.layout_results.get(&DomId::ROOT_ID);
-            let selector = root.and_then(|r| tearoff_zone_selector(&r.styled_dom, source_node));
-            match (root, selector) {
-                (Some(r), Some(sel)) => nodes_matching_selector(&r.styled_dom, &sel)
-                    .into_iter()
-                    .filter(|n| *n != source_node)
-                    .filter_map(|n| {
-                        let rect = self.get_node_rect_in_viewport(DomNodeId {
-                            dom: DomId::ROOT_ID,
-                            node: NodeHierarchyItemId::from_crate_internal(Some(n)),
-                        })?;
-                        Some((n, rect))
-                    })
-                    .collect(),
-                _ => Vec::new(),
-            }
-        } else {
-            Vec::new()
-        };
+        let zones: Vec<(NodeId, LogicalRect)> =
+            if open.placement.tearoff == azul_core::transient::TransientTearoff::Zone {
+                let root = self.layout_results.get(&DomId::ROOT_ID);
+                let selector = root.and_then(|r| tearoff_zone_selector(&r.styled_dom, source_node));
+                match (root, selector) {
+                    (Some(r), Some(sel)) => nodes_matching_selector(&r.styled_dom, &sel)
+                        .into_iter()
+                        .filter(|n| *n != source_node)
+                        .filter_map(|n| {
+                            let rect = self.get_node_rect_in_viewport(DomNodeId {
+                                dom: DomId::ROOT_ID,
+                                node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                            })?;
+                            Some((n, rect))
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
         let drop = decide_drop(cursor, open.placement.anchor_rect, window_origin, |p| {
-            zones.iter().rev().find(|(_, r)| r.contains(p)).map(|(n, _)| *n)
+            zones
+                .iter()
+                .rev()
+                .find(|(_, r)| r.contains(p))
+                .map(|(n, _)| *n)
         });
         self.apply_transient_drop_inner(source_node, drop, emit)
     }
@@ -3939,7 +4007,11 @@ impl LayoutWindow {
         self.apply_transient_drop(source_node, drop)
     }
 
-    fn apply_transient_drop(&mut self, source_node: NodeId, drop: crate::transient::TearDrop) -> bool {
+    fn apply_transient_drop(
+        &mut self,
+        source_node: NodeId,
+        drop: crate::transient::TearDrop,
+    ) -> bool {
         self.apply_transient_drop_inner(source_node, drop, true)
     }
 
@@ -3995,17 +4067,22 @@ impl LayoutWindow {
                     azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
                 }
             };
-            self.pending_lifecycle_events.push(azul_core::diff::create_tearoff_event(
-                source_node,
-                DomId::ROOT_ID,
-                &now,
-                w.torn.is_some(),
-                bounds,
-            ));
+            self.pending_lifecycle_events
+                .push(azul_core::diff::create_tearoff_event(
+                    source_node,
+                    DomId::ROOT_ID,
+                    &now,
+                    w.torn.is_some(),
+                    bounds,
+                ));
         }
         // A re-anchor (a zone) or a move of a torn window changes placement
         // without changing kind: the next reconcile re-places it.
-        changed || matches!(drop, crate::transient::TearDrop::DockOnto(_) | crate::transient::TearDrop::TearOff(_))
+        changed
+            || matches!(
+                drop,
+                crate::transient::TearDrop::DockOnto(_) | crate::transient::TearDrop::TearOff(_)
+            )
     }
 
     /// Measure the content of the `<transient-window>` at `source_node` for
@@ -4158,7 +4235,10 @@ impl LayoutWindow {
         };
 
         // Get the platform from system_style, falling back to compile-time detection
-        let platform = self.system_style.as_ref().map_or_else(azul_css::system::Platform::current, |s| s.platform.clone());
+        let platform = self
+            .system_style
+            .as_ref()
+            .map_or_else(azul_css::system::Platform::current, |s| s.platform.clone());
 
         // Font Resolution And Loading
         // This must happen BEFORE layout_document() is called
@@ -4240,7 +4320,8 @@ impl LayoutWindow {
             if font_requirements_unchanged {
                 if let Some(msgs) = debug_messages.as_mut() {
                     msgs.push(LayoutDebugMessage::info(
-                        "[FontLoading] Font requirements unchanged, skipping resolution (cached)".to_string(),
+                        "[FontLoading] Font requirements unchanged, skipping resolution (cached)"
+                            .to_string(),
                     ));
                 }
             } else {
@@ -4254,7 +4335,9 @@ impl LayoutWindow {
                 // so the reverse map accumulates across DOMs.
                 if let Some(cc) = styled_dom.css_property_cache.ptr.compact_cache.as_ref() {
                     for (k, v) in &cc.font_hash_to_families {
-                        self.font_manager.font_hash_to_families.insert(*k, v.clone());
+                        self.font_manager
+                            .font_hash_to_families
+                            .insert(*k, v.clone());
                     }
                 }
 
@@ -4269,11 +4352,16 @@ impl LayoutWindow {
                 let mut chains = {
                     let _p = crate::probe::Probe::span("font_chain_resolve");
                     collect_and_resolve_font_chains_with_registration(
-                        &styled_dom, &self.font_manager.fc_cache, &self.font_manager, &platform,
+                        &styled_dom,
+                        &self.font_manager.fc_cache,
+                        &self.font_manager,
+                        &platform,
                     )
                 };
                 // [g80] localize where font_chain_cache drops to 0: chains right after collect_and_resolve.
-                unsafe { crate::az_mark(0x60770_u32, chains.chains.len() as u32); }
+                unsafe {
+                    crate::az_mark(0x60770_u32, chains.chains.len() as u32);
+                }
                 // WEB-LIFT last resort (the DEFINITIVE spot — the layout's own `chains` that
                 // feed load_missing_for_chains below): the lifted font-query path can leave a
                 // chain with NO fonts even when a fallback IS registered (generic→OS-name +
@@ -4282,19 +4370,25 @@ impl LayoutWindow {
                 // Done here (azul-layout), NOT rust-fontconfig (which re-codegens the fragile
                 // with_memory_fonts into a trapping shape).
                 for chain in chains.chains.values_mut() {
-                    let total = chain.css_fallbacks.iter().map(|g| g.fonts.len()).sum::<usize>()
+                    let total = chain
+                        .css_fallbacks
+                        .iter()
+                        .map(|g| g.fonts.len())
+                        .sum::<usize>()
                         + chain.unicode_fallbacks.len();
                     if total == 0 {
                         // `list()` deep-copies the ENTIRE font database to read one
-                            // entry; see `first_font_in_cache` in solver3::getters.
-                            let __first = {
-                                let mut f = None;
-                                self.font_manager.fc_cache.for_each_pattern(|p, id| {
-                                    if f.is_none() { f = Some((p.clone(), *id)); }
-                                });
-                                f
-                            };
-                            if let Some((pattern, id)) = __first.as_ref() {
+                        // entry; see `first_font_in_cache` in solver3::getters.
+                        let __first = {
+                            let mut f = None;
+                            self.font_manager.fc_cache.for_each_pattern(|p, id| {
+                                if f.is_none() {
+                                    f = Some((p.clone(), *id));
+                                }
+                            });
+                            f
+                        };
+                        if let Some((pattern, id)) = __first.as_ref() {
                             chain.unicode_fallbacks.push(rust_fontconfig::FontMatch {
                                 id: *id,
                                 unicode_ranges: pattern.unicode_ranges.clone(),
@@ -4304,7 +4398,9 @@ impl LayoutWindow {
                     }
                 }
                 // [g80] chains after the window.rs last-resort loop (values_mut path).
-                unsafe { crate::az_mark(0x60774_u32, chains.chains.len() as u32); }
+                unsafe {
+                    crate::az_mark(0x60774_u32, chains.chains.len() as u32);
+                }
                 // [az-web-lift 2026-06-05] REMOVED a WASM-ONLY diagnostic probe that computed
                 // nchains/total_fonts/nreg here purely to write debug markers. Its
                 // `chains.chains.values().map(|c| …).sum()` closure-iterator chain (and/or the
@@ -4335,10 +4431,10 @@ impl LayoutWindow {
                 crate::probe::sample_peak_rss("rss:before_font_load");
                 let failed = {
                     let _p = crate::probe::Probe::span("font_load_missing");
-                    self.font_manager.load_missing_for_chains(
-                        &chains,
-                        |bytes, index| loader.load_font_shared(bytes, index),
-                    )
+                    self.font_manager
+                        .load_missing_for_chains(&chains, |bytes, index| {
+                            loader.load_font_shared(bytes, index)
+                        })
                 };
                 crate::probe::sample_peak_rss("rss:after_font_load");
                 if let Some(msgs) = debug_messages.as_mut() {
@@ -4363,13 +4459,9 @@ impl LayoutWindow {
                 // the keep-set describes just the DOM being laid out, and evicting
                 // on it could drop a sibling DOM's font between its layout and its
                 // raster.
-                let single_dom = self
-                    .layout_results
-                    .keys()
-                    .all(|d| *d == dom_id);
+                let single_dom = self.layout_results.keys().all(|d| *d == dom_id);
                 if single_dom {
-                    let keep_ids =
-                        solver3::getters::collect_font_ids_from_chains(&chains);
+                    let keep_ids = solver3::getters::collect_font_ids_from_chains(&chains);
                     // The family-hash keep-set comes from the compact style
                     // cache — which a runtime CSS patch legitimately DROPS
                     // (`restyle_user_property` invalidates it so the next
@@ -4413,13 +4505,18 @@ impl LayoutWindow {
                 // an identical DOM skips the resolver entirely).
                 let fc_chains = chains.into_fontconfig_chains();
                 // [g80] fc_chains after into_fontconfig_chains (the BTreeMap rebuild) — does it drop them?
-                unsafe { crate::az_mark(0x60778_u32, fc_chains.len() as u32); }
-                self.font_manager.set_font_chain_cache_with_sig(
-                    fc_chains,
-                    font_stacks_sig,
-                );
+                unsafe {
+                    crate::az_mark(0x60778_u32, fc_chains.len() as u32);
+                }
+                self.font_manager
+                    .set_font_chain_cache_with_sig(fc_chains, font_stacks_sig);
                 // [g80] font_chain_cache right after set (does set_font_chain_cache_with_sig persist it?).
-                unsafe { crate::az_mark(0x6077C_u32, (self.font_manager.font_chain_cache.len() as u32)); }
+                unsafe {
+                    crate::az_mark(
+                        0x6077C_u32,
+                        (self.font_manager.font_chain_cache.len() as u32),
+                    );
+                }
             }
         }
         let scroll_offsets = self.scroll_manager.get_scroll_states_for_dom(dom_id);
@@ -4499,9 +4596,11 @@ impl LayoutWindow {
         // pass eats it, and only for the DOM it was computed against.
         let css_dirty_for_this_pass: Vec<(NodeId, azul_css::props::property::RelayoutScope)> =
             match &self.pending_css_dirty {
-                Some((d, _)) if *d == dom_id => {
-                    self.pending_css_dirty.take().map(|(_, v)| v).unwrap_or_default()
-                }
+                Some((d, _)) if *d == dom_id => self
+                    .pending_css_dirty
+                    .take()
+                    .map(|(_, v)| v)
+                    .unwrap_or_default(),
                 _ => Vec::new(),
             };
 
@@ -4625,8 +4724,7 @@ impl LayoutWindow {
             // single-threaded (it runs inside layout) and a mutex would only
             // add a way for the instrumentation to deadlock the thing it
             // measures.
-            static MEM_FRAME: core::sync::atomic::AtomicU64 =
-                core::sync::atomic::AtomicU64::new(0);
+            static MEM_FRAME: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
             static PREV_WALKED_KIB: core::sync::atomic::AtomicU64 =
                 core::sync::atomic::AtomicU64::new(0);
             static PREV_RSS_KIB: core::sync::atomic::AtomicU64 =
@@ -4636,31 +4734,87 @@ impl LayoutWindow {
             eprintln!("[MEM] ================ frame {mem_frame} ================");
 
             let sr = styled_dom.memory_report();
-            eprintln!("[MEM] StyledDom ({} nodes) total={} KiB", sr.node_count, sr.total_bytes() / 1024);
-            eprintln!("[MEM]   node_hierarchy    {:>7} KiB", sr.node_hierarchy_bytes / 1024);
-            eprintln!("[MEM]   node_data         {:>7} KiB", sr.node_data_bytes / 1024);
-            eprintln!("[MEM]   styled_nodes      {:>7} KiB", sr.styled_nodes_bytes / 1024);
-            eprintln!("[MEM]   cascade_info      {:>7} KiB", sr.cascade_info_bytes / 1024);
-            eprintln!("[MEM]   tag_ids           {:>7} KiB", sr.tag_ids_bytes / 1024);
-            eprintln!("[MEM]   non_leaf_nodes    {:>7} KiB", sr.non_leaf_nodes_bytes / 1024);
+            eprintln!(
+                "[MEM] StyledDom ({} nodes) total={} KiB",
+                sr.node_count,
+                sr.total_bytes() / 1024
+            );
+            eprintln!(
+                "[MEM]   node_hierarchy    {:>7} KiB",
+                sr.node_hierarchy_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   node_data         {:>7} KiB",
+                sr.node_data_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   styled_nodes      {:>7} KiB",
+                sr.styled_nodes_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   cascade_info      {:>7} KiB",
+                sr.cascade_info_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   tag_ids           {:>7} KiB",
+                sr.tag_ids_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   non_leaf_nodes    {:>7} KiB",
+                sr.non_leaf_nodes_bytes / 1024
+            );
             let bd = &sr.css_property_cache;
-            eprintln!("[MEM]   CssPropertyCache  {:>7} KiB", bd.total_bytes() / 1024);
-            eprintln!("[MEM]     cascaded_props   {:>6} KiB", bd.cascaded_props_bytes / 1024);
-            eprintln!("[MEM]     css_props        {:>6} KiB", bd.css_props_bytes / 1024);
-            eprintln!("[MEM]   computed_values   {:>7} KiB", bd.computed_values_bytes / 1024);
-            eprintln!("[MEM]   user_overridden   {:>7} KiB", bd.user_overridden_bytes / 1024);
-            eprintln!("[MEM]   global_css_props  {:>7} KiB", bd.global_css_props_bytes / 1024);
-            eprintln!("[MEM]   compact_cache     {:>7} KiB", bd.compact_cache_bytes / 1024);
-            eprintln!("[MEM]   resolved_font_sz  {:>7} KiB", bd.resolved_font_sizes_bytes / 1024);
+            eprintln!(
+                "[MEM]   CssPropertyCache  {:>7} KiB",
+                bd.total_bytes() / 1024
+            );
+            eprintln!(
+                "[MEM]     cascaded_props   {:>6} KiB",
+                bd.cascaded_props_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]     css_props        {:>6} KiB",
+                bd.css_props_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   computed_values   {:>7} KiB",
+                bd.computed_values_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   user_overridden   {:>7} KiB",
+                bd.user_overridden_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   global_css_props  {:>7} KiB",
+                bd.global_css_props_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   compact_cache     {:>7} KiB",
+                bd.compact_cache_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   resolved_font_sz  {:>7} KiB",
+                bd.resolved_font_sizes_bytes / 1024
+            );
 
             // solver3 LayoutCache breakdown
             let sc = self.layout_cache.memory_report();
-            eprintln!("[MEM] Solver3 LayoutCache total={} KiB", sc.total_bytes() / 1024);
+            eprintln!(
+                "[MEM] Solver3 LayoutCache total={} KiB",
+                sc.total_bytes() / 1024
+            );
             if let Some(tr) = &sc.tree_report {
-                eprintln!("[MEM]   LayoutTree        {:>7} KiB  ({} nodes)", sc.tree_bytes / 1024, tr.node_count);
+                eprintln!(
+                    "[MEM]   LayoutTree        {:>7} KiB  ({} nodes)",
+                    sc.tree_bytes / 1024,
+                    tr.node_count
+                );
                 eprintln!("[MEM]     hot              {:>6} KiB", tr.hot_bytes / 1024);
                 eprintln!("[MEM]     warm             {:>6} KiB", tr.warm_bytes / 1024);
-                eprintln!("[MEM]     warm.inline      {:>6} KiB  (shaped text in CachedInlineLayout)", tr.warm_inline_layout_bytes / 1024);
+                eprintln!(
+                    "[MEM]     warm.inline      {:>6} KiB  (shaped text in CachedInlineLayout)",
+                    tr.warm_inline_layout_bytes / 1024
+                );
                 // The paint-run derivation retained at store time (#25).
                 if tr.glyph_run_count > 0 {
                     eprintln!(
@@ -4704,17 +4858,44 @@ impl LayoutWindow {
                         size_of::<crate::text3::cache::ShapedGlyph>(),
                     );
                 }
-                eprintln!("[MEM]     warm.taffy       {:>6} KiB", tr.warm_taffy_cache_bytes / 1024);
+                eprintln!(
+                    "[MEM]     warm.taffy       {:>6} KiB",
+                    tr.warm_taffy_cache_bytes / 1024
+                );
                 eprintln!("[MEM]     cold             {:>6} KiB", tr.cold_bytes / 1024);
-                eprintln!("[MEM]     children_arena   {:>6} KiB", tr.children_arena_bytes / 1024);
-                eprintln!("[MEM]     dom_to_layout    {:>6} KiB", tr.dom_to_layout_bytes / 1024);
+                eprintln!(
+                    "[MEM]     children_arena   {:>6} KiB",
+                    tr.children_arena_bytes / 1024
+                );
+                eprintln!(
+                    "[MEM]     dom_to_layout    {:>6} KiB",
+                    tr.dom_to_layout_bytes / 1024
+                );
             }
-            eprintln!("[MEM]   cache_map         {:>7} KiB  (Taffy-style 9+1 slots per node)", sc.cache_map_bytes / 1024);
-            eprintln!("[MEM]   calculated_pos    {:>7} KiB", sc.calculated_positions_bytes / 1024);
-            eprintln!("[MEM]   previous_pos      {:>7} KiB", sc.previous_positions_bytes / 1024);
-            eprintln!("[MEM]   float_cache       {:>7} KiB", sc.float_cache_bytes / 1024);
-            eprintln!("[MEM]   counters          {:>7} KiB", sc.counters_bytes / 1024);
-            eprintln!("[MEM]   scroll_ids        {:>7} KiB", sc.scroll_ids_bytes / 1024);
+            eprintln!(
+                "[MEM]   cache_map         {:>7} KiB  (Taffy-style 9+1 slots per node)",
+                sc.cache_map_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   calculated_pos    {:>7} KiB",
+                sc.calculated_positions_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   previous_pos      {:>7} KiB",
+                sc.previous_positions_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   float_cache       {:>7} KiB",
+                sc.float_cache_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   counters          {:>7} KiB",
+                sc.counters_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   scroll_ids        {:>7} KiB",
+                sc.scroll_ids_bytes / 1024
+            );
             eprintln!(
                 "[MEM]   cached_display    {:>7} KiB  ({} items x {} B/slot + {} Text glyph instances — offset copies of glyph_runs)",
                 sc.cached_display_list_bytes / 1024,
@@ -4725,17 +4906,51 @@ impl LayoutWindow {
 
             // text shaping cache breakdown
             let tc = self.text_cache.memory_report();
-            eprintln!("[MEM] TextShapingCache total={} KiB", tc.total_bytes() / 1024);
-            eprintln!("[MEM]   logical_items     {:>7} KiB  ({} entries)", tc.logical_items_bytes / 1024, tc.logical_items_entries);
-            eprintln!("[MEM]   visual_items      {:>7} KiB  ({} entries)", tc.visual_items_bytes / 1024, tc.visual_items_entries);
-            eprintln!("[MEM]   shaped_items      {:>7} KiB  ({} entries)", tc.shaped_items_bytes / 1024, tc.shaped_items_entries);
-            eprintln!("[MEM]     glyph_bytes     {:>7} KiB", tc.shaped_glyph_bytes / 1024);
-            eprintln!("[MEM]     cluster_text    {:>7} KiB", tc.shaped_cluster_text_bytes / 1024);
-            eprintln!("[MEM]   per_item_shaped   {:>7} KiB  ({} entries)", tc.per_item_shaped_bytes / 1024, tc.per_item_shaped_entries);
-            eprintln!("[MEM]     composition: {} atoms / {} segments / {} detail glyphs",
-                tc.per_item_atoms, tc.per_item_segments, tc.per_item_detail_glyphs);
-            eprintln!("[MEM]   map_overhead      {:>7} KiB  (HashMap tables + Arc headers; ESTIMATE)", tc.map_overhead_bytes / 1024);
-            eprintln!("[MEM]   style_arcs        {:>7} KiB  ({} distinct Arc<StyleProperties>)", tc.style_arc_bytes / 1024, tc.distinct_style_arcs);
+            eprintln!(
+                "[MEM] TextShapingCache total={} KiB",
+                tc.total_bytes() / 1024
+            );
+            eprintln!(
+                "[MEM]   logical_items     {:>7} KiB  ({} entries)",
+                tc.logical_items_bytes / 1024,
+                tc.logical_items_entries
+            );
+            eprintln!(
+                "[MEM]   visual_items      {:>7} KiB  ({} entries)",
+                tc.visual_items_bytes / 1024,
+                tc.visual_items_entries
+            );
+            eprintln!(
+                "[MEM]   shaped_items      {:>7} KiB  ({} entries)",
+                tc.shaped_items_bytes / 1024,
+                tc.shaped_items_entries
+            );
+            eprintln!(
+                "[MEM]     glyph_bytes     {:>7} KiB",
+                tc.shaped_glyph_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]     cluster_text    {:>7} KiB",
+                tc.shaped_cluster_text_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   per_item_shaped   {:>7} KiB  ({} entries)",
+                tc.per_item_shaped_bytes / 1024,
+                tc.per_item_shaped_entries
+            );
+            eprintln!(
+                "[MEM]     composition: {} atoms / {} segments / {} detail glyphs",
+                tc.per_item_atoms, tc.per_item_segments, tc.per_item_detail_glyphs
+            );
+            eprintln!(
+                "[MEM]   map_overhead      {:>7} KiB  (HashMap tables + Arc headers; ESTIMATE)",
+                tc.map_overhead_bytes / 1024
+            );
+            eprintln!(
+                "[MEM]   style_arcs        {:>7} KiB  ({} distinct Arc<StyleProperties>)",
+                tc.style_arc_bytes / 1024,
+                tc.distinct_style_arcs
+            );
             // Printed unconditionally, INCLUDING when zero. A shared-Arc
             // correction that only appears when non-zero is indistinguishable
             // from a walk that stopped deduplicating, and this figure exists
@@ -4746,7 +4961,10 @@ impl LayoutWindow {
                 tc.shared_bytes_avoided / 1024,
             );
             if tc.combined_block_glyph_bytes > 0 {
-                eprintln!("[MEM]   combined_block    {:>7} KiB  (tate-chu-yoko glyphs)", tc.combined_block_glyph_bytes / 1024);
+                eprintln!(
+                    "[MEM]   combined_block    {:>7} KiB  (tate-chu-yoko glyphs)",
+                    tc.combined_block_glyph_bytes / 1024
+                );
             }
             if let Some(bpc) = tc.bytes_per_cluster() {
                 // THIS CACHE ONLY. The same text is ALSO retained per layout
@@ -4755,15 +4973,24 @@ impl LayoutWindow {
                 // line alone understates it roughly twofold. Both are printed;
                 // the combined figure is the one to compare externally.
                 let warm_per_cluster = if tc.cluster_count > 0 {
-                    sc.tree_report.as_ref().map_or(0, |t| t.warm_inline_layout_bytes) / tc.cluster_count
+                    sc.tree_report
+                        .as_ref()
+                        .map_or(0, |t| t.warm_inline_layout_bytes)
+                        / tc.cluster_count
                 } else {
                     0
                 };
-                eprintln!("[MEM]   -> {} clusters; {} B/cluster in THIS cache, {} B/cluster in",
-                    tc.cluster_count, bpc, warm_per_cluster);
-                eprintln!("[MEM]      warm.inline = {} B/cluster retained TOTAL for shaped text",
-                    bpc + warm_per_cluster);
-                eprintln!("[MEM]      (Gecko retains ~6 B/char; the same text is held TWICE here —");
+                eprintln!(
+                    "[MEM]   -> {} clusters; {} B/cluster in THIS cache, {} B/cluster in",
+                    tc.cluster_count, bpc, warm_per_cluster
+                );
+                eprintln!(
+                    "[MEM]      warm.inline = {} B/cluster retained TOTAL for shaped text",
+                    bpc + warm_per_cluster
+                );
+                eprintln!(
+                    "[MEM]      (Gecko retains ~6 B/char; the same text is held TWICE here —"
+                );
                 eprintln!("[MEM]       once by measure_intrinsic_widths, once by layout_flow.)");
             }
 
@@ -4777,7 +5004,9 @@ impl LayoutWindow {
             // that was really 4.7%, and a "peak above settled" effect that did
             // not exist. Both units are printed above so a comparison cannot
             // pick the wrong one by accident.
-            eprintln!("[MEM] NOTE units: this report and smaps are KiB (1024); heaptrack is MB (1000).");
+            eprintln!(
+                "[MEM] NOTE units: this report and smaps are KiB (1024); heaptrack is MB (1000)."
+            );
             // COVERAGE. What this walk does NOT reach, so nobody reads the
             // grand total as the process's memory:
             eprintln!("[MEM] NOT COVERED by the walk above: framebuffers/pixmaps, font files +");
@@ -4803,23 +5032,39 @@ impl LayoutWindow {
                 eprintln!("[MEM] === RSS CENSUS (all KiB; smaps prints \"kB\" but means KiB) ===");
                 let row = |label: &str, kib: u64| {
                     if kib > 0 {
-                        eprintln!("[MEM]   {label:<22} {:>8} KiB  {:>6.1} MiB", kib, kib as f64 / 1024.0);
+                        eprintln!(
+                            "[MEM]   {label:<22} {:>8} KiB  {:>6.1} MiB",
+                            kib,
+                            kib as f64 / 1024.0
+                        );
                     }
                 };
                 row("[heap]", m.heap_kib);
                 row("[anon] (incl. pixmaps)", m.anon_kib);
                 row("binary", m.binary_kib);
-                eprintln!("[MEM]   {:<22} {:>8} KiB  {:>6.1} MiB  ({} mappings)",
-                    "shared libraries", m.shared_libs_kib, m.shared_libs_kib as f64 / 1024.0,
-                    m.shared_lib_mappings);
-                eprintln!("[MEM]   {:<22} {:>8} KiB  {:>6.1} MiB  ({} mappings, mostly untouched)",
-                    "font files (mmap)", m.font_files_kib, m.font_files_kib as f64 / 1024.0,
-                    m.font_mappings);
+                eprintln!(
+                    "[MEM]   {:<22} {:>8} KiB  {:>6.1} MiB  ({} mappings)",
+                    "shared libraries",
+                    m.shared_libs_kib,
+                    m.shared_libs_kib as f64 / 1024.0,
+                    m.shared_lib_mappings
+                );
+                eprintln!(
+                    "[MEM]   {:<22} {:>8} KiB  {:>6.1} MiB  ({} mappings, mostly untouched)",
+                    "font files (mmap)",
+                    m.font_files_kib,
+                    m.font_files_kib as f64 / 1024.0,
+                    m.font_mappings
+                );
                 row("framebuffer (memfd)", m.framebuffer_kib);
                 row("stacks/vdso", m.stacks_kib);
                 row("other", m.other_kib);
-                eprintln!("[MEM]   {:<22} {:>8} KiB  {:>6.1} MiB", "TOTAL RSS",
-                    m.total_kib, m.total_kib as f64 / 1024.0);
+                eprintln!(
+                    "[MEM]   {:<22} {:>8} KiB  {:>6.1} MiB",
+                    "TOTAL RSS",
+                    m.total_kib,
+                    m.total_kib as f64 / 1024.0
+                );
                 // The census must be exhaustive; if it is not, say so rather
                 // than letting a silent shortfall look like attributed memory.
                 let missed = m.total_kib.saturating_sub(m.categorised_kib());
@@ -4829,9 +5074,15 @@ impl LayoutWindow {
                 // THE HEADLINE RATIO, with both sides in the same unit.
                 let walked_kib = (grand_total / 1024) as u64;
                 if m.total_kib > 0 {
-                    eprintln!("[MEM] the object walk reaches {:.1}% of RSS ({} of {} KiB).",
-                        100.0 * walked_kib as f64 / m.total_kib as f64, walked_kib, m.total_kib);
-                    eprintln!("[MEM] The remainder is NOT missing — it is the categories above that");
+                    eprintln!(
+                        "[MEM] the object walk reaches {:.1}% of RSS ({} of {} KiB).",
+                        100.0 * walked_kib as f64 / m.total_kib as f64,
+                        walked_kib,
+                        m.total_kib
+                    );
+                    eprintln!(
+                        "[MEM] The remainder is NOT missing — it is the categories above that"
+                    );
                     eprintln!("[MEM] the engine does not own..");
                 }
                 // ALLOCATOR. The census above says where RSS is; it cannot say
@@ -4846,13 +5097,23 @@ impl LayoutWindow {
                         mb(a.live_bytes));
                     eprintln!("[MEM]   freed, still held      {:>8.1} MiB  ({:.0}% of arena) <- CHURN, not data",
                         mb(a.free_in_arena_bytes), a.fragmentation_pct());
-                    eprintln!("[MEM]   arena                  {:>8.1} MiB", mb(a.arena_bytes));
-                    eprintln!("[MEM]   releasable by trim     {:>8.1} MiB", mb(a.releasable_bytes));
+                    eprintln!(
+                        "[MEM]   arena                  {:>8.1} MiB",
+                        mb(a.arena_bytes)
+                    );
+                    eprintln!(
+                        "[MEM]   releasable by trim     {:>8.1} MiB",
+                        mb(a.releasable_bytes)
+                    );
                     eprintln!("[MEM]   mmapped (hblkhd)       {:>8.1} MiB  <- lands in [anon], NOT [heap]",
                         mb(a.mmapped_bytes));
                 } else {
-                    eprintln!("[MEM] ALLOCATOR: mallinfo2 unavailable (musl / glibc < 2.33 / macOS).");
-                    eprintln!("[MEM]   Saying so rather than printing zeros — a zero here would read");
+                    eprintln!(
+                        "[MEM] ALLOCATOR: mallinfo2 unavailable (musl / glibc < 2.33 / macOS)."
+                    );
+                    eprintln!(
+                        "[MEM]   Saying so rather than printing zeros — a zero here would read"
+                    );
                     eprintln!("[MEM]   as \"no memory held\", the worst possible wrong answer.");
                 }
 
@@ -4867,8 +5128,12 @@ impl LayoutWindow {
                         let diff = now as i64 - was as i64;
                         format!("{diff:+} KiB ({:+.1} MiB)", diff as f64 / 1024.0)
                     };
-                    eprintln!("[MEM] delta vs frame {}: engine-walked {} | RSS {}",
-                        mem_frame - 1, d(walked_kib, prev_walk), d(m.total_kib, prev_rss));
+                    eprintln!(
+                        "[MEM] delta vs frame {}: engine-walked {} | RSS {}",
+                        mem_frame - 1,
+                        d(walked_kib, prev_walk),
+                        d(m.total_kib, prev_rss)
+                    );
                     // A SINGLE frame growing proves nothing: laying out a
                     // NEW document legitimately allocates, and a host that
                     // renders many documents in one process (the reftest
@@ -4891,10 +5156,16 @@ impl LayoutWindow {
                         0
                     };
                     if run >= RUN_TO_WARN {
-                        eprintln!("[MEM] !! RSS grew >{GROWTH_KIB} KiB for {run} CONSECUTIVE layouts.");
+                        eprintln!(
+                            "[MEM] !! RSS grew >{GROWTH_KIB} KiB for {run} CONSECUTIVE layouts."
+                        );
                         eprintln!("[MEM] !! Sustained growth is the shape a leak or an unbounded");
-                        eprintln!("[MEM] !! cache makes. One growing frame is normal (new content);");
-                        eprintln!("[MEM] !! {run} in a row is not. A single snapshot cannot show this.");
+                        eprintln!(
+                            "[MEM] !! cache makes. One growing frame is normal (new content);"
+                        );
+                        eprintln!(
+                            "[MEM] !! {run} in a row is not. A single snapshot cannot show this."
+                        );
                     }
                 }
             }
@@ -4917,9 +5188,11 @@ impl LayoutWindow {
                 eprintln!("[MEM] accounted / rss = {:.1}% (layout_cache walk only) — the gap is allocator overhead + unreturned transient pages + fonts/images + misc",
                     grand_total as f64 * 100.0 / (rss as f64).max(1.0));
                 if lr > 0 {
-                    eprintln!("[MEM]   incl. layout_results ({:.1} MiB, previous frame) = {:.1}%",
+                    eprintln!(
+                        "[MEM]   incl. layout_results ({:.1} MiB, previous frame) = {:.1}%",
                         lr as f64 / 1_048_576.0,
-                        (grand_total as u64 + lr) as f64 * 100.0 / (rss as f64).max(1.0));
+                        (grand_total as u64 + lr) as f64 * 100.0 / (rss as f64).max(1.0)
+                    );
                 } else {
                     eprintln!("[MEM]   layout_results not yet measured this run — the ratio above is a FLOOR.");
                 }
@@ -4978,13 +5251,17 @@ impl LayoutWindow {
                                 ScrollbarHitId::VerticalThumb(_, nid) => {
                                     if !gpu_cache.transform_keys.contains_key(nid) {
                                         gpu_cache.transform_keys.insert(*nid, transform_key);
-                                        gpu_cache.current_transform_values.insert(*nid, info.thumb_initial_transform);
+                                        gpu_cache
+                                            .current_transform_values
+                                            .insert(*nid, info.thumb_initial_transform);
                                     }
                                 }
                                 ScrollbarHitId::HorizontalThumb(_, nid) => {
                                     if !gpu_cache.h_transform_keys.contains_key(nid) {
                                         gpu_cache.h_transform_keys.insert(*nid, transform_key);
-                                        gpu_cache.h_current_transform_values.insert(*nid, info.thumb_initial_transform);
+                                        gpu_cache
+                                            .h_current_transform_values
+                                            .insert(*nid, info.thumb_initial_transform);
                                     }
                                 }
                                 _ => {}
@@ -5001,7 +5278,9 @@ impl LayoutWindow {
                         //   Always       → 1.0 (legacy scrollbar, always visible)
                         //   WhenScrolling → 0.0 (overlay scrollbar, hidden until scroll)
                         //   Auto         → 0.0 (same as WhenScrolling)
-                        let initial_opacity = if info.visibility == azul_css::props::style::scrollbar::ScrollbarVisibilityMode::Always {
+                        let initial_opacity = if info.visibility
+                            == azul_css::props::style::scrollbar::ScrollbarVisibilityMode::Always
+                        {
                             1.0
                         } else {
                             0.0
@@ -5010,16 +5289,24 @@ impl LayoutWindow {
                             match hit_id {
                                 ScrollbarHitId::VerticalThumb(_, nid) => {
                                     let key = (dom_id, *nid);
-                                    if let std::collections::hash_map::Entry::Vacant(e) = gpu_cache.scrollbar_v_opacity_keys.entry(key) {
+                                    if let std::collections::hash_map::Entry::Vacant(e) =
+                                        gpu_cache.scrollbar_v_opacity_keys.entry(key)
+                                    {
                                         e.insert(opacity_key);
-                                        gpu_cache.scrollbar_v_opacity_values.insert(key, initial_opacity);
+                                        gpu_cache
+                                            .scrollbar_v_opacity_values
+                                            .insert(key, initial_opacity);
                                     }
                                 }
                                 ScrollbarHitId::HorizontalThumb(_, nid) => {
                                     let key = (dom_id, *nid);
-                                    if let std::collections::hash_map::Entry::Vacant(e) = gpu_cache.scrollbar_h_opacity_keys.entry(key) {
+                                    if let std::collections::hash_map::Entry::Vacant(e) =
+                                        gpu_cache.scrollbar_h_opacity_keys.entry(key)
+                                    {
                                         e.insert(opacity_key);
-                                        gpu_cache.scrollbar_h_opacity_values.insert(key, initial_opacity);
+                                        gpu_cache
+                                            .scrollbar_h_opacity_values
+                                            .insert(key, initial_opacity);
                                     }
                                 }
                                 _ => {}
@@ -5036,11 +5323,27 @@ impl LayoutWindow {
 
         // Scan for VirtualViews *after* the initial layout pass
         // Pass styled_dom directly — layout_results isn't populated yet at this point
-        let vviews = Self::scan_for_virtual_views(&styled_dom, &tree, &self.layout_cache.calculated_positions);
+        let vviews = Self::scan_for_virtual_views(
+            &styled_dom,
+            &tree,
+            &self.layout_cache.calculated_positions,
+        );
 
         if std::env::var("AZ_MAP_DEBUG").is_ok() {
-            eprintln!("[vview] scan found {} VirtualView node(s): {:?}", vviews.len(),
-                vviews.iter().map(|(n, b)| (n.index(), b.origin.x, b.origin.y, b.size.width, b.size.height)).collect::<Vec<_>>());
+            eprintln!(
+                "[vview] scan found {} VirtualView node(s): {:?}",
+                vviews.len(),
+                vviews
+                    .iter()
+                    .map(|(n, b)| (
+                        n.index(),
+                        b.origin.x,
+                        b.origin.y,
+                        b.size.width,
+                        b.size.height
+                    ))
+                    .collect::<Vec<_>>()
+            );
         }
 
         for (node_id, bounds) in vviews {
@@ -5088,8 +5391,7 @@ impl LayoutWindow {
                                 child_dom_id,
                                 bounds: *placeholder_bounds,
                                 clip_rect: *placeholder_clip,
-                                content_offset: self
-                                    .virtual_view_content_offset(dom_id, node_id),
+                                content_offset: self.virtual_view_content_offset(dom_id, node_id),
                             };
                             replaced = true;
                             break;
@@ -5187,11 +5489,9 @@ impl LayoutWindow {
                 // rss_census(), not current_rss_bytes(): the latter is behind
                 // `#[cfg(feature = "probe")]` and this path must report in any
                 // build where the trim itself runs.
-                let rss_mib = crate::probe::rss_census()
-                    .map_or(0.0, |c| c.total_kib as f64 / 1024.0);
-                eprintln!(
-                    "[MEM] malloc_trim: released={released:?}  rss now {rss_mib:.1} MiB"
-                );
+                let rss_mib =
+                    crate::probe::rss_census().map_or(0.0, |c| c.total_kib as f64 / 1024.0);
+                eprintln!("[MEM] malloc_trim: released={released:?}  rss now {rss_mib:.1} MiB");
             }
         }
 
@@ -5293,11 +5593,7 @@ impl LayoutWindow {
         let mut moved = false;
         for (dom_id, layout_result) in layout_results {
             moved |= !gpu_state_manager
-                .update_scrollbar_transforms(
-                    *dom_id,
-                    scroll_manager,
-                    &layout_result.layout_tree,
-                )
+                .update_scrollbar_transforms(*dom_id, scroll_manager, &layout_result.layout_tree)
                 .is_empty();
         }
         moved
@@ -5343,7 +5639,10 @@ impl LayoutWindow {
         let mut focus_h = std::collections::hash_map::DefaultHasher::new();
         if let Some(f) = self.focus_manager.get_focused_node() {
             f.dom.inner.hash(&mut focus_h);
-            f.node.into_crate_internal().map(|n| n.index()).hash(&mut focus_h);
+            f.node
+                .into_crate_internal()
+                .map(|n| n.index())
+                .hash(&mut focus_h);
         }
 
         let mut sel_h = std::collections::hash_map::DefaultHasher::new();
@@ -5383,10 +5682,18 @@ impl LayoutWindow {
         // node anchor is captured up front; whether it counts is decided by
         // the resulting tier below.
         let pagination_anchor: Option<(DomId, NodeId)> = match &change {
-            ContentChange::Image { dom_id, node_id, .. }
-            | ContentChange::ImageCallbackResult { dom_id, node_id, .. }
-            | ContentChange::NodeCss { dom_id, node_id, .. }
-            | ContentChange::ImageMask { dom_id, node_id, .. } => Some((*dom_id, *node_id)),
+            ContentChange::Image {
+                dom_id, node_id, ..
+            }
+            | ContentChange::ImageCallbackResult {
+                dom_id, node_id, ..
+            }
+            | ContentChange::NodeCss {
+                dom_id, node_id, ..
+            }
+            | ContentChange::ImageMask {
+                dom_id, node_id, ..
+            } => Some((*dom_id, *node_id)),
             ContentChange::ImageById { .. } => None,
         };
         let is_image_by_id = matches!(&change, ContentChange::ImageById { .. });
@@ -5423,8 +5730,7 @@ impl LayoutWindow {
                         tier: ContentDirtyTier::Unchanged,
                     };
                 }
-                layout_result.styled_dom.node_data.as_container_mut()[node_id]
-                    .set_clip_mask(mask);
+                layout_result.styled_dom.node_data.as_container_mut()[node_id].set_clip_mask(mask);
                 self.regenerate_display_list_for_dom(dom_id);
                 ContentChangeResult {
                     tier: ContentDirtyTier::RebuildDisplayList,
@@ -5599,7 +5905,9 @@ impl LayoutWindow {
         image: &ImageRef,
         from_callback: bool,
     ) -> crate::overlay::ContentChangeResult {
-        use crate::overlay::{AppliedChange, ContentChangeResult, ContentDirtyTier, ResolvedContent};
+        use crate::overlay::{
+            AppliedChange, ContentChangeResult, ContentDirtyTier, ResolvedContent,
+        };
 
         // Current EFFECTIVE image (overlay → DOM). Unknown DOM: no-op.
         let Some(lr) = self.layout_results.get(&dom_id) else {
@@ -5638,7 +5946,8 @@ impl LayoutWindow {
             }
         };
 
-        self.content_overlay.set_image(dom_id, node_id, image.clone());
+        self.content_overlay
+            .set_image(dom_id, node_id, image.clone());
         self.content_journal.record(AppliedChange::Image {
             dom_id,
             node_id,
@@ -5652,8 +5961,7 @@ impl LayoutWindow {
                 // geometry, only the ImageRef changes. The backend's DL diff
                 // sees the identity change and damages exactly those bounds.
                 if let Some(lr) = self.layout_results.get_mut(&dom_id) {
-                    Arc::make_mut(&mut lr.display_list)
-                        .patch_node_image(node_id, image);
+                    Arc::make_mut(&mut lr.display_list).patch_node_image(node_id, image);
                 }
             }
             ContentDirtyTier::Relayout => {
@@ -5741,7 +6049,8 @@ impl LayoutWindow {
             );
             let produced = match image_ref.get_data() {
                 DecodedImage::Callback(core_callback) if core_callback.callback.cb != 0 => {
-                    let cb = crate::callbacks::RenderImageCallback::from_core(&core_callback.callback);
+                    let cb =
+                        crate::callbacks::RenderImageCallback::from_core(&core_callback.callback);
                     let refany = core_callback.refany.clone();
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (cb.cb)(refany, info)))
                         .ok()
@@ -5829,9 +6138,9 @@ impl LayoutWindow {
             float_cache: HashMap::new(),
             cache_map: solver3::cache::LayoutCacheMap::default(),
             previous_positions: Vec::new(),
-                cached_display_list: None,
-                prev_dom_ptr: 0,
-                prev_viewport: LogicalRect::zero(),
+            cached_display_list: None,
+            prev_dom_ptr: 0,
+            prev_viewport: LogicalRect::zero(),
             last_reconcile_reused: 0,
             last_reconcile_fresh: 0,
             last_intrinsic_dirty: 0,
@@ -5896,8 +6205,14 @@ impl LayoutWindow {
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Option<DomId> {
         self.invoke_virtual_view_callback_with_dom(
-            parent_dom_id, node_id, bounds, None,
-            window_state, renderer_resources, system_callbacks, debug_messages,
+            parent_dom_id,
+            node_id,
+            bounds,
+            None,
+            window_state,
+            renderer_resources,
+            system_callbacks,
+            debug_messages,
         )
     }
 
@@ -5935,7 +6250,9 @@ impl LayoutWindow {
             }
             let node_data_container = layout_result.styled_dom.node_data.as_container();
             let node_data = node_data_container.get(node_id)?;
-            if let Some(vv) = node_data.get_virtual_view_node_ref() { vv.clone() } else {
+            if let Some(vv) = node_data.get_virtual_view_node_ref() {
+                vv.clone()
+            } else {
                 if let Some(msgs) = debug_messages {
                     msgs.push(LayoutDebugMessage::info(format!(
                         "Node is NOT VirtualView, type = {:?}",
@@ -5947,7 +6264,9 @@ impl LayoutWindow {
         };
 
         if let Some(msgs) = debug_messages {
-            msgs.push(LayoutDebugMessage::info("Node is VirtualView type".to_string()));
+            msgs.push(LayoutDebugMessage::info(
+                "Node is VirtualView type".to_string(),
+            ));
         }
 
         // Call the actual implementation with all necessary data
@@ -6088,7 +6407,7 @@ impl LayoutWindow {
             azul_core::dom::OptionDom::Some(dom) => {
                 // Convert Dom → StyledDom (single deferred cascade pass)
                 StyledDom::create_from_dom(dom)
-            },
+            }
             azul_core::dom::OptionDom::None => {
                 // If the callback returns None, it's an optimization hint.
                 if reason == VirtualViewCallbackReason::InitialRender {
@@ -6178,7 +6497,9 @@ impl LayoutWindow {
         // Use dom_to_layout mapping since layout tree indices differ from DOM indices
         let layout_indices = layout_result.layout_tree.dom_to_layout.get(&nid)?;
         let layout_index = *layout_indices.first()?;
-        let position = layout_result.calculated_positions.get(layout_index.index())?;
+        let position = layout_result
+            .calculated_positions
+            .get(layout_index.index())?;
         Some(*position)
     }
 
@@ -6195,7 +6516,10 @@ impl LayoutWindow {
 
         // Look up tag_id from the authoritative tag_ids_to_node_ids mapping
         let nid_encoded = NodeHierarchyItemId::from_crate_internal(Some(nid));
-        let tag_id = layout_result.styled_dom.tag_ids_to_node_ids.iter()
+        let tag_id = layout_result
+            .styled_dom
+            .tag_ids_to_node_ids
+            .iter()
             .find(|m| m.node_id == nid_encoded)?
             .tag_id
             .inner;
@@ -6463,9 +6787,7 @@ impl LayoutWindow {
     /// scroll-ancestor walk needs the hops one at a time, because it collects
     /// containers in each dom on the way up.
     #[must_use]
-    pub fn nested_dom_hops(
-        &self,
-    ) -> BTreeMap<DomId, (DomId, NodeId, LogicalPosition)> {
+    pub fn nested_dom_hops(&self) -> BTreeMap<DomId, (DomId, NodeId, LogicalPosition)> {
         let mut hops = BTreeMap::new();
         for (parent_dom, host_node) in self.virtual_view_manager.all_view_keys() {
             let Some(nested) = self
@@ -6482,9 +6804,7 @@ impl LayoutWindow {
                 .dom_to_layout
                 .get(&host_node)
                 .and_then(|indices| indices.first().copied())
-                .and_then(|idx| {
-                    solver3::pos_get(&parent_result.calculated_positions, idx.index())
-                });
+                .and_then(|idx| solver3::pos_get(&parent_result.calculated_positions, idx.index()));
             let Some(host_pos) = host_pos else { continue };
             let content = self.virtual_view_content_offset(parent_dom, host_node);
             hops.insert(
@@ -6657,7 +6977,8 @@ impl LayoutWindow {
     ///
     /// `RefAny` data = [`TweenTimerData`] sharing `tween.tick_flag`, so the
     /// callback self-terminates the tick after both tweens finish.
-    #[must_use] pub fn create_caret_tween_timer(&self) -> Timer {
+    #[must_use]
+    pub fn create_caret_tween_timer(&self) -> Timer {
         use crate::timer::{Timer, TimerCallback};
         use azul_core::refany::RefAny;
 
@@ -6672,9 +6993,7 @@ impl LayoutWindow {
             run_count: 0,
             last_run: azul_core::task::OptionInstant::None,
             delay: azul_core::task::OptionDuration::None,
-            interval: azul_core::task::OptionDuration::Some(
-                Duration::from_millis(16),
-            ),
+            interval: azul_core::task::OptionDuration::Some(Duration::from_millis(16)),
             timeout: azul_core::task::OptionDuration::None,
             callback: TimerCallback::create(caret_tween_timer_callback),
         }
@@ -6683,7 +7002,8 @@ impl LayoutWindow {
     /// The system-animation configuration this window runs with: the
     /// per-window override if set (tests), else the app-global one
     /// installed by `App::create`.
-    #[must_use] pub fn effective_system_animations(&self) -> &azul_core::resources::SystemAnimations {
+    #[must_use]
+    pub fn effective_system_animations(&self) -> &azul_core::resources::SystemAnimations {
         self.system_animations_override
             .as_ref()
             .unwrap_or_else(|| global_system_animations())
@@ -6964,8 +7284,7 @@ impl LayoutWindow {
                     }
                     None => current.clone(),
                 };
-                for ((&item_i, r), c) in sel_idx.iter().zip(rendered.iter()).zip(current.iter())
-                {
+                for ((&item_i, r), c) in sel_idx.iter().zip(rendered.iter()).zip(current.iter()) {
                     if r != c {
                         sel_patch.push((item_i, *r));
                     }
@@ -6994,13 +7313,11 @@ impl LayoutWindow {
                     None => {
                         if let Some(last) = tween.last_focus_ring {
                             if last != current {
-                                tween.focus_ring = Some(
-                                    CaretTweenTrack {
-                                        from: last,
-                                        to: current,
-                                        start: now.clone(),
-                                    },
-                                );
+                                tween.focus_ring = Some(CaretTweenTrack {
+                                    from: last,
+                                    to: current,
+                                    start: now.clone(),
+                                });
                             }
                         }
                     }
@@ -7049,11 +7366,11 @@ impl LayoutWindow {
                 // The ring is a plain Border item APPENDED to the list —
                 // no new item kind, every renderer already draws it. Word
                 // accent blue, 2px solid, subtly rounded.
-                use azul_css::props::basic::PixelValue;
-                use azul_css::css::CssPropertyValue;
                 use crate::solver3::display_list::{
                     DisplayListItem, StyleBorderColors, StyleBorderStyles, StyleBorderWidths,
                 };
+                use azul_css::css::CssPropertyValue;
+                use azul_css::props::basic::PixelValue;
                 let accent = azul_css::props::basic::ColorU {
                     r: 43,
                     g: 87,
@@ -7090,19 +7407,13 @@ impl LayoutWindow {
                             azul_css::props::style::StyleBorderTopColor { inner: accent },
                         )),
                         right: Some(CssPropertyValue::Exact(
-                            azul_css::props::style::StyleBorderRightColor {
-                                inner: accent,
-                            },
+                            azul_css::props::style::StyleBorderRightColor { inner: accent },
                         )),
                         bottom: Some(CssPropertyValue::Exact(
-                            azul_css::props::style::StyleBorderBottomColor {
-                                inner: accent,
-                            },
+                            azul_css::props::style::StyleBorderBottomColor { inner: accent },
                         )),
                         left: Some(CssPropertyValue::Exact(
-                            azul_css::props::style::StyleBorderLeftColor {
-                                inner: accent,
-                            },
+                            azul_css::props::style::StyleBorderLeftColor { inner: accent },
                         )),
                     },
                     styles: StyleBorderStyles {
@@ -7110,19 +7421,13 @@ impl LayoutWindow {
                             azul_css::props::style::StyleBorderTopStyle { inner: solid },
                         )),
                         right: Some(CssPropertyValue::Exact(
-                            azul_css::props::style::StyleBorderRightStyle {
-                                inner: solid,
-                            },
+                            azul_css::props::style::StyleBorderRightStyle { inner: solid },
                         )),
                         bottom: Some(CssPropertyValue::Exact(
-                            azul_css::props::style::StyleBorderBottomStyle {
-                                inner: solid,
-                            },
+                            azul_css::props::style::StyleBorderBottomStyle { inner: solid },
                         )),
                         left: Some(CssPropertyValue::Exact(
-                            azul_css::props::style::StyleBorderLeftStyle {
-                                inner: solid,
-                            },
+                            azul_css::props::style::StyleBorderLeftStyle { inner: solid },
                         )),
                     },
                     border_radius: azul_css::props::style::border_radius::StyleBorderRadius {
@@ -7145,9 +7450,9 @@ impl LayoutWindow {
     /// looks up the currently-hovered node's `title` / `alt` / `aria-label`
     /// attribute and emits a `ShowTooltip` `CallbackChange`, then terminates.
     pub fn create_tooltip_delay_timer(&self, hover_time_ms: u32) -> Timer {
-        use azul_core::task::{Duration, SystemTimeDiff};
         use crate::timer::{Timer, TimerCallback};
         use azul_core::refany::RefAny;
+        use azul_core::task::{Duration, SystemTimeDiff};
 
         Timer {
             refany: RefAny::new(()),
@@ -7300,11 +7605,7 @@ impl LayoutWindow {
                     .styled_dom
                     .css_property_cache
                     .ptr
-                    .get_caret_animation_duration(
-                        node_data,
-                        &node_id,
-                        &StyledNodeState::default(),
-                    )
+                    .get_caret_animation_duration(node_data, &node_id, &StyledNodeState::default())
                     .and_then(|d| d.get_property().copied())
             })
             .map(|d| Duration::from(d.inner));
@@ -7323,7 +7624,11 @@ impl LayoutWindow {
         // interval for the same reason the CSS zero is not taken literally — a
         // real suppression path (blink timer off, caret forced visible) would be
         // better than a very long period.
-        match self.system_style.as_ref().map(|s| s.input.caret_blink_rate_ms) {
+        match self
+            .system_style
+            .as_ref()
+            .map(|s| s.input.caret_blink_rate_ms)
+        {
             None => CURSOR_BLINK_INTERVAL,
             Some(0 | u32::MAX) => Duration::from_millis(u64::from(u32::MAX)),
             Some(ms) => Duration::from_millis(u64::from(ms)),
@@ -7387,7 +7692,6 @@ impl LayoutWindow {
         let timer_was_active = self.text_edit_manager.blink.is_blink_timer_active();
 
         if let Some((dom_id, container_node_id, text_node_id)) = contenteditable_info {
-
             // W3C "flag and defer" pattern:
             // Set flag for cursor initialization AFTER layout pass
             self.focus_manager.set_pending_contenteditable_focus(
@@ -7564,7 +7868,8 @@ impl LayoutWindow {
         }
         let target = self.focus_manager.take_deferred_focus_target()?;
         let current_focus = self.focus_manager.get_focused_node().copied();
-        let Ok(resolved) = resolve_focus_target(&target, &self.layout_results, current_focus) else {
+        let Ok(resolved) = resolve_focus_target(&target, &self.layout_results, current_focus)
+        else {
             return None;
         };
         // A target that STILL matches nothing is a genuine "no such focusable"
@@ -7649,7 +7954,9 @@ impl LayoutWindow {
         }
 
         // Now we can safely get the text layout (layout pass has completed)
-        let text_layout = self.get_inline_layout_for_node(pending.dom_id, pending.text_node_id).cloned();
+        let text_layout = self
+            .get_inline_layout_for_node(pending.dom_id, pending.text_node_id)
+            .cloned();
 
         // Initialize cursor at end of text
         // Get the last cluster cursor from text layout
@@ -7659,16 +7966,18 @@ impl LayoutWindow {
         let dense_cursor = self
             .get_dense_for_node(pending.dom_id, pending.text_node_id)
             .and_then(|d| d.last_cluster_cursor());
-        let sparse_cursor = text_layout.as_ref()
-            .and_then(|layout| {
-                layout.items.iter().rev()
-                    .find_map(|item| if let ShapedItem::Cluster(c) = &item.item {
-                        Some(TextCursor {
-                            cluster_id: c.source_cluster_id,
-                            affinity: CursorAffinity::Trailing,
-                        })
-                    } else { None })
-            });
+        let sparse_cursor = text_layout.as_ref().and_then(|layout| {
+            layout.items.iter().rev().find_map(|item| {
+                if let ShapedItem::Cluster(c) = &item.item {
+                    Some(TextCursor {
+                        cluster_id: c.source_cluster_id,
+                        affinity: CursorAffinity::Trailing,
+                    })
+                } else {
+                    None
+                }
+            })
+        });
         if std::env::var("AZ_DENSE_TEXT").as_deref() == Ok("verify") {
             if let (Some(d), Some(s)) = (&dense_cursor, &sparse_cursor) {
                 assert_eq!(d, s, "d4 verify: last-cluster cursor diverged");
@@ -7682,7 +7991,11 @@ impl LayoutWindow {
         // it properly. Bounded by `MAX_PENDING_FOCUS_RETRIES` so a node that
         // never gains an inline layout still gets its (0,0) fallback.
         let node_has_layout = self.layout_results.get(&pending.dom_id).is_some_and(|lr| {
-            if lr.layout_tree.dom_to_layout.contains_key(&pending.text_node_id) {
+            if lr
+                .layout_tree
+                .dom_to_layout
+                .contains_key(&pending.text_node_id)
+            {
                 return true;
             }
             // An EMPTY text node generates no box (it is filtered out of the
@@ -7714,11 +8027,13 @@ impl LayoutWindow {
             return false;
         }
 
-        let cursor = dense_cursor.or(sparse_cursor)
-            .unwrap_or(TextCursor {
-                cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
-                affinity: CursorAffinity::Trailing,
-            });
+        let cursor = dense_cursor.or(sparse_cursor).unwrap_or(TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Trailing,
+        });
         if std::env::var_os("AZ_FOCUS_DEBUG").is_some() {
             eprintln!(
                 "[finalize_pending_focus] editing initialized: node {:?} cursor {:?} (had_layout={})",
@@ -7732,8 +8047,12 @@ impl LayoutWindow {
             node: NodeHierarchyItemId::from_crate_internal(Some(pending.text_node_id)),
         });
         self.text_edit_manager.enter_focus_scope(scope);
-        self.text_edit_manager
-            .initialize_editing(cursor, pending.dom_id, pending.text_node_id, ce_key);
+        self.text_edit_manager.initialize_editing(
+            cursor,
+            pending.dom_id,
+            pending.text_node_id,
+            ce_key,
+        );
         true
     }
 
@@ -7755,7 +8074,9 @@ impl LayoutWindow {
         let layout_result = self.layout_results.get(&dom_id)?;
         let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
         let layout_index = *layout_indices.first()?;
-        layout_result.layout_tree.get_dense_for_node(layout_index.index())
+        layout_result
+            .layout_tree
+            .get_dense_for_node(layout_index.index())
     }
 
     pub fn get_inline_layout_for_node(
@@ -7769,7 +8090,9 @@ impl LayoutWindow {
         let layout_index = *layout_indices.first()?;
 
         // Use the centralized LayoutTree method that handles IFC membership
-        layout_result.layout_tree.get_inline_layout_for_node(layout_index.index())
+        layout_result
+            .layout_tree
+            .get_inline_layout_for_node(layout_index.index())
     }
 
     /// (d6f) Dense-first step resolution: the dense dispatcher when the
@@ -7881,7 +8204,7 @@ impl LayoutWindow {
         target: DomNodeId,
         op: &azul_core::events::SelectionOp,
     ) -> bool {
-        use azul_core::events::{SelectionMode, SelectionStep, SelectionDirection};
+        use azul_core::events::{SelectionDirection, SelectionMode, SelectionStep};
 
         let dom_id = target.dom;
         let Some(node_id) = target.node.into_crate_internal() else {
@@ -7923,7 +8246,13 @@ impl LayoutWindow {
                 if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                     for _ in 0..op.repeat.max(1) {
                         mc.move_all_cursors_with(extend, collapse, |c| {
-                            Self::resolve_step_with(dense.as_deref(), &layout, c, op.direction, op.step)
+                            Self::resolve_step_with(
+                                dense.as_deref(),
+                                &layout,
+                                c,
+                                op.direction,
+                                op.step,
+                            )
                         });
                     }
                 }
@@ -7936,7 +8265,13 @@ impl LayoutWindow {
                     if let Some(ref mut mc) = self.text_edit_manager.multi_cursor {
                         for _ in 0..op.repeat.max(1) {
                             mc.move_all_cursors(true, |c| {
-                                Self::resolve_step_with(dense.as_deref(), &layout, c, op.direction, op.step)
+                                Self::resolve_step_with(
+                                    dense.as_deref(),
+                                    &layout,
+                                    c,
+                                    op.direction,
+                                    op.step,
+                                )
                             });
                         }
                     }
@@ -8272,8 +8607,10 @@ impl LayoutWindow {
         // Only SUBTREE ROOTS animate. A descendant of an entering node is drawn
         // inside its ancestor's transform, so animating it as well would apply
         // the effect twice and cost a GPU key per node in the subtree.
-        let is_root = |id: NodeId, hier: &[azul_core::styled_dom::NodeHierarchyItem],
-                       unmatched: &BTreeSet<NodeId>| -> bool {
+        let is_root = |id: NodeId,
+                       hier: &[azul_core::styled_dom::NodeHierarchyItem],
+                       unmatched: &BTreeSet<NodeId>|
+         -> bool {
             hier.get(id.index()).is_none_or(|item| {
                 // `parent` is a 1-based index with 0 meaning "no parent".
                 item.parent
@@ -8374,10 +8711,18 @@ impl LayoutWindow {
                 let mut worst = azul_css::props::property::RelayoutScope::None;
                 let mut changed_any = false;
                 for ty in azul_css::props::property::CssPropertyType::ALL {
-                    let before =
-                        old_cache.get_property(old_nd, &m.old_node_id, &old_state.styled_node_state, ty);
-                    let after =
-                        new_cache.get_property(new_nd, &m.new_node_id, &new_state.styled_node_state, ty);
+                    let before = old_cache.get_property(
+                        old_nd,
+                        &m.old_node_id,
+                        &old_state.styled_node_state,
+                        ty,
+                    );
+                    let after = new_cache.get_property(
+                        new_nd,
+                        &m.new_node_id,
+                        &new_state.styled_node_state,
+                        ty,
+                    );
                     if before != after {
                         changed_any = true;
                         // IFC membership is not known here; `false` is the
@@ -8399,8 +8744,7 @@ impl LayoutWindow {
                             // (`animation: width 1s, color 2s`): the LAST
                             // covering entry wins, web-cascade style.
                             let winner = anims.as_ref().iter().rev().find(|anim| {
-                                anim.name.as_str() == "all"
-                                    || anim.name.as_str() == ty.to_str()
+                                anim.name.as_str() == "all" || anim.name.as_str() == ty.to_str()
                             });
                             if let (Some(anim), false) = (winner, meta) {
                                 captured_transitions.push(CssTransition {
@@ -8500,7 +8844,9 @@ impl LayoutWindow {
                     }
                     // A node that never laid out has no rect to animate from
                     // — it disappears like an undeclared one.
-                    let Some(rect) = exit_rects.get(node) else { continue };
+                    let Some(rect) = exit_rects.get(node) else {
+                        continue;
+                    };
                     let named = old_node_data.get(node.index()).and_then(|nd| {
                         let st = old_result
                             .styled_dom
@@ -8513,8 +8859,7 @@ impl LayoutWindow {
                             &st.styled_node_state,
                             &azul_css::props::property::CssPropertyType::AnimationOut,
                         )?;
-                        let azul_css::props::property::CssProperty::AnimationOut(v) = prop
-                        else {
+                        let azul_css::props::property::CssProperty::AnimationOut(v) = prop else {
                             return None;
                         };
                         // A LIST of animations: the first entry whose name
@@ -8645,7 +8990,10 @@ impl LayoutWindow {
                 &pending.new_node_data,
                 &pending.new_hierarchy,
                 |old_id| pending.first_rects.get(&old_id).copied(),
-                |new_id| self.get_node_bounds(dom_id, new_id).map(layout_rect_to_logical),
+                |new_id| {
+                    self.get_node_bounds(dom_id, new_id)
+                        .map(layout_rect_to_logical)
+                },
             );
             azul_core::animation::seed_moves(
                 &mut self.animations,
@@ -8672,13 +9020,12 @@ impl LayoutWindow {
             // "structural hash is the same, another CSS diff comes in while
             // the animation is playing -> do NOT recreate the sidebar, but
             // in-flight change the zombie animation from -out to -in".
-            let mount_key = azul_core::animation::AnimKey(
-                azul_core::diff::calculate_reconciliation_key(
+            let mount_key =
+                azul_core::animation::AnimKey(azul_core::diff::calculate_reconciliation_key(
                     &pending.new_node_data,
                     &pending.new_hierarchy,
                     *node_id,
-                ),
-            );
+                ));
             let mut caught_track: Option<(TrackSample, AnimTrack)> = None;
             let mut caught_slide = false;
             for z in &mut self.zombies {
@@ -8751,14 +9098,13 @@ impl LayoutWindow {
                 // velocity preserved instead of minting a fresh enter.
                 self.anim_key_to_node.insert(mount_key, *node_id);
                 if let Some(anim) = self.animations.get_mut(mount_key) {
-                    let () = anim.retarget_presence(azul_core::animation::AnimClass::Enter, 0.0, 0.0);
+                    let () =
+                        anim.retarget_presence(azul_core::animation::AnimClass::Enter, 0.0, 0.0);
                 } else {
                     self.animations.start_enter(
                         mount_key,
                         (0.0, 0.0),
-                        azul_core::animation::Interp::Spring(
-                            azul_core::animation::Spring::SMOOTH,
-                        ),
+                        azul_core::animation::Interp::Spring(azul_core::animation::Spring::SMOOTH),
                     );
                 }
                 continue;
@@ -8912,10 +9258,9 @@ impl LayoutWindow {
             return false;
         }
         let now = Instant::now();
-        let dt = self
-            .last_anim_tick
-            .as_ref()
-            .map_or(1.0 / 60.0, |prev| now.duration_since(prev).as_millis_u64() as f32 / 1000.0);
+        let dt = self.last_anim_tick.as_ref().map_or(1.0 / 60.0, |prev| {
+            now.duration_since(prev).as_millis_u64() as f32 / 1000.0
+        });
         self.last_anim_tick = Some(now);
         self.tick_animations(dt)
     }
@@ -9026,8 +9371,7 @@ impl LayoutWindow {
         // so the driver escalates to an incremental relayout.
         if !self.css_transitions.is_empty() {
             let rects = transition_rects;
-            let mut dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)> =
-                Vec::new();
+            let mut dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)> = Vec::new();
             let mut needs_relayout = false;
             // (node, from-colour, to-colour, is_text) — executed after the
             // loop so the styled_dom borrow is released first.
@@ -9090,9 +9434,10 @@ impl LayoutWindow {
                         Some((from_c, to_c, is_text))
                     });
                     if let (true, Some((from_c, to_c, is_text))) = (patchable, colors) {
-                        result
-                            .styled_dom
-                            .set_user_property_override_fast(&tr.node, core::slice::from_ref(&over));
+                        result.styled_dom.set_user_property_override_fast(
+                            &tr.node,
+                            core::slice::from_ref(&over),
+                        );
                         if from_c != to_c {
                             patch_jobs.push((tr.node, from_c, to_c, is_text));
                             tr.last_color = Some(to_c);
@@ -9391,7 +9736,8 @@ impl LayoutWindow {
     /// display-list item references. Harmless for the offset map (an
     /// unreferenced id never matches a frame), but "an id exists" does NOT
     /// imply "a scroll frame exists".
-    #[must_use] pub fn compute_scroll_ids(
+    #[must_use]
+    pub fn compute_scroll_ids(
         layout_tree: &LayoutTree,
         styled_dom: &StyledDom,
     ) -> (HashMap<LayoutNodeId, u64>, HashMap<u64, NodeId>) {
@@ -9435,7 +9781,7 @@ impl LayoutWindow {
             // Generate stable scroll ID from node_data_fingerprint
             // Use a combined hash of the fingerprint fields to create a stable ID
             let scroll_id = {
-                use std::hash::{Hash, Hasher, DefaultHasher};
+                use std::hash::{DefaultHasher, Hash, Hasher};
                 let mut h = DefaultHasher::new();
                 if let Some(cold) = layout_tree.cold(LayoutNodeId::new(layout_idx)) {
                     cold.node_data_fingerprint.hash(&mut h);
@@ -9464,33 +9810,58 @@ impl LayoutWindow {
     /// returned the ROOT's node of the same index: asking for a popup's
     /// 240x160 child answered with the parent's swatch rect.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    pub fn get_node_layout_rect(
-        &self,
-        node_id: DomNodeId,
-    ) -> Option<LogicalRect> {
+    pub fn get_node_layout_rect(&self, node_id: DomNodeId) -> Option<LogicalRect> {
         let target_node_id = node_id.node.into_crate_internal();
         let (layout_tree, positions): (&LayoutTree, &solver3::PositionVec) =
             if node_id.dom == DomId::ROOT_ID {
-                (self.layout_cache.tree.as_ref()?, &self.layout_cache.calculated_positions)
+                (
+                    self.layout_cache.tree.as_ref()?,
+                    &self.layout_cache.calculated_positions,
+                )
             } else {
                 let lr = self.layout_results.get(&node_id.dom)?;
                 (&lr.layout_tree, &lr.calculated_positions)
             };
-        { let _ = (0xE5_000002u32 | ((layout_tree.nodes.len() as u32 & 0xff) << 8)); }
+        {
+            let _ = (0xE5_000002u32 | ((layout_tree.nodes.len() as u32 & 0xff) << 8));
+        }
 
         // Find the layout node index corresponding to this DOM node
-        let Some(layout_idx) = layout_tree.nodes.iter().position(|node| node.dom_node_id == target_node_id) else { { let _ = (0xE5_0000FFu32); } return None; };
-        { let _ = (0xE5_000003u32 | ((positions.len() as u32 & 0xfff) << 8)); }
+        let Some(layout_idx) = layout_tree
+            .nodes
+            .iter()
+            .position(|node| node.dom_node_id == target_node_id)
+        else {
+            {
+                let _ = (0xE5_0000FFu32);
+            }
+            return None;
+        };
+        {
+            let _ = (0xE5_000003u32 | ((positions.len() as u32 & 0xfff) << 8));
+        }
 
         // Get the calculated layout position (already in logical units)
-        let Some(calc_pos) = positions.get(layout_idx) else { { let _ = (0xE5_0000FEu32); } return None; };
+        let Some(calc_pos) = positions.get(layout_idx) else {
+            {
+                let _ = (0xE5_0000FEu32);
+            }
+            return None;
+        };
 
         // Get the layout node for size information
         let layout_node = layout_tree.nodes.get(layout_idx)?;
 
         // Get the used size (the actual laid-out size)
-        let Some(used_size) = layout_node.used_size else { { let _ = (0xE5_0000FDu32); } return None; };
-        { let _ = (0xE5_000004u32); }
+        let Some(used_size) = layout_node.used_size else {
+            {
+                let _ = (0xE5_0000FDu32);
+            }
+            return None;
+        };
+        {
+            let _ = (0xE5_000004u32);
+        }
 
         // `used_size` is LOGICAL already (the same value `get_node_size`
         // returns untouched). This used to divide it by the HiDPI factor, so
@@ -9563,7 +9934,11 @@ impl LayoutWindow {
                 &self.current_window_state.title,
                 self.current_window_state.size.dimensions,
                 self.focus_manager.get_focused_node().copied(),
-                self.current_window_state.size.get_hidpi_factor().inner.get(),
+                self.current_window_state
+                    .size
+                    .get_hidpi_factor()
+                    .inner
+                    .get(),
                 &dirty_text_overrides,
                 cursor_a11y_info,
             )
@@ -9622,7 +9997,8 @@ impl LayoutWindow {
         let dom_id = dom_node_id.dom;
 
         // Get current text content (from dirty overrides or StyledDom)
-        let text_content = if let Some(dirty) = self.content_overlay.text_for_node(dom_id, node_id) {
+        let text_content = if let Some(dirty) = self.content_overlay.text_for_node(dom_id, node_id)
+        {
             self.extract_text_from_inline_content(&dirty.content)
         } else {
             // Fall back to StyledDom text
@@ -9637,11 +10013,15 @@ impl LayoutWindow {
                 while let Some(child_id) = child {
                     if let Some(cd) = node_data.get(child_id.index()) {
                         if let NodeType::Text(t) = &cd.node_type {
-                            if !text.is_empty() { text.push(' '); }
+                            if !text.is_empty() {
+                                text.push(' ');
+                            }
                             text.push_str(t.as_str());
                         }
                     }
-                    if child_id.index() >= hierarchy.len() { break; }
+                    if child_id.index() >= hierarchy.len() {
+                        break;
+                    }
                     child = hierarchy[child_id.index()].next_sibling_id();
                 }
             }
@@ -9649,12 +10029,13 @@ impl LayoutWindow {
         };
 
         // Build the a11y node ID (same encoding as update_tree)
-        let a11y_node_id = accesskit::NodeId(
-            ((dom_id.inner as u64) << 32) | ((node_id.index() as u64) + 1),
-        );
+        let a11y_node_id =
+            accesskit::NodeId(((dom_id.inner as u64) << 32) | ((node_id.index() as u64) + 1));
 
         // Get the node data to determine role
-        let role = self.layout_results.get(&dom_id)
+        let role = self
+            .layout_results
+            .get(&dom_id)
             .and_then(|lr| lr.styled_dom.node_data.as_ref().get(node_id.index()))
             .map_or(accesskit::Role::GenericContainer, |nd| {
                 if nd.is_contenteditable() || matches!(nd.node_type, NodeType::TextArea) {
@@ -9686,13 +10067,12 @@ impl LayoutWindow {
                 ),
             };
 
-            let char_lengths: Vec<u8> = text_content.chars()
-                .map(|c| c.len_utf16() as u8)
-                .collect();
+            let char_lengths: Vec<u8> = text_content.chars().map(|c| c.len_utf16() as u8).collect();
             node.set_character_lengths(char_lengths.clone());
 
             let byte_to_char = |byte_off: usize| -> usize {
-                text_content.char_indices()
+                text_content
+                    .char_indices()
                     .take_while(|(b, _)| *b < byte_off)
                     .count()
                     .min(char_lengths.len())
@@ -9711,10 +10091,15 @@ impl LayoutWindow {
         }
 
         // Focus: use the current focused node or root
-        let focus = self.focus_manager.get_focused_node().copied()
+        let focus = self
+            .focus_manager
+            .get_focused_node()
+            .copied()
             .and_then(|dn| {
                 let idx = dn.node.into_crate_internal()?.index();
-                Some(accesskit::NodeId(((dn.dom.inner as u64) << 32) | ((idx as u64) + 1)))
+                Some(accesskit::NodeId(
+                    ((dn.dom.inner as u64) << 32) | ((idx as u64) + 1),
+                ))
             })
             .unwrap_or(self.a11y_manager.root_id);
 
@@ -9733,10 +10118,7 @@ impl LayoutWindow {
     /// holds the ROOT dom, and matched a bare `dom_node_id` with no `DomId`
     /// alongside it — so in a virtualized view the caret answered for whatever
     /// unrelated node happened to occupy the same index, or for nothing at all.
-    fn session_geometry_node(
-        &self,
-        node: DomNodeId,
-    ) -> Option<(&DomLayoutResult, LayoutNodeId)> {
+    fn session_geometry_node(&self, node: DomNodeId) -> Option<(&DomLayoutResult, LayoutNodeId)> {
         let node_id = node.node.into_crate_internal()?;
         let layout_result = self.layout_results.get(&node.dom)?;
         let tree = &layout_result.layout_tree;
@@ -9838,13 +10220,17 @@ impl LayoutWindow {
         let mc = self.text_edit_manager.multi_cursor.as_ref()?;
 
         // Collect Range selections
-        let ranges: Vec<_> = mc.selections.iter().filter_map(|s| {
-            if let Selection::Range(ref r) = s.selection {
-                Some(*r)
-            } else {
-                None
-            }
-        }).collect();
+        let ranges: Vec<_> = mc
+            .selections
+            .iter()
+            .filter_map(|s| {
+                if let Selection::Range(ref r) = s.selection {
+                    Some(*r)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         if ranges.is_empty() {
             return None;
@@ -9878,7 +10264,10 @@ impl LayoutWindow {
 
         Some(LogicalRect::new(
             LogicalPosition { x: min_x, y: min_y },
-            LogicalSize { width: max_x - min_x, height: max_y - min_y },
+            LogicalSize {
+                width: max_x - min_x,
+                height: max_y - min_y,
+            },
         ))
     }
 
@@ -9941,19 +10330,22 @@ impl LayoutWindow {
         // Extract the selected word text using byte offsets
         let start_byte = word_range.start.cluster_id.start_byte_in_run as usize;
         let end_byte = word_range.end.cluster_id.start_byte_in_run as usize;
-        let search_text = if word_range.start.cluster_id.source_run == word_range.end.cluster_id.source_run {
-            if let Some(InlineContent::Text(run)) = content.get(word_range.start.cluster_id.source_run as usize) {
-                if start_byte <= end_byte && end_byte <= run.text.len() {
-                    run.text[start_byte..end_byte].to_string()
+        let search_text =
+            if word_range.start.cluster_id.source_run == word_range.end.cluster_id.source_run {
+                if let Some(InlineContent::Text(run)) =
+                    content.get(word_range.start.cluster_id.source_run as usize)
+                {
+                    if start_byte <= end_byte && end_byte <= run.text.len() {
+                        run.text[start_byte..end_byte].to_string()
+                    } else {
+                        return false;
+                    }
                 } else {
                     return false;
                 }
             } else {
-                return false;
-            }
-        } else {
-            return false; // Multi-run selection search not yet supported
-        };
+                return false; // Multi-run selection search not yet supported
+            };
 
         if search_text.is_empty() {
             return false;
@@ -9961,11 +10353,10 @@ impl LayoutWindow {
 
         // Search forward from the end of the last selection
         let mc = self.text_edit_manager.multi_cursor.as_ref().unwrap();
-        let last_end_byte = mc.selections.last()
-            .map_or(0, |s| match &s.selection {
-                Selection::Range(r) => r.end.cluster_id.start_byte_in_run as usize,
-                Selection::Cursor(c) => c.cluster_id.start_byte_in_run as usize,
-            });
+        let last_end_byte = mc.selections.last().map_or(0, |s| match &s.selection {
+            Selection::Range(r) => r.end.cluster_id.start_byte_in_run as usize,
+            Selection::Cursor(c) => c.cluster_id.start_byte_in_run as usize,
+        });
 
         let search_run = word_range.start.cluster_id.source_run;
 
@@ -10142,10 +10533,7 @@ impl LayoutWindow {
     /// Find the nearest scrollable ancestor for a given node
     /// Returns (`DomId`, `NodeId`) of the scrollable container, or None if no scrollable ancestor
     /// exists
-    pub fn find_scrollable_ancestor(
-        &self,
-        node_id: DomNodeId,
-    ) -> Option<DomNodeId> {
+    pub fn find_scrollable_ancestor(&self, node_id: DomNodeId) -> Option<DomNodeId> {
         // The TARGET's own dom. This used to read `layout_cache.tree` — the
         // ROOT dom only — and then re-find each ancestor by bare arena index
         // while keying the scroll-state lookup by the target's `DomId`. For a
@@ -10268,7 +10656,8 @@ impl LayoutWindow {
             SelectionScrollType::Selection => {
                 // Compute bounding rect of all selection ranges via the text layout.
                 // Falls back to cursor rect if no ranges exist.
-                match self.calculate_selection_bounding_rect()
+                match self
+                    .calculate_selection_bounding_rect()
                     .or_else(|| self.get_focused_cursor_rect())
                 {
                     Some(rect) => rect,
@@ -10471,7 +10860,10 @@ impl LayoutWindow {
             .as_ref()
             .map(|mc| mc.node_id)
             .or(self.focus_manager.focused_node);
-        if anchor.and_then(|a| self.find_scrollable_ancestor(a)).is_none() {
+        if anchor
+            .and_then(|a| self.find_scrollable_ancestor(a))
+            .is_none()
+        {
             return false;
         }
         self.last_revealed_caret_rect = current;
@@ -10537,7 +10929,8 @@ pub struct LayoutResult {
 }
 
 impl LayoutResult {
-    #[must_use] pub const fn new(display_list: DisplayList, warnings: Vec<String>) -> Self {
+    #[must_use]
+    pub const fn new(display_list: DisplayList, warnings: Vec<String>) -> Self {
         Self {
             display_list,
             warnings,
@@ -10574,8 +10967,8 @@ impl LayoutWindow {
     ) -> Vec<crate::callbacks::CallbackChange> {
         use crate::callbacks::{CallbackInfo, CallbackInfoRefData};
 
-        let has_tracks = !self.live_tracks.is_empty()
-            || self.zombies.iter().any(|z| !z.tracks.is_empty());
+        let has_tracks =
+            !self.live_tracks.is_empty() || self.zombies.iter().any(|z| !z.tracks.is_empty());
         if !has_tracks || self.tracks_sampled_since_tick {
             return Vec::new();
         }
@@ -10665,7 +11058,9 @@ impl LayoutWindow {
             };
             for (zi, z) in self.zombies.iter().enumerate() {
                 for (node, tr) in &z.tracks {
-                    let Some(frozen) = z.rects.get(node) else { continue };
+                    let Some(frozen) = z.rects.get(node) else {
+                        continue;
+                    };
                     let (vx, vy) = z.velocities.get(node).copied().unwrap_or((0.0, 0.0));
                     let info = azul_core::resources::ZombieAnimInfo {
                         styled_dom: &raw const z.retained.styled_dom,
@@ -10686,7 +11081,9 @@ impl LayoutWindow {
                 }
             }
             for (node, tr) in &self.live_tracks {
-                let Some(r) = self.layout_results.get(&DomId::ROOT_ID) else { continue };
+                let Some(r) = self.layout_results.get(&DomId::ROOT_ID) else {
+                    continue;
+                };
                 let Some(rect) = self
                     .get_node_bounds(DomId::ROOT_ID, *node)
                     .map(layout_rect_to_logical)
@@ -10721,7 +11118,9 @@ impl LayoutWindow {
         } in sampled
         {
             if let Some(zi) = zombie_idx {
-                let Some(z) = self.zombies.get_mut(zi) else { continue };
+                let Some(z) = self.zombies.get_mut(zi) else {
+                    continue;
+                };
                 if let Some(tr) = z.tracks.get_mut(&node) {
                     tr.frames_run = tr.frames_run.saturating_add(1);
                 }
@@ -10761,8 +11160,7 @@ impl LayoutWindow {
                     drop(z.retained.styled_dom.restyle_user_property(&node, &props));
                     let dirty = [(
                         node,
-                        azul_css::props::property::CssPropertyType::Width
-                            .relayout_scope(false),
+                        azul_css::props::property::CssPropertyType::Width.relayout_scope(false),
                     )];
                     let external = ExternalSystemCallbacks::rust_internal();
                     let solved = solver3::layout_document(
@@ -10800,8 +11198,7 @@ impl LayoutWindow {
                                             idx,
                                         ),
                                     ) {
-                                        z.live_rects
-                                            .insert(node, LogicalRect::new(pos, size));
+                                        z.live_rects.insert(node, LogicalRect::new(pos, size));
                                     }
                                     break;
                                 }
@@ -10819,7 +11216,11 @@ impl LayoutWindow {
                 if let Some(tr) = self.live_tracks.get_mut(&node) {
                     tr.frames_run = tr.frames_run.saturating_add(1);
                 }
-                let cache = self.gpu_state_manager.caches.entry(DomId::ROOT_ID).or_default();
+                let cache = self
+                    .gpu_state_manager
+                    .caches
+                    .entry(DomId::ROOT_ID)
+                    .or_default();
                 let smp = sample;
                 cache
                     .anim_transform_keys
@@ -10835,7 +11236,11 @@ impl LayoutWindow {
                     .get_node_bounds(DomId::ROOT_ID, node)
                     .map(layout_rect_to_logical)
                     .map_or((0.0, 0.0), |r| (r.size.width / 2.0, r.size.height / 2.0));
-                let cache = self.gpu_state_manager.caches.entry(DomId::ROOT_ID).or_default();
+                let cache = self
+                    .gpu_state_manager
+                    .caches
+                    .entry(DomId::ROOT_ID)
+                    .or_default();
                 cache.anim_current_transform_values.insert(
                     node,
                     azul_core::transform::ComputedTransform3D {
@@ -10866,7 +11271,6 @@ impl LayoutWindow {
             .unwrap_or_default()
     }
 
-
     /// Runs a single timer, similar to `CallbacksOfHitTest.call()`
     ///
     /// NOTE: The timer has to be selected first by the calling code and verified
@@ -10892,7 +11296,7 @@ impl LayoutWindow {
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
     ) -> (Vec<crate::callbacks::CallbackChange>, Update) {
-        use crate::callbacks::{CallbackInfo, CallbackChange};
+        use crate::callbacks::{CallbackChange, CallbackInfo};
 
         // Dispatch span: until this existed, all 118 probe spans lived in
         // layout/font/render, so "is the *app's own* code slow" — a timer
@@ -10912,10 +11316,13 @@ impl LayoutWindow {
             .and_then(|t| t.node_id.into_option());
 
         if timer_exists {
-            let hit_dom_node = timer_node_id.map_or_else(|| DomNodeId {
+            let hit_dom_node = timer_node_id.map_or_else(
+                || DomNodeId {
                     dom: DomId::ROOT_ID,
                     node: NodeHierarchyItemId::from_crate_internal(None),
-                }, |s| s);
+                },
+                |s| s,
+            );
             let cursor_relative_to_item = OptionLogicalPosition::None;
             let cursor_in_viewport = OptionLogicalPosition::None;
 
@@ -10990,7 +11397,7 @@ impl LayoutWindow {
         use std::collections::BTreeSet;
 
         use crate::{
-            callbacks::{CallbackInfo, CallbackChange},
+            callbacks::{CallbackChange, CallbackInfo},
             thread::{OptionThreadReceiveMsg, ThreadReceiveMsg, ThreadWriteBackMsg},
         };
 
@@ -11021,95 +11428,97 @@ impl LayoutWindow {
             // is empty, and only retire a finished thread once it is.
             let mut ticked = false;
             loop {
-            let (msg, writeback_data_ptr, is_finished) = {
-                // Re-acquired every iteration: the borrow must end before the
-                // body below, which needs `self` for CallbackInfoRefData.
-                let Some(thread) = self.threads.get_mut(&thread_id) else {
-                    break;
-                };
-                let thread_inner = &mut *if let Ok(s) = thread.ptr.lock() { s } else {
-                    all_changes.push(CallbackChange::RemoveThread { thread_id });
-                    break;
-                };
-
-                if !ticked {
-                    let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
-                    ticked = true;
-                }
-                let recv = thread_inner.receiver_try_recv();
-                let is_finished = thread_inner.is_finished();
-                let msg = match recv {
-                    // Queue empty: a finished worker has now delivered
-                    // everything it ever will, so it can be retired.
-                    OptionThreadReceiveMsg::None => {
-                        if is_finished {
-                            all_changes.push(CallbackChange::RemoveThread { thread_id });
-                        }
+                let (msg, writeback_data_ptr, is_finished) = {
+                    // Re-acquired every iteration: the borrow must end before the
+                    // body below, which needs `self` for CallbackInfoRefData.
+                    let Some(thread) = self.threads.get_mut(&thread_id) else {
                         break;
+                    };
+                    let thread_inner = &mut *if let Ok(s) = thread.ptr.lock() {
+                        s
+                    } else {
+                        all_changes.push(CallbackChange::RemoveThread { thread_id });
+                        break;
+                    };
+
+                    if !ticked {
+                        let _ = thread_inner.sender_send(ThreadSendMsg::Tick);
+                        ticked = true;
                     }
-                    OptionThreadReceiveMsg::Some(s) => s,
+                    let recv = thread_inner.receiver_try_recv();
+                    let is_finished = thread_inner.is_finished();
+                    let msg = match recv {
+                        // Queue empty: a finished worker has now delivered
+                        // everything it ever will, so it can be retired.
+                        OptionThreadReceiveMsg::None => {
+                            if is_finished {
+                                all_changes.push(CallbackChange::RemoveThread { thread_id });
+                            }
+                            break;
+                        }
+                        OptionThreadReceiveMsg::Some(s) => s,
+                    };
+
+                    let writeback_data_ptr: *mut RefAny = &raw mut thread_inner.writeback_data;
+
+                    (msg, writeback_data_ptr, is_finished)
+                };
+                let _ = is_finished;
+
+                let ThreadWriteBackMsg {
+                    refany: mut data_inner,
+                    callback,
+                } = match msg {
+                    ThreadReceiveMsg::Update(update_screen) => {
+                        update.max_self(update_screen);
+                        continue;
+                    }
+                    ThreadReceiveMsg::WriteBack(t) => t,
                 };
 
-                let writeback_data_ptr: *mut RefAny = &raw mut thread_inner.writeback_data;
+                let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
 
-                (msg, writeback_data_ptr, is_finished)
-            };
-            let _ = is_finished;
+                let ref_data = crate::callbacks::CallbackInfoRefData {
+                    layout_window: self,
+                    renderer_resources,
+                    previous_window_state,
+                    current_window_state,
+                    gl_context,
+                    current_scroll_manager: &current_scroll_states,
+                    current_window_handle,
+                    system_callbacks,
+                    system_style: system_style.clone(),
+                    monitors: self.monitors.clone(),
+                    #[cfg(feature = "icu")]
+                    icu_localizer: self.icu_localizer.clone(),
+                    ctx: callback.ctx.clone(),
+                };
 
-            let ThreadWriteBackMsg {
-                refany: mut data_inner,
-                callback,
-            } = match msg {
-                ThreadReceiveMsg::Update(update_screen) => {
-                    update.max_self(update_screen);
-                    continue;
-                }
-                ThreadReceiveMsg::WriteBack(t) => t,
-            };
+                let callback_info = CallbackInfo::new(
+                    &ref_data,
+                    &callback_changes,
+                    hit_dom_node,
+                    cursor_relative_to_item,
+                    cursor_in_viewport,
+                );
 
-            let callback_changes = Arc::new(std::sync::Mutex::new(Vec::new()));
+                // "is the app's own code slow": writeback callbacks carry a
+                // cb:<name> span, same as timers and event callbacks.
+                let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
+                let callback_update = (callback.cb)(
+                    unsafe { (*writeback_data_ptr).clone() },
+                    data_inner.clone(),
+                    callback_info,
+                );
+                drop(cb_span);
+                update.max_self(callback_update);
 
-            let ref_data = crate::callbacks::CallbackInfoRefData {
-                layout_window: self,
-                renderer_resources,
-                previous_window_state,
-                current_window_state,
-                gl_context,
-                current_scroll_manager: &current_scroll_states,
-                current_window_handle,
-                system_callbacks,
-                system_style: system_style.clone(),
-                monitors: self.monitors.clone(),
-                #[cfg(feature = "icu")]
-                icu_localizer: self.icu_localizer.clone(),
-                ctx: callback.ctx.clone(),
-            };
+                let collected_changes = callback_changes
+                    .lock()
+                    .map(|mut guard| core::mem::take(&mut *guard))
+                    .unwrap_or_default();
 
-            let callback_info = CallbackInfo::new(
-                &ref_data,
-                &callback_changes,
-                hit_dom_node,
-                cursor_relative_to_item,
-                cursor_in_viewport,
-            );
-
-            // "is the app's own code slow": writeback callbacks carry a
-            // cb:<name> span, same as timers and event callbacks.
-            let cb_span = crate::probe::Probe::span_for_fn(callback.cb as usize);
-            let callback_update = (callback.cb)(
-                unsafe { (*writeback_data_ptr).clone() },
-                data_inner.clone(),
-                callback_info,
-            );
-            drop(cb_span);
-            update.max_self(callback_update);
-
-            let collected_changes = callback_changes
-                .lock()
-                .map(|mut guard| core::mem::take(&mut *guard))
-                .unwrap_or_default();
-
-            all_changes.extend(collected_changes);
+                all_changes.extend(collected_changes);
             }
         }
 
@@ -11170,7 +11579,7 @@ impl LayoutWindow {
         current_window_state: &FullWindowState,
         renderer_resources: &RendererResources,
     ) -> (Vec<crate::callbacks::CallbackChange>, Update) {
-        use crate::callbacks::{CallbackInfo, CallbackChange};
+        use crate::callbacks::{CallbackChange, CallbackInfo};
 
         let current_scroll_states = self.get_nested_scroll_states(DomId::ROOT_ID);
 
@@ -11181,7 +11590,11 @@ impl LayoutWindow {
         // callback needing a node-local cursor (map pan/drag, custom hit
         // logic) silently bailed. Falls back to `None` when the node isn't in
         // the current hit test (e.g. non-pointer events).
-        let cursor_in_viewport = current_window_state.mouse_state.cursor_position.get_position().map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
+        let cursor_in_viewport = current_window_state
+            .mouse_state
+            .cursor_position
+            .get_position()
+            .map_or(OptionLogicalPosition::None, OptionLogicalPosition::Some);
         let cursor_relative_to_item = match hit_dom_node.node.into_crate_internal() {
             Some(node_id) => self
                 .hover_manager
@@ -11287,7 +11700,8 @@ impl LayoutWindow {
     pub fn set_system_style(&mut self, system_style: Arc<azul_css::system::SystemStyle>) {
         #[cfg(feature = "icu")]
         {
-            self.icu_localizer = crate::icu::IcuLocalizerHandle::from_system_language(&system_style.language);
+            self.icu_localizer =
+                crate::icu::IcuLocalizerHandle::from_system_language(&system_style.language);
         }
         self.system_style = Some(system_style);
     }
@@ -11366,7 +11780,10 @@ mod tests {
         // Segment midpoint under linear timing.
         tr.t = 0.5;
         let mid = tr.sample().translate_x;
-        assert!((mid - 50.0).abs() < 0.01, "expected 50 at the midpoint, got {mid}");
+        assert!(
+            (mid - 50.0).abs() < 0.01,
+            "expected 50 at the midpoint, got {mid}"
+        );
         // Past the last stop: clamp again.
         tr.t = 1.0;
         assert_eq!(tr.sample().translate_x, 100.0);
@@ -11513,16 +11930,17 @@ mod tests {
     /// — momentum is motion, not a stored number.
     #[test]
     fn momentum_kick_creates_reads_and_moves() {
-        use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources};
         use crate::xml::DomXmlExt;
+        use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources};
 
         let fc = crate::font::loading::build_font_cache();
-        let Ok(mut window) = LayoutWindow::new(fc) else { return };
+        let Ok(mut window) = LayoutWindow::new(fc) else {
+            return;
+        };
         let rr = RendererResources::default();
         let sc = ExternalSystemCallbacks::rust_internal();
-        let styled_dom = Dom::from_xml_string(
-            "<html><body><div id=\"box\">content</div></body></html>",
-        );
+        let styled_dom =
+            Dom::from_xml_string("<html><body><div id=\"box\">content</div></body></html>");
         let mut ws = FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(600.0, 400.0);
         let mut dbg = None;
@@ -11574,7 +11992,9 @@ mod tests {
         }
 
         let fc = crate::font::loading::build_font_cache();
-        let Ok(mut window) = LayoutWindow::new(fc) else { return };
+        let Ok(mut window) = LayoutWindow::new(fc) else {
+            return;
+        };
         let rr = RendererResources::default();
         let sc = ExternalSystemCallbacks::rust_internal();
 
@@ -11801,9 +12221,7 @@ mod tests {
             device: crate::managers::scroll_state::ScrollInputDevice::TestDriver,
         };
 
-        let should_start_timer = window
-            .scroll_manager
-            .record_scroll_input(scroll_input);
+        let should_start_timer = window.scroll_manager.record_scroll_input(scroll_input);
 
         // record_scroll_input should return true (timer was not running)
         assert!(should_start_timer);
@@ -11838,8 +12256,6 @@ mod tests {
         assert!(tick_result.needs_repaint);
     }
 
-
-
     #[test]
     fn test_gpu_cache_scrollbar_opacity_keys() {
         let fc_cache = FcFontCache::default();
@@ -11871,8 +12287,6 @@ mod tests {
             Some(&1.0)
         );
     }
-
-
 }
 
 // --- Cross-Paragraph Cursor Navigation API ---
@@ -12144,29 +12558,40 @@ impl LayoutWindow {
                         // NodeData has a direct `contenteditable: bool` field that should be
                         // checked in addition to the attribute for robustness
                         let is_contenteditable = styled_node.is_contenteditable()
-                            || styled_node.attributes().as_ref().iter().any(|attr| {
-                                matches!(attr, AttributeType::ContentEditable(_))
-                            });
+                            || styled_node
+                                .attributes()
+                                .as_ref()
+                                .iter()
+                                .any(|attr| matches!(attr, AttributeType::ContentEditable(_)));
 
                         if is_contenteditable {
                             // Get inline layout for cursor positioning
                             // Clone the Arc to avoid borrow conflict
-                            let inline_layout = self.get_inline_layout_for_node(dom_id, node_id).cloned();
+                            let inline_layout =
+                                self.get_inline_layout_for_node(dom_id, node_id).cloned();
                             if let Some(ref layout) = inline_layout {
                                 // (d4) Dense-first, sparse fallback — same
                                 // semantics as the finalize path.
                                 let cursor = self
                                     .get_dense_for_node(dom_id, node_id)
                                     .and_then(|d| d.last_cluster_cursor())
-                                    .or_else(|| layout.items.iter().rev()
-                                        .find_map(|item| if let ShapedItem::Cluster(c) = &item.item {
-                                            Some(TextCursor {
-                                                cluster_id: c.source_cluster_id,
-                                                affinity: CursorAffinity::Trailing,
-                                            })
-                                        } else { None }))
+                                    .or_else(|| {
+                                        layout.items.iter().rev().find_map(|item| {
+                                            if let ShapedItem::Cluster(c) = &item.item {
+                                                Some(TextCursor {
+                                                    cluster_id: c.source_cluster_id,
+                                                    affinity: CursorAffinity::Trailing,
+                                                })
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                    })
                                     .unwrap_or(TextCursor {
-                                        cluster_id: GraphemeClusterId { source_run: 0, start_byte_in_run: 0 },
+                                        cluster_id: GraphemeClusterId {
+                                            source_run: 0,
+                                            start_byte_in_run: 0,
+                                        },
                                         affinity: CursorAffinity::Trailing,
                                     });
                                 let ce_key = self.contenteditable_session_key(dom_id, node_id);
@@ -12237,16 +12662,17 @@ impl LayoutWindow {
                     now,
                 );
             }
-            AccessibilityAction::ScrollLeft |
-            AccessibilityAction::ScrollRight |
-            AccessibilityAction::ScrollUp |
-            AccessibilityAction::ScrollDown => {
+            AccessibilityAction::ScrollLeft
+            | AccessibilityAction::ScrollRight
+            | AccessibilityAction::ScrollUp
+            | AccessibilityAction::ScrollDown => {
                 // Find the scrollable ancestor (or the node itself if scrollable)
                 let dom_node_id = DomNodeId {
                     dom: dom_id,
                     node: NodeHierarchyItemId::from_crate_internal(Some(node_id)),
                 };
-                let (scroll_dom, scroll_nid) = self.find_scrollable_ancestor(dom_node_id)
+                let (scroll_dom, scroll_nid) = self
+                    .find_scrollable_ancestor(dom_node_id)
                     .and_then(|a| Some((a.dom, a.node.into_crate_internal()?)))
                     .unwrap_or((dom_id, node_id));
 
@@ -12256,10 +12682,10 @@ impl LayoutWindow {
                 let vp_w = bounds.map_or(800.0, |b| b.size.width as f32);
 
                 let (dx, dy) = match action {
-                    AccessibilityAction::ScrollLeft  => (-vp_w * 0.75, 0.0),
-                    AccessibilityAction::ScrollRight => ( vp_w * 0.75, 0.0),
-                    AccessibilityAction::ScrollUp    => (0.0, -vp_h * 0.75),
-                    AccessibilityAction::ScrollDown  => (0.0,  vp_h * 0.75),
+                    AccessibilityAction::ScrollLeft => (-vp_w * 0.75, 0.0),
+                    AccessibilityAction::ScrollRight => (vp_w * 0.75, 0.0),
+                    AccessibilityAction::ScrollUp => (0.0, -vp_h * 0.75),
+                    AccessibilityAction::ScrollDown => (0.0, vp_h * 0.75),
                     _ => unreachable!(),
                 };
 
@@ -12357,20 +12783,25 @@ impl LayoutWindow {
                 if let Some(value_str) = current_value {
                     let parsed: Result<f64, _> = value_str.trim().parse();
 
-                    let new_value_str = parsed.map_or_else(|_| if is_increment {
-                            "1".to_string()
-                        } else {
-                            "-1".to_string()
-                        }, |num| {
-                        // Successfully parsed as number
-                        let new_num = if is_increment { num + 1.0 } else { num - 1.0 };
-                        // Format with same precision as input if possible
-                        if num.fract() == 0.0 {
-                            format!("{}", new_num as i64)
-                        } else {
-                            format!("{new_num}")
-                        }
-                    });
+                    let new_value_str = parsed.map_or_else(
+                        |_| {
+                            if is_increment {
+                                "1".to_string()
+                            } else {
+                                "-1".to_string()
+                            }
+                        },
+                        |num| {
+                            // Successfully parsed as number
+                            let new_num = if is_increment { num + 1.0 } else { num - 1.0 };
+                            // Format with same precision as input if possible
+                            if num.fract() == 0.0 {
+                                format!("{}", new_num as i64)
+                            } else {
+                                format!("{new_num}")
+                            }
+                        },
+                    );
 
                     // Record as text input (will fire On::TextInput callbacks)
                     let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
@@ -12466,12 +12897,16 @@ impl LayoutWindow {
                     // Return a synthetic right-click so the caller's event dispatcher
                     // triggers the normal context-menu code path (platform-specific).
                     let hierarchy_id = NodeHierarchyItemId::from_crate_internal(Some(node_id));
-                    let dom_node_id = DomNodeId { dom: dom_id, node: hierarchy_id };
+                    let dom_node_id = DomNodeId {
+                        dom: dom_id,
+                        node: hierarchy_id,
+                    };
                     affected_nodes.insert(
                         dom_node_id,
-                        (vec![EventFilter::Hover(
-                            HoverEventFilter::RightMouseDown,
-                        )], false),
+                        (
+                            vec![EventFilter::Hover(HoverEventFilter::RightMouseDown)],
+                            false,
+                        ),
                     );
                 }
             }
@@ -12520,17 +12955,21 @@ impl LayoutWindow {
                     let start_cursor = dense
                         .as_ref()
                         .and_then(|d| d.byte_offset_to_cursor(selection.selection_start as u32))
-                        .unwrap_or_else(|| Self::byte_offset_to_cursor(
-                            inline_layout.as_ref(),
-                            selection.selection_start as u32,
-                        ));
+                        .unwrap_or_else(|| {
+                            Self::byte_offset_to_cursor(
+                                inline_layout.as_ref(),
+                                selection.selection_start as u32,
+                            )
+                        });
                     let end_cursor = dense
                         .as_ref()
                         .and_then(|d| d.byte_offset_to_cursor(selection.selection_end as u32))
-                        .unwrap_or_else(|| Self::byte_offset_to_cursor(
-                            inline_layout.as_ref(),
-                            selection.selection_end as u32,
-                        ));
+                        .unwrap_or_else(|| {
+                            Self::byte_offset_to_cursor(
+                                inline_layout.as_ref(),
+                                selection.selection_end as u32,
+                            )
+                        });
 
                     {
                         let (start, end) = (start_cursor, end_cursor);
@@ -12659,19 +13098,22 @@ impl LayoutWindow {
             }
         }
 
-        TextChangesetResult { dirty_nodes, needs_relayout }
+        TextChangesetResult {
+            dirty_nodes,
+            needs_relayout,
+        }
     }
 
     /// One queued edit. The entry is ALREADY popped, so every early-out here
     /// simply skips it rather than clearing the queue behind the loop's back.
-    fn apply_one_text_changeset(
-        &mut self,
-        changeset: PendingTextEdit,
-    ) -> TextChangesetResult {
+    fn apply_one_text_changeset(&mut self, changeset: PendingTextEdit) -> TextChangesetResult {
         use crate::managers::changeset::{TextOpInsertText, TextOperation};
         use crate::text3::edit::{edit_text, TextEdit};
 
-        let empty = TextChangesetResult { dirty_nodes: Vec::new(), needs_relayout: false };
+        let empty = TextChangesetResult {
+            dirty_nodes: Vec::new(),
+            needs_relayout: false,
+        };
 
         let Some(node_id) = changeset.node.node.into_crate_internal() else {
             return empty;
@@ -12721,7 +13163,10 @@ impl LayoutWindow {
         }
 
         // Get current cursor/selection — prefer non-empty MultiCursorState, fall back to legacy
-        let mc_selections = self.text_edit_manager.multi_cursor.as_ref()
+        let mc_selections = self
+            .text_edit_manager
+            .multi_cursor
+            .as_ref()
             .map(azul_core::selection::MultiCursorState::to_selections)
             .unwrap_or_default();
         let current_selection = if !mc_selections.is_empty() {
@@ -12763,7 +13208,9 @@ impl LayoutWindow {
             #[cfg(feature = "std")]
             timestamp: Instant::now(),
             #[cfg(not(feature = "std"))]
-            timestamp: azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 }),
+            timestamp: azul_core::task::Instant::Tick(azul_core::task::SystemTick {
+                tick_counter: 0,
+            }),
         };
 
         // Apply the edit using text3::edit - this is a pure function
@@ -12796,7 +13243,9 @@ impl LayoutWindow {
         // Get the new cursor position after edit using the layout's cursor rect
         let new_cursor = self
             .get_focused_cursor_rect()
-            .map_or(CursorPosition::Uninitialized, |r| CursorPosition::InWindow(r.origin));
+            .map_or(CursorPosition::Uninitialized, |r| {
+                CursorPosition::InWindow(r.origin)
+            });
 
         let old_cursor_pos = old_cursor
             .as_ref()
@@ -12806,7 +13255,9 @@ impl LayoutWindow {
                 // This is acceptable for undo: the exact pre-edit position is
                 // approximated; what matters is restoring focus to the node.
                 self.get_focused_cursor_rect()
-                    .map_or(CursorPosition::Uninitialized, |r| CursorPosition::InWindow(r.origin))
+                    .map_or(CursorPosition::Uninitialized, |r| {
+                        CursorPosition::InWindow(r.origin)
+                    })
             });
 
         // The record pipeline's provider already dispatched this edit's Input
@@ -12836,17 +13287,16 @@ impl LayoutWindow {
 
         // Return nodes that need dirty marking
         let dirty_nodes = self.determine_dirty_text_nodes(dom_id, node_id);
-        TextChangesetResult { dirty_nodes, needs_relayout }
+        TextChangesetResult {
+            dirty_nodes,
+            needs_relayout,
+        }
     }
 
     /// Determine which nodes need to be marked dirty after a text edit
     ///
     /// Returns the edited node + its parent (if it exists)
-    fn determine_dirty_text_nodes(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Vec<DomNodeId> {
+    fn determine_dirty_text_nodes(&self, dom_id: DomId, node_id: NodeId) -> Vec<DomNodeId> {
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
             return Vec::new();
         };
@@ -13056,11 +13506,7 @@ impl LayoutWindow {
     }
 
     /// Get the font style for a text node from CSS
-    fn get_text_style_for_node(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Arc<StyleProperties> {
+    fn get_text_style_for_node(&self, dom_id: DomId, node_id: NodeId) -> Arc<StyleProperties> {
         use alloc::sync::Arc;
 
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
@@ -13319,7 +13765,9 @@ impl LayoutWindow {
             // contenteditable) — caret-owning block first, then document order.
             if found.is_none() {
                 for child_id in self.ifc_candidate_children(dom_id, node_id) {
-                    if let Some(child_indices) = layout_result.layout_tree.dom_to_layout.get(&child_id) {
+                    if let Some(child_indices) =
+                        layout_result.layout_tree.dom_to_layout.get(&child_id)
+                    {
                         for &idx in child_indices {
                             if let Some(w) = layout_result.layout_tree.warm(idx) {
                                 if let Some(ref cached) = w.inline_layout_result {
@@ -13329,7 +13777,9 @@ impl LayoutWindow {
                             }
                         }
                     }
-                    if found.is_some() { break; }
+                    if found.is_some() {
+                        break;
+                    }
                 }
             }
 
@@ -13363,8 +13813,10 @@ impl LayoutWindow {
                         if let Some(container_size) = container_node.used_size {
                             let bp = container_node.box_props.unpack();
                             let content_width = container_size.width
-                                - bp.padding.left - bp.padding.right
-                                - bp.border.left - bp.border.right;
+                                - bp.padding.left
+                                - bp.padding.right
+                                - bp.border.left
+                                - bp.border.right;
                             if content_width > 0.0 {
                                 constraints.available_width =
                                     crate::text3::cache::AvailableSpace::Definite(content_width);
@@ -13378,15 +13830,21 @@ impl LayoutWindow {
 
             // Fallback: walk up the IFC's ancestors in the layout tree
             if !found_width {
-                if let Some(parent_idx) = layout_result.layout_tree.get(LayoutNodeId::new(ifc_layout_index))
+                if let Some(parent_idx) = layout_result
+                    .layout_tree
+                    .get(LayoutNodeId::new(ifc_layout_index))
                     .and_then(|n| n.parent)
                 {
-                    if let Some(parent_node) = layout_result.layout_tree.get(LayoutNodeId::new(parent_idx)) {
+                    if let Some(parent_node) =
+                        layout_result.layout_tree.get(LayoutNodeId::new(parent_idx))
+                    {
                         if let Some(parent_size) = parent_node.used_size {
                             let bp = parent_node.box_props.unpack();
                             let content_width = parent_size.width
-                                - bp.padding.left - bp.padding.right
-                                - bp.border.left - bp.border.right;
+                                - bp.padding.left
+                                - bp.padding.right
+                                - bp.border.left
+                                - bp.border.right;
                             if content_width > 0.0 {
                                 constraints.available_width =
                                     crate::text3::cache::AvailableSpace::Definite(content_width);
@@ -13412,13 +13870,18 @@ impl LayoutWindow {
             .and_then(|w| w.inline_layout_result.as_ref())
             .cloned();
 
-        let new_layout = cached_snapshot.map_or_else(|| self.relayout_text_node_internal(&new_inline_content, &constraints), |cached| self.try_incremental_text_relayout(
-                &new_inline_content,
-                &constraints,
-                &cached,
-                node_id,
-            )
-            .map(|(layout, _skipped_fragment)| layout));
+        let new_layout = cached_snapshot.map_or_else(
+            || self.relayout_text_node_internal(&new_inline_content, &constraints),
+            |cached| {
+                self.try_incremental_text_relayout(
+                    &new_inline_content,
+                    &constraints,
+                    &cached,
+                    node_id,
+                )
+                .map(|(layout, _skipped_fragment)| layout)
+            },
+        );
 
         let Some(new_layout) = new_layout else {
             return;
@@ -13427,7 +13890,10 @@ impl LayoutWindow {
         // 4. Update the layout cache with the new layout
         // Use the ifc_layout_index we found earlier (correct layout tree index)
         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
-            let old_size = layout_result.layout_tree.get(LayoutNodeId::new(ifc_layout_index)).and_then(|n| n.used_size);
+            let old_size = layout_result
+                .layout_tree
+                .get(LayoutNodeId::new(ifc_layout_index))
+                .and_then(|n| n.used_size);
             let new_bounds = new_layout.bounds();
             let new_size = Some(LogicalSize {
                 width: new_bounds.width,
@@ -13438,7 +13904,9 @@ impl LayoutWindow {
             if let (Some(old), Some(new)) = (old_size, new_size) {
                 if (old.height - new.height).abs() > 0.5 || (old.width - new.width).abs() > 0.5 {
                     // Mark that ancestor relayout is needed
-                    if let Some(dirty_node) = self.content_overlay.text_for_node_mut(dom_id, node_id) {
+                    if let Some(dirty_node) =
+                        self.content_overlay.text_for_node_mut(dom_id, node_id)
+                    {
                         dirty_node.needs_ancestor_relayout = true;
                     }
                 }
@@ -13459,13 +13927,17 @@ impl LayoutWindow {
             };
 
             // Update the inline layout result with the new layout but preserve constraints (warm data)
-            if let Some(warm_node) = layout_result.layout_tree.warm_mut(LayoutNodeId::new(ifc_layout_index)) {
-                warm_node.inline_layout_result = Some(Box::new(CachedInlineLayout::new_with_constraints(
-                    Arc::new(new_layout),
-                    constraints.available_width,
-                    false, // No floats in quick relayout
-                    constraints,
-                )));
+            if let Some(warm_node) = layout_result
+                .layout_tree
+                .warm_mut(LayoutNodeId::new(ifc_layout_index))
+            {
+                warm_node.inline_layout_result =
+                    Some(Box::new(CachedInlineLayout::new_with_constraints(
+                        Arc::new(new_layout),
+                        constraints.available_width,
+                        false, // No floats in quick relayout
+                        constraints,
+                    )));
                 warm_node.overflow_content_size = Some(content_extent);
             }
         }
@@ -13505,8 +13977,12 @@ impl LayoutWindow {
                         .layout_tree
                         .ancestor_chain(ifc_idx, Inclusivity::AncestorsOnly)
                     {
-                        let Some(pnode) = layout_result.layout_tree.get(idx) else { break };
-                        let Some(pdom) = pnode.dom_node_id else { continue };
+                        let Some(pnode) = layout_result.layout_tree.get(idx) else {
+                            break;
+                        };
+                        let Some(pdom) = pnode.dom_node_id else {
+                            continue;
+                        };
                         let st = layout_result
                             .styled_dom
                             .styled_nodes
@@ -13514,14 +13990,15 @@ impl LayoutWindow {
                             .get(pdom)
                             .map(|n| n.styled_node_state)
                             .unwrap_or_default();
-                        let scrolls = solver3::getters::get_overflow_x(
-                            &layout_result.styled_dom, pdom, &st,
-                        )
-                        .is_scroll()
-                            || solver3::getters::get_overflow_y(
-                                &layout_result.styled_dom, pdom, &st,
-                            )
-                            .is_scroll();
+                        let scrolls =
+                            solver3::getters::get_overflow_x(&layout_result.styled_dom, pdom, &st)
+                                .is_scroll()
+                                || solver3::getters::get_overflow_y(
+                                    &layout_result.styled_dom,
+                                    pdom,
+                                    &st,
+                                )
+                                .is_scroll();
                         if scrolls {
                             chain.push((pdom, extent));
                             break;
@@ -13674,12 +14151,22 @@ impl LayoutWindow {
         let Some(lr) = self.layout_results.get(&dom_id) else {
             return Vec::new();
         };
-        let patched: Vec<String> = lr.display_list.items.iter().map(|i| format!("{i:?}")).collect();
+        let patched: Vec<String> = lr
+            .display_list
+            .items
+            .iter()
+            .map(|i| format!("{i:?}"))
+            .collect();
         self.regenerate_display_list_for_dom(dom_id);
         let Some(lr) = self.layout_results.get(&dom_id) else {
             return Vec::new();
         };
-        let wholesale: Vec<String> = lr.display_list.items.iter().map(|i| format!("{i:?}")).collect();
+        let wholesale: Vec<String> = lr
+            .display_list
+            .items
+            .iter()
+            .map(|i| format!("{i:?}"))
+            .collect();
         // `AZ_PATCH_VERIFY_DUMP=<dir>`: write both lists in full, one item per
         // line, so a mismatch can be read side by side (the report below is
         // index-aligned and clipped, which is enough to SEE a drift but not
@@ -13692,7 +14179,10 @@ impl LayoutWindow {
                 // the verification it documents.
                 drop(std::fs::create_dir_all(&dir));
                 drop(std::fs::write(dir.join("patched.txt"), patched.join("\n")));
-                drop(std::fs::write(dir.join("wholesale.txt"), wholesale.join("\n")));
+                drop(std::fs::write(
+                    dir.join("wholesale.txt"),
+                    wholesale.join("\n"),
+                ));
             }
         }
         let mut out = Vec::new();
@@ -13726,10 +14216,7 @@ impl LayoutWindow {
     /// This method creates a temporary `LayoutContext` from the existing `LayoutWindow` state
     /// and calls `generate_display_list` on the already-computed layout tree and positions.
     pub fn regenerate_display_list_for_dom(&mut self, dom_id: DomId) {
-        use crate::solver3::{
-            display_list::generate_display_list,
-            LayoutContext,
-        };
+        use crate::solver3::{display_list::generate_display_list, LayoutContext};
 
         self.frame_report.dl_rebuilds = self.frame_report.dl_rebuilds.saturating_add(1);
 
@@ -13768,7 +14255,6 @@ impl LayoutWindow {
 
         // Get GPU cache for this DOM
         let gpu_cache = self.gpu_state_manager.get_or_create_cache(dom_id).clone();
-
 
         // Get cursor state for display list generation. A tween in flight
         // forces the caret solid (blinking is suppressed while animating).
@@ -13818,7 +14304,6 @@ impl LayoutWindow {
             self.id_namespace,
             dom_id,
         );
-
 
         // Restore the cache_map back to layout_cache
         self.layout_cache.cache_map = std::mem::take(&mut ctx.cache_map);
@@ -13916,8 +14401,7 @@ impl LayoutWindow {
                 #[cfg(feature = "a11y")]
                 self.update_a11y_tree_incremental();
             }
-            Err(_e) => {
-            }
+            Err(_e) => {}
         }
     }
 
@@ -13946,10 +14430,7 @@ impl LayoutWindow {
         &self,
         content: &[InlineContent],
         constraints: &UnifiedConstraints,
-    ) -> Option<(
-        Vec<crate::text3::cache::LogicalItem>,
-        Vec<ShapedItem>,
-    )> {
+    ) -> Option<(Vec<crate::text3::cache::LogicalItem>, Vec<ShapedItem>)> {
         use crate::text3::cache::{
             create_logical_items, reorder_logical_items, shape_visual_items, BidiDirection,
         };
@@ -13992,7 +14473,14 @@ impl LayoutWindow {
 
         let loaded_fonts = self.font_manager.get_loaded_fonts();
         let mut cursor = BreakCursor::new(shaped_items);
-        perform_fragment_layout(&mut cursor, logical_items, constraints, &mut None, &loaded_fonts).ok()
+        perform_fragment_layout(
+            &mut cursor,
+            logical_items,
+            constraints,
+            &mut None,
+            &loaded_fonts,
+        )
+        .ok()
     }
 
     /// Attempt an incremental IFC relayout for a text edit.
@@ -14088,7 +14576,9 @@ impl LayoutWindow {
                                 && sparse.line_index == li,
                             "d6g verify: positioned_cluster({i}) diverged: \
                              sparse ({}, {}, {}) vs dense ({x}, {y}, {li})",
-                            sparse.position.x, sparse.position.y, sparse.line_index,
+                            sparse.position.x,
+                            sparse.position.y,
+                            sparse.line_index,
                         );
                     }
                 }
@@ -14107,8 +14597,8 @@ impl LayoutWindow {
         edited_node_id: NodeId,
     ) -> Option<(UnifiedLayout, bool)> {
         use crate::text3::cache::{
-            try_incremental_relayout as decide_incremental,
-            IncrementalRelayoutResult, PositionedItem, ShapedItem,
+            try_incremental_relayout as decide_incremental, IncrementalRelayoutResult,
+            PositionedItem, ShapedItem,
         };
 
         let (logical_items, shaped_items) = self.shape_text_for_relayout(content, constraints)?;
@@ -14144,10 +14634,12 @@ impl LayoutWindow {
         if incremental_ok {
             let line_breaks = cached.line_breaks.as_ref().unwrap();
 
-            let old_advances: Vec<f32> =
-                cached.item_metrics.iter().map(|m| m.advance_width).collect();
-            let new_advances: Vec<f32> =
-                shaped_items.iter().map(|si| si.bounds().width).collect();
+            let old_advances: Vec<f32> = cached
+                .item_metrics
+                .iter()
+                .map(|m| m.advance_width)
+                .collect();
+            let new_advances: Vec<f32> = shaped_items.iter().map(|si| si.bounds().width).collect();
 
             // An item is dirty if its advance width changed OR it originates
             // from the edited DOM node. The latter is needed so GlyphSwap
@@ -14161,9 +14653,7 @@ impl LayoutWindow {
             }
             for (i, si) in shaped_items.iter().enumerate() {
                 if let ShapedItem::Cluster(c) = si {
-                    if c.source_node_id == Some(edited_node_id)
-                        && !dirty_indices.contains(&i)
-                    {
+                    if c.source_node_id == Some(edited_node_id) && !dirty_indices.contains(&i) {
                         dirty_indices.push(i);
                     }
                 }
@@ -14183,9 +14673,12 @@ impl LayoutWindow {
                         .into_iter()
                         .enumerate()
                         .map(|(i, new_shaped)| {
-                            let (position, line_index) =
-                                Self::cached_positioned_of(cached, i);
-                            PositionedItem { item: new_shaped, position, line_index }
+                            let (position, line_index) = Self::cached_positioned_of(cached, i);
+                            PositionedItem {
+                                item: new_shaped,
+                                position,
+                                line_index,
+                            }
                         })
                         .collect();
                     return Some((
@@ -14208,12 +14701,15 @@ impl LayoutWindow {
                         .into_iter()
                         .enumerate()
                         .map(|(i, new_shaped)| {
-                            let (mut position, line_index) =
-                                Self::cached_positioned_of(cached, i);
+                            let (mut position, line_index) = Self::cached_positioned_of(cached, i);
                             if i > affected_item && line_index == affected_line {
                                 position.x += delta;
                             }
-                            PositionedItem { item: new_shaped, position, line_index }
+                            PositionedItem {
+                                item: new_shaped,
+                                position,
+                                line_index,
+                            }
                         })
                         .collect();
                     return Some((
@@ -14234,17 +14730,14 @@ impl LayoutWindow {
         // Fall-back: run stage 4 (line breaking + positioning) with the
         // already-computed logical + shaped items. Still cheaper than the
         // plain full path because stages 1-3 aren't repeated.
-        let layout = self.fragment_layout_from_shaped(&logical_items, &shaped_items, constraints)?;
+        let layout =
+            self.fragment_layout_from_shaped(&logical_items, &shaped_items, constraints)?;
         Some((layout, false))
     }
 
     /// Helper to get node `used_size` for accessibility actions
     #[cfg(feature = "a11y")]
-    fn get_node_used_size_a11y(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Option<LogicalSize> {
+    fn get_node_used_size_a11y(&self, dom_id: DomId, node_id: NodeId) -> Option<LogicalSize> {
         let layout_result = self.layout_results.get(&dom_id)?;
         let layout_indices = layout_result.layout_tree.dom_to_layout.get(&node_id)?;
         let idx = *layout_indices.first()?;
@@ -14299,10 +14792,7 @@ impl LayoutWindow {
     /// A `TextCursor` positioned at the given byte offset, or None if the offset
     /// is out of bounds.
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    fn byte_offset_to_cursor(
-        text_layout: &UnifiedLayout,
-        byte_offset: u32,
-    ) -> TextCursor {
+    fn byte_offset_to_cursor(text_layout: &UnifiedLayout, byte_offset: u32) -> TextCursor {
         // Handle offset 0 as special case (start of text)
         if byte_offset == 0 {
             // Find first cluster in items
@@ -14370,11 +14860,7 @@ impl LayoutWindow {
     ///
     /// This looks up the node in the layout tree and returns its inline layout result
     /// if it exists.
-    fn get_node_inline_layout(
-        &self,
-        dom_id: DomId,
-        node_id: NodeId,
-    ) -> Option<Arc<UnifiedLayout>> {
+    fn get_node_inline_layout(&self, dom_id: DomId, node_id: NodeId) -> Option<Arc<UnifiedLayout>> {
         // The tree of the REQUESTED dom. `layout_cache.tree` is the root dom's
         // only, so a bare `dom_node_id` match against it answered for an
         // unrelated node of the root DOM whenever `dom_id` named a virtualized
@@ -14563,7 +15049,10 @@ impl LayoutWindow {
     ) -> Option<LogicalPosition> {
         let border = solver3::pos_get(&layout_result.calculated_positions, layout_idx.index())?;
         let inset = layout_result.layout_tree.content_inset(layout_idx);
-        Some(LogicalPosition::new(border.x + inset.left, border.y + inset.top))
+        Some(LogicalPosition::new(
+            border.x + inset.left,
+            border.y + inset.top,
+        ))
     }
 
     /// [`Self::ifc_local_point_from`] when the node that was HIT is not the IFC
@@ -14597,9 +15086,12 @@ impl LayoutWindow {
             ));
         }
         let tree = &layout_result.layout_tree;
-        let hit_border = solver3::pos_get(&layout_result.calculated_positions, hit_layout_idx.index())?;
-        let root_border =
-            solver3::pos_get(&layout_result.calculated_positions, ifc_root_layout_idx.index())?;
+        let hit_border =
+            solver3::pos_get(&layout_result.calculated_positions, hit_layout_idx.index())?;
+        let root_border = solver3::pos_get(
+            &layout_result.calculated_positions,
+            ifc_root_layout_idx.index(),
+        )?;
         let rebased = hit_local
             .to_border_box_local(tree.content_inset(hit_layout_idx))
             .to_static_layout(hit_border)
@@ -14782,7 +15274,10 @@ impl LayoutWindow {
                 let get_dom_depth = |node_id: &NodeId| -> usize {
                     let mut depth = 0;
                     let mut current = *node_id;
-                    while let Some(parent) = node_hierarchy.get(current).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id) {
+                    while let Some(parent) = node_hierarchy
+                        .get(current)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                    {
                         depth += 1;
                         current = parent;
                     }
@@ -14795,7 +15290,9 @@ impl LayoutWindow {
                     let depth_b = get_dom_depth(b_id);
                     // Higher depth = deeper in DOM = should come first
                     // Then sort by NodeId for deterministic order within same depth
-                    depth_b.cmp(&depth_a).then_with(|| a_id.index().cmp(&b_id.index()))
+                    depth_b
+                        .cmp(&depth_a)
+                        .then_with(|| a_id.index().cmp(&b_id.index()))
                 });
 
                 for (node_id, hit_item) in sorted_hits {
@@ -14805,7 +15302,10 @@ impl LayoutWindow {
                     }
 
                     // Find the layout node for this DOM node
-                    let layout_node_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(*node_id));
+                    let layout_node_idx = tree
+                        .nodes
+                        .iter()
+                        .position(|n| n.dom_node_id == Some(*node_id));
                     let Some(layout_node_idx) = layout_node_idx else {
                         continue;
                     };
@@ -14823,19 +15323,25 @@ impl LayoutWindow {
                             // This node IS an IFC root - use its own NodeId
                             (cached, *node_id, layout_node_idx)
                         } else if let Some(ref membership) = warm_node.ifc_membership {
-                        // This node participates in an IFC - get layout and NodeId from IFC root
-                        let root_idx = membership.ifc_root_layout_index;
-                        match tree.warm(LayoutNodeId::new(root_idx)) {
-                            Some(ifc_root_warm) => match (ifc_root_warm.inline_layout_result.as_ref(), tree.get(LayoutNodeId::new(root_idx)).and_then(|n| n.dom_node_id)) {
-                                (Some(cached), Some(root_dom_id)) => (cached, root_dom_id, root_idx),
-                                _ => continue,
-                            },
-                            None => continue,
-                        }
-                    } else {
-                        // No IFC involvement - not a text node
-                        continue;
-                    };
+                            // This node participates in an IFC - get layout and NodeId from IFC root
+                            let root_idx = membership.ifc_root_layout_index;
+                            match tree.warm(LayoutNodeId::new(root_idx)) {
+                                Some(ifc_root_warm) => match (
+                                    ifc_root_warm.inline_layout_result.as_ref(),
+                                    tree.get(LayoutNodeId::new(root_idx))
+                                        .and_then(|n| n.dom_node_id),
+                                ) {
+                                    (Some(cached), Some(root_dom_id)) => {
+                                        (cached, root_dom_id, root_idx)
+                                    }
+                                    _ => continue,
+                                },
+                                None => continue,
+                            }
+                        } else {
+                            // No IFC involvement - not a text node
+                            continue;
+                        };
 
                     // Under the default AZ_DENSE_TEXT=1, retire_sparse swaps
                     // `cached.layout` for a shared, permanently-EMPTY sentinel
@@ -14874,10 +15380,15 @@ impl LayoutWindow {
                     });
                     if let Some(cursor) = hit_cursor {
                         // Store selection with IFC root NodeId, not the hit text node
-                        found_selection = Some((*dom_id, ifc_root_node_id, SelectionRange {
-                            start: cursor,
-                            end: cursor,
-                        }, local_pos));
+                        found_selection = Some((
+                            *dom_id,
+                            ifc_root_node_id,
+                            SelectionRange {
+                                start: cursor,
+                                end: cursor,
+                            },
+                            local_pos,
+                        ));
                         break;
                     }
                 }
@@ -14932,13 +15443,16 @@ impl LayoutWindow {
                         let bounds = cached_layout.layout.bounds();
                         LogicalSize::new(bounds.width, bounds.height)
                     });
-                    let ancestor_scroll = self
-                        .accumulated_scroll(*dom_id, node_idx, Inclusivity::AncestorsOnly);
+                    let ancestor_scroll =
+                        self.accumulated_scroll(*dom_id, node_idx, Inclusivity::AncestorsOnly);
                     let screen_x = node_pos.x - ancestor_scroll.get().x;
                     let screen_y = node_pos.y - ancestor_scroll.get().y;
 
-                    if position.x < screen_x || position.x > screen_x + node_size.width ||
-                       position.y < screen_y || position.y > screen_y + node_size.height {
+                    if position.x < screen_x
+                        || position.x > screen_x + node_size.width
+                        || position.y < screen_y
+                        || position.y > screen_y + node_size.height
+                    {
                         continue;
                     }
 
@@ -14967,10 +15481,15 @@ impl LayoutWindow {
                         )
                     });
                     if let Some(cursor) = hit_cursor {
-                        found_selection = Some((*dom_id, node_id, SelectionRange {
-                            start: cursor,
-                            end: cursor,
-                        }, local_pos));
+                        found_selection = Some((
+                            *dom_id,
+                            node_id,
+                            SelectionRange {
+                                start: cursor,
+                                end: cursor,
+                            },
+                            local_pos,
+                        ));
                         break;
                     }
                 }
@@ -15031,8 +15550,14 @@ impl LayoutWindow {
             let tree = &layout_result.layout_tree;
 
             // Find layout node - ifc_root_node_id is always the IFC root, so it has inline_layout_result
-            let layout_idx = tree.nodes.iter().position(|n| n.dom_node_id == Some(ifc_root_node_id))?;
-            let cached_layout = tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
+            let layout_idx = tree
+                .nodes
+                .iter()
+                .position(|n| n.dom_node_id == Some(ifc_root_node_id))?;
+            let cached_layout = tree
+                .warm(LayoutNodeId::new(layout_idx))?
+                .inline_layout_result
+                .as_ref()?;
             let layout = Self::materialized_inline_layout(cached_layout);
 
             match click_count {
@@ -15053,35 +15578,38 @@ impl LayoutWindow {
         //
         // Check if the node OR ANY ANCESTOR is contenteditable before setting focus
         // The contenteditable attribute is typically on a parent div, not on the IFC root or text node
-        let is_contenteditable = self.layout_results.get(&dom_id)
-            .is_some_and(|lr| {
-                let node_hierarchy = lr.styled_dom.node_hierarchy.as_container();
-                let node_data = lr.styled_dom.node_data.as_ref();
+        let is_contenteditable = self.layout_results.get(&dom_id).is_some_and(|lr| {
+            let node_hierarchy = lr.styled_dom.node_hierarchy.as_container();
+            let node_data = lr.styled_dom.node_data.as_ref();
 
-                // Walk up the DOM tree to check if any ancestor has contenteditable
-                let mut current_node = Some(ifc_root_node_id);
-                while let Some(node_id) = current_node {
-                    if let Some(styled_node) = node_data.get(node_id.index()) {
-                        // Check BOTH: the contenteditable boolean field AND the attribute
-                        // NodeData has a direct `contenteditable: bool` field that should be
-                        // checked in addition to the attribute for robustness
-                        if styled_node.is_contenteditable() {
-                            return true;
-                        }
-
-                        // Also check the attribute (for backwards compatibility)
-                        let has_contenteditable_attr = styled_node.attributes().as_ref().iter().any(|attr| {
-                            matches!(attr, AttributeType::ContentEditable(_))
-                        });
-                        if has_contenteditable_attr {
-                            return true;
-                        }
+            // Walk up the DOM tree to check if any ancestor has contenteditable
+            let mut current_node = Some(ifc_root_node_id);
+            while let Some(node_id) = current_node {
+                if let Some(styled_node) = node_data.get(node_id.index()) {
+                    // Check BOTH: the contenteditable boolean field AND the attribute
+                    // NodeData has a direct `contenteditable: bool` field that should be
+                    // checked in addition to the attribute for robustness
+                    if styled_node.is_contenteditable() {
+                        return true;
                     }
-                    // Move to parent
-                    current_node = node_hierarchy.get(node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+
+                    // Also check the attribute (for backwards compatibility)
+                    let has_contenteditable_attr = styled_node
+                        .attributes()
+                        .as_ref()
+                        .iter()
+                        .any(|attr| matches!(attr, AttributeType::ContentEditable(_)));
+                    if has_contenteditable_attr {
+                        return true;
+                    }
                 }
-                false
-            });
+                // Move to parent
+                current_node = node_hierarchy
+                    .get(node_id)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+            }
+            false
+        });
 
         // NOTE: Do NOT call focus_manager.set_focused_node() here!
         // The click-to-focus system in event.rs (process_window_events) handles
@@ -15100,7 +15628,10 @@ impl LayoutWindow {
         });
         self.text_edit_manager.enter_focus_scope(scope);
         self.text_edit_manager.initialize_editing(
-            final_range.start, dom_id, ifc_root_node_id, ce_key,
+            final_range.start,
+            dom_id,
+            ifc_root_node_id,
+            ce_key,
         );
         // MWA-C-text_edit: double/triple-click computed the word/paragraph
         // range above but then threw it away — initialize_editing only
@@ -15124,7 +15655,10 @@ impl LayoutWindow {
         if is_contenteditable {
             let now = Instant::now();
             self.text_edit_manager.blink.reset_blink_on_input(now);
-            if self.timers.contains_key(&azul_core::task::CURSOR_BLINK_TIMER_ID) {
+            if self
+                .timers
+                .contains_key(&azul_core::task::CURSOR_BLINK_TIMER_ID)
+            {
                 self.text_edit_manager.blink.set_blink_timer_active(true);
             }
         }
@@ -15177,11 +15711,15 @@ impl LayoutWindow {
         // Hit-test the current drag position to get the focus cursor
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
-        let layout_idx = tree.nodes.iter()
+        let layout_idx = tree
+            .nodes
+            .iter()
             .position(|n| n.dom_node_id == Some(node_id))?;
         // (the anchor node's cached inline layout is re-borrowed below,
         // after the cross-block branch may have taken &mut self)
-        tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
+        tree.warm(LayoutNodeId::new(layout_idx))?
+            .inline_layout_result
+            .as_ref()?;
 
         // The pointer in the anchor IFC's own space. This used to be spelled
         // out here as `current - node_pos + self_inclusive_scroll`, which is
@@ -15206,21 +15744,19 @@ impl LayoutWindow {
         // `node_box_on_screen` also takes the ANCESTORS' scroll off, which the
         // hand-rolled `current - node_pos` did not — an editable inside a
         // scrolled page fell out of its own anchor rect.
-        let anchor_rect_contains = self
-            .node_box_on_screen(dom_id, layout_idx)
-            .is_some_and(|screen| {
-                current_position.x >= screen.origin.x
-                    && current_position.y >= screen.origin.y
-                    && current_position.x <= screen.origin.x + screen.size.width
-                    && current_position.y <= screen.origin.y + screen.size.height
-            });
+        let anchor_rect_contains =
+            self.node_box_on_screen(dom_id, layout_idx)
+                .is_some_and(|screen| {
+                    current_position.x >= screen.origin.x
+                        && current_position.y >= screen.origin.y
+                        && current_position.x <= screen.origin.x + screen.size.width
+                        && current_position.y <= screen.origin.y + screen.size.height
+                });
         if !anchor_rect_contains {
             let global_hit = self.hittest_text_position_global(dom_id, current_position);
             if let Some((hit_node, hit_cursor)) = global_hit {
                 if hit_node != node_id
-                    && self.set_cross_block_selection(
-                        dom_id, node_id, anchor, hit_node, hit_cursor,
-                    )
+                    && self.set_cross_block_selection(dom_id, node_id, anchor, hit_node, hit_cursor)
                 {
                     self.text_edit_manager.mark_dirty();
                     self.regenerate_display_list_for_dom(dom_id);
@@ -15232,7 +15768,10 @@ impl LayoutWindow {
         // Re-borrow after the possible &mut use above.
         let layout_result = self.layout_results.get(&dom_id)?;
         let tree = &layout_result.layout_tree;
-        let cached = tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
+        let cached = tree
+            .warm(LayoutNodeId::new(layout_idx))?
+            .inline_layout_result
+            .as_ref()?;
         // (d6h) Materialized: sentinel-safe click hittest.
         let focus = Self::materialized_inline_layout(cached).hittest_point(local_pos)?;
 
@@ -15277,8 +15816,12 @@ impl LayoutWindow {
         // (vertical distance, horizontal distance, node, layout index)
         let mut best: Option<(f32, f32, NodeId, usize)> = None;
         for (idx, node) in tree.nodes.iter().enumerate() {
-            let Some(node_dom_id) = node.dom_node_id else { continue };
-            let Some(warm) = tree.warm(LayoutNodeId::new(idx)) else { continue };
+            let Some(node_dom_id) = node.dom_node_id else {
+                continue;
+            };
+            let Some(warm) = tree.warm(LayoutNodeId::new(idx)) else {
+                continue;
+            };
             if warm.inline_layout_result.is_none() {
                 continue;
             }
@@ -15288,7 +15831,9 @@ impl LayoutWindow {
             // scroll offset, so the pointer kept picking the same block however
             // far the view had moved. Its OWN scroll is excluded — that moves
             // the block's text, not the block.
-            let Some(screen) = self.node_box_on_screen(dom_id, idx) else { continue };
+            let Some(screen) = self.node_box_on_screen(dom_id, idx) else {
+                continue;
+            };
             let dy = if position.y < screen.origin.y {
                 screen.origin.y - position.y
             } else if position.y > screen.origin.y + screen.size.height {
@@ -15317,20 +15862,29 @@ impl LayoutWindow {
             }
         }
         let (_, _, node_dom_id, layout_idx) = best?;
-        let cached = tree.warm(LayoutNodeId::new(layout_idx))?.inline_layout_result.as_ref()?;
+        let cached = tree
+            .warm(LayoutNodeId::new(layout_idx))?
+            .inline_layout_result
+            .as_ref()?;
         // The winning block's own space, via the one conversion chain (this
         // used to be spelled out inline and skipped the content inset).
         let local = self.window_point_to_ifc_local(dom_id, layout_idx, position)?;
         // Clamp the local point into the block so line hit-testing lands on
         // the nearest line instead of failing outside the box. The clamp box is
         // the CONTENT box, matching the space the point is now in.
-        let size = tree.get(LayoutNodeId::new(layout_idx)).and_then(|n| n.used_size).unwrap_or_default();
+        let size = tree
+            .get(LayoutNodeId::new(layout_idx))
+            .and_then(|n| n.used_size)
+            .unwrap_or_default();
         let inset = tree.content_inset(LayoutNodeId::new(layout_idx));
         let bp = tree
             .get(LayoutNodeId::new(layout_idx))
             .map(|n| n.box_props.unpack());
         let (right, bottom) = bp.map_or((0.0, 0.0), |b| {
-            (b.padding.right + b.border.right, b.padding.bottom + b.border.bottom)
+            (
+                b.padding.right + b.border.right,
+                b.padding.bottom + b.border.bottom,
+            )
         });
         let clamped = local.clamp_to(
             size.width - inset.left - right,
@@ -15354,11 +15908,7 @@ impl LayoutWindow {
     /// ## Returns
     /// * `Some(Vec<DomNodeId>)` - Affected nodes if deletion occurred
     /// * `None` - If no cursor/selection exists or deletion failed
-    pub fn delete_selection(
-        &mut self,
-        target: DomNodeId,
-        forward: bool,
-    ) -> Option<Vec<DomNodeId>> {
+    pub fn delete_selection(&mut self, target: DomNodeId, forward: bool) -> Option<Vec<DomNodeId>> {
         let dom_id = target.dom;
         let node_id = target.node.into_crate_internal()?;
 
@@ -15377,9 +15927,8 @@ impl LayoutWindow {
         } else {
             crate::text3::edit::TextEdit::DeleteBackward
         };
-        let (new_content, new_selections) = crate::text3::edit::edit_text(
-            &content, &current_selections, &edit,
-        );
+        let (new_content, new_selections) =
+            crate::text3::edit::edit_text(&content, &current_selections, &edit);
 
         // MWA-C-undo_redo: deletions (Backspace / Delete / Cut all route
         // here) were never recorded — only insertions were undoable. Record
@@ -15419,9 +15968,7 @@ impl LayoutWindow {
                 }
                 #[cfg(not(feature = "std"))]
                 {
-                    azul_core::task::Instant::Tick(azul_core::task::SystemTick {
-                        tick_counter: 0,
-                    })
+                    azul_core::task::Instant::Tick(azul_core::task::SystemTick { tick_counter: 0 })
                 }
             };
             let pre_state = NodeStateSnapshot {
@@ -15522,8 +16069,7 @@ impl LayoutWindow {
                                 0
                             };
                             let hi = if i == er {
-                                cursor_byte_offset_in_run(&run.text, &range.end)
-                                    .min(run.text.len())
+                                cursor_byte_offset_in_run(&run.text, &range.end).min(run.text.len())
                             } else {
                                 run.text.len()
                             };
@@ -15543,10 +16089,14 @@ impl LayoutWindow {
         let node_id = mc.node_id.node.into_crate_internal()?;
 
         // Collect range selections (collapsed cursors contribute nothing to a copy).
-        let ranges: Vec<_> = mc.selections.iter().filter_map(|s| match &s.selection {
-            Selection::Range(r) => Some(*r),
-            Selection::Cursor(_) => None,
-        }).collect();
+        let ranges: Vec<_> = mc
+            .selections
+            .iter()
+            .filter_map(|s| match &s.selection {
+                Selection::Range(r) => Some(*r),
+                Selection::Cursor(_) => None,
+            })
+            .collect();
         if ranges.is_empty() {
             return None;
         }
@@ -15584,10 +16134,12 @@ impl LayoutWindow {
                 for ri in first_idx..=last_idx {
                     if let Some(InlineContent::Text(run)) = content.get(ri) {
                         if ri == first_idx {
-                            let off = cursor_byte_offset_in_run(&run.text, &first_cur).min(run.text.len());
+                            let off = cursor_byte_offset_in_run(&run.text, &first_cur)
+                                .min(run.text.len());
                             acc.push(&run.text[off..], &run.style);
                         } else if ri == last_idx {
-                            let off = cursor_byte_offset_in_run(&run.text, &last_cur).min(run.text.len());
+                            let off =
+                                cursor_byte_offset_in_run(&run.text, &last_cur).min(run.text.len());
                             acc.push(&run.text[..off], &run.style);
                         } else {
                             acc.push(&run.text, &run.style);
@@ -15614,18 +16166,16 @@ impl LayoutWindow {
         node_id: NodeId,
     ) -> bool {
         // Get the VirtualView's current layout bounds (needed for check_reinvoke)
-        let Some(bounds) = Self::get_virtual_view_bounds_from_layout(
-            &self.layout_results,
-            dom_id,
-            node_id,
-        ) else {
+        let Some(bounds) =
+            Self::get_virtual_view_bounds_from_layout(&self.layout_results, dom_id, node_id)
+        else {
             return false; // Not a VirtualView or no layout info
         };
 
         // Ask the VirtualViewManager whether this VirtualView needs re-invocation
-        let reason = self.virtual_view_manager.check_reinvoke(
-            dom_id, node_id, &self.scroll_manager, bounds,
-        );
+        let reason =
+            self.virtual_view_manager
+                .check_reinvoke(dom_id, node_id, &self.scroll_manager, bounds);
 
         if let Some(reason) = reason {
             // Queue the VirtualView for re-invocation in the next render
@@ -15772,10 +16322,7 @@ impl LayoutWindow {
             for ((dom_id, node_id), new_rect) in &current {
                 if let Some(old_rect) = self.resize_watch.get(&(*dom_id, *node_id)) {
                     let old_rect = if dpi_changed {
-                        LogicalRect::new(
-                            old_rect.origin,
-                            LogicalSize::new(-1.0, -1.0),
-                        )
+                        LogicalRect::new(old_rect.origin, LogicalSize::new(-1.0, -1.0))
                     } else {
                         *old_rect
                     };
@@ -15824,10 +16371,7 @@ impl LayoutWindow {
     pub fn queue_all_virtual_view_reinvoke(&mut self) {
         let mut updates: BTreeMap<DomId, FastBTreeSet<NodeId>> = BTreeMap::new();
         for (dom_id, node_id) in self.virtual_view_manager.all_view_keys() {
-            updates
-                .entry(dom_id)
-                .or_default()
-                .insert(node_id);
+            updates.entry(dom_id).or_default().insert(node_id);
         }
         self.queue_virtual_view_updates(updates);
     }
@@ -15901,7 +16445,9 @@ impl LayoutWindow {
         let layout_index = layout_indices[0];
 
         // Get position
-        let position = *layout_result.calculated_positions.get(layout_index.index())?;
+        let position = *layout_result
+            .calculated_positions
+            .get(layout_index.index())?;
 
         // Get size
         let layout_node = layout_result.layout_tree.get(layout_index)?;
@@ -16055,9 +16601,9 @@ impl LayoutWindow {
             skip_gpu_sync: _,
             e2e_mount: _,
             #[cfg(feature = "e2e-server")]
-            e2e_scratch: _,
+                e2e_scratch: _,
             #[cfg(feature = "pdf")]
-            fragmentation_context: _,
+                fragmentation_context: _,
             safe_area_insets: _,
             // App-level animation CONFIG (durations + fn pointers), no node ids.
             system_animations_override: _,
@@ -16076,9 +16622,9 @@ impl LayoutWindow {
             input_interpreter: _,
             post_filter: _,
             custom_e2e_op: _,
-                routes: _,
+            routes: _,
             #[cfg(feature = "icu")]
-            icu_localizer: _,
+                icu_localizer: _,
             // Lifecycle events carry NodeIds, but they are produced BY this very
             // reconciliation and are already expressed in NEW ids (Mount/Update/
             // Resize), or deliberately in OLD ids resolved before the swap
@@ -16202,7 +16748,10 @@ impl LayoutWindow {
                     .node
                     .into_crate_internal()
                     .and_then(|n| map.resolve(n))
-                    .map(|n| DomNodeId { dom, node: NodeHierarchyItemId::from_crate_internal(Some(n)) });
+                    .map(|n| DomNodeId {
+                        dom,
+                        node: NodeHierarchyItemId::from_crate_internal(Some(n)),
+                    });
             }
         }
         // An in-flight scrollbar-thumb drag holds the NodeId of its scroll
@@ -16291,8 +16840,7 @@ mod autotest_generated {
     // ---- thread writeback drain ------------------------------------------
 
     /// Counts the writebacks that actually reached the main thread.
-    static DRAIN_DELIVERED: std::sync::atomic::AtomicUsize =
-        std::sync::atomic::AtomicUsize::new(0);
+    static DRAIN_DELIVERED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
     struct DrainStep(usize);
 
@@ -16362,7 +16910,14 @@ mod autotest_generated {
         let mut retired = false;
         for _ in 0..200 {
             let (changes, _) = win.run_all_threads(
-                &mut data, &handle, &gl, style.clone(), &sc, &prev, &cur, &rr,
+                &mut data,
+                &handle,
+                &gl,
+                style.clone(),
+                &sc,
+                &prev,
+                &cur,
+                &rr,
             );
             for change in &changes {
                 if matches!(
@@ -16580,7 +17135,10 @@ mod autotest_generated {
     #[test]
     fn frame_damage_area_of_degenerate_rects_is_defined_not_panicking() {
         // Zero-size rect contributes nothing.
-        assert_eq!(FrameDamage::Rects(vec![rect(5.0, 5.0, 0.0, 0.0)]).area(1.0), 0.0);
+        assert_eq!(
+            FrameDamage::Rects(vec![rect(5.0, 5.0, 0.0, 0.0)]).area(1.0),
+            0.0
+        );
         // Negative extents produce a negative "area" rather than being clamped
         // — pinned so a future clamp is a deliberate change, not a silent one.
         assert_eq!(
@@ -16769,7 +17327,17 @@ mod autotest_generated {
             FrameDamage::Rects(vec![rect(136.9, 70.9, 0.2, 0.2)]),
             FrameDamage::Rects(vec![rect(0.0, 0.0, 1.0, 1.0); 40]),
         ];
-        let dpis = [0.0_f32, 0.5, 1.0, 2.0, 3.5, 1e9, f32::NAN, f32::INFINITY, -2.0];
+        let dpis = [
+            0.0_f32,
+            0.5,
+            1.0,
+            2.0,
+            3.5,
+            1e9,
+            f32::NAN,
+            f32::INFINITY,
+            -2.0,
+        ];
         for d in &damages {
             for dpi in dpis {
                 for force in [false, true] {
@@ -17145,12 +17713,7 @@ mod autotest_generated {
     #[test]
     fn scrollbar_opacity_stays_opaque_through_the_delay_window() {
         for elapsed in [0_u64, 1, 250, 499, 500] {
-            let v = opacity(
-                Some(tick(0)),
-                tick(elapsed),
-                tick_dur(500),
-                tick_dur(200),
-            );
+            let v = opacity(Some(tick(0)), tick(elapsed), tick_dur(500), tick_dur(200));
             assert_eq!(v, 1.0, "must stay opaque at elapsed={elapsed}");
         }
     }
@@ -17209,10 +17772,16 @@ mod autotest_generated {
 
         // Inside the delay it is still opaque: 30 frames is 500ms exactly, and
         // the delay check is `ratio < 1.0`.
-        assert_eq!(opacity(Some(tick(0)), tick(29), sys_dur_ms(500), sys_dur_ms(200)), 1.0);
+        assert_eq!(
+            opacity(Some(tick(0)), tick(29), sys_dur_ms(500), sys_dur_ms(200)),
+            1.0
+        );
         // Halfway through the fade: 500ms delay + 100ms = 36 frames.
         let v = opacity(Some(tick(0)), tick(36), sys_dur_ms(500), sys_dur_ms(200));
-        assert!((v - 0.5).abs() < 0.05, "expected ~0.5 halfway through the fade, got {v}");
+        assert!(
+            (v - 0.5).abs() < 0.05,
+            "expected ~0.5 halfway through the fade, got {v}"
+        );
     }
 
     #[test]
@@ -17267,13 +17836,21 @@ mod autotest_generated {
         let map = crate::managers::NodeIdMap::from_pairs([(NodeId::new(5), NodeId::new(9))]);
         // Node 7 survived nothing -> the drag must END, not retarget.
         assert_eq!(
-            remap_scrollbar_hit_id(ScrollbarHitId::VerticalThumb(dom, NodeId::new(7)), dom, &map),
+            remap_scrollbar_hit_id(
+                ScrollbarHitId::VerticalThumb(dom, NodeId::new(7)),
+                dom,
+                &map
+            ),
             None
         );
         // An empty map unmounts everything.
         let empty = crate::managers::NodeIdMap::from_pairs(Vec::<(NodeId, NodeId)>::new());
         assert_eq!(
-            remap_scrollbar_hit_id(ScrollbarHitId::VerticalThumb(dom, NodeId::new(5)), dom, &empty),
+            remap_scrollbar_hit_id(
+                ScrollbarHitId::VerticalThumb(dom, NodeId::new(5)),
+                dom,
+                &empty
+            ),
             None
         );
         // An absurd node id is a lookup miss, not a panic.
@@ -17311,7 +17888,11 @@ mod autotest_generated {
 
         let lr = LayoutResult::new(
             DisplayList::default(),
-            vec![String::new(), "a".repeat(10_000), "☃/🇺🇳/\u{202e}".to_string()],
+            vec![
+                String::new(),
+                "a".repeat(10_000),
+                "☃/🇺🇳/\u{202e}".to_string(),
+            ],
         );
         assert_eq!(lr.warnings.len(), 3);
         assert_eq!(lr.warnings[1].len(), 10_000);
@@ -17387,7 +17968,11 @@ mod autotest_generated {
     #[test]
     fn node_getters_return_none_on_an_empty_window_for_every_hostile_id() {
         let w = fresh_window();
-        for dom in [DomId::ROOT_ID, DomId { inner: 0 }, DomId { inner: usize::MAX }] {
+        for dom in [
+            DomId::ROOT_ID,
+            DomId { inner: 0 },
+            DomId { inner: usize::MAX },
+        ] {
             for node in hostile_node_ids() {
                 let id = DomNodeId { dom, node };
                 assert!(w.get_node_size(id).is_none(), "size {id:?}");
@@ -17447,7 +18032,9 @@ mod autotest_generated {
 
         // The root has no parent, but does have children.
         assert!(w.get_parent(root).is_none());
-        let first = w.get_first_child(root).expect("root must have a first child");
+        let first = w
+            .get_first_child(root)
+            .expect("root must have a first child");
         let last = w.get_last_child(root).expect("root must have a last child");
         assert_ne!(first, last);
         assert_eq!(w.get_parent(first), Some(root));
@@ -17456,7 +18043,11 @@ mod autotest_generated {
         // Walking forward from `first` reaches `last` in exactly 2 hops.
         let mid = w.get_next_sibling(first).expect("second child");
         assert_eq!(w.get_next_sibling(mid), Some(last));
-        assert_eq!(w.get_next_sibling(last), None, "last child has no successor");
+        assert_eq!(
+            w.get_next_sibling(last),
+            None,
+            "last child has no successor"
+        );
 
         // ...and the reverse walk is symmetric.
         assert_eq!(w.get_previous_sibling(last), Some(mid));
@@ -17479,7 +18070,10 @@ mod autotest_generated {
             let id = dnid(i);
             assert!(w.get_node_size(id).is_none(), "size for node {i}");
             assert!(w.get_node_position(id).is_none(), "position for node {i}");
-            assert!(w.get_node_hit_test_bounds(id).is_none(), "bounds for node {i}");
+            assert!(
+                w.get_node_hit_test_bounds(id).is_none(),
+                "bounds for node {i}"
+            );
         }
     }
 
@@ -17516,9 +18110,9 @@ mod autotest_generated {
     /// answer; the requirement is that it ANSWERS instead of aborting.
     #[test]
     fn a_node_id_that_outlived_its_dom_does_not_panic() {
-        let dom = StyledDom::create_from_dom(
-            Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hi")),
-        );
+        let dom = StyledDom::create_from_dom(Dom::create_body().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("hi"),
+        ));
         let len = dom.styled_nodes.as_container().len();
 
         for stale in [len, len + 1, len + 6, len + 100, usize::MAX / 2] {
@@ -17547,8 +18141,9 @@ mod autotest_generated {
         }
 
         // body > text("hello") => 2 nodes.
-        let with_text =
-            StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello")));
+        let with_text = StyledDom::create_from_dom(Dom::create_body().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("hello"),
+        ));
         assert_eq!(with_text.node_hierarchy.len(), 2);
         assert!(
             LayoutWindow::node_has_text_content(&with_text, NodeId::new(0)),
@@ -17561,9 +18156,18 @@ mod autotest_generated {
 
         // Empty and astral-plane text still count as text nodes.
         for s in ["", "🇺🇳👩‍👩‍👧‍👦", "\u{202e}\u{0}"] {
-            let d = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper(s)));
-            assert!(LayoutWindow::node_has_text_content(&d, NodeId::new(1)), "{s:?}");
-            assert!(LayoutWindow::node_has_text_content(&d, NodeId::new(0)), "{s:?}");
+            let d = StyledDom::create_from_dom(
+                Dom::create_body()
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(s)),
+            );
+            assert!(
+                LayoutWindow::node_has_text_content(&d, NodeId::new(1)),
+                "{s:?}"
+            );
+            assert!(
+                LayoutWindow::node_has_text_content(&d, NodeId::new(0)),
+                "{s:?}"
+            );
         }
     }
 
@@ -17603,8 +18207,11 @@ mod autotest_generated {
     fn contenteditable_is_detected_and_inherited() {
         let mut w = fresh_window();
         let dom = StyledDom::create_from_dom(
-            Dom::create_body()
-                .with_child(Dom::create_div().with_contenteditable(true).with_child(Dom::create_div())),
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_contenteditable(true)
+                    .with_child(Dom::create_div()),
+            ),
         );
         assert_eq!(dom.node_hierarchy.len(), 3);
         w.layout_results
@@ -17643,21 +18250,32 @@ mod autotest_generated {
         let w = window_for(StyledDom::create_from_dom(
             Dom::create_div()
                 .with_contenteditable(true)
-                .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello"))),
+                .with_child(Dom::create_p().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("hello"),
+                )),
         ));
-        assert_eq!(text_of(&w, 0), "hello", "a <p> wrapper must not hide the value");
+        assert_eq!(
+            text_of(&w, 0),
+            "hello",
+            "a <p> wrapper must not hide the value"
+        );
         assert_eq!(text_of(&w, 1), "hello", "and the <p> itself reads the same");
 
         // Inline wrappers count too — the buffer is the flattened inline content
         // of the subtree, not just its direct text children.
-        let w = window_for(StyledDom::create_from_dom(
-            Dom::create_div().with_child(
-                Dom::create_p()
-                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a"))
-                    .with_child(Dom::create_em().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("b")))
-                    .with_child(Dom::create_span().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("c"))),
-            ),
-        ));
+        let w =
+            window_for(StyledDom::create_from_dom(
+                Dom::create_div().with_child(
+                    Dom::create_p()
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("a"))
+                        .with_child(Dom::create_em().with_child(
+                            Dom::create_text_do_not_use_without_block_level_wrapper("b"),
+                        ))
+                        .with_child(Dom::create_span().with_child(
+                            Dom::create_text_do_not_use_without_block_level_wrapper("c"),
+                        )),
+                ),
+            ));
         assert_eq!(text_of(&w, 0), "abc");
     }
 
@@ -17667,8 +18285,12 @@ mod autotest_generated {
         // must not leak into an editable value.
         let w = window_for(StyledDom::create_from_dom(
             Dom::create_div()
-                .with_child(Dom::create_head().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("metadata")))
-                .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("body"))),
+                .with_child(Dom::create_head().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("metadata"),
+                ))
+                .with_child(Dom::create_p().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("body"),
+                )),
         ));
         assert_eq!(text_of(&w, 0), "body");
         assert_eq!(text_of(&w, 1), "", "a metadata container collects nothing");
@@ -17686,9 +18308,13 @@ mod autotest_generated {
                 .with_child(
                     Dom::create_p()
                         .with_attribute(AttributeType::ContentEditable(false))
-                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("Type here...")),
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                            "Type here...",
+                        )),
                 )
-                .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("real value"))),
+                .with_child(Dom::create_p().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("real value"),
+                )),
         ));
         assert_eq!(text_of(&w, 0), "real value");
         // The wall is about the parent's collection, not a global mute: asked
@@ -17704,13 +18330,22 @@ mod autotest_generated {
         // the placeholder, so `reshape_text_node` has to ask the caret first.
         let mut w = window_for(StyledDom::create_from_dom(
             Dom::create_div()
-                .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("prompt")))
-                .with_child(Dom::create_p().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("value"))),
+                .with_child(Dom::create_p().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("prompt"),
+                ))
+                .with_child(Dom::create_p().with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper("value"),
+                )),
         ));
 
         assert_eq!(
             w.ifc_candidate_children(DomId::ROOT_ID, NodeId::new(0)),
-            vec![NodeId::new(1), NodeId::new(3), NodeId::new(2), NodeId::new(4)],
+            vec![
+                NodeId::new(1),
+                NodeId::new(3),
+                NodeId::new(2),
+                NodeId::new(4)
+            ],
             "direct children in document order first, then deeper descendants"
         );
 
@@ -17728,7 +18363,12 @@ mod autotest_generated {
         ));
         assert_eq!(
             w.ifc_candidate_children(DomId::ROOT_ID, NodeId::new(0)),
-            vec![NodeId::new(3), NodeId::new(1), NodeId::new(2), NodeId::new(4)],
+            vec![
+                NodeId::new(3),
+                NodeId::new(1),
+                NodeId::new(2),
+                NodeId::new(4)
+            ],
             "the caret's block must be searched first"
         );
     }
@@ -17790,7 +18430,9 @@ mod autotest_generated {
     }
 
     extern "C" fn time_tick_1000() -> Instant {
-        Instant::Tick(azul_core::task::SystemTick { tick_counter: 1_000 })
+        Instant::Tick(azul_core::task::SystemTick {
+            tick_counter: 1_000,
+        })
     }
 
     extern "C" fn time_tick_max() -> Instant {
@@ -17808,7 +18450,10 @@ mod autotest_generated {
         let mut w = fresh_window();
         let id = TimerId { id: 1 };
         assert!(w.get_timer(&id).is_none());
-        assert!(w.remove_timer(&id).is_none(), "removing an absent timer is None");
+        assert!(
+            w.remove_timer(&id).is_none(),
+            "removing an absent timer is None"
+        );
 
         w.add_timer(id, Timer::default());
         assert!(w.get_timer(&id).is_some());
@@ -17843,7 +18488,10 @@ mod autotest_generated {
     #[test]
     fn tick_timers_reports_every_registered_timer_regardless_of_the_clock() {
         let mut w = fresh_window();
-        assert!(w.tick_timers(tick(0)).is_empty(), "no timers => nothing ready");
+        assert!(
+            w.tick_timers(tick(0)).is_empty(),
+            "no timers => nothing ready"
+        );
 
         for i in 0..3 {
             w.add_timer(TimerId { id: i }, Timer::default());
@@ -17953,7 +18601,10 @@ mod autotest_generated {
         // Landing exactly ON the threshold counts as its small side.
         assert!(breakpoints_crossed(&bp, 750.0, 720.0));
         assert!(!breakpoints_crossed(&bp, 720.0, 600.0));
-        assert!(!breakpoints_crossed(&[], 100.0, 9999.0), "no thresholds, no crossings");
+        assert!(
+            !breakpoints_crossed(&[], 100.0, 9999.0),
+            "no thresholds, no crossings"
+        );
     }
 
     #[test]
@@ -18243,7 +18894,9 @@ mod autotest_generated {
                 children_rect: rect(40.0, 40.0, 10.0, 10.0),
             },
         );
-        let got = w.get_scroll_position(DomId::ROOT_ID, node).expect("written");
+        let got = w
+            .get_scroll_position(DomId::ROOT_ID, node)
+            .expect("written");
         assert_eq!(got.children_rect.origin, pos(0.0, 0.0));
     }
 
@@ -18316,7 +18969,9 @@ mod autotest_generated {
             },
         );
         assert_eq!(w.get_dom_ids().len(), 2);
-        assert!(w.get_scroll_position(DomId::ROOT_ID, NodeId::new(0)).is_some());
+        assert!(w
+            .get_scroll_position(DomId::ROOT_ID, NodeId::new(0))
+            .is_some());
 
         w.clear_caches();
 
@@ -18328,7 +18983,8 @@ mod autotest_generated {
         assert!(w.layout_cache.cached_display_list.is_none());
         assert_eq!(w.layout_cache.prev_dom_ptr, 0);
         assert!(
-            w.get_scroll_position(DomId::ROOT_ID, NodeId::new(0)).is_none(),
+            w.get_scroll_position(DomId::ROOT_ID, NodeId::new(0))
+                .is_none(),
             "clear_caches replaces the ScrollManager"
         );
 
@@ -18352,7 +19008,10 @@ mod autotest_generated {
 
         assert!(w.get_or_create_gpu_cache(a).transform_keys.is_empty());
         assert!(w.get_gpu_cache(&a).is_some());
-        assert!(w.get_gpu_cache(&b).is_none(), "creation must not leak across DOMs");
+        assert!(
+            w.get_gpu_cache(&b).is_none(),
+            "creation must not leak across DOMs"
+        );
 
         // Re-creating returns the same (still empty) cache, not a second one.
         assert!(w.get_or_create_gpu_cache(a).transform_keys.is_empty());
@@ -18420,7 +19079,9 @@ mod autotest_generated {
         };
 
         let win = laid_out(host(true), 400.0, 300.0);
-        let size = win.get_node_size(dnid).expect("the editable div is laid out");
+        let size = win
+            .get_node_size(dnid)
+            .expect("the editable div is laid out");
         assert!(
             size.height > 8.0 && size.height < 48.0,
             "an empty editing host keeps ONE line of height (the strut), got {size:?}"
@@ -18428,12 +19089,23 @@ mod autotest_generated {
         let layout = win
             .get_inline_layout_for_node(DomId::ROOT_ID, inner)
             .expect("an empty editing host keeps an inline layout for its caret");
-        assert!(layout.items.is_empty(), "…with no items: the caret painter's strut branch");
+        assert!(
+            layout.items.is_empty(),
+            "…with no items: the caret painter's strut branch"
+        );
         // ...and with CONSTRAINTS, so the first keystroke has a line box to
         // be shaped into (`reshape_text_node` drops an edit whose IFC carries
         // none — which is how an empty TextInput ate its first character).
-        let lr = win.layout_results.get(&DomId::ROOT_ID).expect("layout result");
-        let idx = *lr.layout_tree.dom_to_layout.get(&inner).and_then(|v| v.first()).expect("mapped");
+        let lr = win
+            .layout_results
+            .get(&DomId::ROOT_ID)
+            .expect("layout result");
+        let idx = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&inner)
+            .and_then(|v| v.first())
+            .expect("mapped");
         let cached = lr
             .layout_tree
             .warm(idx)
@@ -18445,13 +19117,17 @@ mod autotest_generated {
         );
 
         let plain = laid_out(host(false), 400.0, 300.0);
-        let size = plain.get_node_size(dnid).expect("the plain div is laid out");
+        let size = plain
+            .get_node_size(dnid)
+            .expect("the plain div is laid out");
         assert!(
             size.height.abs() < 0.5,
             "a non-editable empty block still collapses to zero height, got {size:?}"
         );
         assert!(
-            plain.get_inline_layout_for_node(DomId::ROOT_ID, inner).is_none(),
+            plain
+                .get_inline_layout_for_node(DomId::ROOT_ID, inner)
+                .is_none(),
             "…and keeps no inline layout (an empty IFC renders nothing)"
         );
     }
@@ -18487,7 +19163,11 @@ mod autotest_generated {
             "b must start 50 + max(10, 20, 30, 5) = 80 below a, got {}",
             b_y - a_y
         );
-        assert!((e_y - a_y) >= 50.0 && (e_y - a_y) <= 80.5, "the empty block sits inside the seam: {}", e_y - a_y);
+        assert!(
+            (e_y - a_y) >= 50.0 && (e_y - a_y) <= 80.5,
+            "the empty block sits inside the seam: {}",
+            e_y - a_y
+        );
     }
 
     /// THE CLASS (AzWidgets 2026-08-21, "placeholder drawn low"): an EMPTY
@@ -18506,8 +19186,15 @@ mod autotest_generated {
         // body(0) > wrap(1) > e(2)
         let (wrap_y, wrap_h) = y_and_height(&win, 1);
         let (e_y, _) = y_and_height(&win, 2);
-        assert!((wrap_h - 21.0).abs() < 0.5, "padding 4 + ONE collapsed margin 13 + padding 4 = 21, got {wrap_h}");
-        assert!((e_y - wrap_y - 17.0).abs() < 0.5, "the empty block's border edges sit after its top margin: 4 + 13 = 17, got {}", e_y - wrap_y);
+        assert!(
+            (wrap_h - 21.0).abs() < 0.5,
+            "padding 4 + ONE collapsed margin 13 + padding 4 = 21, got {wrap_h}"
+        );
+        assert!(
+            (e_y - wrap_y - 17.0).abs() < 0.5,
+            "the empty block's border edges sit after its top margin: 4 + 13 = 17, got {}",
+            e_y - wrap_y
+        );
 
         // After a sibling, under the same padded parent: counted once too.
         let dom = Dom::create_body().with_child(
@@ -18518,7 +19205,10 @@ mod autotest_generated {
         );
         let win = laid_out(StyledDom::create_from_dom(dom), 400.0, 300.0);
         let (_, wrap_h) = y_and_height(&win, 1);
-        assert!((wrap_h - 31.0).abs() < 0.5, "4 + 10 + 13 + 4 = 31, got {wrap_h}");
+        assert!(
+            (wrap_h - 31.0).abs() < 0.5,
+            "4 + 10 + 13 + 4 = 31, got {wrap_h}"
+        );
 
         // And the parent's OWN top margin never leaks into its content box
         // through an empty first child (the "feet to meters" mix).
@@ -18529,7 +19219,10 @@ mod autotest_generated {
         );
         let win = laid_out(StyledDom::create_from_dom(dom), 400.0, 300.0);
         let (_, wrap_h) = y_and_height(&win, 1);
-        assert!((wrap_h - 21.0).abs() < 0.5, "the parent's margin is not added inside it: {wrap_h}");
+        assert!(
+            (wrap_h - 21.0).abs() < 0.5,
+            "the parent's margin is not added inside it: {wrap_h}"
+        );
     }
 
     #[test]
@@ -18551,7 +19244,9 @@ mod autotest_generated {
     fn get_node_bounds_is_none_for_missing_dom_and_missing_node() {
         let win = laid_out(fixture_dom(), 200.0, 150.0);
         // Missing DOM.
-        assert!(win.get_node_bounds(DomId { inner: 9 }, NodeId::new(0)).is_none());
+        assert!(win
+            .get_node_bounds(DomId { inner: 9 }, NodeId::new(0))
+            .is_none());
         // Out-of-range node in a real DOM.
         assert!(win
             .get_node_bounds(DomId::ROOT_ID, NodeId::new(9_999))
@@ -18583,7 +19278,8 @@ mod autotest_generated {
         let mut win = fresh_window();
         let sc = ExternalSystemCallbacks::rust_internal();
         assert!(
-            win.time_until_next_timer_ms(&sc.get_system_time_fn).is_none(),
+            win.time_until_next_timer_ms(&sc.get_system_time_fn)
+                .is_none(),
             "no timers => can block indefinitely"
         );
         assert!(
@@ -18780,7 +19476,12 @@ mod autotest_generated {
 
         // TextArea-shaped: border box at (10, 20), 200x100, padding 4, border 1.
         let border_box = BorderBoxRect(rect(10.0, 20.0, 200.0, 100.0));
-        let edge = |v: f32| EdgeSizes { top: v, right: v, bottom: v, left: v };
+        let edge = |v: f32| EdgeSizes {
+            top: v,
+            right: v,
+            bottom: v,
+            left: v,
+        };
         let scrollport = border_box.to_padding_box(&edge(1.0)).rect();
         assert_eq!(scrollport, rect(11.0, 21.0, 198.0, 98.0), "padding box");
         let content_box = border_box.to_content_box(&edge(4.0), &edge(1.0)).rect();
@@ -18789,8 +19490,10 @@ mod autotest_generated {
         // A caret 83px down the inline layout, 12px tall, at scroll 0. It is
         // painted at content_origin.y + 83 = 108 and ends at 120 — ONE PIXEL
         // past the scrollport's bottom edge (21 + 98 = 119). It is cut off.
-        let caret = LogicalRect::new(pos(content_box.origin.x, content_box.origin.y + 83.0),
-                                     size(1.0, 12.0));
+        let caret = LogicalRect::new(
+            pos(content_box.origin.x, content_box.origin.y + 83.0),
+            size(1.0, 12.0),
+        );
         let delta = calculate_instant_scroll_delta(caret, scrollport);
         assert!(
             delta.y > 0.0,
@@ -18818,7 +19521,12 @@ mod autotest_generated {
     fn the_scrollport_origin_and_size_come_off_one_box() {
         use crate::solver3::{display_list::BorderBoxRect, geometry::EdgeSizes};
 
-        let border = EdgeSizes { top: 1.0, right: 3.0, bottom: 1.0, left: 3.0 };
+        let border = EdgeSizes {
+            top: 1.0,
+            right: 3.0,
+            bottom: 1.0,
+            left: 3.0,
+        };
         let bb = BorderBoxRect(rect(100.0, 50.0, 200.0, 80.0));
         let port = bb.to_padding_box(&border).rect();
         assert_eq!(port.origin, pos(103.0, 51.0));
@@ -18898,9 +19606,18 @@ mod autotest_generated {
         let win = laid_out(fixture_dom(), 200.0, 150.0);
         // The fixture's divs have no padding and no border — which is exactly
         // why the WebRender/CPU divergence stayed latent in the widget set.
-        assert_eq!(win.content_inset_of(DomId::ROOT_ID, NodeId::new(1)), ContentInset::ZERO);
-        assert_eq!(win.content_inset_of(DomId::ROOT_ID, NodeId::new(9_999)), ContentInset::ZERO);
-        assert_eq!(win.content_inset_of(DomId { inner: 42 }, NodeId::new(0)), ContentInset::ZERO);
+        assert_eq!(
+            win.content_inset_of(DomId::ROOT_ID, NodeId::new(1)),
+            ContentInset::ZERO
+        );
+        assert_eq!(
+            win.content_inset_of(DomId::ROOT_ID, NodeId::new(9_999)),
+            ContentInset::ZERO
+        );
+        assert_eq!(
+            win.content_inset_of(DomId { inner: 42 }, NodeId::new(0)),
+            ContentInset::ZERO
+        );
     }
 
     #[test]
@@ -18935,13 +19652,19 @@ mod autotest_generated {
             },
         );
         assert!(!win.layout_results.is_empty());
-        assert!(win.get_scroll_position(DomId::ROOT_ID, NodeId::new(1)).is_some());
+        assert!(win
+            .get_scroll_position(DomId::ROOT_ID, NodeId::new(1))
+            .is_some());
 
         win.clear_caches();
 
-        assert!(win.layout_results.is_empty(), "layout results must be cleared");
         assert!(
-            win.get_scroll_position(DomId::ROOT_ID, NodeId::new(1)).is_none(),
+            win.layout_results.is_empty(),
+            "layout results must be cleared"
+        );
+        assert!(
+            win.get_scroll_position(DomId::ROOT_ID, NodeId::new(1))
+                .is_none(),
             "the ScrollManager must be reset"
         );
         assert!(win.layout_cache.tree.is_none());
@@ -18962,18 +19685,26 @@ mod autotest_generated {
         // (container > p > text). The old direct-children scan returned
         // None here, the caret then seeded on the block container (no
         // inline layout) and programmatic focus never painted a caret.
-        let dom = StyledDom::create_from_dom(Dom::create_body().with_child(
-            Dom::create_div()
-                .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("first para")))
-                .with_child(Dom::create_div().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("last para"))),
-        ));
+        let dom = StyledDom::create_from_dom(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_div().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("first para"),
+                    ))
+                    .with_child(Dom::create_div().with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper("last para"),
+                    )),
+            ),
+        );
         let win = laid_out(dom, 400.0, 300.0);
         let container = NodeId::new(1); // body(0) > div(1)
         let found = win
             .find_last_text_child(DomId::ROOT_ID, container)
             .expect("subtree walk finds the nested text node");
         let lr = win.get_layout_result(&DomId::ROOT_ID).unwrap();
-        let ty = lr.styled_dom.node_data.as_container()[found].get_node_type().clone();
+        let ty = lr.styled_dom.node_data.as_container()[found]
+            .get_node_type()
+            .clone();
         assert!(
             matches!(ty, NodeType::Text(ref t) if t.as_str() == "last para"),
             "must be the LAST text node in document order, got {ty:?}"
@@ -18983,15 +19714,19 @@ mod autotest_generated {
     #[test]
     fn text_node_navigation_is_none_on_an_empty_window() {
         let win = fresh_window();
-        assert!(win.find_next_text_node(&DomId::ROOT_ID, NodeId::new(0)).is_none());
-        assert!(win.find_prev_text_node(&DomId::ROOT_ID, NodeId::new(0)).is_none());
+        assert!(win
+            .find_next_text_node(&DomId::ROOT_ID, NodeId::new(0))
+            .is_none());
+        assert!(win
+            .find_prev_text_node(&DomId::ROOT_ID, NodeId::new(0))
+            .is_none());
     }
 
     #[test]
     fn text_node_navigation_walks_a_real_dom_without_running_off_the_end() {
-        let dom = StyledDom::create_from_dom(
-            Dom::create_body().with_child(Dom::create_text_do_not_use_without_block_level_wrapper("hello world")),
-        );
+        let dom = StyledDom::create_from_dom(Dom::create_body().with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper("hello world"),
+        ));
         let win = laid_out(dom, 200.0, 150.0);
         let node_count = win
             .get_layout_result(&DomId::ROOT_ID)
@@ -19007,7 +19742,8 @@ mod autotest_generated {
         );
         // Searching backward from node 0 must terminate at None too.
         assert!(
-            win.find_prev_text_node(&DomId::ROOT_ID, NodeId::new(0)).is_none(),
+            win.find_prev_text_node(&DomId::ROOT_ID, NodeId::new(0))
+                .is_none(),
             "no node exists before the first one"
         );
     }
@@ -19046,7 +19782,9 @@ fn alloc_format_merge(first_kept: &str, last_kept: &str) -> String {
 /// Scale is applied about the node's own origin and then translated, matching
 /// what the FLIP maths produced: `first` and `last` are both top-left rects, so
 /// the offset is already expressed from the same corner the scale grows from.
-const fn flip_to_matrix(t: azul_core::animation::FlipTransform) -> azul_core::transform::ComputedTransform3D {
+const fn flip_to_matrix(
+    t: azul_core::animation::FlipTransform,
+) -> azul_core::transform::ComputedTransform3D {
     azul_core::transform::ComputedTransform3D {
         m: [
             [t.scale_x, 0.0, 0.0, 0.0],
@@ -19267,10 +20005,11 @@ impl Zombie {
     /// there is ONE clock, and the drop happens at t=1 exactly.
     #[must_use]
     pub fn is_done(&self, animations: &azul_core::animation::AnimationManager) -> bool {
-        self.exits
-            .values()
-            .all(|k| animations.get(*k).is_none_or(azul_core::animation::ActiveAnim::is_finished))
-            && self.tracks.values().all(AnimTrack::is_done)
+        self.exits.values().all(|k| {
+            animations
+                .get(*k)
+                .is_none_or(azul_core::animation::ActiveAnim::is_finished)
+        }) && self.tracks.values().all(AnimTrack::is_done)
     }
 }
 
@@ -19400,7 +20139,11 @@ impl AnimTrack {
     }
 
     /// Piecewise sample of one channel at eased-per-segment `t`.
-    fn sample_channel(stops: &[(f32, f32)], t: f32, timing: azul_css::props::basic::animation::AnimationTiming) -> Option<f32> {
+    fn sample_channel(
+        stops: &[(f32, f32)],
+        t: f32,
+        timing: azul_css::props::basic::animation::AnimationTiming,
+    ) -> Option<f32> {
         let first = stops.first()?;
         if t <= first.0 {
             return Some(first.1);
@@ -19415,7 +20158,9 @@ impl AnimTrack {
             if t >= t0 && t <= t1 {
                 let span = (t1 - t0).max(f32::EPSILON);
                 // CSS semantics: the timing function eases each SEGMENT.
-                let local = timing.to_interpolation().evaluate(f64::from((t - t0) / span));
+                let local = timing
+                    .to_interpolation()
+                    .evaluate(f64::from((t - t0) / span));
                 return Some(v0 + (v1 - v0) * local);
             }
         }
@@ -19462,7 +20207,6 @@ impl AnimTrack {
         with_start(&mut self.rotate_deg, s.rotate_deg, 0.0, 0.0);
         with_start(&mut self.opacity, s.opacity, 1.0, 1.0);
     }
-
 }
 
 /// Compile a parsed `@keyframes` block into an [`AnimTrack`], resolving
@@ -19502,7 +20246,9 @@ pub fn compile_keyframes_track(
         for prop in stop.props.as_ref() {
             match prop {
                 CssProperty::Transform(v) => {
-                    let Some(transforms) = v.get_property() else { continue };
+                    let Some(transforms) = v.get_property() else {
+                        continue;
+                    };
                     let (mut tx, mut ty) = (0.0f32, 0.0f32);
                     let (mut sx, mut sy) = (1.0f32, 1.0f32);
                     let mut rot = 0.0f32;
@@ -19651,7 +20397,12 @@ pub fn resolve_named_track(
     // Reverse: the LAST `@keyframes` definition of a name wins (CSS rule).
     for kf in retained_css.keyframes.as_ref().iter().rev() {
         if kf.name.as_str() == anim.name.as_str() {
-            return Some(finish(compile_keyframes_track(kf, rect, duration_s, anim.timing)));
+            return Some(finish(compile_keyframes_track(
+                kf,
+                rect,
+                duration_s,
+                anim.timing,
+            )));
         }
     }
     for f in node_data.animation_callbacks() {
@@ -19791,12 +20542,16 @@ impl LayoutWindow {
             let snapshot: &AzulPixmap = match zombie.snapshot.get() {
                 Some((bits, px)) if *bits == dpi_bits => px,
                 Some(_) => {
-                    let Some(px) = render_retained() else { continue };
+                    let Some(px) = render_retained() else {
+                        continue;
+                    };
                     fresh = px;
                     &fresh
                 }
                 None => {
-                    let Some(px) = render_retained() else { continue };
+                    let Some(px) = render_retained() else {
+                        continue;
+                    };
                     drop(zombie.snapshot.set((dpi_bits, px)));
                     match zombie.snapshot.get() {
                         Some((_, px)) => px,
@@ -19910,8 +20665,16 @@ impl LayoutWindow {
                 if let Some(h) = job.height_cut {
                     sh = sh.min((h * dpi_factor).ceil().max(0.0) as u32);
                 }
-                let cut_off = if job.translate_x < 0.0 { full_sw - sw } else { 0 };
-                let cut_off_y = if job.translate_y < 0.0 { full_sh - sh } else { 0 };
+                let cut_off = if job.translate_x < 0.0 {
+                    full_sw - sw
+                } else {
+                    0
+                };
+                let cut_off_y = if job.translate_y < 0.0 {
+                    full_sh - sh
+                } else {
+                    0
+                };
                 if sw == 0 || sh == 0 {
                     continue;
                 }
@@ -19937,9 +20700,8 @@ impl LayoutWindow {
                 let (cx, cy) = (f64::from(sw) / 2.0, f64::from(sh) / 2.0);
                 let (sin, cos) = f64::from(job.rotate_deg).to_radians().sin_cos();
                 let (jsx, jsy) = (f64::from(job.scale_x), f64::from(job.scale_y));
-                let mut m = agg_rust::trans_affine::TransAffine::new_custom(
-                    1.0, 0.0, 0.0, 1.0, -cx, -cy,
-                );
+                let mut m =
+                    agg_rust::trans_affine::TransAffine::new_custom(1.0, 0.0, 0.0, 1.0, -cx, -cy);
                 m.multiply(&agg_rust::trans_affine::TransAffine::new_custom(
                     jsx * cos,
                     jsx * sin,
@@ -20017,7 +20779,9 @@ impl LayoutWindow {
                 ));
             }
             for (node, tr) in &z.tracks {
-                let Some(frozen) = z.rects.get(node) else { continue };
+                let Some(frozen) = z.rects.get(node) else {
+                    continue;
+                };
                 let rect = z.live_rects.get(node).unwrap_or(frozen);
                 let s = z
                     .tick_samples
@@ -20052,8 +20816,7 @@ impl LayoutWindow {
                     let x0 = r.origin.x.max(frozen.origin.x);
                     let y0 = r.origin.y.max(frozen.origin.y);
                     let x1 = (r.origin.x + r.size.width).min(frozen.origin.x + frozen.size.width);
-                    let y1 =
-                        (r.origin.y + r.size.height).min(frozen.origin.y + frozen.size.height);
+                    let y1 = (r.origin.y + r.size.height).min(frozen.origin.y + frozen.size.height);
                     if x1 <= x0 || y1 <= y0 {
                         continue;
                     }
@@ -20081,35 +20844,53 @@ mod zombie_tests {
         let mut m = AnimationManager::new();
         let fast = AnimKey(1);
         let slow = AnimKey(2);
-        m.start_exit(fast, (-50.0, 0.0), Interp::Curve {
-            function: azul_css::props::basic::animation::AnimationInterpolationFunction::Linear,
-            duration_secs: 0.01,
-        });
-        m.start_exit(slow, (-50.0, 0.0), Interp::Curve {
-            function: azul_css::props::basic::animation::AnimationInterpolationFunction::Linear,
-            duration_secs: 10.0,
-        });
+        m.start_exit(
+            fast,
+            (-50.0, 0.0),
+            Interp::Curve {
+                function: azul_css::props::basic::animation::AnimationInterpolationFunction::Linear,
+                duration_secs: 0.01,
+            },
+        );
+        m.start_exit(
+            slow,
+            (-50.0, 0.0),
+            Interp::Curve {
+                function: azul_css::props::basic::animation::AnimationInterpolationFunction::Linear,
+                duration_secs: 10.0,
+            },
+        );
 
-        let exits: alloc::collections::BTreeMap<_, _> =
-            [(azul_core::dom::NodeId::new(0), fast), (azul_core::dom::NodeId::new(1), slow)]
-                .into_iter()
-                .collect();
+        let exits: alloc::collections::BTreeMap<_, _> = [
+            (azul_core::dom::NodeId::new(0), fast),
+            (azul_core::dom::NodeId::new(1), slow),
+        ]
+        .into_iter()
+        .collect();
 
         // Advance past the fast one but nowhere near the slow one.
         m.tick(0.05);
-        assert!(m.get(fast).is_none_or(|a| a.is_finished()), "fast exit should be done");
-        let all_done = exits
-            .values()
-            .all(|k| m.get(*k).is_none_or(azul_core::animation::ActiveAnim::is_finished));
-        assert!(!all_done, "the zombie must NOT be reaped while one exit is mid-flight");
+        assert!(
+            m.get(fast).is_none_or(|a| a.is_finished()),
+            "fast exit should be done"
+        );
+        let all_done = exits.values().all(|k| {
+            m.get(*k)
+                .is_none_or(azul_core::animation::ActiveAnim::is_finished)
+        });
+        assert!(
+            !all_done,
+            "the zombie must NOT be reaped while one exit is mid-flight"
+        );
 
         // Run the slow one out too.
         for _ in 0..400 {
             m.tick(0.05);
         }
-        let all_done = exits
-            .values()
-            .all(|k| m.get(*k).is_none_or(azul_core::animation::ActiveAnim::is_finished));
+        let all_done = exits.values().all(|k| {
+            m.get(*k)
+                .is_none_or(azul_core::animation::ActiveAnim::is_finished)
+        });
         assert!(all_done, "every exit settled, so the zombie is reapable");
     }
 
@@ -20133,7 +20914,11 @@ mod zombie_tests {
         m.start_exit(key, (-50.0, 0.0), Interp::Spring(Spring::SMOOTH));
         let anim = m.get(key).expect("still animating");
         assert_eq!(anim.class, azul_core::animation::AnimClass::Exit);
-        assert_eq!(m.len(), 1, "an exit replaces, it does not stack a second animation");
+        assert_eq!(
+            m.len(),
+            1,
+            "an exit replaces, it does not stack a second animation"
+        );
     }
 }
 
@@ -20194,7 +20979,6 @@ mod reconciliation_tests {
         );
     }
 }
-
 
 /// The tween progress ratio is a ratio of two CLOCK durations, not of two
 /// millisecond integers.
@@ -20310,11 +21094,13 @@ mod tween_clock_unit_tests {
     }
 
     fn editable_paragraph(text: &str) -> Dom {
-        let mut editor = Dom::create_div()
-            .with_ids_and_classes(vec![IdOrClass::Class("p".into())].into());
+        let mut editor =
+            Dom::create_div().with_ids_and_classes(vec![IdOrClass::Class("p".into())].into());
         editor.set_contenteditable(true);
         editor.set_tab_index(TabIndex::Auto);
-        editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(text))
+        editor.with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+            text,
+        ))
     }
 
     /// `body(0) > div[contenteditable](1) > text(2)`, laid out, with an editing

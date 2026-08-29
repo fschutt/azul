@@ -4,7 +4,7 @@ use geo_types::Geometry;
 use geojson::{Feature, FeatureCollection};
 #[cfg(feature = "log")]
 use log::{trace, warn};
-use mvt_reader::{Reader as TileReader, error::ParserError, feature::Feature as MvtFeature};
+use mvt_reader::{error::ParserError, feature::Feature as MvtFeature, Reader as TileReader};
 use proj4rs::Proj;
 use serde_json::{Number, Value as JsonValue};
 
@@ -243,7 +243,8 @@ pub fn parse_mvt_tile(
     for layer in layers {
         trace!(
             "Processing layer '{}' (index {})",
-            layer.name, layer.layer_index
+            layer.name,
+            layer.layer_index
         );
         let tile_features = reader.get_features(layer.layer_index).unwrap_or_default();
         trace!(
@@ -264,10 +265,7 @@ pub fn parse_mvt_tile(
                     // `feature.property("layer")` — without this every feature fell
                     // through to the grey default and the whole tile rendered grey.
                     if let Some(props) = geojson_feature.properties.as_mut() {
-                        props.insert(
-                            "layer".to_string(),
-                            JsonValue::String(layer.name.clone()),
-                        );
+                        props.insert("layer".to_string(), JsonValue::String(layer.name.clone()));
                     }
                     features.push(geojson_feature);
                 }
@@ -289,8 +287,12 @@ pub fn parse_mvt_tile(
     if dbg {
         eprintln!(
             "[map] parse tile=({},{},{}) layers={} raw_features={} converted={}",
-            tile_coord.z, tile_coord.x, tile_coord.y,
-            layer_count, raw_count, features.len()
+            tile_coord.z,
+            tile_coord.x,
+            tile_coord.y,
+            layer_count,
+            raw_count,
+            features.len()
         );
     }
     Ok(features)
@@ -483,8 +485,7 @@ fn convert_mvt_geometry_to_geojson(
             let polys = polygons
                 .iter()
                 .map(|polygon| {
-                    let exterior =
-                        translate_linestring_for_tile(polygon.exterior(), tile_coord);
+                    let exterior = translate_linestring_for_tile(polygon.exterior(), tile_coord);
                     let holes = polygon
                         .interiors()
                         .iter()
@@ -617,10 +618,8 @@ mod geometry_conversion_tests {
 
     #[test]
     fn multipolygon_is_converted_not_rejected() {
-        let geom =
-            Geometry::MultiPolygon(MultiPolygon(vec![Polygon::new(square_ring(), vec![])]));
-        let out =
-            convert_mvt_geometry_to_geojson(&geom, &tc()).expect("MultiPolygon must convert");
+        let geom = Geometry::MultiPolygon(MultiPolygon(vec![Polygon::new(square_ring(), vec![])]));
+        let out = convert_mvt_geometry_to_geojson(&geom, &tc()).expect("MultiPolygon must convert");
         match out.value {
             geojson::Value::MultiPolygon(polys) => {
                 assert_eq!(polys.len(), 1, "one polygon");
@@ -634,8 +633,8 @@ mod geometry_conversion_tests {
     #[test]
     fn multilinestring_is_converted_not_rejected() {
         let geom = Geometry::MultiLineString(MultiLineString(vec![square_ring()]));
-        let out = convert_mvt_geometry_to_geojson(&geom, &tc())
-            .expect("MultiLineString must convert");
+        let out =
+            convert_mvt_geometry_to_geojson(&geom, &tc()).expect("MultiLineString must convert");
         match out.value {
             geojson::Value::MultiLineString(lines) => {
                 assert_eq!(lines.len(), 1);
@@ -651,8 +650,7 @@ mod geometry_conversion_tests {
             Point::new(10.0f32, 20.0),
             Point::new(30.0, 40.0),
         ]));
-        let out =
-            convert_mvt_geometry_to_geojson(&geom, &tc()).expect("MultiPoint must convert");
+        let out = convert_mvt_geometry_to_geojson(&geom, &tc()).expect("MultiPoint must convert");
         match out.value {
             geojson::Value::MultiPoint(pts) => assert_eq!(pts.len(), 2),
             other => panic!("expected MultiPoint, got {other:?}"),
@@ -674,7 +672,9 @@ mod geometry_conversion_tests {
         ));
         let point = Geometry::Point(Point::new(50.0f32, 50.0));
         assert!(matches!(
-            convert_mvt_geometry_to_geojson(&point, &tc()).unwrap().value,
+            convert_mvt_geometry_to_geojson(&point, &tc())
+                .unwrap()
+                .value,
             geojson::Value::Point(_)
         ));
     }
