@@ -393,6 +393,11 @@ impl CompositorState {
         // moment a group's effective opacity passes through exactly 1.0 —
         // reachable every time an enter fade completes.
         let mut opacity_promoted: Vec<bool> = Vec::new();
+        // Same recorded pairing for scroll frames and filters: a push that
+        // allocates no layer (zero-sized or EMPTY range) must not let its
+        // pop remove the parent from the stack.
+        let mut scroll_promoted: Vec<bool> = Vec::new();
+        let mut filter_promoted: Vec<bool> = Vec::new();
         let mut i = 0;
 
         while i < display_list.items.len() {
@@ -406,14 +411,23 @@ impl CompositorState {
                     let bounds = *clip_bounds.inner();
                     let (pw, ph) =
                         layer_pixel_size(bounds.size, dpi_factor, node_of(display_list, i));
-                    if pw > 0 && ph > 0 {
+                    // Find the matching PopScrollFrame FIRST: an EMPTY frame
+                    // (every empty TextInput's value <p>) must not allocate a
+                    // layer at all. Its pixbuf was never seeded, cleared or
+                    // rendered (render_layers skips empty ranges), yet
+                    // composite still blitted the never-initialized OPAQUE
+                    // WHITE buffer over the parent - erasing the placeholder
+                    // text under it on every fully-layered draw (the first
+                    // frame; damage repaints are flat, which healed it).
+                    let end = find_matching_pop(&display_list.items, i, MatchKind::ScrollFrame);
+                    let created = pw > 0 && ph > 0 && end > i + 1;
+                    scroll_promoted.push(created);
+                    if created {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, bounds, pw, ph);
                         layer.static_clip =
                             clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.scroll_id = Some(*scroll_id);
-                        // Find the matching PopScrollFrame to set range
-                        let end = find_matching_pop(&display_list.items, i, MatchKind::ScrollFrame);
                         layer.display_list_range = (i + 1, end);
                         self.layers.insert(new_id, layer);
                         // Add as child of current parent
@@ -425,7 +439,9 @@ impl CompositorState {
                     }
                 }
                 DisplayListItem::PopScrollFrame => {
-                    if layer_stack.len() > 1 {
+                    // Pair by recorded decision (see PopOpacity): a frame that
+                    // allocated no layer must not pop its parent.
+                    if scroll_promoted.pop() == Some(true) && layer_stack.len() > 1 {
                         layer_stack.pop();
                     }
                 }
@@ -444,7 +460,8 @@ impl CompositorState {
                         .unwrap_or(*opacity);
                     let b = *bounds.inner();
                     let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
-                    let promote = effective < 1.0 && pw > 0 && ph > 0;
+                    let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
+                    let promote = effective < 1.0 && pw > 0 && ph > 0 && end > i + 1;
                     opacity_promoted.push(promote);
                     if promote {
                         let new_id = self.alloc_layer_id();
@@ -452,7 +469,6 @@ impl CompositorState {
                         layer.static_clip =
                             clip_stack.iter().copied().reduce(intersect_logical_rects);
                         layer.opacity = effective;
-                        let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
                         layer.display_list_range = (i + 1, end);
                         self.layers.insert(new_id, layer);
                         let parent_id = *layer_stack.last().unwrap();
@@ -474,35 +490,35 @@ impl CompositorState {
                 }
                 DisplayListItem::PushFilter { bounds, filters } => {
                     let has_blur = filters.iter().any(|f| matches!(f, StyleFilter::Blur(_)));
-                    if has_blur {
+                    let (pw, ph) = if has_blur {
+                        layer_pixel_size(bounds.inner().size, dpi_factor, node_of(display_list, i))
+                    } else {
+                        (0, 0)
+                    };
+                    let end = find_matching_pop(&display_list.items, i, MatchKind::Filter);
+                    let promote = has_blur && pw > 0 && ph > 0 && end > i + 1;
+                    filter_promoted.push(promote);
+                    if promote {
                         let b = *bounds.inner();
-                        let (pw, ph) =
-                            layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
-                        if pw > 0 && ph > 0 {
-                            let new_id = self.alloc_layer_id();
-                            let mut layer = Layer::new(new_id, b, pw, ph);
-                            layer.static_clip =
-                                clip_stack.iter().copied().reduce(intersect_logical_rects);
-                            layer.filters.clone_from(filters);
-                            let end = find_matching_pop(&display_list.items, i, MatchKind::Filter);
-                            layer.display_list_range = (i + 1, end);
-                            self.layers.insert(new_id, layer);
-                            let parent_id = *layer_stack.last().unwrap();
-                            if let Some(parent) = self.layers.get_mut(&parent_id) {
-                                parent.children.push(new_id);
-                            }
-                            layer_stack.push(new_id);
+                        let new_id = self.alloc_layer_id();
+                        let mut layer = Layer::new(new_id, b, pw, ph);
+                        layer.static_clip =
+                            clip_stack.iter().copied().reduce(intersect_logical_rects);
+                        layer.filters.clone_from(filters);
+                        layer.display_list_range = (i + 1, end);
+                        self.layers.insert(new_id, layer);
+                        let parent_id = *layer_stack.last().unwrap();
+                        if let Some(parent) = self.layers.get_mut(&parent_id) {
+                            parent.children.push(new_id);
                         }
+                        layer_stack.push(new_id);
                     }
                 }
                 DisplayListItem::PopFilter => {
-                    if layer_stack.len() > 1 {
-                        let top_id = *layer_stack.last().unwrap();
-                        if let Some(layer) = self.layers.get(&top_id) {
-                            if !layer.filters.is_empty() {
-                                layer_stack.pop();
-                            }
-                        }
+                    // Recorded pairing (see PopOpacity) - the old value test
+                    // on the top layer's filters mispaired nested groups.
+                    if filter_promoted.pop() == Some(true) && layer_stack.len() > 1 {
+                        layer_stack.pop();
                     }
                 }
                 DisplayListItem::PushReferenceFrame {
@@ -530,8 +546,10 @@ impl CompositorState {
                         && m[3][0].abs() < IDENTITY_EPSILON
                         && m[3][1].abs() < IDENTITY_EPSILON;
                     // Record the decision so the matching pop can be exact.
-                    ref_frame_promoted.push(!is_identity);
-                    if !is_identity {
+                    let end = find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
+                    let promote = !is_identity && end > i + 1;
+                    ref_frame_promoted.push(promote);
+                    if promote {
                         let b = *bounds.inner();
                         let (pw, ph) =
                             layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
@@ -549,8 +567,6 @@ impl CompositorState {
                             f64::from(m[3][1]),
                         );
                         layer.perspective_row = [m[0][3], m[1][3], m[3][3]];
-                        let end =
-                            find_matching_pop(&display_list.items, i, MatchKind::ReferenceFrame);
                         layer.display_list_range = (i + 1, end);
                         self.layers.insert(new_id, layer);
                         let parent_id = *layer_stack.last().unwrap();
@@ -762,9 +778,11 @@ impl CompositorState {
 
         for (layer_id, range, layer_bounds, scroll_id, child_ranges) in &layer_ranges {
             let (start, end) = *range;
-            if start >= end || start >= display_list.items.len() {
-                continue;
-            }
+            // An empty range still needs the CLEAR/SEED below: a pixbuf
+            // starts opaque white and composite blits it regardless. The
+            // allocator no longer creates empty-range layers, but any other
+            // source of one must be an identity patch, not a white bar.
+            let has_items = start < end && start < display_list.items.len();
 
             // This layer's scroll offset (0 for non-scroll layers). Content inside
             // a scroll frame is at absolute coords; the renderer draws at
@@ -854,20 +872,22 @@ impl CompositorState {
             // Seed = layer origin (for pixbuf-local placement) + scroll offset.
             let offset_x = layer_bounds.origin.x + soff.0;
             let offset_y = layer_bounds.origin.y + soff.1;
-            render_display_list_range(
-                display_list,
-                &mut layer.pixbuf,
-                start,
-                end.min(display_list.items.len()),
-                child_ranges,
-                offset_x,
-                offset_y,
-                dpi_factor,
-                renderer_resources,
-                font_manager,
-                glyph_cache,
-                render_state,
-            )?;
+            if has_items {
+                render_display_list_range(
+                    display_list,
+                    &mut layer.pixbuf,
+                    start,
+                    end.min(display_list.items.len()),
+                    child_ranges,
+                    offset_x,
+                    offset_y,
+                    dpi_factor,
+                    renderer_resources,
+                    font_manager,
+                    glyph_cache,
+                    render_state,
+                )?;
+            }
         }
 
         Ok(())
@@ -5843,12 +5863,36 @@ mod autotest_generated {
     fn layer_soup() -> DisplayList {
         dlist(vec![
             push_scroll(1, 0.0, 0.0, 20.0, 20.0),
+            rect_item(
+            0.0,
+            0.0,
+            16.0,
+            16.0,
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            },
+        ),
             DisplayListItem::PopScrollFrame,
             DisplayListItem::PushOpacity {
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
                 opacity: 0.5,
                 opacity_key: None,
             },
+            rect_item(
+            0.0,
+            0.0,
+            16.0,
+            16.0,
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            },
+        ),
             DisplayListItem::PopOpacity,
             DisplayListItem::PushFilter {
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
@@ -5857,8 +5901,70 @@ mod autotest_generated {
                     height: PixelValue::px(2.0),
                 })],
             },
+            rect_item(
+            0.0,
+            0.0,
+            16.0,
+            16.0,
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            },
+        ),
             DisplayListItem::PopFilter,
         ])
+    }
+
+    #[test]
+    fn allocate_layers_skips_an_empty_scroll_frame() {
+        // THE first-draw placeholder-strip bug: an EMPTY scroll frame (every
+        // empty TextInput's value <p>) allocated a layer whose pixbuf was
+        // never seeded, cleared or rendered - but still composited its
+        // never-initialized OPAQUE WHITE pixels over the parent, erasing
+        // the sibling placeholder text under it on the first (fully
+        // layered) frame. Empty groups must allocate NOTHING, and the pop
+        // must not disturb the stack pairing of surrounding frames.
+        let mut c = CompositorState::new(64, 64);
+        let list = dlist(vec![
+            push_scroll(1, 0.0, 0.0, 40.0, 40.0),
+            rect_item(
+            0.0,
+            0.0,
+            16.0,
+            16.0,
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            },
+        ),
+            push_scroll(2, 2.0, 2.0, 10.0, 10.0),
+            DisplayListItem::PopScrollFrame,
+            rect_item(
+            0.0,
+            0.0,
+            16.0,
+            16.0,
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            },
+        ),
+            DisplayListItem::PopScrollFrame,
+        ]);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        assert_eq!(c.layers.len(), 2, "root + outer only; the empty inner frame allocates nothing");
+        let root = c.layers.get(&c.root_layer).unwrap();
+        assert_eq!(root.children.len(), 1);
+        let outer = c.layers.get(&root.children[0]).unwrap();
+        assert_eq!(outer.scroll_id, Some(1));
+        assert!(outer.children.is_empty(), "the empty inner frame must not appear as a child");
+        assert_eq!(outer.display_list_range, (1, 5), "outer range runs to ITS OWN pop, not the inner one");
     }
 
     #[test]
@@ -5986,6 +6092,18 @@ mod autotest_generated {
                 opacity: -3.0,
                 opacity_key: None,
             },
+            rect_item(
+            0.0,
+            0.0,
+            16.0,
+            16.0,
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            },
+        ),
             DisplayListItem::PopOpacity,
         ]);
         c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
@@ -6010,6 +6128,18 @@ mod autotest_generated {
                 initial_transform: translate(20.0, 10.0),
                 bounds: wlr(0.0, 0.0, 20.0, 20.0),
             },
+            rect_item(
+            0.0,
+            0.0,
+            16.0,
+            16.0,
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            },
+        ),
             DisplayListItem::PopReferenceFrame,
         ]);
         c2.allocate_layers_from_display_list(&moved, 1.0, &HashMap::new(), &HashMap::new());
@@ -6040,7 +6170,18 @@ mod autotest_generated {
         // Baked identity, live moved: the node IS displaced this frame.
         let mut c = CompositorState::new(64, 64);
         c.allocate_layers_from_display_list(
-            &dlist(vec![ref_frame(1), DisplayListItem::PopReferenceFrame]),
+            &dlist(vec![ref_frame(1), rect_item(
+            0.0,
+            0.0,
+            16.0,
+            16.0,
+            ColorU {
+                r: 0,
+                g: 0,
+                b: 255,
+                a: 255,
+            },
+        ), DisplayListItem::PopReferenceFrame]),
             1.0,
             &live,
             &HashMap::new(),

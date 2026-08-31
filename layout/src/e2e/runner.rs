@@ -4189,6 +4189,57 @@ mod tests {
     /// — the placeholder is walled off — and the RENDERED side must follow:
     /// the typed glyph is painted, the placeholder (hidden by the widget's own
     /// TextInput callback) is not, and the value reads back.
+    /// The `:focus` border is an INLINE conditional property
+    /// (`CssPropertyWithConditions::on_focus`, #4286f4) - a focus restyle
+    /// reports `changed_nodes=0` for it by design and relies on the
+    /// display-list rebuild resolving the flag. Pin that the rebuild really
+    /// paints it, and that blurring removes it.
+    #[test]
+    fn clicking_the_text_input_paints_the_focus_border() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "text_input_focus_border",
+            "setup": { "window_width": 600, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".__azul-native-text-input-container" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+
+        // The per-side colour types are distinct wrappers
+        // (Option<CssPropertyValue<StyleBorder*Color>>) and ColorU's Debug
+        // prints hex, so compare on the Debug rendering of the sides -
+        // #4286f4 is a colour nothing else in the demo uses.
+        let has_focus_border = runner
+            .layout_window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("layout result")
+            .display_list
+            .items
+            .iter()
+            .any(|item| matches!(item, DisplayListItem::Border { colors, .. }
+                if format!("{colors:?}").contains("#4286f4")));
+        assert!(
+            has_focus_border,
+            "after clicking, the container must paint its :focus border (#4286f4)"
+        );
+    }
+
     /// A mousedown on nothing focusable BLURS. The click-to-focus block was
     /// acquisition-only, so the TextInput kept focus, caret, blink timer and
     /// editing session after a click that left it (device report 2026-08-25,

@@ -890,7 +890,7 @@ impl DisplayList {
     /// Generates a JSON representation of the display list for debugging.
     /// This includes clip chain analysis showing how clips are stacked.
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
-    pub(crate) fn to_debug_json(&self) -> String {
+    pub fn to_debug_json(&self) -> String {
         use std::fmt::Write;
         let mut json = String::new();
         writeln!(json, "{{").unwrap();
@@ -1033,6 +1033,27 @@ impl DisplayList {
                     writeln!(json, "      \"bounds\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }}",
                         info.bounds.0.origin.x, info.bounds.0.origin.y,
                         info.bounds.0.size.width, info.bounds.0.size.height).unwrap();
+                    writeln!(json, "    }}{comma}").unwrap();
+                }
+                DisplayListItem::Text {
+                    glyphs,
+                    font_size_px,
+                    clip_rect,
+                    source_node_index,
+                    ..
+                } => {
+                    writeln!(json, "    {{").unwrap();
+                    writeln!(json, "      \"index\": {i},").unwrap();
+                    writeln!(json, "      \"type\": \"Text\",").unwrap();
+                    writeln!(json, "      \"clip_depth\": {clip_depth},").unwrap();
+                    writeln!(json, "      \"scroll_depth\": {scroll_depth},").unwrap();
+                    writeln!(json, "      \"glyphs\": {},", glyphs.len()).unwrap();
+                    writeln!(json, "      \"font_size_px\": {font_size_px},").unwrap();
+                    writeln!(json, "      \"clip_rect\": {{ \"x\": {:.1}, \"y\": {:.1}, \"w\": {:.1}, \"h\": {:.1} }},",
+                        clip_rect.0.origin.x, clip_rect.0.origin.y,
+                        clip_rect.0.size.width, clip_rect.0.size.height).unwrap();
+                    writeln!(json, "      \"source_node_index\": {source_node_index:?},").unwrap();
+                    writeln!(json, "      \"node_id\": {node_id:?}").unwrap();
                     writeln!(json, "    }}{comma}").unwrap();
                 }
                 _ => {
@@ -7253,13 +7274,24 @@ fn get_scroll_id(id: Option<NodeId>) -> LocalScrollId {
 // +spec:overflow:c2ed94 - replaced element overflow is ink overflow (not scrollable);
 // replaced elements (images) don't contribute scrollable overflow here
 fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) -> LogicalSize {
-    // First check if we have a pre-calculated overflow_content_size (for block children)
-    if let Some(overflow_size) = warm.and_then(|w| w.overflow_content_size) {
-        return overflow_size;
-    }
+    // The stored `overflow_content_size` participates but does NOT
+    // early-return: it is a snapshot from some earlier pass, and for a node
+    // whose IFC laid out after it was written (the absolutely positioned
+    // placeholder <p> on the first device frame) it can be a few pixels
+    // tall. The per-axis overflow-visible clip rescue takes THIS value as
+    // the live extent, so the early return collapsed the placeholder's clip
+    // to a strip of glyph tops until the next full restyle rebuilt it
+    // (2026-08-31 first-draw report). Union it with the node size and the
+    // live inline extent below - a cached scroll extent is not authoritative
+    // for a node whose inline content is fresher.
+    let stored = warm.and_then(|w| w.overflow_content_size);
 
     // Start with the node's own size
     let mut content_size = node.used_size.unwrap_or_default();
+    if let Some(st) = stored {
+        content_size.width = content_size.width.max(st.width);
+        content_size.height = content_size.height.max(st.height);
+    }
 
     // If this node has text layout, calculate the bounds of all text items
     if let Some(cached_layout) = warm.and_then(|w| w.inline_layout_result.as_ref()) {

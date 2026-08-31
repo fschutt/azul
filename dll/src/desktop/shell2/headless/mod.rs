@@ -1186,6 +1186,21 @@ impl CpuBackend {
             );
         }
 
+        // AZ_DUMP_DL_DIR=/tmp/dls dumps the first display lists as JSON —
+        // splits "the DL's clip is collapsed" (layout/reconcile bug) from
+        // "the DL is fine, the renderer clips wrong" (cpurender bug).
+        if let Ok(dir) = std::env::var("AZ_DUMP_DL_DIR") {
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static DL_N: AtomicUsize = AtomicUsize::new(0);
+            let n = DL_N.fetch_add(1, Ordering::Relaxed);
+            if n < 8 {
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::fs::write(
+                    format!("{dir}/dl_{n:03}.json"),
+                    display_list.to_debug_json(),
+                );
+            }
+        }
         // AZ_DUMP_FRAME_DIR=/tmp/frames dumps every rendered CPU frame as a
         // numbered PNG — splits "rendered wrong" from "presented wrong" when a
         // backend shows pixels that contradict the display list.
