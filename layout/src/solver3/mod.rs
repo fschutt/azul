@@ -424,6 +424,30 @@ pub static SKIP_DISPLAY_LIST: core::sync::atomic::AtomicBool =
 /// offset changes are GPU-animated (scrollbar transform events) precisely so
 /// that scrolling never re-emits the display list — keying on them would kill
 /// the cache on every wheel tick.
+/// Fingerprint of the display-list inputs that are NOT the DOM: caret
+/// visibility + locations, text selections, IME preedit. The structural
+/// cache key (`LayoutCache::cached_display_list`) must include it, or a
+/// relayout serves a list built for a different caret/selection state -
+/// the third instance of "a display-list input the cache key cannot see",
+/// after the GPU-key population and the scroll geometry.
+#[must_use]
+pub fn dl_input_fingerprint(
+    cursor_is_visible: bool,
+    cursor_locations: &[(DomId, NodeId, TextCursor)],
+    text_selections: &BTreeMap<DomId, TextSelection>,
+    preedit_text: Option<&str>,
+) -> u64 {
+    use core::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    cursor_is_visible.hash(&mut h);
+    // Debug renderings: small, change rarely per frame, and none of the
+    // types implement Hash.
+    format!("{cursor_locations:?}").hash(&mut h);
+    format!("{text_selections:?}").hash(&mut h);
+    preedit_text.hash(&mut h);
+    h.finish()
+}
+
 pub(crate) fn scroll_geometry_fingerprint(
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
 ) -> u64 {
@@ -675,8 +699,20 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // pass still walks and hashes the tree, but that's ~600 µs vs
     // the ~4 ms it would otherwise cost to re-emit the display list.
     let scroll_fp = scroll_geometry_fingerprint(scroll_offsets);
-    if let Some((cached_hash, cached_viewport, cached_gpu_fp, cached_scroll_fp, cached_dl)) =
-        &cache.cached_display_list
+    let input_fp = dl_input_fingerprint(
+        cursor_is_visible,
+        &cursor_locations,
+        text_selections,
+        preedit_text.as_deref(),
+    );
+    if let Some((
+        cached_hash,
+        cached_viewport,
+        cached_gpu_fp,
+        cached_scroll_fp,
+        cached_input_fp,
+        cached_dl,
+    )) = &cache.cached_display_list
     {
         let new_root_hash = new_tree
             .cold(LayoutNodeId::new(new_tree.root))
@@ -697,6 +733,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             && *cached_viewport == viewport
             && *cached_gpu_fp == gpu_fp
             && *cached_scroll_fp == scroll_fp
+            && *cached_input_fp == input_fp
         {
             let _p = crate::probe::Probe::span("display_list_cache_hit");
             #[cfg(feature = "std")]
@@ -976,7 +1013,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         let gpu_fp =
             gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
         if let Some(h) = root_hash {
-            cache.cached_display_list = Some((h, viewport, gpu_fp, scroll_fp, dl.clone()));
+            cache.cached_display_list =
+                Some((h, viewport, gpu_fp, scroll_fp, input_fp, dl.clone()));
         }
         cache.last_dynamic_context = ctx
             .styled_dom
@@ -1450,7 +1488,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache
                 .cached_display_list
                 .as_ref()
-                .and_then(|(_, _, _, _, prev_dl)| {
+                .and_then(|(_, _, _, _, _, prev_dl)| {
                     let new_sizes: Vec<Option<LogicalSize>> =
                         new_tree.nodes.iter().map(|n| n.used_size).collect();
                     // Fresh/content-changed nodes must RE-EMIT, never splice —
@@ -1626,7 +1664,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     }
                 }
             };
-            if let Some((_, _, _, _, old_dl)) = cache.cached_display_list.as_ref() {
+            if let Some((_, _, _, _, _, old_dl)) = cache.cached_display_list.as_ref() {
                 add_items(old_dl);
             }
             add_items(&display_list);
@@ -1669,8 +1707,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.last_dynamic_context = cur.cloned();
         }
     }
-    cache.cached_display_list =
-        Some((root_subtree_hash, viewport, gpu_fp, scroll_fp, display_list.clone()));
+    cache.cached_display_list = Some((
+        root_subtree_hash,
+        viewport,
+        gpu_fp,
+        scroll_fp,
+        input_fp,
+        display_list.clone(),
+    ));
 
     cache.tree = Some(*new_tree); // [g56] unbox the heap LayoutTree back into the cache
     cache.previous_positions =

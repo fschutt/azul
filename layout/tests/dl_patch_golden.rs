@@ -79,7 +79,7 @@ fn run_sequence() -> std::sync::Arc<azul_layout::solver3::display_list::DisplayL
     lw.layout_cache
         .cached_display_list
         .as_ref()
-        .map(|(_, _, _, _, dl)| dl.clone())
+        .map(|(_, _, _, _, _, dl)| dl.clone())
         .expect("second pass must cache a display list")
 }
 

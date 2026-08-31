@@ -417,6 +417,13 @@ required-features = ["telemetry"]
 name = "all"
 path = "tests/all.rs"
 
+# Own process on purpose: forces AZ_TEXT_HINTING=0 (the macOS glyph mode)
+# before the first glyph renders, which the read-once caches would otherwise
+# leak into every other test of the shared binary.
+[[test]]
+name = "textinput_lcd_seam"
+path = "tests/textinput_lcd_seam.rs"
+
 [[test]]
 name = "solver3_calc"
 path = "tests/solver3/calc.rs"

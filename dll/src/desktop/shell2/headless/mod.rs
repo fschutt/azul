@@ -684,33 +684,15 @@ impl CpuBackend {
         //
         // (scroll_id, clip, delta, new_offset) per frame whose offset changed.
         // LocalScrollId is a u64 alias.
-        let mut scroll_shifts: Vec<(u64, azul_core::geom::LogicalRect, (f32, f32), (f32, f32))> =
-            Vec::new();
-        for (scroll_id, offset) in &scroll_offsets {
-            let prev = self
-                .previous_scroll_offsets
-                .get(scroll_id)
-                .copied()
-                .unwrap_or((0.0, 0.0));
-            let delta = (offset.0 - prev.0, offset.1 - prev.1);
-            // Threshold in PHYSICAL pixels: a delta that moves the content by
-            // at least half a device pixel must repaint (at dpi=2 a 0.3-logical
-            // wheel step is already a visible 0.6-device-px move).
-            if (delta.0 * dpi_factor).abs() > 0.5 || (delta.1 * dpi_factor).abs() > 0.5 {
-                for item in display_list.items.iter() {
-                    if let azul_layout::solver3::display_list::DisplayListItem::PushScrollFrame {
-                        clip_bounds,
-                        scroll_id: sid,
-                        ..
-                    } = item
-                    {
-                        if sid == scroll_id {
-                            scroll_shifts.push((*sid, *clip_bounds.inner(), delta, *offset));
-                        }
-                    }
-                }
-            }
-        }
+        // One shared, viewport-projected collector with the e2e twin - see
+        // `cpurender::collect_scroll_shifts` (nested frames used to get an
+        // unprojected clip).
+        let scroll_shifts = cpurender::collect_scroll_shifts(
+            display_list,
+            &scroll_offsets,
+            &self.previous_scroll_offsets,
+            dpi_factor,
+        );
         let has_scroll = !scroll_shifts.is_empty();
         // Advance the scroll baseline ONLY for frames that actually get painted
         // at their new offset this call (shifted frames now; ALL frames on the

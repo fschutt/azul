@@ -856,14 +856,6 @@ pub enum WindowStateSource {
 
 // Input-delta validation (R2)
 
-/// Is the window-state validation gate on?
-///
-/// Diagnostics here are runtime env / atomics, never cargo features (the same
-/// ruling `AZ_LOG` / `AZ_PROFILE` / `AZ_BACKEND` / `AZ_E2E_TEST` follow), read
-/// once. A debug build validates unconditionally; a release build — which is
-/// what the battery and every shipped binary are — has to opt in with
-/// `AZ_VALIDATE=1`.
-#[must_use]
 /// How many nodes the Ctrl+A block scan will visit under the editing host.
 /// Editable subtrees are small; the bound only stops a malformed hierarchy
 /// from spinning.
@@ -872,6 +864,14 @@ const SELECT_ALL_BLOCK_SCAN_LIMIT: usize = 4096;
 /// How far the autoscroll edge test walks up summing ancestor scroll offsets.
 const AUTO_SCROLL_ANCESTOR_WALK_LIMIT: usize = 64;
 
+/// Is the window-state validation gate on?
+///
+/// Diagnostics here are runtime env / atomics, never cargo features (the same
+/// ruling `AZ_LOG` / `AZ_PROFILE` / `AZ_BACKEND` / `AZ_E2E_TEST` follow), read
+/// once. A debug build validates unconditionally; a release build — which is
+/// what the battery and every shipped binary are — has to opt in with
+/// `AZ_VALIDATE=1`.
+#[must_use]
 pub fn validation_enabled() -> bool {
     if cfg!(debug_assertions) {
         return true;
@@ -6572,11 +6572,20 @@ pub trait PlatformWindow {
                     self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
                 }
 
+                // A caret session created here CHANGES the display list (the
+                // CursorRect item), but the click pass only ever asked for a
+                // re-present and `TextEditManager::display_list_dirty` is read
+                // by no frame path - so the caret appeared only when the next
+                // blink tick happened to rebuild (and never, once that tick
+                // stopped rebuilding no-change frames). Remember the session
+                // creation and demand a display-list update below.
+                let mut session_created = false;
                 let timer_creation_needed =
                     if let Some(layout_window) = self.get_layout_window_mut() {
                         let needs_init = layout_window.focus_manager.needs_cursor_initialization();
                         if needs_init {
                             let cursor_initialized = layout_window.finalize_pending_focus_changes();
+                            session_created = cursor_initialized;
                             if cursor_initialized {
                                 if !layout_window
                                     .text_edit_manager
@@ -6611,9 +6620,14 @@ pub trait PlatformWindow {
                     if let Some(timer) = timer {
                         self.start_timer(azul_core::task::CURSOR_BLINK_TIMER_ID.id, timer);
                     }
-                    return ProcessEventResult::ShouldReRenderCurrentWindow;
                 }
-                ProcessEventResult::DoNothing
+                if session_created {
+                    ProcessEventResult::ShouldUpdateDisplayListCurrentWindow
+                } else if timer_creation_needed {
+                    ProcessEventResult::ShouldReRenderCurrentWindow
+                } else {
+                    ProcessEventResult::DoNothing
+                }
             }
 
             // === Scroll ===
@@ -9142,6 +9156,26 @@ pub trait PlatformWindow {
                     if old_focus_node_id != new_focus_node_id {
                         let r = self.apply_system_change(&SystemChange::SetFocus {
                             new_focus: Some(new_focus_target),
+                            old_focus,
+                        });
+                        result = result.max(r);
+                        mouse_click_focus_changed = true;
+                    }
+                } else if old_focus.is_some() {
+                    // A mousedown that reached NO focusable node blurs the
+                    // current focus: `None` is a legitimate focus target, and
+                    // this used to be an acquisition-only branch, so the caret,
+                    // the blink timer and the editing session outlived the
+                    // click that left the field (2026-08-25 report). A press on
+                    // a scrollbar keeps focus, like a browser's.
+                    let on_scrollbar = hit_test_for_dispatch.as_ref().is_some_and(|ht| {
+                        ht.hovered_nodes
+                            .values()
+                            .any(|h| !h.scrollbar_hit_test_nodes.is_empty())
+                    });
+                    if !on_scrollbar {
+                        let r = self.apply_system_change(&SystemChange::SetFocus {
+                            new_focus: None,
                             old_focus,
                         });
                         result = result.max(r);
