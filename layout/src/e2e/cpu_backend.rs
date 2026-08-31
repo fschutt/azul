@@ -635,7 +635,7 @@ mod tests {
     fn the_placeholder_attribute_paints_for_an_empty_unfocused_editable() {
         use azul_core::dom::AttributeType;
 
-        let ink_rows = |with_attr: bool, focused: bool| -> usize {
+        let ink_rows = |with_attr: bool, focused: bool, value: &str| -> usize {
             let mut ed = Dom::create_div()
                 .with_ids_and_classes(
                     vec![azul_core::dom::IdOrClass::Class("ed".into())].into(),
@@ -643,6 +643,17 @@ mod tests {
                 .with_attribute(AttributeType::ContentEditable(true));
             if with_attr {
                 ed = ed.with_attribute(AttributeType::Placeholder("Hint me".into()));
+            }
+            if !value.is_empty() {
+                ed = ed.with_children(
+                    vec![crate::widgets::widget_p().with_children(
+                        vec![Dom::create_text_do_not_use_without_block_level_wrapper(
+                            value.to_string(),
+                        )]
+                        .into(),
+                    )]
+                    .into(),
+                );
             }
             let mut dom = Dom::create_body().with_child(ed);
             let (css, _) = azul_css::parser2::new_from_str(
@@ -704,20 +715,33 @@ mod tests {
         };
 
         assert_eq!(
-            ink_rows(false, false),
+            ink_rows(false, false, ""),
             0,
             "the control (no placeholder attribute) must paint nothing"
         );
-        let with_attr = ink_rows(true, false);
+        let with_attr = ink_rows(true, false, "");
         assert!(
             with_attr >= 6,
             "the placeholder attribute must paint a text line (got {with_attr} ink rows)"
         );
         assert_eq!(
-            ink_rows(true, true),
+            ink_rows(true, true, ""),
             0,
             "a FOCUSED host hides its prompt (2026-08-31 ruling) - recomputed \
              per build, no latch to stick"
+        );
+
+        // THE DEVICE REGRESSION (2026-08-31): a DEFOCUSED host that HAS text
+        // painted its prompt under that text, because emptiness was read off
+        // `inline_layout_result` and its absence counted as empty. Emptiness
+        // is a question about CONTENT: the filled host must paint exactly
+        // what a host with no placeholder attribute paints.
+        let filled_with_prompt = ink_rows(true, false, "typed");
+        let filled_control = ink_rows(false, false, "typed");
+        assert_eq!(
+            filled_with_prompt, filled_control,
+            "a defocused FILLED host must paint no prompt: {filled_with_prompt} \
+             ink rows with the attribute vs {filled_control} without it"
         );
     }
 
