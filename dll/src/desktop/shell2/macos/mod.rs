@@ -1825,7 +1825,14 @@ define_class!(
             let current_width = ivars.width.get();
             let current_height = ivars.height.get();
 
-            if current_width != width || current_height != height {
+            // A size change WHITENS the framebuffer below. Remember it: the
+            // render that refills it is gated on dirty flags, and a drawRect
+            // that arrives after a resize with none of them set would blit
+            // the bare white fill to the screen - the flicker seen while
+            // dragging a window edge slowly (device report, 2026-08-31),
+            // where AppKit issues such a drawRect between our resize events.
+            let size_changed = current_width != width || current_height != height;
+            if size_changed {
                 ivars.width.set(width);
                 ivars.height.set(height);
                 let mut fb = ivars.framebuffer.borrow_mut();
@@ -1849,7 +1856,19 @@ define_class!(
             if let Some(window_ptr) = *ivars.window_ptr.borrow() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut std::ffi::c_void as *mut MacOSWindow);
-                    if !macos_window.common.display_list_initialized
+                    // A resize WHITENED the framebuffer above, so this frame
+                    // MUST repaint. Raising `redraw_requested` is what makes
+                    // that stick: `render_and_present_in_draw_rect` early-returns
+                    // ("No visual changes - skipping GPU render") whenever no
+                    // dirty flag is set, so merely calling it after a resize
+                    // left the white fill on screen - the flicker while
+                    // dragging a window edge slowly (device report 2026-08-31,
+                    // still white after the first attempt at this fix).
+                    if size_changed {
+                        macos_window.redraw_requested = true;
+                    }
+                    if size_changed
+                        || !macos_window.common.display_list_initialized
                         || macos_window.common.regeneration_pending()
                         || macos_window.common.display_list_dirty
                         || macos_window.redraw_requested
@@ -3144,6 +3163,27 @@ define_class!(
                                 macos_window.apply_incremental_relayout_result();
                             }
                             _ => {}
+                        }
+
+                        // SYNCHRONOUS redraw, inside the resize event.
+                        //
+                        // Every arm above only marks the view dirty
+                        // (`request_redraw` -> `setNeedsDisplay:`), which is
+                        // ASYNCHRONOUS. During a LIVE resize AppKit composites
+                        // the window as the drag proceeds - before that
+                        // deferred `drawRect` runs - so the grown area shows
+                        // the window's white background: the flicker while
+                        // dragging an edge (device report, 2026-08-31).
+                        // `display()` runs `drawRect` NOW, which resizes the
+                        // framebuffer, repaints it at the new size and blits,
+                        // all before this event returns.
+                        //
+                        // Only during a live resize: outside one the async
+                        // path already coalesces several dirty marks into one
+                        // frame, and forcing a synchronous draw there would
+                        // undo that coalescing.
+                        if content_view.inLiveResize() {
+                            content_view.display();
                         }
                     }
 
