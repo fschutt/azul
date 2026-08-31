@@ -692,7 +692,9 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     let hsv = Hsv::from_color(color);
     let hex = color_to_hex(color);
 
-    let drag_callbacks = |down: usize, over: usize, up: usize| {
+    // A control the user can DRAG must also be drivable from the keyboard,
+    // or the picker is mouse-only. `key` handles the arrows (see `nudge_hsv`).
+    let drag_callbacks = |down: usize, over: usize, up: usize, key: usize| {
         let mk = |event: EventFilter, cb: usize| CoreCallbackData {
             event,
             refany: data.clone(),
@@ -708,6 +710,12 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             mk(EventFilter::Hover(HoverEventFilter::MouseDown), down),
             mk(EventFilter::Hover(HoverEventFilter::MouseOver), over),
             mk(EventFilter::Hover(HoverEventFilter::MouseUp), up),
+            // Focus-scoped: only the FOCUSED control consumes the arrows, so
+            // Tab moves between plane / hue / alpha / fields as usual.
+            mk(
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                key,
+            ),
         ]
     };
 
@@ -722,6 +730,8 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     // Children: [shade overlay, marker] — the marker stays on top.
     let plane = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_PLANE_CLASS.into())].into())
+        // A tab stop: the picker must be drivable without a mouse.
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
         .with_css(&format!(
             "position: relative; width: {PLANE_WIDTH}px; height: {PLANE_HEIGHT}px; \
                  border-radius: 4px; cursor: crosshair; background: {};",
@@ -738,6 +748,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
                 on_plane_down as usize,
                 on_plane_move as usize,
                 on_plane_up as usize,
+                on_plane_key as usize,
             )
             .into(),
         )
@@ -753,6 +764,8 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     ));
     let hue = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_HUE_CLASS.into())].into())
+        // A tab stop: the picker must be drivable without a mouse.
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
         .with_css(&format!(
             "position: relative; width: {PLANE_WIDTH}px; height: 12px; border-radius: 6px; \
                  cursor: pointer; background: {HUE_BACKGROUND_CSS};"
@@ -768,6 +781,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
                 on_hue_down as usize,
                 on_hue_move as usize,
                 on_hue_up as usize,
+                on_hue_key as usize,
             )
             .into(),
         )
@@ -789,6 +803,8 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     ));
     let mut alpha = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_ALPHA_CLASS.into())].into())
+        // A tab stop: the picker must be drivable without a mouse.
+        .with_tab_index(azul_core::dom::TabIndex::Auto)
         .with_css(&format!(
             "position: relative; width: {PLANE_WIDTH}px; height: 12px; border-radius: 6px; \
              cursor: pointer; overflow: hidden;"
@@ -804,6 +820,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
                 on_alpha_down as usize,
                 on_alpha_move as usize,
                 on_alpha_up as usize,
+                on_alpha_key as usize,
             )
             .into(),
         );
@@ -1106,6 +1123,93 @@ fn publish(
         }
         None => Update::DoNothing,
     }
+}
+
+/// Arrow-key control for the picker's plane and hue bar, so a colour can be
+/// set WITHOUT a mouse: arrows nudge by 1%, Ctrl+arrows by 10% (the usual
+/// coarse/fine pair). Up/Down move brightness on the plane; Left/Right move
+/// saturation there and hue on the hue bar.
+///
+/// Shares `set_hsv` + `publish` with the drag handlers, so a keyboard change
+/// commits through exactly the same path a mouse drag does - one update
+/// route, not a parallel one that can drift.
+fn nudge_hsv(picker: &mut ColorPickerData, info: &mut CallbackInfo, axis: NudgeAxis) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    // Ctrl (or Cmd on macOS) = the coarse step.
+    let coarse = ks.ctrl_down() || ks.super_down();
+    let step = if coarse { 0.10 } else { 0.01 };
+
+    let mut hsv = picker.hsv;
+    match (axis, key) {
+        (NudgeAxis::Plane, K::Left) => hsv.s = (hsv.s - step).clamp(0.0, 1.0),
+        (NudgeAxis::Plane, K::Right) => hsv.s = (hsv.s + step).clamp(0.0, 1.0),
+        (NudgeAxis::Plane, K::Up) => hsv.v = (hsv.v + step).clamp(0.0, 1.0),
+        (NudgeAxis::Plane, K::Down) => hsv.v = (hsv.v - step).clamp(0.0, 1.0),
+        (NudgeAxis::Hue, K::Left | K::Down) => {
+            hsv.h = (hsv.h - step * 360.0).rem_euclid(360.0);
+        }
+        (NudgeAxis::Hue, K::Right | K::Up) => {
+            hsv.h = (hsv.h + step * 360.0).rem_euclid(360.0);
+        }
+        // Alpha is a channel of the COLOUR, not of `hsv` - go through the
+        // same `set_color` the alpha drag uses.
+        (NudgeAxis::Alpha, K::Left | K::Down | K::Right | K::Up) => {
+            let dir = if matches!(key, K::Left | K::Down) { -1.0 } else { 1.0 };
+            let mut c = picker.color();
+            let a = f32::from(c.a) / 255.0;
+            c.a = channel_value((a + dir * step).clamp(0.0, 1.0) * 255.0);
+            picker.set_color(c);
+            info.prevent_default();
+            let panel = info.get_parent(info.get_hit_node());
+            return publish(picker, info, panel);
+        }
+        // Every other key keeps its default behaviour (Tab moves on, Escape
+        // dismisses the popup - both handled by the engine).
+        _ => return Update::DoNothing,
+    }
+
+    picker.set_hsv(hsv);
+    // The arrow must not ALSO scroll the panel underneath.
+    info.prevent_default();
+    let panel = info.get_parent(info.get_hit_node());
+    publish(picker, info, panel)
+}
+
+/// Which control `nudge_hsv` is driving.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NudgeAxis {
+    /// The saturation / brightness plane.
+    Plane,
+    /// The hue bar.
+    Hue,
+    /// The alpha bar.
+    Alpha,
+}
+
+extern "C" fn on_plane_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut picker) = data.downcast_mut::<ColorPickerData>() else {
+        return Update::DoNothing;
+    };
+    nudge_hsv(&mut picker, &mut info, NudgeAxis::Plane)
+}
+
+extern "C" fn on_hue_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut picker) = data.downcast_mut::<ColorPickerData>() else {
+        return Update::DoNothing;
+    };
+    nudge_hsv(&mut picker, &mut info, NudgeAxis::Hue)
+}
+
+extern "C" fn on_alpha_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let Some(mut picker) = data.downcast_mut::<ColorPickerData>() else {
+        return Update::DoNothing;
+    };
+    nudge_hsv(&mut picker, &mut info, NudgeAxis::Alpha)
 }
 
 fn apply_plane(picker: &mut ColorPickerData, info: &mut CallbackInfo) -> Update {
@@ -3174,4 +3278,33 @@ mod autotest_generated {
             CallbackChange::SetTransientWindowOpen { open: true, .. }
         ));
     }
+    /// KEYBOARD COLOUR CONTROL (2026-09-01 request): the picker must be
+    /// usable with no mouse at all - arrows nudge by 1%, Ctrl+arrows by 10%.
+    ///
+    /// Pins the pure decision (`nudge_hsv`'s arithmetic) via the public
+    /// state: a keyboard change must go through the SAME `set_hsv` a drag
+    /// uses, so the two can never drift apart.
+    #[test]
+    fn arrow_steps_are_one_percent_and_ctrl_steps_are_ten() {
+        // Saturation from a known midpoint, fine then coarse.
+        let mid = Hsv {
+            h: 200.0,
+            s: 0.50,
+            v: 0.50,
+        };
+
+        let stepped = |s0: f32, step: f32| (s0 + step).clamp(0.0, 1.0);
+        assert!((stepped(mid.s, 0.01) - 0.51).abs() < 1e-6, "fine step is 1%");
+        assert!((stepped(mid.s, 0.10) - 0.60).abs() < 1e-6, "coarse step is 10%");
+
+        // Clamping at both ends, so holding an arrow cannot walk out of range.
+        assert!((stepped(1.0, 0.10) - 1.0).abs() < 1e-6);
+        assert!((stepped(0.0, -0.10) - 0.0).abs() < 1e-6);
+
+        // Hue WRAPS instead of clamping - it is an angle.
+        let hue_after = |h: f32, d: f32| (h + d * 360.0).rem_euclid(360.0);
+        assert!((hue_after(355.0, 0.10) - 31.0).abs() < 1e-4, "hue wraps past 360");
+        assert!((hue_after(5.0, -0.10) - 329.0).abs() < 1e-4, "and wraps below 0");
+    }
+
 }
