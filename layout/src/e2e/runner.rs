@@ -4284,6 +4284,82 @@ mod tests {
     }
 
     #[test]
+    fn pressing_tab_with_no_focus_lands_on_the_first_text_input() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "tab_focuses_first_input",
+            "setup": { "window_width": 600, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "\"has_focus\":true" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(
+            result.status, "pass",
+            "Tab with nothing focused must focus the first tab stop (the \
+             contenteditable TextInput container): {:#?}",
+            result.steps
+        );
+    }
+
+    #[test]
+    fn clicking_the_empty_right_half_of_a_text_input_seats_a_caret() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        // The placeholder text is ~130px wide; x=500 is far past it, inside
+        // the empty right half of the 600px field. The DEVICE bug: such a
+        // click focused the field but never seated/painted a caret - only a
+        // click ON the glyphs did.
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "empty_area_click_seats_caret",
+            "setup": { "window_width": 600, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "x": 500.0, "y": 13.0 },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "\"has_focus\":true" },
+                { "op": "get_cursor_state" },
+                { "op": "assert_response", "contains": "\"has_cursor\":true" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(
+            result.status, "pass",
+            "a click in the empty part of the field must focus it AND seat a \
+             visible caret: {:#?}",
+            result.steps
+        );
+    }
+
+    #[test]
     fn typing_into_the_text_input_widget_paints_the_glyph() {
         use azul_layout::widgets::text_input::TextInput;
 
