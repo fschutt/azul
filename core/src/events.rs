@@ -1370,6 +1370,19 @@ fn matches_hover_filter(
             check_mouse_button(&event.data, MouseButton::Middle)
         }
         (MouseUp, EventType::MouseUp) => true,
+        // KEYBOARD ACTIVATION (Enter / Space on a focused element) dispatches
+        // a synthetic `EventType::Click`. Every widget in the toolkit listens
+        // on MouseUp / LeftMouseUp - the pointer spelling of "activate" - so
+        // without this arm the synthetic event matched NOTHING and Enter /
+        // Space silently did nothing on every focusable widget (device
+        // report, 2026-08-31). Nothing else in the engine emits
+        // `EventType::Click`, so this cannot double-fire a real pointer
+        // click: a real click arrives as MouseDown + MouseUp.
+        //
+        // A keyboard activation counts as a LEFT activation - it carries no
+        // button data, so `check_mouse_button` cannot answer for it - which
+        // is the W3C activation behaviour Enter and Space implement.
+        (MouseUp | LeftMouseUp, EventType::Click) => true,
         (LeftMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Left),
         (RightMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Right),
         (MiddleMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Middle),
@@ -2755,7 +2768,13 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
                 MouseButton::Middle => Some(EF::Hover(H::MiddleMouseDown)),
                 MouseButton::Other(_) => None, // no specific filter for other buttons
             },
-            _ => Some(EF::Hover(H::LeftMouseDown)), // fallback
+            // NO BUTTON DATA -> no button-SPECIFIC filter. Phase matching
+            // refuses to let a payloadless event claim a button
+            // (`check_mouse_button`, pinned by
+            // `check_mouse_button_is_false_for_every_non_mouse_payload`), so
+            // planning one here only collected a callback that matching then
+            // silently dropped. The generic `MouseDown` filter still applies.
+            _ => None,
         }
     };
 
@@ -2767,7 +2786,9 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
                 MouseButton::Middle => Some(EF::Hover(H::MiddleMouseUp)),
                 MouseButton::Other(_) => None, // no specific filter for other buttons
             },
-            _ => Some(EF::Hover(H::LeftMouseUp)), // fallback
+            // See the MouseDown arm: a payloadless event plans no
+            // button-specific filter, because matching would drop it.
+            _ => None,
         }
     };
 
@@ -2788,11 +2809,24 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
             v
         }
 
-        // Click maps to LeftMouseUp: per W3C a `click` completes on button
-        // *release* over the target (left-button only). Mapping it to
-        // LeftMouseDown fired synthesized clicks as a duplicate MouseDown
-        // (press semantics) instead of a completed click.
-        E::Click => vec![EF::Hover(H::LeftMouseUp)],
+        // Click completes on button *release* over the target, per W3C, so it
+        // maps to the RELEASE filters - never to LeftMouseDown, which would
+        // fire a synthesized click as a duplicate press.
+        //
+        // It must list the GENERIC `MouseUp` as well as the button-specific
+        // `LeftMouseUp`, exactly like the `E::MouseUp` arm above. Click is the
+        // ACTIVATION event: it is what Enter/Space on a focused element and
+        // what an assistive technology's default action both dispatch. Every
+        // widget in this toolkit registers the generic `Hover(MouseUp)`, so
+        // while this arm listed only `LeftMouseUp` no keyboard or screen-reader
+        // activation ever reached a widget - Space and Enter did nothing at
+        // all on a focused control (device report, 2026-08-31).
+        //
+        // `event_type_to_filters` is what DISPATCH PLANNING uses; the
+        // `matches_hover_filter` table is what phase matching uses. Both
+        // must agree, which is what the note on `matches_component_filter`
+        // means by "de-sync dispatch".
+        E::Click => vec![EF::Hover(H::MouseUp), EF::Hover(H::LeftMouseUp)],
 
         // Other mouse events
         E::MouseOver => vec![EF::Hover(H::MouseOver)],
