@@ -212,6 +212,22 @@ impl FocusManager {
         true
     }
 
+    /// Put a just-taken pending contenteditable focus BACK because the whole
+    /// DOM's layout result is ABSENT - the funnel takes it out while the pass
+    /// runs, the same transient absence `caret_editable_is_focused` tolerates.
+    /// Unlike [`Self::rearm_pending_contenteditable_focus`] this does NOT
+    /// spend a retry: mid-pass absence is not a failed attempt, and burning
+    /// the bounded budget on it locked in the (0,0)+Trailing fallback - the
+    /// device caret landing MID-TEXT ('4|2') when tabbing into a filled
+    /// NumberInput (2026-08-31).
+    pub const fn rearm_pending_contenteditable_focus_transient(
+        &mut self,
+        pending: PendingContentEditableFocus,
+    ) {
+        self.cursor_needs_initialization = true;
+        self.pending_contenteditable_focus = Some(pending);
+    }
+
     /// Clear the pending contenteditable focus (when focus moves away or is cleared).
     pub const fn clear_pending_contenteditable_focus(&mut self) {
         self.cursor_needs_initialization = false;
@@ -661,6 +677,23 @@ impl azul_core::events::FocusManagerQuery for FocusManager {
 #[cfg(test)]
 mod tab_order_tests {
     use super::*;
+
+    #[test]
+    fn a_transient_rearm_spends_no_retry_budget() {
+        let mut fm = FocusManager::default();
+        fm.set_pending_contenteditable_focus(DomId { inner: 0 }, NodeId::new(1), NodeId::new(2));
+        for _ in 0..5 {
+            let pending = fm.take_pending_contenteditable_focus().expect("armed");
+            fm.rearm_pending_contenteditable_focus_transient(pending);
+        }
+        // The bounded rearm still has its FULL budget afterwards.
+        let pending = fm.take_pending_contenteditable_focus().expect("armed");
+        assert!(fm.rearm_pending_contenteditable_focus(pending), "retry 1 must be available");
+        let pending = fm.take_pending_contenteditable_focus().expect("armed");
+        assert!(fm.rearm_pending_contenteditable_focus(pending), "retry 2 must be available");
+        let pending = fm.take_pending_contenteditable_focus().expect("armed");
+        assert!(!fm.rearm_pending_contenteditable_focus(pending), "budget is 2");
+    }
 
     fn nid(dom: usize, node: usize) -> DomNodeId {
         FocusSearchContext::make_dom_node_id(DomId { inner: dom }, NodeId::new(node))
