@@ -3255,6 +3255,13 @@ impl Runner {
             false,
             editing_state.as_ref(),
         );
+        #[cfg(feature = "std")]
+        if std::env::var_os("AZ_ACT_DEBUG").is_some() {
+            std::eprintln!(
+                "[act] key={:?} focused={:?} action={:?}",
+                ks.current_virtual_keycode, focused, action.action
+            );
+        }
         if !action.has_action() {
             return (ProcessEventResult::DoNothing, false);
         }
@@ -3350,6 +3357,25 @@ impl Runner {
                 } else {
                     (ProcessEventResult::DoNothing, false)
                 }
+            }
+            // ACTIVATION (Enter / Space on a focused element). Dispatches the
+            // SAME synthetic Click the dll shell sends, which
+            // `matches_hover_filter` maps onto `HoverEventFilter::MouseUp` -
+            // the very filter the accessibility path already resolves
+            // `AccessibilityAction::Default` to (window.rs). Keyboard, screen
+            // reader and pointer activation therefore all reach one listener
+            // set. Without this arm the runner fell through to DoNothing, so
+            // the headless harness could not see the device bug at all.
+            DefaultAction::ActivateFocusedElement { target } => {
+                let click = azul_core::events::SyntheticEvent::new(
+                    azul_core::events::EventType::Click,
+                    azul_core::events::EventSource::User,
+                    *target,
+                    self.now(),
+                    azul_core::events::EventData::None,
+                );
+                let (r, _update, _) = self.dispatch_events_propagated(&[click]);
+                (r, false)
             }
             _ => (ProcessEventResult::DoNothing, false),
         }
@@ -4487,6 +4513,112 @@ mod tests {
             "after typing, Tab must seat the caret at the END of the next \
              field's own text, not at the previous session's byte offset: {:#?}",
             result.steps
+        );
+    }
+
+    /// KEYBOARD ACCESSIBILITY, end to end through the headless window:
+    /// Tab must reach a non-text widget and Space must ACTIVATE it (W3C:
+    /// Space activates buttons and toggles, Enter activates buttons/links).
+    ///
+    /// Asserts a REAL CALLBACK FIRED, not merely that "something changed" -
+    /// an `assert_changed` here passed while the device did nothing at all,
+    /// because a focus restyle counts as a change. The bug it now covers:
+    /// activation dispatches a synthetic `EventType::Click`, which matched
+    /// no `HoverEventFilter::MouseUp` listener, so every widget ignored
+    /// Enter and Space.
+    #[test]
+    fn tab_then_space_activates_a_button_through_its_callback() {
+        use azul_core::refany::RefAny;
+        use azul_layout::widgets::button::Button;
+
+        #[derive(Debug)]
+        struct Fired(bool);
+
+        extern "C" fn on_click(
+            mut data: RefAny,
+            _: azul_layout::callbacks::CallbackInfo,
+        ) -> azul_core::callbacks::Update {
+            if let Some(mut f) = data.downcast_mut::<Fired>() {
+                f.0 = true;
+            }
+            azul_core::callbacks::Update::DoNothing
+        }
+
+        let mut fired = RefAny::new(Fired(false));
+        let mut dom = Dom::create_body()
+            .with_child(Button::create("Press me".into()).with_on_click(fired.clone(), on_click as azul_layout::widgets::button::ButtonOnClickCallbackType).dom());
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "keyboard_activation",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "\"has_focus\":true" },
+                { "op": "key_down", "key": "Space" },
+                { "op": "key_up", "key": "Space" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "Tab must focus the button: {:#?}", result.steps);
+        assert!(
+            fired.downcast_ref::<Fired>().is_some_and(|f| f.0),
+            "Space on a focused button must run its click callback",
+        );
+    }
+
+    /// THE A11Y HALF of the same contract: a screen reader's default action
+    /// must run the SAME callback keyboard activation runs.
+    ///
+    /// `process_accessibility_action(Default)` resolves to
+    /// `EventFilter::Hover(MouseUp)`, and keyboard activation dispatches an
+    /// `EventType::Click` whose planned filters now include that same generic
+    /// MouseUp - so pointer, keyboard and assistive technology all converge on
+    /// one listener set instead of three near-miss ones.
+    #[test]
+    fn an_accessibility_default_action_resolves_to_the_activation_filter() {
+        use azul_core::{
+            a11y::AccessibilityAction,
+            dom::{DomId, NodeId},
+            events::{EventFilter, HoverEventFilter},
+        };
+        use azul_layout::widgets::button::Button;
+
+        let mut dom = Dom::create_body().with_child(Button::create("Press me".into()).dom());
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "a11y_default_action",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [{ "op": "wait_frame" }]
+        }))
+        .expect("scenario json");
+        let (_result, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+
+        let affected = runner.layout_window.process_accessibility_action(
+            DomId::ROOT_ID,
+            NodeId::new(1),
+            AccessibilityAction::Default,
+            runner.now(),
+        );
+
+        let filters: Vec<EventFilter> = affected.values().flat_map(|(f, _)| f.clone()).collect();
+        assert!(
+            filters.contains(&EventFilter::Hover(HoverEventFilter::MouseUp)),
+            "the a11y default action must resolve to the same activation filter \
+             keyboard activation reaches, got {filters:?}",
         );
     }
 

@@ -3650,3 +3650,134 @@ mod autotest_generated {
         assert!(out.as_slice().is_empty());
     }
 }
+
+/// KEYBOARD ACTIVATION: Enter / Space on a focused element dispatch a
+/// synthetic `EventType::Click`, but every widget in the toolkit registers
+/// `HoverEventFilter::MouseUp` (the pointer spelling of "activate"). Without a
+/// Click -> MouseUp arm the synthetic event matched NOTHING, so Enter and
+/// Space silently did nothing on every focusable widget - the device report
+/// of 2026-08-31 ("space did nothing when the item was focused").
+#[test]
+fn a_synthetic_click_activates_a_mouse_up_listener() {
+    use crate::{
+        dom::{DomId, DomNodeId},
+        events::{
+            EventData, EventFilter, EventPhase, EventSource, EventType, HoverEventFilter,
+            SyntheticEvent,
+        },
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+    };
+
+    let target = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(crate::dom::NodeId::new(1))),
+    };
+    let click = SyntheticEvent::new(
+        EventType::Click,
+        EventSource::User,
+        target,
+        Instant::Tick(SystemTick::new(0)),
+        EventData::None,
+    );
+
+    for filter in [HoverEventFilter::MouseUp, HoverEventFilter::LeftMouseUp] {
+        assert!(
+            super::matches_filter_phase(EventFilter::Hover(filter), &click, EventPhase::Bubble),
+            "a keyboard-activation Click must reach a {filter:?} listener",
+        );
+    }
+
+    // It must NOT masquerade as anything else - a Click is an activation, not
+    // a press, and a real pointer click still arrives as MouseDown + MouseUp.
+    assert!(
+        !super::matches_filter_phase(
+            EventFilter::Hover(HoverEventFilter::MouseDown),
+            &click,
+            EventPhase::Bubble
+        ),
+        "a Click must not fire MouseDown listeners",
+    );
+}
+
+/// ARCHITECTURAL INVARIANT: the engine keeps TWO tables that map an event
+/// onto listeners, and nothing but discipline kept them in agreement.
+///
+///  * `event_type_to_filters` drives dispatch PLANNING - which callbacks get
+///    collected for an event.
+///  * `matches_filter_phase` drives phase MATCHING - whether a collected
+///    callback actually fires.
+///
+/// A de-sync is SILENT: the event simply never reaches the callback. That is
+/// exactly how Enter/Space died on every focusable widget - planning listed
+/// only `LeftMouseUp` for `EventType::Click` while every widget registers the
+/// generic `MouseUp`, so activation collected nothing, and separately the
+/// matcher had no `Click` arm at all.
+///
+/// This test makes the invariant mechanical instead of a comment: for every
+/// pointer-ish event, the two tables must agree on every hover filter.
+#[test]
+fn dispatch_planning_and_phase_matching_agree_on_every_hover_filter() {
+    use crate::{
+        dom::{DomId, DomNodeId, NodeId},
+        events::{
+            event_type_to_filters, EventData, EventFilter, EventPhase, EventSource, EventType,
+            HoverEventFilter, SyntheticEvent,
+        },
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+    };
+
+    const FILTERS: &[HoverEventFilter] = &[
+        HoverEventFilter::MouseOver,
+        HoverEventFilter::MouseDown,
+        HoverEventFilter::LeftMouseDown,
+        HoverEventFilter::RightMouseDown,
+        HoverEventFilter::MiddleMouseDown,
+        HoverEventFilter::MouseUp,
+        HoverEventFilter::LeftMouseUp,
+        HoverEventFilter::RightMouseUp,
+        HoverEventFilter::MiddleMouseUp,
+        HoverEventFilter::MouseEnter,
+        HoverEventFilter::MouseLeave,
+        HoverEventFilter::Scroll,
+    ];
+    const EVENTS: &[EventType] = &[
+        EventType::Click,
+        EventType::MouseUp,
+        EventType::MouseDown,
+        EventType::MouseOver,
+        EventType::MouseEnter,
+        EventType::MouseLeave,
+        EventType::Scroll,
+    ];
+
+    let target = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+    };
+
+    for &event_type in EVENTS {
+        let event = SyntheticEvent::new(
+            event_type,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick::new(0)),
+            EventData::None,
+        );
+        let planned = event_type_to_filters(event_type, &event.data);
+        for &f in FILTERS {
+            let filter = EventFilter::Hover(f);
+            let is_planned = planned.contains(&filter);
+            let does_match =
+                super::matches_filter_phase(filter, &event, EventPhase::Bubble);
+            assert_eq!(
+                is_planned, does_match,
+                "de-sync for {event_type:?} x {f:?}: planning says {is_planned}, \
+                 matching says {does_match} - a callback registered on {f:?} would \
+                 {} (see the doc on this test)",
+                if is_planned { "be collected and then ignored" } else { "never be collected" },
+            );
+        }
+    }
+}
