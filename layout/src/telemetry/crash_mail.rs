@@ -11,10 +11,12 @@
 //!
 //! This is MANUAL by design: sending mail from a panic hook would block a
 //! dying process on the network, and mailing without the user seeing the
-//! moment happen is not the consent posture this crate keeps. The app calls
-//! [`send_crash_reports`] from its own "the app crashed last time — send a
-//! report?" dialog on the NEXT launch, passing whatever message the user
-//! typed.
+//! moment happen is not the consent posture this crate keeps. The built-in
+//! reporter dialog (`dialogs::crash_reporter`) is the sender: it opens on
+//! the crash itself and again for a dump still queued on the next launch,
+//! and its Send mails the dump with whatever message the user typed.
+//! `AppConfig.report_problem` arms the contact at startup; an app with its
+//! own dialog can still call [`send_crash_reports`] directly.
 
 use std::path::PathBuf;
 
@@ -82,6 +84,23 @@ static CRASH_CONTACT: std::sync::OnceLock<CrashMailConfig> = std::sync::OnceLock
 /// (`AzApp::run` checks the env var first) shows the dump and offers to
 /// mail it. With an endpoint configured nothing respawns — the automatic
 /// pipeline already owns the crash.
+/// Derive the crash-mail contact from the app's `report_problem` mailbox
+/// (`AppConfig.report_problem` — the same address `SysDialogType::ReportProblem`
+/// mails to): reports go TO that address, FROM `crash-reporter@<its domain>`,
+/// announcing `<its domain>`. `None` when the address has no domain part.
+#[must_use]
+pub fn config_from_report_address(address: &str) -> Option<CrashMailConfig> {
+    let (local, domain) = address.trim().rsplit_once('@')?;
+    if local.is_empty() || domain.is_empty() {
+        return None;
+    }
+    Some(CrashMailConfig::new(
+        address.trim().to_owned(),
+        format!("crash-reporter@{domain}"),
+        domain.to_owned(),
+    ))
+}
+
 pub fn set_crash_contact(config: CrashMailConfig) {
     super::mark_crash_contact(true);
     drop(CRASH_CONTACT.set(config));
@@ -341,5 +360,21 @@ mod tests {
         // The attachment decodes back to the dump.
         assert!(body.contains(&base64_encode(br#"{"kind":"azul-crash-dump"}"#)));
         assert!(body.ends_with(&format!("--{MIME_BOUNDARY}--\r\n")));
+    }
+}
+
+#[cfg(test)]
+mod report_address_tests {
+    use super::config_from_report_address;
+
+    #[test]
+    fn a_support_mailbox_becomes_a_full_crash_mail_contact() {
+        let c = config_from_report_address(" crashes@myapp.example ").expect("valid address");
+        assert_eq!(c.to, "crashes@myapp.example");
+        assert_eq!(c.from, "crash-reporter@myapp.example");
+        assert_eq!(c.helo_domain, "myapp.example");
+        assert!(config_from_report_address("nodomain").is_none());
+        assert!(config_from_report_address("@x").is_none());
+        assert!(config_from_report_address("x@").is_none());
     }
 }

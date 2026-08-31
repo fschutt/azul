@@ -3134,6 +3134,29 @@ pub trait PlatformWindow {
     #[cfg(not(feature = "a11y"))]
     fn refill_a11y_tree_after_regeneration(&mut self) {}
 
+    /// Rebuild the a11y tree after scrolling — at most every 100ms while a
+    /// scroll is in flight (`A11yManager::scroll_rebuild_due`). The fast
+    /// scroll path never re-lays out, so without this the delivered tree
+    /// kept its pre-scroll bounds forever. Called at the end of every event
+    /// pass and from each shell's frame tick, so the final position of a
+    /// glide lands within one interval of the last offset change.
+    #[cfg(feature = "a11y")]
+    fn rebuild_a11y_after_scroll_if_due(&mut self) {
+        const MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+        if let Some(lw) = self.get_layout_window_mut() {
+            if lw
+                .a11y_manager
+                .scroll_rebuild_due(std::time::Instant::now(), MIN_INTERVAL)
+            {
+                lw.update_a11y_tree();
+            }
+        }
+    }
+
+    /// No-op without the `a11y` feature.
+    #[cfg(not(feature = "a11y"))]
+    fn rebuild_a11y_after_scroll_if_due(&mut self) {}
+
     /// Resize the PLATFORM surface (swapchain / shm buffers / GL drawable) to
     /// match `current_window_state.size`.
     ///
@@ -4450,6 +4473,12 @@ pub trait PlatformWindow {
                         // Recalculate scrollbar geometry so CPU-side hit testing
                         // (perform_scrollbar_hit_test) has up-to-date thumb positions.
                         lw.scroll_manager.calculate_scrollbar_states();
+
+                        // The delivered a11y tree now has stale bounds and
+                        // scroll_x/y; the fast scroll path never re-lays out,
+                        // so flag it for a throttled full rebuild.
+                        #[cfg(feature = "a11y")]
+                        lw.a11y_manager.mark_scroll_dirty();
 
                         // Check if this scroll node is a VirtualView that needs
                         // re-invocation (e.g. user scrolled near edge for lazy loading).
@@ -9578,6 +9607,7 @@ pub trait PlatformWindow {
         //   adapter now instead of waiting for the next full relayout.
         if depth == 0 {
             self.sync_capability_pump_timer();
+            self.rebuild_a11y_after_scroll_if_due();
             self.flush_a11y_tree_update();
         }
 

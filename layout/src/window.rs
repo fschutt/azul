@@ -10159,8 +10159,10 @@ impl LayoutWindow {
         }));
 
         if let Ok(tree_update) = a11y_result {
-            self.a11y_manager.last_tree_update = Some(tree_update);
-            self.a11y_manager.tree_initialized = true;
+            // A refused FULL tree keeps the last good state parked/delivered;
+            // `last_rejection` records why (the e2e digest and the contract
+            // tests read it). Nothing malformed reaches an adapter.
+            drop(self.a11y_manager.publish(tree_update));
         }
     }
 
@@ -10210,9 +10212,24 @@ impl LayoutWindow {
         };
         let dom_id = dom_node_id.dom;
 
-        // Get current text content (from dirty overrides or StyledDom)
-        let text_content = if let Some(dirty) = self.content_overlay.text_for_node(dom_id, node_id)
-        {
+        // Get current text content (from dirty overrides or StyledDom).
+        // Edits are recorded against the FOCUSED host (the contenteditable
+        // container) while the editing session is keyed on the IFC root
+        // inside it — look the overlay up by both, or the increment ships
+        // the pre-edit DOM text and screen readers read a stale value on
+        // every keystroke (caught by the a11y consumer contract test).
+        let overlay_text = self
+            .content_overlay
+            .text_for_node(dom_id, node_id)
+            .or_else(|| {
+                let host = self.focus_manager.get_focused_node().copied()?;
+                if host.dom != dom_id {
+                    return None;
+                }
+                let host_node = host.node.into_crate_internal()?;
+                self.content_overlay.text_for_node(dom_id, host_node)
+            });
+        let text_content = if let Some(dirty) = overlay_text {
             self.extract_text_from_inline_content(&dirty.content)
         } else {
             // Fall back to StyledDom text
@@ -10317,12 +10334,22 @@ impl LayoutWindow {
             })
             .unwrap_or(self.a11y_manager.root_id);
 
-        self.a11y_manager.last_tree_update = Some(accesskit::TreeUpdate {
+        let update = accesskit::TreeUpdate {
             nodes: vec![(a11y_node_id, node)],
             tree: None, // Incremental — tree structure unchanged
             focus,
             tree_id: accesskit::TreeId::ROOT,
-        });
+        };
+        // The delivered tree may not be able to absorb this: the focus (or
+        // the edited node itself) can name an id the adapter never received
+        // — a DOM that regenerated under the editing session, or a focus
+        // parked in a child DOM that a RefreshDom rebuilt. accesskit aborts
+        // the process on exactly that (2026-08-29 AzWriter crash), so the
+        // manager refuses it here and the full rebuild — whose own guard
+        // degrades an unresolvable focus to the root — takes over.
+        if self.a11y_manager.publish(update).is_err() {
+            self.update_a11y_tree();
+        }
     }
 
     /// Inline layout + absolute origin of the node an editing session is

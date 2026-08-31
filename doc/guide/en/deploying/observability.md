@@ -175,8 +175,15 @@ consented to, so they are safe to leave in the code path.
 ## Crashes
 
 The panic hook counts the panic, buffers the message, and writes the queue
-**to disk**. It never uploads from a dying process — the report appears after
-the *next* launch drains the queue. That delay is the design.
+**to disk**. Release builds are `panic = "abort"`: the process dies the moment
+the hooks return, so nothing can be deferred to a background thread. With an
+OTLP endpoint configured the hook therefore ships the queued crash record
+**synchronously** (a 3-second budget; whatever fails stays queued for the next
+launch). Without an endpoint it re-spawns the app as the crash-reporter dialog
+(below). With telemetry off — below the `crashes` tier — the plain "unexpected
+fatal error" message box is the only surface (`AppConfig.enable_visual_panic_hook`,
+on by default; suppressed under `AZ_E2E`), and it yields whenever telemetry
+owns the crash, so a user sees exactly one crash surface.
 
 Each crash record carries `crash.message`, `crash.location` (`file:line`),
 `crash.scope` (the live probe-span path, so you know what the app was doing),
@@ -185,7 +192,13 @@ scrubbed: `$HOME` becomes `~`, and rustc and registry paths collapse.
 
 When a crashed process re-spawns itself with `AZ_CRASH_DUMP=<dump.json>`,
 that invocation *is* the crash reporter: azul shows the dump in a CPU-rendered
-dialog instead of starting the app.
+dialog instead of starting the app. This happens on every crash-tier panic
+without an endpoint — no crash contact is needed to *see* the report; only
+its **Send** needs one. `AppConfig.report_problem` (the support mailbox
+`SysDialogType::ReportProblem` mails to) arms that contact automatically when
+the `crash-mail` transport is compiled in. A dump still queued on a later
+launch — the reporter was closed, or crashed with the app — re-opens the
+reporter alongside the app when it can send.
 
 ### Reports the user starts
 

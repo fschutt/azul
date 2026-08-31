@@ -350,6 +350,8 @@ mod scroll_id_identity;
 mod scroll_shift_ghost;
 #[path = "textinput_seed_style.rs"]
 mod textinput_seed_style;
+#[path = "a11y_consumer_contract.rs"]
+mod a11y_consumer_contract;
 #[path = "token_vs_slicer_differential.rs"]
 mod token_vs_slicer_differential;
 #[path = "unresolved_family_render.rs"]

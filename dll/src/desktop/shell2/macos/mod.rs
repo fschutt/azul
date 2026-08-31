@@ -3692,7 +3692,7 @@ impl event::PlatformWindow for MacOSWindow {
                 .common
                 .layout_window
                 .as_mut()
-                .and_then(|lw| lw.a11y_manager.last_tree_update.take());
+                .and_then(|lw| lw.a11y_manager.take_pending());
             if let (Some(update), Some(adapter)) = (pending, self.accessibility_adapter.as_mut()) {
                 adapter.update_tree(update);
             }
@@ -7016,6 +7016,12 @@ impl MacOSWindow {
         if self.common.a11y_dirty {
             self.update_accessibility();
             self.common.a11y_dirty = false;
+        } else {
+            // Scroll moved the content: throttled full rebuild (bounds +
+            // scroll_x/y), then hand it over like any other parked update.
+            use super::common::event::PlatformWindow;
+            self.rebuild_a11y_after_scroll_if_due();
+            self.flush_a11y_tree_update();
         }
     }
 
@@ -7400,6 +7406,12 @@ impl MacOSWindow {
         if self.common.a11y_dirty {
             self.update_accessibility();
             self.common.a11y_dirty = false;
+        } else {
+            // Scroll moved the content: throttled full rebuild (bounds +
+            // scroll_x/y), then hand it over like any other parked update.
+            use super::common::event::PlatformWindow;
+            self.rebuild_a11y_after_scroll_if_due();
+            self.flush_a11y_tree_update();
         }
 
         // Read these BEFORE taking the mutable borrow below. `regeneration_pending()`
@@ -8472,7 +8484,7 @@ impl MacOSWindow {
             .common
             .layout_window
             .as_mut()
-            .and_then(|lw| lw.a11y_manager.last_tree_update.take());
+            .and_then(|lw| lw.a11y_manager.take_pending());
         if let Some(tree_update) = tree_update {
             adapter.update_tree(tree_update);
         }

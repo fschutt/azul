@@ -10,7 +10,7 @@
 //! the platform-agnostic `accesskit` tree format.
 
 #[cfg(feature = "a11y")]
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 #[cfg(feature = "a11y")]
 use accesskit::{Action, ActionRequest, Node, NodeId as A11yNodeId, Rect, Role, Tree, TreeUpdate};
@@ -20,6 +20,7 @@ use azul_core::{
         DomNodeId, NodeData, NodeId, NodeType, TextSelectionStartEnd,
     },
     geom::{LogicalPosition, LogicalSize},
+    styled_dom::NodeHierarchyItem,
 };
 use azul_css::AzString;
 
@@ -124,6 +125,119 @@ pub struct CursorA11yInfo {
 /// 1. Maintaining the current accessibility tree state
 /// 2. Generating `TreeUpdate`s by comparing layout results with the stored tree
 /// 3. Translating `ActionRequest`s from screen readers into synthetic Azul events
+/// Why [`A11yManager::publish`] refused a `TreeUpdate`.
+///
+/// Each variant is one invariant `accesskit_consumer::tree::State::update`
+/// enforces with a `panic!` — and the release build is `panic = "abort"`, so
+/// the `catch_unwind` the shells wrap the adapter in cannot save the process.
+/// An update that would trip one of these is never handed over; the caller
+/// rebuilds the full tree (incremental path) or keeps the last good state
+/// (full path). This is the 2026-08-29 AzWriter crash class: focus parked in a
+/// DOM that two `RefreshDom` relayouts had rebuilt.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum A11yUpdateError {
+    /// An incremental update (no `tree`) arrived before any full tree.
+    NoTreeYet,
+    /// A child id names neither a delivered node nor a node in this update.
+    UnknownChild {
+        parent: A11yNodeId,
+        child: A11yNodeId,
+    },
+    /// The update lists one child under two parents (or twice under one).
+    DuplicateChild(A11yNodeId),
+    /// An update node is neither the root, nor already delivered, nor the
+    /// child of another update node — the consumer cannot place it.
+    OrphanNode(A11yNodeId),
+    /// The root the update names is not in the resulting tree.
+    RootMissing(A11yNodeId),
+    /// `focus` names no node in the resulting tree (tree.rs:75).
+    FocusNotInTree(A11yNodeId),
+}
+
+/// The accessibility tree as the platform adapter currently holds it: every
+/// node id with its child list. [`Self::apply`] replays the consumer's merge
+/// rules so a bad update is caught HERE, in safe code, instead of aborting
+/// the process inside the adapter.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct A11yTreeMirror {
+    pub root: Option<A11yNodeId>,
+    pub children: BTreeMap<A11yNodeId, Vec<A11yNodeId>>,
+}
+
+#[cfg(feature = "a11y")]
+impl A11yTreeMirror {
+    /// Apply `update` exactly the way `accesskit_consumer` would and return
+    /// the resulting tree — or the invariant the consumer would have
+    /// panicked on.
+    ///
+    /// Merge rules mirrored from `tree.rs::State::update`:
+    /// - `tree: Some` re-roots; `tree: None` keeps the delivered root
+    ///   (and needs one).
+    /// - every child an update node lists must exist (delivered or in the
+    ///   update); a child listed twice is a duplicate.
+    /// - an update node must be the root, already delivered, or listed as a
+    ///   child by another update node.
+    /// - nodes an updated parent no longer lists become unreachable and are
+    ///   dropped (with their subtrees) — the consumer removes them silently,
+    ///   which is why a focus on such a node is the classic abort.
+    /// - root and focus must survive in the reachable set.
+    pub fn apply(&self, update: &TreeUpdate) -> Result<Self, A11yUpdateError> {
+        let root = match (&update.tree, self.root) {
+            (Some(t), _) => t.root,
+            (None, Some(r)) => r,
+            (None, None) => return Err(A11yUpdateError::NoTreeYet),
+        };
+        let update_ids: BTreeSet<A11yNodeId> = update.nodes.iter().map(|(id, _)| *id).collect();
+
+        let mut seen_children = BTreeSet::new();
+        for (id, node) in &update.nodes {
+            for &child in node.children() {
+                if !seen_children.insert(child) {
+                    return Err(A11yUpdateError::DuplicateChild(child));
+                }
+                if !self.children.contains_key(&child) && !update_ids.contains(&child) {
+                    return Err(A11yUpdateError::UnknownChild {
+                        parent: *id,
+                        child,
+                    });
+                }
+            }
+        }
+        for id in &update_ids {
+            if *id != root && !self.children.contains_key(id) && !seen_children.contains(id) {
+                return Err(A11yUpdateError::OrphanNode(*id));
+            }
+        }
+
+        let mut merged = self.children.clone();
+        for (id, node) in &update.nodes {
+            merged.insert(*id, node.children().to_vec());
+        }
+        if !merged.contains_key(&root) {
+            return Err(A11yUpdateError::RootMissing(root));
+        }
+        let mut reachable = BTreeSet::new();
+        let mut stack = vec![root];
+        while let Some(n) = stack.pop() {
+            if reachable.insert(n) {
+                if let Some(cs) = merged.get(&n) {
+                    stack.extend(cs.iter().copied());
+                }
+            }
+        }
+        merged.retain(|id, _| reachable.contains(id));
+        if !merged.contains_key(&update.focus) {
+            return Err(A11yUpdateError::FocusNotInTree(update.focus));
+        }
+        Ok(Self {
+            root: Some(root),
+            children: merged,
+        })
+    }
+}
+
 #[cfg(feature = "a11y")]
 #[derive(Debug)]
 pub struct A11yManager {
@@ -136,6 +250,19 @@ pub struct A11yManager {
     /// Whether the full tree has been sent to the platform adapter at least once.
     /// After initialization, incremental updates can use `tree: None`.
     pub tree_initialized: bool,
+    /// The tree as the platform adapter currently holds it — advanced by
+    /// [`Self::take_pending`] when a shell hands `last_tree_update` over.
+    pub delivered: A11yTreeMirror,
+    /// `delivered` as it will be once `last_tree_update` is handed over.
+    pub pending_post: Option<A11yTreeMirror>,
+    /// The last update [`Self::publish`] refused (diagnostics, tests).
+    pub last_rejection: Option<A11yUpdateError>,
+    /// Scroll offsets moved since the last full rebuild — bounds and
+    /// scroll_x/y in the delivered tree are stale until one runs.
+    pub scroll_dirty: bool,
+    /// When the last scroll-driven rebuild ran (see
+    /// [`Self::scroll_rebuild_due`]).
+    pub last_scroll_rebuild: Option<std::time::Instant>,
 }
 
 #[cfg(feature = "a11y")]
@@ -156,7 +283,134 @@ impl A11yManager {
             tree: None,
             last_tree_update: None,
             tree_initialized: false,
+            delivered: A11yTreeMirror {
+                root: None,
+                children: BTreeMap::new(),
+            },
+            pending_post: None,
+            last_rejection: None,
+            scroll_dirty: false,
+            last_scroll_rebuild: None,
         }
+    }
+
+    /// THE ONE WAY an update reaches `last_tree_update`.
+    ///
+    /// Folds `update` into whatever is still parked (a full update
+    /// supersedes; an incremental one merges node-by-node so the slot always
+    /// holds ONE coherent update — replacing a parked full tree with a later
+    /// incremental used to drop the full tree on the floor), then replays
+    /// the consumer's merge rules against the tree the adapter actually
+    /// holds. Refused updates leave the slot exactly as it was and are
+    /// recorded in `last_rejection`; the caller decides (incremental →
+    /// rebuild the full tree; full → keep the last good state).
+    pub fn publish(&mut self, update: TreeUpdate) -> Result<(), A11yUpdateError> {
+        let prev = self.last_tree_update.take();
+        let merged = Self::merge_pending(prev.clone(), update);
+        match self.delivered.apply(&merged) {
+            Ok(post) => {
+                if merged.tree.is_some() {
+                    self.tree_initialized = true;
+                }
+                self.pending_post = Some(post);
+                self.last_tree_update = Some(merged);
+                Ok(())
+            }
+            Err(e) => {
+                self.last_tree_update = prev;
+                self.last_rejection = Some(e.clone());
+                Err(e)
+            }
+        }
+    }
+
+    /// Fold `new` into a still-parked update (see [`Self::publish`]).
+    fn merge_pending(prev: Option<TreeUpdate>, new: TreeUpdate) -> TreeUpdate {
+        match prev {
+            None => new,
+            Some(_) if new.tree.is_some() => new,
+            Some(mut parked) => {
+                for (id, node) in new.nodes {
+                    if let Some(slot) = parked.nodes.iter_mut().find(|(i, _)| *i == id) {
+                        slot.1 = node;
+                    } else {
+                        parked.nodes.push((id, node));
+                    }
+                }
+                parked.focus = new.focus;
+                parked
+            }
+        }
+    }
+
+    /// Hand the parked update to a platform adapter and advance
+    /// `delivered` to the tree the adapter will hold afterwards. Every shell
+    /// drains the slot through this — a raw `last_tree_update.take()` would
+    /// leave the mirror behind and the next incremental update would be
+    /// validated against the wrong tree.
+    pub fn take_pending(&mut self) -> Option<TreeUpdate> {
+        let update = self.last_tree_update.take()?;
+        if let Some(post) = self.pending_post.take() {
+            self.delivered = post;
+        }
+        Some(update)
+    }
+
+    /// A scroll offset changed: bounds and scroll_x/y in the delivered tree
+    /// are stale. The fast scroll path never re-lays out, so nothing else
+    /// would ever rebuild the tree — screen readers saw pre-scroll rects.
+    pub fn mark_scroll_dirty(&mut self) {
+        self.scroll_dirty = true;
+    }
+
+    /// Whether a scroll-driven full rebuild should run NOW: dirty, and at
+    /// least `min_interval` since the previous one. Clears the flag and
+    /// stamps the time when it answers `true`; a throttled `false` keeps the
+    /// flag so the next tick re-asks — the final state of a glide lands
+    /// within one interval of the last offset change.
+    pub fn scroll_rebuild_due(
+        &mut self,
+        now: std::time::Instant,
+        min_interval: std::time::Duration,
+    ) -> bool {
+        if !self.scroll_dirty {
+            return false;
+        }
+        let due = self
+            .last_scroll_rebuild
+            .is_none_or(|last| now.saturating_duration_since(last) >= min_interval);
+        if due {
+            self.scroll_dirty = false;
+            self.last_scroll_rebuild = Some(now);
+        }
+        due
+    }
+
+    /// Sum of every ANCESTOR scroll container's current offset — what
+    /// translates a node's static layout position to where it is on screen.
+    /// A scroller's own box does not move when it scrolls; its content does,
+    /// so the walk starts at the parent.
+    fn ancestor_scroll_offset(
+        dom_id: DomId,
+        node_hierarchy: &[NodeHierarchyItem],
+        dom_idx: usize,
+        scroll_manager: &crate::managers::scroll_state::ScrollManager,
+    ) -> LogicalPosition {
+        let mut acc = LogicalPosition::zero();
+        let mut cur = node_hierarchy.get(dom_idx).and_then(|i| i.parent_id());
+        let mut guard = 0usize;
+        while let Some(parent) = cur {
+            guard += 1;
+            if guard > 65_536 {
+                break;
+            }
+            if let Some(off) = scroll_manager.get_current_offset(dom_id, parent) {
+                acc.x += off.x;
+                acc.y += off.y;
+            }
+            cur = node_hierarchy.get(parent.index()).and_then(|i| i.parent_id());
+        }
+        acc
     }
 
     /// Force the collected child lists to satisfy accesskit's `TreeUpdate`
@@ -269,6 +523,27 @@ impl A11yManager {
                             .copied();
                         Some((hot, layout_idx, abs_pos))
                     });
+
+                // Screen position = static layout position minus every
+                // ancestor scroller's offset. Bounds used to be the
+                // unscrolled layout rects, so after any scroll VoiceOver's
+                // cursor rectangles sat where the content had been.
+                let ancestor_scroll = Self::ancestor_scroll_offset(
+                    *dom_id,
+                    node_hierarchy,
+                    dom_idx,
+                    scroll_manager,
+                );
+                let layout_info = layout_info.map(|(hot, idx, pos)| {
+                    (
+                        hot,
+                        idx,
+                        pos.map(|p| LogicalPosition {
+                            x: p.x - ancestor_scroll.x,
+                            y: p.y - ancestor_scroll.y,
+                        }),
+                    )
+                });
 
                 let a11y_info_ref = a11y_info;
                 let mut node = if let Some((layout_node, _layout_idx, abs_pos)) = layout_info {

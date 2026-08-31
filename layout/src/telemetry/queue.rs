@@ -225,6 +225,17 @@ pub struct UploadStats {
 /// A permanent rejection (any other 4xx) drops just that ping: it is poison
 /// and retrying it forever would block everything behind it.
 pub fn upload_pending(queue: &PingQueue, config: &TelemetryConfig) -> UploadStats {
+    upload_pending_with_timeout(queue, config, UPLOAD_TIMEOUT_SECS)
+}
+
+/// [`upload_pending`] with an explicit per-request timeout — the panic hook
+/// ships the crash record synchronously from a dying process and cannot
+/// afford the uploader's regular budget.
+pub fn upload_pending_with_timeout(
+    queue: &PingQueue,
+    config: &TelemetryConfig,
+    timeout_secs: u64,
+) -> UploadStats {
     let mut stats = UploadStats::default();
     let pending = queue.pending();
     if pending.is_empty() {
@@ -232,7 +243,7 @@ pub fn upload_pending(queue: &PingQueue, config: &TelemetryConfig) -> UploadStat
     }
 
     let mut request_config = HttpRequestConfig::new()
-        .with_timeout(UPLOAD_TIMEOUT_SECS)
+        .with_timeout(timeout_secs)
         .with_user_agent("azul-telemetry/1.0");
     if let Some(token) = &config.auth_token {
         request_config = request_config.with_header("Authorization", format!("Bearer {token}"));

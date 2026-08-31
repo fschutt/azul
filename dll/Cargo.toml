@@ -607,6 +607,10 @@ build-dll = [
     # special build. Consent stays dual-keyed: linking this in sends NOTHING
     # until the user/env turns a tier on (default Off).
     "telemetry",
+    # Crash-report mail transport (micromail, our crate on crates.io): the
+    # reporter dialog's Send when a deployment has no OTLP endpoint; armed by
+    # `AppConfig.report_problem`. Pulls rustls for STARTTLS.
+    "crash-mail",
     # Probe spans feed the app_phase_seconds{phase} + RSS-checkpoint panels.
     # Lazily gated at RUNTIME by AZ_PROFILE (probe.rs) - compiled in but not
     # recording, the spans are a branch and nothing else.
@@ -761,10 +765,10 @@ logging = ["log"]
 # the shipped dll stays lean and phones nowhere. Enabling this also arms the
 # AZ_CRASH_DUMP crash-reporter takeover in `App::run`.
 telemetry = ["azul-layout?/telemetry"]
-# Crash reports by EMAIL (micromail SMTP; the release-branch "backup" when
-# telemetry is off). Implies telemetry (the dump format + queue live there).
-# ⚠ micromail is a GIT dependency in azul-layout — publish or vendor it
-# before shipping this feature (publish-safety rejects git deps).
+# Crash reports by EMAIL (micromail SMTP — our crate, on crates.io): the
+# reporter dialog's Send when a deployment has no OTLP endpoint. Implies
+# telemetry (the dump format + queue live there). `AppConfig.report_problem`
+# arms the contact at startup.
 crash-mail = ["telemetry", "azul-layout?/crash-mail"]
 
 # Debug server / inspector / E2E runner. OFF by default so the shipped

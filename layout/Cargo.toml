@@ -128,10 +128,9 @@ material-icons = { version = "0.3", optional = true }
 # valid literals near f64::MAX outright ("number out of range"), so
 # `json_parse(json_stringify(x)) != x`. See core/Cargo.toml.
 serde_json = { version = "1.0", default-features = false, features = ["std", "float_roundtrip"], optional = true }
-# Crash-report MAIL transport (EHLO SMTP client). NOT on crates.io yet — a
-# git dependency is acceptable for this draft, but the crate must be
-# published (or path-vendored) before `crash-mail` can ship in a release:
-# the publish-safety gate rejects git deps.
+# Crash-report MAIL transport (EHLO SMTP client) — our own crate, published
+# on crates.io (0.1.0, owner fschutt), consumed from the registry like any
+# other dependency, so it is publish-safe for azul-layout.
 micromail = { version = "0.1.0", optional = true, default-features = false }
 # Digest verification of update downloads (already in the tree transitively).
 sha2 = { version = "0.10", optional = true }
@@ -520,6 +519,11 @@ webpki-roots = { version = "1.0", optional = true }
 [dev-dependencies]
 # Signing side of minisign — TESTS ONLY, to mint real signature vectors.
 minisign = "0.9"
+# The REAL accesskit consumer, TESTS ONLY: the a11y contract test feeds every
+# TreeUpdate the manager parks through the same crate whose invariant
+# `panic!`s abort a `panic = "abort"` release build.
+accesskit = "0.24"
+accesskit_consumer = "0.38"
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 
 [[bench]]

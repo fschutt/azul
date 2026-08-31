@@ -569,7 +569,10 @@ mod autotest_generated {
     fn app_config_create_registers_builtins_and_defaults() {
         let config = AppConfig::create();
         assert_eq!(config.log_level, AppLogLevel::Error);
-        assert!(!config.enable_visual_panic_hook);
+        assert!(
+            config.enable_visual_panic_hook,
+            "a release build is panic=abort: the crash dialog is the only report surface, on by default"
+        );
         assert!(config.enable_logging_on_panic);
         assert_eq!(
             config.termination_behavior,
