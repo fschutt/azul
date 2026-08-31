@@ -152,8 +152,11 @@ proj4rs = { version = "0.1", optional = true }
 geojson = { version = "0.24", optional = true }
 # SQLite engine for the `Db` API (P4.3), gated by `db-sqlite`. `turso` is a
 # pure-Rust SQLite (no `cc`, no system libsqlite, no bindgen) so it
-# cross-compiles to every target with no C toolchain.
-turso = { version = "0.1", optional = true }
+# cross-compiles to every target with no C toolchain. Default features OFF:
+# they would add mimalloc (a C allocator via `cc`) and FTS; io_uring is an
+# optional feature of turso_core that stays off, which is what the retired
+# fork used to enforce.
+turso = { version = "0.7", optional = true, default-features = false }
 # turso pulls aegis (AEAD), whose build.rs compiles C AES via `cc` and fails to
 # cross-compile to 32-bit (i686/armv7) — and a global cc-disable breaks zstd-sys.
 # aegis's `pure-rust` feature (softaes) skips the C build entirely; pull it in

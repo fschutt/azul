@@ -48,7 +48,7 @@ find_objcopy() {
 
 OBJCOPY="$(find_objcopy)" || { echo "::error::strip_staticlib.sh: no llvm-objcopy found" >&2; exit 1; }
 # rust-objcopy (llvm-tools) is dynamically linked against the toolchain's
-# libLLVM.so (e.g. libLLVM.so.20.1-rust-1.88.0-stable), which lives in
+# libLLVM.so (e.g. libLLVM.so.<llvm>-rust-1.90.0-stable), which lives in
 # `$sysroot/lib` but isn't on the loader path — without this it dies with
 # "error while loading shared libraries: libLLVM.so...: cannot open shared
 # object file". Prepend the toolchain lib dir so the strip step can run.

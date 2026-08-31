@@ -87,16 +87,12 @@ azul-layout = { path = "layout" }
 # `cargo publish` strips [patch] — anything that only builds under one is not publishable.
 # The fork is released as allsorts-azul 0.17.1 and consumed from the registry like any
 # other dependency. Land changes there, publish, then bump.
-# turso (SQLite engine for db-sqlite) pulls io-uring on Linux, which has no
-# prebuilt bindings for i686/armv7/s390x. Fork gates io-uring to 64-bit Linux
-# (falls back to UnixIO elsewhere); upstream "io-uring optional" later. All six
-# workspace crates share one git source. branch=no-io-uring-optional.
-turso = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
-turso_core = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
-turso_ext = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
-turso_macros = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
-turso_parser = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
-turso_sqlite3_parser = { git = "https://github.com/fschutt/turso", branch = "no-io-uring-optional" }
+# turso is NOT patched any more (2026-08-31). The fork (fschutt/turso,
+# branch no-io-uring-optional, on top of 0.1.5) carried three things that
+# upstream has since shipped: io_uring is an optional, non-default feature of
+# turso_core (0.7.x), the GPL julian_day_converter dependency is gone, and
+# core/io/unix.rs casts offsets with libc::off_t (the 32-bit pwrite/pwritev
+# fix). dll/ consumes turso 0.7 from crates.io like any other dependency.
 # tfd: use crates.io 0.1.2 (fork published) — the runtime-dlopen Win32 dialog
 # resolver that links on every Windows target incl. legacy i686-rust9x. layout/
 # declares tfd = "0.1", which resolves to 0.1.2.

@@ -51,7 +51,7 @@
 ))]
 #![allow(
     // `unknown_lints` lets the two forward-compat lints below be listed even on
-    // the CI toolchain (1.88), where they are not yet known, without emitting an
+    // the CI toolchain (1.90), where they may not be known yet, without emitting an
     // "unknown lint" warning of their own. They still apply on newer rustc.
     unknown_lints,
     mismatched_lifetime_syntaxes,          // newer rustc; fires in macro-generated code

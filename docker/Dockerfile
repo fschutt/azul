@@ -77,7 +77,7 @@ RUN cd /src/remill \
 # ---------------------------------------------------------------------
 FROM toolchain AS builder
 
-ARG RUST_TOOLCHAIN=1.88.0
+ARG RUST_TOOLCHAIN=1.90.0
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
         | sh -s -- -y --default-toolchain ${RUST_TOOLCHAIN}
 ENV PATH="/root/.cargo/bin:${PATH}"
