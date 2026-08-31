@@ -2759,8 +2759,8 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
 /// SAME pre-order `convert_dom_into_compact_dom` uses to assign flat `NodeIds`, so the
 /// `[flat_id, flat_id + estimated_total_children]` range pushed onto each rule (via
 /// `CssPath::push_front_scope`) matches the ids the cascade will later see. After
-/// this, a node's `with_css`/`set_css` rules can only match nodes inside its subtree
-/// - they can no longer leak to the whole tree. `fixup_children_estimated()` must
+/// this, a node's `with_css`/`set_css` rules can only match nodes inside its subtree;
+/// they can no longer leak to the whole tree. `fixup_children_estimated()` must
 /// have run first so `estimated_total_children` is populated/exact.
 fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
     let start = *next_id;

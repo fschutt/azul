@@ -4233,26 +4233,7 @@ pub fn parse_combined_css_property(
                 CssProperty::GridTemplateRows(tpl.into()),
             ])
         }
-        Gap => {
-            let parts: Vec<&str> = value.split_whitespace().collect();
-            if parts.len() == 1 {
-                let g = parse_layout_gap(parts[0])?;
-                Ok(vec![
-                    CssProperty::RowGap(LayoutRowGap { inner: g.inner }.into()),
-                    CssProperty::ColumnGap(LayoutColumnGap { inner: g.inner }.into()),
-                ])
-            } else if parts.len() == 2 {
-                let row = parse_layout_gap(parts[0])?;
-                let col = parse_layout_gap(parts[1])?;
-                Ok(vec![
-                    CssProperty::RowGap(LayoutRowGap { inner: row.inner }.into()),
-                    CssProperty::ColumnGap(LayoutColumnGap { inner: col.inner }.into()),
-                ])
-            } else {
-                Err(CssParsingError::InvalidValue(InvalidValueErr(value)))
-            }
-        }
-        GridGap => {
+        Gap | GridGap => {
             let parts: Vec<&str> = value.split_whitespace().collect();
             if parts.len() == 1 {
                 let g = parse_layout_gap(parts[0])?;

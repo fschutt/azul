@@ -1529,6 +1529,7 @@ impl CssPropertyCache {
     /// Generate hit-test tag IDs for nodes that need event handling.
     /// Uses compact cache (if available) for fast display/overflow reads.
     /// Can be called separately after `build_compact_cache_with_inheritance`.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose tag-id walk
     pub fn generate_tag_ids(
         &self,
         node_data: &NodeDataContainerRef<'_, NodeData>,

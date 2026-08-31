@@ -510,34 +510,6 @@ pub struct DiffResult {
     pub node_moves: Vec<NodeMove>,
 }
 
-/// Calculates the difference between two DOM frames and generates lifecycle events.
-///
-/// This is the main entry point for DOM reconciliation. It compares the old and new
-/// DOM trees and produces:
-/// - Mount events for new nodes
-/// - Unmount events for removed nodes
-/// - Resize events for nodes whose bounds changed
-/// - Update events for nodes whose logical position is stable but content changed
-///
-/// # Matching priority
-/// For every node, the reconciliation key (`calculate_reconciliation_key`) encodes
-/// Priority 1 (`.with_key()`), Priority 2 (CSS ID), and Priority 3 (structural key:
-/// nth-of-type + parent key). The tiers are then tried in order:
-///
-/// 1. **Reconciliation key** — matches logical identity, may fire Update on content change.
-/// 2. **Content hash** — exact match including content; catches pure reorders of anonymous nodes.
-/// 3. **Structural hash** — matches node type + attrs ignoring text content; for text-edit cases.
-///
-/// # Arguments
-/// * `old_node_data` / `new_node_data` - Per-node data for each frame
-/// * `old_hierarchy` / `new_hierarchy` - Parent/sibling pointers. Pass `&[]` if unavailable;
-///   the structural-key branch of the reconciliation key degrades gracefully.
-/// * `old_layout` / `new_layout` - Layout bounds used to detect Resize events
-/// * `dom_id` - The DOM identifier
-/// * `timestamp` - Current timestamp for events
-#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
-#[must_use]
 /// Per-node hash of the node's own content PLUS its entire subtree, children
 /// folded in document order. Two equal values mean the subtrees are
 /// content-identical for reconciliation purposes — the strong-identity tier
@@ -568,6 +540,34 @@ fn compute_subtree_hashes(node_data: &[NodeData], hierarchy: &[NodeHierarchyItem
     hashes
 }
 
+/// Calculates the difference between two DOM frames and generates lifecycle events.
+///
+/// This is the main entry point for DOM reconciliation. It compares the old and new
+/// DOM trees and produces:
+/// - Mount events for new nodes
+/// - Unmount events for removed nodes
+/// - Resize events for nodes whose bounds changed
+/// - Update events for nodes whose logical position is stable but content changed
+///
+/// # Matching priority
+/// For every node, the reconciliation key (`calculate_reconciliation_key`) encodes
+/// Priority 1 (`.with_key()`), Priority 2 (CSS ID), and Priority 3 (structural key:
+/// nth-of-type + parent key). The tiers are then tried in order:
+///
+/// 1. **Reconciliation key** — matches logical identity, may fire Update on content change.
+/// 2. **Content hash** — exact match including content; catches pure reorders of anonymous nodes.
+/// 3. **Structural hash** — matches node type + attrs ignoring text content; for text-edit cases.
+///
+/// # Arguments
+/// * `old_node_data` / `new_node_data` - Per-node data for each frame
+/// * `old_hierarchy` / `new_hierarchy` - Parent/sibling pointers. Pass `&[]` if unavailable;
+///   the structural-key branch of the reconciliation key degrades gracefully.
+/// * `old_layout` / `new_layout` - Layout bounds used to detect Resize events
+/// * `dom_id` - The DOM identifier
+/// * `timestamp` - Current timestamp for events
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+#[must_use]
 pub fn reconcile_dom(
     old_node_data: &[NodeData],
     new_node_data: &[NodeData],

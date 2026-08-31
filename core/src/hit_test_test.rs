@@ -2,6 +2,7 @@
 pub use super::*;
 #[cfg(test)]
 #[allow(clippy::float_cmp)] // exact-value assertions on computed layout floats
+#[allow(clippy::module_inception)] // this file IS the `tests` module of hit_test; the inner mod is the cfg(test) convention
 mod tests {
     use super::*;
 
