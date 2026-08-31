@@ -2349,4 +2349,20 @@ mod autotest_generated {
         assert_eq!(DomNodeId::ROOT.dom, DomId::ROOT_ID);
         assert_eq!(DomNodeId::ROOT.node, NodeHierarchyItemId::NONE);
     }
+    /// `autofocus` is a boolean attribute, like HTML's: present means true,
+    /// and it reports itself under that name so a serializer / inspector
+    /// round-trips it.
+    #[test]
+    fn autofocus_is_a_boolean_attribute() {
+        use crate::dom::{AttributeType, Dom, NodeData};
+
+        let plain = NodeData::create_node(crate::dom::NodeType::Div);
+        assert!(!plain.has_autofocus(), "absent means no autofocus");
+
+        let dom = Dom::create_div().with_attribute(AttributeType::Autofocus);
+        assert!(dom.root.has_autofocus(), "present means autofocus");
+        assert_eq!(AttributeType::Autofocus.name(), "autofocus");
+        assert_eq!(AttributeType::Autofocus.value().as_str(), "true");
+    }
+
 }

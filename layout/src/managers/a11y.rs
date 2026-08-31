@@ -390,7 +390,14 @@ impl A11yManager {
     /// translates a node's static layout position to where it is on screen.
     /// A scroller's own box does not move when it scrolls; its content does,
     /// so the walk starts at the parent.
-    fn ancestor_scroll_offset(
+    /// The accumulated scroll offset of every scrollable ANCESTOR of a node.
+    ///
+    /// Layout rects are in CONTENT space; anything drawn or reported in
+    /// VIEWPORT space (the a11y tree's bounds, the focus ring) has to
+    /// subtract this or it lands where the node would be if nothing were
+    /// scrolled. `pub(crate)` because the focus ring needs the very same
+    /// answer - one projection, not two that can disagree.
+    pub(crate) fn ancestor_scroll_offset(
         dom_id: DomId,
         node_hierarchy: &[NodeHierarchyItem],
         dom_idx: usize,

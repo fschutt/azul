@@ -7247,23 +7247,46 @@ impl LayoutWindow {
         } else {
             let editing_active = self.text_edit_manager.multi_cursor.is_some()
                 || self.text_edit_manager.cross_block.is_some();
-            if editing_active {
+            // `:focus-visible`: ring KEYBOARD focus only. A control focused by
+            // a click - or by `autofocus` when a window opens - is focused but
+            // not ringed, which is what every browser does and what keeps a
+            // form from looking like the user pressed Tab when they did not.
+            if editing_active || !self.focus_manager.focus_is_visible {
                 None
             } else {
                 self.focus_manager
                     .get_focused_node()
                     .copied()
                     .filter(|fnode| fnode.dom == dom_id)
-                    .and_then(|fnode| self.get_node_layout_rect(fnode))
-                    .map(|r| LogicalRect {
-                        origin: LogicalPosition {
-                            x: r.origin.x - 2.0,
-                            y: r.origin.y - 2.0,
-                        },
-                        size: LogicalSize {
-                            width: r.size.width + 4.0,
-                            height: r.size.height + 4.0,
-                        },
+                    .and_then(|fnode| {
+                        let r = self.get_node_layout_rect(fnode)?;
+                        // PROJECT INTO VIEWPORT SPACE. `get_node_layout_rect`
+                        // answers in CONTENT space, so on a scrolled page the
+                        // ring was drawn where the node would be if nothing
+                        // were scrolled - off-screen for anything below the
+                        // fold, which is why controls further down the demo
+                        // (CheckBox, RadioGroup, Segmented) appeared to have
+                        // no ring at all (device report, 2026-09-01). Same
+                        // projection the a11y tree uses for its bounds.
+                        let node_id = fnode.node.into_crate_internal()?;
+                        let lr = self.layout_results.get(&fnode.dom)?;
+                        let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+                        let off = crate::managers::a11y::A11yManager::ancestor_scroll_offset(
+                            fnode.dom,
+                            hierarchy.internal,
+                            node_id.index(),
+                            &self.scroll_manager,
+                        );
+                        Some(LogicalRect {
+                            origin: LogicalPosition {
+                                x: r.origin.x - off.x - 2.0,
+                                y: r.origin.y - off.y - 2.0,
+                            },
+                            size: LogicalSize {
+                                width: r.size.width + 4.0,
+                                height: r.size.height + 4.0,
+                            },
+                        })
                     })
             }
         };
@@ -8051,7 +8074,12 @@ impl LayoutWindow {
         }
         let target = self.focus_manager.take_deferred_focus_target()?;
         let current_focus = self.focus_manager.get_focused_node().copied();
-        let Ok(resolved) = resolve_focus_target(&target, &self.layout_results, current_focus)
+        let Ok(resolved) = resolve_focus_target(
+            &target,
+            &self.layout_results,
+            current_focus,
+            &self.focus_out_of_scope_doms(),
+        )
         else {
             return None;
         };
@@ -8315,6 +8343,26 @@ impl LayoutWindow {
         layout_result
             .layout_tree
             .get_dense_for_node(layout_index.index())
+    }
+
+    /// The DOMs that are laid out by this window but are NOT part of its
+    /// keyboard focus scope.
+    ///
+    /// A transient popup is a separate OS window whose content DOM the PARENT
+    /// lays out and keeps in `layout_results`. Tab must not walk into it from
+    /// the parent - and must certainly not keep walking into it after the
+    /// popup closed, which is what stranded the keyboard there (device
+    /// report, 2026-09-01). Inside the popup's own window that content is the
+    /// ROOT dom, hosts no popups of its own, and so is fully tabbable.
+    ///
+    /// One accessor, so every focus route asks the same question.
+    #[must_use]
+    pub fn focus_out_of_scope_doms(&self) -> std::collections::BTreeSet<DomId> {
+        self.transient_windows
+            .open_windows()
+            .iter()
+            .map(|w| w.content_dom)
+            .collect()
     }
 
     pub fn get_inline_layout_for_node(
@@ -21895,6 +21943,9 @@ mod tween_clock_unit_tests {
             Dom::create_body().with_child(editable_paragraph("hello world tween target")),
             animations(0, 0, ring_ms),
         );
+        // The ring is a KEYBOARD-focus indicator (`:focus-visible`), so a
+        // fixture that exercises the ring focuses the keyboard way.
+        win.focus_manager.focus_is_visible = true;
         win.focus_manager.set_focused_node(Some(dnid(1)));
         win.regenerate_display_list_for_dom(DomId::ROOT_ID);
         win

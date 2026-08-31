@@ -3980,11 +3980,15 @@ pub trait PlatformWindow {
                 use azul_layout::managers::focus_cursor::FocusResolution;
 
                 let resolution = if let Some(lw) = self.get_layout_window_mut() {
-                    azul_layout::managers::focus_cursor::resolve_focus_target_or_defer(
-                        &mut lw.focus_manager,
-                        target,
-                        &lw.layout_results,
-                    )
+                    {
+                        let out_of_scope = lw.focus_out_of_scope_doms();
+                        azul_layout::managers::focus_cursor::resolve_focus_target_or_defer(
+                            &mut lw.focus_manager,
+                            target,
+                            &lw.layout_results,
+                            &out_of_scope,
+                        )
+                    }
                 } else {
                     return ProcessEventResult::DoNothing;
                 };
@@ -8072,6 +8076,67 @@ pub trait PlatformWindow {
             r.relayout_iterations = r.relayout_iterations.max(depth_u32 + 1);
         }
 
+        // AUTOFOCUS A POPUP. A transient window is a separate OS window, so
+        // Tab cannot walk into it from the parent (its content DOM is out of
+        // the parent's focus scope, by design). That makes it keyboard-dead
+        // unless focus STARTS inside it: a colour picker opened from a swatch
+        // had no focused control, so arrows and Tab did nothing until the
+        // user clicked (device report, 2026-09-01).
+        //
+        // `mailbox_of` is what marks this window AS a popup. Focus the first
+        // tab stop of its own order, once - after that focus is Some and this
+        // is inert. Deferred through the focus manager, so a popup whose
+        // first layout has not landed yet is handled by the same
+        // park-and-retry path programmatic focus already uses.
+        if super::transient::mailbox_of(self.get_current_window_state()).is_some() {
+            let needs_autofocus = self
+                .get_layout_window()
+                .is_some_and(|lw| lw.focus_manager.get_focused_node().is_none());
+            if needs_autofocus {
+                // Prefer an explicit `autofocus` node, else the first tab stop.
+                let target = self.get_layout_window().and_then(|lw| {
+                    let explicit = lw.layout_results.iter().find_map(|(dom_id, lr)| {
+                        let nd = lr.styled_dom.node_data.as_container();
+                        (0..nd.len())
+                            .map(azul_core::dom::NodeId::new)
+                            .find(|n| nd.get(*n).is_some_and(azul_core::dom::NodeData::has_autofocus))
+                            .map(|n| azul_core::dom::DomNodeId {
+                                dom: *dom_id,
+                                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(
+                                    Some(n),
+                                ),
+                            })
+                    });
+                    explicit.or_else(|| {
+                        match azul_layout::managers::focus_cursor::resolve_focus_target(
+                            &azul_core::callbacks::FocusTarget::First,
+                            &lw.layout_results,
+                            None,
+                            &lw.focus_out_of_scope_doms(),
+                        ) {
+                            Ok(azul_layout::managers::focus_cursor::FocusResolution::Resolved(n)) => {
+                                Some(n)
+                            }
+                            _ => None,
+                        }
+                    })
+                });
+                if let Some(target) = target {
+                    let r = self.apply_system_change(&SystemChange::SetFocus {
+                        new_focus: Some(target),
+                        old_focus: None,
+                    });
+                    // AUTOFOCUS IS NOT RING-VISIBLE: a popup that opens with
+                    // its first control ringed looks like the user pressed
+                    // Tab. The ring appears on their first Tab.
+                    if let Some(lw) = self.get_layout_window_mut() {
+                        lw.focus_manager.focus_is_visible = false;
+                    }
+                    let _ = r;
+                }
+            }
+        }
+
         let mut result = self.process_window_events_inner(depth);
 
         // A callback that ran INSIDE a transient popup and asked for a
@@ -9194,6 +9259,13 @@ pub trait PlatformWindow {
                             new_focus: Some(new_focus_target),
                             old_focus,
                         });
+                        // `:focus-visible`: a POINTER focus is not indicated.
+                        // The control is focused - it types, it activates, the
+                        // a11y tree reports it - it just does not get a ring,
+                        // exactly as in a browser.
+                        if let Some(lw) = self.get_layout_window_mut() {
+                            lw.focus_manager.focus_is_visible = false;
+                        }
                         result = result.max(r);
                         mouse_click_focus_changed = true;
                     }
@@ -9262,10 +9334,15 @@ pub trait PlatformWindow {
                                         &default_action_result.action,
                                     );
                                 if let Some(focus_target) = focus_target {
+                                    let out_of_scope = self
+                                        .get_layout_window()
+                                        .map(azul_layout::window::LayoutWindow::focus_out_of_scope_doms)
+                                        .unwrap_or_default();
                                     let resolve_result = resolve_focus_target(
                                         &focus_target,
                                         layout_results,
                                         focused_node,
+                                        &out_of_scope,
                                     );
                                     // Tab with nothing tabbable (NotFound) no
                                     // longer clears focus — a miss is not a
@@ -9279,6 +9356,12 @@ pub trait PlatformWindow {
                                             new_focus: Some(new_focus_node),
                                             old_focus: focused_node,
                                         });
+                                        // `:focus-visible`: KEYBOARD focus IS
+                                        // indicated - this is the route the
+                                        // focus ring exists for.
+                                        if let Some(lw) = self.get_layout_window_mut() {
+                                            lw.focus_manager.focus_is_visible = true;
+                                        }
                                         result = result.max(r);
                                         default_action_focus_changed = true;
                                     }
