@@ -8205,6 +8205,21 @@ impl LayoutWindow {
             }
             false
         });
+        // MID-PASS: the funnel takes the dom's whole layout result out while
+        // the pass runs (the same transient absence caret_editable_is_focused
+        // tolerates). Burning the bounded retry budget on those calls locked
+        // in the (0,0)+Trailing fallback below - the device caret landing
+        // MID-TEXT ('4|2') when tabbing into the filled NumberInput. Absence
+        // is transient, not a failed attempt: re-arm for the post-layout
+        // finalize without spending a retry.
+        if dense_cursor.is_none()
+            && sparse_cursor.is_none()
+            && !self.layout_results.contains_key(&pending.dom_id)
+        {
+            self.focus_manager
+                .rearm_pending_contenteditable_focus_transient(pending);
+            return false;
+        }
         if dense_cursor.is_none()
             && sparse_cursor.is_none()
             && !node_has_layout
