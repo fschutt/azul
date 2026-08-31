@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1-mesa-dev libx11-dev libv4l-dev pkg-config python3 xz-utils \
     && rm -rf /var/lib/apt/lists/*
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
-        | sh -s -- -y --default-toolchain 1.88.0
+        | sh -s -- -y --default-toolchain 1.90.0
 ENV PATH="/root/.cargo/bin:${PATH}"
 RUN git clone --depth 1 --branch "${AZUL_REF}" \
         https://github.com/fschutt/azul.git /src \

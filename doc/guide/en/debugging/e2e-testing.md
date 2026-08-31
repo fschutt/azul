@@ -240,7 +240,7 @@ Each binding drives the prebuilt library (built with `--features build-dll,debug
 
 | Binding | Toolchain | Notes / common gotchas |
 |---|---|---|
-| Rust   | `cargo`/`rustc` 1.88+ | The example links the prebuilt DLL with `--no-default-features --features link-dynamic` (not `link-static`, which rebuilds Azul without the `debug-server` E2E runner). On Windows the import lib must be reachable as both `azul.dll.lib` and `azul.lib`. |
+| Rust   | `cargo`/`rustc` 1.90+ | The example links the prebuilt DLL with `--no-default-features --features link-dynamic` (not `link-static`, which rebuilds Azul without the `debug-server` E2E runner). On Windows the import lib must be reachable as both `azul.dll.lib` and `azul.lib`. |
 | C      | `clang`/`gcc`; MinGW on Windows (links `azul.dll.lib`) | Include the generated `azul.h`. |
 | C++    | `clang++`/`g++` with `-std=c++20` (also 03–23) | Include `azul20.hpp`. Wrapper types are move-only RAII; pass owning values with `std::move` — never copy a moved-from wrapper. |
 | Python | CPython 3.10+ | Uses the `azul` extension module (a separate build), not FFI. |

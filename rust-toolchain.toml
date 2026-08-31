@@ -1,7 +1,9 @@
 # Pin the toolchain so local builds, clippy, and rustfmt match upstream CI
-# exactly (.github/workflows/rust.yml uses 1.88.0 across all jobs). Without this
-# pin, a newer local rustc (e.g. 1.90) diverges on const-fn rules and edition-2024
+# exactly (.github/workflows/rust.yml uses 1.90.0 across all jobs). Without this
+# pin, a different local rustc diverges on const-fn rules and edition-2024
 # lints, producing errors/lints that don't reproduce on CI (and vice versa).
+# 1.88 -> 1.90 (2026-08-31): registry turso 0.7's tree needs rustc 1.90
+# (roaring 0.11.5) and the compatible crypto bumps need 1.89 (aes 0.9.3).
 [toolchain]
-channel = "1.88.0"
+channel = "1.90.0"
 components = ["clippy", "rustfmt"]

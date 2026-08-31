@@ -35,7 +35,9 @@ jobs:
       - name: Install bootstrap Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.88.0
+          # Bootstrap compiler for the rust9x build; kept in step with the
+          # workspace toolchain (rust-toolchain.toml).
+          toolchain: 1.90.0
 
       - name: Install Python
         uses: actions/setup-python@v7

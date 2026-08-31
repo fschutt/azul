@@ -31,7 +31,7 @@ use self::engine::Handle;
 pub fn sqlite_version() -> &'static str {
     // turso does not expose a runtime version string; report the crate
     // semver it was built against.
-    "turso 0.1"
+    "turso 0.7"
 }
 
 /// An (optionally) open SQLite database — an FFI-safe opaque handle.
@@ -316,3 +316,90 @@ mod engine {
         }
     }
 }
+
+/// The turso engine behind the `Db` API, end to end — the pin that lets the
+/// engine crate move (0.1 fork -> registry 0.7, 2026-08-31) with proof that
+/// open / execute / prepare+query / row decoding still agree with the
+/// in-crate `block_on` executor.
+#[cfg(all(test, feature = "db-sqlite"))]
+mod tests {
+    use super::*;
+
+    fn temp_db_path(tag: &str) -> String {
+        let dir = std::env::temp_dir().join(format!(
+            "azul-sqlite-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir.join("t.db").to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn open_execute_and_query_roundtrip_through_the_engine() {
+        let path = temp_db_path("roundtrip");
+        let db = Db::open(AzString::from(path.clone()));
+        assert!(db.is_open(), "a fresh file-backed database opens");
+
+        let n = db.execute(
+            AzString::from("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, score REAL, blob BLOB)"),
+            DbValueVec::from_vec(Vec::new()),
+        );
+        assert_eq!(n, 0, "DDL changes no rows");
+
+        let inserted = db.execute(
+            AzString::from("INSERT INTO t (id, name, score, blob) VALUES (?, ?, ?, ?)"),
+            DbValueVec::from_vec(vec![
+                DbValue::Integer(7),
+                DbValue::Text(AzString::from("seven")),
+                DbValue::Real(0.5),
+                DbValue::Blob(azul_css::U8Vec::from_vec(vec![1u8, 2, 3])),
+            ]),
+        );
+        assert_eq!(inserted, 1, "one row inserted");
+        let inserted = db.execute(
+            AzString::from("INSERT INTO t (id, name) VALUES (?, ?)"),
+            DbValueVec::from_vec(vec![
+                DbValue::Integer(8),
+                DbValue::Text(AzString::from("eight")),
+            ]),
+        );
+        assert_eq!(inserted, 1);
+
+        let rows = db.query(
+            AzString::from("SELECT id, name, score, blob FROM t WHERE id >= ? ORDER BY id"),
+            DbValueVec::from_vec(vec![DbValue::Integer(7)]),
+        );
+        let columns: Vec<&str> = rows.columns.as_ref().iter().map(|c| c.as_str()).collect();
+        assert_eq!(columns, ["id", "name", "score", "blob"]);
+        let values = rows.values.as_ref();
+        assert_eq!(values.len(), 8, "two rows x four columns, got {values:?}");
+        assert!(matches!(values[0], DbValue::Integer(7)));
+        assert!(matches!(&values[1], DbValue::Text(s) if s.as_str() == "seven"));
+        assert!(matches!(values[2], DbValue::Real(r) if (r - 0.5).abs() < f64::EPSILON));
+        assert!(matches!(&values[3], DbValue::Blob(b) if b.as_ref() == [1u8, 2, 3]));
+        assert!(matches!(values[4], DbValue::Integer(8)));
+        assert!(matches!(values[6], DbValue::Null), "unset REAL reads back as NULL");
+        assert!(matches!(values[7], DbValue::Null), "unset BLOB reads back as NULL");
+
+        // The engine reports what it is.
+        assert!(sqlite_version().starts_with("turso 0."));
+        drop(std::fs::remove_file(&path));
+    }
+
+    #[test]
+    fn a_closed_handle_is_a_safe_no_op() {
+        let db = Db::open(AzString::from("/nonexistent-dir-azul/definitely/not/here.db"));
+        assert!(!db.is_open());
+        assert_eq!(
+            db.execute(AzString::from("SELECT 1"), DbValueVec::from_vec(Vec::new())),
+            0
+        );
+        let rows = db.query(AzString::from("SELECT 1"), DbValueVec::from_vec(Vec::new()));
+        assert!(rows.values.as_ref().is_empty());
+    }
+}
+
