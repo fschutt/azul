@@ -6113,15 +6113,45 @@ where
         if std::env::var_os("AZ_PH_DEBUG").is_some() {
             std::eprintln!("[ph] editable ok");
         }
-        // Only an EMPTY host shows its prompt. The strut case (empty editable
-        // line) has an inline layout with zero items; a host with real text
-        // has items.
-        let content_empty = self
-            .positioned_tree
-            .tree
-            .warm(LayoutNodeId::new(node_index))
-            .and_then(|w| w.inline_layout_result.as_ref())
-            .is_none_or(|c| c.layout.items.is_empty());
+        // Only an EMPTY host shows its prompt, and "empty" is asked of the
+        // CONTENT, not of the layout: an earlier version read
+        // `inline_layout_result` and treated its ABSENCE as emptiness, so a
+        // filled but defocused field whose layout result was not materialized
+        // on that pass painted the prompt UNDER its own text (device report,
+        // 2026-08-31). `resolved_content().text_for_node` is the same
+        // overlay-then-DOM answer the a11y tree and the exporters read, so a
+        // live (not yet committed to the DOM) edit counts immediately.
+        let resolved = self.ctx.resolved_content();
+        let mut content_empty = resolved
+            .text_for_node(dom_id)
+            .is_none_or(|t| t.trim().is_empty());
+        if content_empty {
+            // The host usually wraps its text in a block child (the widgets'
+            // value <p> does); walk the subtree until some text is found.
+            let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
+            let mut stack = hierarchy
+                .get(dom_id)
+                .and_then(|h| h.first_child_id(dom_id))
+                .into_iter()
+                .collect::<Vec<_>>();
+            while let Some(n) = stack.pop() {
+                if resolved
+                    .text_for_node(n)
+                    .is_some_and(|t| !t.trim().is_empty())
+                {
+                    content_empty = false;
+                    break;
+                }
+                if let Some(h) = hierarchy.get(n) {
+                    if let Some(c) = h.first_child_id(n) {
+                        stack.push(c);
+                    }
+                    if let Some(sib) = h.next_sibling_id() {
+                        stack.push(sib);
+                    }
+                }
+            }
+        }
         if !content_empty {
             return Ok(());
         }
