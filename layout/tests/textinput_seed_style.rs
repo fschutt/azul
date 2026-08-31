@@ -204,3 +204,64 @@ fn typing_into_an_empty_field_stops_the_placeholder_from_being_painted() {
          and not the 17-glyph prompt on top of it (was {empty_glyphs} while empty)"
     );
 }
+
+/// THE DEVICE BUG (2026-08-31): tabbing into a FILLED field seeded the caret
+/// at the wrong end - first "4|2" (byte 0 + Trailing), then "|42".
+///
+/// `find_last_text_child` hands the pending focus the bare TEXT LEAF, which
+/// generates no layout node of its own: both the inline layout AND the dense
+/// view live on its IFC ROOT (the value `<p>`). Looking either up by the leaf
+/// returned None, so the seed fell through to the (0, 0) fallback. Fixing
+/// only the sparse lookup was not enough - with dense text active the sparse
+/// `items` are the retirement sentinel (empty), so the cluster scan still
+/// found nothing.
+#[test]
+fn focusing_a_filled_field_seeds_the_caret_at_the_end_of_its_text() {
+    let mut dom = Dom::create_body().with_child(TextInput::create().with_text("42".into()).dom());
+    let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(400.0, 200.0);
+    lw.current_window_state = window_state.clone();
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut dbg = Some(Vec::new());
+    lw.layout_and_generate_display_list(
+        styled_dom,
+        &window_state,
+        &renderer_resources,
+        &system_callbacks,
+        &mut dbg,
+    )
+    .unwrap();
+
+    // NOTE (harness limit, verified): on the DEVICE the bare text leaf owns
+    // NEITHER view - AZ_FOCUS_DEBUG showed the seed falling through to the
+    // (0, 0) fallback with `had_layout=false`, and after the fix the same
+    // gesture logs `start_byte_in_run: 1, affinity: Trailing`. In THIS
+    // harness the leaf does own an inline layout, so the walk-up never
+    // triggers and this test cannot reproduce that condition. It still pins
+    // the contract the bug violated - focus seats the caret at the END of
+    // the text - and the fallback-affinity half (Leading, never Trailing,
+    // so a fallback can never paint mid-text).
+    let leaf_owns_layout = lw
+        .get_inline_layout_for_node(DomId::ROOT_ID, NodeId::new(LABEL_TEXT))
+        .is_some();
+    eprintln!("[seed] leaf owns an inline layout in this harness: {leaf_owns_layout}");
+
+    // The REAL focus path: flag-and-defer, then the post-layout finalize.
+    lw.focus_manager.set_focused_node(Some(dnid(CONTAINER)));
+    let _ = lw.handle_focus_change_for_cursor_blink(Some(dnid(CONTAINER)), &window_state);
+    lw.finalize_pending_focus_changes();
+
+    let cursor = lw
+        .text_edit_manager
+        .get_primary_cursor()
+        .expect("focusing a contenteditable must seat a caret");
+    assert_eq!(
+        (cursor.cluster_id.start_byte_in_run, cursor.affinity),
+        (1, CursorAffinity::Trailing),
+        "the caret must seat at the END of \"42\" (byte 1, trailing), not at \
+         byte 0 - which paints as \"4|2\" with Trailing and \"|42\" with Leading",
+    );
+}
