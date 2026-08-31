@@ -1845,6 +1845,7 @@ impl CssPropertyWithConditionsVec {
     /// Handles @os, @media, @theme, @lang, @container,
     /// @prefers-reduced-motion, and @prefers-high-contrast.
     #[cfg(feature = "parser")]
+    #[allow(clippy::too_many_lines)] // large but cohesive: one branch per @-rule kind
     fn parse_at_rule(rule_content: &str) -> Option<Vec<DynamicSelector>> {
         // @os linux                    -- bare family
         // @os(linux)                   -- family in parens

@@ -1837,7 +1837,7 @@ pub enum SvgNodeData {
 // used raw float `==` (NaN != NaN), breaking Eq's reflexivity for e.g. a NaN Rect —
 // and NodeType embeds this type, so the break propagated.
 impl PartialEq for SvgNodeData {
-    #[allow(clippy::match_same_arms, clippy::similar_names)] // SVG coord names (cx/cy/fx/fy, min_x/min_y) are domain-standard
+    #[allow(clippy::match_same_arms, clippy::similar_names, clippy::too_many_lines)] // SVG coord names (cx/cy/fx/fy, min_x/min_y) are domain-standard; one arm per variant
     fn eq(&self, other: &Self) -> bool {
         // f32 bit-equality (matches Hash's to_bits).
         const fn fb(a: f32, b: f32) -> bool {
@@ -2034,6 +2034,7 @@ impl Ord for SvgNodeData {
 }
 
 impl Hash for SvgNodeData {
+    #[allow(clippy::too_many_lines)] // large but cohesive: one arm per variant
     fn hash<H: Hasher>(&self, state: &mut H) {
         mem::discriminant(self).hash(state);
         match self {
@@ -2527,10 +2528,9 @@ fn node_data_to_string(node_data: &NodeData) -> String {
         class_string = format!(" class=\"{classes}\" ");
     }
 
-    let mut tabindex_string = String::new();
-    if let Some(tab_index) = node_data.get_tab_index() {
-        tabindex_string = format!(" tabindex=\"{}\" ", tab_index.get_index());
-    }
+    let tabindex_string = node_data.get_tab_index().map_or_else(String::new, |tab_index| {
+        format!(" tabindex=\"{}\" ", tab_index.get_index())
+    });
 
     format!("{id_string}{class_string}{tabindex_string}")
 }
@@ -2902,8 +2902,6 @@ impl NodeData {
         self.extra.as_ref().and_then(|e| e.svg_data.as_ref())
     }
 
-    /// Legacy accessor for raster clip mask. Returns `Some` only for `SvgNodeData::ImageClipMask`.
-    #[inline]
     /// Is this node an image whose content is a null/placeholder image?
     ///
     /// Capture widgets (camera, screencapture, microphone level) build their
@@ -2935,6 +2933,8 @@ impl NodeData {
         }
     }
 
+    /// Legacy accessor for raster clip mask. Returns `Some` only for `SvgNodeData::ImageClipMask`.
+    #[inline]
     #[must_use]
     pub fn get_image_clip_mask(&self) -> Option<&ImageMask> {
         match self.get_svg_data()? {

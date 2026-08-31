@@ -1096,6 +1096,7 @@ pub enum XmlError {
 }
 
 impl fmt::Display for XmlError {
+    #[allow(clippy::too_many_lines)] // large but cohesive: one arm per variant
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::XmlError::{
             AttributesLimitReached, DtdDetected, DuplicatedAttribute, DuplicatedNamespace,
@@ -5638,9 +5639,9 @@ fn apply_xml_node_attributes(
         .and_then(|f| parse_bool(f.as_str()))
     {
         if focusable {
-            node.set_tab_index(TabIndex::Auto)
+            node.set_tab_index(TabIndex::Auto);
         } else {
-            node.set_tab_index(TabIndex::NoKeyboardFocus)
+            node.set_tab_index(TabIndex::NoKeyboardFocus);
         }
     }
 
@@ -6921,13 +6922,10 @@ fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
 
     for css_block in css.rules.as_ref() {
         if matcher.matches(&css_block.path) {
-            let mut ending = None;
-
-            if let Some(CssPathSelector::PseudoSelector(p)) =
-                css_block.path.selectors.as_ref().last()
-            {
-                ending = Some(p.clone());
-            }
+            let ending = match css_block.path.selectors.as_ref().last() {
+                Some(CssPathSelector::PseudoSelector(p)) => Some(p.clone()),
+                _ => None,
+            };
 
             blocks.push(CssBlock {
                 ending,
@@ -8175,6 +8173,7 @@ fn c_creator_suffix(tag_dbg: &str) -> String {
 }
 
 #[allow(clippy::result_large_err)] // returns a #[repr(C,u8)] FFI error enum; boxing a variant would break the C ABI/api.json
+#[allow(clippy::too_many_lines)] // large but cohesive: one branch per node kind
 fn compile_node_c(
     node: &XmlNode,
     component_map: &ComponentMap,

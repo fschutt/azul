@@ -58,6 +58,7 @@ impl CascadeInfoVec {
 /// Returns if the style CSS path matches the DOM node (i.e. if the DOM node should be styled by
 /// that element)
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::too_many_lines)] // large but cohesive: one branch per selector kind
 #[must_use]
 pub fn matches_html_element(
     css_path: &CssPath,

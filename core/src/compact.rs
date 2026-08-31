@@ -1304,14 +1304,14 @@ fn apply_css_property_to_compact(
         // Tier 1 enums
         CssProperty::Display(v) => set_tier1!(v, DISPLAY_SHIFT, DISPLAY_MASK, layout_display_to_u8),
         CssProperty::Position(v) => {
-            set_tier1!(v, POSITION_SHIFT, POSITION_MASK, layout_position_to_u8)
+            set_tier1!(v, POSITION_SHIFT, POSITION_MASK, layout_position_to_u8);
         }
         CssProperty::Float(v) => set_tier1!(v, FLOAT_SHIFT, FLOAT_MASK, layout_float_to_u8),
         CssProperty::OverflowX(v) => {
-            set_tier1!(v, OVERFLOW_X_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8)
+            set_tier1!(v, OVERFLOW_X_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8);
         }
         CssProperty::OverflowY(v) => {
-            set_tier1!(v, OVERFLOW_Y_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8)
+            set_tier1!(v, OVERFLOW_Y_SHIFT, OVERFLOW_MASK, layout_overflow_to_u8);
         }
         // +spec:overflow:17654b - overflow-block / overflow-inline resolve to
         // the physical axis through the writing mode. Application is in
@@ -1375,7 +1375,7 @@ fn apply_css_property_to_compact(
             layout_flex_direction_to_u8
         ),
         CssProperty::FlexWrap(v) => {
-            set_tier1!(v, FLEX_WRAP_SHIFT, FLEX_WRAP_MASK, layout_flex_wrap_to_u8)
+            set_tier1!(v, FLEX_WRAP_SHIFT, FLEX_WRAP_MASK, layout_flex_wrap_to_u8);
         }
         CssProperty::JustifyContent(v) => set_tier1!(
             v,
@@ -1384,7 +1384,7 @@ fn apply_css_property_to_compact(
             layout_justify_content_to_u8
         ),
         CssProperty::AlignItems(v) => {
-            set_tier1!(v, ALIGN_ITEMS_SHIFT, ALIGN_MASK, layout_align_items_to_u8)
+            set_tier1!(v, ALIGN_ITEMS_SHIFT, ALIGN_MASK, layout_align_items_to_u8);
         }
         CssProperty::AlignContent(v) => set_tier1!(
             v,
@@ -1406,13 +1406,13 @@ fn apply_css_property_to_compact(
             style_font_weight_to_u8
         ),
         CssProperty::FontStyle(v) => {
-            set_tier1!(v, FONT_STYLE_SHIFT, FONT_STYLE_MASK, style_font_style_to_u8)
+            set_tier1!(v, FONT_STYLE_SHIFT, FONT_STYLE_MASK, style_font_style_to_u8);
         }
         CssProperty::TextAlign(v) => {
-            set_tier1!(v, TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK, style_text_align_to_u8)
+            set_tier1!(v, TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK, style_text_align_to_u8);
         }
         CssProperty::Visibility(v) => {
-            set_tier1!(v, VISIBILITY_SHIFT, VISIBILITY_MASK, style_visibility_to_u8)
+            set_tier1!(v, VISIBILITY_SHIFT, VISIBILITY_MASK, style_visibility_to_u8);
         }
         CssProperty::WhiteSpace(v) => set_tier1!(
             v,
@@ -1421,7 +1421,7 @@ fn apply_css_property_to_compact(
             style_white_space_to_u8
         ),
         CssProperty::Direction(v) => {
-            set_tier1!(v, DIRECTION_SHIFT, DIRECTION_MASK, style_direction_to_u8)
+            set_tier1!(v, DIRECTION_SHIFT, DIRECTION_MASK, style_direction_to_u8);
         }
         CssProperty::VerticalAlign(v) => set_tier1!(
             v,
@@ -1901,6 +1901,7 @@ fn apply_css_property_to_compact(
 /// per property per node so that when a flag bit is clear, callers
 /// (e.g. `translate_to_text3_constraints`) can skip the cascade walk and use
 /// the default value — the slow walk would never find a declaration anyway.
+#[allow(clippy::too_many_lines)] // large but cohesive: one arm per declared-flag property
 const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
     // Only mark if the property value is actually "set" (not Auto/Initial/etc.).
     // Using `get_property().is_some()` mirrors the pattern used elsewhere in

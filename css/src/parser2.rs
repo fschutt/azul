@@ -1910,7 +1910,7 @@ fn new_from_str_inner<'a>(
             }
             Token::AttributeSelector(attr) => {
                 if let Some(sel) = parse_attribute_selector(attr) {
-                    last_path.push(CssPathSelector::Attribute(sel))
+                    last_path.push(CssPathSelector::Attribute(sel));
                 } else {
                     warn_and_continue!(CssParseWarnMsgInner::MalformedStructure {
                         message: "Malformed attribute selector, rule skipped",

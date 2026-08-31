@@ -3698,9 +3698,9 @@ pub fn build_add_font_resource_updates(
                     break 'inner;
                 }
 
-                let (font_family_hash, font_ref) = match font_family_hash {
-                    None => continue 'outer, // No font could be loaded, try again next frame
-                    Some(s) => s,
+                // No font could be loaded: try again next frame.
+                let Some((font_family_hash, font_ref)) = font_family_hash else {
+                    continue 'outer;
                 };
 
                 // Generate a new font key, store the mapping between hash and font key
