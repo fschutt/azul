@@ -4399,6 +4399,52 @@ mod tests {
     }
 
     #[test]
+    fn clicking_a_text_area_on_its_placeholder_starts_the_caret() {
+        use azul_layout::widgets::text_area::TextArea;
+
+        let widget = TextArea::create()
+            .with_placeholder("Multi-line text area...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; height: 300px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        // THE DEVICE BUG (2026-08-31): the prompt used to be an overlay <p>
+        // INSIDE the editable host, so a click that landed on the prompt text
+        // hit that node - not the value line - and no caret session started
+        // ("clicking the textarea while the placeholder is there doesn't start
+        // the cursor blink"). The prompt is an engine-painted attribute now,
+        // so there is no node there to hit: the click reaches the editable.
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "text_area_click_on_prompt_starts_caret",
+            "setup": { "window_width": 600, "window_height": 300, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                // Directly over where the prompt's glyphs paint.
+                { "op": "click", "x": 40.0, "y": 12.0 },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "\"has_focus\":true" },
+                { "op": "get_cursor_state" },
+                { "op": "assert_response", "contains": "\"has_cursor\":true" },
+                { "op": "get_cursor_state" },
+                { "op": "assert_response", "contains": "\"blink_timer_active\":true" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(
+            result.status, "pass",
+            "a click on the placeholder text must focus the area AND start a \
+             blinking caret: {:#?}",
+            result.steps
+        );
+    }
+
+    #[test]
     fn typing_into_the_text_input_widget_paints_the_glyph() {
         use azul_layout::widgets::text_input::TextInput;
 
