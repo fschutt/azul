@@ -20,9 +20,10 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-/// body(0) > container(1) > placeholder-p(2) > text(3), label-p(4) > text(5).
+/// body(0) > container(1) > label-p(2) > text(3). The prompt is an
+/// ATTRIBUTE on the value line, not a node (2026-08-31).
 const CONTAINER: usize = 1;
-const LABEL_TEXT: usize = 5;
+const LABEL_TEXT: usize = 3;
 
 fn dnid(node: usize) -> DomNodeId {
     DomNodeId {
@@ -75,7 +76,7 @@ fn the_first_keystroke_into_an_empty_field_carries_the_values_style_not_the_cont
     let dirty = lw
         .content_overlay
         .text_for_node(DomId::ROOT_ID, NodeId::new(CONTAINER))
-        .or_else(|| lw.content_overlay.text_for_node(DomId::ROOT_ID, NodeId::new(4)))
+        .or_else(|| lw.content_overlay.text_for_node(DomId::ROOT_ID, NodeId::new(2)))
         .expect("the edit landed in the content overlay");
     let run = dirty
         .content

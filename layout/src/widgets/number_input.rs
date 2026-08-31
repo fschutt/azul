@@ -841,7 +841,8 @@ mod autotest_generated {
 
     /// Flattened child indices of `TextInput::dom()`.
     const PLACEHOLDER: usize = 0;
-    const LABEL: usize = 1;
+    /// The value block is the TextInput container's ONLY child now.
+    const LABEL: usize = 0;
 
     fn dataset_of(dom: &Dom) -> RefAny {
         dom.root
@@ -1204,8 +1205,8 @@ mod autotest_generated {
         let dom = NumberInput::create(-12.5).dom();
         assert_eq!(
             dom.children.as_ref().len(),
-            2,
-            "TextInput renders a placeholder node and a label node",
+            1,
+            "TextInput renders ONE value block; the prompt is an attribute",
         );
         assert_eq!(
             dom.root.callbacks.as_ref().len(),

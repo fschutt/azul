@@ -1013,11 +1013,6 @@ impl TextInput {
             .map(|s| s.as_str().to_string())
             .unwrap_or_default();
 
-        let mut placeholder_style = self.placeholder_style;
-        if !self.text_input_state.inner.text.is_empty() {
-            placeholder_style = hidden_placeholder_style(&placeholder_style);
-        }
-
         let state_ref = RefAny::new(self.text_input_state);
 
         Dom::create_div()
@@ -1085,20 +1080,19 @@ impl TextInput {
             )
             .with_children(
                 vec![
-                    crate::widgets::widget_p()
-                        .with_ids_and_classes(
-                            vec![Class("__azul-native-text-input-placeholder".into())].into(),
-                        )
-                        .with_css_props(placeholder_style)
-                        // appended, never `with_attributes`: that one replaces the
-                        // whole vector, classes included
-                        .with_attribute(AttributeType::ContentEditable(false))
-                        .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(placeholder)])),
+                    // ONE child: the value <p>. The prompt is an ATTRIBUTE on
+                    // it, painted by the engine while the line is empty and
+                    // unfocused - it is not a node, so it cannot swallow a
+                    // click meant for the editable, own clusters, or carry a
+                    // visibility override that latches.
                     crate::widgets::widget_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-input-label".into())].into(),
                         )
                         .with_css_props(self.label_style)
+                        // appended, never `with_attributes`: that one replaces
+                        // the whole vector, classes included
+                        .with_attribute(AttributeType::Placeholder(placeholder.into()))
                         .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label_text)])),
                 ]
                 .into(),
@@ -1106,56 +1100,26 @@ impl TextInput {
     }
 }
 
-/// `style` with the placeholder taken out of the flow: `display: none` on top
-/// of `opacity: 0`, so a hidden prompt owns neither pixels nor an inline layout.
-fn hidden_placeholder_style(style: &CssPropertyWithConditionsVec) -> CssPropertyWithConditionsVec {
-    let mut props = style.as_ref().to_vec();
-    props.push(CssPropertyWithConditions::simple(
-        CssProperty::const_display(LayoutDisplay::None),
-    ));
-    props.push(CssPropertyWithConditions::simple(
-        CssProperty::const_opacity(StyleOpacity::const_new(0)),
-    ));
-    CssPropertyWithConditionsVec::from_vec(props)
-}
-
-/// The placeholder `<p>` and the value `<p>`, in that order.
+/// The value `<p>` - the editable line the engine paints the `placeholder`
+/// attribute's prompt into while it is empty and unfocused.
 ///
-/// Both handlers and tests resolve them through the same hierarchy hops the
-/// container's own layout guarantees; a subtree of any other shape yields
-/// `None` and every handler bails out.
-fn label_nodes(info: &CallbackInfo) -> Option<(DomNodeId, DomNodeId)> {
-    let placeholder = info.get_first_child(info.get_hit_node())?;
-    let label = info.get_next_sibling(placeholder)?;
-    Some((placeholder, label))
-}
-
-/// Shows or hides the placeholder prompt.
-/// Drop the imperative placeholder override so the CASCADE decides again.
-///
-/// `set_placeholder_visible` writes a USER OVERRIDE, and an override is copied
-/// onto every rebuild by `migrate_user_overrides_from` and OUTRANKS the
-/// cascade — permanently. `dom()` already derives the placeholder's visibility
-/// from the widget's own text (`hidden_placeholder_style`), so once the widget
-/// is about to be rebuilt the override is at best redundant and at worst a
-/// latch: a placeholder hidden on the first keystroke stayed hidden for the
-/// rest of the window's life, even over an empty field. Exactly the bug the
-/// Accordion had, and it takes the same remedy — clear when the callback asks
-/// for a rebuild, keep the concrete value when it does not (there is no
-/// rebuild coming, so the override IS the only mechanism).
-fn clear_placeholder_override(info: &mut CallbackInfo, placeholder: DomNodeId) {
-    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Opacity));
-    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Display));
-}
-
-fn set_placeholder_visible(info: &mut CallbackInfo, placeholder: DomNodeId, visible: bool) {
-    let (display, opacity) = if visible {
-        (LayoutDisplay::Block, StyleOpacity::const_new(100))
-    } else {
-        (LayoutDisplay::None, StyleOpacity::const_new(0))
-    };
-    info.set_css_property(placeholder, CssProperty::const_opacity(opacity));
-    info.set_css_property(placeholder, CssProperty::const_display(display));
+/// Resolved through the same hierarchy hop the container's own layout
+/// guarantees; a subtree of any other shape yields `None` and every handler
+/// bails out. (Was `label_nodes`, returning an overlay node too, until the
+/// prompt became an engine-painted attribute.)
+fn value_node(info: &CallbackInfo) -> Option<DomNodeId> {
+    let child = info.get_first_child(info.get_hit_node())?;
+    // SHAPE GUARD: the value `<p>` always wraps exactly one text leaf, so a
+    // childless first child means the hit node was NOT the container (it was
+    // the value line itself, whose first child IS that leaf). The two-child
+    // layout used to get this for free - `first child -> next sibling` walked
+    // off the end - and a handler that mutates the buffer on a malformed
+    // subtree silently diverges the model from the screen.
+    let node = child.node.into_crate_internal()?;
+    if info.get_children_count(child.dom, node) == 0 {
+        return None;
+    }
+    Some(child)
 }
 
 /// Adopts the engine's text for `node` into the widget's mirror.
@@ -1233,21 +1197,18 @@ extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: Callba
 
     // A text input always has its placeholder as the first child; a hit node
     // without one is not a text input.
-    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+    // A text input always has its value <p> as first child; a hit node
+    // without one is not a text input.
+    let Some(_value) = value_node(&info) else {
         return Update::DoNothing;
     };
 
     let container = info.get_hit_node();
     adopt_engine_text(&mut text_input.inner, &info, container);
 
-    // Hide the placeholder the moment the field gains focus — the same rule
-    // TextArea uses, and the behaviour the user expects from the desktop
-    // widget (2026-08-31 ruling; the earlier keep-on-focus rule predates the
-    // empty-editable strut caret, which now marks a focused empty field).
-    // `default_on_focus_lost` shows it again when the field blurs empty.
-    if text_input.inner.text.is_empty() {
-        set_placeholder_visible(&mut info, placeholder_text_node_id, false);
-    }
+    // The prompt hides itself: the engine paints it only while the line is
+    // empty AND unfocused, recomputed per display list. No toggle here, and
+    // so nothing that can latch.
 
     // The engine seeds the caret at the end of the value when focus lands on a
     // contenteditable host; the mirror follows it.
@@ -1264,17 +1225,15 @@ extern "C" fn default_on_focus_lost(mut text_input: RefAny, mut info: CallbackIn
 
     let text_input = &mut *text_input;
 
-    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+    let Some(_value) = value_node(&info) else {
         return Update::DoNothing;
     };
 
     let container = info.get_hit_node();
     adopt_engine_text(&mut text_input.inner, &info, container);
 
-    // show the placeholder text
-    if text_input.inner.text.is_empty() {
-        set_placeholder_visible(&mut info, placeholder_text_node_id, true);
-    }
+    // The prompt reappears on its own once the blur lands (empty + unfocused
+    // is re-evaluated on the next display list).
 
     // rustc doesn't understand the borrowing lifetime here
     let text_input = &mut *text_input;
@@ -1307,7 +1266,7 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         .map(|c| c.inserted_text.as_str().to_string())
         .unwrap_or_default();
 
-    let (placeholder_node_id, _label_node_id) = label_nodes(&info)?;
+    let _value = value_node(&info)?;
     let container = info.get_hit_node();
 
     if inserted_text.is_empty() {
@@ -1321,11 +1280,6 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
         }
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
-        // A field deleted to empty shows its placeholder again —
-        // transition-only, same-value writes cost a full relayout.
-        if (len == 0) != before.is_empty() {
-            set_placeholder_visible(&mut info, placeholder_node_id, len == 0);
-        }
         let result = {
             let text_input = &mut *text_input;
             let inner_clone = text_input.inner.clone();
@@ -1339,15 +1293,6 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
                 },
             }
         };
-        // A rebuild re-derives the placeholder from the widget's own text, so
-        // the override written above must not outlive it. See
-        // `clear_placeholder_override`.
-        if matches!(
-            result.update,
-            Update::RefreshDom | Update::RefreshDomAllWindows
-        ) {
-            clear_placeholder_override(&mut info, placeholder_node_id);
-        }
         return Some(result.update);
     }
 
@@ -1418,28 +1363,12 @@ fn default_on_text_input_inner(mut text_input: RefAny, mut info: CallbackInfo) -
     };
 
     if result.valid == TextInputValid::Yes {
-        // Empty -> non-empty transition only: the placeholder can only be
-        // showing when the pre-edit value was empty, and a same-value
-        // `display` override write charges a full relayout per keystroke.
-        if text_input.inner.get_text().is_empty() {
-            set_placeholder_visible(&mut info, placeholder_node_id, false);
-        }
-
+        // No placeholder bookkeeping: the first accepted character makes the
+        // line non-empty, and the engine simply stops painting the prompt on
+        // the next display list.
         mirror_insertion(&mut text_input.inner, &inserted_text, caret);
         let len = text_input.inner.get_text().len();
         text_input.inner.selection = engine_selection(&info, container, len).into();
-        // Same as above: an override must not outlive the rebuild that
-        // supersedes it. See `clear_placeholder_override`. Inside the ACCEPTED
-        // branch on purpose — a rejected edit changed nothing observable and
-        // must stay a strict no-op, which is what
-        // `text_input_rejected_by_the_hook_leaves_the_buffer_and_the_screen_untouched`
-        // pins.
-        if matches!(
-            result.update,
-            Update::RefreshDom | Update::RefreshDomAllWindows
-        ) {
-            clear_placeholder_override(&mut info, placeholder_node_id);
-        }
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.
@@ -1461,7 +1390,7 @@ fn default_on_virtual_key_down_inner(
     let keyboard_state = info.get_current_keyboard_state();
 
     let keycode = keyboard_state.current_virtual_keycode.into_option()?;
-    let (_placeholder_node_id, _label_node_id) = label_nodes(&info)?;
+    let _value = value_node(&info)?;
 
     let container = info.get_hit_node();
     adopt_engine_text(&mut text_input.inner, &info, container);
@@ -1815,12 +1744,12 @@ mod autotest_generated {
         }
     }
 
-    /// The container's two `<p>` children plus the value's bare text leaf,
-    /// resolved through the *same* API the handlers use — so no test has to
-    /// hard-code a flattened index.
+    /// The container's single `<p>` child (the value line) plus its bare text
+    /// leaf, resolved through the *same* API the handlers use — so no test has
+    /// to hard-code a flattened index. The prompt is an ATTRIBUTE on the value
+    /// line, not a node, so there is nothing else to resolve.
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     struct Nodes {
-        placeholder: Option<DomNodeId>,
         label: Option<DomNodeId>,
         label_text: Option<DomNodeId>,
     }
@@ -1874,11 +1803,9 @@ mod autotest_generated {
             OptionLogicalPosition::None,
             OptionLogicalPosition::None,
         );
-        let placeholder = probe.get_first_child(dom_node(CONTAINER));
-        let label = placeholder.and_then(|p| probe.get_next_sibling(p));
+        let label = probe.get_first_child(dom_node(CONTAINER));
         let label_text = label.and_then(|l| probe.get_first_child(l));
         let nodes = Nodes {
-            placeholder,
             label,
             label_text,
         };
@@ -1935,8 +1862,9 @@ mod autotest_generated {
     // ==================================================================
 
     /// Flattened child indices of `TextInput::dom()`.
-    const PLACEHOLDER_CHILD: usize = 0;
-    const LABEL_CHILD: usize = 1;
+    /// The value line is the container's ONLY child now - the prompt rides
+    /// on it as a `placeholder` attribute the engine paints.
+    const LABEL_CHILD: usize = 0;
 
     fn classes(node: &Dom) -> Vec<String> {
         node.root
@@ -2382,7 +2310,7 @@ mod autotest_generated {
 
         // Stripping every declared property must not stop the widget from rendering.
         let dom = input.dom();
-        assert_eq!(dom.children.as_ref().len(), 2);
+        assert_eq!(dom.children.as_ref().len(), 1);
     }
 
     #[test]
@@ -2658,28 +2586,24 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn dom_builds_a_container_with_a_placeholder_block_and_a_value_block() {
+    fn dom_builds_a_container_with_exactly_one_value_block() {
         let dom = TextInput::create().dom();
 
         assert_eq!(classes(&dom), vec!["__azul-native-text-input-container"]);
-        assert_eq!(dom.children.as_ref().len(), 2);
-
-        let placeholder = &dom.children.as_ref()[PLACEHOLDER_CHILD];
-        let label = &dom.children.as_ref()[LABEL_CHILD];
         assert_eq!(
-            classes(placeholder),
-            vec!["__azul-native-text-input-placeholder"]
+            dom.children.as_ref().len(),
+            1,
+            "the prompt is an attribute, not a second child"
         );
-        assert_eq!(classes(label), vec!["__azul-native-text-input-label"]);
 
-        for block in [placeholder, label] {
-            assert!(matches!(block.root.get_node_type(), NodeType::P));
-            assert_eq!(block.children.as_ref().len(), 1);
-            assert!(matches!(
-                block.children.as_ref()[0].root.get_node_type(),
-                NodeType::Text(_),
-            ));
-        }
+        let label = &dom.children.as_ref()[LABEL_CHILD];
+        assert_eq!(classes(label), vec!["__azul-native-text-input-label"]);
+        assert!(matches!(label.root.get_node_type(), NodeType::P));
+        assert_eq!(label.children.as_ref().len(), 1);
+        assert!(matches!(
+            label.children.as_ref()[0].root.get_node_type(),
+            NodeType::Text(_),
+        ));
     }
 
     #[test]
@@ -2733,20 +2657,18 @@ mod autotest_generated {
 
     #[test]
     fn dom_keeps_the_placeholder_out_of_the_editable_content() {
-        // Everything inside a contenteditable host is editable content unless a
-        // node blocks the inheritance walk; the prompt must never be typed into.
+        // The prompt must never be typed into. It cannot be: it is an
+        // ATTRIBUTE the engine paints, so it owns no node inside the
+        // contenteditable host and no text an edit could reach.
         let dom = TextInput::create().with_placeholder("hint".into()).dom();
-        let placeholder = &dom.children.as_ref()[PLACEHOLDER_CHILD];
-        assert!(
-            placeholder
-                .root
-                .attributes()
-                .as_ref()
-                .iter()
-                .any(|a| matches!(a, AttributeType::ContentEditable(false))),
-            "the placeholder is inside the editable host and does not opt out",
+        let label = &dom.children.as_ref()[LABEL_CHILD];
+        assert_eq!(label.root.get_placeholder(), Some("hint"));
+        assert_eq!(
+            text_of(label),
+            "",
+            "the prompt is not part of the editable content"
         );
-        assert!(!dom.children.as_ref()[LABEL_CHILD]
+        assert!(!label
             .root
             .attributes()
             .as_ref()
@@ -2755,9 +2677,14 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_hides_the_placeholder_when_the_buffer_is_not_empty() {
-        let hidden = TextInput::create().with_text("typed".into()).dom();
-        let shown = TextInput::create().dom();
+    fn dom_never_bakes_placeholder_visibility_into_css() {
+        // The widget used to bake `display:none` onto its overlay prompt when
+        // the buffer was non-empty - a build-time snapshot of a RUNTIME fact,
+        // which is exactly what latched. The DOM must now be identical either
+        // way: whether the prompt shows is decided per display list, by the
+        // engine, from (empty && unfocused).
+        let filled = TextInput::create().with_text("typed".into()).dom();
+        let empty = TextInput::create().dom();
 
         let display = |node: &Dom| -> Option<CssProperty> {
             node.root
@@ -2769,12 +2696,16 @@ mod autotest_generated {
         };
 
         assert_eq!(
-            display(&hidden.children.as_ref()[PLACEHOLDER_CHILD]),
-            Some(CssProperty::const_display(LayoutDisplay::None)),
+            display(&filled.children.as_ref()[LABEL_CHILD]),
+            display(&empty.children.as_ref()[LABEL_CHILD]),
+            "the value line's css must not depend on whether it has text",
         );
-        assert_ne!(
-            display(&shown.children.as_ref()[PLACEHOLDER_CHILD]),
-            Some(CssProperty::const_display(LayoutDisplay::None)),
+        assert_eq!(
+            filled.children.as_ref()[LABEL_CHILD]
+                .root
+                .get_placeholder(),
+            empty.children.as_ref()[LABEL_CHILD].root.get_placeholder(),
+            "and neither must the prompt attribute",
         );
     }
 
@@ -2823,23 +2754,28 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_renders_the_buffer_into_the_label_and_the_placeholder_into_its_own_node() {
+    fn dom_renders_the_buffer_into_the_label_and_the_prompt_into_the_attribute() {
         let dom = TextInput::create()
             .with_text("typed".into())
             .with_placeholder("hint".into())
             .dom();
 
-        assert_eq!(text_of(&dom.children.as_ref()[PLACEHOLDER_CHILD]), "hint");
-        assert_eq!(text_of(&dom.children.as_ref()[LABEL_CHILD]), "typed");
+        let label = &dom.children.as_ref()[LABEL_CHILD];
+        assert_eq!(text_of(label), "typed");
+        assert_eq!(label.root.get_placeholder(), Some("hint"));
     }
 
     #[test]
-    fn dom_without_a_placeholder_still_renders_an_empty_placeholder_node() {
-        // The handlers navigate `container -> first child -> next sibling`; dropping
-        // the placeholder node when unset would make the label unreachable.
+    fn dom_without_a_placeholder_still_carries_an_empty_attribute() {
+        // The handlers navigate `container -> first child`; the attribute is
+        // always present (empty when unset) and the engine paints nothing for
+        // an empty prompt.
         let dom = TextInput::create().with_text("typed".into()).dom();
-        assert_eq!(dom.children.as_ref().len(), 2);
-        assert_eq!(text_of(&dom.children.as_ref()[PLACEHOLDER_CHILD]), "");
+        assert_eq!(dom.children.as_ref().len(), 1);
+        assert_eq!(
+            dom.children.as_ref()[LABEL_CHILD].root.get_placeholder(),
+            Some("")
+        );
     }
 
     #[test]
@@ -2855,8 +2791,8 @@ mod autotest_generated {
                 "label mangled {s:?}"
             );
             assert_eq!(
-                text_of(&dom.children.as_ref()[PLACEHOLDER_CHILD]),
-                s,
+                dom.children.as_ref()[LABEL_CHILD].root.get_placeholder(),
+                Some(s),
                 "placeholder mangled {s:?}",
             );
         }
@@ -2917,10 +2853,6 @@ mod autotest_generated {
 
         assert_eq!(inline(&dom), declared(&container_style));
         assert_eq!(
-            inline(&dom.children.as_ref()[PLACEHOLDER_CHILD]),
-            declared(&placeholder_style),
-        );
-        assert_eq!(
             inline(&dom.children.as_ref()[LABEL_CHILD]),
             declared(&label_style)
         );
@@ -2931,14 +2863,11 @@ mod autotest_generated {
         let (styled_dom, _) = rendered(TextInput::create());
         let ((), _, nodes) = run(Env::new(styled_dom), |_| ());
 
-        let placeholder = nodes.placeholder.expect("the container has no first child");
-        let label = nodes.label.expect("the placeholder has no next sibling");
+        let label = nodes.label.expect("the container has no first child");
         let label_text = nodes.label_text.expect("the value block has no text leaf");
 
-        assert_ne!(placeholder, label);
         assert_ne!(label, label_text);
-        assert_ne!(placeholder, label_text);
-        assert_ne!(placeholder, dom_node(CONTAINER));
+        assert_ne!(label, dom_node(CONTAINER));
     }
 
     // ==================================================================
@@ -2961,19 +2890,16 @@ mod autotest_generated {
 
     #[test]
     fn focus_received_on_a_node_with_no_children_bails_out_before_touching_css() {
-        // `set_css_property` panics on a `None` node id, and the widget only has a
-        // placeholder to hide if the hit node actually has children. Both escapes have
-        // to happen before the css write.
+        // `set_css_property` panics on a `None` node id, and every handler
+        // bails when the hit node has no children. The escape must happen
+        // before any write.
         let (styled_dom, state) = rendered(TextInput::create());
         let (update, changes, nodes) = run(Env::new(styled_dom).hit(node_none()), |info| {
             default_on_focus_received(state.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty());
-        assert!(
-            nodes.placeholder.is_some(),
-            "the fixture itself is malformed"
-        );
+        assert!(nodes.label.is_some(), "the fixture itself is malformed");
     }
 
     #[test]
@@ -2995,7 +2921,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn focus_received_hides_the_placeholder_while_the_buffer_is_empty() {
+    fn focus_writes_no_placeholder_css_at_all() {
         // 2026-08-31 ruling: focusing an empty field HIDES its placeholder -
         // the rule TextArea always had. The empty-editable strut caret marks
         // the focused field, so the old blank-field concern is gone;
@@ -3006,11 +2932,13 @@ mod autotest_generated {
             default_on_focus_received(state.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(
-            pushed_opacities(&changes),
-            vec![(inner_id(nodes.placeholder.expect("no placeholder")), 0.0)],
-            "focusing an empty input must hide its placeholder: {changes:?}",
+        assert!(
+            changes.is_empty(),
+            "focus must write NO css: the engine paints the prompt only while \
+             the line is empty AND unfocused, so there is no state to toggle \
+             and nothing that can latch: {changes:?}",
         );
+        let _ = nodes;
 
         let (styled_dom, state) = rendered(TextInput::create().with_text("typed".into()));
         let (update, changes, _) = run(Env::new(styled_dom), |info| {
@@ -3040,17 +2968,18 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn focus_lost_shows_the_placeholder_only_while_the_buffer_is_empty() {
+    fn blur_writes_no_placeholder_css_at_all() {
         let (styled_dom, state) = rendered(TextInput::create());
         let (update, changes, nodes) = run(Env::new(styled_dom), |info| {
             default_on_focus_lost(state.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(
-            pushed_opacities(&changes),
-            vec![(inner_id(nodes.placeholder.expect("no placeholder")), 1.0)],
-            "blurring an empty input did not bring its placeholder back",
+        assert!(
+            changes.is_empty(),
+            "blur must write NO css either — the prompt reappears because the \
+             next display list sees empty+unfocused: {changes:?}",
         );
+        let _ = nodes;
 
         let (styled_dom, state) = rendered(TextInput::create().with_text("typed".into()));
         let (_, changes, _) = run(Env::new(styled_dom), |info| {
@@ -3185,10 +3114,11 @@ mod autotest_generated {
         assert_eq!(state_of(&state).get_text(), "hi");
         assert_eq!(state_of(&state).cursor_pos, 2);
 
-        assert_eq!(
-            pushed_opacities(&changes),
-            vec![(inner_id(nodes.placeholder.expect("no placeholder")), 0.0)],
+        assert!(
+            pushed_opacities(&changes).is_empty(),
+            "typing must not toggle any placeholder override: {changes:?}",
         );
+        let _ = nodes;
         assert!(
             pushed_texts(&changes).is_empty(),
             "the widget repainted the value itself; the engine owns the buffer: {changes:?}",

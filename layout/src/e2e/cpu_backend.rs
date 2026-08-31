@@ -773,7 +773,7 @@ mod tests {
                     (x0..x1).any(|x| {
                         let i = ((y * w + x) * 4).min(data.len().saturating_sub(4)); // clamp: field can overflow the window row
                         (u16::from(data[i]) + u16::from(data[i + 1]) + u16::from(data[i + 2]))
-                            < 420
+                            < 690 // engine prompt = host colour at half alpha (~#A6A6A6)
                     })
                 })
                 .collect();
@@ -888,7 +888,8 @@ mod tests {
                     let i = ((y * w + x) * 4).min(data.len().saturating_sub(4)); // clamp: field can overflow the window row
                     let (r, g, b) = (data[i], data[i + 1], data[i + 2]);
                     // darker than the border grey - real glyph ink
-                    (u16::from(r) + u16::from(g) + u16::from(b)) < 420
+                    // engine prompt = host colour at half alpha (~#A6A6A6)
+                    (u16::from(r) + u16::from(g) + u16::from(b)) < 690
                 })
             })
             .count();
