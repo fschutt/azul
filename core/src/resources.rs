@@ -852,9 +852,14 @@ impl Default for SystemAnimations {
             ),
             selection_tween_data: RefAny::new(()),
             caret_scroll_glide: true,
-            // Opt-in: 0 = no ring (existing apps unchanged). The Word app
-            // enables it at hookup.
-            focus_ring_duration_ms: 0,
+            // ON by default: keyboard focus MUST be visible, or Tab-navigating
+            // an app is indistinguishable from Tab doing nothing (device
+            // report, 2026-08-31 - focus and Enter/Space activation both
+            // worked, but nothing on screen said which control had focus).
+            // W3C/UA behaviour is to draw a focus indicator even with no
+            // author CSS. A short glide, like the caret tween; `disabled()`
+            // still zeroes it so e2e screenshots stay deterministic.
+            focus_ring_duration_ms: 60,
         }
     }
 }

@@ -98,30 +98,28 @@ fn ring_on(ms: u32) -> SystemAnimations {
 }
 
 #[test]
-fn default_config_paints_no_ring() {
-    // Twin comparison: same DOM + focus, ring on vs off — the OFF list has
-    // exactly one Border fewer (the DOM's own borders are identical).
-    let mut off = build(SystemAnimations::default());
-    focus(&mut off, 1);
-    rebuild(&mut off);
-    let mut on = build(ring_on(10_000));
-    focus(&mut on, 1);
-    rebuild(&mut on);
+fn the_default_config_paints_a_ring_and_disabled_paints_none() {
+    // 2026-08-31 RULING (device report): keyboard focus must be VISIBLE with
+    // no author CSS. Focus and Enter/Space activation both already worked,
+    // but nothing on screen said WHICH control had focus, which is
+    // indistinguishable from "Tab does nothing". The ring is therefore ON by
+    // default now - this test previously pinned the opposite (opt-in, 0 = no
+    // ring), which is the behaviour that made the toolkit look broken.
+    //
+    // `SystemAnimations::disabled()` still paints none, so e2e screenshots
+    // stay deterministic.
+    let mut default_cfg = build(SystemAnimations::default());
+    focus(&mut default_cfg, 1);
+    rebuild(&mut default_cfg);
+
+    let mut disabled = build(SystemAnimations::disabled());
+    focus(&mut disabled, 1);
+    rebuild(&mut disabled);
+
     assert_eq!(
-        border_count(&off) + 1,
-        border_count(&on),
-        "duration 0 (default) paints NOTHING extra — zero visual change"
-    );
-    assert!(
-        !matches!(
-            off.get_layout_result(&DomId::ROOT_ID)
-                .unwrap()
-                .display_list
-                .items
-                .last(),
-            Some(DisplayListItem::Border { .. })
-        ) || border_count(&off) > 0,
-        "sanity"
+        border_count(&disabled) + 1,
+        border_count(&default_cfg),
+        "the DEFAULT config must paint a focus ring, and disabled() must not",
     );
 }
 
