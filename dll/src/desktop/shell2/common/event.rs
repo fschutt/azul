@@ -4693,9 +4693,45 @@ pub trait PlatformWindow {
                     }
                     return ProcessEventResult::DoNothing;
                 }
+                // FOCUS RETURN: remember where focus is as the popup opens,
+                // and put it back when the popup closes. Done HERE, at the one
+                // seam every transient window opens through, so no widget has
+                // to remember it - and none can forget. Without it a popup was
+                // a one-way trip for the keyboard: Tab to a swatch, open its
+                // picker, dismiss it, and focus was nowhere, so the next Tab
+                // restarted from the top of the document.
+                let focus_now = self
+                    .get_layout_window()
+                    .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+                let restore_to = {
+                    let opening = *open;
+                    self.get_layout_window_mut().and_then(|lw| {
+                        if opening {
+                            if let Some(f) = focus_now {
+                                lw.transient_windows.remember_focus_before_open(node_id, f);
+                            }
+                            None
+                        } else {
+                            lw.transient_windows.take_focus_before_open(node_id)
+                        }
+                    })
+                };
                 let changed = self
                     .get_layout_window_mut()
                     .is_some_and(|lw| lw.transient_windows.set_forced_open(node_id, *open));
+                if let Some(target) = restore_to.filter(|_| changed) {
+                    let old_focus = focus_now;
+                    let r = self.apply_system_change(&SystemChange::SetFocus {
+                        new_focus: Some(target),
+                        old_focus,
+                    });
+                    log_debug!(
+                        super::debug_server::LogCategory::Window,
+                        "[transient] popup closed - focus returned to {:?}",
+                        target
+                    );
+                    let _ = r;
+                }
                 if changed {
                     // The popup set is reconciled after a layout pass.
                     self.request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
