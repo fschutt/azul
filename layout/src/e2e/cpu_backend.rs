@@ -626,6 +626,101 @@ mod tests {
     use azul_css::AzString;
     use rust_fontconfig::FcFontCache;
 
+    /// ENGINE-LEVEL PLACEHOLDER: the `placeholder` ATTRIBUTE on a
+    /// contenteditable host paints a prompt while the host is EMPTY and
+    /// UNFOCUSED - no overlay <p>, no per-widget toggle code. The control
+    /// (no attribute) must paint nothing, pinning that the ink really is
+    /// the attribute's doing.
+    #[test]
+    fn the_placeholder_attribute_paints_for_an_empty_unfocused_editable() {
+        use azul_core::dom::AttributeType;
+
+        let ink_rows = |with_attr: bool, focused: bool| -> usize {
+            let mut ed = Dom::create_div()
+                .with_ids_and_classes(
+                    vec![azul_core::dom::IdOrClass::Class("ed".into())].into(),
+                )
+                .with_attribute(AttributeType::ContentEditable(true));
+            if with_attr {
+                ed = ed.with_attribute(AttributeType::Placeholder("Hint me".into()));
+            }
+            let mut dom = Dom::create_body().with_child(ed);
+            let (css, _) = azul_css::parser2::new_from_str(
+                "body { width: 400px; height: 100px; } \
+                 .ed { width: 300px; height: 40px; font-size: 16px; }",
+            );
+            let styled_dom = StyledDom::create(&mut dom, css);
+            let mut lw = crate::window::LayoutWindow::new(FcFontCache::build()).unwrap();
+            lw.system_animations_override =
+                Some(azul_core::resources::SystemAnimations::disabled());
+            let styled_dom = if focused {
+                // Stamp :focus exactly the way the SHELL does before layout
+                // (dll `apply_runtime_states_before_layout`) - that stamping
+                // lives in the shell, so an engine-only harness must mirror
+                // it or the painter's focus check can never see focus.
+                let mut sd = styled_dom;
+                {
+                    let mut styled_nodes = sd.styled_nodes.as_container_mut();
+                    if let Some(n) = styled_nodes.get_mut(NodeId::new(1)) {
+                        n.styled_node_state.focused = true;
+                    }
+                }
+                sd
+            } else {
+                styled_dom
+            };
+            let mut ws = crate::window_state::FullWindowState::default();
+            ws.size.dimensions = LogicalSize::new(400.0, 100.0);
+            lw.current_window_state = ws.clone();
+            let resources = RendererResources::default();
+            let cbs = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+            let mut dbg = Some(Vec::new());
+            lw.layout_and_generate_display_list(styled_dom, &ws, &resources, &cbs, &mut dbg)
+                .unwrap();
+            let lr = lw.get_layout_result(&DomId::ROOT_ID).unwrap();
+            let mut gc = crate::glyph_cache::GlyphCache::new();
+            let frame = crate::cpurender::render_with_font_manager(
+            &lr.display_list,
+            &resources,
+            &lw.font_manager,
+            crate::cpurender::RenderOptions {
+                width: 400.0,
+                height: 100.0,
+                dpi_factor: 1.0,
+            },
+            &mut gc,
+        )
+        .unwrap();
+            let (w, data) = (frame.width() as usize, frame.data());
+            (0..40usize)
+                .filter(|y| {
+                    (0..300usize).any(|x| {
+                        let i = ((y * w + x) * 4).min(data.len().saturating_sub(4));
+                        (u16::from(data[i]) + u16::from(data[i + 1]) + u16::from(data[i + 2]))
+                            < 690
+                    })
+                })
+                .count()
+        };
+
+        assert_eq!(
+            ink_rows(false, false),
+            0,
+            "the control (no placeholder attribute) must paint nothing"
+        );
+        let with_attr = ink_rows(true, false);
+        assert!(
+            with_attr >= 6,
+            "the placeholder attribute must paint a text line (got {with_attr} ink rows)"
+        );
+        assert_eq!(
+            ink_rows(true, true),
+            0,
+            "a FOCUSED host hides its prompt (2026-08-31 ruling) - recomputed \
+             per build, no latch to stick"
+        );
+    }
+
     /// Control: the same field WITHOUT the scroll column (no layer). If this
     /// is green while the column variant is red, the truncation lives in the
     /// LAYERED render path, not in text rendering itself.

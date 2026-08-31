@@ -524,6 +524,9 @@ fn parse_xml_to_fast_dom_with_css(
                             nd.set_css_props(props.into());
                         }
                     }
+                    "placeholder" => attr_vec.push(
+                        azul_core::dom::AttributeType::Placeholder(value.clone().into()),
+                    ),
                     "contenteditable" => {
                         match parse_bool(value.as_str()) {
                             Some(true) => nd.set_contenteditable(true),

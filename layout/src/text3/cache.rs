@@ -8832,6 +8832,50 @@ pub fn take_font_shape_deficit() -> u32 {
 /// its resolved font, and fixes byte offsets so they're relative to the
 /// original `text` (not the segment substring).
 #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
+/// Shape a one-line PROMPT string (the engine `placeholder` attribute) with
+/// the node's own style through the normal fallback chain. Returns a flat
+/// glyph list; an unresolvable chain yields an empty Vec (no prompt beats a
+/// panic in a paint path). `pub(crate)`: the display-list builder is the one
+/// consumer.
+pub(crate) fn shape_placeholder_text<T: ParsedFontTrait>(
+    text: &str,
+    style: &Arc<StyleProperties>,
+    font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    _fc_cache: &FcFontCache,
+    loaded_fonts: &LoadedFonts<T>,
+) -> Vec<Glyph> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let script = crate::text3::script::detect_script(text).unwrap_or(Script::Latin);
+    let language = crate::text3::script::script_to_language(script, text);
+    match &style.font_stack {
+        FontStack::Ref(font_ref) => font_ref
+            .shape_text(text, script, language, BidiDirection::Ltr, style)
+            .unwrap_or_default(),
+        FontStack::Stack(selectors) => {
+            let cache_key = FontChainKey::from_selectors(selectors);
+            let Some(font_chain) = font_chain_cache.get(&cache_key) else {
+                return Vec::new();
+            };
+            // v1: the FIRST loaded face of the chain shapes the whole prompt
+            // (a prompt is app-authored, single-script text; per-glyph
+            // fallback can come later if a real prompt ever needs it).
+            let Some(font) = font_chain
+                .css_fallbacks
+                .iter()
+                .flat_map(|group| group.fonts.iter())
+                .chain(font_chain.unicode_fallbacks.iter())
+                .find_map(|m| loaded_fonts.get(&m.id))
+            else {
+                return Vec::new();
+            };
+            font.shape_text(text, script, language, BidiDirection::Ltr, style)
+                .unwrap_or_default()
+        }
+    }
+}
+
 fn shape_with_font_fallback<T: ParsedFontTrait>(
     text: &str,
     script: Script,
