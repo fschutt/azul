@@ -4622,6 +4622,65 @@ mod tests {
         );
     }
 
+    /// THE FOCUS RING reached by the REAL keyboard path.
+    ///
+    /// `focus_ring_tween.rs` covers the ring itself by setting focus
+    /// directly on the focus manager; this covers the integration - a plain
+    /// Tab keypress through the window must leave a ring on screen, with NO
+    /// author CSS anywhere. That is the half that was missing on the device:
+    /// focus and Enter/Space activation both worked, but nothing said which
+    /// control had focus, which looks exactly like Tab doing nothing.
+    #[test]
+    fn pressing_tab_leaves_a_visible_focus_ring() {
+        use azul_layout::{solver3::display_list::DisplayListItem, widgets::button::Button};
+
+        let mut dom = Dom::create_body().with_child(Button::create("Press me".into()).dom());
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "focus_ring_via_tab",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+        let (result, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+
+        // The e2e runner disables system animations so screenshots are
+        // deterministic, and the ring's duration lives there - so ask for the
+        // DEFAULT config explicitly, which is the one shipping apps get.
+        runner.layout_window.system_animations_override =
+            Some(azul_core::resources::SystemAnimations::default());
+        // The ring is appended LAST by the tween post-pass.
+        runner
+            .layout_window
+            .regenerate_display_list_for_dom(DomId::ROOT_ID);
+        let lr = runner
+            .layout_window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("dom 0");
+        let last_is_ring = matches!(
+            lr.display_list.items.last(),
+            Some(DisplayListItem::Border { .. })
+        );
+        assert!(
+            runner.layout_window.focus_manager.get_focused_node().is_some(),
+            "premise: Tab focused something",
+        );
+        assert!(
+            last_is_ring,
+            "Tab must leave a focus ring appended to the display list; last item was {:?}",
+            lr.display_list.items.last().map(std::mem::discriminant),
+        );
+    }
+
     #[test]
     fn typing_into_the_text_input_widget_paints_the_glyph() {
         use azul_layout::widgets::text_input::TextInput;
