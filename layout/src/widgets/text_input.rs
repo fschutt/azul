@@ -2995,18 +2995,21 @@ mod autotest_generated {
     }
 
     #[test]
-    fn focus_received_keeps_the_placeholder_while_the_buffer_is_empty() {
-        // Browser behaviour: the placeholder stays until the first character
-        // lands (`text_input_mirrors_the_insertion_and_hides_the_placeholder`).
-        // Hiding it on focus left a focused empty field blank.
+    fn focus_received_hides_the_placeholder_while_the_buffer_is_empty() {
+        // 2026-08-31 ruling: focusing an empty field HIDES its placeholder -
+        // the rule TextArea always had. The empty-editable strut caret marks
+        // the focused field, so the old blank-field concern is gone;
+        // `focus_lost_shows_the_placeholder_only_while_the_buffer_is_empty`
+        // pins the symmetric restore.
         let (styled_dom, state) = rendered(TextInput::create());
-        let (update, changes, _) = run(Env::new(styled_dom), |info| {
+        let (update, changes, nodes) = run(Env::new(styled_dom), |info| {
             default_on_focus_received(state.clone(), info)
         });
         assert_eq!(update, Update::DoNothing);
-        assert!(
-            pushed_opacities(&changes).is_empty(),
-            "focusing an empty input must leave its placeholder visible: {changes:?}",
+        assert_eq!(
+            pushed_opacities(&changes),
+            vec![(inner_id(nodes.placeholder.expect("no placeholder")), 0.0)],
+            "focusing an empty input must hide its placeholder: {changes:?}",
         );
 
         let (styled_dom, state) = rendered(TextInput::create().with_text("typed".into()));
