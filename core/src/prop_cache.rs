@@ -1208,7 +1208,7 @@ impl CssPropertyCache {
         use azul_css::{
             css::{
                 CssDeclaration,
-                CssPathPseudoSelector::{Active, DragOver, Dragging, Focus, Hover},
+                CssPathPseudoSelector::{Active, DragOver, Dragging, Focus, Hover, Placeholder},
                 CssPathSelector, CssRuleBlock,
             },
             dynamic_selector::{DynamicSelector, PseudoStateType},
@@ -1370,6 +1370,9 @@ impl CssPropertyCache {
                 let has_drag_over = specific_rules
                     .iter()
                     .any(|r| crate::style::rule_ends_with(&r.path, Some(DragOver)));
+                let has_placeholder = specific_rules
+                    .iter()
+                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Placeholder)));
 
                 macro_rules! collect_and_assign {
                     ($pseudo:expr, $state:expr, $has_any:expr) => {
@@ -1410,6 +1413,11 @@ impl CssPropertyCache {
                 collect_and_assign!(Some(Focus), PseudoStateType::Focus, has_focus);
                 collect_and_assign!(Some(Dragging), PseudoStateType::Dragging, has_dragging);
                 collect_and_assign!(Some(DragOver), PseudoStateType::DragOver, has_drag_over);
+                collect_and_assign!(
+                    Some(Placeholder),
+                    PseudoStateType::Placeholder,
+                    has_placeholder
+                );
             } // end if !specific_rules.is_empty()
         }
 
@@ -1427,6 +1435,7 @@ impl CssPropertyCache {
                 PseudoStateType::Focus,
                 PseudoStateType::Dragging,
                 PseudoStateType::DragOver,
+                PseudoStateType::Placeholder,
             ];
 
             for &state in &all_states {
@@ -2368,6 +2377,51 @@ impl CssPropertyCache {
         }
 
         // If that fails, see if there is an inline CSS property that matches
+        // ::placeholder FIRST. It is a pseudo-ELEMENT: the flag is only ever
+        // set for the ONE resolve the engine does to style the prompt it
+        // paints inside an empty editable, and for that resolve the
+        // pseudo-element's own declarations must outrank every state of the
+        // host. Anything `::placeholder` does not declare keeps falling
+        // through to the host's normal value below, which is what makes an
+        // unstyled prompt inherit the field's font.
+        if node_state.placeholder {
+            // PRIORITY 1: inline declarations (`on_placeholder(...)`)
+            if let Some(p) =
+                node_data
+                    .style
+                    .iter_inline_properties()
+                    .fold(None, |acc, (prop, conds)| {
+                        if matches_pseudo_state(conds, PseudoStateType::Placeholder)
+                            && prop.get_type() == *css_property_type
+                        {
+                            Some(prop)
+                        } else {
+                            acc
+                        }
+                    })
+            {
+                return Some(p);
+            }
+
+            // PRIORITY 2: stylesheet rules (`.field::placeholder { ... }`)
+            if let Some(p) = Self::find_in_stateful(
+                self.css_props.get_slice(node_id.index()),
+                PseudoStateType::Placeholder,
+                css_property_type,
+            ) {
+                return Some(p);
+            }
+
+            // PRIORITY 3: cascaded / inherited
+            if let Some(p) = Self::find_in_stateful(
+                self.cascaded_props.get_slice(node_id.index()),
+                PseudoStateType::Placeholder,
+                css_property_type,
+            ) {
+                return Some(p);
+            }
+        }
+
         // :focus > :active > :hover > normal (fallback)
         if node_state.focused {
             // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)

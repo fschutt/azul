@@ -462,6 +462,11 @@ pub fn pseudo_selector_from_str<'a>(
     match selector {
         "first" => Ok(CssPathPseudoSelector::First),
         "last" => Ok(CssPathPseudoSelector::Last),
+        // Pseudo-ELEMENT: `::placeholder`. The double colon is consumed by
+        // the selector tokenizer, so both spellings arrive here as the bare
+        // name; CSS 2.1 allowed a single colon for pseudo-elements and
+        // browsers still accept it, so both are taken.
+        "placeholder" | ":placeholder" => Ok(CssPathPseudoSelector::Placeholder),
         "hover" => Ok(CssPathPseudoSelector::Hover),
         "active" => Ok(CssPathPseudoSelector::Active),
         "focus" => Ok(CssPathPseudoSelector::Focus),

@@ -471,6 +471,14 @@ static TEXT_INPUT_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
 
 #[cfg(target_os = "windows")]
 static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+    // The PROMPT's own colour, via the real `::placeholder` cascade. The
+    // engine paints the prompt with the value line's style, overridden by
+    // whatever `::placeholder` declares - so this is the widget's default
+    // and any app rule (`.my-field::placeholder { color: ... }`) wins over
+    // it exactly like normal CSS.
+    CssPropertyWithConditions::on_placeholder(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_9B9B9B,
+    })),
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
@@ -502,6 +510,14 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 
 #[cfg(target_os = "linux")]
 static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+    // The PROMPT's own colour, via the real `::placeholder` cascade. The
+    // engine paints the prompt with the value line's style, overridden by
+    // whatever `::placeholder` declares - so this is the widget's default
+    // and any app rule (`.my-field::placeholder { color: ... }`) wins over
+    // it exactly like normal CSS.
+    CssPropertyWithConditions::on_placeholder(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_9B9B9B,
+    })),
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
@@ -533,6 +549,14 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
 static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+    // The PROMPT's own colour, via the real `::placeholder` cascade. The
+    // engine paints the prompt with the value line's style, overridden by
+    // whatever `::placeholder` declares - so this is the widget's default
+    // and any app rule (`.my-field::placeholder { color: ... }`) wins over
+    // it exactly like normal CSS.
+    CssPropertyWithConditions::on_placeholder(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_9B9B9B,
+    })),
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
@@ -562,60 +586,8 @@ static TEXT_INPUT_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
 ];
 
-// --- placeholder
-//
-// An absolutely-positioned `<p>` overlay inside the editable container. It is
-// marked `contenteditable="false"` so the engine's inheritance walk stops at it
-// and the prompt never becomes part of the buffer, and it is toggled with
-// `display` as well as `opacity`: a hidden-but-laid-out overlay would still own
-// the container's first inline layout, which is what
-// `LayoutWindow::reshape_text_node` picks up when it looks for the IFC to write
-// an edit into.
 
-#[cfg(target_os = "windows")]
-static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-    CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: COLOR_4C4C4C,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
-];
 
-#[cfg(target_os = "linux")]
-static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-    CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: COLOR_4C4C4C,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
-];
-
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
-static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-    CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(2))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(11))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: COLOR_4C4C4C,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
-];
 
 /// Single-line text input widget with platform-native styling.
 ///
@@ -626,7 +598,6 @@ static TEXT_INPUT_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
 #[repr(C)]
 pub struct TextInput {
     pub text_input_state: TextInputStateWrapper,
-    pub placeholder_style: CssPropertyWithConditionsVec,
     pub container_style: CssPropertyWithConditionsVec,
     pub label_style: CssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
@@ -771,9 +742,6 @@ impl Default for TextInput {
     fn default() -> Self {
         Self {
             text_input_state: TextInputStateWrapper::default(),
-            placeholder_style: CssPropertyWithConditionsVec::from_const_slice(
-                TEXT_INPUT_PLACEHOLDER_PROPS,
-            ),
             container_style: CssPropertyWithConditionsVec::from_const_slice(
                 TEXT_INPUT_CONTAINER_PROPS,
             ),
@@ -918,8 +886,6 @@ impl TextInput {
         })
         .into();
     }
-
-    #[must_use]
     pub fn with_on_focus_lost<C: Into<TextInputOnFocusLostCallback>>(
         mut self,
         refany: RefAny,
@@ -929,15 +895,7 @@ impl TextInput {
         self
     }
 
-    pub fn set_placeholder_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.placeholder_style = style;
-    }
 
-    #[must_use]
-    pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
-        self.set_placeholder_style(style);
-        self
-    }
 
     pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
         self.container_style = style;
@@ -2151,9 +2109,7 @@ mod autotest_generated {
 
     #[test]
     fn set_text_touches_nothing_but_the_buffer() {
-        let mut input = TextInput::create()
-            .with_placeholder("type here".into())
-            .with_placeholder_style(style(3));
+        let mut input = TextInput::create().with_placeholder("type here".into());
         let before = input.clone();
         input.set_text("abc".into());
 
@@ -2166,7 +2122,6 @@ mod autotest_generated {
                 .map(|s| s.as_str().to_string()),
             Some("type here".to_string()),
         );
-        assert_eq!(input.placeholder_style, before.placeholder_style);
         assert_eq!(input.container_style, before.container_style);
         assert_eq!(input.label_style, before.label_style);
         assert_eq!(
@@ -2263,32 +2218,20 @@ mod autotest_generated {
     fn each_style_setter_writes_exactly_one_slot() {
         let marker = style(1);
 
-        let mut a = TextInput::create();
-        a.set_placeholder_style(marker.clone());
-        assert_eq!(a.placeholder_style, marker);
-        assert_eq!(a.container_style, TextInput::create().container_style);
-        assert_eq!(a.label_style, TextInput::create().label_style);
-
         let mut b = TextInput::create();
         b.set_container_style(marker.clone());
         assert_eq!(b.container_style, marker);
-        assert_eq!(b.placeholder_style, TextInput::create().placeholder_style);
         assert_eq!(b.label_style, TextInput::create().label_style);
 
         let mut c = TextInput::create();
         c.set_label_style(marker.clone());
         assert_eq!(c.label_style, marker);
-        assert_eq!(c.placeholder_style, TextInput::create().placeholder_style);
         assert_eq!(c.container_style, TextInput::create().container_style);
     }
 
     #[test]
     fn the_with_style_builders_are_exactly_their_setters() {
         let s = style(2);
-
-        let mut a = TextInput::create();
-        a.set_placeholder_style(s.clone());
-        assert_eq!(a, TextInput::create().with_placeholder_style(s.clone()));
 
         let mut b = TextInput::create();
         b.set_container_style(s.clone());
@@ -2303,7 +2246,6 @@ mod autotest_generated {
     fn style_setters_accept_an_empty_vector_and_survive_rendering() {
         let empty = CssPropertyWithConditionsVec::from_vec(Vec::new());
         let input = TextInput::create()
-            .with_placeholder_style(empty.clone())
             .with_container_style(empty.clone())
             .with_label_style(empty.clone());
         assert!(input.container_style.is_empty());
@@ -2831,11 +2773,9 @@ mod autotest_generated {
 
     #[test]
     fn dom_keeps_the_configured_styles_on_the_nodes_they_were_set_for() {
-        let placeholder_style = style(1);
         let label_style = style(2);
         let container_style = style(3);
         let dom = TextInput::create()
-            .with_placeholder_style(placeholder_style.clone())
             .with_label_style(label_style.clone())
             .with_container_style(container_style.clone())
             .dom();

@@ -447,6 +447,7 @@ pub fn rule_ends_with(path: &CssPath, target: Option<CssPathPseudoSelector>) -> 
                 | CssPathPseudoSelector::Backdrop
                 | CssPathPseudoSelector::Dragging
                 | CssPathPseudoSelector::DragOver
+                | CssPathPseudoSelector::Placeholder
         )
     }
 
@@ -644,6 +645,14 @@ fn match_pseudo_selector(
             // If not specifically looking for :lang, it doesn't match structurally
             false
         }
+        // `::placeholder` styles PAINTED GLYPHS, not the node, so it can only
+        // match the dedicated resolve the engine does for the prompt - the
+        // same "expected ending" gate the interactive pseudos use.
+        CssPathPseudoSelector::Placeholder => match_interactive_pseudo(
+            &CssPathPseudoSelector::Placeholder,
+            expected_path_ending,
+            is_last_content_group,
+        ),
         // `:root` is matched in `match_single_selector` (it needs `node_id`), so it
         // never reaches here — return false defensively.
         CssPathPseudoSelector::Root => false,

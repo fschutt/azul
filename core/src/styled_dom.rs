@@ -218,6 +218,14 @@ pub struct StyledNodeState {
     pub dragging: bool,
     /// A dragged element is over this drop target (:drag-over)
     pub drag_over: bool,
+    /// The PROMPT of an empty editable is being styled (`::placeholder`).
+    ///
+    /// A pseudo-ELEMENT rather than a state of the node: it is never set on
+    /// a real node during the cascade. The engine turns it on for the single
+    /// resolve that produces the prompt's own style, so `::placeholder`
+    /// rules travel the same bucketing/inheritance/lookup path as `:hover`
+    /// and `:focus` instead of needing storage of their own.
+    pub placeholder: bool,
 }
 
 impl fmt::Debug for StyledNodeState {
@@ -275,6 +283,7 @@ impl StyledNodeState {
             backdrop: false,
             dragging: false,
             drag_over: false,
+            placeholder: false,
         }
     }
 
@@ -310,6 +319,11 @@ impl StyledNodeState {
             && !self.backdrop
             && !self.dragging
             && !self.drag_over
+            // The `::placeholder` pseudo-ELEMENT is NOT the normal state:
+            // leaving it out here sent the prompt's resolve down the
+            // compact-cache fast path, which is keyed for the normal state,
+            // so a `::placeholder` rule silently never applied.
+            && !self.placeholder
     }
 
     /// Create from `PseudoStateFlags`
@@ -328,6 +342,7 @@ impl StyledNodeState {
             backdrop: flags.backdrop,
             dragging: flags.dragging,
             drag_over: flags.drag_over,
+            placeholder: flags.placeholder,
         }
     }
 }

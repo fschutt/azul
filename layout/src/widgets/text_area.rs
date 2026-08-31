@@ -241,6 +241,11 @@ static TEXT_AREA_CONTAINER_PROPS: &[CssPropertyWithConditions] = &[
 
 // -- label style (the `<p>` block wrapping the multi-line value) --
 static TEXT_AREA_LABEL_PROPS: &[CssPropertyWithConditions] = &[
+    // See text_input: the prompt's colour through the `::placeholder`
+    // cascade, overridable by any app rule.
+    CssPropertyWithConditions::on_placeholder(CssProperty::const_text_color(StyleTextColor {
+        inner: COLOR_9B9B9B,
+    })),
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
     CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Relative)),
@@ -254,35 +259,12 @@ static TEXT_AREA_LABEL_PROPS: &[CssPropertyWithConditions] = &[
     ))),
 ];
 
-// -- placeholder style --
-//
-// An absolutely-positioned `<p>` overlay inside the editable container. It is
-// marked `contenteditable="false"` so the engine's inheritance walk stops at it
-// and the prompt never becomes part of the buffer, and it is toggled with
-// `display` as well as `opacity`: a hidden-but-laid-out overlay would still own
-// the container's first inline layout, which is what
-// `LayoutWindow::reshape_text_node` picks up when it looks for the IFC to write
-// an edit into.
-static TEXT_AREA_PLACEHOLDER_PROPS: &[CssPropertyWithConditions] = &[
-    CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Block)),
-    CssPropertyWithConditions::simple(CssProperty::const_flex_grow(LayoutFlexGrow::const_new(0))),
-    CssPropertyWithConditions::simple(CssProperty::const_position(LayoutPosition::Absolute)),
-    CssPropertyWithConditions::simple(CssProperty::const_top(LayoutTop::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_left(LayoutLeft::const_px(4))),
-    CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
-    CssPropertyWithConditions::simple(CssProperty::const_text_color(StyleTextColor {
-        inner: COLOR_9B9B9B,
-    })),
-    CssPropertyWithConditions::simple(CssProperty::const_font_family(SANS_SERIF_FAMILY)),
-    CssPropertyWithConditions::simple(CssProperty::const_opacity(StyleOpacity::const_new(100))),
-];
 
 /// Multi-line text input widget.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
 pub struct TextArea {
     pub text_area_state: TextAreaStateWrapper,
-    pub placeholder_style: CssPropertyWithConditionsVec,
     pub container_style: CssPropertyWithConditionsVec,
     pub label_style: CssPropertyWithConditionsVec,
     /// What this control is CALLED, for assistive technology.
@@ -430,9 +412,6 @@ impl Default for TextArea {
     fn default() -> Self {
         Self {
             text_area_state: TextAreaStateWrapper::default(),
-            placeholder_style: CssPropertyWithConditionsVec::from_const_slice(
-                TEXT_AREA_PLACEHOLDER_PROPS,
-            ),
             container_style: CssPropertyWithConditionsVec::from_const_slice(
                 TEXT_AREA_CONTAINER_PROPS,
             ),
@@ -1573,11 +1552,13 @@ mod autotest_generated {
     }
 
     #[test]
-    fn create_ships_all_three_style_vectors_non_empty() {
+    fn create_ships_both_style_vectors_non_empty() {
+        // Two slots, not three: the prompt is styled through the
+        // `::placeholder` cascade (an `on_placeholder` declaration on the
+        // label), not through a separate vector with no node to apply to.
         let area = TextArea::create();
         assert!(!area.container_style.as_ref().is_empty());
         assert!(!area.label_style.as_ref().is_empty());
-        assert!(!area.placeholder_style.as_ref().is_empty());
     }
 
     #[test]
@@ -1941,11 +1922,9 @@ mod autotest_generated {
     #[test]
     fn container_style_does_not_leak_into_the_other_style_slots() {
         let default_label = TextArea::create().label_style;
-        let default_placeholder = TextArea::create().placeholder_style;
         let area = TextArea::create().with_container_style(style(1));
 
         assert_eq!(area.label_style, default_label);
-        assert_eq!(area.placeholder_style, default_placeholder);
     }
 
     // ==================================================================

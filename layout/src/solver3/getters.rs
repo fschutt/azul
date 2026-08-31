@@ -2966,10 +2966,32 @@ pub fn get_style_properties(
     system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
     viewport_size: PhysicalSize,
 ) -> StyleProperties {
+    let node_state = styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+    get_style_properties_for_state(styled_dom, dom_id, system_style, viewport_size, &node_state)
+}
+
+/// [`get_style_properties`] resolved against an EXPLICIT pseudo-state rather
+/// than the node's own.
+///
+/// The engine's `::placeholder` painter is the caller: the prompt is painted
+/// GLYPHS, not a node, so no node's state can carry the pseudo-element.
+/// Passing the state in lets the prompt's style come out of the SAME cascade
+/// every other property uses, instead of a parallel lookup that would drift.
+#[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// # Panics
+///
+/// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the font-family list).
+pub fn get_style_properties_for_state(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
+    viewport_size: PhysicalSize,
+    node_state: &azul_core::styled_dom::StyledNodeState,
+) -> StyleProperties {
     use azul_css::props::basic::{PhysicalSize, PropertyContext, ResolutionContext};
 
     let node_data = &styled_dom.node_data.as_container()[dom_id];
-    let node_state = &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
     let cache = &styled_dom.css_property_cache.ptr;
 
     // Fast path: use compact cache reverse map (works for inherited values on text nodes).

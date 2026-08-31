@@ -88,6 +88,7 @@ mod autotest_generated {
             backdrop: all,
             dragging: all,
             drag_over: all,
+            placeholder: all,
         }
     }
 

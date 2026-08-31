@@ -188,16 +188,6 @@ impl NumberInput {
         self
     }
 
-    pub fn set_placeholder_style(&mut self, style: CssPropertyWithConditionsVec) {
-        self.text_input.placeholder_style = style;
-    }
-
-    #[must_use]
-    pub fn with_placeholder_style(mut self, style: CssPropertyWithConditionsVec) -> Self {
-        self.set_placeholder_style(style);
-        self
-    }
-
     pub fn set_container_style(&mut self, style: CssPropertyWithConditionsVec) {
         self.text_input.container_style = style;
     }
@@ -1042,14 +1032,6 @@ mod autotest_generated {
         for n in 0..4 {
             let s = style(n);
 
-            let a = NumberInput::create(1.0).with_placeholder_style(s.clone());
-            let mut b = NumberInput::create(1.0);
-            b.set_placeholder_style(s.clone());
-            assert_eq!(
-                a, b,
-                "with_placeholder_style != set_placeholder_style ({n})"
-            );
-
             let a = NumberInput::create(1.0).with_container_style(s.clone());
             let mut b = NumberInput::create(1.0);
             b.set_container_style(s.clone());
@@ -1074,11 +1056,9 @@ mod autotest_generated {
         assert_ne!(container, label, "the fixture must be distinguishable");
 
         let input = NumberInput::create(0.0)
-            .with_placeholder_style(placeholder.clone())
             .with_container_style(container.clone())
             .with_label_style(label.clone());
 
-        assert_eq!(input.text_input.placeholder_style, placeholder);
         assert_eq!(input.text_input.container_style, container);
         assert_eq!(input.text_input.label_style, label);
         assert_eq!(

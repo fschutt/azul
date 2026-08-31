@@ -38317,6 +38317,9 @@
                                 },
                                 "drag_over": {
                                     "type": "bool"
+                                },
+                                "placeholder": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -45598,7 +45601,8 @@
                                 "Visited": {},
                                 "Backdrop": {},
                                 "Dragging": {},
-                                "DragOver": {}
+                                "DragOver": {},
+                                "Placeholder": {}
                             }
                         ],
                         "repr": "C"
@@ -48929,9 +48933,6 @@
                                 "text_input_state": {
                                     "type": "TextInputStateWrapper"
                                 },
-                                "placeholder_style": {
-                                    "type": "CssPropertyWithConditionsVec"
-                                },
                                 "container_style": {
                                     "type": "CssPropertyWithConditionsVec"
                                 },
@@ -49109,31 +49110,6 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
-                            },
-                            "set_placeholder_style": {
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "style": "CssPropertyWithConditionsVec"
-                                    }
-                                ],
-                                "fn_body": "object.set_placeholder_style(style)"
-                            },
-                            "with_placeholder_style": {
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "style": "CssPropertyWithConditionsVec"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "TextInput"
-                                },
-                                "fn_body": "object.with_placeholder_style(style)"
                             },
                             "set_container_style": {
                                 "fn_args": [
@@ -49646,31 +49622,6 @@
                                     "type": "Dom"
                                 },
                                 "fn_body": "object.dom()"
-                            },
-                            "set_placeholder_style": {
-                                "fn_args": [
-                                    {
-                                        "self": "refmut"
-                                    },
-                                    {
-                                        "style": "CssPropertyWithConditionsVec"
-                                    }
-                                ],
-                                "fn_body": "object.set_placeholder_style(style)"
-                            },
-                            "with_placeholder_style": {
-                                "fn_args": [
-                                    {
-                                        "self": "value"
-                                    },
-                                    {
-                                        "style": "CssPropertyWithConditionsVec"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "NumberInput"
-                                },
-                                "fn_body": "object.with_placeholder_style(style)"
                             },
                             "set_container_style": {
                                 "fn_args": [
@@ -54075,9 +54026,6 @@
                             {
                                 "text_area_state": {
                                     "type": "TextAreaStateWrapper"
-                                },
-                                "placeholder_style": {
-                                    "type": "CssPropertyWithConditionsVec"
                                 },
                                 "container_style": {
                                     "type": "CssPropertyWithConditionsVec"
@@ -76554,7 +76502,8 @@
                                 "Backdrop": {},
                                 "Dragging": {},
                                 "DragOver": {},
-                                "Root": {}
+                                "Root": {},
+                                "Placeholder": {}
                             }
                         ],
                         "repr": "C, u8"
