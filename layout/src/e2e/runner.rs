@@ -4445,6 +4445,52 @@ mod tests {
     }
 
     #[test]
+    fn typing_then_tabbing_into_a_filled_input_still_seats_the_caret_at_the_end() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        // Two fields: an empty one to type into, then a FILLED one to tab to.
+        let mut dom = Dom::create_body()
+            .with_child(TextInput::create().dom())
+            .with_child(TextInput::create().with_text("42".into()).dom());
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; height: 300px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        // THE DEVICE BUG (2026-08-31, second report): typing into the first
+        // field and THEN tabbing lands the caret MID-TEXT in the second one
+        // ("4|2"), i.e. at the byte offset the PREVIOUS field's session held,
+        // instead of at the end of the new field's own text.
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "type_then_tab_seats_caret_at_end",
+            "setup": { "window_width": 600, "window_height": 300, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "x", "text": "x" },
+                { "op": "key_up", "key": "x" },
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "get_cursor_state" },
+                { "op": "assert_response", "contains": "\"position\":1" },
+                { "op": "get_cursor_state" },
+                { "op": "assert_response", "contains": "\"affinity\":\"trailing\"" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(
+            result.status, "pass",
+            "after typing, Tab must seat the caret at the END of the next \
+             field's own text, not at the previous session's byte offset: {:#?}",
+            result.steps
+        );
+    }
+
+    #[test]
     fn typing_into_the_text_input_widget_paints_the_glyph() {
         use azul_layout::widgets::text_input::TextInput;
 

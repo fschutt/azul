@@ -8141,9 +8141,34 @@ impl LayoutWindow {
             return true;
         }
 
-        // Now we can safely get the text layout (layout pass has completed)
+        // Now we can safely get the text layout (layout pass has completed).
+        //
+        // A bare TEXT LEAF usually generates no layout node of its own - the
+        // inline layout lives on its IFC ROOT (the value `<p>`) - so looking
+        // it up by the leaf alone returns None for every FILLED field, and
+        // the seed fell through to the (0, 0) fallback below. With Trailing
+        // affinity that is the trailing edge of the FIRST cluster, i.e. the
+        // caret landing between the two characters of "42" when tabbing into
+        // a NumberInput (device report, 2026-08-31). Walk up to the nearest
+        // ancestor that does own an inline layout.
         let text_layout = self
             .get_inline_layout_for_node(pending.dom_id, pending.text_node_id)
+            .or_else(|| {
+                let lr = self.layout_results.get(&pending.dom_id)?;
+                let hierarchy = lr.styled_dom.node_hierarchy.as_container();
+                let mut cur = hierarchy
+                    .get(pending.text_node_id)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+                while let Some(n) = cur {
+                    if let Some(l) = self.get_inline_layout_for_node(pending.dom_id, n) {
+                        return Some(l);
+                    }
+                    cur = hierarchy
+                        .get(n)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+                }
+                None
+            })
             .cloned();
 
         // Initialize cursor at end of text
@@ -8230,12 +8255,17 @@ impl LayoutWindow {
             return false;
         }
 
+        // LAST-RESORT SEED: the START of the text, never the trailing edge of
+        // the first cluster. `Trailing` here reads as "after cluster 0",
+        // which paints a caret MID-TEXT ("4|2") and looks like a positioning
+        // bug rather than a fallback. Leading is the honest answer when no
+        // cluster could be resolved.
         let cursor = dense_cursor.or(sparse_cursor).unwrap_or(TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,
                 start_byte_in_run: 0,
             },
-            affinity: CursorAffinity::Trailing,
+            affinity: CursorAffinity::Leading,
         });
         if std::env::var_os("AZ_FOCUS_DEBUG").is_some() {
             eprintln!(
