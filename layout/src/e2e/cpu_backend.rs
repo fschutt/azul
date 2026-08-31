@@ -613,3 +613,194 @@ impl CpuBackend {
         all_damage
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use azul_css::AzString;
+    use rust_fontconfig::FcFontCache;
+
+    /// Control: the same field WITHOUT the scroll column (no layer). If this
+    /// is green while the column variant is red, the truncation lives in the
+    /// LAYERED render path, not in text rendering itself.
+    #[test]
+    fn first_flat_frame_paints_the_placeholder_fully() {
+        use crate::widgets::text_input::TextInput;
+        let mut dom = Dom::create_body().with_child(
+            TextInput::create()
+                .with_placeholder("Type something".into())
+                .dom(),
+        );
+        let (css, _) =
+            azul_css::parser2::new_from_str("body { width: 640px; height: 480px; }");
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut lw = crate::window::LayoutWindow::new(FcFontCache::build()).unwrap();
+        lw.system_animations_override =
+            Some(azul_core::resources::SystemAnimations::disabled());
+        let mut ws = crate::window_state::FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(640.0, 480.0);
+        lw.current_window_state = ws.clone();
+        let resources = RendererResources::default();
+        let cbs = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+        let mut dbg = Some(Vec::new());
+        lw.layout_and_generate_display_list(styled_dom, &ws, &resources, &cbs, &mut dbg)
+            .unwrap();
+        let lr = lw.get_layout_result(&DomId::ROOT_ID).unwrap();
+        let idx = lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(1))
+            .and_then(|v| v.first())
+            .expect("container laid out")
+            .index();
+        let pos = lr.calculated_positions[idx];
+        let size = lr
+            .layout_tree
+            .get(crate::solver3::LayoutNodeId::new(idx))
+            .and_then(|n| n.used_size)
+            .expect("container size");
+        let dpi: f32 = std::env::var("AZ_REPRO_DPI")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2.0);
+        let ink = |frame: &crate::cpurender::AzulPixmap| -> (usize, Vec<usize>) {
+            let (w, data) = (frame.width() as usize, frame.data());
+            let x0 = ((pos.x + 4.0) * dpi) as usize;
+            let x1 = ((pos.x + size.width - 4.0) * dpi) as usize;
+            let rows: Vec<usize> = (0..frame.height() as usize)
+                .filter(|y| {
+                    (x0..x1).any(|x| {
+                        let i = ((y * w + x) * 4).min(data.len().saturating_sub(4)); // clamp: field can overflow the window row
+                        (u16::from(data[i]) + u16::from(data[i + 1]) + u16::from(data[i + 2]))
+                            < 420
+                    })
+                })
+                .collect();
+            let y0 = ((pos.y + 2.0) * dpi) as usize;
+            let y1 = ((pos.y + size.height - 2.0) * dpi) as usize;
+            let inside = rows.iter().filter(|y| (y0..y1).contains(y)).count();
+            (inside, rows)
+        };
+        let mut backend = CpuBackend::new();
+        backend.render_frame(&lw, &resources, 640.0, 480.0, dpi);
+        let frame = backend.last_frame.as_ref().unwrap().clone_pixmap();
+        let (inside_b, rows_b) = ink(&frame);
+        let mut gc = crate::glyph_cache::GlyphCache::new();
+        let flat = crate::cpurender::render_with_font_manager(
+            &lr.display_list,
+            &resources,
+            &lw.font_manager,
+            crate::cpurender::RenderOptions {
+                width: 640.0,
+                height: 480.0,
+                dpi_factor: dpi,
+            },
+            &mut gc,
+        )
+        .unwrap();
+        let (inside_f, rows_f) = ink(&flat);
+        eprintln!(
+            "[repro] dpi={dpi} field_y_dev={:?} backend: inside={inside_b} all_ink_rows={:?} | flat: inside={inside_f} all_ink_rows={:?}",
+            (((pos.y + 2.0) * dpi) as usize, ((pos.y + size.height - 2.0) * dpi) as usize),
+            &rows_b[..rows_b.len().min(30)],
+            &rows_f[..rows_f.len().min(30)]
+        );
+        assert!(inside_b >= 8, "flat control: got {inside_b} ink rows (backend)");
+    }
+
+    /// DEVICE 2026-08-31: on the first frames, every 11px placeholder inside
+    /// the page's scroll column rendered as a ~4px strip of glyph TOPS -
+    /// while the display list carried a healthy 13px clip (dl dumps) and any
+    /// damaged repaint painted the identical list correctly. The layered
+    /// full render is the only path that differs. This pins it headlessly:
+    /// the field's inner text region must contain a full line of ink.
+    #[test]
+    fn first_layered_frame_paints_the_placeholder_fully() {
+        use crate::widgets::text_input::TextInput;
+        let mut dom = Dom::create_body().with_child(
+            Dom::create_div().with_class("col".into()).with_children(
+                vec![
+                    TextInput::create()
+                        .with_placeholder("Type something".into())
+                        .dom(),
+                    Dom::create_div().with_class("filler".into()),
+                ]
+                .into(),
+            ),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "body { width: 640px; height: 480px; }              .col { overflow-y: auto; width: 100%; height: 100%; }              .filler { height: 2000px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let mut lw = crate::window::LayoutWindow::new(FcFontCache::build()).unwrap();
+        lw.system_animations_override =
+            Some(azul_core::resources::SystemAnimations::disabled());
+        let mut ws = crate::window_state::FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(640.0, 480.0);
+        lw.current_window_state = ws.clone();
+        let resources = RendererResources::default();
+        let cbs = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+        let mut dbg = Some(Vec::new());
+        lw.layout_and_generate_display_list(styled_dom, &ws, &resources, &cbs, &mut dbg)
+            .unwrap();
+
+        // The TextInput container: body(0) > col(1) > container(2).
+        let lr = lw.get_layout_result(&DomId::ROOT_ID).unwrap();
+        let idx = lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(2))
+            .and_then(|v| v.first())
+            .expect("container laid out")
+            .index();
+        let pos = lr.calculated_positions[idx];
+        let size = lr
+            .layout_tree
+            .get(crate::solver3::LayoutNodeId::new(idx))
+            .and_then(|n| n.used_size)
+            .expect("container size");
+
+        let dpi = 2.0;
+        let mut backend = CpuBackend::new();
+        backend.render_frame(&lw, &resources, 640.0, 480.0, dpi);
+        let frame = backend
+            .last_frame
+            .as_ref()
+            .expect("first layered frame")
+            .clone_pixmap();
+
+        // Count device rows with ink inside the field's inner text region.
+        let (w, data) = (frame.width() as usize, frame.data());
+        let x0 = ((pos.x + 4.0) * dpi) as usize;
+        let x1 = ((pos.x + size.width - 4.0) * dpi) as usize;
+        let y0 = ((pos.y + 2.0) * dpi) as usize;
+        let y1 = ((pos.y + size.height - 2.0) * dpi) as usize;
+        // Diagnostic: keep the frame on disk for eyeballing.
+        if let Ok(dir) = std::env::var("AZ_REPRO_DUMP") {
+            if let Ok(bytes) = frame.encode_png() {
+                let _ = std::fs::write(format!("{dir}/repro_layered.png"), bytes);
+            }
+        }
+        let ink_rows = (y0..y1)
+            .filter(|y| {
+                (x0..x1).any(|x| {
+                    let i = ((y * w + x) * 4).min(data.len().saturating_sub(4)); // clamp: field can overflow the window row
+                    let (r, g, b) = (data[i], data[i + 1], data[i + 2]);
+                    // darker than the border grey - real glyph ink
+                    (u16::from(r) + u16::from(g) + u16::from(b)) < 420
+                })
+            })
+            .count();
+        assert!(
+            ink_rows >= 8,
+            "the placeholder must paint a full text line in the first layered              frame; got {ink_rows} ink rows in y {y0}..{y1} (the device strip              was <= 5 rows). Field at {pos:?} {size:?}"
+        );
+    }
+}
+

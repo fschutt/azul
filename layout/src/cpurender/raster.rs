@@ -2748,6 +2748,14 @@ fn render_scanlines_aliased_solid<PF: agg_rust::pixfmt_rgba::PixelFormat>(
     }
 }
 
+/// `AZ_LCD_PRETILE=0` disables the pre-blended LCD tile fast path — the
+/// diagnostic that splits "tile content wrong" from "sweep wrong" in one
+/// run. Read once per process.
+fn lcd_pretile_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_LCD_PRETILE").map_or(true, |v| v.trim() != "0"))
+}
+
 /// FreeType default "light" 5-tap FIR LUT (0x56/0x4D/0x08) - the arguments
 /// are compile-time constants, but this was rebuilt per text run per frame
 /// (3x256 f64 mul+floor+cast), measurable inside glyph_lcd_sweep.
@@ -3074,7 +3082,8 @@ fn render_text_with_bg(
     if let Some((bg, proven_rect)) = uniform_bg {
         if text_lcd_enabled() && !force_grayscale && !pretile_disabled {
             if let Some(params) = lcd_linear_params() {
-                if render_text_prerendered_lcd(
+                if lcd_pretile_enabled()
+                    && render_text_prerendered_lcd(
                     glyphs,
                     font_hash,
                     font_size_px,
@@ -3162,6 +3171,9 @@ fn render_text_prerendered_lcd(
     let lut = lcd_distribution_lut();
 
     // Combined clip: the item clip_rect ∩ the stack clip, device pixels.
+    // NOTE: `clip_rect` arrives ALREADY scroll-projected by the caller
+    // (`text_clip = scroll_rect(clip_rect)` in the Text arm) — do not
+    // subtract `scroll_offset` here again.
     let cr = clip_rect;
     let mut cx0 = (cr.origin.x * dpi_factor).floor() as i32;
     let mut cy0 = (cr.origin.y * dpi_factor).floor() as i32;
