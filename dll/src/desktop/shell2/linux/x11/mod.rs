@@ -4843,8 +4843,15 @@ impl X11Window {
         // flush_a11y_tree_update hook drains the same slot at end-of-pass;
         // MWA-A3e, matches the wayland/macOS backends)
         #[cfg(feature = "a11y")]
+        {
+            // Scroll moved the content: throttled full rebuild into the slot
+            // (bounds + scroll_x/y) before the slot is drained below.
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            self.rebuild_a11y_after_scroll_if_due();
+        }
+        #[cfg(feature = "a11y")]
         if let Some(layout_window) = self.common.layout_window.as_mut() {
-            if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.take() {
+            if let Some(tree_update) = layout_window.a11y_manager.take_pending() {
                 self.accessibility_adapter.update_tree(tree_update);
             }
         }
@@ -6204,7 +6211,7 @@ impl PlatformWindow for X11Window {
                 .common
                 .layout_window
                 .as_mut()
-                .and_then(|lw| lw.a11y_manager.last_tree_update.take());
+                .and_then(|lw| lw.a11y_manager.take_pending());
             if let Some(update) = pending {
                 self.accessibility_adapter.update_tree(update);
             }

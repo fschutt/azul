@@ -982,10 +982,83 @@ pub const CRASH_DUMP_ENV: &str = "AZ_CRASH_DUMP";
 /// the reinvoke-reporter flow is wanted at all.
 static CRASH_CONTACT_SET: AtomicBool = AtomicBool::new(false);
 
-/// Marks that a crash contact exists (set by
-/// `crash_mail::set_crash_contact`); the panic hook only spawns the
-/// reporter process when this is true AND no OTLP endpoint is configured —
-/// with an endpoint the pipeline is automatic and no dialog is owed.
+/// Does telemetry own crash reporting for this process?
+///
+/// `true` when a crash is either auto-reported (an OTLP endpoint is
+/// configured — the hook ships the record synchronously and the queue
+/// carries the rest) or handed to the opt-in REPORTER dialog (the app
+/// registered a crash contact). The shell's plain "unexpected fatal error"
+/// message box yields in both cases: a user should see ONE crash surface,
+/// not the modal AND the reporter window, and not a modal about a crash
+/// that was already reported. With telemetry off (or below the crashes
+/// tier) the modal is the only report surface there is.
+#[must_use]
+pub fn crash_reporting_owned_by_telemetry() -> bool {
+    // At the crashes tier every panic is either shipped (endpoint) or handed
+    // to the reporter dialog (no endpoint) — see `install_panic_hook`.
+    tier().allows_crashes()
+}
+
+/// Re-spawn THIS executable as the crash reporter for `dump`, detached — the
+/// takeover the panic hook uses; `AzApp::run` in the child sees
+/// [`CRASH_DUMP_ENV`] and shows the dialog instead of the app.
+fn spawn_reporter_for(dump: &std::path::Path) -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    std::process::Command::new(exe)
+        .env(CRASH_DUMP_ENV, dump)
+        .stdin(std::process::Stdio::null())
+        .spawn()
+        .is_ok()
+}
+
+/// The newest queued crash dump among `pending` queue files (the hook can
+/// only enqueue; a dump still here on a later launch is a report the user
+/// never sent — the reporter was closed, or crashed with the app).
+fn newest_crash_dump(pending: Vec<std::path::PathBuf>) -> Option<std::path::PathBuf> {
+    pending
+        .into_iter()
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .and_then(PingKind::from_file_name)
+                == Some(PingKind::Crash)
+        })
+        .max_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+}
+
+/// The newest crash dump still waiting in this app's queue, if any.
+#[must_use]
+pub fn pending_crash_dump_path() -> Option<std::path::PathBuf> {
+    let queue = inner().read().ok()?.as_ref()?.queue.clone()?;
+    newest_crash_dump(queue.pending())
+}
+
+/// On a NORMAL launch: if a crash dump from a previous run is still queued
+/// and the reporter can actually send it (a crash contact is registered and
+/// no endpoint auto-reports), open the reporter for it alongside the app —
+/// a respawn, exactly like the panic hook's. Returns whether one was
+/// spawned. Never inside the reporter process itself, under e2e, or below
+/// the crashes tier.
+pub fn respawn_reporter_for_pending_crash() -> bool {
+    if std::env::var_os(CRASH_DUMP_ENV).is_some() || std::env::var_os("AZ_E2E").is_some() {
+        return false;
+    }
+    if !tier().allows_crashes() || !CRASH_CONTACT_SET.load(Ordering::Relaxed) {
+        return false;
+    }
+    if config_snapshot().signal_url("logs").is_some() {
+        return false;
+    }
+    pending_crash_dump_path().is_some_and(|p| spawn_reporter_for(&p))
+}
+
+/// Records whether a crash-mail contact is registered (set by
+/// `crash_mail::set_crash_contact`). The reporter dialog opens on every
+/// crash-tier panic without an endpoint regardless; the contact decides
+/// whether its Send has a transport, and whether a dump still queued on a
+/// later launch re-opens the reporter (`respawn_reporter_for_pending_crash`).
 pub(crate) fn mark_crash_contact(set: bool) {
     CRASH_CONTACT_SET.store(set, Ordering::Relaxed);
 }
@@ -1216,16 +1289,36 @@ pub fn install_panic_hook() {
                 .to_string();
                 drop(queue.enqueue(PingKind::Crash, &dump));
 
-                // The REPORTER flow: only when the app registered a crash
-                // contact (a mailbox) AND no OTLP endpoint exists — with an
-                // endpoint the pipeline is automatic and no dialog is owed.
+                let endpoint_configured = config_snapshot().signal_url("logs").is_some();
+
+                // Best-effort SYNCHRONOUS ship. The release build is
+                // `panic = "abort"`: the process dies the moment the hooks
+                // return, so the uploader thread never gets another turn and
+                // the crash record would only leave the queue on the NEXT
+                // launch — which, after a crash, may never come. Push what is
+                // queued now with a short timeout; whatever fails stays
+                // queued for that next launch.
+                if endpoint_configured {
+                    const CRASH_UPLOAD_TIMEOUT_SECS: u64 = 3;
+                    drop(crate::telemetry::queue::upload_pending_with_timeout(
+                        &queue,
+                        &config_snapshot(),
+                        CRASH_UPLOAD_TIMEOUT_SECS,
+                    ));
+                }
+
+                // The REPORTER flow: whenever no OTLP endpoint exists — with
+                // an endpoint the pipeline is automatic and no dialog is
+                // owed. A crash CONTACT is not required: the dialog shows the
+                // dump either way and, without a mail transport, points the
+                // user at the file on disk; only its Send needs the contact.
                 // Write the dump to a temp file and reinvoke OUR OWN
                 // executable, detached, with AZ_CRASH_DUMP pointing at it;
                 // the dying process then finishes dying. The reinvoked
                 // process (AzApp::run checks the env var) parses the dump,
                 // shows it (CPU rendering only) and asks about submission.
-                let endpoint_configured = config_snapshot().signal_url("logs").is_some();
-                if CRASH_CONTACT_SET.load(Ordering::Relaxed) && !endpoint_configured {
+                // Never from a headless/e2e run: nobody can dismiss it.
+                if !endpoint_configured && std::env::var_os("AZ_E2E").is_none() {
                     let file = std::env::temp_dir().join(format!(
                         "azul-crash-{}-{}.json",
                         std::process::id(),
@@ -1234,14 +1327,7 @@ pub fn install_panic_hook() {
                             .map_or(0, |d| d.as_secs()),
                     ));
                     if std::fs::write(&file, &dump).is_ok() {
-                        if let Ok(exe) = std::env::current_exe() {
-                            drop(
-                                std::process::Command::new(exe)
-                                    .env(CRASH_DUMP_ENV, &file)
-                                    .stdin(std::process::Stdio::null())
-                                    .spawn(),
-                            );
-                        }
+                        drop(spawn_reporter_for(&file));
                     }
                 }
             }
@@ -1392,4 +1478,32 @@ mod tests {
         const Y2020: u64 = 1_577_836_800_000_000_000;
         assert!(unix_nanos() > Y2020);
     }
+
+    #[test]
+    fn newest_crash_dump_picks_the_latest_crash_file_and_ignores_other_pings() {
+        let dir = std::env::temp_dir().join(format!(
+            "azul-newest-crash-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        ));
+        let queue = PingQueue::new(dir.clone());
+        drop(queue.enqueue(PingKind::Logs, "{}"));
+        let first = queue.enqueue(PingKind::Crash, "{\"n\":1}").expect("enqueue");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let second = queue.enqueue(PingKind::Crash, "{\"n\":2}").expect("enqueue");
+        // Make the ordering explicit even on coarse-mtime filesystems.
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        drop(std::fs::File::open(&second).and_then(|f| f.set_modified(later)));
+
+        let newest = newest_crash_dump(queue.pending()).expect("a crash dump is pending");
+        assert_eq!(newest, second, "the LATEST crash dump wins over {first:?}");
+        assert!(
+            newest_crash_dump(vec![dir.join("not-a-ping.txt")]).is_none(),
+            "foreign files are never a crash dump"
+        );
+        drop(std::fs::remove_dir_all(&dir));
+    }
+
 }

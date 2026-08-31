@@ -1284,7 +1284,7 @@ impl PlatformWindow for WaylandWindow {
                 .common
                 .layout_window
                 .as_mut()
-                .and_then(|lw| lw.a11y_manager.last_tree_update.take());
+                .and_then(|lw| lw.a11y_manager.take_pending());
             if let Some(update) = pending {
                 self.accessibility_adapter.update_tree(update);
             }
@@ -4753,7 +4753,17 @@ impl WaylandWindow {
         // Update accessibility tree on Wayland
         #[cfg(feature = "a11y")]
         {
-            if let Some(tree_update) = layout_window.a11y_manager.last_tree_update.take() {
+            // Scroll moved the content: throttled full rebuild into the slot
+            // (bounds + scroll_x/y) before it is drained. Done on the local
+            // directly — the `self`-taking trait helper cannot run while
+            // `layout_window` is borrowed here.
+            if layout_window.a11y_manager.scroll_rebuild_due(
+                std::time::Instant::now(),
+                std::time::Duration::from_millis(100),
+            ) {
+                layout_window.update_a11y_tree();
+            }
+            if let Some(tree_update) = layout_window.a11y_manager.take_pending() {
                 self.accessibility_adapter.update_tree(tree_update);
             }
         }

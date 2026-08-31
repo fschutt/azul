@@ -102,7 +102,20 @@ pub fn set_up_panic_hooks() {
         // TODO: invoke external app crash handler with the location to the log file
         log::error!("{}", error_str);
 
-        if SHOULD_ENABLE_PANIC_HOOK.load(Ordering::SeqCst) {
+        // The modal is the "report this error" surface — it runs BEFORE the
+        // `panic = "abort"` runtime kills the process, which is the only
+        // reason a release build shows anything at all. It yields when
+        // telemetry owns the crash (auto-reported to an endpoint, or handed
+        // to the opt-in reporter dialog) — one crash surface, not two — and
+        // headless / e2e runs must not block on a dialog nobody can dismiss.
+        #[cfg(feature = "telemetry")]
+        let telemetry_owns_crash = azul_layout::telemetry::crash_reporting_owned_by_telemetry();
+        #[cfg(not(feature = "telemetry"))]
+        let telemetry_owns_crash = false;
+        if SHOULD_ENABLE_PANIC_HOOK.load(Ordering::SeqCst)
+            && !telemetry_owns_crash
+            && std::env::var_os("AZ_E2E").is_none()
+        {
             // tfd (tinyfiledialogs) is desktop-only; Android/iOS have no
             // equivalent modal API from a Rust dep. Log to stderr instead;
             // logcat/console will pick it up.

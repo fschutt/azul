@@ -1,6 +1,8 @@
 //! The crash-reporter dialog — what the user sees when a crashed process
-//! respawned itself with `AZ_CRASH_DUMP=<dump.json>` (telemetry disabled,
-//! crash contact configured; see `telemetry::install_panic_hook`).
+//! respawned itself with `AZ_CRASH_DUMP=<dump.json>`: every crash-tier panic
+//! without an OTLP endpoint (see `telemetry::install_panic_hook`), and a
+//! dump still queued from a previous launch. A crash contact is only needed
+//! for Send; without one the dialog points at the dump on disk.
 //!
 //! Shows the dump (message, location, scope, path-stripped backtrace), asks
 //! for an optional description, and mails dump + message to the configured

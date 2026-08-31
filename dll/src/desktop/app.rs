@@ -345,11 +345,40 @@ impl App {
             azul_layout::telemetry::install_panic_hook();
             azul_layout::telemetry::record_session_start();
             let _ = azul_layout::telemetry::spawn_uploader();
+
+            // `report_problem` is the app's support mailbox — the guide names
+            // it as where crash reports are mailed too — so it ARMS crash
+            // mail (the reporter dialog's Send). Only when the transport is
+            // compiled in (`crash-mail`); the dialog itself runs without one
+            // and points at the dump on disk.
+            #[cfg(feature = "crash-mail")]
+            if let azul_core::resources::OptionEmailAddress::Some(ref addr) = config.report_problem
+            {
+                if azul_layout::telemetry::crash_mail::crash_contact().is_none() {
+                    if let Some(mail) =
+                        azul_layout::telemetry::crash_mail::config_from_report_address(
+                            addr.address.as_str(),
+                        )
+                    {
+                        azul_layout::telemetry::crash_mail::set_crash_contact(mail);
+                    }
+                }
+            }
+
+            // A crash from a PREVIOUS launch whose report was never sent:
+            // open the reporter for it alongside the app (a respawn, exactly
+            // like the panic hook's), when it can actually send.
+            if azul_layout::telemetry::respawn_reporter_for_pending_crash() {
+                crate::plog_info!(
+                    "[azul] a crash dump from a previous launch is pending - opened the crash reporter"
+                );
+            }
         }
 
-        // CRASH-REPORTER TAKEOVER: a crashed sibling process (telemetry off,
-        // crash contact configured) re-spawned this executable with
-        // AZ_CRASH_DUMP=<dump.json>. This invocation IS the crash reporter:
+        // CRASH-REPORTER TAKEOVER: a crashed sibling process (crash tier, no
+        // OTLP endpoint — or a normal launch that found a queued dump)
+        // re-spawned this executable with AZ_CRASH_DUMP=<dump.json>. This
+        // invocation IS the crash reporter:
         // show the dump in a CPU-rendered dialog instead of running the app.
         #[cfg(feature = "telemetry")]
         if let Some(dump) = azul_layout::telemetry::crash_dump_from_env() {

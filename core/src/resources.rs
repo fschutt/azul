@@ -954,7 +954,7 @@ impl AppConfig {
         let system_style = SystemStyle::detect();
         let mut s = Self {
             log_level,
-            enable_visual_panic_hook: false,
+            enable_visual_panic_hook: true,
             enable_logging_on_panic: true,
             termination_behavior: AppTerminationBehavior::default(),
             icon_provider,
