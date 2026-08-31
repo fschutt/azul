@@ -5911,6 +5911,13 @@ where
             }
         }
 
+        // ENGINE-LEVEL PLACEHOLDER (`placeholder` attribute): painted here,
+        // never modelled as a DOM node, so it cannot intercept clicks, own
+        // clusters an editing consumer could seat a caret in, or latch a
+        // stale visibility override - (empty && unfocused) is recomputed
+        // from scratch on every build.
+        self.maybe_paint_placeholder_prompt(builder, node_index, &paint_rect)?;
+
         // Paint the node's visible content.
         if let Some(cached_layout) = node_warm.and_then(|w| w.inline_layout_result.as_ref()) {
             let inline_layout = &cached_layout.layout;
@@ -6062,6 +6069,173 @@ where
             }
         }
 
+        Ok(())
+    }
+
+    /// Paints the `placeholder` attribute's prompt for an EMPTY, unfocused
+    /// contenteditable host: the host's own resolved style at half alpha,
+    /// one line at the content-box origin, clipped to the content box.
+    ///
+    /// Deliberately NOT a DOM node: no hit area, no clusters, no focus
+    /// participation, no show/hide state - the overlay-`<p>` design this
+    /// replaces intercepted clicks meant for the editable and its
+    /// imperative visibility toggles latched (TextArea's prompt never
+    /// returned after blur, 2026-08-31).
+    #[cfg(feature = "text_layout")]
+    #[allow(clippy::cast_precision_loss)]
+    fn maybe_paint_placeholder_prompt(
+        &mut self,
+        builder: &mut DisplayListBuilder,
+        node_index: usize,
+        paint_rect: &LogicalRect,
+    ) -> Result<()> {
+        let Some(node) = self.positioned_tree.tree.get(LayoutNodeId::new(node_index)) else {
+            return Ok(());
+        };
+        let Some(dom_id) = node.dom_node_id else {
+            return Ok(());
+        };
+        let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+        let Some(text) = node_data.get_placeholder() else {
+            return Ok(());
+        };
+        #[cfg(feature = "std")]
+        if std::env::var_os("AZ_PH_DEBUG").is_some() {
+            std::eprintln!("[ph] attr present");
+        }
+        if text.trim().is_empty() {
+            return Ok(());
+        }
+        if !super::getters::is_node_contenteditable_inherited(self.ctx.styled_dom, dom_id) {
+            return Ok(());
+        }
+        #[cfg(feature = "std")]
+        if std::env::var_os("AZ_PH_DEBUG").is_some() {
+            std::eprintln!("[ph] editable ok");
+        }
+        // Only an EMPTY host shows its prompt. The strut case (empty editable
+        // line) has an inline layout with zero items; a host with real text
+        // has items.
+        let content_empty = self
+            .positioned_tree
+            .tree
+            .warm(LayoutNodeId::new(node_index))
+            .and_then(|w| w.inline_layout_result.as_ref())
+            .is_none_or(|c| c.layout.items.is_empty());
+        if !content_empty {
+            return Ok(());
+        }
+        #[cfg(feature = "std")]
+        if std::env::var_os("AZ_PH_DEBUG").is_some() {
+            std::eprintln!("[ph] empty ok");
+        }
+        if super::getters::is_focus_within_or_above(self.ctx.styled_dom, dom_id) {
+            return Ok(());
+        }
+        #[cfg(feature = "std")]
+        if std::env::var_os("AZ_PH_DEBUG").is_some() {
+            std::eprintln!("[ph] unfocused ok");
+        }
+
+        let bp = node.box_props.unpack();
+        let content_box = BorderBoxRect(*paint_rect)
+            .to_content_box(&bp.padding, &bp.border)
+            .rect();
+        if content_box.size.width <= 0.0 || content_box.size.height <= 0.0 {
+            return Ok(());
+        }
+
+        let node_state = self.get_styled_node_state(dom_id);
+        let style = std::sync::Arc::new(super::getters::get_style_properties(
+            self.ctx.styled_dom,
+            dom_id,
+            self.ctx.system_style.as_ref(),
+            azul_css::props::basic::PhysicalSize {
+                width: self.ctx.viewport_size.width,
+                height: self.ctx.viewport_size.height,
+            },
+        ));
+        let _ = node_state; // style resolution reads state internally
+
+        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let glyphs = crate::text3::cache::shape_placeholder_text(
+            text,
+            &style,
+            &self.ctx.font_manager.font_chain_cache,
+            &self.ctx.font_manager.fc_cache,
+            &loaded_fonts,
+        );
+        #[cfg(feature = "std")]
+        if std::env::var_os("AZ_PH_DEBUG").is_some() {
+            std::eprintln!("[ph] shaped {} glyphs (chain cached: {})", glyphs.len(),
+                !self.ctx.font_manager.font_chain_cache.is_empty());
+        }
+        if glyphs.is_empty() {
+            return Ok(());
+        }
+
+        // Half-alpha of the host's own text colour - readable on any theme
+        // without a second colour channel to keep in sync.
+        let color = azul_css::props::basic::ColorU {
+            a: style.color.a / 2,
+            ..style.color
+        };
+
+        // One line at the content-box origin: baseline = origin + scaled
+        // ascent of the first glyph's face.
+        let first = &glyphs[0];
+        let upem = f32::from(first.font_metrics.units_per_em.max(1));
+        let baseline_y =
+            content_box.origin.y + first.font_metrics.ascent / upem * style.font_size_px;
+
+        // Split into per-font runs (fallback can mix faces).
+        let mut pen_x = content_box.origin.x;
+        let mut run: Vec<GlyphInstance> = Vec::with_capacity(glyphs.len());
+        let mut run_hash = first.font_hash;
+        for g in &glyphs {
+            if g.font_hash != run_hash && !run.is_empty() {
+                builder.push_text_run(
+                    core::mem::take(&mut run),
+                    crate::text3::cache::FontHash { font_hash: run_hash },
+                    style.font_size_px,
+                    color,
+                    content_box,
+                    None,
+                    None,
+                );
+                run_hash = g.font_hash;
+            }
+            run.push(GlyphInstance {
+                index: u32::from(g.glyph_id),
+                point: LogicalPosition {
+                    x: pen_x + g.offset.x,
+                    y: baseline_y - g.offset.y,
+                },
+                size: LogicalSize::zero(),
+            });
+            pen_x += g.advance + g.kerning;
+        }
+        if !run.is_empty() {
+            builder.push_text_run(
+                run,
+                crate::text3::cache::FontHash { font_hash: run_hash },
+                style.font_size_px,
+                color,
+                content_box,
+                None,
+                None,
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(not(feature = "text_layout"))]
+    fn maybe_paint_placeholder_prompt(
+        &mut self,
+        _builder: &mut DisplayListBuilder,
+        _node_index: usize,
+        _paint_rect: &LogicalRect,
+    ) -> Result<()> {
         Ok(())
     }
 

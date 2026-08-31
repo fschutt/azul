@@ -4221,8 +4221,13 @@ pub fn collect_font_stacks_from_styled_dom(
         // discriminant to the literal 177 (a source literal lifts correctly).
         let nt_disc =
             unsafe { core::ptr::read((&raw const node_data.internal[i].node_type).cast::<u8>()) };
-        let is_text =
-            nt_disc == 177 || matches!(node_data.internal[i].node_type, NodeType::Text(_));
+        // A node carrying a PLACEHOLDER attribute needs a font exactly like a
+        // text node: the engine paints the prompt with the node's own style,
+        // and without this its family never resolved a chain (placeholder-only
+        // documents shaped to nothing, 2026-08-31).
+        let is_text = nt_disc == 177
+            || matches!(node_data.internal[i].node_type, NodeType::Text(_))
+            || node_data.internal[i].get_placeholder().is_some();
         if !is_text {
             continue;
         }
@@ -4383,13 +4388,21 @@ pub fn collect_used_codepoints(styled_dom: &StyledDom) -> std::collections::BTre
     let mut out = std::collections::BTreeSet::new();
     let node_data = styled_dom.node_data.as_container();
     for node in node_data.internal {
-        let NodeType::Text(s) = &node.node_type else {
-            continue;
+        // A node's PLACEHOLDER attribute is rendered text too (the engine
+        // paints it while the host is empty): without it, a document whose
+        // only visible text is a prompt collected NO codepoints, the chain
+        // prune stripped every font, and the prompt shaped to nothing.
+        let node_text = if let NodeType::Text(s) = &node.node_type {
+            Some(s.as_str())
+        } else {
+            None
         };
-        for c in s.as_str().chars() {
-            let cp = c as u32;
-            if cp >= 0x80 {
-                out.insert(cp);
+        for s in node_text.into_iter().chain(node.get_placeholder()) {
+            for c in s.chars() {
+                let cp = c as u32;
+                if cp >= 0x80 {
+                    out.insert(cp);
+                }
             }
         }
     }
@@ -4414,11 +4427,17 @@ pub fn collect_used_codepoints_all(styled_dom: &StyledDom) -> std::collections::
     let mut out = std::collections::BTreeSet::new();
     let node_data = styled_dom.node_data.as_container();
     for node in node_data.internal {
-        let NodeType::Text(s) = &node.node_type else {
-            continue;
+        // Placeholder attributes count as rendered text - see
+        // `collect_used_codepoints`.
+        let node_text = if let NodeType::Text(s) = &node.node_type {
+            Some(s.as_str())
+        } else {
+            None
         };
-        for c in s.as_str().chars() {
-            out.insert(c);
+        for s in node_text.into_iter().chain(node.get_placeholder()) {
+            for c in s.chars() {
+                out.insert(c);
+            }
         }
     }
     out
@@ -6781,6 +6800,37 @@ pub fn is_node_contenteditable_inherited(styled_dom: &StyledDom, node_id: NodeId
     // Reached root without finding contenteditable - not editable
     false
 }
+
+/// Whether the focused node is this node ITSELF or one of its ANCESTORS.
+///
+/// The engine placeholder's hide rule: widget focus lands on the editable
+/// CONTAINER above the prompt-carrying line, so "the host is focused" means
+/// "me or something above me is focused". Recomputed per display-list build,
+/// which makes the rule latch-free by construction (the 2026-08-31
+/// whack-a-mole class: imperative show/hide overrides stuck forever).
+pub(crate) fn is_focus_within_or_above(styled_dom: &StyledDom, node_id: NodeId) -> bool {
+    let styled = styled_dom.styled_nodes.as_container();
+    if styled
+        .get(node_id)
+        .is_some_and(|n| n.styled_node_state.focused)
+    {
+        return true;
+    }
+    let hierarchy = styled_dom.node_hierarchy.as_container();
+    let mut cur = hierarchy
+        .get(node_id)
+        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+    while let Some(p) = cur {
+        if styled.get(p).is_some_and(|n| n.styled_node_state.focused) {
+            return true;
+        }
+        cur = hierarchy
+            .get(p)
+            .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+    }
+    false
+}
+
 
 /// Find the contenteditable ancestor of a node.
 ///
