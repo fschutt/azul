@@ -1233,19 +1233,21 @@ extern "C" fn default_on_focus_received(mut text_input: RefAny, mut info: Callba
 
     // A text input always has its placeholder as the first child; a hit node
     // without one is not a text input.
-    let Some(_placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
         return Update::DoNothing;
     };
 
     let container = info.get_hit_node();
     adopt_engine_text(&mut text_input.inner, &info, container);
 
-    // The placeholder STAYS while the field is focused and empty — browser
-    // behaviour. The insert path hides it on the first accepted character and
-    // delete-to-empty shows it again. Hiding it on focus left a focused empty
-    // field completely blank (no placeholder, and before the empty-editable
-    // caret no caret either), which is what "the TextInput is not working"
-    // looked like.
+    // Hide the placeholder the moment the field gains focus — the same rule
+    // TextArea uses, and the behaviour the user expects from the desktop
+    // widget (2026-08-31 ruling; the earlier keep-on-focus rule predates the
+    // empty-editable strut caret, which now marks a focused empty field).
+    // `default_on_focus_lost` shows it again when the field blurs empty.
+    if text_input.inner.text.is_empty() {
+        set_placeholder_visible(&mut info, placeholder_text_node_id, false);
+    }
 
     // The engine seeds the caret at the end of the value when focus lands on a
     // contenteditable host; the mirror follows it.
