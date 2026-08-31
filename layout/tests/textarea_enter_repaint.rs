@@ -34,9 +34,11 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-/// body(0) > container(1) > placeholder-p(2) > text(3), label-p(4) > text(5).
+/// body(0) > container(1) > label-p(2) > text(3). The prompt is an
+/// ATTRIBUTE on the value line, not a node (2026-08-31).
 const CONTAINER: usize = 1;
-const LABEL_P: usize = 4;
+const LABEL_P: usize = 2;
+const LABEL_TEXT: usize = 3;
 
 fn dnid(node: usize) -> DomNodeId {
     DomNodeId {
@@ -299,7 +301,7 @@ fn an_overflowing_text_area_registers_as_a_scroller() {
 
     // The wheel-target walk from the text leaf must resolve the CONTAINER
     // (the deepest scroller over the pointer), never chain to the page.
-    let target = h.lw.find_scrollable_ancestor(dnid(5));
+    let target = h.lw.find_scrollable_ancestor(dnid(LABEL_TEXT));
     assert_eq!(
         target,
         Some(dnid(CONTAINER)),
@@ -623,7 +625,7 @@ fn typing_into_an_empty_text_area_until_overflow_makes_the_container_a_scroller(
 
     // The wheel-target walk from the text leaf resolves the container, not
     // the page.
-    let target = h.lw.find_scrollable_ancestor(dnid(5));
+    let target = h.lw.find_scrollable_ancestor(dnid(LABEL_TEXT));
     assert_eq!(
         target,
         Some(dnid(CONTAINER)),

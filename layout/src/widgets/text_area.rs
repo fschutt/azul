@@ -599,11 +599,6 @@ impl TextArea {
             .map(|s| s.as_str().to_string())
             .unwrap_or_default();
 
-        let mut placeholder_style = self.placeholder_style;
-        if !self.text_area_state.inner.text.is_empty() {
-            placeholder_style = hidden_placeholder_style(&placeholder_style);
-        }
-
         let state_ref = RefAny::new(self.text_area_state);
 
         Dom::create_div()
@@ -658,20 +653,17 @@ impl TextArea {
             )
             .with_children(
                 vec![
-                    crate::widgets::widget_p()
-                        .with_ids_and_classes(
-                            vec![Class("__azul-native-text-area-placeholder".into())].into(),
-                        )
-                        .with_css_props(placeholder_style)
-                        // appended, never `with_attributes`: that one replaces the
-                        // whole vector, classes included
-                        .with_attribute(AttributeType::ContentEditable(false))
-                        .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(placeholder)])),
+                    // ONE child: the value <p>, carrying the prompt as an
+                    // ATTRIBUTE the engine paints while the value is empty
+                    // and unfocused. See text_input::dom for the full why.
                     crate::widgets::widget_p()
                         .with_ids_and_classes(
                             vec![Class("__azul-native-text-area-label".into())].into(),
                         )
                         .with_css_props(self.label_style)
+                        // appended, never `with_attributes`: that one replaces
+                        // the whole vector, classes included
+                        .with_attribute(AttributeType::Placeholder(placeholder.into()))
                         .with_children(DomVec::from_vec(vec![Dom::create_text_do_not_use_without_block_level_wrapper(label_text)])),
                 ]
                 .into(),
@@ -679,58 +671,28 @@ impl TextArea {
     }
 }
 
-/// `style` with the placeholder taken out of the flow: `display: none` on top
-/// of `opacity: 0`, so a hidden prompt owns neither pixels nor an inline layout.
-fn hidden_placeholder_style(style: &CssPropertyWithConditionsVec) -> CssPropertyWithConditionsVec {
-    let mut props = style.as_ref().to_vec();
-    props.push(CssPropertyWithConditions::simple(
-        CssProperty::const_display(LayoutDisplay::None),
-    ));
-    props.push(CssPropertyWithConditions::simple(
-        CssProperty::const_opacity(StyleOpacity::const_new(0)),
-    ));
-    CssPropertyWithConditionsVec::from_vec(props)
+/// The value `<p>` - the editable line the engine paints the `placeholder`
+/// attribute's prompt into while it is empty and unfocused.
+///
+/// Resolved through the same hierarchy hop the container's own layout
+/// guarantees; a subtree of any other shape yields `None` and every handler
+/// bails out. (Was `label_nodes`, returning an overlay node too, until the
+/// prompt became an engine-painted attribute.)
+fn value_node(info: &CallbackInfo) -> Option<DomNodeId> {
+    let child = info.get_first_child(info.get_hit_node())?;
+    // SHAPE GUARD: the value `<p>` always wraps exactly one text leaf, so a
+    // childless first child means the hit node was NOT the container (it was
+    // the value line itself, whose first child IS that leaf). The two-child
+    // layout used to get this for free - `first child -> next sibling` walked
+    // off the end - and a handler that mutates the buffer on a malformed
+    // subtree silently diverges the model from the screen.
+    let node = child.node.into_crate_internal()?;
+    if info.get_children_count(child.dom, node) == 0 {
+        return None;
+    }
+    Some(child)
 }
 
-/// The placeholder `<p>` and the value `<p>`, in that order.
-///
-/// Both handlers and tests resolve them through the same hierarchy hops the
-/// container's own layout guarantees; a subtree of any other shape yields
-/// `None` and every handler bails out.
-fn label_nodes(info: &CallbackInfo) -> Option<(DomNodeId, DomNodeId)> {
-    let placeholder = info.get_first_child(info.get_hit_node())?;
-    let label = info.get_next_sibling(placeholder)?;
-    Some((placeholder, label))
-}
-
-/// Shows or hides the placeholder prompt.
-/// Drop the imperative placeholder override so the CASCADE decides again.
-///
-/// `set_placeholder_visible` writes a USER OVERRIDE, and an override is copied
-/// onto every rebuild by `migrate_user_overrides_from` and OUTRANKS the
-/// cascade — permanently. `dom()` already derives the placeholder's visibility
-/// from the widget's own text, so once the widget is about to be rebuilt the
-/// override is at best redundant and at worst a latch: a placeholder hidden on
-/// the first keystroke never comes back, even over an emptied field.
-///
-/// Identical to the `TextInput`'s, and to the Accordion's before it. Caught here
-/// by `scripts/preflight_contracts.py::check_widget_override_latch` rather than
-/// by a third user report.
-fn clear_placeholder_override(info: &mut CallbackInfo, placeholder: DomNodeId) {
-    use azul_css::props::property::CssPropertyType;
-    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Opacity));
-    info.set_css_property(placeholder, CssProperty::initial(CssPropertyType::Display));
-}
-
-fn set_placeholder_visible(info: &mut CallbackInfo, placeholder: DomNodeId, visible: bool) {
-    let (display, opacity) = if visible {
-        (LayoutDisplay::Block, StyleOpacity::const_new(100))
-    } else {
-        (LayoutDisplay::None, StyleOpacity::const_new(0))
-    };
-    info.set_css_property(placeholder, CssProperty::const_opacity(opacity));
-    info.set_css_property(placeholder, CssProperty::const_display(display));
-}
 
 /// Adopts the engine's text for `node` into the widget's mirror.
 ///
@@ -782,17 +744,15 @@ extern "C" fn default_on_focus_received(mut text_area: RefAny, mut info: Callbac
 
     let text_area = &mut *text_area;
 
-    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+    let Some(_value) = value_node(&info) else {
         return Update::DoNothing;
     };
 
     let container = info.get_hit_node();
     adopt_engine_text(&mut text_area.inner, &info, container);
 
-    // hide the placeholder text
-    if text_area.inner.text.is_empty() {
-        set_placeholder_visible(&mut info, placeholder_text_node_id, false);
-    }
+    // The prompt hides itself: the engine paints it only while the value is
+    // empty AND unfocused, recomputed per display list.
 
     // The engine seeds the caret at the end of the value when focus lands on a
     // contenteditable host; the mirror follows it.
@@ -809,17 +769,14 @@ extern "C" fn default_on_focus_lost(mut text_area: RefAny, mut info: CallbackInf
 
     let text_area = &mut *text_area;
 
-    let Some(placeholder_text_node_id) = info.get_first_child(info.get_hit_node()) else {
+    let Some(_value) = value_node(&info) else {
         return Update::DoNothing;
     };
 
     let container = info.get_hit_node();
     adopt_engine_text(&mut text_area.inner, &info, container);
 
-    // show the placeholder text
-    if text_area.inner.text.is_empty() {
-        set_placeholder_visible(&mut info, placeholder_text_node_id, true);
-    }
+    // The prompt reappears on its own once the blur lands.
 
     let text_area = &mut *text_area;
     let onfocuslost = &mut text_area.on_focus_lost;
@@ -851,7 +808,7 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
         .map(|c| c.inserted_text.as_str().to_string())
         .unwrap_or_default();
 
-    let (placeholder_node_id, _label_node_id) = label_nodes(&info)?;
+    let _value = value_node(&info)?;
     let container = info.get_hit_node();
 
     if inserted_text.is_empty() {
@@ -861,12 +818,6 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
         adopt_engine_text(&mut text_area.inner, &info, container);
         if text_area.inner.get_text() == before {
             return None;
-        }
-        let empty = text_area.inner.get_text().is_empty();
-        // Transition-only for the same reason as the insert path below: a
-        // same-value placeholder write costs a full relayout.
-        if empty != before.is_empty() {
-            set_placeholder_visible(&mut info, placeholder_node_id, empty);
         }
         let result = {
             let text_area = &mut *text_area;
@@ -881,14 +832,6 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
                 },
             }
         };
-        // A rebuild re-derives the placeholder from the widget's own text, so
-        // the override written above must not outlive it.
-        if matches!(
-            result.update,
-            Update::RefreshDom | Update::RefreshDomAllWindows
-        ) {
-            clear_placeholder_override(&mut info, placeholder_node_id);
-        }
         return Some(result.update);
     }
 
@@ -948,26 +891,9 @@ fn default_on_text_input_inner(mut text_area: RefAny, mut info: CallbackInfo) ->
     };
 
     if result.valid == TextInputValid::Yes {
-        // Hide the placeholder — but only on the empty -> non-empty
-        // TRANSITION. The placeholder can only be showing when the pre-edit
-        // value was empty; re-writing the same `display`/`opacity` override
-        // on every accepted keystroke charged a FULL relayout per character
-        // (`display` is a geometry property, and the css chokepoint has no
-        // same-value early-out).
-        if text_area.inner.get_text().is_empty() {
-            set_placeholder_visible(&mut info, placeholder_node_id, false);
-        }
-
+        // No placeholder bookkeeping: the first accepted character makes the
+        // value non-empty and the engine stops painting the prompt.
         mirror_insertion(&mut text_area.inner, &inserted_text, caret);
-
-        // Inside the ACCEPTED branch on purpose: a rejected edit changed
-        // nothing observable and must stay a strict no-op.
-        if matches!(
-            result.update,
-            Update::RefreshDom | Update::RefreshDomAllWindows
-        ) {
-            clear_placeholder_override(&mut info, placeholder_node_id);
-        }
     } else {
         // The engine applies the recorded changeset once the callbacks return,
         // unless one of them vetoes it.
@@ -989,7 +915,7 @@ fn default_on_virtual_key_down_inner(
     let keyboard_state = info.get_current_keyboard_state();
 
     let _keycode = keyboard_state.current_virtual_keycode.into_option()?;
-    let (_placeholder_node_id, _label_node_id) = label_nodes(&info)?;
+    let _value = value_node(&info)?;
 
     let container = info.get_hit_node();
     adopt_engine_text(&mut text_area.inner, &info, container);
@@ -1285,7 +1211,6 @@ mod autotest_generated {
     #[derive(Copy, Clone, Debug)]
     struct Nodes {
         container: usize,
-        placeholder: usize,
         label: usize,
         label_text: usize,
     }
@@ -1296,7 +1221,6 @@ mod autotest_generated {
         /// `NodeHierarchyItemId::NONE` — no node was hit at all.
         Nothing,
         Container,
-        Placeholder,
         /// The value's bare text leaf: it has no children, so every handler
         /// must bail out.
         TextLeaf,
@@ -1330,7 +1254,6 @@ mod autotest_generated {
         let label = one(&styled, "__azul-native-text-area-label");
         let nodes = Nodes {
             container: one(&styled, "__azul-native-text-area-container"),
-            placeholder: one(&styled, "__azul-native-text-area-placeholder"),
             label,
             label_text: first_child(&styled, label),
         };
@@ -1475,7 +1398,6 @@ mod autotest_generated {
                 node: NodeHierarchyItemId::NONE,
             },
             Hit::Container => dom_node(nodes.container),
-            Hit::Placeholder => dom_node(nodes.placeholder),
             Hit::TextLeaf => dom_node(nodes.label_text),
         };
 
@@ -2013,7 +1935,7 @@ mod autotest_generated {
 
         // ...and still produces a DOM.
         let dom = area.dom();
-        assert_eq!(dom.children.as_ref().len(), 2);
+        assert_eq!(dom.children.as_ref().len(), 1);
     }
 
     #[test]
@@ -2095,14 +2017,11 @@ mod autotest_generated {
 
         assert_eq!(
             children.len(),
-            2,
-            "a text area is exactly [placeholder, label]"
+            1,
+            "a text area is exactly [label] - the prompt is an ATTRIBUTE on it"
         );
         assert!(dom.root.has_class("__azul-native-text-area-container"));
-        assert!(children[0]
-            .root
-            .has_class("__azul-native-text-area-placeholder"));
-        assert!(children[1].root.has_class("__azul-native-text-area-label"));
+        assert!(children[0].root.has_class("__azul-native-text-area-label"));
 
         for block in children {
             assert!(matches!(block.root.get_node_type(), NodeType::P));
@@ -2179,41 +2098,37 @@ mod autotest_generated {
             .with_placeholder(AzString::from("hint"))
             .dom();
         let children = dom.children.as_ref();
-        assert!(
-            children[0]
-                .root
-                .attributes()
-                .as_ref()
-                .iter()
-                .any(|a| matches!(a, AttributeType::ContentEditable(false))),
-            "the placeholder is inside the editable host and does not opt out",
+        assert_eq!(children.len(), 1, "the prompt must not be a node at all");
+        assert_eq!(
+            children[0].root.get_placeholder(),
+            Some("hint"),
+            "the prompt rides on the value line as an attribute",
         );
-        assert!(!children[1]
-            .root
-            .attributes()
-            .as_ref()
-            .iter()
-            .any(|a| matches!(a, AttributeType::ContentEditable(_))));
+        assert_eq!(
+            text_of(&children[0]),
+            Some(""),
+            "and it is NOT part of the editable content",
+        );
     }
 
     #[test]
-    fn dom_renders_the_text_into_the_label_and_the_placeholder_into_its_own_node() {
+    fn dom_renders_the_text_into_the_label_and_the_prompt_into_the_attribute() {
         let dom = TextArea::create()
             .with_text(AzString::from("body\nlines"))
             .with_placeholder(AzString::from("hint"))
             .dom();
         let children = dom.children.as_ref();
 
-        assert_eq!(text_of(&children[0]), Some("hint"));
-        assert_eq!(text_of(&children[1]), Some("body\nlines"));
+        assert_eq!(children[0].root.get_placeholder(), Some("hint"));
+        assert_eq!(text_of(&children[0]), Some("body\nlines"));
     }
 
     #[test]
-    fn dom_renders_an_empty_placeholder_node_when_none_was_set() {
-        // The node must still exist: every handler navigates *through* it to
-        // reach the label.
+    fn dom_renders_an_empty_placeholder_attribute_when_none_was_set() {
+        // No prompt set: the attribute is present but empty, and the engine
+        // paints nothing for an empty prompt.
         let dom = TextArea::create().with_text(AzString::from("x")).dom();
-        assert_eq!(text_of(&dom.children.as_ref()[0]), Some(""));
+        assert_eq!(dom.children.as_ref()[0].root.get_placeholder(), Some(""));
     }
 
     #[test]
@@ -2221,7 +2136,7 @@ mod autotest_generated {
         for s in ROUND_TRIP {
             let dom = TextArea::create().with_text(AzString::from(s)).dom();
             assert_eq!(
-                text_of(&dom.children.as_ref()[1]),
+                text_of(&dom.children.as_ref()[0]),
                 Some(s),
                 "the label must render {s:?} verbatim"
             );
@@ -2242,7 +2157,7 @@ mod autotest_generated {
 
         let dom = area.dom();
         assert_eq!(
-            text_of(&dom.children.as_ref()[1]),
+            text_of(&dom.children.as_ref()[0]),
             Some("ab"),
             "the rendered label may only contain real scalars"
         );
@@ -2321,25 +2236,21 @@ mod autotest_generated {
         let dom = TextArea::create()
             .with_text(AzString::from(big.as_str()))
             .dom();
-        assert_eq!(text_of(&dom.children.as_ref()[1]), Some(big.as_str()));
+        assert_eq!(text_of(&dom.children.as_ref()[0]), Some(big.as_str()));
     }
 
     #[test]
     fn styled_dom_navigation_matches_what_the_handlers_assume() {
-        // Every handler walks container -> first child (placeholder) -> next
-        // sibling (label). If that walk ever stops matching the DOM, all of
-        // them silently no-op.
+        // Every handler walks container -> first child (the value line). If
+        // that walk ever stops matching the DOM, all of them silently no-op.
+        // (It used to hop container -> placeholder -> next sibling; the
+        // prompt is an attribute now, so the value line IS the first child.)
         let (styled, nodes) = skeleton();
         let hierarchy = styled.node_hierarchy.as_container();
 
-        let placeholder = hierarchy[NodeId::new(nodes.container)]
+        let label = hierarchy[NodeId::new(nodes.container)]
             .first_child_id(NodeId::new(nodes.container))
             .expect("the container must have a first child");
-        assert_eq!(placeholder.index(), nodes.placeholder);
-
-        let label = hierarchy[placeholder]
-            .next_sibling_id()
-            .expect("the placeholder must have a next sibling");
         assert_eq!(label.index(), nodes.label);
 
         let leaf = hierarchy[label]
@@ -2400,17 +2311,18 @@ mod autotest_generated {
     }
 
     #[test]
-    fn focus_received_hides_the_placeholder_only_while_the_buffer_is_empty() {
+    fn focus_writes_no_placeholder_css_at_all() {
         let empty = RefAny::new(wrapper(""));
         let (update, changes, nodes) = run(Env::default(), &empty, |r, ci| {
             default_on_focus_received(r, ci)
         });
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(
-            opacity_writes(&changes),
-            vec![(nodes.placeholder, 0.0)],
-            "an empty area hides its placeholder on focus"
+        assert!(
+            changes.is_empty(),
+            "focus must write NO css: empty+unfocused is recomputed per \
+             display list, so there is no override to set (or to latch)"
         );
+        let _ = nodes;
 
         let filled = RefAny::new(wrapper("typed"));
         let (update, changes, _) = run(Env::default(), &filled, |r, ci| {
@@ -2463,12 +2375,13 @@ mod autotest_generated {
     }
 
     #[test]
-    fn focus_lost_shows_the_placeholder_only_while_the_buffer_is_empty() {
+    fn blur_writes_no_placeholder_css_at_all() {
         let empty = RefAny::new(wrapper(""));
         let (update, changes, nodes) =
             run(Env::default(), &empty, |r, ci| default_on_focus_lost(r, ci));
         assert_eq!(update, Update::DoNothing);
-        assert_eq!(opacity_writes(&changes), vec![(nodes.placeholder, 1.0)]);
+        assert!(changes.is_empty(), "blur must write no css either");
+        let _ = nodes;
 
         let filled = RefAny::new(wrapper("typed"));
         let (update, changes, _) = run(Env::default(), &filled, |r, ci| {
@@ -2619,7 +2532,7 @@ mod autotest_generated {
         // the walk stops one step in.
         let data = RefAny::new(wrapper("abc"));
         let (out, changes, _) = run(
-            Env::typed("x").hitting(Hit::Placeholder),
+            Env::typed("x").hitting(Hit::TextLeaf),
             &data,
             default_on_text_input_inner,
         );
@@ -2630,18 +2543,20 @@ mod autotest_generated {
     }
 
     #[test]
-    fn text_input_mirrors_the_insertion_and_hides_the_placeholder() {
-        // The FIRST character into an empty area hides the placeholder...
+    fn text_input_mirrors_the_insertion_and_writes_no_placeholder_css() {
+        // The FIRST character into an empty area used to write a display /
+        // opacity override to hide the overlay prompt. The prompt is an
+        // engine-painted attribute now: the line simply stops being empty.
         let data = RefAny::new(wrapper(""));
         let (out, changes, nodes) = run(Env::typed("cd"), &data, default_on_text_input_inner);
 
         assert_eq!(out, Some(Update::DoNothing), "no hook means no refresh");
         assert_eq!(read(&data).get_text(), "cd");
-        assert_eq!(
-            opacity_writes(&changes),
-            vec![(nodes.placeholder, 0.0)],
-            "the empty -> non-empty transition hides the placeholder"
+        assert!(
+            opacity_writes(&changes).is_empty(),
+            "typing must not toggle any placeholder override"
         );
+        let _ = nodes;
         assert!(
             text_writes(&changes).is_empty(),
             "the widget repainted the value itself; the engine owns the buffer"

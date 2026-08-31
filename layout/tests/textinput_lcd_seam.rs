@@ -32,9 +32,10 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-/// body(0) > container(1) > placeholder-p(2) > text(3), label-p(4) > text(5).
+/// body(0) > container(1) > label-p(2) > text(3). The prompt is an
+/// ATTRIBUTE on the value line, not a node (2026-08-31).
 const CONTAINER: usize = 1;
-const LABEL_P: usize = 4;
+const LABEL_P: usize = 2;
 
 fn dnid(node: usize) -> DomNodeId {
     DomNodeId {
