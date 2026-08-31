@@ -3,7 +3,7 @@
 //! Manages keyboard focus, tab navigation, and programmatic focus changes
 //! with a recursive event system for focus/blur callbacks (max depth: 5).
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 
 use azul_core::{
     callbacks::{FocusTarget, FocusTargetPath},
@@ -55,6 +55,20 @@ pub struct FocusManager {
     pub focused_node: Option<DomNodeId>,
     /// Pending focus request from callback
     pub pending_focus_request: Option<FocusTarget>,
+
+    /// Whether the CURRENT focus should be indicated visually - the W3C
+    /// `:focus-visible` rule.
+    ///
+    /// Focus and its INDICATION are different questions. A browser rings a
+    /// control focused by Tab and does NOT ring one focused by a click or by
+    /// `autofocus`: a form that opens with its first field ringed looks like
+    /// the user pressed Tab when they did not. The focus ring reads this;
+    /// hit-testing, activation and the a11y tree read `focused_node` and do
+    /// not care how focus arrived.
+    ///
+    /// Set by the route that MOVES focus: keyboard navigation sets it, a
+    /// pointer click and `autofocus` clear it.
+    pub focus_is_visible: bool,
 
     // --- W3C "flag and defer" pattern fields ---
     /// Flag indicating that cursor initialization is pending (set during focus, consumed after layout)
@@ -122,6 +136,7 @@ impl FocusManager {
         Self {
             focused_node: None,
             pending_focus_request: None,
+            focus_is_visible: false,
             cursor_needs_initialization: false,
             pending_contenteditable_focus: None,
             deferred_focus_target: None,
@@ -140,6 +155,18 @@ impl FocusManager {
     /// Note: Cursor initialization/clearing is now handled by `CursorManager`.
     /// The event system should check if the newly focused node is contenteditable
     /// and call `CursorManager::initialize_cursor_at_end()` if needed.
+    /// Move focus and say whether it should be INDICATED (see
+    /// [`Self::focus_is_visible`]): `true` for keyboard navigation, `false`
+    /// for a pointer click or `autofocus`.
+    pub const fn set_focused_node_with_visibility(
+        &mut self,
+        node: Option<DomNodeId>,
+        visible: bool,
+    ) {
+        self.focused_node = node;
+        self.focus_is_visible = visible;
+    }
+
     pub const fn set_focused_node(&mut self, node: Option<DomNodeId>) {
         self.focused_node = node;
     }
@@ -333,11 +360,24 @@ impl crate::managers::NodeIdRemap for FocusManager {
 /// `TabIndex::NoKeyboardFocus` (tabindex=-1) nodes stay focusable by click /
 /// API but are NEVER part of the Tab order. The previous linear `NodeId` walk
 /// both ignored positive-tabindex ordering and tabbed onto tabindex=-1 nodes.
-fn collect_tab_order(layout_results: &BTreeMap<DomId, DomLayoutResult>) -> Vec<DomNodeId> {
+fn collect_tab_order(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    out_of_scope: &BTreeSet<DomId>,
+) -> Vec<DomNodeId> {
     use azul_core::dom::TabIndex;
     let mut positive: Vec<(u32, DomNodeId)> = Vec::new();
     let mut auto: Vec<DomNodeId> = Vec::new();
     for (dom_id, layout) in layout_results {
+        // A DOM that is not part of THIS window's focus scope contributes no
+        // tab stops. A transient popup is a separate OS window whose content
+        // DOM the PARENT lays out, so without this the parent's Tab order
+        // walked straight into the popup - and kept doing so after the popup
+        // closed, which stranded the keyboard there (device report,
+        // 2026-09-01). Inside the popup's own window that same content is the
+        // ROOT dom and hosts no popups, so it stays fully tabbable there.
+        if out_of_scope.contains(dom_id) {
+            continue;
+        }
         let node_data = layout.styled_dom.node_data.as_container();
         for index in 0..node_data.len() {
             let node_id = NodeId::new(index);
@@ -555,6 +595,7 @@ pub fn resolve_focus_target_or_defer(
     focus_manager: &mut FocusManager,
     focus_target: &FocusTarget,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    out_of_scope: &BTreeSet<DomId>,
 ) -> Result<FocusResolution, UpdateFocusWarning> {
     // `NoFocus` means the app WANTS focus cleared; that is answerable without
     // any layout and must not be queued (it would then fire later, clearing a
@@ -565,7 +606,7 @@ pub fn resolve_focus_target_or_defer(
     }
 
     let current_focus = focus_manager.get_focused_node().copied();
-    resolve_focus_target(focus_target, layout_results, current_focus)
+    resolve_focus_target(focus_target, layout_results, current_focus, out_of_scope)
 }
 
 /// Resolve a `FocusTarget` to a [`FocusResolution`] (never `Deferred` —
@@ -580,6 +621,7 @@ pub fn resolve_focus_target(
     focus_target: &FocusTarget,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     current_focus: Option<DomNodeId>,
+    out_of_scope: &BTreeSet<DomId>,
 ) -> Result<FocusResolution, UpdateFocusWarning> {
     use azul_core::callbacks::FocusTarget::{First, Id, Last, Next, NoFocus, Path, Previous};
 
@@ -641,22 +683,26 @@ pub fn resolve_focus_target(
         // MWA-C-focus_cursor: sequential navigation goes through the W3C tab
         // order (positive tabindex ascending, then document order; -1
         // excluded) instead of the old raw-NodeId walk.
-        Previous => Ok(
-            next_in_tab_order(&collect_tab_order(layout_results), current_focus, false)
-                .map_or(FocusResolution::NotFound, FocusResolution::Resolved),
-        ),
+        Previous => Ok(next_in_tab_order(
+            &collect_tab_order(layout_results, out_of_scope),
+            current_focus,
+            false,
+        )
+        .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
 
-        Next => Ok(
-            next_in_tab_order(&collect_tab_order(layout_results), current_focus, true)
-                .map_or(FocusResolution::NotFound, FocusResolution::Resolved),
-        ),
+        Next => Ok(next_in_tab_order(
+            &collect_tab_order(layout_results, out_of_scope),
+            current_focus,
+            true,
+        )
+        .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
 
-        First => Ok(collect_tab_order(layout_results)
+        First => Ok(collect_tab_order(layout_results, out_of_scope)
             .first()
             .copied()
             .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
 
-        Last => Ok(collect_tab_order(layout_results)
+        Last => Ok(collect_tab_order(layout_results, out_of_scope)
             .last()
             .copied()
             .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
@@ -884,7 +930,7 @@ mod autotest_generated {
     }
 
     fn tab_order_of(fixture: StyledDom) -> Vec<DomNodeId> {
-        collect_tab_order(&window(vec![(dom(0), fixture)]))
+        collect_tab_order(&window(vec![(dom(0), fixture)]), &BTreeSet::new())
     }
 
     fn class_path(class: &str) -> CssPath {
@@ -1306,7 +1352,7 @@ mod autotest_generated {
 
     #[test]
     fn collect_tab_order_empty_window_is_empty() {
-        assert_eq!(collect_tab_order(&BTreeMap::new()), Vec::new());
+        assert_eq!(collect_tab_order(&BTreeMap::new(), &BTreeSet::new()), Vec::new());
     }
 
     #[test]
@@ -1369,6 +1415,39 @@ mod autotest_generated {
         );
     }
 
+    /// A TRANSIENT POPUP's content DOM contributes NO tab stops to the
+    /// parent window's order.
+    ///
+    /// The parent lays the popup's content out and keeps it in
+    /// `layout_results`, so without an explicit scope the parent's Tab walked
+    /// straight into the popup - and kept walking into it after the popup had
+    /// CLOSED, which stranded the keyboard there: Tab appeared to stop
+    /// working entirely (device report, 2026-09-01). Inside the popup's own
+    /// window that same content is the ROOT dom and hosts no popups, so its
+    /// scope is empty and it stays fully tabbable there.
+    #[test]
+    fn collect_tab_order_skips_doms_outside_this_windows_focus_scope() {
+        let results = window(vec![(dom(0), tab_fixture()), (dom(1), tab_fixture())]);
+
+        let both = collect_tab_order(&results, &BTreeSet::new());
+        assert!(
+            both.iter().any(|n| n.dom == dom(1)),
+            "premise: with an empty scope BOTH doms contribute stops",
+        );
+
+        // Dom 1 is a popup hosted by this window.
+        let popup: BTreeSet<DomId> = [dom(1)].into_iter().collect();
+        let parent_only = collect_tab_order(&results, &popup);
+        assert!(
+            parent_only.iter().all(|n| n.dom == dom(0)),
+            "the popup's dom must contribute no tab stops to its parent: {parent_only:?}",
+        );
+        assert!(
+            !parent_only.is_empty(),
+            "and the parent's own stops must survive",
+        );
+    }
+
     #[test]
     fn collect_tab_order_tab_order_is_global_across_doms() {
         // A positive-tabindex node in DOM 1 must outrank an auto node in DOM 0:
@@ -1376,7 +1455,7 @@ mod autotest_generated {
         let order = collect_tab_order(&window(vec![
             (dom(0), tab_fixture()),
             (dom(1), tab_fixture()),
-        ]));
+        ]), &BTreeSet::new());
 
         assert_eq!(
             order,
@@ -1537,7 +1616,7 @@ mod autotest_generated {
         ];
         for t in targets {
             assert_eq!(
-                resolve_focus_target(&t, &empty, Some(nid(0, 1))),
+                resolve_focus_target(&t, &empty, Some(nid(0, 1)), &BTreeSet::new()),
                 Ok(FocusResolution::NotFound),
                 "empty window must short-circuit {t:?}"
             );
@@ -1545,7 +1624,7 @@ mod autotest_generated {
         // The explicit clear stays answerable — and distinguishable — even
         // with no layout at all.
         assert_eq!(
-            resolve_focus_target(&FocusTarget::NoFocus, &empty, Some(nid(0, 1))),
+            resolve_focus_target(&FocusTarget::NoFocus, &empty, Some(nid(0, 1)), &BTreeSet::new()),
             Ok(FocusResolution::ClearRequested),
         );
     }
@@ -1554,7 +1633,7 @@ mod autotest_generated {
     fn resolve_focus_target_id_rejects_unknown_dom() {
         let results = window(vec![(dom(0), tab_fixture())]);
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Id(nid(1, 2)), &results, None),
+            resolve_focus_target(&FocusTarget::Id(nid(1, 2)), &results, None, &BTreeSet::new()),
             Err(UpdateFocusWarning::FocusInvalidDomId(dom(1)))
         );
     }
@@ -1567,7 +1646,7 @@ mod autotest_generated {
         for idx in [8usize, 9, 1_000_000, usize::MAX - 1] {
             let target = nid(0, idx);
             assert_eq!(
-                resolve_focus_target(&FocusTarget::Id(target), &results, None),
+                resolve_focus_target(&FocusTarget::Id(target), &results, None, &BTreeSet::new()),
                 Err(UpdateFocusWarning::FocusInvalidNodeId(target.node)),
                 "node {idx} is out of range and must be rejected"
             );
@@ -1579,7 +1658,7 @@ mod autotest_generated {
         let results = window(vec![(dom(0), tab_fixture())]);
         let target = null_nid(0);
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Id(target), &results, None),
+            resolve_focus_target(&FocusTarget::Id(target), &results, None, &BTreeSet::new()),
             Err(UpdateFocusWarning::FocusInvalidNodeId(target.node))
         );
     }
@@ -1591,11 +1670,11 @@ mod autotest_generated {
         // Node 0 is the body and node 4 is tabindex=-1: both resolve.
         let results = window(vec![(dom(0), tab_fixture())]);
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Id(nid(0, 0)), &results, None),
+            resolve_focus_target(&FocusTarget::Id(nid(0, 0)), &results, None, &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 0)))
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Id(nid(0, 4)), &results, None),
+            resolve_focus_target(&FocusTarget::Id(nid(0, 4)), &results, None, &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 4)))
         );
     }
@@ -1608,7 +1687,7 @@ mod autotest_generated {
             css_path: class_path("target"),
         });
         assert_eq!(
-            resolve_focus_target(&target, &results, None),
+            resolve_focus_target(&target, &results, None, &BTreeSet::new()),
             Err(UpdateFocusWarning::FocusInvalidDomId(dom(3)))
         );
     }
@@ -1624,7 +1703,7 @@ mod autotest_generated {
             dom: dom(0),
             css_path: class_path("no-such-class"),
         });
-        assert_eq!(resolve_focus_target(&target, &results, None), Ok(FocusResolution::NotFound));
+        assert_eq!(resolve_focus_target(&target, &results, None, &BTreeSet::new()), Ok(FocusResolution::NotFound));
     }
 
     /// A `VirtualView` mounts its DOM under its OWN DomId, so a selector the
@@ -1653,7 +1732,7 @@ mod autotest_generated {
             css_path: class_path("mw-doc"),
         });
         assert_eq!(
-            resolve_focus_target(&target, &results, None),
+            resolve_focus_target(&target, &results, None, &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(1, 1))),
             "the selector must resolve into the dom the VirtualView mounted; \
              answering None here is applied by every caller as 'clear focus', \
@@ -1692,7 +1771,7 @@ mod autotest_generated {
             css_path: class_path("target"),
         });
         assert_eq!(
-            resolve_focus_target(&target, &results, None),
+            resolve_focus_target(&target, &results, None, &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 1)))
         );
     }
@@ -1701,7 +1780,7 @@ mod autotest_generated {
     fn resolve_focus_target_no_focus_is_an_explicit_clear() {
         let results = window(vec![(dom(0), tab_fixture())]);
         assert_eq!(
-            resolve_focus_target(&FocusTarget::NoFocus, &results, Some(nid(0, 5))),
+            resolve_focus_target(&FocusTarget::NoFocus, &results, Some(nid(0, 5)), &BTreeSet::new()),
             Ok(FocusResolution::ClearRequested),
             "the app's explicit clear must stay distinguishable from a miss"
         );
@@ -1712,17 +1791,17 @@ mod autotest_generated {
         let results = window(vec![(dom(0), tab_fixture())]);
         // Tab order is [5, 3, 2, 6, 7].
         assert_eq!(
-            resolve_focus_target(&FocusTarget::First, &results, None),
+            resolve_focus_target(&FocusTarget::First, &results, None, &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 5))),
             "First must be the lowest positive tabindex, not document node 0"
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Last, &results, None),
+            resolve_focus_target(&FocusTarget::Last, &results, None, &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 7)))
         );
         // `current_focus` must not influence First/Last.
         assert_eq!(
-            resolve_focus_target(&FocusTarget::First, &results, Some(nid(0, 7))),
+            resolve_focus_target(&FocusTarget::First, &results, Some(nid(0, 7)), &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 5)))
         );
     }
@@ -1732,19 +1811,19 @@ mod autotest_generated {
         let sd = StyledDom::create_from_dom(Dom::create_body().with_child(Dom::create_div()));
         let results = window(vec![(dom(0), sd)]);
         assert_eq!(
-            resolve_focus_target(&FocusTarget::First, &results, None),
+            resolve_focus_target(&FocusTarget::First, &results, None, &BTreeSet::new()),
             Ok(FocusResolution::NotFound)
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Last, &results, None),
+            resolve_focus_target(&FocusTarget::Last, &results, None, &BTreeSet::new()),
             Ok(FocusResolution::NotFound)
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Next, &results, None),
+            resolve_focus_target(&FocusTarget::Next, &results, None, &BTreeSet::new()),
             Ok(FocusResolution::NotFound)
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 0))),
+            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 0)), &BTreeSet::new()),
             Ok(FocusResolution::NotFound)
         );
     }
@@ -1754,20 +1833,20 @@ mod autotest_generated {
         let results = window(vec![(dom(0), tab_fixture())]);
         // Tab order [5, 3, 2, 6, 7]: stepping off either end wraps.
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 7))),
+            resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 7)), &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 5)))
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 5))),
+            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 5)), &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 7)))
         );
         // ...and step normally in the middle.
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 3))),
+            resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 3)), &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 2)))
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 2))),
+            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 2)), &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 3)))
         );
     }
@@ -1780,14 +1859,14 @@ mod autotest_generated {
         // (the nearest preceding tab stop by DOCUMENT position), NOT on the tab
         // order's neighbour of any element.
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 4))),
+            resolve_focus_target(&FocusTarget::Previous, &results, Some(nid(0, 4)), &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 3)))
         );
         // Focus on the plain, non-focusable div (index 1): Tab goes to the next
         // tab stop in DOCUMENT order (node 2, the button) — not to the tab
         // order's first entry (node 5).
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 1))),
+            resolve_focus_target(&FocusTarget::Next, &results, Some(nid(0, 1)), &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 2)))
         );
     }
@@ -1799,18 +1878,18 @@ mod autotest_generated {
         let results = window(vec![(dom(0), tab_fixture())]);
         let stale = nid(0, 9_999);
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Next, &results, Some(stale)),
+            resolve_focus_target(&FocusTarget::Next, &results, Some(stale), &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 5))),
             "no tab stop past node 9999 -> wrap to the first"
         );
         // A stale node in a DOM that isn't even mounted.
         let alien = nid(5, 1);
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Next, &results, Some(alien)),
+            resolve_focus_target(&FocusTarget::Next, &results, Some(alien), &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 5)))
         );
         assert_eq!(
-            resolve_focus_target(&FocusTarget::Previous, &results, Some(alien)),
+            resolve_focus_target(&FocusTarget::Previous, &results, Some(alien), &BTreeSet::new()),
             Ok(FocusResolution::Resolved(nid(0, 7)))
         );
     }

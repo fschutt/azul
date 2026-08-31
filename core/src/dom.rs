@@ -1461,6 +1461,13 @@ pub enum AttributeType {
     TabIndex(i32),
     /// Element can receive focus (`tabindex="0"` equivalent)
     Focusable,
+    /// Take focus when the window first shows this element (`autofocus`).
+    ///
+    /// HTML semantics: the FIRST autofocus element in the document wins, and
+    /// it is focused WITHOUT showing a focus ring - the ring is for keyboard
+    /// navigation (`:focus-visible`), and a form that opens with its first
+    /// field ringed looks like the user pressed Tab when they did not.
+    Autofocus,
 
     /// Language code (`lang="..."`)
     Lang(AzString),
@@ -1559,6 +1566,7 @@ impl AttributeType {
             Self::ColSpan(_) => "colspan",
             Self::RowSpan(_) => "rowspan",
             Self::TabIndex(_) | Self::Focusable => "tabindex",
+            Self::Autofocus => "autofocus",
             Self::Lang(_) => "lang",
             Self::Dir(_) => "dir",
             Self::ContentEditable(_) => "contenteditable",
@@ -1607,6 +1615,8 @@ impl AttributeType {
             | Self::TabIndex(n) => n.to_string().into(),
 
             Self::Focusable => "0".into(),
+            // Boolean attribute: present means true, as in HTML.
+            Self::Autofocus => "true".into(),
             Self::ContentEditable(b) | Self::Draggable(b) => {
                 if *b {
                     "true".into()
@@ -3800,6 +3810,16 @@ impl NodeData {
             }
         }
         None
+    }
+
+    /// Whether this node asked to take focus when its window first appears
+    /// (the `autofocus` attribute).
+    #[must_use]
+    pub fn has_autofocus(&self) -> bool {
+        self.attributes()
+            .as_ref()
+            .iter()
+            .any(|a| matches!(a, AttributeType::Autofocus))
     }
 
     /// Returns the placeholder text for this node.

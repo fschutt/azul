@@ -54,6 +54,8 @@ fn build(animations: SystemAnimations) -> LayoutWindow {
 }
 
 fn focus(lw: &mut LayoutWindow, node: usize) {
+    // Tests drive the KEYBOARD route, which is the one that rings.
+    lw.focus_manager.focus_is_visible = true;
     lw.focus_manager.set_focused_node(Some(DomNodeId {
         dom: DomId::ROOT_ID,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node))),
@@ -200,5 +202,36 @@ fn ring_is_suppressed_while_a_text_editing_session_owns_focus() {
     assert!(
         ring_rect(&lw).is_none(),
         "no ring while a text-editing session is active (the caret is the          indicator) — the last item must not be the appended ring"
+    );
+}
+
+/// `:focus-visible` - focus and its INDICATION are different questions.
+///
+/// A browser rings a control focused by Tab and does NOT ring one focused by
+/// a click or by `autofocus`; a form that opens with its first field ringed
+/// looks like the user pressed Tab when they did not (2026-09-01 request).
+#[test]
+fn only_keyboard_focus_is_ringed() {
+    let mut kbd = build(SystemAnimations::default());
+    focus(&mut kbd, 1); // sets focus_is_visible = true
+    rebuild(&mut kbd);
+
+    let mut pointer = build(SystemAnimations::default());
+    pointer.focus_manager.set_focused_node(Some(DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+    }));
+    pointer.focus_manager.focus_is_visible = false; // a click, or autofocus
+    rebuild(&mut pointer);
+
+    assert_eq!(
+        border_count(&pointer) + 1,
+        border_count(&kbd),
+        "keyboard focus is ringed; pointer / autofocus focus is not",
+    );
+    assert!(
+        pointer.focus_manager.get_focused_node().is_some(),
+        "and the pointer-focused control is still genuinely FOCUSED - it \
+         types and activates, it just has no ring",
     );
 }

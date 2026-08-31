@@ -1718,10 +1718,12 @@ impl Runner {
                 // over with a short timer. `Deferred` means do NOTHING: the
                 // target is parked on the focus manager and re-resolved by
                 // `finalize_pending_focus_changes` after the next layout pass.
+                let out_of_scope = lw.focus_out_of_scope_doms();
                 match resolve_focus_target_or_defer(
                     &mut lw.focus_manager,
                     target,
                     &lw.layout_results,
+                    &out_of_scope,
                 ) {
                     Ok(FocusResolution::Resolved(new_focus)) => {
                         lw.focus_manager.set_focused_node(Some(new_focus));
@@ -3275,7 +3277,12 @@ impl Runner {
                     return (ProcessEventResult::DoNothing, false);
                 };
                 let Ok(resolved) =
-                    resolve_focus_target(&target, &self.layout_window.layout_results, focused)
+                    resolve_focus_target(
+                        &target,
+                        &self.layout_window.layout_results,
+                        focused,
+                        &self.layout_window.focus_out_of_scope_doms(),
+                    )
                 else {
                     return (ProcessEventResult::DoNothing, false);
                 };
@@ -3292,6 +3299,12 @@ impl Runner {
                 if new_focus == focused {
                     return (ProcessEventResult::DoNothing, false);
                 }
+                // `:focus-visible`: this is the KEYBOARD route, so the ring
+                // shows. Mirrors the dll shell's arm - the runner is a port of
+                // it, and a modality set in only one of the two would make the
+                // harness disagree with the device about whether focus is
+                // indicated.
+                self.layout_window.focus_manager.focus_is_visible = true;
                 (self.set_focus(new_focus, focused), true)
             }
             DefaultAction::ClearFocus => {

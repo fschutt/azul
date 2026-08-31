@@ -524,6 +524,8 @@ fn parse_xml_to_fast_dom_with_css(
                             nd.set_css_props(props.into());
                         }
                     }
+                    // Boolean attribute: presence is the value, as in HTML.
+                    "autofocus" => attr_vec.push(azul_core::dom::AttributeType::Autofocus),
                     "placeholder" => attr_vec.push(
                         azul_core::dom::AttributeType::Placeholder(value.clone().into()),
                     ),
