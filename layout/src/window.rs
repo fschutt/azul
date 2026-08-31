@@ -8144,31 +8144,36 @@ impl LayoutWindow {
         // Now we can safely get the text layout (layout pass has completed).
         //
         // A bare TEXT LEAF usually generates no layout node of its own - the
-        // inline layout lives on its IFC ROOT (the value `<p>`) - so looking
-        // it up by the leaf alone returns None for every FILLED field, and
-        // the seed fell through to the (0, 0) fallback below. With Trailing
-        // affinity that is the trailing edge of the FIRST cluster, i.e. the
-        // caret landing between the two characters of "42" when tabbing into
-        // a NumberInput (device report, 2026-08-31). Walk up to the nearest
-        // ancestor that does own an inline layout.
-        let text_layout = self
-            .get_inline_layout_for_node(pending.dom_id, pending.text_node_id)
-            .or_else(|| {
-                let lr = self.layout_results.get(&pending.dom_id)?;
-                let hierarchy = lr.styled_dom.node_hierarchy.as_container();
-                let mut cur = hierarchy
-                    .get(pending.text_node_id)
-                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
-                while let Some(n) = cur {
-                    if let Some(l) = self.get_inline_layout_for_node(pending.dom_id, n) {
-                        return Some(l);
-                    }
-                    cur = hierarchy
-                        .get(n)
-                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
+        // inline layout (and the DENSE view) live on its IFC ROOT (the value
+        // `<p>`) - so looking either up by the leaf alone returns None for
+        // every FILLED field, and the seed fell through to the (0, 0)
+        // fallback below: the caret landing at the wrong end of "42" when
+        // tabbing into a NumberInput (device report, 2026-08-31). Resolve
+        // the owning node ONCE and use it for BOTH views: with dense text
+        // active the sparse `items` are the retirement sentinel (empty), so
+        // fixing only the sparse lookup still yielded no cluster.
+        let layout_node = {
+            let mut n = pending.text_node_id;
+            loop {
+                if self.get_inline_layout_for_node(pending.dom_id, n).is_some()
+                    || self.get_dense_for_node(pending.dom_id, n).is_some()
+                {
+                    break n;
                 }
-                None
-            })
+                let Some(parent) = self.layout_results.get(&pending.dom_id).and_then(|lr| {
+                    lr.styled_dom
+                        .node_hierarchy
+                        .as_container()
+                        .get(n)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                }) else {
+                    break pending.text_node_id;
+                };
+                n = parent;
+            }
+        };
+        let text_layout = self
+            .get_inline_layout_for_node(pending.dom_id, layout_node)
             .cloned();
 
         // Initialize cursor at end of text
@@ -8177,7 +8182,7 @@ impl LayoutWindow {
         // sparse rev-scan finds (both skip trailing non-clusters). Under
         // AZ_DENSE_TEXT=verify the two are asserted equal.
         let dense_cursor = self
-            .get_dense_for_node(pending.dom_id, pending.text_node_id)
+            .get_dense_for_node(pending.dom_id, layout_node)
             .and_then(|d| d.last_cluster_cursor());
         let sparse_cursor = text_layout.as_ref().and_then(|layout| {
             layout.items.iter().rev().find_map(|item| {
