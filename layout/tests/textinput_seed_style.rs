@@ -116,3 +116,91 @@ fn the_first_keystroke_into_an_empty_field_carries_the_values_style_not_the_cont
         expected
     );
 }
+
+/// THE DEVICE REGRESSION (2026-08-31, third report): after typing, the
+/// placeholder was still painted OVER the typed text.
+///
+/// Not a condition bug - the conditions (empty, unfocused) were both false.
+/// The prompt item was emitted INSIDE the per-node content run, and
+/// `try_copy_cached_run` replays a recorded run wholesale, so the item
+/// recorded while the field was empty came back on every cached emission,
+/// bypassing both checks. The earlier pixel pin could not see this: it built
+/// a STATICALLY filled host, which never takes the cached-run path.
+///
+/// This types through the real edit pipeline and then asks the display list
+/// what it actually emitted.
+#[test]
+fn typing_into_an_empty_field_stops_the_placeholder_from_being_painted() {
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    let mut dom = Dom::create_body().with_child(
+        TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom(),
+    );
+    let styled_dom = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::build()).unwrap();
+    let mut window_state = FullWindowState::default();
+    window_state.size.dimensions = LogicalSize::new(400.0, 200.0);
+    lw.current_window_state = window_state.clone();
+    let renderer_resources = RendererResources::default();
+    let system_callbacks = ExternalSystemCallbacks::rust_internal();
+    let mut dbg = Some(Vec::new());
+    lw.layout_and_generate_display_list(
+        styled_dom,
+        &window_state,
+        &renderer_resources,
+        &system_callbacks,
+        &mut dbg,
+    )
+    .unwrap();
+
+    // Glyphs emitted across the whole list, so the count is independent of
+    // which node the prompt is attributed to.
+    let total_glyphs = |lw: &LayoutWindow| -> usize {
+        lw.get_layout_result(&DomId::ROOT_ID)
+            .unwrap()
+            .display_list
+            .items
+            .iter()
+            .map(|it| match it {
+                DisplayListItem::Text { glyphs, .. } => glyphs.len(),
+                _ => 0,
+            })
+            .sum()
+    };
+
+    // Premise: empty + unfocused paints the prompt, so there ARE glyphs.
+    let empty_glyphs = total_glyphs(&lw);
+    assert!(
+        empty_glyphs >= 10,
+        "premise: an empty unfocused field paints its prompt, got {empty_glyphs} glyphs"
+    );
+
+    lw.focus_manager.set_focused_node(Some(dnid(CONTAINER)));
+    lw.text_edit_manager.initialize_editing(
+        TextCursor {
+            cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            affinity: CursorAffinity::Leading,
+        },
+        DomId::ROOT_ID,
+        NodeId::new(CONTAINER),
+        0,
+    );
+    let affected = lw.record_text_input("a");
+    assert!(!affected.is_empty(), "the keystroke reached the focused node");
+    let _ = lw.apply_text_changeset();
+
+    // Re-emit: this is the path that replayed the cached run.
+    lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
+
+    let typed_glyphs = total_glyphs(&lw);
+    assert!(
+        typed_glyphs < empty_glyphs,
+        "after typing, the field must paint its VALUE ({typed_glyphs} glyphs) \
+         and not the 17-glyph prompt on top of it (was {empty_glyphs} while empty)"
+    );
+}

@@ -5841,6 +5841,21 @@ where
         node_index: usize,
     ) -> Result<()> {
         let _p = crate::probe::Probe::span("dl_content");
+        // ENGINE-LEVEL PLACEHOLDER (`placeholder` attribute): painted here,
+        // never modelled as a DOM node, so it cannot intercept clicks, own
+        // clusters an editing consumer could seat a caret in, or latch a
+        // stale visibility override - (empty && unfocused) is recomputed
+        // from scratch on every build.
+        //
+        // Emitted OUTSIDE the cached content run, and BEFORE the copy: the
+        // run recorded while the host was empty carries the prompt item, and
+        // `try_copy_cached_run` replays a run wholesale - so a cached copy
+        // re-emitted the prompt over text the user had just typed (device
+        // report, 2026-08-31). Kept out of the cache, the prompt is decided
+        // fresh on every emission, cached run or not.
+        if let Some(rect) = self.get_paint_rect(node_index) {
+            self.maybe_paint_placeholder_prompt(builder, node_index, &rect)?;
+        }
         if self.try_copy_cached_run(builder, node_index, EmitPhase::Content) {
             return Ok(());
         }
@@ -5910,13 +5925,6 @@ where
                 builder.push_hit_test_area(paint_rect, tag_id);
             }
         }
-
-        // ENGINE-LEVEL PLACEHOLDER (`placeholder` attribute): painted here,
-        // never modelled as a DOM node, so it cannot intercept clicks, own
-        // clusters an editing consumer could seat a caret in, or latch a
-        // stale visibility override - (empty && unfocused) is recomputed
-        // from scratch on every build.
-        self.maybe_paint_placeholder_prompt(builder, node_index, &paint_rect)?;
 
         // Paint the node's visible content.
         if let Some(cached_layout) = node_warm.and_then(|w| w.inline_layout_result.as_ref()) {
@@ -6116,29 +6124,49 @@ where
         // Only an EMPTY host shows its prompt, and "empty" is asked of the
         // CONTENT, not of the layout: an earlier version read
         // `inline_layout_result` and treated its ABSENCE as emptiness, so a
-        // filled but defocused field whose layout result was not materialized
-        // on that pass painted the prompt UNDER its own text (device report,
-        // 2026-08-31). `resolved_content().text_for_node` is the same
-        // overlay-then-DOM answer the a11y tree and the exporters read, so a
-        // live (not yet committed to the DOM) edit counts immediately.
+        // filled but defocused field painted the prompt UNDER its own text.
+        //
+        // The question is asked of the EDITING HOST, not of the node holding
+        // the attribute. A live edit is recorded against the host (the
+        // focused contenteditable container), while the attribute rides on
+        // the value line inside it - so a check that only looked at the
+        // attribute's node and its descendants never saw the text the user
+        // had just typed, and the prompt painted over it (device report,
+        // 2026-08-31). Walk UP to the host, then check the host and its
+        // whole subtree, resolving overlay-then-DOM the way the a11y tree
+        // and the exporters do, so an uncommitted edit counts immediately.
         let resolved = self.ctx.resolved_content();
-        let mut content_empty = resolved
-            .text_for_node(dom_id)
-            .is_none_or(|t| t.trim().is_empty());
+        let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
+        let node_data = self.ctx.styled_dom.node_data.as_container();
+        let host = {
+            let mut h = dom_id;
+            loop {
+                if node_data.get(h).is_some_and(azul_core::dom::NodeData::is_contenteditable) {
+                    break h;
+                }
+                match hierarchy
+                    .get(h)
+                    .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                {
+                    Some(p) => h = p,
+                    None => break dom_id,
+                }
+            }
+        };
+        let has_text = |n: NodeId| {
+            resolved
+                .text_for_node(n)
+                .is_some_and(|t| !t.trim().is_empty())
+        };
+        let mut content_empty = !has_text(host);
         if content_empty {
-            // The host usually wraps its text in a block child (the widgets'
-            // value <p> does); walk the subtree until some text is found.
-            let hierarchy = self.ctx.styled_dom.node_hierarchy.as_container();
             let mut stack = hierarchy
-                .get(dom_id)
-                .and_then(|h| h.first_child_id(dom_id))
+                .get(host)
+                .and_then(|h| h.first_child_id(host))
                 .into_iter()
                 .collect::<Vec<_>>();
             while let Some(n) = stack.pop() {
-                if resolved
-                    .text_for_node(n)
-                    .is_some_and(|t| !t.trim().is_empty())
-                {
+                if has_text(n) {
                     content_empty = false;
                     break;
                 }
