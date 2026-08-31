@@ -626,6 +626,71 @@ mod tests {
     use azul_css::AzString;
     use rust_fontconfig::FcFontCache;
 
+    /// `::placeholder` is REAL CSS: an author rule restyles the prompt the
+    /// engine paints, through the same cascade every other property uses.
+    ///
+    /// Pinned by COLOUR, because that is what a stylesheet actually controls
+    /// here: with no rule the prompt is the host's colour at half alpha;
+    /// with `::placeholder { color: red }` it is exactly red.
+    #[test]
+    fn a_placeholder_rule_restyles_the_prompt_through_the_cascade() {
+        use azul_core::dom::AttributeType;
+
+        let prompt_pixels = |css_src: &str| -> Vec<(u8, u8, u8)> {
+            let mut dom = Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_ids_and_classes(
+                        vec![azul_core::dom::IdOrClass::Class("ed".into())].into(),
+                    )
+                    .with_attribute(AttributeType::ContentEditable(true))
+                    .with_attribute(AttributeType::Placeholder("Hint me".into())),
+            );
+            let (css, _) = azul_css::parser2::new_from_str(css_src);
+            let styled_dom = StyledDom::create(&mut dom, css);
+            let mut lw = crate::window::LayoutWindow::new(FcFontCache::build()).unwrap();
+            lw.system_animations_override =
+                Some(azul_core::resources::SystemAnimations::disabled());
+            let mut ws = crate::window_state::FullWindowState::default();
+            ws.size.dimensions = LogicalSize::new(400.0, 100.0);
+            lw.current_window_state = ws.clone();
+            let resources = RendererResources::default();
+            let cbs = crate::callbacks::ExternalSystemCallbacks::rust_internal();
+            let mut dbg = Some(Vec::new());
+            lw.layout_and_generate_display_list(styled_dom, &ws, &resources, &cbs, &mut dbg)
+                .unwrap();
+            let lr = lw.get_layout_result(&DomId::ROOT_ID).unwrap();
+            lr.display_list
+                .items
+                .iter()
+                .filter_map(|it| match it {
+                    crate::solver3::display_list::DisplayListItem::Text {
+                        color, glyphs, ..
+                    } if !glyphs.is_empty() => Some((color.r, color.g, color.b)),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        const BASE: &str = "body { width: 400px; height: 100px; } \
+                            .ed { width: 300px; height: 40px; font-size: 16px; color: black; }";
+
+        let unstyled = prompt_pixels(BASE);
+        assert_eq!(unstyled.len(), 1, "exactly one prompt run: {unstyled:?}");
+
+        let styled = prompt_pixels(&format!(
+            "{BASE} .ed::placeholder {{ color: rgb(255, 0, 0); }}"
+        ));
+        assert_eq!(
+            styled,
+            vec![(255, 0, 0)],
+            "a ::placeholder rule must restyle the prompt (unstyled was {unstyled:?})"
+        );
+        assert_ne!(
+            styled, unstyled,
+            "the rule must actually change something"
+        );
+    }
+
     /// ENGINE-LEVEL PLACEHOLDER: the `placeholder` ATTRIBUTE on a
     /// contenteditable host paints a prompt while the host is EMPTY and
     /// UNFOCUSED - no overlay <p>, no per-widget toggle code. The control

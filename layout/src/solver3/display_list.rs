@@ -6203,8 +6203,13 @@ where
             return Ok(());
         }
 
-        let node_state = self.get_styled_node_state(dom_id);
-        let style = std::sync::Arc::new(super::getters::get_style_properties(
+        // THE PROMPT'S OWN STYLE, through the real cascade: resolve the node
+        // with `::placeholder` turned on, so author rules
+        // (`.field::placeholder { color: ... }`) and the widgets' inline
+        // `on_placeholder(...)` declarations both land here. Everything the
+        // rule does not set falls back to the host's own value, which is why
+        // an unstyled prompt still inherits the field's font.
+        let style = std::sync::Arc::new(super::getters::get_style_properties_for_state(
             self.ctx.styled_dom,
             dom_id,
             self.ctx.system_style.as_ref(),
@@ -6212,8 +6217,31 @@ where
                 width: self.ctx.viewport_size.width,
                 height: self.ctx.viewport_size.height,
             },
+            &{
+                let mut st = self.get_styled_node_state(dom_id);
+                st.placeholder = true;
+                st
+            },
         ));
-        let _ = node_state; // style resolution reads state internally
+        // Whether the cascade actually said anything about the prompt's
+        // colour. If it did not, the engine keeps its own default (the
+        // host's colour at half alpha) rather than painting the value's
+        // full-strength colour on top of nothing.
+        let prompt_color_declared = self
+            .ctx
+            .styled_dom
+            .css_property_cache
+            .ptr
+            .get_text_color(
+                &self.ctx.styled_dom.node_data.as_container()[dom_id],
+                &dom_id,
+                &{
+                    let mut st = self.get_styled_node_state(dom_id);
+                    st.placeholder = true;
+                    st
+                },
+            )
+            .is_some();
 
         let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
         let glyphs = crate::text3::cache::shape_placeholder_text(
@@ -6232,11 +6260,16 @@ where
             return Ok(());
         }
 
-        // Half-alpha of the host's own text colour - readable on any theme
-        // without a second colour channel to keep in sync.
-        let color = azul_css::props::basic::ColorU {
-            a: style.color.a / 2,
-            ..style.color
+        // A declared `::placeholder` colour is used verbatim. With none, the
+        // default is the host's own colour at half alpha - readable on any
+        // theme, with no second colour channel to keep in sync.
+        let color = if prompt_color_declared {
+            style.color
+        } else {
+            azul_css::props::basic::ColorU {
+                a: style.color.a / 2,
+                ..style.color
+            }
         };
 
         // One line at the content-box origin: baseline = origin + scaled

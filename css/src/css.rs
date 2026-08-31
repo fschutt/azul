@@ -1961,6 +1961,10 @@ pub enum CssPathPseudoSelector {
     /// `:root` - matches the document root element (equivalent to `html`,
     /// but with pseudo-class specificity). Structural (non-interactive).
     Root,
+    /// `::placeholder` - the prompt the ENGINE paints inside an empty
+    /// editable. A pseudo-ELEMENT: it styles painted glyphs, not a node, so
+    /// it never matches the element itself.
+    Placeholder,
 }
 
 /// Selector for the `:nth-child()` CSS pseudo-class.
@@ -1996,7 +2000,8 @@ impl fmt::Display for CssNthChildSelector {
 impl fmt::Display for CssPathPseudoSelector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::CssPathPseudoSelector::{
-            Active, Backdrop, DragOver, Dragging, First, Focus, Hover, Lang, Last, NthChild, Root,
+            Active, Backdrop, DragOver, Dragging, First, Focus, Hover, Lang, Last, NthChild,
+            Placeholder, Root,
         };
         match &self {
             First => write!(f, "first"),
@@ -2010,6 +2015,9 @@ impl fmt::Display for CssPathPseudoSelector {
             Dragging => write!(f, "dragging"),
             DragOver => write!(f, "drag-over"),
             Root => write!(f, "root"),
+            // The extra colon is part of the NAME: `:{p}` at the call site
+            // plus this leading one spells the pseudo-ELEMENT `::placeholder`.
+            Placeholder => write!(f, ":placeholder"),
         }
     }
 }

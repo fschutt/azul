@@ -384,6 +384,7 @@ pub fn format_pseudo_selector_type(p: &CssPathPseudoSelector) -> String {
             "CssPathPseudoSelector::NthChild({})",
             format_nth_child_selector(n)
         ),
+        CssPathPseudoSelector::Placeholder => "CssPathPseudoSelector::Placeholder".to_string(),
         CssPathPseudoSelector::Hover => "CssPathPseudoSelector::Hover".to_string(),
         CssPathPseudoSelector::Active => "CssPathPseudoSelector::Active".to_string(),
         CssPathPseudoSelector::Focus => "CssPathPseudoSelector::Focus".to_string(),

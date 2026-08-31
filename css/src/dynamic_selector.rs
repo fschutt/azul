@@ -29,6 +29,15 @@ pub struct PseudoStateFlags {
     pub dragging: bool,
     /// A dragged element is over this drop target (:drag-over)
     pub drag_over: bool,
+    /// The PROMPT of an empty editable is being styled (`::placeholder`).
+    ///
+    /// A pseudo-ELEMENT, not a state of the node: it is never set on a real
+    /// node during the cascade. The engine turns it on for the one resolve
+    /// that produces the prompt's own style, which is why it rides here -
+    /// the whole `::placeholder` rule set then flows through the SAME
+    /// bucketing, inheritance and lookup path as `:hover` and `:focus`,
+    /// with no parallel storage to keep in sync.
+    pub placeholder: bool,
 }
 
 impl PseudoStateFlags {
@@ -48,6 +57,7 @@ impl PseudoStateFlags {
             PseudoStateType::Backdrop => self.backdrop,
             PseudoStateType::Dragging => self.dragging,
             PseudoStateType::DragOver => self.drag_over,
+            PseudoStateType::Placeholder => self.placeholder,
         }
     }
 }
@@ -895,6 +905,9 @@ pub enum PseudoStateType {
     Dragging,
     /// A dragged element is over this drop target (:drag-over)
     DragOver,
+    /// The prompt of an empty editable (`::placeholder`) - a pseudo-ELEMENT
+    /// carried through the pseudo-state machinery. See `PseudoStateFlags`.
+    Placeholder,
 }
 
 impl_option!(
@@ -1181,6 +1194,7 @@ impl DynamicSelector {
             PseudoStateType::Hover => node_state.hover,
             PseudoStateType::Active => node_state.active,
             PseudoStateType::Focus => node_state.focused,
+            PseudoStateType::Placeholder => node_state.placeholder,
             PseudoStateType::Disabled => node_state.disabled,
             PseudoStateType::CheckedTrue => node_state.checked,
             PseudoStateType::CheckedFalse => !node_state.checked,
@@ -1502,6 +1516,16 @@ impl CssPropertyWithConditions {
         Self::with_single_condition(
             property,
             &[DynamicSelector::PseudoState(PseudoStateType::Focus)],
+        )
+    }
+
+    /// Style the PROMPT the engine paints for an empty editable
+    /// (`::placeholder`), not the element itself.
+    #[must_use]
+    pub const fn on_placeholder(property: CssProperty) -> Self {
+        Self::with_single_condition(
+            property,
+            &[DynamicSelector::PseudoState(PseudoStateType::Placeholder)],
         )
     }
 
@@ -2393,8 +2417,10 @@ mod autotest_generated {
             backdrop: true,
             dragging: true,
             drag_over: true,
+            placeholder: true,
         };
         assert!(flags.has_state(PseudoStateType::Hover));
+        assert!(flags.has_state(PseudoStateType::Placeholder));
         assert!(flags.has_state(PseudoStateType::CheckedTrue));
         // CheckedTrue and CheckedFalse must always be mutually exclusive.
         assert!(!flags.has_state(PseudoStateType::CheckedFalse));
