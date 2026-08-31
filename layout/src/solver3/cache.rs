@@ -556,9 +556,17 @@ pub struct LayoutCache {
     /// without it served the pre-publication list (no scrollbar) forever. Live
     /// scroll OFFSETS are deliberately excluded: they are GPU-animated so that
     /// scrolling never re-emits the list.
+    /// Key = (root subtree hash, viewport, GPU-key-population fingerprint,
+    /// scroll-geometry fingerprint, DL-INPUT fingerprint, list). The fifth
+    /// component covers the inputs `layout_document` takes besides the DOM
+    /// that change the emitted list: caret visibility + locations, text
+    /// selections, IME preedit (`dl_input_fingerprint`). Without it a
+    /// relayout right after a click served the PRE-CARET list verbatim - the
+    /// caret only appeared when a blink tick rebuilt (2026-08-31).
     pub cached_display_list: Option<(
         SubtreeHash,
         LogicalRect,
+        u64,
         u64,
         u64,
         std::sync::Arc<super::display_list::DisplayList>,
@@ -728,7 +736,7 @@ impl LayoutCache {
         let cached_dl = self
             .cached_display_list
             .as_ref()
-            .map_or((0, 0, 0), |(_, _, _, _, dl)| dl.retained_bytes());
+            .map_or((0, 0, 0), |(_, _, _, _, _, dl)| dl.retained_bytes());
         Solver3CacheMemoryReport {
             tree_bytes,
             tree_report,
@@ -4391,6 +4399,7 @@ mod autotest_generated {
             LogicalRect::new(pos(0.0, 0.0), size(10.0, 10.0)),
             0,
             0,
+            0,
             std::sync::Arc::new(dl),
         ));
 
@@ -4511,6 +4520,7 @@ mod autotest_generated {
         cache.cached_display_list = Some((
             SubtreeHash(9),
             LogicalRect::new(pos(0.0, 0.0), size(1.0, 1.0)),
+            0,
             0,
             0,
             std::sync::Arc::new(DisplayList::default()),

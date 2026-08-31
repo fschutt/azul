@@ -2835,10 +2835,19 @@ fn render_glyphs_lcd(
         // the whole run — the LCD pipeline sat at the top of the raster
         // profile on pure caret traffic.
         if let Some(c) = clip {
-            let max_ink_w = f32::from(ppem) * 4.0;
+            // The bound comes from the RENDERED em (`scale` * upem == the
+            // effective pixel size), never from `ppem`: that is the HINTING
+            // ppem, which is 0 whenever hinting is off - the macOS default -
+            // and a zero bound dropped every glyph whose pen sat left of a
+            // damage strip (cut text, stray glyphs, a white notch through
+            // the run at every caret position; 2026-08-31). Symmetric on
+            // both sides so negative bearings / RTL marks reaching into the
+            // clip from the right survive too. Only ever more conservative
+            // than exact ink: a glyph is clipped by the sweep, never lost.
+            let max_ink_w = scale * f32::from(parsed_font.font_metrics.units_per_em) * 4.0;
             let cx0 = c.x;
             let cx1 = c.x + c.width;
-            if glyph_x > cx1 + 2.0 || glyph_x + max_ink_w < cx0 - 2.0 {
+            if glyph_x - max_ink_w > cx1 + 2.0 || glyph_x + max_ink_w < cx0 - 2.0 {
                 continue;
             }
         }
@@ -3235,10 +3244,17 @@ fn render_text_prerendered_lcd(
             // reads must also land on proven background, not merely the
             // writes. (The corpus damage-soundness gate caught a 2-channel
             // divergence at a proven-rect boundary without this.)
-            let px0 = (pr.origin.x * dpi_factor).ceil() as i32 + 1;
-            let py0 = (pr.origin.y * dpi_factor).ceil() as i32 + 1;
-            let px1 = ((pr.origin.x + pr.size.width) * dpi_factor).floor() as i32 - 1;
-            let py1 = ((pr.origin.y + pr.size.height) * dpi_factor).floor() as i32 - 1;
+            // The proven rect is the ancestor's UNSCROLLED paint rect while the
+            // tile positions above are scroll-projected: compare both in the
+            // scrolled space, or any enclosing scroll offset makes every run
+            // "hug the edge" and fall back to the sweep (which is what routed a
+            // horizontally scrolled TextInput into the per-glyph cull).
+            let prx = pr.origin.x - scroll_offset.0;
+            let pry = pr.origin.y - scroll_offset.1;
+            let px0 = (prx * dpi_factor).ceil() as i32 + 1;
+            let py0 = (pry * dpi_factor).ceil() as i32 + 1;
+            let px1 = ((prx + pr.size.width) * dpi_factor).floor() as i32 - 1;
+            let py1 = ((pry + pr.size.height) * dpi_factor).floor() as i32 - 1;
             if x0 < px0 || y0 < py0 || x0 + tile.w as i32 > px1 || y0 + tile.h as i32 > py1 {
                 drop(crate::probe::Probe::span("glyph_lcd_pretile_boundary"));
                 return false; // whole run sweeps (rare: edge-hugging text)

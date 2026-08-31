@@ -77,13 +77,6 @@ impl CrashMailConfig {
 /// The registered crash contact, read by the reporter process.
 static CRASH_CONTACT: std::sync::OnceLock<CrashMailConfig> = std::sync::OnceLock::new();
 
-/// Registers the support mailbox crash reports go to — AND arms the
-/// reinvoke-reporter flow: from now on a panic in a process with NO OTLP
-/// endpoint writes its dump to a temp file and respawns this executable
-/// with [`super::CRASH_DUMP_ENV`] pointing at it. The reinvoked process
-/// (`AzApp::run` checks the env var first) shows the dump and offers to
-/// mail it. With an endpoint configured nothing respawns — the automatic
-/// pipeline already owns the crash.
 /// Derive the crash-mail contact from the app's `report_problem` mailbox
 /// (`AppConfig.report_problem` — the same address `SysDialogType::ReportProblem`
 /// mails to): reports go TO that address, FROM `crash-reporter@<its domain>`,
@@ -101,6 +94,13 @@ pub fn config_from_report_address(address: &str) -> Option<CrashMailConfig> {
     ))
 }
 
+/// Registers the support mailbox crash reports go to — AND arms the
+/// reinvoke-reporter flow: from now on a panic in a process with NO OTLP
+/// endpoint writes its dump to a temp file and respawns this executable
+/// with [`super::CRASH_DUMP_ENV`] pointing at it. The reinvoked process
+/// (`AzApp::run` checks the env var first) shows the dump and offers to
+/// mail it. With an endpoint configured nothing respawns — the automatic
+/// pipeline already owns the crash.
 pub fn set_crash_contact(config: CrashMailConfig) {
     super::mark_crash_contact(true);
     drop(CRASH_CONTACT.set(config));

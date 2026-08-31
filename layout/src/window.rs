@@ -8379,7 +8379,21 @@ impl LayoutWindow {
         let Some(fnode) = focus.node.into_crate_internal() else {
             return false;
         };
-        focus.dom == edom && self.node_is_self_or_descendant(edom, enode, fnode)
+        if focus.dom != edom {
+            return false;
+        }
+        // Mid-pass the layout funnel OWNS the dom's layout result (it is
+        // taken out and re-inserted at the end), so the descendant walk has
+        // no hierarchy to read and used to answer "not focused" - the full
+        // relayout then emitted the caret with alpha 0 while the
+        // display-list-only path emitted it visible (the probe that cracked
+        // the 2026-08-31 "no caret until the blink tick" report). A live
+        // session with focus in the same DOM is the truth available here;
+        // the strict descendant refinement resumes once the result is back.
+        if self.layout_results.get(&edom).is_none() {
+            return true;
+        }
+        self.node_is_self_or_descendant(edom, enode, fnode)
     }
 
     /// Apply a unified selection operation (navigation, extend, or delete).
@@ -9691,7 +9705,7 @@ impl LayoutWindow {
                 if let (Some(patched), Some(cached)) =
                     (patched, self.layout_cache.cached_display_list.as_mut())
                 {
-                    cached.4 = patched;
+                    cached.5 = patched;
                 }
             }
             self.css_transitions.retain(|tr| tr.t < 1.0);
@@ -13832,7 +13846,6 @@ impl LayoutWindow {
         }
     }
 
-    /// Get the font style for a text node from CSS
     /// The node whose cascade the seeded empty run must carry: the first
     /// (caret-owner-first) Text descendant of the editable — the same node
     /// `solver3::fc` resolves a run's style on during a full layout. `None`
@@ -13850,6 +13863,7 @@ impl LayoutWindow {
             })
     }
 
+    /// Get the font style for a text node from CSS
     fn get_text_style_for_node(&self, dom_id: DomId, node_id: NodeId) -> Arc<StyleProperties> {
         use alloc::sync::Arc;
 
@@ -14754,6 +14768,14 @@ impl LayoutWindow {
                 || self.text_edit_manager.tween.is_active());
         let cursor_locations = self.text_edit_manager.build_cursor_locations();
         let text_selections_map = self.text_edit_manager.build_text_selections_map();
+        // Same fingerprint `layout_document` keys its cache on - computed
+        // BEFORE `cursor_locations` moves into the build below.
+        let dl_input_fp = crate::solver3::dl_input_fingerprint(
+            cursor_is_visible,
+            &cursor_locations,
+            &text_selections_map,
+            self.text_edit_manager.preedit_text.as_deref(),
+        );
 
         // Build a temporary LayoutContext with all the state we need
         let mut counter_values = HashMap::new();
@@ -14876,6 +14898,7 @@ impl LayoutWindow {
                                 cached.1,
                                 gpu_cache.dl_emission_fingerprint(),
                                 crate::solver3::scroll_geometry_fingerprint(&scroll_offsets),
+                                dl_input_fp,
                                 display_list,
                             );
                         }

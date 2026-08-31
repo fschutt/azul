@@ -4071,16 +4071,6 @@ where
 
     /// Emits drawing commands for selection and cursor.
     /// Delegates to `paint_selections()` and `paint_cursor()`.
-    fn paint_selection_and_cursor(
-        &self,
-        builder: &mut DisplayListBuilder,
-        node_index: usize,
-    ) -> Result<()> {
-        self.paint_selections(builder, node_index)?;
-        self.paint_cursor(builder, node_index)?;
-        Ok(())
-    }
-
     /// Recursively builds the tree of stacking contexts starting from a given layout node.
     // +spec:writing-modes:a86a28 - preorder depth-first traversal of the rendering tree in logical order
     fn collect_stacking_contexts(&mut self, node_index: usize) -> Result<StackingContext> {
@@ -4458,11 +4448,17 @@ where
         // generate_for_stacking_context! Only paint selection, cursor, and content for the
         // current node
 
-        // 2. Paint selection highlights and the text cursor if applicable.
-        self.paint_selection_and_cursor(builder, node_index)?;
+        // 2. Selection highlights go UNDER the content...
+        self.paint_selections(builder, node_index)?;
 
         // 3. Paint the node's own content (text, images, hit-test areas).
         self.paint_node_content(builder, node_index)?;
+
+        // 4. ...and the caret goes OVER it. Emitted before the text, the
+        // caret was erased wherever an LCD glyph tile (an opaque pre-blended
+        // copy, glyph box + FIR pad) landed on it - the caret segment inside
+        // the last typed glyph's box vanished (2026-08-31).
+        self.paint_cursor(builder, node_index)?;
 
         // +spec:display-property:86a3de - inline-level boxes painted in document order; z-index does not apply
         // +spec:floats:b8c494 - E.2 painting order: non-positioned floats painted after block-level descendants, in tree order

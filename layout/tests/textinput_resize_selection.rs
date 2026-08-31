@@ -776,9 +776,34 @@ fn click_paints_a_visible_caret_after_a_full_regen_resize_cycle() {
     #[cfg(feature = "cpurender")]
     {
         let after_click = h.render(&mut glyphs);
+        // Since the mid-pass focus-gate fix (2026-08-31) the caret SURVIVES
+        // the full-regen cycle, so when both clicks resolve to the same
+        // cluster the before/after frames are legitimately identical - the
+        // old "the click changed a pixel" assertion measured the caret's
+        // ABSENCE before the click. The invariant is stronger now: the
+        // post-click frame actually PAINTS the visible caret. Sample its
+        // centre column (dpi 1.0): on the white field background a painted
+        // caret leaves non-white rows.
+        let (rect, _alpha) = h
+            .caret_alphas()
+            .into_iter()
+            .find(|(_, a)| *a > 0)
+            .expect("a visible caret rect exists after the click");
+        let w = after_click.width() as usize;
+        let data = after_click.data();
+        let cx = (rect.origin.x + rect.size.width / 2.0) as usize;
+        let y0 = rect.origin.y.ceil() as usize + 1;
+        let y1 = ((rect.origin.y + rect.size.height).floor() as usize).max(y0 + 1) - 1;
+        let painted = (y0..y1)
+            .filter(|y| {
+                let i = (y * w + cx) * 4;
+                (data[i], data[i + 1], data[i + 2]) != (255, 255, 255)
+            })
+            .count();
         assert!(
-            pixel_diff(&before_click, &after_click) > 0,
-            "THE BUG (pixels): the post-regen click changed no pixel"
+            painted * 2 >= y1.saturating_sub(y0),
+            "THE BUG (pixels): the post-regen caret column x={cx} rows {y0}..{y1} is              unpainted ({painted} non-white rows); before/after diff was {}",
+            pixel_diff(&before_click, &after_click)
         );
     }
 }

@@ -118,13 +118,6 @@ pub struct CursorA11yInfo {
     pub focus_offset: usize,
 }
 
-/// Manager for accessibility tree state and updates.
-///
-/// The `A11yManager` sits within `LayoutWindow` and is responsible for:
-///
-/// 1. Maintaining the current accessibility tree state
-/// 2. Generating `TreeUpdate`s by comparing layout results with the stored tree
-/// 3. Translating `ActionRequest`s from screen readers into synthetic Azul events
 /// Why [`A11yManager::publish`] refused a `TreeUpdate`.
 ///
 /// Each variant is one invariant `accesskit_consumer::tree::State::update`
@@ -238,6 +231,13 @@ impl A11yTreeMirror {
     }
 }
 
+/// Manager for accessibility tree state and updates.
+///
+/// The `A11yManager` sits within `LayoutWindow` and is responsible for:
+///
+/// 1. Maintaining the current accessibility tree state
+/// 2. Generating `TreeUpdate`s by comparing layout results with the stored tree
+/// 3. Translating `ActionRequest`s from screen readers into synthetic Azul events
 #[cfg(feature = "a11y")]
 #[derive(Debug)]
 pub struct A11yManager {

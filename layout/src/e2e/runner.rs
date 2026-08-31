@@ -1096,6 +1096,19 @@ impl Runner {
                     result = result.max(self.set_focus(Some(new_focus_target), old_focus));
                     mouse_click_focus_changed = true;
                 }
+            } else if old_focus.is_some() {
+                // Mirror of the DLL: a mousedown that reached no focusable node
+                // BLURS (`None` is a legitimate focus target) - except on a
+                // scrollbar, which keeps focus like a browser's.
+                let on_scrollbar = hit_test_for_dispatch.as_ref().is_some_and(|ht| {
+                    ht.hovered_nodes
+                        .values()
+                        .any(|h| !h.scrollbar_hit_test_nodes.is_empty())
+                });
+                if !on_scrollbar {
+                    result = result.max(self.set_focus(None, old_focus));
+                    mouse_click_focus_changed = true;
+                }
             }
         }
 
@@ -4176,6 +4189,49 @@ mod tests {
     /// — the placeholder is walled off — and the RENDERED side must follow:
     /// the typed glyph is painted, the placeholder (hidden by the widget's own
     /// TextInput callback) is not, and the value reads back.
+    /// A mousedown on nothing focusable BLURS. The click-to-focus block was
+    /// acquisition-only, so the TextInput kept focus, caret, blink timer and
+    /// editing session after a click that left it (device report 2026-08-25,
+    /// re-reported 2026-08-31).
+    #[test]
+    fn clicking_outside_a_focused_text_input_blurs_it() {
+        use azul_layout::widgets::text_input::TextInput;
+
+        let widget = TextInput::create()
+            .with_placeholder("Type something...".into())
+            .dom();
+        let mut dom = Dom::create_body().with_child(widget);
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 600px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "text_input_blur_on_click_outside",
+            "setup": { "window_width": 600, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".__azul-native-text-input-container" },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "__azul-native-text-input-container" },
+                // Far away from the field, on bare body.
+                { "op": "click", "x": 590.0, "y": 190.0 },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "\"has_focus\":false" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(
+            result.status, "pass",
+            "a click on bare body must blur the TextInput: {:#?}",
+            result.steps
+        );
+    }
+
     #[test]
     fn typing_into_the_text_input_widget_paints_the_glyph() {
         use azul_layout::widgets::text_input::TextInput;

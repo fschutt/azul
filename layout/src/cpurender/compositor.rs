@@ -2059,17 +2059,68 @@ pub fn gpu_value_damage(
     out
 }
 
-/// Clip-intersected bounds of every item painted AFTER scroll frame
-/// `scroll_id`'s `PopScrollFrame` that STRICTLY overlaps `clip_bounds`.
+/// Which scroll frames moved since the previous frame, with their clips
+/// PROJECTED INTO VIEWPORT SPACE — the one shared collector for the shell
+/// and the e2e twin (they used to carry identical copies).
 ///
-/// Anything composited over the frame inside its clip (the frame's own
-/// scrollbar, an open dropdown/context menu/tooltip, a sibling's box-shadow)
-/// gets DRAGGED by the `scroll_shift_region` memmove. Rather than making such
-/// frames ineligible for the fast path (a scrollbar would disable it for
-/// every scroll container), the caller adds these rects to the damage set so
-/// the dragged pixels are simply repainted after the shift.
-#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+/// `PushScrollFrame.clip_bounds` is the frame's clip in its PARENT's content
+/// space (`get_paint_rect` applies no scroll). Damage rects are consumed in
+/// viewport space, so a frame NESTED inside a scrolled ancestor — the
+/// TextInput's value `<p>` inside a scrolled page column — had its fallback
+/// "repaint the whole clip" rect land `outer offset` pixels away from the
+/// field: the field kept its old horizontal offset while a correctly placed
+/// caret strip beside it rendered at the new one (the seam, 2026-08-31).
+/// The walk keeps an offset stack of the enclosing frames' CURRENT offsets
+/// and subtracts it, so top-level frames are unchanged and nested ones land
+/// where they are on screen. Returns `(scroll_id, clip, delta, offset)`.
 #[must_use]
+pub fn collect_scroll_shifts(
+    display_list: &DisplayList,
+    scroll_offsets: &ScrollOffsetMap,
+    previous_scroll_offsets: &ScrollOffsetMap,
+    dpi_factor: f32,
+) -> Vec<(LocalScrollId, LogicalRect, (f32, f32), (f32, f32))> {
+    let moved = |id: &LocalScrollId, offset: &(f32, f32)| -> Option<(f32, f32)> {
+        let prev = previous_scroll_offsets.get(id).copied().unwrap_or((0.0, 0.0));
+        let delta = (offset.0 - prev.0, offset.1 - prev.1);
+        // Threshold in PHYSICAL pixels: a delta that moves the content by at
+        // least half a device pixel must repaint (at dpi=2 a 0.3-logical
+        // wheel step is already a visible 0.6-device-px move).
+        ((delta.0 * dpi_factor).abs() > 0.5 || (delta.1 * dpi_factor).abs() > 0.5).then_some(delta)
+    };
+    let mut out = Vec::new();
+    let mut stack: Vec<(f32, f32)> = Vec::new();
+    let mut acc = (0.0f32, 0.0f32);
+    for item in &display_list.items {
+        match item {
+            DisplayListItem::PushScrollFrame {
+                clip_bounds,
+                scroll_id,
+                ..
+            } => {
+                let offset = scroll_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+                if let Some(delta) = scroll_offsets.get(scroll_id).and_then(|o| moved(scroll_id, o)) {
+                    let mut clip = *clip_bounds.inner();
+                    clip.origin.x -= acc.0;
+                    clip.origin.y -= acc.1;
+                    out.push((*scroll_id, clip, delta, offset));
+                }
+                stack.push(offset);
+                acc.0 += offset.0;
+                acc.1 += offset.1;
+            }
+            DisplayListItem::PopScrollFrame => {
+                if let Some(off) = stack.pop() {
+                    acc.0 -= off.0;
+                    acc.1 -= off.1;
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// The complete FAST-PATH damage recipe for one scrolled frame, shared by
 /// the shell (`headless/mod.rs`) and the e2e twin (`e2e/cpu_backend.rs`) so a
 /// damage rule can never land on one side only — the scrollbar snap-back
@@ -2132,6 +2183,17 @@ pub fn execute_scroll_shift(
     }
 }
 
+/// Clip-intersected bounds of every item painted AFTER scroll frame
+/// `scroll_id`'s `PopScrollFrame` that STRICTLY overlaps `clip_bounds`.
+///
+/// Anything composited over the frame inside its clip (the frame's own
+/// scrollbar, an open dropdown/context menu/tooltip, a sibling's box-shadow)
+/// gets DRAGGED by the `scroll_shift_region` memmove. Rather than making such
+/// frames ineligible for the fast path (a scrollbar would disable it for
+/// every scroll container), the caller adds these rects to the damage set so
+/// the dragged pixels are simply repainted after the shift.
+#[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+#[must_use]
 pub fn overlay_rects_after_frame(
     display_list: &DisplayList,
     scroll_id: LocalScrollId,

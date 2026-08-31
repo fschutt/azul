@@ -312,30 +312,14 @@ impl CpuBackend {
         // only ever catches the scrollbar. Collect (clip, delta) per frame whose
         // offset changed so the still-visible pixels can be MOVED and only the
         // exposed strip repainted.
-        let mut scroll_shifts: Vec<(u64, LogicalRect, (f32, f32), (f32, f32))> = Vec::new();
-        for (scroll_id, offset) in &scroll_offsets {
-            let prev = self
-                .previous_scroll_offsets
-                .get(scroll_id)
-                .copied()
-                .unwrap_or((0.0, 0.0));
-            let delta = (offset.0 - prev.0, offset.1 - prev.1);
-            // Threshold in PHYSICAL pixels.
-            if (delta.0 * dpi_factor).abs() > 0.5 || (delta.1 * dpi_factor).abs() > 0.5 {
-                for item in display_list.items.iter() {
-                    if let azul_layout::solver3::display_list::DisplayListItem::PushScrollFrame {
-                        clip_bounds,
-                        scroll_id: sid,
-                        ..
-                    } = item
-                    {
-                        if sid == scroll_id {
-                            scroll_shifts.push((*sid, *clip_bounds.inner(), delta, *offset));
-                        }
-                    }
-                }
-            }
-        }
+        // One shared, viewport-projected collector with the shell - see
+        // `cpurender::collect_scroll_shifts`.
+        let scroll_shifts = cpurender::collect_scroll_shifts(
+            display_list,
+            &scroll_offsets,
+            &self.previous_scroll_offsets,
+            dpi_factor,
+        );
         let has_scroll = !scroll_shifts.is_empty();
         // Advance the scroll baseline ONLY for frames actually painted at their
         // new offset this call, so sub-device-pixel deltas ACCUMULATE instead of

@@ -352,6 +352,8 @@ mod scroll_shift_ghost;
 mod textinput_seed_style;
 #[path = "a11y_consumer_contract.rs"]
 mod a11y_consumer_contract;
+#[path = "textinput_first_draw_and_focus.rs"]
+mod textinput_first_draw_and_focus;
 #[path = "token_vs_slicer_differential.rs"]
 mod token_vs_slicer_differential;
 #[path = "unresolved_family_render.rs"]
