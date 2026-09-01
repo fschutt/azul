@@ -562,11 +562,24 @@ impl_vec_as_hashmap!(ScanCode, ScanCodeVec);
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Eq)]
 #[repr(C)]
 pub struct MouseState {
-    /// Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)
-    pub mouse_cursor_type: OptionMouseCursorType,
+    // Field order is by DECREASING ALIGNMENT, not by topic. `#[repr(C)]` lays
+    // these out literally, so the u64 has to lead and the five bools have to
+    // trail — the previous grouping cost ~8 bytes of padding per instance,
+    // and this struct is copied every mouse move.
+    /// Which physical pointing device is driving, or `0` when the platform
+    /// does not say. (READONLY)
+    pub pointer_device_id: u64,
     /// Where is the mouse cursor currently? Set to `None` if the window is not focused.
     /// (READWRITE)
     pub cursor_position: CursorPosition,
+    /// Current mouse cursor type, set to `None` if the cursor is hidden. (READWRITE)
+    pub mouse_cursor_type: OptionMouseCursorType,
+    /// What kind of device is currently driving the pointer. (READONLY)
+    ///
+    /// On `MouseState` rather than on the event because it is a property of
+    /// the DEVICE, not of one motion — an app can ask "is this a trackpad?"
+    /// from any callback, not only from inside a pointer handler.
+    pub pointer_source: crate::events::PointerSource,
     /// Is the mouse cursor locked to the current window (important for applications like games)?
     /// (READWRITE)
     pub is_cursor_locked: bool,
@@ -576,15 +589,6 @@ pub struct MouseState {
     pub right_down: bool,
     /// Is the middle mouse button down? (READONLY)
     pub middle_down: bool,
-    /// What kind of device is currently driving the pointer. (READONLY)
-    ///
-    /// On `MouseState` rather than on the event because it is a property of
-    /// the DEVICE, not of one motion — an app can ask "is this a trackpad?"
-    /// from any callback, not only from inside a pointer handler.
-    pub pointer_source: crate::events::PointerSource,
-    /// Which physical pointing device is driving, or `0` when the platform
-    /// does not say. (READONLY)
-    pub pointer_device_id: u64,
     /// Bitmask of the thumb buttons currently held. (READONLY)
     ///
     /// A bitmask rather than two bools because the set is open-ended: a mouse
@@ -595,6 +599,7 @@ pub struct MouseState {
     /// testing bits by hand.
     pub other_down: u8,
 }
+
 
 impl MouseState {
     /// Whether the thumb "back" button is held.

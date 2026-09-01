@@ -112,11 +112,12 @@ pub enum GamepadAxis {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GamepadState {
+    // Field order is by DECREASING ALIGNMENT, not by topic. `#[repr(C)]`
+    // lays these out literally, so an align-1 bool between align-4 floats
+    // costs 3 bytes of padding each time — the FFI checker flags it, and at
+    // one GamepadState per pad per frame it is not free.
     /// Which pad this snapshot is for.
     pub id: GamepadId,
-    /// `false` once the pad disconnects (the manager keeps the last slot so
-    /// a callback can observe the disconnect).
-    pub connected: bool,
     /// Pressed-button bitset — bit `n` set ⇔ the `GamepadButton` with
     /// discriminant `n` is held. Read via [`GamepadState::is_pressed`].
     pub buttons: u32,
@@ -148,8 +149,6 @@ pub struct GamepadState {
     pub touchpad_x: f32,
     /// See [`GamepadState::touchpad_x`].
     pub touchpad_y: f32,
-    /// Whether a finger is on the pad's touch surface.
-    pub touchpad_active: bool,
     /// Angular velocity from the pad's own gyroscope, in **rad/s**.
     ///
     /// Present on DualShock 4, DualSense, Switch Pro and Steam Deck. This is
@@ -167,7 +166,13 @@ pub struct GamepadState {
     pub accel_y: f32,
     /// See [`GamepadState::accel_x`].
     pub accel_z: f32,
+    /// `false` once the pad disconnects (the manager keeps the last slot so
+    /// a callback can observe the disconnect).
+    pub connected: bool,
+    /// Whether a finger is on the pad's touch surface.
+    pub touchpad_active: bool,
 }
+
 
 impl GamepadButton {
     /// This button's bit in [`GamepadState::buttons`].

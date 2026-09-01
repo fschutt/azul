@@ -4024,7 +4024,14 @@
                                 "PermissionChanged": {},
                                 "BiometricResult": {},
                                 "ScreenColorPicked": {},
-                                "KeyringResult": {}
+                                "KeyringResult": {},
+                                "BackMouseDown": {},
+                                "BackMouseUp": {},
+                                "ForwardMouseDown": {},
+                                "ForwardMouseUp": {},
+                                "RawMouseMotion": {},
+                                "ModifiersChanged": {},
+                                "HidReport": {}
                             }
                         ],
                         "repr": "C"
@@ -5981,26 +5988,25 @@
                         "struct_fields": [
                             {
                                 "id": {
-                                    "type": "u64",
-                                    "doc": [
-                                        "Unique identifier for this touch point (persists across move events)"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "u64"
+                                },
                                 "position": {
-                                    "type": "LogicalPosition",
-                                    "doc": [
-                                        "Current position of the touch point in logical coordinates"
-                                    ]
-                                }
-                            },
-                            {
+                                    "type": "LogicalPosition"
+                                },
                                 "force": {
-                                    "type": "f32",
-                                    "doc": [
-                                        "Force / pressure of the touch (0.0 = none, 1.0 = max). Set to 0.5 if pressure is unavailable."
-                                    ]
+                                    "type": "f32"
+                                },
+                                "major": {
+                                    "type": "f32"
+                                },
+                                "minor": {
+                                    "type": "f32"
+                                },
+                                "orientation_rad": {
+                                    "type": "f32"
+                                },
+                                "tool_type": {
+                                    "type": "TouchToolType"
                                 }
                             }
                         ],
@@ -6476,6 +6482,203 @@
                                 "fn_body": "object.apply_attr(key.as_str(), value.as_str())"
                             }
                         },
+                        "repr": "C"
+                    },
+                    "PhysicalKey": {
+                        "external": "azul_core::window::PhysicalKey",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Unidentified": {},
+                                "KeyA": {},
+                                "KeyB": {},
+                                "KeyC": {},
+                                "KeyD": {},
+                                "KeyE": {},
+                                "KeyF": {},
+                                "KeyG": {},
+                                "KeyH": {},
+                                "KeyI": {},
+                                "KeyJ": {},
+                                "KeyK": {},
+                                "KeyL": {},
+                                "KeyM": {},
+                                "KeyN": {},
+                                "KeyO": {},
+                                "KeyP": {},
+                                "KeyQ": {},
+                                "KeyR": {},
+                                "KeyS": {},
+                                "KeyT": {},
+                                "KeyU": {},
+                                "KeyV": {},
+                                "KeyW": {},
+                                "KeyX": {},
+                                "KeyY": {},
+                                "KeyZ": {},
+                                "Digit0": {},
+                                "Digit1": {},
+                                "Digit2": {},
+                                "Digit3": {},
+                                "Digit4": {},
+                                "Digit5": {},
+                                "Digit6": {},
+                                "Digit7": {},
+                                "Digit8": {},
+                                "Digit9": {},
+                                "Backquote": {},
+                                "Minus": {},
+                                "Equal": {},
+                                "BracketLeft": {},
+                                "BracketRight": {},
+                                "Backslash": {},
+                                "Semicolon": {},
+                                "Quote": {},
+                                "Comma": {},
+                                "Period": {},
+                                "Slash": {},
+                                "Enter": {},
+                                "Tab": {},
+                                "Space": {},
+                                "Backspace": {},
+                                "Escape": {},
+                                "CapsLock": {},
+                                "ShiftLeft": {},
+                                "ShiftRight": {},
+                                "ControlLeft": {},
+                                "ControlRight": {},
+                                "AltLeft": {},
+                                "AltRight": {},
+                                "MetaLeft": {},
+                                "MetaRight": {},
+                                "ContextMenu": {},
+                                "Insert": {},
+                                "Delete": {},
+                                "Home": {},
+                                "End": {},
+                                "PageUp": {},
+                                "PageDown": {},
+                                "ArrowUp": {},
+                                "ArrowDown": {},
+                                "ArrowLeft": {},
+                                "ArrowRight": {},
+                                "F1": {},
+                                "F2": {},
+                                "F3": {},
+                                "F4": {},
+                                "F5": {},
+                                "F6": {},
+                                "F7": {},
+                                "F8": {},
+                                "F9": {},
+                                "F10": {},
+                                "F11": {},
+                                "F12": {},
+                                "F13": {},
+                                "F14": {},
+                                "F15": {},
+                                "F16": {},
+                                "F17": {},
+                                "F18": {},
+                                "F19": {},
+                                "F20": {},
+                                "F21": {},
+                                "F22": {},
+                                "F23": {},
+                                "F24": {},
+                                "PrintScreen": {},
+                                "ScrollLock": {},
+                                "Pause": {},
+                                "NumLock": {},
+                                "NumpadDivide": {},
+                                "NumpadMultiply": {},
+                                "NumpadSubtract": {},
+                                "NumpadAdd": {},
+                                "NumpadEnter": {},
+                                "NumpadDecimal": {},
+                                "NumpadComma": {},
+                                "NumpadEqual": {},
+                                "Numpad0": {},
+                                "Numpad1": {},
+                                "Numpad2": {},
+                                "Numpad3": {},
+                                "Numpad4": {},
+                                "Numpad5": {},
+                                "Numpad6": {},
+                                "Numpad7": {},
+                                "Numpad8": {},
+                                "Numpad9": {},
+                                "IntlBackslash": {},
+                                "IntlRo": {},
+                                "IntlYen": {},
+                                "Lang1": {},
+                                "Lang2": {},
+                                "Convert": {},
+                                "NonConvert": {},
+                                "KanaMode": {}
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "KeyLocks": {
+                        "external": "azul_core::window::KeyLocks",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "Default",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "struct_fields": [
+                            {
+                                "caps_lock": {
+                                    "type": "bool"
+                                },
+                                "num_lock": {
+                                    "type": "bool"
+                                },
+                                "scroll_lock": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "TouchToolType": {
+                        "external": "azul_core::window::TouchToolType",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Unknown": {},
+                                "Finger": {},
+                                "Stylus": {},
+                                "Eraser": {},
+                                "Palm": {},
+                                "Mouse": {}
+                            }
+                        ],
                         "repr": "C"
                     }
                 }
@@ -15173,6 +15376,12 @@
                                 },
                                 "report_rate_hz": {
                                     "type": "f32"
+                                },
+                                "hover_distance": {
+                                    "type": "f32"
+                                },
+                                "tool_kind": {
+                                    "type": "TabletToolKind"
                                 }
                             }
                         ],
@@ -22905,6 +23114,18 @@
                                 },
                                 "pressed_scancodes": {
                                     "type": "ScanCodeVec"
+                                },
+                                "modifiers": {
+                                    "type": "KeyModifiers"
+                                },
+                                "locks": {
+                                    "type": "KeyLocks"
+                                },
+                                "is_repeat": {
+                                    "type": "bool"
+                                },
+                                "current_physical_key": {
+                                    "type": "OptionPhysicalKey"
                                 }
                             }
                         ],
@@ -22922,10 +23143,14 @@
                             {
                                 "num_touches": {
                                     "type": "usize"
-                                }
-                            },
-                            {
+                                },
                                 "touch_points": {
+                                    "type": "TouchPointVec"
+                                },
+                                "coalesced_points": {
+                                    "type": "TouchPointVec"
+                                },
+                                "predicted_points": {
                                     "type": "TouchPointVec"
                                 }
                             }
@@ -23039,11 +23264,17 @@
                         ],
                         "struct_fields": [
                             {
-                                "mouse_cursor_type": {
-                                    "type": "OptionMouseCursorType"
+                                "pointer_device_id": {
+                                    "type": "u64"
                                 },
                                 "cursor_position": {
                                     "type": "CursorPosition"
+                                },
+                                "mouse_cursor_type": {
+                                    "type": "OptionMouseCursorType"
+                                },
+                                "pointer_source": {
+                                    "type": "PointerSource"
                                 },
                                 "is_cursor_locked": {
                                     "type": "bool"
@@ -23056,6 +23287,9 @@
                                 },
                                 "middle_down": {
                                     "type": "bool"
+                                },
+                                "other_down": {
+                                    "type": "u8"
                                 }
                             }
                         ],
@@ -26208,7 +26442,10 @@
                                 "Next": {},
                                 "First": {},
                                 "Last": {},
-                                "NoFocus": {}
+                                "NoFocus": {},
+                                "Directional": {
+                                    "type": "FocusDirection"
+                                }
                             }
                         ],
                         "repr": "C, u8"
@@ -26725,7 +26962,57 @@
                                     "doc": [
                                         "Number of elements in the slice"
                                     ]
+                    "KeyModifiers": {
+                        "external": "azul_core::events::KeyModifiers",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "Hash",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "shift": {
+                                    "type": "bool"
+                                },
+                                "ctrl": {
+                                    "type": "bool"
+                                },
+                                "alt": {
+                                    "type": "bool"
+                                },
+                                "meta": {
+                                    "type": "bool"
                                 }
+                            }
+                        ],
+                        "repr": "C"
+                    },
+                    "PointerSource": {
+                        "external": "azul_core::events::PointerSource",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Unknown": {},
+                                "Mouse": {},
+                                "Touchpad": {},
+                                "Trackball": {},
+                                "Trackpoint": {},
+                                "Touchscreen": {},
+                                "Pen": {},
+                                "Eraser": {}
                             }
                         ],
                         "repr": "C"
@@ -38672,7 +38959,15 @@
                                 "PermissionChanged": {},
                                 "BiometricResult": {},
                                 "ScreenColorPicked": {},
-                                "KeyringResult": {}
+                                "KeyringResult": {},
+                                "BackMouseDown": {},
+                                "BackMouseUp": {},
+                                "ForwardMouseDown": {},
+                                "ForwardMouseUp": {},
+                                "Submit": {},
+                                "Change": {},
+                                "Reset": {},
+                                "Invalid": {}
                             }
                         ],
                         "repr": "C"
@@ -39007,6 +39302,15 @@
                                         "APPENDED at the enum tail for ABI stability."
                                     ]
                                 }
+                                "DocumentEdit": {},
+                                "BackMouseDown": {},
+                                "BackMouseUp": {},
+                                "ForwardMouseDown": {},
+                                "ForwardMouseUp": {},
+                                "Submit": {},
+                                "Change": {},
+                                "Reset": {},
+                                "Invalid": {}
                             }
                         ],
                         "repr": "C"
@@ -42087,28 +42391,19 @@
                         "struct_fields": [
                             {
                                 "top": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "Inset from the top edge (notch, camera housing, etc.)"
-                                    ]
+                                    "type": "OptionPixelValue"
                                 },
                                 "bottom": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "Inset from the bottom edge (home indicator on iPhone)"
-                                    ]
+                                    "type": "OptionPixelValue"
                                 },
                                 "left": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "Inset from the left edge (rounded corners)"
-                                    ]
+                                    "type": "OptionPixelValue"
                                 },
                                 "right": {
-                                    "type": "OptionPixelValue",
-                                    "doc": [
-                                        "Inset from the right edge (rounded corners)"
-                                    ]
+                                    "type": "OptionPixelValue"
+                                },
+                                "keyboard": {
+                                    "type": "OptionPixelValue"
                                 }
                             }
                         ],
@@ -48001,6 +48296,24 @@
                                         "Number of elements in the slice"
                                     ]
                                 }
+                    "FocusDirection": {
+                        "external": "azul_core::callbacks::FocusDirection",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "Up": {},
+                                "Down": {},
+                                "Left": {},
+                                "Right": {}
                             }
                         ],
                         "repr": "C"
@@ -110478,6 +110791,28 @@
                             }
                         ],
                         "repr": "C, u8"
+                    },
+                    "OptionPhysicalKey": {
+                        "external": "azul_core::window::OptionPhysicalKey",
+                        "derive": [
+                            "Debug",
+                            "Copy",
+                            "Clone",
+                            "PartialEq",
+                            "Eq",
+                            "PartialOrd",
+                            "Ord",
+                            "Hash"
+                        ],
+                        "enum_fields": [
+                            {
+                                "None": {},
+                                "Some": {
+                                    "type": "PhysicalKey"
+                                }
+                            }
+                        ],
+                        "repr": "C, u8"
                     }
                 }
             },
@@ -116862,17 +117197,32 @@
                         ],
                         "struct_fields": [
                             {
+                                "device_id": {
+                                    "type": "u64"
+                                },
                                 "express_keys": {
                                     "type": "u32"
                                 },
                                 "touch_ring": {
                                     "type": "f32"
                                 },
+                                "strip": {
+                                    "type": "f32"
+                                },
+                                "dial_delta": {
+                                    "type": "f32"
+                                },
+                                "mode": {
+                                    "type": "u32"
+                                },
+                                "mode_count": {
+                                    "type": "u32"
+                                },
                                 "touch_ring_active": {
                                     "type": "bool"
                                 },
-                                "device_id": {
-                                    "type": "u64"
+                                "strip_active": {
+                                    "type": "bool"
                                 }
                             }
                         ],
@@ -116892,39 +117242,16 @@
                         ],
                         "enum_fields": [
                             {
-                                "Stylus": {
-                                    "doc": [
-                                        "The pen tip."
-                                    ]
-                                }
-                            },
-                            {
-                                "Eraser": {
-                                    "doc": [
-                                        "The inverted / eraser end of a stylus."
-                                    ]
-                                }
-                            },
-                            {
-                                "Pad": {
-                                    "doc": [
-                                        "The tablet pad: ExpressKeys plus touch-ring / strip."
-                                    ]
-                                }
-                            },
-                            {
-                                "Touch": {
-                                    "doc": [
-                                        "A touch surface (tablet touch or touchscreen)."
-                                    ]
-                                }
-                            },
-                            {
-                                "Unknown": {
-                                    "doc": [
-                                        "Recognised as tablet-adjacent, kind unknown."
-                                    ]
-                                }
+                                "Stylus": {},
+                                "Eraser": {},
+                                "Pad": {},
+                                "Touch": {},
+                                "Unknown": {},
+                                "Brush": {},
+                                "Pencil": {},
+                                "Airbrush": {},
+                                "Mouse": {},
+                                "Lens": {}
                             }
                         ],
                         "repr": "C"
@@ -117460,7 +117787,15 @@
                             {
                                 "Accelerometer": {},
                                 "Gyroscope": {},
-                                "Magnetometer": {}
+                                "Magnetometer": {},
+                                "RotationVector": {},
+                                "Gravity": {},
+                                "LinearAcceleration": {},
+                                "AmbientLight": {},
+                                "Proximity": {},
+                                "Barometer": {},
+                                "StepCounter": {},
+                                "HingeAngle": {}
                             }
                         ],
                         "repr": "C"
@@ -117499,13 +117834,22 @@
                                 "DPadUp": {},
                                 "DPadDown": {},
                                 "DPadLeft": {},
-                                "DPadRight": {}
+                                "DPadRight": {},
+                                "Misc1": {},
+                                "Paddle1": {},
+                                "Paddle2": {},
+                                "Paddle3": {},
+                                "Paddle4": {},
+                                "Touchpad": {}
                             }
                         ],
                         "repr": "C"
                     },
                     "GamepadState": {
                         "external": "azul_core::gamepad::GamepadState",
+                        "custom_impls": [
+                            "Default"
+                        ],
                         "derive": [
                             "Debug",
                             "Clone",
@@ -117516,9 +117860,6 @@
                             {
                                 "id": {
                                     "type": "GamepadId"
-                                },
-                                "connected": {
-                                    "type": "bool"
                                 },
                                 "buttons": {
                                     "type": "u32"
@@ -117540,6 +117881,39 @@
                                 },
                                 "right_z": {
                                     "type": "f32"
+                                },
+                                "battery": {
+                                    "type": "f32"
+                                },
+                                "touchpad_x": {
+                                    "type": "f32"
+                                },
+                                "touchpad_y": {
+                                    "type": "f32"
+                                },
+                                "gyro_x": {
+                                    "type": "f32"
+                                },
+                                "gyro_y": {
+                                    "type": "f32"
+                                },
+                                "gyro_z": {
+                                    "type": "f32"
+                                },
+                                "accel_x": {
+                                    "type": "f32"
+                                },
+                                "accel_y": {
+                                    "type": "f32"
+                                },
+                                "accel_z": {
+                                    "type": "f32"
+                                },
+                                "connected": {
+                                    "type": "bool"
+                                },
+                                "touchpad_active": {
+                                    "type": "bool"
                                 }
                             }
                         ],

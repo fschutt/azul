@@ -5573,7 +5573,7 @@ impl MacOSWindow {
                 right: mk(right),
                 // No keyboard inset at this site: a titlebar/desktop
                 // surface never has an on-screen keyboard over it.
-                keyboard: OptionPixelValue::None,
+                keyboard: azul_css::props::basic::pixel::OptionPixelValue::None,
             };
         }
 

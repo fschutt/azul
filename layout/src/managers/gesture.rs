@@ -419,16 +419,17 @@ impl Default for PenState {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct WacomPadState {
+    // Field order is by DECREASING ALIGNMENT. `device_id` is a u64 and has to
+    // lead, or `#[repr(C)]` pads to align it after the u32s; the two bools go
+    // last for the same reason. ~8 bytes per instance.
+    /// Tablet device id (to distinguish pads on multi-tablet setups).
+    pub device_id: u64,
     /// `ExpressKey` bitset — bit `n` set ⇔ hardware button `n` is held (up to
     /// 32). Read via [`WacomPadState::express_key`].
     pub express_keys: u32,
     /// Touch-ring / touch-strip absolute position, `0.0`–`1.0`. Only
     /// meaningful while [`WacomPadState::touch_ring_active`] is `true`.
     pub touch_ring: f32,
-    /// Whether a finger is currently on the touch-ring / touch-strip.
-    pub touch_ring_active: bool,
-    /// Tablet device id (to distinguish pads on multi-tablet setups).
-    pub device_id: u64,
     /// Touch-STRIP absolute position, `0.0`-`1.0`. Only meaningful while
     /// [`WacomPadState::strip_active`] is `true`.
     ///
@@ -436,8 +437,6 @@ pub struct WacomPadState {
     /// one usually does not have the other. Folding them into a single field
     /// would make a strip look like a ring stuck at one angle.
     pub strip: f32,
-    /// Whether a finger is currently on the touch-strip.
-    pub strip_active: bool,
     /// Dial rotation since the last frame, in radians. `0.0` = no motion.
     ///
     /// From `zwp_tablet_pad_dial_v2`, which both Linux backends already bind.
@@ -451,7 +450,12 @@ pub struct WacomPadState {
     pub mode: u32,
     /// How many modes the group has. `0` = the pad does not multiplex.
     pub mode_count: u32,
+    /// Whether a finger is currently on the touch-ring / touch-strip.
+    pub touch_ring_active: bool,
+    /// Whether a finger is currently on the touch-strip.
+    pub strip_active: bool,
 }
+
 
 impl_option!(
     WacomPadState,

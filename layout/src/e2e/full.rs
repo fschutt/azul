@@ -8708,12 +8708,14 @@ fn fp_keyring(m: &azul_layout::managers::keyring::KeyringManager) -> ManagerFing
 #[cfg(feature = "std")]
 fn fp_sensors(m: &azul_layout::managers::sensors::SensorManager) -> ManagerFingerprint {
     ManagerFingerprint::new(
-        usize::from(m.accelerometer.is_some())
-            + usize::from(m.gyroscope.is_some())
-            + usize::from(m.magnetometer.is_some()),
+        m.readings.iter().filter(|r| r.is_some()).count(),
         format!(
             "accel={:?} gyro={:?} mag={:?} pending={} listeners={}",
-            m.accelerometer, m.gyroscope, m.magnetometer, m.pending_event, m.has_listeners
+            m.reading(azul_core::sensors::SensorKind::Accelerometer),
+            m.reading(azul_core::sensors::SensorKind::Gyroscope),
+            m.reading(azul_core::sensors::SensorKind::Magnetometer),
+            m.pending_event,
+            m.has_listeners
         ),
     )
 }

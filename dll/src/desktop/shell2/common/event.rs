@@ -6066,6 +6066,21 @@ pub trait PlatformWindow {
             }
 
             // === App-global Undo / Redo (mini-git over the app state) ===
+            // Both are OUTWARD effects the shell performs after the pass,
+            // not state the layout owns — queued here, drained by the
+            // platform backend. Neither repaints anything.
+            CallbackChange::PlayHaptic { pattern, target } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.haptic_manager.play(*pattern, *target);
+                }
+                ProcessEventResult::DoNothing
+            }
+            CallbackChange::RequestSoftKeyboard { visible } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.text_edit_manager.request_soft_keyboard(*visible);
+                }
+                ProcessEventResult::DoNothing
+            }
             CallbackChange::CommitUndoSnapshot => {
                 // Clone the Arc first so the `&self` borrow ends before we
                 // borrow `&self` again via get_undo_manager().

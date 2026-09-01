@@ -2939,16 +2939,18 @@ impl Runner {
 
             // No app data / undo manager: the runner's `RefAny` app data is `()`,
             // so a snapshot or an undo would restore nothing.
+            // The runner owns its LayoutWindow directly, and every arm here
+            // returns a ProcessEventResult.
             CallbackChange::PlayHaptic { pattern, target } => {
-                // Queued for the shell to play at the end of the pass.
-                if let Some(lw) = self.get_layout_window_mut() {
-                    lw.haptic_manager.play(*pattern, *target);
-                }
+                self.layout_window.haptic_manager.play(*pattern, *target);
+                // No repaint: a haptic changes nothing on screen.
+                ProcessEventResult::DoNothing
             }
             CallbackChange::RequestSoftKeyboard { visible } => {
-                if let Some(lw) = self.get_layout_window_mut() {
-                    lw.text_edit_manager.request_soft_keyboard(*visible);
-                }
+                self.layout_window
+                    .text_edit_manager
+                    .request_soft_keyboard(*visible);
+                ProcessEventResult::DoNothing
             }
             CallbackChange::CommitUndoSnapshot => {
                 self.unsupported("CommitUndoSnapshot", "no app-data undo manager")
