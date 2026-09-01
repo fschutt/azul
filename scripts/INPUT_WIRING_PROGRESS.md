@@ -80,7 +80,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `CallbackInfo::get_composition_*` accessors.
 - [x] 3d Emit `Composition*` at the IME sites: Win32 `WM_IME_STARTCOMPOSITION`/`COMPOSITION`/`ENDCOMPOSITION`,
       macOS `setMarkedText:`/`unmarkText`/`insertText:`, Wayland `preedit_string`/`commit_string`/`done`, X11 XIM.
-- [ ] 3e Dispatch `EventType::Copy`/`Cut`/`Paste` to the focused node BEFORE pushing
+- [x] 3e ALREADY DONE UPSTREAM (landed after the audit was written — verified at `common/event.rs:9114-9175`: the three SystemChanges are deferred past callback dispatch, the events are constructed and propagated, and `clip_prevented` gates `apply_system_change`). No change needed. Original item: dispatch `EventType::Copy`/`Cut`/`Paste` to the focused node BEFORE pushing
       `SystemChange::{CopyToClipboard, CutToClipboard, PasteFromClipboard}`; the existing
       `post_callback_filter_system_changes(prevent_default, …)` gate then makes them interceptable.
 
@@ -106,7 +106,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ## Step 4 — C4: open the Application phase
 
-- [ ] 4a `matches_filter_phase`: replace the `EventFilter::Application(_) => false` arm with a real
+- [x] 4a `matches_filter_phase`: replace the `EventFilter::Application(_) => false` arm with a real
       `matches_application_filter(f, event, phase)`; write that fn.
 - [ ] 4b Producer: gilrs gamepad connect/disconnect → `EventType::DeviceConnected`/`DeviceDisconnected`
       (already pumped via `capability_pump`, all four desktops).

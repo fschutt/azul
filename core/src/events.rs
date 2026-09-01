@@ -826,6 +826,17 @@ pub enum EventType {
     /// channel when this runs. Deletions used to be the only edits notified
     /// post-commit (through a second `Input`); this is the uniform spelling.
     TextChanged,
+    /// An input device was attached. APPENDED at the end for ABI stability.
+    ///
+    /// `ApplicationEventFilter` has carried `DeviceConnected` since it was
+    /// introduced, with no `EventType` able to reach it. Hotplug is observable
+    /// on every backend — gilrs already reports gamepad arrive/leave through
+    /// the capability pump, Wayland has `wl_seat.capabilities` and the
+    /// `zwp_tablet_seat_v2` add/remove events, X11 has `XI_HierarchyChanged`,
+    /// Win32 has `WM_DEVICECHANGE` — so the filter was the only thing missing.
+    DeviceConnected,
+    /// An input device was detached. See [`EventType::DeviceConnected`].
+    DeviceDisconnected,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1347,9 +1358,8 @@ fn matches_filter_phase(
         EventFilter::Component(component_filter) => {
             matches_component_filter(component_filter, event, current_phase)
         }
-        EventFilter::Application(_) => {
-            // Application events - will be implemented in future
-            false
+        EventFilter::Application(application_filter) => {
+            matches_application_filter(application_filter, event, current_phase)
         }
     }
 }
@@ -1578,6 +1588,38 @@ fn matches_focus_filter(
         (FocusEventFilter::PenDown, EventType::PenDown) => true,
         (FocusEventFilter::PenMove, EventType::PenMove) => true,
         (FocusEventFilter::PenUp, EventType::PenUp) => true,
+        _ => false,
+    }
+}
+
+/// Check if an application filter matches the event.
+///
+/// Application events are not hit-tested and have no meaningful target: a
+/// device arriving or a monitor being unplugged belongs to the application,
+/// not to whichever node happened to be under the cursor. They are dispatched
+/// at the root and reach any subscriber by propagation, which is why this
+/// table ignores the phase exactly as the window table does.
+///
+/// This arm returned a flat `false` — "will be implemented in future" — so all
+/// four variants were structurally unreachable no matter what a shell emitted.
+/// Every other layer was already in place: `event_type_to_filters` had named
+/// `EF::Application(..)` for the monitor pair the whole time.
+// Exhaustive (filter, event-type) truth table — see matches_hover_filter.
+#[allow(clippy::match_same_arms)]
+fn matches_application_filter(
+    filter: ApplicationEventFilter,
+    event: &SyntheticEvent,
+    _phase: EventPhase,
+) -> bool {
+    use ApplicationEventFilter::{
+        DeviceConnected, DeviceDisconnected, MonitorConnected, MonitorDisconnected,
+    };
+
+    match (filter, &event.event_type) {
+        (DeviceConnected, EventType::DeviceConnected) => true,
+        (DeviceDisconnected, EventType::DeviceDisconnected) => true,
+        (MonitorConnected, EventType::MonitorConnected) => true,
+        (MonitorDisconnected, EventType::MonitorDisconnected) => true,
         _ => false,
     }
 }
@@ -3363,6 +3405,10 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
         E::WindowMonitorChanged => vec![EF::Window(W::MonitorChanged)],
 
         // Application events
+        E::DeviceConnected => vec![EF::Application(ApplicationEventFilter::DeviceConnected)],
+        E::DeviceDisconnected => {
+            vec![EF::Application(ApplicationEventFilter::DeviceDisconnected)]
+        }
         E::MonitorConnected => vec![EF::Application(ApplicationEventFilter::MonitorConnected)],
         E::MonitorDisconnected => {
             vec![EF::Application(ApplicationEventFilter::MonitorDisconnected)]
