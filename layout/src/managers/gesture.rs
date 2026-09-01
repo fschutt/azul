@@ -4052,5 +4052,5 @@ pub struct DialState {
     /// physically placed on the display and the OS gives its contact point, so
     /// an app can draw a radial menu around it. `None` everywhere else,
     /// including for the same Dial used off-screen.
-    pub contact_position: azul_core::window::OptionLogicalPosition,
+    pub contact_position: azul_core::geom::OptionLogicalPosition,
 }

@@ -2435,7 +2435,7 @@ impl HeadlessWindow {
                                     detent_count: 0.0,
                                     pressed: false,
                                     contact_position:
-                                        azul_core::window::OptionLogicalPosition::None,
+                                        azul_core::geom::OptionLogicalPosition::None,
                                 },
                             );
                         }

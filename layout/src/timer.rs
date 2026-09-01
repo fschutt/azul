@@ -502,7 +502,6 @@ impl TimerCallbackInfo {
     #[must_use]
     pub fn get_current_keyboard_state(&self) -> KeyboardState {
         self.callback_info.get_current_keyboard_state()
-        ..Default::default()
     }
 
     /// Get current mouse state

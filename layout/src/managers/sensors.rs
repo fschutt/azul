@@ -28,12 +28,12 @@ use azul_core::task::Instant;
 /// per-process sensor subscription, not per-window.
 #[derive(Copy, Debug, Clone, PartialEq, Default)]
 pub struct SensorManager {
-    /// Latest accelerometer reading (m/s²), or `None` until a sample arrives.
-    pub accelerometer: Option<SensorReading>,
-    /// Latest gyroscope reading (rad/s).
-    pub gyroscope: Option<SensorReading>,
-    /// Latest magnetometer reading (µT).
-    pub magnetometer: Option<SensorReading>,
+    /// Latest reading per kind, indexed by `SensorKind::slot()`.
+    ///
+    /// An array rather than a field per kind: the set went from 3 to 11 when
+    /// the derived sensors landed, and one field each would have meant a new
+    /// field, two match arms and an accessor per addition.
+    pub readings: [Option<SensorReading>; SensorKind::COUNT],
     /// `true` when a reading advanced since the last event-pass drain. Set by
     /// [`set_reading`](Self::set_reading), read by the `EventProvider` impl,
     /// cleared by [`clear_pending_event`](Self::clear_pending_event).
@@ -55,22 +55,14 @@ impl SensorManager {
     /// Latest reading for `kind`, or `None` if no backend has delivered one.
     #[must_use]
     pub const fn reading(&self, kind: SensorKind) -> Option<SensorReading> {
-        match kind {
-            SensorKind::Accelerometer => self.accelerometer,
-            SensorKind::Gyroscope => self.gyroscope,
-            SensorKind::Magnetometer => self.magnetometer,
-        }
+        self.readings[kind.slot()]
     }
 
     /// Apply a reading the backend delivered. Returns `true` if it advanced
     /// (bit-pattern different from the previous, so missing-as-`NaN` axes
     /// don't make every sample look "changed").
     pub fn set_reading(&mut self, reading: SensorReading) -> bool {
-        let slot = match reading.kind {
-            SensorKind::Accelerometer => &mut self.accelerometer,
-            SensorKind::Gyroscope => &mut self.gyroscope,
-            SensorKind::Magnetometer => &mut self.magnetometer,
-        };
+        let slot = &mut self.readings[reading.kind.slot()];
         let changed = slot
             .as_mut()
             .is_none_or(|prev| !reading_bitwise_eq(prev, &reading));

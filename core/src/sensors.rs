@@ -74,6 +74,35 @@ pub enum SensorKind {
     HingeAngle,
 }
 
+impl SensorKind {
+    /// How many kinds exist — the length of a slot array indexed by
+    /// [`Self::slot`].
+    pub const COUNT: usize = 11;
+
+    /// Dense index for this kind, for a fixed-size slot array.
+    ///
+    /// An array rather than one named field per kind: the set grew from 3 to
+    /// 11 and would have needed a new field, two new match arms and a new
+    /// accessor each time. Indexing keeps adding a kind to one line.
+    #[must_use]
+    pub const fn slot(self) -> usize {
+        match self {
+            Self::Accelerometer => 0,
+            Self::Gyroscope => 1,
+            Self::Magnetometer => 2,
+            Self::RotationVector => 3,
+            Self::Gravity => 4,
+            Self::LinearAcceleration => 5,
+            Self::AmbientLight => 6,
+            Self::Proximity => 7,
+            Self::Barometer => 8,
+            Self::StepCounter => 9,
+            Self::HingeAngle => 10,
+        }
+    }
+}
+
+
 /// One `(x, y, z)` sample from a motion sensor. Units depend on
 /// [`SensorReading::kind`] (see [`SensorKind`]). All POD / `Copy`.
 #[repr(C)]

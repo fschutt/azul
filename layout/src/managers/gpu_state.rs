@@ -1592,7 +1592,6 @@ mod autotest_generated {
         let mut node = hot(Some(NodeId::new(1)), Some(LogicalSize::new(50.0, 50.0)));
         node.box_props = PackedBoxProps {
             border: [1000, 1000, 1000, 1000], // 100.0 px each, i16 x10 encoding
-            ..Default::default()
         };
         let t = tree(
             vec![node],

@@ -2939,6 +2939,17 @@ impl Runner {
 
             // No app data / undo manager: the runner's `RefAny` app data is `()`,
             // so a snapshot or an undo would restore nothing.
+            CallbackChange::PlayHaptic { pattern, target } => {
+                // Queued for the shell to play at the end of the pass.
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.haptic_manager.play(*pattern, *target);
+                }
+            }
+            CallbackChange::RequestSoftKeyboard { visible } => {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.text_edit_manager.request_soft_keyboard(*visible);
+                }
+            }
             CallbackChange::CommitUndoSnapshot => {
                 self.unsupported("CommitUndoSnapshot", "no app-data undo manager")
             }

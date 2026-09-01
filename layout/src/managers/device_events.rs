@@ -50,7 +50,8 @@ pub struct PendingRawMotion {
 
 /// Collects hotplug transitions from the platform backends and yields them as
 /// `ApplicationEventFilter` events.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+// No Eq: raw motion is f64, and a float has no total equality.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct DeviceEventManager {
     pending: Vec<Hotplug>,
     /// Raw motion accumulated since the last drain. Coalesced rather than

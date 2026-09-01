@@ -18770,8 +18770,6 @@ impl LayoutWindow {
             device_event_manager: _,
             hid_manager: _,
             haptic_manager: _,
-        hid_manager: _,
-        haptic_manager: _,
             // Payload-only state (file paths / clipboard contents), no NodeIds:
             file_drop_manager: _,
             clipboard_manager: _,

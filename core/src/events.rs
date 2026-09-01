@@ -1953,7 +1953,7 @@ fn matches_window_filter(
         }
         (RawMouseMotion, EventType::RawMouseMotion) => true,
         (ModifiersChanged, EventType::ModifiersChanged) => true,
-        (HidReport, EventType::HidReport) => true,
+        (WindowEventFilter::HidReport, EventType::HidReport) => true,
         _ => false,
     }
 }
@@ -2562,6 +2562,18 @@ impl HoverEventFilter {
             Self::BackMouseUp => Some(FocusEventFilter::BackMouseUp),
             Self::ForwardMouseDown => Some(FocusEventFilter::ForwardMouseDown),
             Self::ForwardMouseUp => Some(FocusEventFilter::ForwardMouseUp),
+            // Form events have a Focus twin: they belong to the control that
+            // was being edited, not to whatever is hovered.
+            Self::Submit => Some(FocusEventFilter::Submit),
+            Self::Change => Some(FocusEventFilter::Change),
+            Self::Reset => Some(FocusEventFilter::Reset),
+            Self::Invalid => Some(FocusEventFilter::Invalid),
+            // Form events have a Focus twin: a submit or a commit belongs to
+            // the control that was focused, not to whatever is hovered.
+            Self::Submit => Some(FocusEventFilter::Submit),
+            Self::Change => Some(FocusEventFilter::Change),
+            Self::Reset => Some(FocusEventFilter::Reset),
+            Self::Invalid => Some(FocusEventFilter::Invalid),
         }
     }
 }
@@ -2899,6 +2911,11 @@ pub enum WindowEventFilter {
     RawMouseMotion,
     /// A modifier or lock key changed state. APPENDED at the end.
     ModifiersChanged,
+    /// A HID device delivered an input report. APPENDED at the end.
+    ///
+    /// Window-scoped like `RawMouseMotion`: a HID report has no position, so
+    /// there is no node it belongs to.
+    HidReport,
 }
 
 impl WindowEventFilter {

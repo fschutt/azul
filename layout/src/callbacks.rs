@@ -881,6 +881,16 @@ pub enum CallbackChange {
     UndoAppState,
     /// Redo a previously undone app-state change.
     RedoAppState,
+    /// Play a haptic pattern. APPENDED at the end.
+    ///
+    /// Deferred like every other outward-facing effect: a callback runs on
+    /// the layout thread and the platform actuator APIs want the event loop.
+    PlayHaptic {
+        pattern: azul_core::haptics::HapticPattern,
+        target: azul_core::haptics::HapticTarget,
+    },
+    /// Ask the platform to show or hide the on-screen keyboard. APPENDED.
+    RequestSoftKeyboard { visible: bool },
 }
 
 /// Whether a batch of CSS property overrides can move geometry, i.e. whether
@@ -3481,7 +3491,6 @@ impl CallbackInfo {
     #[must_use]
     pub fn get_current_keyboard_state(&self) -> KeyboardState {
         self.get_current_window_state().keyboard_state.clone()
-        ..Default::default()
     }
 
     /// Get current mouse state
@@ -4983,9 +4992,7 @@ impl CallbackInfo {
         pattern: azul_core::haptics::HapticPattern,
         target: azul_core::haptics::HapticTarget,
     ) {
-        self.get_layout_window_mut()
-            .haptic_manager
-            .play(pattern, target);
+        self.push_change(CallbackChange::PlayHaptic { pattern, target });
     }
 
     /// Ask the platform to show or hide the on-screen keyboard.
@@ -4999,9 +5006,7 @@ impl CallbackInfo {
     /// be focused for reasons that should not raise a keyboard: restoring
     /// focus after a dialog closes, or a programmatic focus during startup.
     pub fn request_soft_keyboard(&mut self, visible: bool) {
-        self.get_layout_window_mut()
-            .text_edit_manager
-            .request_soft_keyboard(visible);
+        self.push_change(CallbackChange::RequestSoftKeyboard { visible });
     }
 
     /// How much of the window the on-screen keyboard currently covers, in
@@ -5013,9 +5018,13 @@ impl CallbackInfo {
     /// shrank needs them apart.
     #[must_use]
     pub fn get_keyboard_inset(&self) -> f32 {
-        use azul_css::OptionPixelValue;
+        use azul_css::props::basic::pixel::OptionPixelValue;
         match self.get_layout_window().safe_area_insets.keyboard {
-            OptionPixelValue::Some(p) => p.to_pixels(0.0),
+            // The three resolves are percent, em and rem. All are 0.0
+            // because an inset is always an absolute length: the shells build
+            // these with `PixelValue::px`, so no relative unit can reach here
+            // and there is no context to resolve one against anyway.
+            OptionPixelValue::Some(p) => p.to_pixels_internal(0.0, 0.0, 0.0),
             OptionPixelValue::None => 0.0,
         }
     }

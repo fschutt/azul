@@ -692,8 +692,8 @@ pub fn determine_all_events(
     // key events, because the key events cannot answer it: a modifier
     // released while another window had focus produces no KeyUp here, and a
     // lock is a toggle that no key event describes at all.
-    if current.keyboard_state.modifiers != previous.keyboard_state.modifiers
-        || current.keyboard_state.locks != previous.keyboard_state.locks
+    if current_state.keyboard_state.modifiers != previous_state.keyboard_state.modifiers
+        || current_state.keyboard_state.locks != previous_state.keyboard_state.locks
     {
         events.push(SyntheticEvent::new(
             EventType::ModifiersChanged,
@@ -703,7 +703,7 @@ pub fn determine_all_events(
             EventData::Keyboard(KeyboardEventData {
                 key_code: 0,
                 char_code: None,
-                modifiers: current.keyboard_state.modifiers,
+                modifiers: current_state.keyboard_state.modifiers,
                 repeat: false,
                 ..Default::default()
             }),

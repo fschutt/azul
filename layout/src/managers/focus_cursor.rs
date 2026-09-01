@@ -2091,10 +2091,24 @@ fn next_in_direction(
     /// to beat one straight ahead.
     const CROSS_AXIS_WEIGHT: f32 = 3.0;
 
+    // Absolute position comes from `calculated_positions`, size from the
+    // layout node — the same pair the a11y snapshot reads. There is no
+    // single "rects" table: a DOM node can map to several layout nodes
+    // (inline fragments), so `dom_to_layout` yields a list and the first
+    // entry is the box a focus ring would be drawn around.
     let rect_of = |n: &DomNodeId| -> Option<azul_core::geom::LogicalRect> {
         let layout = layout_results.get(&n.dom)?;
         let node = n.node.into_crate_internal()?;
-        layout.rects.as_ref().get(node).map(|r| r.get_bounds())
+        let idx = *layout.layout_tree.dom_to_layout.get(&node)?.first()?;
+        let hot = layout.layout_tree.get(idx)?;
+        let origin = layout.calculated_positions.get(idx.index()).copied()?;
+        // `used_size` is None for a node that was never laid out — an
+        // unmounted subtree, or one still awaiting its first pass. Skipping
+        // it is right: a node with no box cannot be navigated to.
+        Some(azul_core::geom::LogicalRect {
+            origin,
+            size: hot.used_size?,
+        })
     };
 
     // With nothing focused there is no "direction from", so an arrow key acts
