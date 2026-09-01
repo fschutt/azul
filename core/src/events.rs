@@ -962,6 +962,12 @@ pub enum EventType {
     /// A component's selection changed. `ComponentEventFilter::Selected` has
     /// existed with no `EventType` and no match arm.
     Selected,
+    /// A HID device delivered an input report. APPENDED at the end.
+    ///
+    /// The escape hatch for devices azul does not model — flight sticks,
+    /// wheels, 6-DOF mice, pedals, Stream Decks. Read the bytes via
+    /// `CallbackInfo::get_hid_reports`.
+    HidReport,
     /// A modifier or lock key changed state. APPENDED at the end.
     ///
     /// Modifiers arrive today only as ordinary key events, so an app tracking
@@ -2527,6 +2533,12 @@ impl HoverEventFilter {
             Self::BiometricResult => None,
             Self::ScreenColorPicked => None,
             Self::KeyringResult => None,
+            // Thumb buttons have a Focus twin; the rest of the additions do
+            // not (a HID report and a modifier change belong to the window).
+            Self::BackMouseDown => Some(FocusEventFilter::BackMouseDown),
+            Self::BackMouseUp => Some(FocusEventFilter::BackMouseUp),
+            Self::ForwardMouseDown => Some(FocusEventFilter::ForwardMouseDown),
+            Self::ForwardMouseUp => Some(FocusEventFilter::ForwardMouseUp),
         }
     }
 }
@@ -2931,6 +2943,12 @@ impl WindowEventFilter {
             Self::BiometricResult => Some(HoverEventFilter::BiometricResult),
             Self::ScreenColorPicked => Some(HoverEventFilter::ScreenColorPicked),
             Self::KeyringResult => Some(HoverEventFilter::KeyringResult),
+            Self::BackMouseDown => Some(HoverEventFilter::BackMouseDown),
+            Self::BackMouseUp => Some(HoverEventFilter::BackMouseUp),
+            Self::ForwardMouseDown => Some(HoverEventFilter::ForwardMouseDown),
+            Self::ForwardMouseUp => Some(HoverEventFilter::ForwardMouseUp),
+            // Window-only: no position to hit-test, so no hover twin.
+            Self::RawMouseMotion | Self::ModifiersChanged | Self::HidReport => None,
         }
     }
 }

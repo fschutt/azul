@@ -4438,7 +4438,6 @@ fn arrows_are_claimed_for_the_caret_only_while_editing() {
         current_virtual_keycode: OptionVirtualKeyCode::Some(VirtualKeyCode::Left),
         pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![VirtualKeyCode::Left]),
         ..KeyboardState::default()
-        ..Default::default()
     };
 
     // EDITING: the caret owns the arrow.

@@ -19,7 +19,7 @@
 
 use alloc::vec::Vec;
 
-use crate::str::AzString;
+use azul_css::AzString;
 
 /// Identity of one HID device.
 ///
@@ -56,7 +56,7 @@ pub struct HidReport {
     /// Report id, or `0` for a device whose descriptor uses no ids.
     pub report_id: u8,
     /// The report payload.
-    pub bytes: crate::vec::U8Vec,
+    pub bytes: azul_css::U8Vec,
 }
 
 /// Collects HID reports from the platform backends.
