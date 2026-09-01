@@ -1744,6 +1744,31 @@ pub enum FocusTarget {
     First,
     Last,
     NoFocus,
+    /// Move focus in a SPATIAL direction rather than along the tab order.
+    /// APPENDED at the end for ABI stability.
+    ///
+    /// Tab order is a single sequence; a grid of thumbnails, a TV menu or a
+    /// media-player transport row is two-dimensional, and pressing Right in
+    /// one should land on the thing to the right, not on whatever happens to
+    /// be next in document order.
+    ///
+    /// This is not really a device feature — it is a focus-engine feature that
+    /// a dozen devices drive: a TV remote's D-pad, a game controller, a car's
+    /// jog dial, and switch access. Android models it as a first-class input
+    /// source (`SOURCE_DPAD`) and the W3C specifies it in `css-nav-1`. It
+    /// needs no shell code at all: the search is geometric, over the focusable
+    /// set the engine already computes.
+    Directional(FocusDirection),
+}
+
+/// Which way [`FocusTarget::Directional`] should move.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum FocusDirection {
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

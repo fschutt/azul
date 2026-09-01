@@ -660,7 +660,9 @@ pub fn resolve_focus_target(
     current_focus: Option<DomNodeId>,
     out_of_scope: &BTreeSet<DomId>,
 ) -> Result<FocusResolution, UpdateFocusWarning> {
-    use azul_core::callbacks::FocusTarget::{First, Id, Last, Next, NoFocus, Path, Previous};
+    use azul_core::callbacks::FocusTarget::{
+        Directional, First, Id, Last, Next, NoFocus, Path, Previous,
+    };
 
     // The explicit clear is answerable without any layout and must stay
     // distinguishable from every kind of miss below.
@@ -724,6 +726,18 @@ pub fn resolve_focus_target(
             &collect_tab_order(layout_results, out_of_scope),
             current_focus,
             false,
+        )
+        .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
+
+        // Directional (spatial) navigation. Same candidate pool as Tab —
+        // `collect_tab_order` already honours tabindex=-1, transient windows
+        // and out-of-scope DOMs, and a node that cannot be tabbed to should
+        // not be reachable with an arrow key either.
+        Directional(dir) => Ok(next_in_direction(
+            &collect_tab_order(layout_results, out_of_scope),
+            layout_results,
+            current_focus,
+            *dir,
         )
         .map_or(FocusResolution::NotFound, FocusResolution::Resolved)),
 
@@ -2049,4 +2063,84 @@ mod autotest_generated {
             assert_eq!(fm.pending_contenteditable_focus, None);
         }
     }
+}
+
+/// Find the focusable nearest to `current` in `dir`.
+///
+/// The rule is the one `css-nav-1` describes and every TV framework
+/// re-implements: consider only candidates that lie in the requested
+/// direction, then pick the closest — where "closest" weights movement ALONG
+/// the axis you asked for much more heavily than drift across it.
+///
+/// That weighting is the whole algorithm. Plain Euclidean distance picks
+/// diagonal neighbours over the obvious one directly to the side, so pressing
+/// Right in a grid walks diagonally down the screen. Weighting the
+/// cross-axis makes "straight ahead, further away" beat "off to one side,
+/// nearer", which is what a person means by the arrow key.
+fn next_in_direction(
+    candidates: &[DomNodeId],
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    current: Option<DomNodeId>,
+    dir: azul_core::callbacks::FocusDirection,
+) -> Option<DomNodeId> {
+    use azul_core::callbacks::FocusDirection;
+
+    /// How much harder cross-axis drift counts than along-axis distance.
+    /// 3 is what the CSS spec's reference implementation uses and what feels
+    /// right on a grid: a neighbour one row down has to be three times nearer
+    /// to beat one straight ahead.
+    const CROSS_AXIS_WEIGHT: f32 = 3.0;
+
+    let rect_of = |n: &DomNodeId| -> Option<azul_core::geom::LogicalRect> {
+        let layout = layout_results.get(&n.dom)?;
+        let node = n.node.into_crate_internal()?;
+        layout.rects.as_ref().get(node).map(|r| r.get_bounds())
+    };
+
+    // With nothing focused there is no "direction from", so an arrow key acts
+    // as an entry point and takes the first tab stop — the same thing a TV
+    // remote does when you wake a menu.
+    let Some(current) = current else {
+        return candidates.first().copied();
+    };
+    let Some(from) = rect_of(&current) else {
+        return candidates.first().copied();
+    };
+    let from_c = (
+        from.origin.x + from.size.width / 2.0,
+        from.origin.y + from.size.height / 2.0,
+    );
+
+    let mut best: Option<(f32, DomNodeId)> = None;
+    for cand in candidates {
+        if *cand == current {
+            continue;
+        }
+        let Some(r) = rect_of(cand) else { continue };
+        let c = (
+            r.origin.x + r.size.width / 2.0,
+            r.origin.y + r.size.height / 2.0,
+        );
+        let (dx, dy) = (c.0 - from_c.0, c.1 - from_c.1);
+
+        // "In the requested direction" is decided by the dominant axis, not
+        // by the sign alone: a node that is 2px right and 400px down is below,
+        // not beside, and offering it to a Right press would make the focus
+        // ring jump across the screen.
+        let (along, cross) = match dir {
+            FocusDirection::Left => (-dx, dy.abs()),
+            FocusDirection::Right => (dx, dy.abs()),
+            FocusDirection::Up => (-dy, dx.abs()),
+            FocusDirection::Down => (dy, dx.abs()),
+        };
+        if along <= 0.0 || cross > along {
+            continue;
+        }
+
+        let score = along + cross * CROSS_AXIS_WEIGHT;
+        if best.is_none_or(|(b, _)| score < b) {
+            best = Some((score, *cand));
+        }
+    }
+    best.map(|(_, n)| n)
 }

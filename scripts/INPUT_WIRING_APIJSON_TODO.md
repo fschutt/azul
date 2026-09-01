@@ -67,3 +67,9 @@ api.json and unchanged — this arc gave them producers, it did not add them.
 - `GamepadState` — ten fields appended: `battery`, `touchpad_x/y/active`, `gyro_x/y/z`, `accel_x/y/z`.
   `battery` uses -1.0 as "not reported" rather than an Option, because the struct crosses the C ABI.
 - `GamepadState` gained a `Default` impl; check whether api.json needs it declared.
+
+## From step 9a (spatial navigation)
+
+- `azul_core::callbacks::FocusDirection` — new `#[repr(C)]` enum `{ Up, Down, Left, Right }`.
+- `azul_core::callbacks::FocusTarget` — one variant APPENDED: `Directional(FocusDirection)`.
+  Already in api.json as `dom.FocusTarget`; variant addition at the end.

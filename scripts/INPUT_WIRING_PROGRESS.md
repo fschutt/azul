@@ -94,6 +94,16 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 9a
+
+- [ ] 9a-i Nothing DRIVES `FocusTarget::Directional` yet — it is reachable from the API
+      (`CallbackInfo::set_focus`) but no key is bound to it. Arrow keys currently scroll, and stealing them
+      unconditionally would break every scroll container, so this needs the CSS opt-out the audit describes
+      (a `-azul-spatial-navigation: auto|none` or equivalent) before a default binding is safe. A D-pad or
+      TV remote has no such conflict and could be bound now.
+- [ ] 9a-ii `DefaultAction` has `FocusNext`/`FocusPrevious`/`FocusFirst`/`FocusLast` but no directional
+      variants; add four once 9a-i decides the trigger.
+
 ### Follow-ups opened by 8e/8f
 
 - [ ] 8f-i The new `GamepadState` fields (battery, touchpad, gyro/accel) are modelled but no backend fills
@@ -228,7 +238,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ## Step 9 — new capability
 
-- [ ] 9a `FocusTarget += Directional(FocusDirection)`, `FocusDirection { Up, Down, Left, Right }`, geometric
+- [x] 9a `FocusTarget += Directional(FocusDirection)`, `FocusDirection { Up, Down, Left, Right }`, geometric
       nearest-neighbour over the existing focusable set. No shell code.
 - [ ] 9b `PointerSource { Unknown, Mouse, Touchpad, Trackball, Trackpoint, Touchscreen, Pen, Eraser }` on pointer
       events; `device_id` on mouse and key events. NOTE: #450 already delivered the *tablet* half
