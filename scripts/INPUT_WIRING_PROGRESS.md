@@ -94,6 +94,13 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 5b
+
+- [ ] 5b-i `PenState` has no `hover_distance` field yet (that is item 8c), so Wayland's `tool_distance` is
+      captured into `TabletPenPending.distance` and stops there. Wire it through once 8c lands.
+- [ ] 5b-ii `PenSqueeze` / `PenDoubleTap` have no producer on any platform — they are `UIPencilInteraction`
+      only, which is item 10d. The EventType, planning and matcher arms are in place waiting for it.
+
 ### Follow-ups opened by 4b/4c
 
 - [x] 4c-i Register `DeviceEventManager` on `LayoutWindow` (field + `new()` + the destructure at
@@ -138,7 +145,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 - [x] 5a Append `EventType::PenSqueeze`, `PenDoubleTap`, `PenHover` at the END of the enum (ABI stability, same
       convention `Copy`/`Cut`/`Paste`/`DocumentEdit` used). Add planning arms + Hover/Window matcher arms.
-- [ ] 5b `PenHover` producers: Wayland `proximity_in`/`distance`, Win32 `POINTER_FLAG_INRANGE`, Android
+- [x] 5b `PenHover` producers: Wayland `proximity_in`/`distance`, Win32 `POINTER_FLAG_INRANGE`, Android
       `ACTION_HOVER_MOVE` (already handled), macOS `NSEventSubtype::TabletProximity` on the existing mouse path.
 - [x] 5c `matches_component_filter`: add the missing `DefaultAction` and `Selected` arms.
 

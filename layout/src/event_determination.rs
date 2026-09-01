@@ -934,8 +934,31 @@ pub fn determine_all_events(
                             EventSource::User,
                             mouse_target,
                             timestamp.clone(),
-                            pen_data,
+                            pen_data.clone(),
                         ));
+                        // PenHover is the same motion with the tip OFF the
+                        // surface — the state a drawing app uses to preview a
+                        // brush before committing ink. It rides the position
+                        // diff rather than getting its own trigger because
+                        // "hovering" is not an event the hardware sends: every
+                        // backend reports proximity as a level (Wayland
+                        // proximity_in/out, Win32 POINTER_FLAG_INRANGE without
+                        // INCONTACT, Android ACTION_HOVER_MOVE), so the motion
+                        // is the only edge there is.
+                        //
+                        // PenMove still fires as well: an app that only wants
+                        // "the pen moved" should not have to subscribe twice,
+                        // and one that cares about contact reads
+                        // `is_pen_in_contact()`.
+                        if !c.in_contact {
+                            events.push(SyntheticEvent::new(
+                                EventType::PenHover,
+                                EventSource::User,
+                                mouse_target,
+                                timestamp.clone(),
+                                pen_data,
+                            ));
+                        }
                     }
                 }
                 (None, None) => {}

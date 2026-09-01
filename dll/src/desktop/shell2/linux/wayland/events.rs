@@ -74,6 +74,9 @@ pub struct TabletPenPending {
     /// when this is false — proximity-out is the only "pen went away" signal
     /// the protocol has.
     pub in_proximity: bool,
+    /// Hover distance while in proximity, normalized 0.0-1.0 against the
+    /// tool's own sensing range. 0.0 = touching or not reported.
+    pub distance: f32,
     /// Airbrush wheel (`slider`), normalized. 0.0 = not reported.
     pub tangential: f32,
 }
@@ -1395,7 +1398,14 @@ extern "C" fn tool_pressure(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, pres
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.tablet_pen.pressure = pressure as f32 / 65535.0;
 }
-extern "C" fn tool_distance(_d: *mut c_void, _t: *mut zwp_tablet_tool_v2, _distance: u32) {}
+extern "C" fn tool_distance(d: *mut c_void, _t: *mut zwp_tablet_tool_v2, distance: u32) {
+    // Hover distance, normalized. The protocol sends it as an unsigned 16-bit
+    // fraction of the tool's maximum sensing range, so the scale is the
+    // device's, not millimetres — an app compares it, it does not measure with
+    // it. Reported only between proximity_in and proximity_out.
+    let window = unsafe { &mut *(d as *mut WaylandWindow) };
+    window.tablet_pen_pending.distance = f32::from(distance as u16) / f32::from(u16::MAX);
+}
 extern "C" fn tool_tilt(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, tx: i32, ty: i32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     window.tablet_pen.tilt_x = tx as f32 / 256.0;
