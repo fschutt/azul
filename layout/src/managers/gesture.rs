@@ -589,6 +589,9 @@ pub struct GestureAndDragManager {
     pub previous_pen_state: Option<PenState>,
     /// Set when pen state changed; gates one pen-event diff (cleared by the event loop).
     pub pen_event_pending: bool,
+    /// Force Touch stage from the last `pressureChangeWithEvent:`. 0 none,
+    /// 1 a normal click, 2 a force click. macOS-only; 0 elsewhere.
+    pub trackpad_pressure_stage: i32,
     /// Monotonic nanos of the previous pen sample (rate measurement);
     /// cleared on proximity-out so a gap never reads as a slow rate.
     pub last_pen_sample_nanos: Option<u64>,
@@ -686,6 +689,7 @@ impl GestureAndDragManager {
             pen_state: None,
             previous_pen_state: None,
             pen_event_pending: false,
+            trackpad_pressure_stage: 0,
             last_pen_sample_nanos: None,
             pen_rate_ema_hz: 0.0,
             pad_state: None,
@@ -701,6 +705,39 @@ impl GestureAndDragManager {
     /// iOS / Android / macOS platform backend from their gesture
     /// recognizer callbacks. The override is read once by the next
     /// `detect_*` call.
+    /// Record a Force Touch pressure sample from a pressure-sensitive
+    /// trackpad (macOS `pressureChangeWithEvent:`).
+    ///
+    /// Folded into `PenState` because it is the same quantity a stylus
+    /// reports — an app reads it through `get_pen_pressure()` either way —
+    /// but with `is_eraser` and the barrel flags off, since a trackpad has
+    /// neither. `stage` rides alongside as the discrete detent count, which is
+    /// what separates a deliberate force click from merely pressing hard.
+    pub fn update_trackpad_pressure(
+        &mut self,
+        position: LogicalPosition,
+        pressure: f32,
+        stage: i32,
+    ) {
+        self.previous_pen_state = self.pen_state;
+        let mut state = self.pen_state.unwrap_or_default();
+        state.position = position;
+        state.pressure = pressure;
+        state.in_contact = stage > 0;
+        state.is_eraser = false;
+        state.barrel_button_pressed = false;
+        self.pen_state = Some(state);
+        self.trackpad_pressure_stage = stage;
+        self.pen_event_pending = true;
+    }
+
+    /// The Force Touch stage most recently reported: 0 none, 1 a normal
+    /// click, 2 a force click past the second detent.
+    #[must_use]
+    pub const fn trackpad_pressure_stage(&self) -> i32 {
+        self.trackpad_pressure_stage
+    }
+
     pub const fn inject_native_gesture(&mut self, gesture: NativeGestureEvent) {
         self.native_gesture = Some(gesture);
     }

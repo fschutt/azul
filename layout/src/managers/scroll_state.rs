@@ -391,6 +391,15 @@ pub struct ScrollManager {
     /// this flag must stay at its default there (we preserve current behavior) and
     /// primarily controls mouse-wheel direction on platforms that don't pre-apply.
     natural_scroll: bool,
+    /// Whether the pointing device's scroll motion is inverted relative to
+    /// the surface — "natural scrolling". Set by the backends that report it
+    /// (macOS `isDirectionInvertedFromDevice`, Wayland
+    /// `axis_relative_direction`); false where the platform does not say.
+    ///
+    /// The deltas have ALREADY had the preference applied by the OS, so this
+    /// is not used to transform them. It is for a client that needs motion in
+    /// device terms rather than page terms.
+    pub scroll_direction_inverted: bool,
     /// Scroll-gesture phase latch, for `ScrollStart` / `ScrollEnd`.
     ///
     /// `true` between the first input of a gesture and the input that ends

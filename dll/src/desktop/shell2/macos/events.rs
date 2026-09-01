@@ -478,6 +478,23 @@ impl MacOSWindow {
             (dx, dy, false)
         };
 
+        // Whether the user has "natural scrolling" on for this device, which
+        // is the same fact Wayland reports as `axis_relative_direction`.
+        // Recorded, not applied: AppKit has ALREADY inverted the deltas above
+        // to match the preference, so flipping them here would undo it. It
+        // exists for a client that wants motion in DEVICE terms — a scrollbar
+        // drag, or a viewport that should orbit with the hand rather than with
+        // the page.
+        let direction_inverted = if has_modern_scroll {
+            unsafe { event.isDirectionInvertedFromDevice() }
+        } else {
+            // Pre-10.7 has no notion of it; the preference did not exist yet.
+            false
+        };
+        if let Some(ref mut lw) = self.common.layout_window {
+            lw.scroll_manager.scroll_direction_inverted = direction_inverted;
+        }
+
         // Trackpad/precise deltas are already pixels; a ratcheting wheel (and the
         // pre-10.7 fallback) reports LINES and must be scaled to match X11/Win32.
         use crate::desktop::shell2::common::event::discrete_scroll_delta_to_pixels;

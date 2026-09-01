@@ -618,6 +618,44 @@ mod view_handlers {
         }
     }
 
+    /// `pressureChangeWithEvent:` — Force Touch on a pressure-sensitive
+    /// trackpad.
+    ///
+    /// This is the macOS deep-press idiom and the only path to it: the
+    /// pressure lives on `NSEventTypePressure`, which no other responder
+    /// receives. `stage` is the discrete step the trackpad has reached — 0
+    /// none, 1 a normal click, 2 the "force click" past the second detent —
+    /// while `pressure` is the continuous 0..1 within the current stage.
+    ///
+    /// It is recorded on the pen state rather than given its own event
+    /// because it is the same quantity `PenState.pressure` already models,
+    /// arriving from a trackpad instead of a stylus; an app reads it through
+    /// `CallbackInfo::get_pen_pressure()` either way. `stage` is what
+    /// distinguishes a force click from hard-but-ordinary pressure, so it is
+    /// kept separately rather than folded into the 0..1.
+    pub(super) fn pressure_change(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let Some(window_ptr) = window_ptr else { return };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let pressure = event.pressure();
+            let stage = event.stage();
+            let position = macos_window
+                .common
+                .current_window_state()
+                .mouse_state
+                .cursor_position
+                .get_position()
+                .unwrap_or(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
+            if let Some(lw) = macos_window.common.layout_window.as_mut() {
+                lw.gesture_drag_manager
+                    .update_trackpad_pressure(position, pressure, stage as i32);
+            }
+            macos_window.snapshot_window_state_baseline("macos.pressure_change");
+            let result = macos_window.process_window_events(0);
+            macos_window.apply_activation_pass_result(result);
+        }
+    }
+
     pub(super) fn scroll_wheel(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
         let (dx, dy) = unsafe { (event.scrollingDeltaX(), event.scrollingDeltaY()) };
         crate::log_debug!(
@@ -1095,6 +1133,11 @@ define_class!(
         #[unsafe(method(rotateWithEvent:))]
         fn rotate_with_event(&self, event: &NSEvent) {
             view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(pressureChangeWithEvent:))]
+        fn pressure_change_with_event(&self, event: &NSEvent) {
+            view_handlers::pressure_change(*self.ivars().window_ptr.borrow(), event);
         }
 
         // MWA-B14: standard Edit-menu selectors. The native Edit menu's
@@ -2062,6 +2105,11 @@ define_class!(
         #[unsafe(method(rotateWithEvent:))]
         fn rotate_with_event(&self, event: &NSEvent) {
             view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
+        }
+
+        #[unsafe(method(pressureChangeWithEvent:))]
+        fn pressure_change_with_event(&self, event: &NSEvent) {
+            view_handlers::pressure_change(*self.ivars().window_ptr.borrow(), event);
         }
 
         // MWA-B14: standard Edit-menu selectors. The native Edit menu's

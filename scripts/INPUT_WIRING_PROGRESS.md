@@ -182,8 +182,8 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [x] 7c Windows: TOUCHSCREEN pinch/rotate via WM_GESTURE. The touchpad half is NOT this API — see 7c-i. Original item: touchpad pinch — handle `WM_GESTURE`, or recognise from the pointer stream.
 - [x] 7d Wayland: raise `seat_version` cap from `min(7)` to 9; add `axis_value120` and `axis_relative_direction`
       listeners; keep `axis_discrete` as the v5–v7 fallback.
-- [ ] 7e macOS: read `isDirectionInvertedFromDevice` (natural-scroll flag).
-- [ ] 7f macOS: add `pressureChangeWithEvent:` (Force Touch `stage` / `stageTransition`).
+- [x] 7e macOS: read `isDirectionInvertedFromDevice` (natural-scroll flag).
+- [x] 7f macOS: add `pressureChangeWithEvent:` (Force Touch `stage` / `stageTransition`).
 - [ ] 7g Wayland: fill the empty `touch_shape_handler` / `touch_orientation_handler` bodies (needs 8b first).
 - [ ] 7h Win32: keep the `WM_MOUSEWHEEL` fractional remainder instead of truncating.
 
