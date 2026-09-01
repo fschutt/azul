@@ -18,3 +18,13 @@ Never hand-edit api.json. Each entry names the Rust type that is the source of t
 
 - `azul_layout::managers::scroll_state::ScrollPhaseTransition` — new enum `{ Started, Ended }`. Internal to
   the manager; only needs exposing if `CallbackInfo` grows a phase accessor.
+
+## From step 5a/5c (new EventTypes)
+
+`EventType` is Rust-internal (not in api.json), so these five may need no entry at all — confirm before
+adding. They are appended at the END of the enum, after `DeviceDisconnected`:
+`PenSqueeze`, `PenDoubleTap`, `PenHover`, `DefaultAction`, `Selected`.
+
+The FILTER variants they serve (`HoverEventFilter::PenSqueeze/PenDoubleTap/PenHover`,
+`WindowEventFilter::` the same three, `ComponentEventFilter::DefaultAction/Selected`) are already in
+api.json and unchanged — this arc gave them producers, it did not add them.

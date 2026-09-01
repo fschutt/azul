@@ -136,11 +136,11 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ## Step 5 — C5: new EventTypes and missing match arms
 
-- [ ] 5a Append `EventType::PenSqueeze`, `PenDoubleTap`, `PenHover` at the END of the enum (ABI stability, same
+- [x] 5a Append `EventType::PenSqueeze`, `PenDoubleTap`, `PenHover` at the END of the enum (ABI stability, same
       convention `Copy`/`Cut`/`Paste`/`DocumentEdit` used). Add planning arms + Hover/Window matcher arms.
 - [ ] 5b `PenHover` producers: Wayland `proximity_in`/`distance`, Win32 `POINTER_FLAG_INRANGE`, Android
       `ACTION_HOVER_MOVE` (already handled), macOS `NSEventSubtype::TabletProximity` on the existing mouse path.
-- [ ] 5c `matches_component_filter`: add the missing `DefaultAction` and `Selected` arms.
+- [x] 5c `matches_component_filter`: add the missing `DefaultAction` and `Selected` arms.
 
 ## Step 6 — C7: accessibility actions
 

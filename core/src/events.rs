@@ -837,6 +837,29 @@ pub enum EventType {
     DeviceConnected,
     /// An input device was detached. See [`EventType::DeviceConnected`].
     DeviceDisconnected,
+    /// The pen barrel was squeezed. APPENDED at the end for ABI stability.
+    ///
+    /// Apple Pencil Pro's squeeze, surfaced by `UIPencilInteraction`. The
+    /// Hover and Window filter variants have existed with no `EventType` able
+    /// to reach them.
+    PenSqueeze,
+    /// The pen was double-tapped on its barrel — Apple Pencil 2 and later,
+    /// also `UIPencilInteraction`. See [`EventType::PenSqueeze`].
+    PenDoubleTap,
+    /// The pen is in range but not touching. Wayland reports it as
+    /// `proximity_in` plus `distance`, Win32 as `POINTER_FLAG_INRANGE` without
+    /// `POINTER_FLAG_INCONTACT`, Android as `ACTION_HOVER_MOVE` with a stylus
+    /// tool type, macOS as an `NSEventSubtype::TabletProximity` subtype on the
+    /// ordinary mouse-event path. See [`EventType::PenSqueeze`].
+    PenHover,
+    /// A component's default action was invoked — Enter/Space on a focused
+    /// control, or the accessibility `Default` action. Distinct from `Click`:
+    /// that is the pointer spelling, this is the component-level one that
+    /// `ComponentEventFilter::DefaultAction` subscribes to.
+    DefaultAction,
+    /// A component's selection changed. `ComponentEventFilter::Selected` has
+    /// existed with no `EventType` and no match arm.
+    Selected,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1385,6 +1408,11 @@ const fn matches_component_filter(
             | (ComponentEventFilter::Dismissed, EventType::Dismiss)
             | (ComponentEventFilter::TornOff, EventType::TearOff)
             | (ComponentEventFilter::Docked, EventType::Dock)
+            // These two were simply absent from the match. Both filter
+            // variants shipped in `ComponentEventFilter`, so a component
+            // subscribing to either was collected and then dropped.
+            | (ComponentEventFilter::DefaultAction, EventType::DefaultAction)
+            | (ComponentEventFilter::Selected, EventType::Selected)
     )
 }
 
@@ -1411,8 +1439,9 @@ fn matches_hover_filter(
         BiometricResult, DoubleClick, Drag, DragEnd, DragEnter, DragLeave, DragOver, DragStart,
         Drop, DroppedFile, GamepadInput, GeolocationError, GeolocationFix, HoveredFile,
         HoveredFileCancelled, KeyringResult, LeftMouseDown, LeftMouseUp, MiddleMouseDown,
-        MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver, MouseUp, PenDown, PenEnter,
-        PenLeave, PenMove, PenUp, PermissionChanged, RightMouseDown, RightMouseUp,
+        MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver, MouseUp, PenDoubleTap, PenDown,
+        PenEnter, PenHover, PenLeave, PenMove, PenSqueeze, PenUp, PermissionChanged, RightMouseDown,
+        RightMouseUp,
         ScreenColorPicked, Scroll, ScrollEnd, ScrollStart, SensorChanged, TextInput, TouchCancel,
         TouchEnd, TouchMove, TouchStart, VirtualKeyDown, VirtualKeyUp,
     };
@@ -1512,6 +1541,11 @@ fn matches_hover_filter(
         (HoverEventFilter::CompositionStart, EventType::CompositionStart) => true,
         (HoverEventFilter::CompositionUpdate, EventType::CompositionUpdate) => true,
         (HoverEventFilter::CompositionEnd, EventType::CompositionEnd) => true,
+        // Pen barrel gestures and hover. The filter variants shipped long
+        // before any `EventType` existed that could reach them.
+        (PenSqueeze, EventType::PenSqueeze) => true,
+        (PenDoubleTap, EventType::PenDoubleTap) => true,
+        (PenHover, EventType::PenHover) => true,
         _ => false,
     }
 }
@@ -1637,7 +1671,8 @@ fn matches_window_filter(
         Drop, DroppedFile, FocusLost, FocusReceived, FrameChanged, GamepadInput, GeolocationError,
         GeolocationFix, HoveredFile, HoveredFileCancelled, KeyringResult, LeftMouseDown,
         LeftMouseUp, MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver,
-        MouseUp, Moved, PenDown, PenEnter, PenLeave, PenMove, PenUp, PermissionChanged, Resized,
+        MouseUp, Moved, PenDoubleTap, PenDown, PenEnter, PenHover, PenLeave, PenMove, PenSqueeze,
+        PenUp, PermissionChanged, Resized,
         RightMouseDown, RightMouseUp, ScreenColorPicked, Scroll, ScrollEnd, ScrollStart,
         SensorChanged, TextInput, ThemeChanged, TouchCancel, TouchEnd, TouchMove, TouchStart,
         VirtualKeyDown, VirtualKeyUp, WindowFocusLost, WindowFocusReceived,
@@ -1725,6 +1760,11 @@ fn matches_window_filter(
         (WindowEventFilter::PinchOut, EventType::PinchOut) => true,
         (WindowEventFilter::RotateClockwise, EventType::RotateClockwise) => true,
         (WindowEventFilter::RotateCounterClockwise, EventType::RotateCounterClockwise) => true,
+        // Pen barrel gestures and hover. The filter variants shipped long
+        // before any `EventType` existed that could reach them.
+        (PenSqueeze, EventType::PenSqueeze) => true,
+        (PenDoubleTap, EventType::PenDoubleTap) => true,
+        (PenHover, EventType::PenHover) => true,
         _ => false,
     }
 }
@@ -3401,6 +3441,13 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
         E::WindowMonitorChanged => vec![EF::Window(W::MonitorChanged)],
 
         // Application events
+        E::PenSqueeze => vec![EF::Hover(H::PenSqueeze), EF::Window(W::PenSqueeze)],
+        E::PenDoubleTap => vec![EF::Hover(H::PenDoubleTap), EF::Window(W::PenDoubleTap)],
+        E::PenHover => vec![EF::Hover(H::PenHover), EF::Window(W::PenHover)],
+        E::DefaultAction => {
+            vec![EF::Component(ComponentEventFilter::DefaultAction)]
+        }
+        E::Selected => vec![EF::Component(ComponentEventFilter::Selected)],
         E::DeviceConnected => vec![EF::Application(ApplicationEventFilter::DeviceConnected)],
         E::DeviceDisconnected => {
             vec![EF::Application(ApplicationEventFilter::DeviceDisconnected)]
