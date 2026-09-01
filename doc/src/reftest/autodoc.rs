@@ -907,10 +907,27 @@ pub fn run_autodoc(config: &AutoreviewConfig) -> Result<(), String> {
 }
 
 fn dispatch_autodoc_agents(config: &AutoreviewConfig) -> Result<(), String> {
+    let prompts = prompts_dir(&config.project_root);
+    dispatch_prompt_agents(config, &prompts, "DOC")
+}
+
+/// Run every pending prompt in `prompts` through `claude -p`, `config.agents` at
+/// a time, with the same take/done/failed file protocol `autodoc` uses.
+///
+/// Split out of `dispatch_autodoc_agents` so a second prompt-driven command
+/// (`assemble-context`) gets the queue, the spinners, the timeout and the SIGINT
+/// handling without a second copy of them. `label` is the four-or-fewer-letter
+/// tag in the spinner lines.
+pub(crate) fn dispatch_prompt_agents(
+    config: &AutoreviewConfig,
+    prompts: &Path,
+    label: &str,
+) -> Result<(), String> {
     let project_root = &config.project_root;
-    let prompts = prompts_dir(project_root);
+    let prompts = prompts.to_path_buf();
 
     let (pending, done, failed, taken) = executor::scan_prompts_dir(&prompts, config.retry_failed);
+    let label = label.to_string();
 
     println!(
         "Prompt status: {} pending, {} done, {} failed, {} in-progress",
@@ -935,7 +952,7 @@ fn dispatch_autodoc_agents(config: &AutoreviewConfig) -> Result<(), String> {
 
     let spinner = nanospinner::MultiSpinner::new().start();
     let slot_spinners: Vec<_> = (0..agent_count)
-        .map(|i| spinner.add(format!("[DOC {:02}] idle", i)))
+        .map(|i| spinner.add(format!("[{} {:02}] idle", label, i)))
         .collect();
 
     let mut handles = Vec::with_capacity(agent_count);
@@ -945,6 +962,7 @@ fn dispatch_autodoc_agents(config: &AutoreviewConfig) -> Result<(), String> {
         let timeout = config.timeout;
         let model = config.model.clone();
         let project_root = project_root.clone();
+        let label = label.clone();
 
         let handle = std::thread::spawn(move || {
             loop {
@@ -965,7 +983,7 @@ fn dispatch_autodoc_agents(config: &AutoreviewConfig) -> Result<(), String> {
                     .unwrap_or("unknown")
                     .to_string();
 
-                line.update(format!("[DOC {:02}] {}", slot_idx, name));
+                line.update(format!("[{} {:02}] {}", label, slot_idx, name));
                 let result = run_autodoc_agent(
                     &project_root,
                     slot_idx,
@@ -973,7 +991,7 @@ fn dispatch_autodoc_agents(config: &AutoreviewConfig) -> Result<(), String> {
                     timeout,
                     model.as_deref(),
                     &|status| {
-                        line.update(format!("[DOC {:02}] {} | {}", slot_idx, name, status));
+                        line.update(format!("[{} {:02}] {} | {}", label, slot_idx, name, status));
                     },
                 );
                 let msg = if result.success {
@@ -985,9 +1003,9 @@ fn dispatch_autodoc_agents(config: &AutoreviewConfig) -> Result<(), String> {
                         result.error.as_deref().unwrap_or("unknown")
                     )
                 };
-                line.update(format!("[DOC {:02}] {}", slot_idx, msg));
+                line.update(format!("[{} {:02}] {}", label, slot_idx, msg));
             }
-            line.update(format!("[DOC {:02}] finished", slot_idx));
+            line.update(format!("[{} {:02}] finished", label, slot_idx));
         });
         handles.push(handle);
     }
@@ -999,7 +1017,7 @@ fn dispatch_autodoc_agents(config: &AutoreviewConfig) -> Result<(), String> {
     Ok(())
 }
 
-fn run_autodoc_agent(
+pub(crate) fn run_autodoc_agent(
     project_root: &Path,
     slot_index: usize,
     prompt_path: &Path,

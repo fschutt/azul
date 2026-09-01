@@ -8,6 +8,7 @@ use reftest::RunRefTestsConfig;
 use serde::Serialize;
 
 pub mod api;
+pub mod assemble_context;
 pub mod autofix;
 pub mod autotest;
 pub mod codegen;
@@ -136,6 +137,40 @@ fn main() -> anyhow::Result<()> {
             } else {
                 println!("[OK] No changes needed\n");
             }
+            return Ok(());
+        }
+        ["assemble-context", rest @ ..] => {
+            // Fact-check + source-excerpt bundles for every SHIPPING guide
+            // page, so the model that rewrites the prose needs no tools.
+            let mut cfg = assemble_context::Config::new(project_root.clone());
+            for arg in rest {
+                match *arg {
+                    "--dry-run" => cfg.dry_run = true,
+                    "--no-agent" => cfg.no_agent = true,
+                    "--retry-failed" => cfg.retry_failed = true,
+                    a if a.starts_with("--page=") => {
+                        cfg.filter = Some(a.trim_start_matches("--page=").to_string());
+                    }
+                    a if a.starts_with("--agents=") => {
+                        cfg.agents = a
+                            .trim_start_matches("--agents=")
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("invalid {a}"))?;
+                    }
+                    a if a.starts_with("--model=") => {
+                        cfg.model = Some(a.trim_start_matches("--model=").to_string());
+                    }
+                    a if a.starts_with("--timeout=") => {
+                        let secs: u64 = a
+                            .trim_start_matches("--timeout=")
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("invalid {a}"))?;
+                        cfg.timeout = std::time::Duration::from_secs(secs);
+                    }
+                    a => anyhow::bail!("unknown assemble-context flag: {a}"),
+                }
+            }
+            assemble_context::run(&cfg).map_err(|e| anyhow::anyhow!(e))?;
             return Ok(());
         }
         ["autofix"] | ["autofix", "run"] => {
@@ -2528,6 +2563,25 @@ fn print_cli_help() -> anyhow::Result<()> {
         "                                    triage. Run this once after upgrading, before the"
     );
     println!("                                    next `apply-midlevel pending`.");
+    println!(
+        "    assemble-context              - Per SHIPPING guide page: fact-check the prose against"
+    );
+    println!(
+        "                                    the source at HEAD and append verbatim `## Sources`"
+    );
+    println!(
+        "                                    excerpts, so a tool-less writing model can rewrite the"
+    );
+    println!(
+        "                                    page from the bundle alone. Output lands in"
+    );
+    println!("                                    doc/target/assemble-context/.");
+    println!(
+        "                                    [--page=SLUG] [--agents=N] [--model=M] [--timeout=S]"
+    );
+    println!(
+        "                                    [--no-agent] (machine checks only) [--dry-run]"
+    );
     println!(
         "    autoreview autodoc            - Generate guide pages from doc/autodoc-groups.toml"
     );
