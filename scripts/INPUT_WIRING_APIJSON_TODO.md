@@ -117,3 +117,11 @@ api.json and unchanged — this arc gave them producers, it did not add them.
 
 - `CallbackInfo::request_soft_keyboard(visible: bool)`.
 - `TextEditManager.pending_soft_keyboard: Option<bool>` — internal, likely no api.json entry.
+
+## From step 10c/10e (insets + touch sampling)
+
+- `azul_css::system::SafeAreaInsets` — one field appended: `keyboard: OptionPixelValue`.
+- `azul_core::window::TouchState` — two fields appended: `coalesced_points: TouchPointVec`,
+  `predicted_points: TouchPointVec`.
+- `CallbackInfo::{get_keyboard_inset, get_coalesced_touches, get_predicted_touches}`.
+  The two slice returns need `TouchPointVec` for the C ABI rather than `&[TouchPoint]`.

@@ -94,6 +94,13 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 10e
+
+- [ ] 10e-i Web equivalents: `PointerEvent.getCoalescedEvents()` and `getPredictedEvents()`. The wasm
+      loader binds only `pointerdown` today (see the audit's web column), so this needs the pointer-event
+      migration first. Windows has `GetPointerFrameInfoHistory` for the coalesced half; Wayland and X11
+      have no equivalent — a compositor delivers every sample, so there is nothing to un-coalesce.
+
 ### Follow-ups opened by 10d
 
 - [ ] 10d-i The `UIPencilInteraction` object is not CREATED or attached to the view. The delegate methods
@@ -361,7 +368,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [x] 10b (UIKeyInput + UIPress done; full UITextInput is 10b-i) iOS `UITextInput` → text input; `UIPress`/`UIKeyCommand` for hardware keyboard.
 - [x] 10c (keyboard inset modelled + Android bridge; safe-area itself already existed on macOS/iOS. iOS keyboard notifications are 10c-i) Insets / safe area / keyboard avoidance as a layout input (Android `WindowInsets`, iOS safe area).
 - [x] 10d iOS `UIPencilInteraction` → `PenSqueeze` + `PenDoubleTap`.
-- [ ] 10e `coalescedTouches` / `predictedTouches` (iOS) and the equivalent elsewhere.
+- [x] 10e (iOS done; the web equivalent is 10e-i) `coalescedTouches` / `predictedTouches` (iOS) and the equivalent elsewhere.
 - [ ] 10f Real gamepad backends to replace `gamepad/android.rs` (16 lines) and `gamepad/apple.rs` (17 lines).
 
 ## Step 11 — C6: full-stack stragglers

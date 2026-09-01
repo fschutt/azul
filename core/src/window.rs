@@ -920,6 +920,29 @@ pub struct TouchState {
     /// Currently active touch points (one entry per finger / stylus).
     /// Backends update this on touch start / move / end events.
     pub touch_points: TouchPointVec,
+    /// Intermediate samples the OS captured BETWEEN this frame and the last,
+    /// oldest first. APPENDED for ABI stability.
+    ///
+    /// A digitizer samples far faster than the display refreshes — 120 Hz or
+    /// 240 Hz against 60 — and the OS delivers only the newest position per
+    /// frame, because that is what a button or a scroll view wants. A drawing
+    /// app wants all of them: a fast stroke rendered from one point per frame
+    /// is a polyline with visible corners, and the samples that would have
+    /// rounded it were captured and discarded.
+    ///
+    /// Empty when the platform does not report them, or when nothing moved
+    /// between frames. The current `touch_points` entry is NOT repeated here.
+    pub coalesced_points: TouchPointVec,
+    /// Where the OS predicts the touch is about to go, oldest first.
+    /// APPENDED for ABI stability.
+    ///
+    /// These are EXTRAPOLATIONS, not measurements, and they are wrong as
+    /// often as the user changes direction. They exist to hide latency: a
+    /// stroke drawn through them appears to keep up with the finger, and the
+    /// app discards and redraws them next frame when the real samples arrive.
+    /// Never persist them — committing a predicted point to a document means
+    /// committing a guess.
+    pub predicted_points: TouchPointVec,
 }
 
 /// What is making a touch contact.

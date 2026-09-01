@@ -5020,6 +5020,42 @@ impl CallbackInfo {
         }
     }
 
+    /// Intermediate touch samples the OS captured between this frame and the
+    /// last, oldest first.
+    ///
+    /// A digitizer samples much faster than the display refreshes — 120 or
+    /// 240 Hz against 60 — and only the newest position is delivered per
+    /// frame, which is what a button or a scroll view wants. A drawing app
+    /// wants all of them: a fast stroke rendered from one point per frame is
+    /// a polyline with visible corners, and the samples that would have
+    /// rounded it were captured and thrown away.
+    ///
+    /// Empty when the platform does not report them or nothing moved.
+    #[must_use]
+    pub fn get_coalesced_touches(&self) -> &[azul_core::window::TouchPoint] {
+        self.get_current_window_state()
+            .touch_state
+            .coalesced_points
+            .as_ref()
+    }
+
+    /// Where the OS predicts the touch is about to go, oldest first.
+    ///
+    /// EXTRAPOLATIONS, not measurements — wrong whenever the user changes
+    /// direction. They exist to hide latency: a stroke drawn through them
+    /// appears to keep up with the finger, and the app discards and redraws
+    /// them next frame when real samples arrive.
+    ///
+    /// Never persist them. Committing a predicted point to a document means
+    /// committing a guess.
+    #[must_use]
+    pub fn get_predicted_touches(&self) -> &[azul_core::window::TouchPoint] {
+        self.get_current_window_state()
+            .touch_state
+            .predicted_points
+            .as_ref()
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     #[must_use]

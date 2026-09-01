@@ -309,7 +309,7 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
 ///   1 = moved    (update cursor only)
 ///   2 = ended    (left_down=false)
 ///   3 = cancelled
-fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
+fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: u8) {
     use azul_core::events::ProcessEventResult;
     use azul_core::geom::LogicalPosition;
     use azul_core::window::{CursorPosition, TouchPoint, TouchPointVec};
@@ -335,6 +335,12 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
         barrel_roll_rad: f32,
     }
     let mut points: Vec<TouchPoint> = Vec::new();
+    // Coalesced = the samples between the last frame and this one; predicted =
+    // where UIKit thinks the finger is going. Both are asked for per UITouch
+    // and both need the UIEvent, which is why they are gathered alongside the
+    // main walk rather than in a second pass.
+    let mut coalesced: Vec<TouchPoint> = Vec::new();
+    let mut predicted: Vec<TouchPoint> = Vec::new();
     let mut pos: Option<LogicalPosition> = None;
     let mut pencil: Option<PencilSample> = None;
     let this_ptr = this as *const Object as *mut Object;
@@ -388,6 +394,49 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
 
                 if pos.is_none() {
                     pos = Some(touch_pos);
+                }
+
+                // Coalesced and predicted samples for THIS touch.
+                //
+                // Both are UIEvent methods rather than UITouch ones, and both
+                // return nil when unavailable — an old iOS, a simulator, or a
+                // touch that has not moved — so the null check is not
+                // defensive padding.
+                //
+                // UIKit INCLUDES the current touch as the last coalesced
+                // entry, so drawing the coalesced list and then the main point
+                // repeats the newest sample; the last one is dropped here.
+                if !event.is_null() {
+                    let mut gather = |sel_result: *mut Object, out: &mut Vec<TouchPoint>,
+                                      drop_last: bool| {
+                        if sel_result.is_null() {
+                            return;
+                        }
+                        let count: usize = msg_send![sel_result, count];
+                        let keep = if drop_last { count.saturating_sub(1) } else { count };
+                        for idx in 0..keep {
+                            let t: *mut Object = msg_send![sel_result, objectAtIndex: idx];
+                            if t.is_null() {
+                                continue;
+                            }
+                            let p: CGPoint = msg_send![t, locationInView: this_ptr];
+                            let f: f64 = msg_send![t, force];
+                            let maxf: f64 = msg_send![t, maximumPossibleForce];
+                            out.push(TouchPoint {
+                                id: id_u64,
+                                position: LogicalPosition::new(p.x as f32, p.y as f32),
+                                force: if maxf > 0.0 { (f / maxf) as f32 } else { 0.5 },
+                                major: 0.0,
+                                minor: 0.0,
+                                orientation_rad: 0.0,
+                                tool_type: azul_core::window::TouchToolType::Unknown,
+                            });
+                        }
+                    };
+                    let c: *mut Object = msg_send![event, coalescedTouchesForTouch: touch];
+                    gather(c, &mut coalesced, true);
+                    let pr: *mut Object = msg_send![event, predictedTouchesForTouch: touch];
+                    gather(pr, &mut predicted, false);
                 }
 
                 // Pencil sample — first stylus wins (Apple Pencil is
@@ -454,6 +503,12 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
                         }
                     }
                     ts.touch_points = TouchPointVec::from_vec(existing);
+                    // Coalesced and predicted samples are per-frame: they
+                    // describe the motion INTO this frame and the guess out
+                    // of it, so last frame's are meaningless now. Replaced
+                    // wholesale rather than appended.
+                    ts.coalesced_points = TouchPointVec::from_vec(coalesced.clone());
+                    ts.predicted_points = TouchPointVec::from_vec(predicted.clone());
                 }
                 2 | 3 => {
                     // Ended / cancelled → drop the reported IDs.
@@ -462,6 +517,11 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
                         ts.touch_points.clone().into_library_owned_vec();
                     existing.retain(|p| !drop_ids.contains(&p.id));
                     ts.touch_points = TouchPointVec::from_vec(existing);
+                    // A finished touch has no future, so a prediction that
+                    // outlived it would draw a stroke past where the user
+                    // lifted.
+                    ts.coalesced_points = TouchPointVec::from_vec(Vec::new());
+                    ts.predicted_points = TouchPointVec::from_vec(Vec::new());
                 }
                 _ => {}
             }
@@ -534,22 +594,22 @@ fn handle_touch(this: &Object, touches: *mut Object, phase: u8) {
     let _: () = unsafe { msg_send![view, setNeedsDisplay] };
 }
 
-extern "C" fn touches_began(this: &Object, _cmd: Sel, touches: *mut Object, _event: *mut Object) {
-    handle_touch(this, touches, 0);
+extern "C" fn touches_began(this: &Object, _cmd: Sel, touches: *mut Object, event: *mut Object) {
+    handle_touch(this, touches, event, 0);
 }
-extern "C" fn touches_moved(this: &Object, _cmd: Sel, touches: *mut Object, _event: *mut Object) {
-    handle_touch(this, touches, 1);
+extern "C" fn touches_moved(this: &Object, _cmd: Sel, touches: *mut Object, event: *mut Object) {
+    handle_touch(this, touches, event, 1);
 }
-extern "C" fn touches_ended(this: &Object, _cmd: Sel, touches: *mut Object, _event: *mut Object) {
-    handle_touch(this, touches, 2);
+extern "C" fn touches_ended(this: &Object, _cmd: Sel, touches: *mut Object, event: *mut Object) {
+    handle_touch(this, touches, event, 2);
 }
 extern "C" fn touches_cancelled(
     this: &Object,
     _cmd: Sel,
     touches: *mut Object,
-    _event: *mut Object,
+    event: *mut Object,
 ) {
-    handle_touch(this, touches, 3);
+    handle_touch(this, touches, event, 3);
 }
 
 /// UIKit calls `layoutSubviews` whenever the view's bounds change —
