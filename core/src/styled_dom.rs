@@ -1053,6 +1053,34 @@ impl StyledDomMemoryReport {
     }
 }
 
+/// `AZ_CASCADE_TRACE=1`: one line per cascade-invalidating decision.
+///
+/// The two questions this exists to answer are the ones that gate any further
+/// work on `CssPropertyCache::css_props` (24.2 MB, the largest remaining line
+/// item): how often is the compact cache REBUILT, and how often does the
+/// dynamic selector context actually change?
+///
+/// `css_props` is written only by `restyle()` and is therefore fully
+/// reproducible from `retained_author_css`, so it could be pruned of
+/// compact-encoded Normal properties and re-derived on demand — but only if
+/// rebuilds are RARE. `prune_compact_normal_props` currently refuses to prune
+/// it, citing a per-frame rebuild; that claim is untested, and the e2e runner
+/// does not exercise `set_dynamic_selector_context` at all, so it cannot be
+/// tested there. Run a real app with this dial to settle it.
+#[cfg(feature = "std")]
+pub(crate) fn cascade_trace(msg: impl FnOnce() -> String) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    static N: AtomicUsize = AtomicUsize::new(0);
+    if *ON.get_or_init(|| std::env::var("AZ_CASCADE_TRACE").is_ok()) {
+        eprintln!("[cascade #{}] {}", N.fetch_add(1, Ordering::Relaxed) + 1, msg());
+    }
+}
+
+#[cfg(not(feature = "std"))]
+pub(crate) fn cascade_trace(_: impl FnOnce() -> alloc::string::String) {}
+
 impl StyledDom {
     /// Approximate heap bytes retained by this `StyledDom`, broken out by field.
     #[must_use]
@@ -1600,6 +1628,7 @@ impl StyledDom {
     /// by re-running a full depth-first inheritance pass and rebuilding the
     /// compact cache from scratch on the composed tree.
     pub fn recompute_inheritance_and_compact_cache(&mut self) {
+        cascade_trace(|| "compact cache REBUILT from css_props".to_string());
         // Use the _with_inheritance variant: it does inheritance inline (via
         // parent-compact-field copy) AND populates hot_flags via
         // apply_css_property_to_compact.  The plain build_compact_cache would
@@ -2237,7 +2266,9 @@ impl StyledDom {
     ) {
         {
             let cache = self.get_css_property_cache_mut();
-            if cache.dynamic_context.as_deref() == Some(&context) {
+            let same = cache.dynamic_context.as_deref() == Some(&context);
+            cascade_trace(|| format!("dynamic context offered, unchanged={same}"));
+            if same {
                 return;
             }
             cache.dynamic_context = Some(Box::new(context));
