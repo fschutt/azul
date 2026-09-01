@@ -66,6 +66,24 @@ pub enum GamepadButton {
     DPadLeft,
     /// D-pad right.
     DPadRight,
+    // APPENDED at the end for ABI stability — the bitset in
+    // `GamepadState::buttons` is indexed by DISCRIMINANT, so inserting any of
+    // these in the middle would silently renumber every bit above it and turn
+    // a saved keybinding into a different button.
+    /// A miscellaneous button the vendor did not standardise: the Xbox Series
+    /// share button, the DualSense create button, the Switch capture button.
+    Misc1,
+    /// Rear paddle 1 (Xbox Elite, DualSense Edge, Steam Deck).
+    Paddle1,
+    /// Rear paddle 2.
+    Paddle2,
+    /// Rear paddle 3.
+    Paddle3,
+    /// Rear paddle 4.
+    Paddle4,
+    /// The touchpad pressed as a button (DualShock 4, DualSense). Distinct
+    /// from a touch ON the pad, which is `GamepadState::touchpad`.
+    Touchpad,
 }
 
 /// A gamepad analog axis. Stick axes are in `[-1, 1]` (right / up positive);
@@ -114,6 +132,41 @@ pub struct GamepadState {
     pub left_z: f32,
     /// Right trigger pressure in `[0, 1]`.
     pub right_z: f32,
+    /// Battery charge in `[0, 1]`, or `-1.0` when the pad does not report it.
+    ///
+    /// A sentinel rather than an `Option` because this struct is `#[repr(C)]`
+    /// and crosses the C ABI, where a niche-optimised Option would not be
+    /// stable. Wired pads report `-1.0`.
+    pub battery: f32,
+    /// Where a finger is on the pad's touch surface, if it has one and a
+    /// finger is down (DualShock 4, DualSense, Steam Deck).
+    ///
+    /// `x`/`y` normalized `[0, 1]` across the surface; `active` false when
+    /// nothing is touching. Not a `TouchPoint`: the pad surface is not the
+    /// screen, so its coordinates are not window coordinates and must not be
+    /// mistaken for them.
+    pub touchpad_x: f32,
+    /// See [`GamepadState::touchpad_x`].
+    pub touchpad_y: f32,
+    /// Whether a finger is on the pad's touch surface.
+    pub touchpad_active: bool,
+    /// Angular velocity from the pad's own gyroscope, in **rad/s**.
+    ///
+    /// Present on DualShock 4, DualSense, Switch Pro and Steam Deck. This is
+    /// the CONTROLLER's motion, not the device's — a phone's `SensorKind`
+    /// readings describe the phone, these describe the thing in your hands,
+    /// and a game that aims with gyro needs the latter.
+    pub gyro_x: f32,
+    /// See [`GamepadState::gyro_x`].
+    pub gyro_y: f32,
+    /// See [`GamepadState::gyro_x`].
+    pub gyro_z: f32,
+    /// Acceleration from the pad's own accelerometer, in **m/s²**.
+    pub accel_x: f32,
+    /// See [`GamepadState::accel_x`].
+    pub accel_y: f32,
+    /// See [`GamepadState::accel_x`].
+    pub accel_z: f32,
 }
 
 impl GamepadButton {
@@ -121,6 +174,34 @@ impl GamepadButton {
     #[must_use]
     pub const fn bit(self) -> u32 {
         1u32 << (self as u32)
+    }
+}
+
+impl Default for GamepadState {
+    fn default() -> Self {
+        Self {
+            id: GamepadId { inner: 0 },
+            connected: false,
+            buttons: 0,
+            left_stick_x: 0.0,
+            left_stick_y: 0.0,
+            right_stick_x: 0.0,
+            right_stick_y: 0.0,
+            left_z: 0.0,
+            right_z: 0.0,
+            // -1.0, not 0.0: zero is a real reading meaning "flat", and a pad
+            // that does not report battery must not look like a dead one.
+            battery: -1.0,
+            touchpad_x: 0.0,
+            touchpad_y: 0.0,
+            touchpad_active: false,
+            gyro_x: 0.0,
+            gyro_y: 0.0,
+            gyro_z: 0.0,
+            accel_x: 0.0,
+            accel_y: 0.0,
+            accel_z: 0.0,
+        }
     }
 }
 
@@ -138,6 +219,18 @@ impl GamepadState {
             right_stick_y: 0.0,
             left_z: 0.0,
             right_z: 0.0,
+            // -1.0 = "does not report", so an absent battery is not mistaken
+            // for a flat one. See the field docs.
+            battery: -1.0,
+            touchpad_x: 0.0,
+            touchpad_y: 0.0,
+            touchpad_active: false,
+            gyro_x: 0.0,
+            gyro_y: 0.0,
+            gyro_z: 0.0,
+            accel_x: 0.0,
+            accel_y: 0.0,
+            accel_z: 0.0,
         }
     }
 

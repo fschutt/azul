@@ -126,6 +126,9 @@ pub fn poll() {
                 right_stick_y: ry,
                 left_z: apply_axial_deadzone(pad.value(Axis::LeftZ)),
                 right_z: apply_axial_deadzone(pad.value(Axis::RightZ)),
+                // Fields this site does not set. Growing GamepadState must not
+                // break every construction of it.
+                ..Default::default()
             });
         }
     });

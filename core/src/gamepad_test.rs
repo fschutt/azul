@@ -322,6 +322,18 @@ mod autotest_generated {
             right_stick_y: 0.0,
             left_z: 0.0,
             right_z: 0.0,
+            // Listed explicitly: this is a `const`, and
+            // `Default::default()` is not a const fn.
+            battery: -1.0,
+            touchpad_x: 0.0,
+            touchpad_y: 0.0,
+            touchpad_active: false,
+            gyro_x: 0.0,
+            gyro_y: 0.0,
+            gyro_z: 0.0,
+            accel_x: 0.0,
+            accel_y: 0.0,
+            accel_z: 0.0,
         };
         const SOUTH: bool = S.is_pressed(GamepadButton::South);
         const EAST: bool = S.is_pressed(GamepadButton::East);
@@ -362,6 +374,9 @@ mod autotest_generated {
             right_stick_y: 4.0,
             left_z: 5.0,
             right_z: 6.0,
+            // Fields this site does not set. Growing GamepadState must not
+            // break every construction of it.
+            ..Default::default()
         };
         assert_eq!(s.axis(GamepadAxis::LeftStickX).to_bits(), 1.0f32.to_bits());
         assert_eq!(s.axis(GamepadAxis::LeftStickY).to_bits(), 2.0f32.to_bits());
@@ -457,6 +472,18 @@ mod autotest_generated {
             right_stick_y: 0.0,
             left_z: 1.0,
             right_z: 0.0,
+            // Listed explicitly: this is a `const`, and
+            // `Default::default()` is not a const fn.
+            battery: -1.0,
+            touchpad_x: 0.0,
+            touchpad_y: 0.0,
+            touchpad_active: false,
+            gyro_x: 0.0,
+            gyro_y: 0.0,
+            gyro_z: 0.0,
+            accel_x: 0.0,
+            accel_y: 0.0,
+            accel_z: 0.0,
         };
         const LEFT_Z: f32 = S.axis(GamepadAxis::LeftZ);
         const RIGHT_Z: f32 = S.axis(GamepadAxis::RightZ);

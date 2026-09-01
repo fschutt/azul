@@ -57,3 +57,13 @@ api.json and unchanged — this arc gave them producers, it did not add them.
 - `CallbackInfo::get_pen_hover_distance() -> OptionF32`, `CallbackInfo::get_pen_tool_kind() ->
   OptionTabletToolKind` (the Option wrapper may need generating).
 - RENAME owed, not done: `WacomPadState` -> `TabletPadState`, with an alias for the old name. Needs autofix.
+
+## From step 8e/8f (sensors + gamepad)
+
+- `SensorKind` — eight variants APPENDED: `RotationVector`, `Gravity`, `LinearAcceleration`,
+  `AmbientLight`, `Proximity`, `Barometer`, `StepCounter`, `HingeAngle`.
+- `GamepadButton` — six variants APPENDED: `Misc1`, `Paddle1`..`Paddle4`, `Touchpad`.
+  ⚠ `GamepadState::buttons` is a bitset indexed by DISCRIMINANT, so these MUST stay at the end.
+- `GamepadState` — ten fields appended: `battery`, `touchpad_x/y/active`, `gyro_x/y/z`, `accel_x/y/z`.
+  `battery` uses -1.0 as "not reported" rather than an Option, because the struct crosses the C ABI.
+- `GamepadState` gained a `Default` impl; check whether api.json needs it declared.

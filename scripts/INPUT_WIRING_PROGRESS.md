@@ -94,6 +94,16 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 8e/8f
+
+- [ ] 8f-i The new `GamepadState` fields (battery, touchpad, gyro/accel) are modelled but no backend fills
+      them. gilrs exposes battery via `Gamepad::power_info`; the pad touchpad and IMU need either SDL or
+      raw HID, since gilrs does not surface them. Until then they read as their "not reported" defaults,
+      which is honest but inert.
+- [ ] 8e-i The eight new `SensorKind` variants have no backend producing them. `dll/src/desktop/extra/
+      sensors/{android,apple,linux,windows}.rs` fill only the original three; `HingeAngle` in particular
+      needs Android `TYPE_HINGE_ANGLE` and is the one with a layout consequence.
+
 ### Follow-ups opened by 8c/8d
 
 - [ ] 8d-i `WacomPadState.dial_delta` is modelled but has NO producer: `get_tablet_pad_dial_v2_interface()`
@@ -212,9 +222,9 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [x] 8d (struct grown + strip/mode wired; dial has no producer yet — see 8d-i) `WacomPadState` → `TabletPadState` + `{ strip, strip_active, dial_delta, mode, mode_count }`.
       #450 left this struct at 2 of 5 pad controls, so it is still fully open. `TabletToolKind::Pad` and
       `TabletDeviceInfo.button_count` now exist to hang it off.
-- [ ] 8e `SensorKind += RotationVector, Gravity, LinearAcceleration, AmbientLight, Proximity, Barometer,
+- [x] 8e `SensorKind += RotationVector, Gravity, LinearAcceleration, AmbientLight, Proximity, Barometer,
       StepCounter, HingeAngle`.
-- [ ] 8f `GamepadState += { battery, touchpad, imu }`; buttons `Misc1, Paddle1..4, Touchpad`; `GamepadRumble`.
+- [x] 8f (state + buttons done; `GamepadRumble` is OUTPUT and is 9g's haptics item, and the backends do not yet fill the new fields — see 8f-i) `GamepadState += { battery, touchpad, imu }`; buttons `Misc1, Paddle1..4, Touchpad`; `GamepadRumble`.
 
 ## Step 9 — new capability
 

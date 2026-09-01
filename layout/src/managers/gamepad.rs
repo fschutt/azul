@@ -220,6 +220,9 @@ mod tests {
         s.connected = connected;
         s.buttons = buttons;
         s
+        // Fields this site does not set. Growing GamepadState must not
+        // break every construction of it.
+        ..Default::default()
     }
 
     #[test]
@@ -337,12 +340,18 @@ mod autotest_generated {
 
     fn pad(id: u32) -> GamepadState {
         GamepadState::empty(GamepadId { id })
+        // Fields this site does not set. Growing GamepadState must not
+        // break every construction of it.
+        ..Default::default()
     }
 
     fn connected(id: u32) -> GamepadState {
         let mut s = pad(id);
         s.connected = true;
         s
+        // Fields this site does not set. Growing GamepadState must not
+        // break every construction of it.
+        ..Default::default()
     }
 
     fn ts(tick: u64) -> Instant {

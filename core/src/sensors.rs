@@ -26,6 +26,52 @@ pub enum SensorKind {
     /// Geomagnetic field, in **µT** (iOS `magneticField`, Android
     /// `TYPE_MAGNETIC_FIELD`).
     Magnetometer,
+    // APPENDED at the end for ABI stability. The three above are the hard
+    // ones — they need real per-OS backends and have them. Most of what
+    // follows is DERIVED by the OS from those three, which is exactly why it
+    // is worth exposing rather than making every app redo the fusion badly.
+    /// Device orientation as a unit quaternion, x/y/z carrying the vector
+    /// part (Android `TYPE_ROTATION_VECTOR`, iOS `CMAttitude.quaternion`).
+    ///
+    /// The OS fuses accelerometer, gyroscope and magnetometer to produce it,
+    /// with drift correction an app cannot reproduce from the raw three.
+    RotationVector,
+    /// Gravity alone, in **m/s²** — the accelerometer with device motion
+    /// removed (Android `TYPE_GRAVITY`, iOS `CMDeviceMotion.gravity`).
+    Gravity,
+    /// Device motion alone, in **m/s²** — the accelerometer with gravity
+    /// removed (Android `TYPE_LINEAR_ACCELERATION`,
+    /// iOS `CMDeviceMotion.userAcceleration`).
+    ///
+    /// `Gravity` and this always sum to `Accelerometer`; they are separate
+    /// kinds because the split is what the OS's fusion buys you.
+    LinearAcceleration,
+    /// Illuminance in **lux**, in `x`. `y`/`z` unused.
+    ///
+    /// The signal behind "adapt to a dark room" — a UI dimming itself,
+    /// a camera view raising exposure.
+    AmbientLight,
+    /// Proximity in **cm**, in `x`. `y`/`z` unused.
+    ///
+    /// Many phone sensors are binary and report only their maximum range or
+    /// `0.0`, so treat a small value as "near" rather than as a distance.
+    Proximity,
+    /// Atmospheric pressure in **hPa**, in `x`. `y`/`z` unused. Used for
+    /// relative altitude, which GPS gives poorly.
+    Barometer,
+    /// Cumulative step count since boot, in `x`. `y`/`z` unused.
+    ///
+    /// Monotonic and NOT resettable — an app takes differences against its
+    /// own baseline rather than expecting it to start at zero.
+    StepCounter,
+    /// Foldable hinge angle in **degrees**, in `x`: `0.0` fully closed,
+    /// `180.0` flat. `y`/`z` unused.
+    ///
+    /// A LAYOUT input more than a sensor. Android exposes it as
+    /// `TYPE_HINGE_ANGLE` and the web as `DevicePosture`, and it is the only
+    /// way to tell a book-posture fold from a laptop-posture one — which
+    /// decides whether a two-pane layout should split across the crease.
+    HingeAngle,
 }
 
 /// One `(x, y, z)` sample from a motion sensor. Units depend on
