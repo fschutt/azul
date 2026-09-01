@@ -1368,8 +1368,9 @@ pub struct XIHierarchyEvent {
 
 /// XI 2.4 pinch gesture event. `scale` is absolute (1.0 at begin), `delta_angle`
 /// is a per-update delta in DEGREES — the same shape Wayland's pinch uses.
+// No Debug: it embeds XIModifierState, which is a raw C struct without one.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct XIGesturePinchEvent {
     pub type_: c_int,
     pub serial: c_ulong,
@@ -1401,8 +1402,9 @@ pub struct XIGesturePinchEvent {
 
 /// XI 2.4 swipe gesture event. Same layout as the pinch event minus `scale`
 /// and `delta_angle`.
+// No Debug — see XIGesturePinchEvent.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct XIGestureSwipeEvent {
     pub type_: c_int,
     pub serial: c_ulong,
@@ -1434,8 +1436,9 @@ pub struct XIGestureSwipeEvent {
 /// XI2 raw event. `valuators` is a sparse axis set exactly like a normal
 /// device event's, and `raw_values` carries the UNACCELERATED figures — which
 /// is the entire reason to use this event rather than differencing positions.
+// No Debug: it embeds XIValuatorState, a raw C struct without one.
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct XIRawEvent {
     pub type_: c_int,
     pub serial: c_ulong,

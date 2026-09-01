@@ -2770,74 +2770,77 @@ pub struct zwp_pointer_gesture_hold_v1_listener {
 }
 
 /// `zwp_pointer_gestures_v1` interface descriptor.
-pub fn get_pointer_gestures_v1_interface() -> *const wl_interface {
-    static IFACE: OnceLock<SendPtr<wl_interface>> = OnceLock::new();
-    IFACE
-        .get_or_init(|| {
-            SendPtr(unsafe {
-                let n: *const *const wl_interface = std::ptr::null();
-                let requests = Box::leak(Box::new([
-                    wl_message {
-                        name: b"get_swipe_gesture\0".as_ptr() as _,
-                        signature: b"no\0".as_ptr() as _,
-                        types: n,
-                    },
-                    wl_message {
-                        name: b"get_pinch_gesture\0".as_ptr() as _,
-                        signature: b"no\0".as_ptr() as _,
-                        types: n,
-                    },
-                    wl_message {
-                        name: b"release\0".as_ptr() as _,
-                        signature: b"2\0".as_ptr() as _,
-                        types: n,
-                    },
-                    wl_message {
-                        name: b"get_hold_gesture\0".as_ptr() as _,
-                        signature: b"3no\0".as_ptr() as _,
-                        types: n,
-                    },
-                ]));
-                Box::leak(Box::new(wl_interface {
-                    name: b"zwp_pointer_gestures_v1\0".as_ptr() as _,
-                    version: 3,
-                    method_count: 4,
-                    methods: requests.as_ptr(),
-                    event_count: 0,
-                    events: std::ptr::null(),
-                }))
-            })
+pub fn get_pointer_gestures_v1_interface() -> &'static wl_interface {
+    use std::sync::OnceLock;
+    static I: OnceLock<SyncInterface> = OnceLock::new();
+    I.get_or_init(|| {
+        SyncInterface({
+            let n = leak_null_types();
+            let requests: &'static [wl_message] = Box::leak(Box::new([
+                wl_message {
+                    name: b"get_swipe_gesture\0".as_ptr() as _,
+                    signature: b"no\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"get_pinch_gesture\0".as_ptr() as _,
+                    signature: b"no\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"release\0".as_ptr() as _,
+                    signature: b"2\0".as_ptr() as _,
+                    types: n,
+                },
+                wl_message {
+                    name: b"get_hold_gesture\0".as_ptr() as _,
+                    signature: b"3no\0".as_ptr() as _,
+                    types: n,
+                },
+            ]));
+            Box::leak(Box::new(wl_interface {
+                name: b"zwp_pointer_gestures_v1\0".as_ptr() as _,
+                version: 3,
+                method_count: 4,
+                methods: requests.as_ptr(),
+                event_count: 0,
+                events: std::ptr::null(),
+            }))
         })
-        .0
+    })
+    .0
 }
 
-/// Descriptors for the three gesture objects. Each has no requests but
-/// `destroy`, and its event count must match the listener struct above or
-/// `wl_proxy_add_listener` dispatches into the wrong slot.
+/// Descriptors for the three gesture objects.
+///
+/// Each has no requests but `destroy`, and its `event_count` MUST match the
+/// listener struct above — `wl_proxy_add_listener` dispatches by event index,
+/// so a descriptor that claims one more event than the struct has reads a
+/// function pointer past its end.
 macro_rules! gesture_iface {
     ($fname:ident, $wire:literal, $events:expr) => {
-        pub fn $fname() -> *const wl_interface {
-            static IFACE: OnceLock<SendPtr<wl_interface>> = OnceLock::new();
-            IFACE
-                .get_or_init(|| {
-                    SendPtr(unsafe {
-                        let n: *const *const wl_interface = std::ptr::null();
-                        let requests = Box::leak(Box::new([wl_message {
-                            name: b"destroy\0".as_ptr() as _,
-                            signature: b"\0".as_ptr() as _,
-                            types: n,
-                        }]));
-                        Box::leak(Box::new(wl_interface {
-                            name: concat!($wire, "\0").as_ptr() as _,
-                            version: 3,
-                            method_count: 1,
-                            methods: requests.as_ptr(),
-                            event_count: $events,
-                            events: std::ptr::null(),
-                        }))
-                    })
+        pub fn $fname() -> &'static wl_interface {
+            use std::sync::OnceLock;
+            static I: OnceLock<SyncInterface> = OnceLock::new();
+            I.get_or_init(|| {
+                SyncInterface({
+                    let n = leak_null_types();
+                    let requests: &'static [wl_message] = Box::leak(Box::new([wl_message {
+                        name: b"destroy\0".as_ptr() as _,
+                        signature: b"\0".as_ptr() as _,
+                        types: n,
+                    }]));
+                    Box::leak(Box::new(wl_interface {
+                        name: concat!($wire, "\0").as_ptr() as _,
+                        version: 3,
+                        method_count: 1,
+                        methods: requests.as_ptr(),
+                        event_count: $events,
+                        events: std::ptr::null(),
+                    }))
                 })
-                .0
+            })
+            .0
         }
     };
 }

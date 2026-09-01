@@ -3617,9 +3617,13 @@ impl WaylandWindow {
                     touch_ring: pad.touch_ring,
                     touch_ring_active: pad.touch_ring_active,
                     device_id,
-                    // Pad controls this site does not set; growing the struct
-                    // must not break every construction of it.
-                    ..Default::default()
+                    // The strip and the mode are separate controls, not the
+                    // ring under another name — an Intuos Pro body has both.
+                    strip: pad.strip,
+                    strip_active: pad.strip_active,
+                    dial_delta: pad.dial_delta,
+                    mode: pad.mode,
+                    mode_count: pad.mode_count,
                 },
             );
         }
@@ -3633,14 +3637,14 @@ impl WaylandWindow {
             if self.tablet_pad.dial_delta != 0.0 {
                 lw.gesture_drag_manager
                     .update_dial_state(azul_layout::managers::gesture::DialState {
-                        device_id: self.tablet_pad.device_id,
+                        device_id,
                         delta_rad: self.tablet_pad.dial_delta,
                         // A tablet-pad dial is smooth: the protocol reports
                         // rotation, never clicks.
                         detent_count: 0.0,
                         pressed: false,
                         // Never on-screen — that is a Surface Studio property.
-                        contact_position: azul_core::window::OptionLogicalPosition::None,
+                        contact_position: azul_core::geom::OptionLogicalPosition::None,
                     });
             }
         }

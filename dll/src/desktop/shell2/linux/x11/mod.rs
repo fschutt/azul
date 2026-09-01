@@ -913,7 +913,9 @@ fn init_xinput2(
             mask_len: rmask.len() as c_int,
             mask: rmask.as_mut_ptr(),
         };
-        let root = (xlib.XDefaultRootWindow)(display);
+        // The loader binds XRootWindow(display, screen), not the
+        // XDefaultRootWindow macro — same window, explicit screen.
+        let root = (xlib.XRootWindow)(display, (xlib.XDefaultScreen)(display));
         (xi.XISelectEvents)(display, root, &mut revmask, 1);
 
         // Touchpad gestures, XI 2.4+. Selected on master devices like the
@@ -2733,10 +2735,6 @@ impl X11Window {
         let (
             xi,
             xi_opcode,
-            pending_raw_motion: (0.0, 0.0),
-            pending_raw_motion_device: 0,
-            pinch_accumulated_rotation: 0.0,
-            swipe_accumulated: (0.0, 0.0),
             pen_valuators,
             scroll_valuators,
             eraser_devices,
@@ -8128,6 +8126,8 @@ unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGeneri
                     .inject_native_gesture(NativeGestureEvent::LongPress(DetectedLongPress {
                         position,
                         duration_ms: 0,
+                        callback_invoked: false,
+                        session_id: 0,
                     }));
             }
         }

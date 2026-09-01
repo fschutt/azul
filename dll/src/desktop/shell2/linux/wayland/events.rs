@@ -29,7 +29,6 @@ pub(super) struct WaylandKeyboardState {
     /// file or libxkbcommon predates the compose API; the key path then falls
     /// back to the raw keysym, which is what it did everywhere before.
     pub(super) compose: Option<ComposeSequencer>,
-    ..Default::default()
 }
 
 impl WaylandKeyboardState {
@@ -129,6 +128,15 @@ pub struct TabletPadPending {
     pub express_keys: u32,
     pub touch_ring: f32,
     pub touch_ring_active: bool,
+    /// Touch-STRIP position, separate from the ring: an Intuos Pro body has
+    /// both, and sharing one field made them clobber each other.
+    pub strip: f32,
+    pub strip_active: bool,
+    /// Dial rotation accumulated since the last pad frame, in radians.
+    pub dial_delta: f32,
+    /// Which mode the pad's button group is in, and how many it has.
+    pub mode: u32,
+    pub mode_count: u32,
 }
 
 impl PointerState {
@@ -1003,8 +1011,8 @@ extern "C" fn touch_shape_handler(
     let window = unsafe { &mut *(data as *mut super::WaylandWindow) };
     window.handle_touch_shape(
         id,
-        wl_fixed_to_f64(major) as f32,
-        wl_fixed_to_f64(minor) as f32,
+        (major as f64 / 256.0) as f32,
+        (minor as f64 / 256.0) as f32,
     );
 }
 
@@ -1020,7 +1028,7 @@ extern "C" fn touch_orientation_handler(
     orientation: i32,
 ) {
     let window = unsafe { &mut *(data as *mut super::WaylandWindow) };
-    window.handle_touch_orientation(id, wl_fixed_to_f64(orientation) as f32);
+    window.handle_touch_orientation(id, (orientation as f64 / 256.0) as f32);
 }
 
 static WL_TOUCH_LISTENER: wl_touch_listener = wl_touch_listener {
@@ -1519,7 +1527,7 @@ extern "C" fn tool_distance(d: *mut c_void, _t: *mut zwp_tablet_tool_v2, distanc
     // device's, not millimetres — an app compares it, it does not measure with
     // it. Reported only between proximity_in and proximity_out.
     let window = unsafe { &mut *(d as *mut WaylandWindow) };
-    window.tablet_pen_pending.distance = f32::from(distance as u16) / f32::from(u16::MAX);
+    window.tablet_pen.distance = f32::from(distance as u16) / f32::from(u16::MAX);
 }
 extern "C" fn tool_tilt(data: *mut c_void, _t: *mut zwp_tablet_tool_v2, tx: i32, ty: i32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
@@ -4186,13 +4194,19 @@ extern "C" fn gesture_pinch_update(
     rotation: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    let scale_f = wl_fixed_to_f64(scale) as f32;
+    let scale_f = (scale as f64 / 256.0) as f32;
     // `rotation` is the delta in DEGREES since the last update, not an
     // absolute angle, so it has to be accumulated to mean anything.
-    let rotation_deg = wl_fixed_to_f64(rotation) as f32;
+    let rotation_deg = (rotation as f64 / 256.0) as f32;
     window.pinch_accumulated_rotation += rotation_deg;
 
-    let center = window.pointer_state.position;
+    let center = window
+        .common
+        .current_window_state()
+        .mouse_state
+        .cursor_position
+        .get_position()
+        .unwrap_or(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
     let Some(ref mut lw) = window.common.layout_window else {
         return;
     };
@@ -4257,8 +4271,8 @@ extern "C" fn gesture_swipe_update(
     dy: i32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.swipe_accumulated.0 += wl_fixed_to_f64(dx) as f32;
-    window.swipe_accumulated.1 += wl_fixed_to_f64(dy) as f32;
+    window.swipe_accumulated.0 += (dx as f64 / 256.0) as f32;
+    window.swipe_accumulated.1 += (dy as f64 / 256.0) as f32;
 }
 
 extern "C" fn gesture_swipe_end(
@@ -4326,13 +4340,21 @@ extern "C" fn gesture_hold_end(
         return;
     }
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    let position = window.pointer_state.position;
+    let position = window
+        .common
+        .current_window_state()
+        .mouse_state
+        .cursor_position
+        .get_position()
+        .unwrap_or(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
     if let Some(ref mut lw) = window.common.layout_window {
         lw.gesture_drag_manager.inject_native_gesture(
             azul_layout::managers::gesture::NativeGestureEvent::LongPress(
                 azul_layout::managers::gesture::DetectedLongPress {
                     position,
                     duration_ms: 0,
+                    callback_invoked: false,
+                    session_id: 0,
                 },
             ),
         );
