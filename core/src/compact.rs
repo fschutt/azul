@@ -492,24 +492,6 @@ impl CssPropertyCache {
         prev_font_hashes: &[u64],
         debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
     ) -> CompactLayoutCache {
-        // Inheritable tier1 CSS fields (font-weight/style, text-align, visibility,
-        // white-space, direction, border-collapse, cursor). Copied from parent
-        // in Step 1.
-        //
-        // `cursor` is inheritable per spec — a `cursor: pointer` on a button
-        // reaches the text inside it — so it MUST be in this mask or a
-        // descendant silently falls back to the initial value. (`writing-mode`
-        // is also inheritable and is absent here; that predates this change and
-        // is left alone rather than fixed blind.)
-        const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
-            | (FONT_STYLE_MASK << FONT_STYLE_SHIFT)
-            | (TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT)
-            | (VISIBILITY_MASK << VISIBILITY_SHIFT)
-            | (WHITE_SPACE_MASK << WHITE_SPACE_SHIFT)
-            | (DIRECTION_MASK << DIRECTION_SHIFT)
-            | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT)
-            | (CURSOR_MASK << CURSOR_SHIFT);
-
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
         let mut result = CompactLayoutCache::with_capacity(node_count);
@@ -1051,6 +1033,35 @@ impl CssPropertyCache {
 
 /// Apply UA CSS defaults for a node type directly to compact values.
 /// UA defaults have lowest cascade priority — overridden by author CSS.
+/// Which tier-1 bits a node COPIES FROM ITS PARENT — the packed form of "this
+/// property is inherited".
+///
+/// It must hold a slot exactly when that slot's property is `is_inheritable()`.
+/// Getting it wrong is silent in BOTH directions: a missing slot makes every
+/// descendant fall back to the CSS initial value while `get_property_slow` —
+/// which inherits through `computed_values` — still answers correctly, so the
+/// two cascade paths disagree about the computed value. That is the failure
+/// mode that bit the VirtualView overflow default. An extra slot inherits a
+/// property CSS says does not.
+///
+/// `every_inheritable_tier1_property_is_actually_inherited` checks the
+/// correspondence slot by slot against `CssPropertyType::is_inheritable`, so a
+/// slot added later cannot quietly omit itself.
+pub const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
+    | (FONT_STYLE_MASK << FONT_STYLE_SHIFT)
+    | (TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT)
+    | (VISIBILITY_MASK << VISIBILITY_SHIFT)
+    | (WHITE_SPACE_MASK << WHITE_SPACE_SHIFT)
+    | (DIRECTION_MASK << DIRECTION_SHIFT)
+    | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT)
+    | (CURSOR_MASK << CURSOR_SHIFT)
+    // `writing-mode` is inheritable per CSS and has had a tier-1 slot all
+    // along, but was never copied from the parent: `writing-mode: vertical-rl`
+    // on a container laid its children out horizontally in the compact path,
+    // while the slow path inherited it correctly. Found by auditing this mask
+    // against `is_inheritable()` — it was the only disagreement.
+    | (WRITING_MODE_MASK << WRITING_MODE_SHIFT);
+
 fn apply_ua_css_to_compact(
     node_type: &crate::dom::NodeType,
     tier1: &mut u64,
