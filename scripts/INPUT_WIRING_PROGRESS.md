@@ -86,13 +86,13 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 4b/4c
 
-- [ ] 4c-i Register `DeviceEventManager` on `LayoutWindow` (field + `new()` + the destructure at
+- [x] 4c-i Register `DeviceEventManager` on `LayoutWindow` (field + `new()` + the destructure at
       `window.rs:830`) and add it to the `EventProvider` slice — same registration debt as 2c-ii and 3d-i.
       These three should land together.
 
 ### Follow-ups opened by 3c/3d
 
-- [ ] 3d-i Register `TextEditManager` in the `&[&dyn EventProvider]` slice, and clear
+- [x] 3d-i Register `TextEditManager` in the `&[&dyn EventProvider]` slice, and clear
       `pending_composition` after the drain (same shape as 2c-ii/iii).
 - [ ] 3d-ii X11 has no separate commit path — `Xutf8LookupString` returns committed text directly and the
       preedit is only ever set from the XIM callback, so `CompositionEnd` there currently comes from the
@@ -101,13 +101,13 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 2c
 
-- [ ] 2c-i Call `ScrollManager::note_scroll_phase(source)` from every platform scroll path
+- [~] 2c-i PARTIAL — manager registered + drained; the per-shell `note_scroll_phase` / `settle_scroll_gesture` calls are still owed. Call `ScrollManager::note_scroll_phase(source)` from every platform scroll path
       (macOS `scrollWheel:`, Wayland `pointer_axis*`, X11 scroll, Win32 `WM_MOUSEWHEEL`) and
       `settle_scroll_gesture()` from the physics timer when velocity reaches zero — a discrete wheel has no
       end-of-gesture signal, so without the settle call a `WheelDiscrete` gesture never closes.
-- [ ] 2c-ii Register `ScrollManager` in the `&[&dyn EventProvider]` slice passed to
+- [x] 2c-ii Register `ScrollManager` in the `&[&dyn EventProvider]` slice passed to
       `determine_events_from_managers`, or the impl is never polled.
-- [ ] 2c-iii Clear `pending_scroll_phase` after the drain (`get_pending_events` takes `&self`; the other
+- [x] 2c-iii Clear `pending_scroll_phase` after the drain (`get_pending_events` takes `&self`; the other
       managers use a `pending_event` flag cleared elsewhere in the pass — match whatever they do).
 
 ## Step 4 — C4: open the Application phase
@@ -116,7 +116,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `matches_application_filter(f, event, phase)`; write that fn.
 - [x] 4b Producer: gilrs gamepad connect/disconnect → `EventType::DeviceConnected`/`DeviceDisconnected`
       (already pumped via `capability_pump`, all four desktops).
-- [~] 4c Producer: Wayland — `wl_registry.global_remove` for `wl_output` → monitor events;
+- [x] 4c Producer: Wayland — `wl_registry.global_remove` for `wl_output` → monitor events;
       `wl_seat.capabilities` + `zwp_tablet_seat_v2` add/remove → device events. All handlers already exist.
 - [ ] 4d Producer: Win32 `WM_DISPLAYCHANGE` monitor-list diff; add `WM_DEVICECHANGE` handling.
 - [ ] 4e Producer: macOS `windowDidChangeScreen:` diff + observe `NSApplicationDidChangeScreenParameters`.

@@ -8818,6 +8818,15 @@ pub trait PlatformWindow {
                 &w.biometric_manager,
                 &w.keyring_manager,
                 &w.eyedropper_manager,
+                // Wired by the input arc: scroll phase (ScrollStart/ScrollEnd),
+                // IME composition (CompositionStart/Update/End) and hotplug
+                // (Device/Monitor Connected/Disconnected). Each has a filter,
+                // a planning arm and a matcher arm; without being in this
+                // slice the provider is simply never polled and the whole
+                // chain stays invisible.
+                &w.scroll_manager,
+                &w.text_edit_manager,
+                &w.device_event_manager,
             )
         });
 
@@ -8834,7 +8843,7 @@ pub trait PlatformWindow {
         if let Some(p) = document_edit_provider.as_ref() {
             event_providers.push(p as &dyn azul_core::events::EventProvider);
         }
-        if let Some((tm, sm, gm, geo, pm, bm, km, ed)) = providers_ref {
+        if let Some((tm, sm, gm, geo, pm, bm, km, ed, scroll, te, dev)) = providers_ref {
             event_providers.push(tm as &dyn azul_core::events::EventProvider);
             event_providers.push(sm as &dyn azul_core::events::EventProvider);
             event_providers.push(gm as &dyn azul_core::events::EventProvider);
@@ -8843,6 +8852,9 @@ pub trait PlatformWindow {
             event_providers.push(bm as &dyn azul_core::events::EventProvider);
             event_providers.push(km as &dyn azul_core::events::EventProvider);
             event_providers.push(ed as &dyn azul_core::events::EventProvider);
+            event_providers.push(scroll as &dyn azul_core::events::EventProvider);
+            event_providers.push(te as &dyn azul_core::events::EventProvider);
+            event_providers.push(dev as &dyn azul_core::events::EventProvider);
         }
 
         // Get current timestamp
@@ -8957,6 +8969,14 @@ pub trait PlatformWindow {
             w.biometric_manager.clear_pending_event();
             w.keyring_manager.clear_pending_event();
             w.eyedropper_manager.clear_pending_event();
+            // The three providers wired by the input arc. Each drains its own
+            // queue: `get_pending_events` takes `&self`, so a phase left
+            // pending would re-emit on every pass for the life of the gesture
+            // or composition.
+            w.scroll_manager.pending_scroll_phase.clear();
+            let _ = w.text_edit_manager.take_pending_composition();
+            let _ = w.device_event_manager.take_pending();
+            let _ = w.gamepad_manager.take_pending_hotplug();
             w.gesture_drag_manager.clear_pen_event_pending();
             // The injected native gesture (macOS magnify/rotate, debug-server
             // injection) is NOT cleared here: the PinchIn/PinchOut callbacks

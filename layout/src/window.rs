@@ -849,6 +849,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         eyedropper_manager: _,
         sensor_manager: _,
         gamepad_manager: _,
+        device_event_manager: _,
         safe_area_insets: _,
         currently_dragging_thumb: _,
         pending_caret_restore: _,
@@ -1331,6 +1332,10 @@ pub struct LayoutWindow {
     /// (gilrs / `GCController` / `InputDevice`) parks per-pad states in the async
     /// channel the layout pass folds in here.
     pub gamepad_manager: crate::managers::gamepad::GamepadManager,
+    /// Application-level hotplug queue — devices and monitors arriving or
+    /// leaving. Pushed by the platform shells, drained into the
+    /// `ApplicationEventFilter` family.
+    pub device_event_manager: crate::managers::device_events::DeviceEventManager,
     /// Safe-area insets (notch / system-UI margins) for this window, in logical
     /// px. Set by the platform shell (macOS NSScreen.safeAreaInsets, iOS
     /// UIView.safeAreaInsets, Android `WindowInsets`); zero where none.
@@ -1891,6 +1896,7 @@ impl LayoutWindow {
             eyedropper_manager: crate::managers::eyedropper::EyedropperManager::new(),
             sensor_manager: crate::managers::sensors::SensorManager::new(),
             gamepad_manager: crate::managers::gamepad::GamepadManager::new(),
+            device_event_manager: crate::managers::device_events::DeviceEventManager::new(),
             safe_area_insets: azul_css::system::SafeAreaInsets::default(),
             timers: BTreeMap::new(),
             system_animations_override: None,
@@ -18752,6 +18758,7 @@ impl LayoutWindow {
             eyedropper_manager: _,
             sensor_manager: _,
             gamepad_manager: _,
+            device_event_manager: _,
             // Payload-only state (file paths / clipboard contents), no NodeIds:
             file_drop_manager: _,
             clipboard_manager: _,
