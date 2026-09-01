@@ -611,8 +611,10 @@ fn bake_resolved_style(
     // not travel: the transient node's own UA `position: absolute; top: 100%`
     // would otherwise displace the popup's content inside its own window.
     if is_root {
-        if let Some(computed) = cache.computed_values.get(i) {
-            for (prop_type, p) in computed {
+        {
+            // The store is inheritable-only by invariant, but the filter stays:
+            // it states the requirement locally rather than trusting a caller.
+            for (prop_type, p) in cache.computed_values.values_for(i) {
                 if prop_type.is_inheritable() {
                     data.add_css_property(CssPropertyWithConditions {
                         property: p.property.clone(),
