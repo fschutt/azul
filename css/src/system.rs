@@ -2703,7 +2703,11 @@ pub mod defaults {
                 button_padding_vertical: OptionPixelValue::Some(PixelValue::px(4.0)),
                 titlebar: TitlebarMetrics::linux_gnome(),
             },
-            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_KDE_OXYGEN))),
+            // `SCROLLBAR_KDE_OXYGEN` is a LIGHT scrollbar (track #f2f2f2,
+            // thumb #b1b1b1): correct for Breeze Light, glaring on a dark
+            // desktop. The dark preset takes the dark classic bar, exactly as
+            // `gnome_adwaita_dark` does.
+            scrollbar: Some(Box::new(scrollbar_info_to_computed(&SCROLLBAR_CLASSIC_DARK))),
             app_specific_stylesheet: None,
             run_destructor: true,
             icon_style: IconStyleOptions::default(),

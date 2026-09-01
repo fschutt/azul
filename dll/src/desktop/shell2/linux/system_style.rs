@@ -26,8 +26,8 @@ use azul_css::parser2::new_from_str;
 use azul_css::props::basic::color::{parse_css_color, ColorU, OptionColorU};
 use azul_css::props::basic::pixel::{OptionPixelValue, PixelValue};
 use azul_css::system::{
-    defaults, DesktopEnvironment, Platform, ScrollbarVisibility, SubpixelType, SystemStyle, Theme,
-    TitlebarButtonSide, ToolbarStyle,
+    defaults, DesktopEnvironment, Platform, ScrollbarTrackClick, ScrollbarVisibility, SubpixelType,
+    SystemStyle, Theme, TitlebarButtonSide, ToolbarStyle,
 };
 
 // ── D-Bus wire-protocol helpers (minimal, read-only) ─────────────────────
@@ -885,6 +885,9 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
 
     // ── Scrollbars ──────────────────────────────────────────────────
     // GNOME's overlay scrollbars are the thin ones that appear on hover.
+    // GNOME/Cinnamon/MATE publish this directly: overlay scrollbars are the
+    // thin ones that appear on hover and fade; turning them off means the
+    // classic always-visible bar that reserves space.
     if let Some(overlay) = gsettings_get("org.gnome.desktop.interface", "overlay-scrolling") {
         style.scrollbar_preferences.visibility = if overlay.trim() == "false" {
             ScrollbarVisibility::Always
@@ -892,6 +895,22 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
             ScrollbarVisibility::WhenScrolling
         };
     }
+
+    // Track-click behaviour is a GTK setting, and it lives in
+    // `gtk-3.0/settings.ini` rather than in GSettings — there is no
+    // `gtk-primary-button-warps-slider` key in the interface schema, so
+    // querying gsettings for it silently found nothing. GTK's own default is
+    // "warp", i.e. jump to the clicked position.
+    let gtk_ini = std::env::var("HOME")
+        .ok()
+        .and_then(|h| KdeIni::read(&alloc::format!("{h}/.config/gtk-3.0/settings.ini")));
+    style.scrollbar_preferences.track_click = match gtk_ini
+        .as_ref()
+        .and_then(|i| i.get("Settings", "gtk-primary-button-warps-slider"))
+    {
+        Some(v) if matches!(v.trim(), "0" | "false") => ScrollbarTrackClick::PageUpDown,
+        _ => ScrollbarTrackClick::JumpToPosition,
+    };
 
     // Accent color (GNOME 47+)
     if let Some(accent) = gsettings_get("org.gnome.desktop.interface", "accent-color") {
@@ -1129,6 +1148,24 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     style.metrics.titlebar.buttons.has_maximize = all_buttons.contains('A');
     style.linux.titlebar_button_layout =
         OptionString::Some(alloc::format!("{buttons_left}:{buttons_right}").into());
+
+    // ── Scrollbars ──────────────────────────────────────────────────
+    // Breeze scrollbars are ALWAYS visible: they reserve layout space and do
+    // not fade. Qt has no "overlay scrollbar" setting to read, so the style
+    // IS the answer. Left unset, the engine's `Auto` visibility falls back to
+    // overlay behaviour and the bar vanishes a moment after each scroll.
+    style.scrollbar_preferences.visibility = ScrollbarVisibility::Always;
+
+    // What a click on the TRACK does. Plasma's key is opt-IN to paging
+    // (`ScrollbarLeftClickNavigatesByPage`), so its default — and Breeze's
+    // behaviour — is to JUMP to the clicked position. The engine's enum
+    // defaults to `PageUpDown`, so Linux did the opposite of both desktops
+    // until this was read.
+    style.scrollbar_preferences.track_click = match read_kde_str("KDE", "ScrollbarLeftClickNavigatesByPage")
+    {
+        Some(v) if v.trim().eq_ignore_ascii_case("true") => ScrollbarTrackClick::PageUpDown,
+        _ => ScrollbarTrackClick::JumpToPosition,
+    };
 
     // ── Behaviour / motion ──────────────────────────────────────────
     // Plasma scales every animation by this factor; 0 means "instant", which
@@ -1974,8 +2011,30 @@ pub fn dump_discovered_style() -> String {
     );
     let _ = writeln!(
         o,
-        "scrollbars          {:?}",
-        s.scrollbar_preferences.visibility
+        "scrollbars          {:?}, track_click {:?}",
+        s.scrollbar_preferences.visibility, s.scrollbar_preferences.track_click
+    );
+    let _ = writeln!(
+        o,
+        "scrollbar_colors    thumb {} track {}",
+        s.scrollbar
+            .as_deref()
+            .and_then(|sb| sb.thumb_color)
+            .map_or_else(|| "-".to_string(), |c| alloc::format!(
+                "#{:02x}{:02x}{:02x}",
+                c.r,
+                c.g,
+                c.b
+            )),
+        s.scrollbar
+            .as_deref()
+            .and_then(|sb| sb.track_color)
+            .map_or_else(|| "-".to_string(), |c| alloc::format!(
+                "#{:02x}{:02x}{:02x}",
+                c.r,
+                c.g,
+                c.b
+            ))
     );
     let _ = writeln!(o, "caret_blink_ms      {}", s.input.caret_blink_rate_ms);
     o

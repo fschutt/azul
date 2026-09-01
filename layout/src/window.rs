@@ -5460,14 +5460,27 @@ impl LayoutWindow {
                         // Initial opacity depends on visibility mode:
                         //   Always       → 1.0 (legacy scrollbar, always visible)
                         //   WhenScrolling → 0.0 (overlay scrollbar, hidden until scroll)
-                        //   Auto         → 0.0 (same as WhenScrolling)
-                        let initial_opacity = if info.visibility
-                            == azul_css::props::style::scrollbar::ScrollbarVisibilityMode::Always
-                        {
-                            1.0
-                        } else {
-                            0.0
+                        //   Auto         → whatever the DESKTOP says
+                        //
+                        // `Auto` is defined as "use the OS-level scrollbar
+                        // preference", and `SystemStyle::scrollbar_preferences`
+                        // is where that preference lives — but nothing read it,
+                        // so `Auto` silently behaved as `WhenScrolling` on every
+                        // platform. A desktop whose scrollbars are always shown
+                        // (KDE Breeze, Windows) got overlay bars that vanish a
+                        // moment after scrolling, which reads as "the scrollbar
+                        // is not persistent".
+                        use azul_css::props::style::scrollbar::ScrollbarVisibilityMode;
+                        use azul_css::system::ScrollbarVisibility as OsScrollbarVisibility;
+                        let os_wants_always = self.system_style.as_deref().is_some_and(|s| {
+                            s.scrollbar_preferences.visibility == OsScrollbarVisibility::Always
+                        });
+                        let always_visible = match info.visibility {
+                            ScrollbarVisibilityMode::Always => true,
+                            ScrollbarVisibilityMode::WhenScrolling => false,
+                            ScrollbarVisibilityMode::Auto => os_wants_always,
                         };
+                        let initial_opacity = if always_visible { 1.0 } else { 0.0 };
                         if let Some(opacity_key) = info.opacity_key {
                             match hit_id {
                                 ScrollbarHitId::VerticalThumb(_, nid) => {

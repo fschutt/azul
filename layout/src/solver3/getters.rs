@@ -5749,7 +5749,33 @@ pub fn get_scrollbar_style(
         azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
     );
     let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx);
-    let result = ComputedScrollbarStyle::from_ua_resolved(&ua);
+    let mut result = ComputedScrollbarStyle::from_ua_resolved(&ua);
+
+    // `scrollbar-color: auto` means "the platform's own scrollbar colours",
+    // and `from_ua_resolved` can only answer TRANSPARENT for it — it has no
+    // system style to ask. So an app that sets no scrollbar CSS (almost all of
+    // them) drew a fully transparent thumb on a fully transparent track: an
+    // invisible scrollbar that only "appears" where a hover/active variant
+    // happens to add alpha. `SystemStyle::scrollbar` has carried the right
+    // colours the whole time (Breeze/Adwaita/Aqua/Windows presets, or whatever
+    // discovery read off the desktop) and nothing consumed them.
+    //
+    // Applied BEFORE the author-CSS steps below, so an explicit
+    // `::-webkit-scrollbar-thumb { background: … }` still wins.
+    if matches!(ua.color, StyleScrollbarColor::Auto) {
+        if let Some(sys) = system_style.and_then(|s| s.scrollbar.as_deref()) {
+            if let Some(thumb) = sys.thumb_color {
+                result.thumb_color = thumb;
+            }
+            if let Some(track) = sys.track_color {
+                result.track_color = track;
+                // The buttons and the corner are part of the track furniture.
+                result.button_color = track;
+                result.corner_color = track;
+            }
+        }
+    }
+    let result = result;
 
     // FAST PATH: 99% of nodes have no scrollbar CSS. Bail before walking 8 × cascade.
     if node_state.is_normal() {
