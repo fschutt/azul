@@ -2628,3 +2628,172 @@ pub fn get_primary_selection_device_manager_v1_interface() -> &'static wl_interf
     })
     .0
 }
+
+// ===== zwp_pointer_gestures_v1 — touchpad pinch / swipe / hold =====
+//
+// The in-process two-finger detector recognises pinch and rotate from TOUCH
+// POINTS, which a touchscreen provides and a touchpad does not: a touchpad
+// hands the compositor a synthesized pointer and keeps the finger geometry to
+// itself. This protocol is the only way a Wayland client learns that a
+// touchpad gesture happened at all, which is why pinch-to-zoom was dead on
+// Wayland while working on macOS and on touchscreens.
+
+#[repr(C)]
+pub struct zwp_pointer_gestures_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_pointer_gesture_swipe_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_pointer_gesture_pinch_v1 {
+    _private: [u8; 0],
+}
+#[repr(C)]
+pub struct zwp_pointer_gesture_hold_v1 {
+    _private: [u8; 0],
+}
+
+/// `zwp_pointer_gestures_v1.get_swipe_gesture` — opcode 0.
+pub const ZWP_POINTER_GESTURES_V1_GET_SWIPE_GESTURE: u32 = 0;
+/// `zwp_pointer_gestures_v1.get_pinch_gesture` — opcode 1.
+pub const ZWP_POINTER_GESTURES_V1_GET_PINCH_GESTURE: u32 = 1;
+/// `zwp_pointer_gestures_v1.release` — opcode 2, since version 2.
+pub const ZWP_POINTER_GESTURES_V1_RELEASE: u32 = 2;
+/// `zwp_pointer_gestures_v1.get_hold_gesture` — opcode 3, since version 3.
+pub const ZWP_POINTER_GESTURES_V1_GET_HOLD_GESTURE: u32 = 3;
+
+#[repr(C)]
+pub struct zwp_pointer_gesture_swipe_v1_listener {
+    pub begin: extern "C" fn(
+        *mut c_void,
+        *mut zwp_pointer_gesture_swipe_v1,
+        u32,
+        u32,
+        *mut wl_surface,
+        u32,
+    ),
+    pub update: extern "C" fn(*mut c_void, *mut zwp_pointer_gesture_swipe_v1, u32, i32, i32),
+    pub end: extern "C" fn(*mut c_void, *mut zwp_pointer_gesture_swipe_v1, u32, u32, i32),
+}
+
+#[repr(C)]
+pub struct zwp_pointer_gesture_pinch_v1_listener {
+    pub begin: extern "C" fn(
+        *mut c_void,
+        *mut zwp_pointer_gesture_pinch_v1,
+        u32,
+        u32,
+        *mut wl_surface,
+        u32,
+    ),
+    /// `update(time, dx, dy, scale, rotation)` — `dx`/`dy` and `scale` are
+    /// `wl_fixed`, `rotation` is `wl_fixed` DEGREES.
+    pub update:
+        extern "C" fn(*mut c_void, *mut zwp_pointer_gesture_pinch_v1, u32, i32, i32, i32, i32),
+    pub end: extern "C" fn(*mut c_void, *mut zwp_pointer_gesture_pinch_v1, u32, u32, i32),
+}
+
+#[repr(C)]
+pub struct zwp_pointer_gesture_hold_v1_listener {
+    pub begin: extern "C" fn(
+        *mut c_void,
+        *mut zwp_pointer_gesture_hold_v1,
+        u32,
+        u32,
+        *mut wl_surface,
+        u32,
+    ),
+    pub end: extern "C" fn(*mut c_void, *mut zwp_pointer_gesture_hold_v1, u32, u32, i32),
+}
+
+/// `zwp_pointer_gestures_v1` interface descriptor.
+pub fn get_pointer_gestures_v1_interface() -> *const wl_interface {
+    static IFACE: OnceLock<SendPtr<wl_interface>> = OnceLock::new();
+    IFACE
+        .get_or_init(|| {
+            SendPtr(unsafe {
+                let n: *const *const wl_interface = std::ptr::null();
+                let requests = Box::leak(Box::new([
+                    wl_message {
+                        name: b"get_swipe_gesture\0".as_ptr() as _,
+                        signature: b"no\0".as_ptr() as _,
+                        types: n,
+                    },
+                    wl_message {
+                        name: b"get_pinch_gesture\0".as_ptr() as _,
+                        signature: b"no\0".as_ptr() as _,
+                        types: n,
+                    },
+                    wl_message {
+                        name: b"release\0".as_ptr() as _,
+                        signature: b"2\0".as_ptr() as _,
+                        types: n,
+                    },
+                    wl_message {
+                        name: b"get_hold_gesture\0".as_ptr() as _,
+                        signature: b"3no\0".as_ptr() as _,
+                        types: n,
+                    },
+                ]));
+                Box::leak(Box::new(wl_interface {
+                    name: b"zwp_pointer_gestures_v1\0".as_ptr() as _,
+                    version: 3,
+                    method_count: 4,
+                    methods: requests.as_ptr(),
+                    event_count: 0,
+                    events: std::ptr::null(),
+                }))
+            })
+        })
+        .0
+}
+
+/// Descriptors for the three gesture objects. Each has no requests but
+/// `destroy`, and its event count must match the listener struct above or
+/// `wl_proxy_add_listener` dispatches into the wrong slot.
+macro_rules! gesture_iface {
+    ($fname:ident, $wire:literal, $events:expr) => {
+        pub fn $fname() -> *const wl_interface {
+            static IFACE: OnceLock<SendPtr<wl_interface>> = OnceLock::new();
+            IFACE
+                .get_or_init(|| {
+                    SendPtr(unsafe {
+                        let n: *const *const wl_interface = std::ptr::null();
+                        let requests = Box::leak(Box::new([wl_message {
+                            name: b"destroy\0".as_ptr() as _,
+                            signature: b"\0".as_ptr() as _,
+                            types: n,
+                        }]));
+                        Box::leak(Box::new(wl_interface {
+                            name: concat!($wire, "\0").as_ptr() as _,
+                            version: 3,
+                            method_count: 1,
+                            methods: requests.as_ptr(),
+                            event_count: $events,
+                            events: std::ptr::null(),
+                        }))
+                    })
+                })
+                .0
+        }
+    };
+}
+
+// swipe: begin, update, end. pinch: begin, update, end. hold: begin, end.
+gesture_iface!(
+    get_pointer_gesture_swipe_v1_interface,
+    "zwp_pointer_gesture_swipe_v1",
+    3
+);
+gesture_iface!(
+    get_pointer_gesture_pinch_v1_interface,
+    "zwp_pointer_gesture_pinch_v1",
+    3
+);
+gesture_iface!(
+    get_pointer_gesture_hold_v1_interface,
+    "zwp_pointer_gesture_hold_v1",
+    2
+);

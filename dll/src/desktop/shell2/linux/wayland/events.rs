@@ -537,6 +537,21 @@ pub(super) extern "C" fn registry_global_handler(
             unsafe { try_init_data_device(window, data) };
             unsafe { try_init_primary_selection(window, data) };
         }
+        "zwp_pointer_gestures_v1" => {
+            // Touchpad pinch / swipe / hold. Bound at up to v3 — v1 has swipe
+            // and pinch, v2 adds `release`, v3 adds hold.
+            let v = version.min(3);
+            window.pointer_gestures_version = v;
+            window.pointer_gestures = unsafe {
+                (window.wayland.wl_registry_bind)(
+                    registry,
+                    name,
+                    get_pointer_gestures_v1_interface(),
+                    v,
+                ) as *mut _
+            };
+            unsafe { try_init_pointer_gestures(window, data) };
+        }
         "zwp_tablet_manager_v2" => {
             window.tablet_manager = unsafe {
                 (window.wayland.wl_registry_bind)(
@@ -2497,6 +2512,9 @@ pub(super) extern "C" fn seat_capabilities_handler(
         window.pointer_state.pointer = pointer;
         unsafe { (window.wayland.wl_pointer_add_listener)(pointer, &WL_POINTER_LISTENER, data) };
         window.track_listener(pointer);
+        // The gestures global and the pointer arrive in either order, so both
+        // sides call this and it is idempotent — same shape as try_init_tablet.
+        unsafe { try_init_pointer_gestures(window, data) };
     }
 
     if capabilities & WL_SEAT_CAPABILITY_KEYBOARD != 0 {
@@ -4010,4 +4028,255 @@ mod tests {
         assert_eq!(got.len(), expected);
         assert!(got.iter().all(|b| *b == b'z'));
     }
+}
+
+// ===== zwp_pointer_gestures_v1 — touchpad pinch / swipe / hold =====
+//
+// These feed `inject_native_gesture`, the same seam macOS uses for
+// `magnifyWithEvent:` / `rotateWithEvent:` and iOS/Android use for their
+// native recognizers. The in-process detector cannot do this job on a
+// touchpad: it recognises from touch points, and a touchpad reports none —
+// the compositor keeps the finger geometry and sends a synthesized pointer.
+
+/// Where the current pinch started, so `scale` can be turned into the
+/// `DetectedPinch` distances the engine's gesture payload carries.
+const PINCH_NOMINAL_DISTANCE: f32 = 100.0;
+
+extern "C" fn gesture_pinch_begin(
+    data: *mut c_void,
+    _g: *mut zwp_pointer_gesture_pinch_v1,
+    _serial: u32,
+    _time: u32,
+    _surface: *mut wl_surface,
+    _fingers: u32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.pinch_accumulated_rotation = 0.0;
+}
+
+extern "C" fn gesture_pinch_update(
+    data: *mut c_void,
+    _g: *mut zwp_pointer_gesture_pinch_v1,
+    _time: u32,
+    _dx: i32,
+    _dy: i32,
+    scale: i32,
+    rotation: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let scale_f = wl_fixed_to_f64(scale) as f32;
+    // `rotation` is the delta in DEGREES since the last update, not an
+    // absolute angle, so it has to be accumulated to mean anything.
+    let rotation_deg = wl_fixed_to_f64(rotation) as f32;
+    window.pinch_accumulated_rotation += rotation_deg;
+
+    let center = window.pointer_state.position;
+    let Some(ref mut lw) = window.common.layout_window else {
+        return;
+    };
+
+    // A pinch and a rotation arrive on the SAME event — the protocol reports
+    // both because two fingers can do both at once — so both are injected and
+    // the app decides which it cares about.
+    if (scale_f - 1.0).abs() > f32::EPSILON {
+        lw.gesture_drag_manager.inject_native_gesture(
+            azul_layout::managers::gesture::NativeGestureEvent::Pinch(
+                azul_layout::managers::gesture::DetectedPinch {
+                    scale: scale_f,
+                    center,
+                    initial_distance: PINCH_NOMINAL_DISTANCE,
+                    current_distance: PINCH_NOMINAL_DISTANCE * scale_f,
+                    duration_ms: 0,
+                },
+            ),
+        );
+    }
+    if window.pinch_accumulated_rotation.abs() > f32::EPSILON {
+        lw.gesture_drag_manager.inject_native_gesture(
+            azul_layout::managers::gesture::NativeGestureEvent::Rotation(
+                azul_layout::managers::gesture::DetectedRotation {
+                    angle_radians: window.pinch_accumulated_rotation.to_radians(),
+                    center,
+                    duration_ms: 0,
+                },
+            ),
+        );
+    }
+}
+
+extern "C" fn gesture_pinch_end(
+    data: *mut c_void,
+    _g: *mut zwp_pointer_gesture_pinch_v1,
+    _serial: u32,
+    _time: u32,
+    _cancelled: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.pinch_accumulated_rotation = 0.0;
+}
+
+extern "C" fn gesture_swipe_begin(
+    data: *mut c_void,
+    _g: *mut zwp_pointer_gesture_swipe_v1,
+    _serial: u32,
+    _time: u32,
+    _surface: *mut wl_surface,
+    _fingers: u32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.swipe_accumulated = (0.0, 0.0);
+}
+
+extern "C" fn gesture_swipe_update(
+    data: *mut c_void,
+    _g: *mut zwp_pointer_gesture_swipe_v1,
+    _time: u32,
+    dx: i32,
+    dy: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.swipe_accumulated.0 += wl_fixed_to_f64(dx) as f32;
+    window.swipe_accumulated.1 += wl_fixed_to_f64(dy) as f32;
+}
+
+extern "C" fn gesture_swipe_end(
+    data: *mut c_void,
+    _g: *mut zwp_pointer_gesture_swipe_v1,
+    _serial: u32,
+    _time: u32,
+    cancelled: i32,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let (dx, dy) = window.swipe_accumulated;
+    window.swipe_accumulated = (0.0, 0.0);
+    // A cancelled gesture is not a swipe — the compositor took it over (a
+    // workspace switch, an edge gesture) and the app must not act on it too.
+    if cancelled != 0 {
+        return;
+    }
+    // The direction is only known at the END: the protocol streams deltas and
+    // never classifies, so a swipe that starts left and finishes right is one
+    // rightward swipe, not two.
+    const SWIPE_MIN_TRAVEL: f32 = 40.0;
+    if dx.abs().max(dy.abs()) < SWIPE_MIN_TRAVEL {
+        return;
+    }
+    use azul_layout::managers::gesture::GestureDirection;
+    let dir = if dx.abs() > dy.abs() {
+        if dx > 0.0 {
+            GestureDirection::Right
+        } else {
+            GestureDirection::Left
+        }
+    } else if dy > 0.0 {
+        GestureDirection::Down
+    } else {
+        GestureDirection::Up
+    };
+    if let Some(ref mut lw) = window.common.layout_window {
+        lw.gesture_drag_manager.inject_native_gesture(
+            azul_layout::managers::gesture::NativeGestureEvent::Swipe(dir),
+        );
+    }
+}
+
+extern "C" fn gesture_hold_begin(
+    _data: *mut c_void,
+    _g: *mut zwp_pointer_gesture_hold_v1,
+    _serial: u32,
+    _time: u32,
+    _surface: *mut wl_surface,
+    _fingers: u32,
+) {
+}
+
+extern "C" fn gesture_hold_end(
+    data: *mut c_void,
+    _g: *mut zwp_pointer_gesture_hold_v1,
+    _serial: u32,
+    _time: u32,
+    cancelled: i32,
+) {
+    // A hold that ends UNCANCELLED is a completed tap-and-hold, which is the
+    // touchpad spelling of a long press. A cancelled one means the fingers
+    // started moving and it became a swipe or pinch instead.
+    if cancelled != 0 {
+        return;
+    }
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let position = window.pointer_state.position;
+    if let Some(ref mut lw) = window.common.layout_window {
+        lw.gesture_drag_manager.inject_native_gesture(
+            azul_layout::managers::gesture::NativeGestureEvent::LongPress(
+                azul_layout::managers::gesture::DetectedLongPress {
+                    position,
+                    duration_ms: 0,
+                },
+            ),
+        );
+    }
+}
+
+pub(super) static ZWP_POINTER_GESTURE_PINCH_LISTENER: zwp_pointer_gesture_pinch_v1_listener =
+    zwp_pointer_gesture_pinch_v1_listener {
+        begin: gesture_pinch_begin,
+        update: gesture_pinch_update,
+        end: gesture_pinch_end,
+    };
+
+pub(super) static ZWP_POINTER_GESTURE_SWIPE_LISTENER: zwp_pointer_gesture_swipe_v1_listener =
+    zwp_pointer_gesture_swipe_v1_listener {
+        begin: gesture_swipe_begin,
+        update: gesture_swipe_update,
+        end: gesture_swipe_end,
+    };
+
+pub(super) static ZWP_POINTER_GESTURE_HOLD_LISTENER: zwp_pointer_gesture_hold_v1_listener =
+    zwp_pointer_gesture_hold_v1_listener {
+        begin: gesture_hold_begin,
+        end: gesture_hold_end,
+    };
+
+/// Bind the three gesture objects once both the gestures global and the
+/// pointer exist. Idempotent; called from the registry arm and from
+/// `seat_capabilities_handler`, which can run in either order.
+pub(super) unsafe fn try_init_pointer_gestures(window: &mut WaylandWindow, data: *mut c_void) {
+    if window.pointer_gestures_initialized
+        || window.pointer_gestures.is_null()
+        || window.pointer_state.pointer.is_null()
+    {
+        return;
+    }
+    let g = window.pointer_gestures;
+    let p = window.pointer_state.pointer;
+
+    let pinch = (window.wayland.zwp_pointer_gestures_v1_get_pinch_gesture)(g, p);
+    (window.wayland.zwp_pointer_gesture_pinch_v1_add_listener)(
+        pinch,
+        &ZWP_POINTER_GESTURE_PINCH_LISTENER,
+        data,
+    );
+    window.track_listener(pinch);
+
+    let swipe = (window.wayland.zwp_pointer_gestures_v1_get_swipe_gesture)(g, p);
+    (window.wayland.zwp_pointer_gesture_swipe_v1_add_listener)(
+        swipe,
+        &ZWP_POINTER_GESTURE_SWIPE_LISTENER,
+        data,
+    );
+    window.track_listener(swipe);
+
+    // Hold is v3+. Asking an older compositor for it is a protocol error that
+    // kills the connection, so the version has to gate the request.
+    if window.pointer_gestures_version >= 3 {
+        let hold = (window.wayland.zwp_pointer_gestures_v1_get_hold_gesture)(g, p);
+        (window.wayland.zwp_pointer_gesture_hold_v1_add_listener)(
+            hold,
+            &ZWP_POINTER_GESTURE_HOLD_LISTENER,
+            data,
+        );
+        window.track_listener(hold);
+    }
+
+    window.pointer_gestures_initialized = true;
 }

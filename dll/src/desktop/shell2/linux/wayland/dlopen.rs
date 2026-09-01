@@ -207,6 +207,33 @@ pub struct Wayland {
         unsafe extern "C" fn(*mut wl_touch, *const wl_touch_listener, *mut c_void) -> i32,
     pub zwp_tablet_manager_v2_get_tablet_seat:
         unsafe extern "C" fn(*mut zwp_tablet_manager_v2, *mut wl_seat) -> *mut zwp_tablet_seat_v2,
+    pub zwp_pointer_gestures_v1_get_swipe_gesture: unsafe extern "C" fn(
+        *mut zwp_pointer_gestures_v1,
+        *mut wl_pointer,
+    ) -> *mut zwp_pointer_gesture_swipe_v1,
+    pub zwp_pointer_gestures_v1_get_pinch_gesture: unsafe extern "C" fn(
+        *mut zwp_pointer_gestures_v1,
+        *mut wl_pointer,
+    ) -> *mut zwp_pointer_gesture_pinch_v1,
+    pub zwp_pointer_gestures_v1_get_hold_gesture: unsafe extern "C" fn(
+        *mut zwp_pointer_gestures_v1,
+        *mut wl_pointer,
+    ) -> *mut zwp_pointer_gesture_hold_v1,
+    pub zwp_pointer_gesture_swipe_v1_add_listener: unsafe extern "C" fn(
+        *mut zwp_pointer_gesture_swipe_v1,
+        *const zwp_pointer_gesture_swipe_v1_listener,
+        *mut c_void,
+    ) -> i32,
+    pub zwp_pointer_gesture_pinch_v1_add_listener: unsafe extern "C" fn(
+        *mut zwp_pointer_gesture_pinch_v1,
+        *const zwp_pointer_gesture_pinch_v1_listener,
+        *mut c_void,
+    ) -> i32,
+    pub zwp_pointer_gesture_hold_v1_add_listener: unsafe extern "C" fn(
+        *mut zwp_pointer_gesture_hold_v1,
+        *const zwp_pointer_gesture_hold_v1_listener,
+        *mut c_void,
+    ) -> i32,
     pub zwp_tablet_seat_v2_add_listener: unsafe extern "C" fn(
         *mut zwp_tablet_seat_v2,
         *const zwp_tablet_seat_v2_listener,
@@ -526,6 +553,18 @@ impl Wayland {
             wl_seat_get_touch: wl_seat_get_touch_impl,
             wl_touch_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },
             zwp_tablet_manager_v2_get_tablet_seat: zwp_tablet_manager_v2_get_tablet_seat_impl,
+            zwp_pointer_gestures_v1_get_swipe_gesture: zwp_pointer_gestures_v1_get_swipe_impl,
+            zwp_pointer_gestures_v1_get_pinch_gesture: zwp_pointer_gestures_v1_get_pinch_impl,
+            zwp_pointer_gestures_v1_get_hold_gesture: zwp_pointer_gestures_v1_get_hold_impl,
+            zwp_pointer_gesture_swipe_v1_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
+            zwp_pointer_gesture_pinch_v1_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
+            zwp_pointer_gesture_hold_v1_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
             zwp_tablet_seat_v2_add_listener: unsafe {
                 std::mem::transmute(wl_proxy_add_listener_ptr)
             },
@@ -907,6 +946,53 @@ unsafe extern "C" fn wl_seat_get_touch_impl(seat: *mut wl_seat) -> *mut wl_touch
     ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
     f(seat as *mut wl_proxy, 2, c.wl_touch, std::ptr::null_mut()) as *mut wl_touch
 }
+/// `get_swipe_gesture` (op 0), `get_pinch_gesture` (op 1), `get_hold_gesture`
+/// (op 3). All three take the `wl_pointer` and return a new gesture object, so
+/// they share one shape; only the opcode and the returned interface differ.
+macro_rules! pointer_gesture_ctor {
+    ($name:ident, $op:expr, $iface:path, $ret:ty) => {
+        unsafe extern "C" fn $name(
+            gestures: *mut zwp_pointer_gestures_v1,
+            pointer: *mut wl_pointer,
+        ) -> *mut $ret {
+            let c = ctx();
+            let f: unsafe extern "C" fn(
+                *mut wl_proxy,
+                u32,
+                *const wl_interface,
+                *mut c_void,
+                *mut wl_pointer,
+            ) -> *mut wl_proxy = std::mem::transmute(c.marshal_constructor);
+            f(
+                gestures as *mut wl_proxy,
+                $op,
+                $iface(),
+                std::ptr::null_mut(),
+                pointer,
+            ) as *mut $ret
+        }
+    };
+}
+
+pointer_gesture_ctor!(
+    zwp_pointer_gestures_v1_get_swipe_impl,
+    ZWP_POINTER_GESTURES_V1_GET_SWIPE_GESTURE,
+    get_pointer_gesture_swipe_v1_interface,
+    zwp_pointer_gesture_swipe_v1
+);
+pointer_gesture_ctor!(
+    zwp_pointer_gestures_v1_get_pinch_impl,
+    ZWP_POINTER_GESTURES_V1_GET_PINCH_GESTURE,
+    get_pointer_gesture_pinch_v1_interface,
+    zwp_pointer_gesture_pinch_v1
+);
+pointer_gesture_ctor!(
+    zwp_pointer_gestures_v1_get_hold_impl,
+    ZWP_POINTER_GESTURES_V1_GET_HOLD_GESTURE,
+    get_pointer_gesture_hold_v1_interface,
+    zwp_pointer_gesture_hold_v1
+);
+
 unsafe extern "C" fn zwp_tablet_manager_v2_get_tablet_seat_impl(
     mgr: *mut zwp_tablet_manager_v2,
     seat: *mut wl_seat,

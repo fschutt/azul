@@ -151,7 +151,12 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ## Step 6 — C7: accessibility actions
 
-- [ ] 6a Route the 12 unmapped `AccessibilityAction` variants in the accesskit adapters
+- [x] 6a NO WORK NEEDED — the audit was WRONG on this point. There is a shared
+      `azul_layout::managers::a11y::map_accesskit_action` that every platform adapter calls through
+      `poll_action`, and it is exhaustive over `accesskit::Action` (no `_` arm). `LayoutWindow::
+      process_accessibility_action` likewise handles all 23 `AccessibilityAction` variants. The audit's
+      "12 of 23 have no adapter arm" came from reading the per-platform files, which delegate. Original item:
+      route the 12 unmapped `AccessibilityAction` variants in the accesskit adapters
       (`{windows,linux/x11,macos,android,ios}/accessibility.rs`) to the engine fns that already exist:
       `ScrollIntoView`→`scroll_node_into_view`, `ScrollToPoint`/`SetScrollOffset`→`scroll_to`/`scroll_to_unclamped`,
       `SetTextSelection`→`TextOpSetSelection`, `ReplaceSelectedText`→text-edit manager,
@@ -161,7 +166,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ## Step 7 — shell wiring, no API change
 
-- [ ] 7a Wayland: bind `zwp_pointer_gestures_v1` (swipe, pinch, hold) → existing pinch/rotate/swipe filters.
+- [x] 7a Wayland: bind `zwp_pointer_gestures_v1` (swipe, pinch, hold) → existing pinch/rotate/swipe filters.
 - [ ] 7b X11: XInput 2.4 `XI_GesturePinch*` / `XI_GestureSwipe*`.
 - [ ] 7c Windows: touchpad pinch — handle `WM_GESTURE`, or recognise from the pointer stream.
 - [ ] 7d Wayland: raise `seat_version` cap from `min(7)` to 9; add `axis_value120` and `axis_relative_direction`

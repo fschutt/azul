@@ -420,6 +420,20 @@ pub struct WaylandWindow {
     tablet_manager: *mut defines::zwp_tablet_manager_v2,
     tablet_seat: *mut defines::zwp_tablet_seat_v2,
     tablet_initialized: bool,
+    /// `zwp_pointer_gestures_v1` global, or null when the compositor has none.
+    pointer_gestures: *mut defines::zwp_pointer_gestures_v1,
+    /// Bound version of that global. Hold gestures are v3+, and requesting one
+    /// from an older compositor is a protocol error that kills the connection.
+    pointer_gestures_version: u32,
+    /// Whether the three gesture objects have been created (needs both the
+    /// global and the pointer, which arrive in either order).
+    pointer_gestures_initialized: bool,
+    /// Rotation accumulated across the current pinch. The protocol sends a
+    /// per-update DELTA in degrees, so an absolute angle only exists as a sum.
+    pinch_accumulated_rotation: f32,
+    /// Travel accumulated across the current swipe. The direction is only
+    /// decided at `end` — the protocol streams deltas and never classifies.
+    swipe_accumulated: (f32, f32),
     // wl_data_device family (file drag-and-drop DESTINATION). Bound from the
     // registry; the data_device is created once both manager + seat are ready
     // (see events::try_init_data_device). `drag` holds the live transfer state.
@@ -1803,6 +1817,11 @@ impl WaylandWindow {
             tablet_manager: std::ptr::null_mut(),
             tablet_seat: std::ptr::null_mut(),
             tablet_initialized: false,
+            pointer_gestures: std::ptr::null_mut(),
+            pointer_gestures_version: 0,
+            pointer_gestures_initialized: false,
+            pinch_accumulated_rotation: 0.0,
+            swipe_accumulated: (0.0, 0.0),
             data_device_manager: std::ptr::null_mut(),
             data_device: std::ptr::null_mut(),
             clipboard_offer: std::ptr::null_mut(),
