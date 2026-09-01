@@ -33,6 +33,23 @@ use std::sync::{mpsc, Arc, Mutex, OnceLock};
 
 const ROOT_DOM_ID: azul_core::dom::DomId = azul_core::dom::DomId { inner: 0 };
 
+/// The DOM an op addresses: the request's `dom_id`, or the root DOM when it
+/// said nothing.
+///
+/// Every node-addressing op runs through this instead of hardcoding
+/// [`ROOT_DOM_ID`], so one envelope field reaches all of them. A VirtualView's
+/// document and a `<transient-window>`'s popup content are separate DOMs whose
+/// nodes DOM 0 cannot see; before this, scripting them meant guessing pixel
+/// coordinates. Discover the live ids with the `list_doms` op.
+#[cfg(feature = "std")]
+fn target_dom(request: &DebugRequest) -> azul_core::dom::DomId {
+    request
+        .dom_id
+        .map_or(ROOT_DOM_ID, |inner| azul_core::dom::DomId {
+            inner: inner as usize,
+        })
+}
+
 /// Wall-clock `wall_clock_now()` for the E2E runner's own bookkeeping
 /// (per-step durations and the `wait` op's resume deadline).
 ///
@@ -66,6 +83,14 @@ pub struct DebugRequest {
     pub event: DebugEvent,
     pub window_id: Option<String>,
     pub wait_for_render: bool,
+    /// Which DOM the op addresses. `None` = the root DOM (0), which is what
+    /// every op used to hardcode. A VirtualView's document and a
+    /// `<transient-window>`'s popup content are DOMs of their own, and their
+    /// nodes are unreachable from DOM 0: without this, scripting them meant
+    /// hand-rolling coordinates and hoping. Set once on the request envelope
+    /// rather than per op, so EVERY node-addressing op honours it.
+    /// Discover the live ids with the `list_doms` op.
+    pub dom_id: Option<u64>,
     pub response_tx: mpsc::Sender<DebugResponseData>,
 }
 
@@ -164,6 +189,8 @@ pub enum ResponseData {
     Dom(DomResponse),
     /// DOM tree
     DomTree(DomTreeResponse),
+    /// Every live DOM and its addressable id, see `DebugEvent::ListDoms`
+    DomList(DomListResponse),
     /// Node hierarchy
     NodeHierarchy(NodeHierarchyResponse),
     /// Layout tree
@@ -1084,6 +1111,41 @@ pub struct DomTreeResponse {
     pub hidpi_factor: f32,
     pub logical_width: f32,
     pub logical_height: f32,
+}
+
+/// One live DOM, as reported by `list_doms`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DomListEntry {
+    /// Pass this as the envelope's `dom_id` to address this DOM.
+    pub dom_id: u64,
+    /// `true` for DOM 0 — the window's own document, and the default target.
+    pub is_root: bool,
+    pub node_count: usize,
+    /// The root node's tag, so a caller can tell the documents apart at a glance.
+    pub root_tag: String,
+    /// The id/classes of the root node, when it carries any.
+    pub root_selector: Option<String>,
+    /// Set when this DOM is a VirtualView's document: the DOM + node that hosts it.
+    pub virtual_view_parent: Option<DomNodeIdJson>,
+    /// Laid-out size of the DOM's root, when it has one.
+    pub size: Option<LogicalSizeJson>,
+}
+
+/// Response for `list_doms`.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DomListResponse {
+    pub dom_count: usize,
+    pub doms: Vec<DomListEntry>,
+}
+
+/// A `(dom, node)` pair in JSON.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct DomNodeIdJson {
+    pub dom_id: u64,
+    pub node_id: u64,
 }
 
 /// Response for GetNodeHierarchy
@@ -2166,13 +2228,20 @@ pub enum DebugEvent {
     GetAllNodesLayout,
     /// Get detailed DOM tree structure
     GetDomTree,
+    /// List every live DOM with the id to address it by.
+    ///
+    /// `{ "op": "list_doms" }`
+    ///
+    /// The window's own document is DOM 0; a VirtualView's document and a
+    /// `<transient-window>`'s popup content are DOMs of their own. Every
+    /// node-addressing op defaults to DOM 0 and takes the envelope's
+    /// `dom_id` to reach the others — this op is how you learn the ids
+    /// instead of guessing pixel coordinates.
+    ListDoms,
     /// Get the raw node hierarchy (for debugging DOM structure issues).
-    /// `dom_id` selects a child DOM (a VirtualView / iframe document);
-    /// omitted = the root DOM, as before.
-    GetNodeHierarchy {
-        #[serde(default)]
-        dom_id: Option<u64>,
-    },
+    /// Address a child DOM (a VirtualView / transient-window document) with
+    /// the envelope's `dom_id`, like every other node-addressing op.
+    GetNodeHierarchy,
     /// Get the layout tree structure (for debugging layout tree building)
     GetLayoutTree,
     /// Get the display list items (what's actually being rendered)
@@ -2850,14 +2919,13 @@ fn parse_accessibility_action(
 #[cfg(feature = "std")]
 fn resolve_node_target(
     callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
     selector: Option<&str>,
     node_id: Option<u64>,
     text: Option<&str>,
 ) -> Option<azul_core::id::NodeId> {
     use azul_core::dom::DomId;
     use azul_core::id::NodeId;
-
-    let dom_id = ROOT_DOM_ID;
 
     // Direct node ID
     if let Some(nid) = node_id {
@@ -2922,14 +2990,13 @@ fn resolve_node_target(
 #[cfg(feature = "std")]
 fn resolve_all_matching_nodes(
     callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
     selector: &str,
 ) -> Vec<azul_core::id::NodeId> {
     use azul_core::dom::DomId;
     use azul_core::id::NodeId;
     use azul_core::style::matches_html_element;
     use azul_css::parser2::parse_css_path;
-
-    let dom_id = ROOT_DOM_ID;
     let layout_window = callback_info.get_layout_window();
 
     let layout_result = match layout_window.layout_results.get(&dom_id) {
@@ -3025,6 +3092,7 @@ fn build_selector_for_node(
 #[cfg(feature = "std")]
 fn resolve_node_center(
     callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
     selector: Option<&str>,
     node_id: Option<u64>,
     text: Option<&str>,
@@ -3032,9 +3100,7 @@ fn resolve_node_center(
     use azul_core::dom::{DomId, DomNodeId};
     use azul_core::id::NodeId;
 
-    let dom_id = ROOT_DOM_ID;
-
-    if let Some(nid) = resolve_node_target(callback_info, selector, node_id, text) {
+    if let Some(nid) = resolve_node_target(callback_info, dom_id, selector, node_id, text) {
         let dom_node_id = DomNodeId {
             dom: dom_id,
             node: Some(nid).into(),
@@ -3555,6 +3621,7 @@ pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugRe
         },
         window_id: None,
         wait_for_render: false,
+        dom_id: None,
         response_tx: tx,
     };
 
@@ -3971,6 +4038,10 @@ pub fn handle_event_request(
         window_id: Option<String>,
         #[serde(default)]
         wait_for_render: bool,
+        /// The DOM this op addresses; omitted = the root DOM (0).
+        /// A sibling of `op`, not a field of it: one spelling for every op.
+        #[serde(default)]
+        dom_id: Option<u64>,
         /// Override the default 30 s response timeout (seconds).
         /// E2E tests should set this to 300+.
         #[serde(default)]
@@ -3990,6 +4061,7 @@ pub fn handle_event_request(
                 event: req.event,
                 window_id: req.window_id,
                 wait_for_render: req.wait_for_render,
+                dom_id: req.dom_id,
                 response_tx: tx,
             };
 
@@ -4333,7 +4405,7 @@ fn eval_assert_text(
         None => return AssertionResult::fail("assert_text: missing 'expected' parameter"),
     };
 
-    let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
+    let node_id = match resolve_node_target(callback_info, params_dom(params), Some(selector), None, None) {
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
@@ -4393,7 +4465,7 @@ fn eval_assert_exists(
         _ => return AssertionResult::fail("assert_exists: missing 'selector' parameter"),
     };
 
-    let matches = resolve_all_matching_nodes(callback_info, selector);
+    let matches = resolve_all_matching_nodes(callback_info, params_dom(params), selector);
     if matches.is_empty() {
         AssertionResult::fail(format!(
             "assert_exists: no node matches selector '{}'",
@@ -4422,7 +4494,7 @@ fn eval_assert_not_exists(
         _ => return AssertionResult::fail("assert_not_exists: missing 'selector' parameter"),
     };
 
-    let matches = resolve_all_matching_nodes(callback_info, selector);
+    let matches = resolve_all_matching_nodes(callback_info, params_dom(params), selector);
     if matches.is_empty() {
         AssertionResult::pass(format!(
             "assert_not_exists: '{}' correctly has no matches",
@@ -4460,7 +4532,7 @@ fn eval_assert_node_count(
         }
     };
 
-    let matches = resolve_all_matching_nodes(callback_info, selector);
+    let matches = resolve_all_matching_nodes(callback_info, params_dom(params), selector);
     let actual = matches.len();
 
     if actual == expected {
@@ -4629,7 +4701,7 @@ fn eval_assert_dom(
     ) {
         return bad;
     }
-    let Some(dom) = build_dom_response(callback_info) else {
+    let Some(dom) = build_dom_response(callback_info, params_dom(params)) else {
         return AssertionResult::fail("assert_dom: no layout result for DOM 0");
     };
 
@@ -4723,9 +4795,34 @@ fn eval_assert_dom(
 /// Shared by the `click` and `double_click` ops so both accept the same
 /// targeting parameters (coordinate-only targeting is brittle against layout
 /// changes).
+/// The centre of a node, for the ops that synthesise a click at it.
+///
+/// Hit-test bounds first (that is what a real pointer would land on), then the
+/// laid-out rect. The fallback is what makes a CHILD DOM clickable: a
+/// VirtualView's document and a `<transient-window>`'s content are laid out,
+/// but their nodes are not in the parent window's hit-test structure, so
+/// `get_node_hit_test_bounds` answers `None` for every one of them and a
+/// selector click into AzWriter's document could only ever fail.
+#[cfg(feature = "std")]
+fn node_centre_for_click(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_node_id: azul_core::dom::DomNodeId,
+) -> Option<(f32, f32)> {
+    callback_info
+        .get_node_hit_test_bounds(dom_node_id)
+        .or_else(|| callback_info.get_node_rect(dom_node_id))
+        .map(|rect| {
+            (
+                rect.origin.x + rect.size.width / 2.0,
+                rect.origin.y + rect.size.height / 2.0,
+            )
+        })
+}
+
 #[cfg(feature = "std")]
 fn resolve_click_position(
     callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
     x: Option<&f32>,
     y: Option<&f32>,
     node_id: Option<&u64>,
@@ -4735,17 +4832,13 @@ fn resolve_click_position(
     use azul_core::{dom::DomNodeId, id::NodeId};
 
     let centre = |nid: usize| -> Option<(f32, f32)> {
-        callback_info
-            .get_node_hit_test_bounds(DomNodeId {
-                dom: ROOT_DOM_ID,
+        node_centre_for_click(
+            callback_info,
+            DomNodeId {
+                dom: dom_id,
                 node: Some(NodeId::new(nid)).into(),
-            })
-            .map(|rect| {
-                (
-                    rect.origin.x + rect.size.width / 2.0,
-                    rect.origin.y + rect.size.height / 2.0,
-                )
-            })
+            },
+        )
     };
 
     if let (Some(x), Some(y)) = (x, y) {
@@ -4756,7 +4849,7 @@ fn resolve_click_position(
     }
 
     let layout_window = callback_info.get_layout_window();
-    let layout_result = layout_window.layout_results.get(&ROOT_DOM_ID)?;
+    let layout_result = layout_window.layout_results.get(&dom_id)?;
     let styled_dom = &layout_result.styled_dom;
     let node_data = styled_dom.node_data.as_container();
 
@@ -4840,7 +4933,7 @@ fn eval_assert_layout(
         .and_then(|v| v.as_f64())
         .unwrap_or(0.5);
 
-    let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
+    let node_id = match resolve_node_target(callback_info, params_dom(params), Some(selector), None, None) {
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
@@ -4918,7 +5011,7 @@ fn eval_assert_css(
         None => return AssertionResult::fail("assert_css: missing 'expected' parameter"),
     };
 
-    let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
+    let node_id = match resolve_node_target(callback_info, params_dom(params), Some(selector), None, None) {
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
@@ -5095,7 +5188,7 @@ fn eval_assert_scroll(
         .and_then(|v| v.as_f64())
         .unwrap_or(1.0);
 
-    let node_id = match resolve_node_target(callback_info, Some(selector), None, None) {
+    let node_id = match resolve_node_target(callback_info, params_dom(params), Some(selector), None, None) {
         Some(nid) => nid,
         None => {
             return AssertionResult::fail(format!(
@@ -5557,13 +5650,28 @@ fn capture_damage_png(
 ///
 /// `op` and `screenshot` are STEP-level keys owned by the harness, never by an
 /// assertion.
+/// The DOM an ASSERTION addresses, from its own `dom_id` param (assertions
+/// are evaluated from their JSON params, not from a `DebugRequest`). Defaults
+/// to the root DOM, exactly like the ops.
+#[cfg(feature = "std")]
+fn params_dom(params: &serde_json::Value) -> azul_core::dom::DomId {
+    params
+        .get("dom_id")
+        .and_then(serde_json::Value::as_u64)
+        .map_or(ROOT_DOM_ID, |inner| azul_core::dom::DomId {
+            inner: inner as usize,
+        })
+}
+
 #[cfg(feature = "std")]
 fn reject_unknown_params(
     op: &str,
     params: &serde_json::Value,
     allowed: &[&str],
 ) -> Option<AssertionResult> {
-    const HARNESS_KEYS: &[&str] = &["op", "screenshot"];
+    // `dom_id` is an ENVELOPE key (see `DebugRequest::dom_id`), valid on
+    // every op and every assertion — not something each whitelist repeats.
+    const HARNESS_KEYS: &[&str] = &["op", "screenshot", "dom_id"];
     let obj = params.as_object()?;
     for key in obj.keys() {
         if HARNESS_KEYS.contains(&key.as_str()) || allowed.contains(&key.as_str()) {
@@ -9450,6 +9558,7 @@ fn resume_e2e_continuation_inner(
                             event: ev,
                             window_id: cont.window_id.clone(),
                             wait_for_render: false,
+                            dom_id: None,
                             response_tx: tx,
                         };
                         let _ = process_debug_event(
@@ -9741,6 +9850,12 @@ fn resume_e2e_continuation_inner(
                         }
                     }
                 }
+                // `dom_id` is an ENVELOPE field, not an op field (see
+                // `DebugRequest::dom_id`), so a scenario step spells it inline
+                // and it is lifted out here — otherwise `from_value::<DebugEvent>`
+                // would drop it silently and the step would address DOM 0.
+                let step_dom_id = cmd.get("dom_id").and_then(serde_json::Value::as_u64);
+                cmd.remove("dom_id");
                 let cmd_json = serde_json::Value::Object(cmd);
                 match serde_json::from_value::<DebugEvent>(cmd_json) {
                     Ok(debug_event) => {
@@ -9750,6 +9865,7 @@ fn resume_e2e_continuation_inner(
                             event: debug_event,
                             window_id: cont.window_id.clone(),
                             wait_for_render: false,
+                            dom_id: step_dom_id,
                             response_tx: step_tx,
                         };
                         let step_needs_update = process_debug_event(
@@ -12244,7 +12360,10 @@ fn get_tag_specific_attributes(tag: &str) -> Vec<(&'static str, &'static str)> {
 /// `assert_dom` evaluates against the SAME builder, so an E2E test asserts the
 /// exact structure the op hands out — not a parallel re-implementation of it.
 #[cfg(feature = "std")]
-fn build_dom_response(callback_info: &azul_layout::callbacks::CallbackInfo) -> Option<DomResponse> {
+fn build_dom_response(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
+) -> Option<DomResponse> {
     struct Flat {
         node_type: String,
         id: Option<String>,
@@ -12305,7 +12424,7 @@ fn build_dom_response(callback_info: &azul_layout::callbacks::CallbackInfo) -> O
     }
 
     Some(DomResponse {
-        dom_id: 0,
+        dom_id: dom_id.inner,
         node_count: flat.len(),
         html: styled_dom.get_html_string("", "", true),
         root: assemble(root.index(), &flat),
@@ -12528,7 +12647,13 @@ pub fn process_debug_event(
             use azul_core::dom::DomNodeId;
             use azul_core::styled_dom::NodeHierarchyItemId;
 
-            let target = resolve_node_target(callback_info, selector.as_deref(), *node_id, None);
+            let target = resolve_node_target(
+                callback_info,
+                target_dom(request),
+                selector.as_deref(),
+                *node_id,
+                None,
+            );
             let described = selector.clone().unwrap_or_else(|| {
                 node_id.map_or_else(|| "<nothing>".to_string(), |n| format!("node {n}"))
             });
@@ -12542,7 +12667,7 @@ pub fn process_debug_event(
                 callback_info
                     .get_layout_window()
                     .layout_results
-                    .get(&ROOT_DOM_ID)
+                    .get(&target_dom(request))
                     .and_then(|lr| {
                         lr.styled_dom
                             .node_data
@@ -12555,7 +12680,7 @@ pub fn process_debug_event(
             match (target, focusable) {
                 (Some(nid), Some(true)) => {
                     callback_info.set_focus(FocusTarget::Id(DomNodeId {
-                        dom: ROOT_DOM_ID,
+                        dom: target_dom(request),
                         node: NodeHierarchyItemId::from_crate_internal(Some(nid)),
                     }));
                     send_ok(
@@ -12629,6 +12754,7 @@ pub fn process_debug_event(
 
             let target = resolve_node_target(
                 callback_info,
+                target_dom(request),
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
@@ -12641,7 +12767,7 @@ pub fn process_debug_event(
                 callback_info
                     .get_layout_window()
                     .layout_results
-                    .get(&ROOT_DOM_ID)
+                    .get(&target_dom(request))
                     .and_then(|lr| {
                         lr.styled_dom
                             .node_data
@@ -12687,7 +12813,7 @@ pub fn process_debug_event(
                         ),
                         None,
                     );
-                    callback_info.perform_accessibility_action(ROOT_DOM_ID, nid, parsed_action);
+                    callback_info.perform_accessibility_action(target_dom(request), nid, parsed_action);
                     // NO `needs_update` — see the note on `process_debug_event`.
                     // The change itself decides what re-render is owed, exactly
                     // like a real adapter's action does.
@@ -12822,25 +12948,18 @@ pub fn process_debug_event(
                 Some((*x, *y))
             } else if let Some(nid) = node_id {
                 // Click by node ID - use hit test bounds from display list
-                let dom_id = ROOT_DOM_ID;
+                let dom_id = target_dom(request);
                 let dom_node_id = DomNodeId {
                     dom: dom_id,
                     node: Some(NodeId::new(*nid as usize)).into(),
                 };
-                callback_info
-                    .get_node_hit_test_bounds(dom_node_id)
-                    .map(|rect| {
-                        (
-                            rect.origin.x + rect.size.width / 2.0,
-                            rect.origin.y + rect.size.height / 2.0,
-                        )
-                    })
+                node_centre_for_click(callback_info, dom_node_id)
             } else if let Some(sel) = selector {
                 // Click by CSS selector using matches_html_element
                 use azul_core::style::matches_html_element;
                 use azul_css::parser2::parse_css_path;
 
-                let dom_id = ROOT_DOM_ID;
+                let dom_id = target_dom(request);
                 let layout_window = callback_info.get_layout_window();
                 let mut found = None;
 
@@ -12868,14 +12987,10 @@ pub fn process_debug_event(
                                     dom: dom_id,
                                     node: Some(NodeId::new(i)).into(),
                                 };
-                                // Use get_node_hit_test_bounds for reliable positions from display list
-                                if let Some(rect) =
-                                    callback_info.get_node_hit_test_bounds(dom_node_id)
-                                {
-                                    found = Some((
-                                        rect.origin.x + rect.size.width / 2.0,
-                                        rect.origin.y + rect.size.height / 2.0,
-                                    ));
+                                // Hit-test bounds where they exist, laid-out
+                                // rect otherwise — see `node_centre_for_click`.
+                                if let Some(c) = node_centre_for_click(callback_info, dom_node_id) {
+                                    found = Some(c);
                                     break;
                                 }
                             }
@@ -12885,7 +13000,7 @@ pub fn process_debug_event(
                 found
             } else if let Some(txt) = text {
                 // Click by text content
-                let dom_id = ROOT_DOM_ID;
+                let dom_id = target_dom(request);
                 let layout_window = callback_info.get_layout_window();
                 let mut found = None;
 
@@ -12916,21 +13031,15 @@ pub fn process_debug_event(
                                     node: Some(NodeId::new(parent_idx)).into(),
                                 };
                                 // Use get_node_hit_test_bounds for reliable positions from display list
-                                if let Some(rect) =
-                                    callback_info.get_node_hit_test_bounds(parent_dom_node_id)
+                                if let Some(c) =
+                                    node_centre_for_click(callback_info, parent_dom_node_id)
                                 {
-                                    found = Some((
-                                        rect.origin.x + rect.size.width / 2.0,
-                                        rect.origin.y + rect.size.height / 2.0,
-                                    ));
+                                    found = Some(c);
                                     break;
-                                } else if let Some(rect) =
-                                    callback_info.get_node_hit_test_bounds(dom_node_id)
+                                } else if let Some(c) =
+                                    node_centre_for_click(callback_info, dom_node_id)
                                 {
-                                    found = Some((
-                                        rect.origin.x + rect.size.width / 2.0,
-                                        rect.origin.y + rect.size.height / 2.0,
-                                    ));
+                                    found = Some(c);
                                     break;
                                 }
                             }
@@ -13031,6 +13140,7 @@ pub fn process_debug_event(
             // gesture is exactly the case that needs selector targeting.
             let Some((x, y)) = resolve_click_position(
                 callback_info,
+                target_dom(request),
                 x.as_ref(),
                 y.as_ref(),
                 node_id.as_ref(),
@@ -13230,7 +13340,7 @@ pub fn process_debug_event(
         DebugEvent::SnapshotFrame { name } => {
             #[cfg(feature = "cpurender")]
             {
-                match callback_info.take_screenshot(ROOT_DOM_ID) {
+                match callback_info.take_screenshot(target_dom(request)) {
                     Ok(png) => {
                         scratch(callback_info)
                             .frame_snapshots
@@ -13319,7 +13429,7 @@ pub fn process_debug_event(
             let is_text_node = callback_info
                 .get_layout_window()
                 .layout_results
-                .get(&ROOT_DOM_ID)
+                .get(&target_dom(request))
                 .and_then(|lr| {
                     lr.styled_dom
                         .node_data
@@ -13366,7 +13476,7 @@ pub fn process_debug_event(
                 let timer = Timer {
                     refany: RefAny::new(E2eTickTimerData {
                         node: DomNodeId {
-                            dom: ROOT_DOM_ID,
+                            dom: target_dom(request),
                             node: NodeHierarchyItemId::from_crate_internal(Some(target)),
                         },
                         text: text.clone(),
@@ -13523,7 +13633,7 @@ pub fn process_debug_event(
             // Iterate all nodes and find the deepest one whose bounds contain (x, y).
             // Later nodes in the tree (higher NodeId) that are nested deeper will
             // naturally be the "topmost" rendered element at that point.
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -13701,7 +13811,7 @@ pub fn process_debug_event(
                 None,
             );
             // Use DomId(0) as default - first DOM in the window
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             match callback_info.take_screenshot_base64(dom_id) {
                 Ok(data_uri) => {
                     let data = ScreenshotData {
@@ -13780,7 +13890,7 @@ pub fn process_debug_event(
                 "Getting DOM",
                 None,
             );
-            match build_dom_response(callback_info) {
+            match build_dom_response(callback_info, target_dom(request)) {
                 Some(dom) => send_ok(request, None, Some(ResponseData::Dom(dom))),
                 None => send_err(request, "No layout result for DOM 0"),
             }
@@ -13793,7 +13903,7 @@ pub fn process_debug_event(
                 "Getting HTML string",
                 None,
             );
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 let html = layout_result.styled_dom.get_html_string("", "", true);
@@ -13817,6 +13927,7 @@ pub fn process_debug_event(
 
             let resolved_node_id = resolve_node_target(
                 callback_info,
+                target_dom(request),
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
@@ -13838,7 +13949,7 @@ pub fn process_debug_event(
             );
 
             let dom_node_id = DomNodeId {
-                dom: ROOT_DOM_ID,
+                dom: target_dom(request),
                 node: Some(NodeId::new(nid as usize)).into(),
             };
 
@@ -13895,7 +14006,7 @@ pub fn process_debug_event(
         }
         DebugEvent::GetAnimations => {
             let lw = callback_info.get_layout_window();
-            let cache = lw.gpu_state_manager.caches.get(&ROOT_DOM_ID);
+            let cache = lw.gpu_state_manager.caches.get(&target_dom(request));
             let mut nodes = Vec::new();
             for (key, node_id) in &lw.anim_key_to_node {
                 let Some(anim) = lw.animations.get(*key) else {
@@ -13943,6 +14054,7 @@ pub fn process_debug_event(
 
             let resolved_node_id = resolve_node_target(
                 callback_info,
+                target_dom(request),
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
@@ -13964,7 +14076,7 @@ pub fn process_debug_event(
             );
 
             let dom_node_id = DomNodeId {
-                dom: ROOT_DOM_ID,
+                dom: target_dom(request),
                 node: Some(NodeId::new(nid as usize)).into(),
             };
 
@@ -13998,7 +14110,7 @@ pub fn process_debug_event(
             );
             use azul_core::dom::{DomId, DomNodeId, NodeId};
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
             let mut nodes = Vec::new();
@@ -14035,11 +14147,87 @@ pub fn process_debug_event(
             }
 
             let response = AllNodesLayoutResponse {
-                dom_id: 0,
+                dom_id: dom_id.inner as u32,
                 node_count: nodes.len(),
                 nodes,
             };
             send_ok(request, None, Some(ResponseData::AllNodesLayout(response)));
+        }
+
+        DebugEvent::ListDoms => {
+            log(
+                LogLevel::Debug,
+                LogCategory::DebugServer,
+                "Listing live DOMs",
+                None,
+            );
+            use azul_core::dom::{DomId, NodeType};
+            use azul_core::id::NodeId;
+
+            // VirtualView documents announce their host, so a caller can tell
+            // "the AzWriter document" from "some other nested DOM" without
+            // opening each one.
+            let vv_parent: alloc::collections::BTreeMap<usize, DomNodeIdJson> = callback_info
+                .get_layout_window()
+                .virtual_view_manager
+                .get_all_virtual_view_infos()
+                .iter()
+                .map(|i| {
+                    (
+                        i.nested_dom_id,
+                        DomNodeIdJson {
+                            dom_id: i.parent_dom_id as u64,
+                            node_id: i.parent_node_id as u64,
+                        },
+                    )
+                })
+                .collect();
+
+            let layout_window = callback_info.get_layout_window();
+            let mut doms: Vec<DomListEntry> = Vec::new();
+            let mut ids: Vec<DomId> = layout_window.layout_results.keys().copied().collect();
+            ids.sort_by_key(|d| d.inner);
+
+            for id in ids {
+                let Some(lr) = layout_window.layout_results.get(&id) else {
+                    continue;
+                };
+                let styled_dom = &lr.styled_dom;
+                let node_data = styled_dom.node_data.as_container();
+                let root = styled_dom
+                    .root
+                    .into_crate_internal()
+                    .unwrap_or(NodeId::ZERO);
+                let root_tag = node_data
+                    .get(root)
+                    .map(|d| alloc::format!("{:?}", d.get_node_type().get_path()).to_lowercase())
+                    .unwrap_or_else(|| "?".to_string());
+                let root_selector = build_selector_for_node(callback_info, id, root);
+                let size = callback_info
+                    .get_node_rect(azul_core::dom::DomNodeId {
+                        dom: id,
+                        node: Some(root).into(),
+                    })
+                    .map(|r| LogicalSizeJson {
+                        width: r.size.width,
+                        height: r.size.height,
+                    });
+                doms.push(DomListEntry {
+                    dom_id: id.inner as u64,
+                    is_root: id == ROOT_DOM_ID,
+                    node_count: node_data.len(),
+                    root_tag,
+                    root_selector,
+                    virtual_view_parent: vv_parent.get(&id.inner).copied(),
+                    size,
+                });
+            }
+
+            let response = DomListResponse {
+                dom_count: doms.len(),
+                doms,
+            };
+            send_ok(request, None, Some(ResponseData::DomList(response)));
         }
 
         DebugEvent::GetDomTree => {
@@ -14051,7 +14239,7 @@ pub fn process_debug_event(
             );
             use azul_core::dom::DomId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -14064,7 +14252,7 @@ pub fn process_debug_event(
                 let logical_size = &window_state.size.dimensions;
 
                 let response = DomTreeResponse {
-                    dom_id: 0,
+                    dom_id: dom_id.inner as u32,
                     node_count,
                     dpi,
                     hidpi_factor: hidpi,
@@ -14077,7 +14265,7 @@ pub fn process_debug_event(
             }
         }
 
-        DebugEvent::GetNodeHierarchy { dom_id } => {
+        DebugEvent::GetNodeHierarchy => {
             log(
                 LogLevel::Debug,
                 LogCategory::DebugServer,
@@ -14087,9 +14275,7 @@ pub fn process_debug_event(
             use azul_core::dom::DomId;
             use azul_core::id::NodeId;
 
-            let dom_id = dom_id.map_or(ROOT_DOM_ID, |id| DomId {
-                inner: id as usize,
-            });
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -14231,7 +14417,7 @@ pub fn process_debug_event(
             );
             use azul_core::dom::DomId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -14290,7 +14476,7 @@ pub fn process_debug_event(
             );
             use azul_core::dom::DomId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -14719,7 +14905,7 @@ pub fn process_debug_event(
             );
             use azul_core::dom::DomId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
             // Get scroll states from the scroll manager
@@ -14765,7 +14951,7 @@ pub fn process_debug_event(
             );
             use azul_core::dom::DomId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
             // Get scrollable nodes from layout tree
@@ -14815,6 +15001,7 @@ pub fn process_debug_event(
 
             let resolved_node_id = resolve_node_target(
                 callback_info,
+                target_dom(request),
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
@@ -14835,7 +15022,7 @@ pub fn process_debug_event(
                 None,
             );
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let node = NodeId::new(nid as usize);
             let hierarchy_id = NodeHierarchyItemId::from(Some(node));
 
@@ -14873,6 +15060,7 @@ pub fn process_debug_event(
 
             let resolved_node_id = resolve_node_target(
                 callback_info,
+                target_dom(request),
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
@@ -14893,7 +15081,7 @@ pub fn process_debug_event(
                 None,
             );
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let node = NodeId::new(nid as usize);
             let hierarchy_id = NodeHierarchyItemId::from(Some(node));
 
@@ -14927,6 +15115,7 @@ pub fn process_debug_event(
 
             let resolved_node_id = resolve_node_target(
                 callback_info,
+                target_dom(request),
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
@@ -14977,7 +15166,7 @@ pub fn process_debug_event(
                 None,
             );
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let node = NodeId::new(nid as usize);
             let dom_node_id = DomNodeId {
                 dom: dom_id,
@@ -15015,7 +15204,7 @@ pub fn process_debug_event(
             use azul_core::dom::{DomId, DomNodeId};
             use azul_core::id::NodeId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -15088,7 +15277,7 @@ pub fn process_debug_event(
             use azul_core::dom::{DomId, DomNodeId};
             use azul_core::id::NodeId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let dom_node_id = DomNodeId {
                 dom: dom_id,
                 node: Some(NodeId::new(*node_id as usize)).into(),
@@ -15156,6 +15345,7 @@ pub fn process_debug_event(
 
             let resolved_node_id = resolve_node_target(
                 callback_info,
+                target_dom(request),
                 selector.as_deref(),
                 *node_id,
                 text.as_deref(),
@@ -15169,7 +15359,7 @@ pub fn process_debug_event(
                 }
             };
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let node = NodeId::new(nid as usize);
             let layout_window = callback_info.get_layout_window();
 
@@ -15432,7 +15622,7 @@ pub fn process_debug_event(
             let nested_dom_id = if let Some(did) = dom_id {
                 Some(DomId { inner: *did })
             } else if let Some(nid) = node_id {
-                let parent_dom = ROOT_DOM_ID;
+                let parent_dom = target_dom(request);
                 layout_window
                     .virtual_view_manager
                     .get_nested_dom_id(parent_dom, NodeId::new(*nid))
@@ -15443,7 +15633,7 @@ pub fn process_debug_event(
             if let Some(nested_dom_id) = nested_dom_id {
                 // Get scroll state for the VirtualView container from parent DOM
                 let scroll_state = if let Some(nid) = node_id {
-                    let parent_dom = ROOT_DOM_ID;
+                    let parent_dom = target_dom(request);
                     let parent_node = NodeId::new(*nid);
 
                     // Get scroll offset from scroll manager
@@ -15881,7 +16071,7 @@ pub fn process_debug_event(
             use azul_core::dom::{DomId, NodeId};
             use azul_layout::json::serialize_refany_to_json;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let layout_window = callback_info.get_layout_window();
 
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
@@ -16526,7 +16716,7 @@ pub fn process_debug_event(
             use azul_core::dom::DomId;
             use azul_core::id::NodeId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let parent_node_id = NodeId::new(*parent_id as usize);
 
             // Validate parent exists
@@ -16622,7 +16812,7 @@ pub fn process_debug_event(
             use azul_core::dom::DomId;
             use azul_core::id::NodeId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
@@ -16660,7 +16850,7 @@ pub fn process_debug_event(
             use azul_core::id::NodeId;
             use azul_core::styled_dom::NodeHierarchyItemId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
@@ -16703,7 +16893,7 @@ pub fn process_debug_event(
             use azul_core::dom::{DomId, IdOrClass};
             use azul_core::id::NodeId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
@@ -16787,7 +16977,7 @@ pub fn process_debug_event(
             use azul_core::id::NodeId;
             use azul_css::props::property::{get_css_key_map, CssPropertyType};
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let target_node_id = NodeId::new(*node_id as usize);
 
             let layout_window = callback_info.get_layout_window();
@@ -16873,7 +17063,7 @@ pub fn process_debug_event(
             use azul_core::dom::NodeType;
             use azul_core::id::NodeId;
 
-            let dom_id = ROOT_DOM_ID;
+            let dom_id = target_dom(request);
             let target_node_id = NodeId::new(*node_id as usize);
 
             // Validate loudly (add_timer discipline): the target must exist
@@ -18597,6 +18787,86 @@ mod assert_stderr_tests {
         assert!(
             !again.passed,
             "clear:true must empty the ring after evaluating"
+        );
+    }
+}
+
+/// The `dom_id` envelope field: one spelling that reaches every
+/// node-addressing op, so a VirtualView's document and a
+/// `<transient-window>`'s popup content are scriptable without hand-rolled
+/// coordinates.
+///
+/// NEGATIVE CONTROL for each: hardcode `ROOT_DOM_ID` back into `target_dom` /
+/// `params_dom`, or drop `"dom_id"` from `HARNESS_KEYS`.
+#[cfg(test)]
+mod dom_id_envelope_tests {
+    use super::*;
+
+    fn request_with(dom_id: Option<u64>) -> DebugRequest {
+        let (tx, _rx) = mpsc::channel();
+        DebugRequest {
+            request_id: 1,
+            event: DebugEvent::GetState,
+            window_id: None,
+            wait_for_render: false,
+            dom_id,
+            response_tx: tx,
+        }
+    }
+
+    /// An op that says nothing addresses DOM 0 — the behaviour every existing
+    /// script was written against.
+    #[test]
+    fn an_op_without_a_dom_id_still_addresses_the_root_dom() {
+        assert_eq!(target_dom(&request_with(None)), ROOT_DOM_ID);
+        assert_eq!(params_dom(&serde_json::json!({})), ROOT_DOM_ID);
+    }
+
+    /// …and one that names a DOM gets that DOM.
+    #[test]
+    fn a_dom_id_addresses_that_dom() {
+        assert_eq!(target_dom(&request_with(Some(3))).inner, 3);
+        assert_eq!(params_dom(&serde_json::json!({ "dom_id": 2 })).inner, 2);
+    }
+
+    /// `dom_id` rides the ENVELOPE, beside `op` — not inside any one op's
+    /// parameter set. Parsing it as an op field would mean adding it to 90+
+    /// variants and letting them disagree.
+    #[test]
+    fn dom_id_parses_beside_the_op_without_disturbing_it() {
+        #[derive(serde::Deserialize)]
+        struct Envelope {
+            #[serde(flatten)]
+            event: DebugEvent,
+            #[serde(default)]
+            dom_id: Option<u64>,
+        }
+        let parsed: Envelope =
+            serde_json::from_str(r#"{"op":"click","selector":".mw-doc","dom_id":1}"#)
+                .expect("an op with a dom_id must parse");
+        assert_eq!(parsed.dom_id, Some(1));
+        match parsed.event {
+            DebugEvent::Click { ref selector, .. } => {
+                assert_eq!(selector.as_deref(), Some(".mw-doc"));
+            }
+            other => panic!("dom_id must not change which op was parsed, got {other:?}"),
+        }
+    }
+
+    /// Assertions take their params as raw JSON and reject unknown keys, so a
+    /// typo cannot assert nothing. `dom_id` is a harness key on every one of
+    /// them — rejecting it would make popup content unassertable.
+    #[test]
+    fn assertions_accept_dom_id_as_a_harness_key() {
+        let params = serde_json::json!({ "selector": ".x", "dom_id": 1 });
+        assert!(
+            reject_unknown_params("assert_exists", &params, &["selector"]).is_none(),
+            "dom_id must be accepted on every assertion"
+        );
+        let typo = serde_json::json!({ "selector": ".x", "dom_di": 1 });
+        assert!(
+            reject_unknown_params("assert_exists", &typo, &["selector"]).is_some(),
+            "a typo'd key must still fail, or the guard is worthless"
         );
     }
 }

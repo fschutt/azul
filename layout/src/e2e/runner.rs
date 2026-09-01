@@ -3684,6 +3684,7 @@ fn run_e2e_test_keeping_runner(
         },
         window_id: None,
         wait_for_render: false,
+        dom_id: None,
         response_tx: tx,
     };
     let mut app_data = RefAny::new(());

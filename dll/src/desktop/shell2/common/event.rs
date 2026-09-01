@@ -6090,7 +6090,22 @@ pub trait PlatformWindow {
                     }
                 };
 
+                log_debug!(
+                    super::debug_server::LogCategory::Layout,
+                    "[select-all] focus {:?}/{:?} -> {} block(s): {:?}",
+                    dom_id,
+                    node_id,
+                    blocks.len(),
+                    blocks
+                );
                 let (Some(&first), Some(&last)) = (blocks.first(), blocks.last()) else {
+                    log_debug!(
+                        super::debug_server::LogCategory::Layout,
+                        "[select-all] {:?}/{:?} yielded NO blocks to select — neither the \
+                         contenteditable host nor any descendant owns an inline layout",
+                        dom_id,
+                        node_id
+                    );
                     return ProcessEventResult::DoNothing;
                 };
 
@@ -6108,6 +6123,13 @@ pub trait PlatformWindow {
                     Some((start, end))
                 });
                 let Some((start_cursor, end_cursor)) = cursors else {
+                    log_debug!(
+                        super::debug_server::LogCategory::Layout,
+                        "[select-all] blocks {:?}..{:?} have no first/last cluster cursor — \
+                         the inline layout is empty",
+                        first,
+                        last
+                    );
                     return ProcessEventResult::DoNothing;
                 };
 
