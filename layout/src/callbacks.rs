@@ -4816,6 +4816,51 @@ impl CallbackInfo {
             .get_status(capability)
     }
 
+    /// The IME composition (preedit) text currently being composed on the
+    /// focused node, if any.
+    ///
+    /// Read this from a `CompositionStart` / `CompositionUpdate` /
+    /// `CompositionEnd` callback to render composition yourself — a code
+    /// editor, a terminal, a chat box with inline candidates. On
+    /// `CompositionEnd` this is the COMMITTED string, matching W3C
+    /// `compositionend.data`, not the (already discarded) preedit.
+    ///
+    /// The built-in text widgets do not need this: the engine applies the
+    /// preedit to their text cache directly.
+    #[must_use]
+    pub fn get_composition_text(&self) -> Option<AzString> {
+        let lw = self.get_layout_window();
+        lw.text_edit_manager
+            .preedit_text
+            .as_ref()
+            .map(|t| AzString::from(t.clone()))
+    }
+
+    /// Byte offsets of the composition caret/selection within the string from
+    /// [`Self::get_composition_text`], as `(begin, end)`. Equal values mean a
+    /// collapsed caret. `None` when no composition is active.
+    ///
+    /// Wayland reports these directly on `preedit_string`; Win32 derives them
+    /// from `GCS_CURSORPOS` and macOS from the `selectedRange` handed to
+    /// `setMarkedText:selectedRange:replacementRange:`.
+    #[must_use]
+    pub fn get_composition_cursor(&self) -> Option<(usize, usize)> {
+        let lw = self.get_layout_window();
+        let m = &lw.text_edit_manager;
+        if m.preedit_text.is_none() {
+            return None;
+        }
+        let begin = usize::try_from(m.preedit_cursor_begin).unwrap_or(0);
+        let end = usize::try_from(m.preedit_cursor_end).unwrap_or(begin);
+        Some((begin, end))
+    }
+
+    /// Whether an IME composition is currently open on the focused node.
+    #[must_use]
+    pub fn is_composing(&self) -> bool {
+        self.get_layout_window().text_edit_manager.preedit_text.is_some()
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     #[must_use]

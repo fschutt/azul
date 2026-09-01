@@ -468,6 +468,35 @@ pub struct WindowEventData {
 
 /// Type-specific event data for text-input (editing) events.
 ///
+/// Data carried by the three IME composition events.
+///
+/// Every desktop shell already runs a real IME client — Win32 `WM_IME_*` with
+/// candidate-window positioning, macOS `NSTextInputClient`, Wayland
+/// `zwp_text_input_v3` preedit/commit, X11 XIM plus the xkb Compose layer —
+/// and all of it terminated in the engine's text cache. The built-in text
+/// widgets therefore worked, but an app rendering its own composition (a code
+/// editor, a terminal, a chat box with inline candidates) had no way to see
+/// it, because the `Composition*` filters had no event to carry.
+///
+/// The shape is the intersection of what the platforms report, which is also
+/// what W3C `CompositionEvent` and Wayland `preedit_string` agree on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompositionEventData {
+    /// The preedit (composition) text as it currently stands. Empty on
+    /// `CompositionStart`, and on `CompositionEnd` this is the committed
+    /// string — W3C defines `compositionend.data` as what was committed, not
+    /// what was pending.
+    pub data: String,
+    /// Byte offset of the selection/caret start within `data`. Wayland sends
+    /// this directly (`preedit_string(text, cursor_begin, cursor_end)`);
+    /// Win32 derives it from `GCS_CURSORPOS`; macOS from the `selectedRange`
+    /// passed to `setMarkedText:selectedRange:replacementRange:`.
+    pub cursor_begin: usize,
+    /// Byte offset of the selection/caret end within `data`. Equal to
+    /// `cursor_begin` for a collapsed caret.
+    pub cursor_end: usize,
+}
+
 /// Carried by `EventType::Input` events so that text-input callbacks can read
 /// the edit details directly off the event — matching how mouse/keyboard/scroll
 /// callbacks read their data — instead of having to reach into the
@@ -516,6 +545,10 @@ pub enum EventData {
     Window(WindowEventData),
     /// No additional data
     None,
+    /// IME composition data. APPENDED at the end for ABI stability — this is
+    /// `#[repr(C, u8)]`-adjacent, so a variant inserted in the middle would
+    /// renumber every discriminant after it.
+    Composition(CompositionEventData),
 }
 
 /// High-level event type classification.

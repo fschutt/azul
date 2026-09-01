@@ -76,7 +76,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 - [x] 3a Emit `EventType::MouseOut` alongside every `MouseLeave` site.
 - [x] 3b Emit `EventType::FocusIn`/`FocusOut` alongside every `Focus`/`Blur` site.
-- [ ] 3c `CompositionEventData { data, cursor_begin, cursor_end }` + `EventData::Composition` variant +
+- [x] 3c `CompositionEventData { data, cursor_begin, cursor_end }` + `EventData::Composition` variant +
       `CallbackInfo::get_composition_*` accessors.
 - [ ] 3d Emit `Composition*` at the IME sites: Win32 `WM_IME_STARTCOMPOSITION`/`COMPOSITION`/`ENDCOMPOSITION`,
       macOS `setMarkedText:`/`unmarkText`/`insertText:`, Wayland `preedit_string`/`commit_string`/`done`, X11 XIM.

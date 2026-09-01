@@ -331,6 +331,21 @@ pub fn range_is_forward(range: &SelectionRange) -> bool {
     range.start <= range.end
 }
 
+/// Which end of an IME composition a pending event describes.
+///
+/// The boundary is decided by the engine, not the shells: Win32 sends an
+/// explicit `WM_IME_STARTCOMPOSITION`, but Wayland's `preedit_string` has no
+/// start event at all, so no per-platform mapping could agree on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompositionPhase {
+    /// A composition opened — the first preedit after none was pending.
+    Start,
+    /// The preedit text or its caret moved.
+    Update,
+    /// The composition committed or was cancelled.
+    End,
+}
+
 /// Unified text editing manager.
 ///
 /// `multi_cursor` is the single source of truth for cursor/selection positions.
@@ -357,6 +372,13 @@ pub struct TextEditManager {
     /// Byte offset of cursor end within preedit text (from IME), or -1 if unset.
     /// Uses -1 sentinel (rather than `Option`) to match platform IME C API conventions.
     pub preedit_cursor_end: i32,
+    /// Composition phase awaiting emission as a `Composition*` event, set by
+    /// `set_preedit` / `commit_composition` and drained by
+    /// `take_pending_composition`.
+    pub pending_composition: Option<CompositionPhase>,
+    /// Text that goes with `pending_composition`: the preedit for Start and
+    /// Update, the COMMITTED string for End.
+    pub composition_text: String,
     /// Set to true by any mutation that changes visual output.
     pub display_list_dirty: bool,
     /// Caret / selection tween bookkeeping (see [`TextTweenState`]).
@@ -577,11 +599,49 @@ impl TextEditManager {
     // === IME preedit ===
 
     /// Set the IME preedit (composition) text.
+    ///
+    /// Also records the composition phase so the engine can emit
+    /// `CompositionStart` / `CompositionUpdate`. The four desktop shells each
+    /// run a real IME client and all of them funnelled into here, which is why
+    /// the built-in text widgets composed correctly while the `Composition*`
+    /// filters never fired: the state landed, the event never existed.
+    ///
+    /// Start vs. update is decided by whether a composition was already open,
+    /// not by which platform callback ran — Win32 sends an explicit
+    /// `WM_IME_STARTCOMPOSITION` but Wayland's `preedit_string` has no start
+    /// event at all, so the shells cannot agree on the boundary and the engine
+    /// has to own it.
     pub fn set_preedit(&mut self, text: String, cursor_begin: i32, cursor_end: i32) {
+        let was_composing = self.preedit_text.is_some();
+        self.pending_composition = Some(if was_composing {
+            CompositionPhase::Update
+        } else {
+            CompositionPhase::Start
+        });
+        self.composition_text = text.clone();
         self.preedit_text = if text.is_empty() { None } else { Some(text) };
         self.preedit_cursor_begin = cursor_begin;
         self.preedit_cursor_end = cursor_end;
         self.mark_dirty();
+    }
+
+    /// Record that a composition was committed, carrying the committed string.
+    ///
+    /// W3C defines `compositionend.data` as what was COMMITTED, not what was
+    /// pending, which is why the text is passed in rather than read off the
+    /// (already cleared) preedit.
+    pub fn commit_composition(&mut self, committed: String) {
+        self.pending_composition = Some(CompositionPhase::End);
+        self.composition_text = committed;
+        self.clear_preedit();
+    }
+
+    /// Take the pending composition phase, if any. Drained once per pass by
+    /// the event-determination path.
+    pub fn take_pending_composition(&mut self) -> Option<(CompositionPhase, String)> {
+        self.pending_composition
+            .take()
+            .map(|phase| (phase, core::mem::take(&mut self.composition_text)))
     }
 
     /// Clear the IME preedit text (composition ended or cancelled).
@@ -2325,5 +2385,49 @@ mod autotest_generated {
             ],
             "the surviving text node is renamed, the unmounted one dropped, other DOMs untouched"
         );
+    }
+}
+
+impl crate::event_determination::EventProvider for TextEditManager {
+    /// Yield `CompositionStart` / `CompositionUpdate` / `CompositionEnd` for a
+    /// composition phase recorded since the last drain.
+    ///
+    /// Target is the focused node — a composition belongs to whatever is being
+    /// typed into. Planning names both the Hover and Focus variants, so a
+    /// listener on either family receives it.
+    ///
+    /// `get_pending_events` takes `&self`, so the phase is read here and
+    /// cleared by the owner during the same pass (see `take_pending_composition`);
+    /// re-emitting a stale phase would fire `CompositionStart` on every frame
+    /// for the life of the composition.
+    fn get_pending_events(
+        &self,
+        timestamp: azul_core::task::Instant,
+    ) -> alloc::vec::Vec<azul_core::events::SyntheticEvent> {
+        use azul_core::events::{
+            CompositionEventData, EventData, EventSource, EventType, SyntheticEvent,
+        };
+
+        let Some(phase) = self.pending_composition else {
+            return alloc::vec::Vec::new();
+        };
+        let event_type = match phase {
+            CompositionPhase::Start => EventType::CompositionStart,
+            CompositionPhase::Update => EventType::CompositionUpdate,
+            CompositionPhase::End => EventType::CompositionEnd,
+        };
+        let begin = usize::try_from(self.preedit_cursor_begin).unwrap_or(0);
+        let end = usize::try_from(self.preedit_cursor_end).unwrap_or(begin);
+        alloc::vec![SyntheticEvent::new(
+            event_type,
+            EventSource::User,
+            azul_core::dom::DomNodeId::ROOT,
+            timestamp,
+            EventData::Composition(CompositionEventData {
+                data: self.composition_text.clone(),
+                cursor_begin: begin,
+                cursor_end: end,
+            }),
+        )]
     }
 }
