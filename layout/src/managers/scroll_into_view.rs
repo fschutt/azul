@@ -491,6 +491,23 @@ pub fn calculate_axis_delta(
             target_center - container_center
         }
         ScrollLogicalPosition::Nearest => {
+            // A target BIGGER than the scrollport that is already on screen is
+            // already "in view" — there is no scroll position that shows all
+            // of it, and every candidate is equally (in)complete. Scrolling
+            // anyway yanks the page under the user: focusing AzWriter's
+            // contenteditable (929px tall in a 357px viewport, starting 113px
+            // down the page) fell through to "align the target's start" and
+            // scrolled the page's whole TOP MARGIN off screen, leaving the
+            // caret jammed against the top edge on a freshly opened document.
+            //
+            // "Nearest" means the MINIMUM scroll that satisfies the request,
+            // and when the request is already satisfied that minimum is zero.
+            // Only an oversized target that is entirely off screen still gets
+            // pulled in by the arms below.
+            let intersects = target_end > container_start && target_start < container_end;
+            if target_size > container_size && intersects {
+                return 0.0;
+            }
             // Minimum scroll to make target fully visible
             if target_start < container_start {
                 // Target is above/left of visible area - scroll up/left
@@ -2306,5 +2323,59 @@ mod autotest_generated {
         assert!(offset.x.is_finite() && offset.y.is_finite(), "{offset:?}");
         assert!(offset.x >= 0.0 && offset.x <= 400.0, "{offset:?}");
         assert!(offset.y >= 0.0 && offset.y <= 900.0, "{offset:?}");
+    }
+}
+
+/// `Nearest` means the MINIMUM scroll that reveals the target — and a target
+/// already on screen needs none, even when it is taller than the scrollport.
+#[cfg(test)]
+mod nearest_oversized_tests {
+    use azul_core::events::ScrollLogicalPosition::{Nearest, Start};
+
+    use super::calculate_axis_delta;
+
+    /// THE BUG: AzWriter's contenteditable is 929px tall, starts 113px down
+    /// the page (its top margin) and sits in a 357px viewport. `Nearest` fell
+    /// through to "align the target's start", scrolling the top margin off and
+    /// jamming the caret against the top edge of a freshly opened document.
+    ///
+    /// NEGATIVE CONTROL: drop the oversized-and-visible early-out and this
+    /// returns 113.
+    #[test]
+    fn an_oversized_target_that_is_already_on_screen_does_not_scroll() {
+        assert_eq!(
+            calculate_axis_delta(113.0, 929.0, 0.0, 357.0, Nearest),
+            0.0,
+            "the page's top margin must survive focusing the editable"
+        );
+        // Explicit `Start` still means start — only `Nearest` got smarter.
+        assert_eq!(calculate_axis_delta(113.0, 929.0, 0.0, 357.0, Start), 113.0);
+    }
+
+    /// An oversized target ENTIRELY off screen is still pulled in — the
+    /// early-out is about "already visible", not about size alone.
+    #[test]
+    fn an_oversized_target_that_is_off_screen_is_still_revealed() {
+        // Entirely below the scrollport.
+        assert_eq!(
+            calculate_axis_delta(500.0, 900.0, 0.0, 357.0, Nearest),
+            500.0
+        );
+        // Entirely above it.
+        assert_eq!(
+            calculate_axis_delta(-1000.0, 900.0, 0.0, 357.0, Nearest),
+            -1000.0
+        );
+    }
+
+    /// Targets that FIT keep the classic minimum-scroll behaviour.
+    #[test]
+    fn a_fitting_target_is_unaffected() {
+        // Already visible → no scroll.
+        assert_eq!(calculate_axis_delta(50.0, 100.0, 0.0, 357.0, Nearest), 0.0);
+        // Below → align its end with the container's end.
+        assert_eq!(calculate_axis_delta(400.0, 100.0, 0.0, 357.0, Nearest), 143.0);
+        // Above → align its start.
+        assert_eq!(calculate_axis_delta(-50.0, 100.0, 0.0, 357.0, Nearest), -50.0);
     }
 }

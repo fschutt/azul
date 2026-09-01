@@ -3105,7 +3105,10 @@ fn resolve_node_center(
             dom: dom_id,
             node: Some(nid).into(),
         };
-        if let Some(rect) = callback_info.get_node_rect(dom_node_id) {
+        if let Some(rect) = callback_info
+            .get_node_rect(dom_node_id)
+            .map(|r| lift_rect_to_window_space(callback_info, dom_id, r))
+        {
             return Some((
                 rect.origin.x + rect.size.width / 2.0,
                 rect.origin.y + rect.size.height / 2.0,
@@ -4795,6 +4798,63 @@ fn eval_assert_dom(
 /// Shared by the `click` and `double_click` ops so both accept the same
 /// targeting parameters (coordinate-only targeting is brittle against layout
 /// changes).
+/// Lift a rect from `dom_id`'s own coordinate space into WINDOW space.
+///
+/// A VirtualView's document is laid out in its own space, starting at (0,0) —
+/// `get_node_rect` for a node inside it answers in THAT space. Synthesising a
+/// device event needs window coordinates, so every op that turns a node into a
+/// click position has to cross the VirtualView boundary explicitly:
+///
+///   window = child_local + host_origin + content_offset
+///
+/// where `content_offset` (`materialized_origin - scroll_offset`) is exactly
+/// the shift the rasteriser applies when compositing the child list. Without
+/// this, `{"op":"click","selector":"#mw-blk-0","dom_id":1}` reported success
+/// while clicking at AzWriter's TOOLBAR: the paragraph's y=113 is 113px down
+/// the page, not 113px down the window.
+///
+/// Walks up nested VirtualViews, so a document inside a document also lands.
+#[cfg(feature = "std")]
+fn lift_rect_to_window_space(
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+    dom_id: azul_core::dom::DomId,
+    mut rect: azul_core::geom::LogicalRect,
+) -> azul_core::geom::LogicalRect {
+    use azul_core::dom::DomNodeId;
+
+    let mut current = dom_id;
+    // A cycle would hang the debug server; the nesting is shallow in practice.
+    for _ in 0..8 {
+        if current == ROOT_DOM_ID {
+            break;
+        }
+        let lw = callback_info.get_layout_window();
+        let Some(info) = lw
+            .virtual_view_manager
+            .get_all_virtual_view_infos()
+            .into_iter()
+            .find(|i| i.nested_dom_id == current.inner)
+        else {
+            break;
+        };
+        let parent_dom = azul_core::dom::DomId {
+            inner: info.parent_dom_id,
+        };
+        let parent_node = azul_core::id::NodeId::new(info.parent_node_id);
+        let offset = lw.virtual_view_content_offset(parent_dom, parent_node);
+        let Some(host) = callback_info.get_node_rect(DomNodeId {
+            dom: parent_dom,
+            node: Some(parent_node).into(),
+        }) else {
+            break;
+        };
+        rect.origin.x += host.origin.x + offset.x;
+        rect.origin.y += host.origin.y + offset.y;
+        current = parent_dom;
+    }
+    rect
+}
+
 /// The centre of a node, for the ops that synthesise a click at it.
 ///
 /// Hit-test bounds first (that is what a real pointer would land on), then the
@@ -4811,6 +4871,7 @@ fn node_centre_for_click(
     callback_info
         .get_node_hit_test_bounds(dom_node_id)
         .or_else(|| callback_info.get_node_rect(dom_node_id))
+        .map(|rect| lift_rect_to_window_space(callback_info, dom_node_id.dom, rect))
         .map(|rect| {
             (
                 rect.origin.x + rect.size.width / 2.0,
@@ -13241,10 +13302,12 @@ pub fn process_debug_event(
                     // wrong node — or none — and a wheel over AzWriter's page
                     // scrolled nothing at all. `get_node_rect` is the same
                     // window-space rect `get_node_layout` reports.
-                    let rect = callback_info.get_node_rect(azul_core::dom::DomNodeId {
-                        dom: *dom_id,
-                        node: Some(node_id).into(),
-                    });
+                    let rect = callback_info
+                        .get_node_rect(azul_core::dom::DomNodeId {
+                            dom: *dom_id,
+                            node: Some(node_id).into(),
+                        })
+                        .map(|r| lift_rect_to_window_space(callback_info, *dom_id, r));
                     if let Some(r) = rect {
                         if cursor_pos.x >= r.origin.x
                             && cursor_pos.x <= r.origin.x + r.size.width
