@@ -5529,6 +5529,10 @@ impl WaylandWindow {
         // presents ~10x while the real event->render latency measured a
         // healthy 16ms p50 (wait_for_render probe, 2026-08-29). One pump per
         // generate_frame pass, ended on drop.
+        // Gated like every other telemetry call site (see app.rs): the module
+        // only exists behind the feature, so an ungated call broke every build
+        // that does not enable it — the demos among them.
+        #[cfg(feature = "telemetry")]
         let _frame_pump = azul_layout::telemetry::FramePump::begin("present");
 
         let mut surface_committed = false;

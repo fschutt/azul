@@ -2029,10 +2029,13 @@ fn focus_set_before_the_first_layout_survives_until_layout_exists() {
             lw.layout_results.is_empty(),
             "premise: nothing is laid out yet"
         );
+        // `out_of_scope` (the focus-scope work on the base branch) — nothing
+        // is scoped out here, and this test is about the pre-layout DEFER.
         let r = resolve_focus_target_or_defer(
             &mut lw.focus_manager,
             &FocusTarget::Id(target_id),
             &lw.layout_results,
+            &std::collections::BTreeSet::new(),
         );
         assert!(matches!(r, Ok(FocusResolution::Deferred)));
         // The whole bug in one line: focus is neither set NOR cleared.
