@@ -342,6 +342,16 @@ pub struct ScrollbarHit {
     pub global_position: LogicalPosition,
 }
 
+/// One end of a scroll gesture, recorded by [`ScrollManager::note_scroll_phase`]
+/// and drained as a `ScrollStart` / `ScrollEnd` event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollPhaseTransition {
+    /// A gesture began: the first input after a quiet period.
+    Started,
+    /// A gesture ended: the finger lifted and any momentum tail finished.
+    Ended,
+}
+
 // Core Scroll Manager
 
 /// Manages all scroll state and animations for a window
@@ -381,6 +391,20 @@ pub struct ScrollManager {
     /// this flag must stay at its default there (we preserve current behavior) and
     /// primarily controls mouse-wheel direction on platforms that don't pre-apply.
     natural_scroll: bool,
+    /// Scroll-gesture phase latch, for `ScrollStart` / `ScrollEnd`.
+    ///
+    /// `true` between the first input of a gesture and the input that ends
+    /// it. The engine has always known the phase — `ScrollInputSource`
+    /// distinguishes `TrackpadContinuous`, `TrackpadMomentum`, `TrackpadEnd`
+    /// and `WheelDiscrete`, and macOS derives all four from `NSEvent.phase` /
+    /// `momentumPhase` — but it never became an app-visible event, so the
+    /// `ScrollStart` / `ScrollEnd` filters could not fire. Latching here
+    /// rather than in the shells keeps the four backends agreeing on one
+    /// definition of "a gesture".
+    pub scroll_gesture_active: bool,
+    /// Phase transitions observed since the last drain, oldest first. Drained
+    /// by `EventProvider::get_pending_events`.
+    pub pending_scroll_phase: Vec<ScrollPhaseTransition>,
 }
 
 /// The complete scroll state for a single node (with animation support)
@@ -4315,5 +4339,89 @@ impl ScrollManager {
             input_point_id,
             now,
         )
+    }
+}
+
+impl ScrollManager {
+    /// Fold one scroll input's source into the gesture latch, recording a
+    /// `Started` / `Ended` transition when the gesture actually turns over.
+    ///
+    /// Called from the platform scroll paths and the physics timer. The source
+    /// classification already exists on every backend; this only decides when
+    /// it crosses a boundary:
+    ///
+    /// - `TrackpadEnd` is the explicit end-of-gesture signal. macOS derives it
+    ///   from `NSEvent.phase`/`momentumPhase` being `Ended`/`Cancelled`, and
+    ///   Wayland synthesizes it from `wl_pointer.axis_stop`. It carries a ZERO
+    ///   delta, which is exactly why it must not be gated behind a delta
+    ///   threshold.
+    /// - `TrackpadMomentum` is still the same gesture: the fingers are up, but
+    ///   the OS is playing out a canned tail. Ending on the finger lift would
+    ///   fire `ScrollEnd` while the content is visibly still moving.
+    /// - `Programmatic` and `AnimateTo` are not user gestures and never open
+    ///   or close one.
+    pub fn note_scroll_phase(&mut self, source: ScrollInputSource) {
+        match source {
+            ScrollInputSource::Programmatic | ScrollInputSource::AnimateTo => {}
+            ScrollInputSource::TrackpadEnd => {
+                if self.scroll_gesture_active {
+                    self.scroll_gesture_active = false;
+                    self.pending_scroll_phase
+                        .push(ScrollPhaseTransition::Ended);
+                }
+            }
+            ScrollInputSource::TrackpadContinuous
+            | ScrollInputSource::TrackpadMomentum
+            | ScrollInputSource::WheelDiscrete => {
+                if !self.scroll_gesture_active {
+                    self.scroll_gesture_active = true;
+                    self.pending_scroll_phase
+                        .push(ScrollPhaseTransition::Started);
+                }
+            }
+        }
+    }
+
+    /// Close an open gesture that no input will close for us.
+    ///
+    /// A discrete wheel has no end-of-gesture signal at all — there is no
+    /// "finger lift" for a ratcheting wheel — so a `WheelDiscrete` gesture
+    /// would otherwise stay open forever and never fire `ScrollEnd`. The
+    /// physics timer calls this when the scroll velocity settles.
+    pub fn settle_scroll_gesture(&mut self) {
+        if self.scroll_gesture_active {
+            self.scroll_gesture_active = false;
+            self.pending_scroll_phase
+                .push(ScrollPhaseTransition::Ended);
+        }
+    }
+}
+
+impl crate::event_determination::EventProvider for ScrollManager {
+    /// Yield `ScrollStart` / `ScrollEnd` for each phase transition observed
+    /// since the last drain.
+    ///
+    /// Window-level (target = root): a gesture belongs to the window, not to
+    /// whichever node happened to be under the cursor when it started — the
+    /// pointer can leave that node mid-flick. Planning names the Hover, Focus
+    /// and Window variants for both types, so a node-level listener still
+    /// receives them by propagation.
+    fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        self.pending_scroll_phase
+            .iter()
+            .map(|t| {
+                let event_type = match t {
+                    ScrollPhaseTransition::Started => EventType::ScrollStart,
+                    ScrollPhaseTransition::Ended => EventType::ScrollEnd,
+                };
+                SyntheticEvent::new(
+                    event_type,
+                    azul_core::events::EventSource::User,
+                    DomNodeId::ROOT,
+                    timestamp.clone(),
+                    EventData::None,
+                )
+            })
+            .collect()
     }
 }

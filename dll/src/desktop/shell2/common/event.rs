@@ -10148,6 +10148,18 @@ pub trait PlatformWindow {
                         now.clone(),
                         azul_core::events::EventData::None,
                     ));
+                    // FocusOut is the bubbling twin of Blur: W3C fires it on
+                    // the node losing focus AND its ancestors, which is what
+                    // lets a container react to focus leaving its subtree.
+                    // The filter, the matcher arm and the planning arm all
+                    // existed; nothing ever constructed the event.
+                    focus_events.push(azul_core::events::SyntheticEvent::new(
+                        azul_core::events::EventType::FocusOut,
+                        azul_core::events::EventSource::User,
+                        old_node,
+                        now.clone(),
+                        azul_core::events::EventData::None,
+                    ));
                 }
 
                 // FocusReceived on new node
@@ -10159,6 +10171,15 @@ pub trait PlatformWindow {
                     );
                     focus_events.push(azul_core::events::SyntheticEvent::new(
                         azul_core::events::EventType::Focus,
+                        azul_core::events::EventSource::User,
+                        new_node,
+                        now.clone(),
+                        azul_core::events::EventData::None,
+                    ));
+                    // FocusIn: the bubbling twin of Focus, same reasoning as
+                    // FocusOut above.
+                    focus_events.push(azul_core::events::SyntheticEvent::new(
+                        azul_core::events::EventType::FocusIn,
                         azul_core::events::EventSource::User,
                         new_node,
                         now.clone(),

@@ -570,15 +570,33 @@ pub fn determine_all_events(
         let current_hovered = get_all_hovered_nodes(hover_manager, 0);
         let previous_hovered = get_all_hovered_nodes(hover_manager, 1);
 
-        // Nodes that lost hover -> MouseLeave
+        // Nodes that lost hover -> MouseLeave, and its bubbling twin
+        // MouseOut.
+        //
+        // W3C keeps these separate on purpose: `mouseleave` fires only on the
+        // node the pointer actually left, while `mouseout` also reaches that
+        // node's ancestors. `HoverEventFilter::MouseOut` has existed (with a
+        // matching arm in `matches_hover_filter` and a planning arm naming
+        // it) with nothing ever constructing `EventType::MouseOut`, so an app
+        // that subscribed to it waited forever. Emitting both from the same
+        // place keeps them from drifting apart; propagation does the rest,
+        // since the dispatcher already walks Target then Bubble.
         for (dom_id, node_id) in previous_hovered.difference(&current_hovered) {
+            let target = DomNodeId {
+                dom: *dom_id,
+                node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
+            };
             events.push(SyntheticEvent::new(
                 EventType::MouseLeave,
                 EventSource::User,
-                DomNodeId {
-                    dom: *dom_id,
-                    node: NodeHierarchyItemId::from_crate_internal(Some(*node_id)),
-                },
+                target,
+                timestamp.clone(),
+                EventData::None,
+            ));
+            events.push(SyntheticEvent::new(
+                EventType::MouseOut,
+                EventSource::User,
+                target,
                 timestamp.clone(),
                 EventData::None,
             ));

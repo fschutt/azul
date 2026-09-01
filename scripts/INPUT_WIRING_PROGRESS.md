@@ -68,14 +68,14 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       emitting its own Hover + Focus + Window variant.
 - [x] 2b Matcher arms: `(RightMouseDown, EventType::ContextMenu)`, `(TextInput, EventType::KeyPress)`,
       `(TextInput, EventType::Change)`.
-- [ ] 2c Emit `ScrollStart`/`ScrollEnd` from the `ScrollInputSource` transitions the physics timer already computes
+- [x] 2c Emit `ScrollStart`/`ScrollEnd` from the `ScrollInputSource` transitions the physics timer already computes
       (`layout/src/managers/scroll_state.rs` + callers).
 - [ ] 2d Emit `ContextMenu` from right-button-up, the Menu/Apps key, and Shift+F10 on all four desktop shells.
 
 ## Step 3 — C3: missing producers
 
-- [ ] 3a Emit `EventType::MouseOut` alongside every `MouseLeave` site.
-- [ ] 3b Emit `EventType::FocusIn`/`FocusOut` alongside every `Focus`/`Blur` site.
+- [x] 3a Emit `EventType::MouseOut` alongside every `MouseLeave` site.
+- [x] 3b Emit `EventType::FocusIn`/`FocusOut` alongside every `Focus`/`Blur` site.
 - [ ] 3c `CompositionEventData { data, cursor_begin, cursor_end }` + `EventData::Composition` variant +
       `CallbackInfo::get_composition_*` accessors.
 - [ ] 3d Emit `Composition*` at the IME sites: Win32 `WM_IME_STARTCOMPOSITION`/`COMPOSITION`/`ENDCOMPOSITION`,
@@ -83,6 +83,17 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 3e Dispatch `EventType::Copy`/`Cut`/`Paste` to the focused node BEFORE pushing
       `SystemChange::{CopyToClipboard, CutToClipboard, PasteFromClipboard}`; the existing
       `post_callback_filter_system_changes(prevent_default, …)` gate then makes them interceptable.
+
+### Follow-ups opened by 2c
+
+- [ ] 2c-i Call `ScrollManager::note_scroll_phase(source)` from every platform scroll path
+      (macOS `scrollWheel:`, Wayland `pointer_axis*`, X11 scroll, Win32 `WM_MOUSEWHEEL`) and
+      `settle_scroll_gesture()` from the physics timer when velocity reaches zero — a discrete wheel has no
+      end-of-gesture signal, so without the settle call a `WheelDiscrete` gesture never closes.
+- [ ] 2c-ii Register `ScrollManager` in the `&[&dyn EventProvider]` slice passed to
+      `determine_events_from_managers`, or the impl is never polled.
+- [ ] 2c-iii Clear `pending_scroll_phase` after the drain (`get_pending_events` takes `&self`; the other
+      managers use a `pending_event` flag cleared elsewhere in the pass — match whatever they do).
 
 ## Step 4 — C4: open the Application phase
 
