@@ -357,6 +357,7 @@ pub fn determine_all_events(
             button,
             buttons,
             modifiers,
+            ..Default::default()
         })
     };
 
@@ -694,6 +695,7 @@ pub fn determine_all_events(
         char_code: None, // Character is available from the keyboard state
         modifiers,
         repeat: false,
+        ..Default::default()
     });
 
     if current_key.is_some() && (current_key != previous_key || previous_key.is_none()) {
@@ -727,6 +729,7 @@ pub fn determine_all_events(
         char_code: None,
         modifiers,
         repeat: false,
+        ..Default::default()
     });
 
     if previous_key.is_some() && current_key.is_none() {

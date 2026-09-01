@@ -62,6 +62,7 @@ mod tests {
                 char_code: None,
                 modifiers: KeyModifiers::default(),
                 repeat: false,
+                ..Default::default()
             }),
         )
     }
@@ -109,6 +110,7 @@ mod tests {
                 char_code: None,
                 modifiers: KeyModifiers::default(),
                 repeat: false,
+                ..Default::default()
             }),
         );
         let kb = make_keyboard_state(VirtualKeyCode::Delete);
@@ -148,6 +150,7 @@ mod tests {
                 char_code: None,
                 modifiers: KeyModifiers::default(),
                 repeat: false,
+                ..Default::default()
             }),
         );
         let kb = make_keyboard_state(VirtualKeyCode::Left);
@@ -250,6 +253,7 @@ mod tests {
                     meta: cfg!(target_os = "macos"),
                 },
                 repeat: false,
+                ..Default::default()
             }),
         );
         let mut kb = make_keyboard_state(VirtualKeyCode::C);
@@ -324,6 +328,7 @@ mod tests {
                 button: MouseButton::Left,
                 buttons: 1,
                 modifiers: KeyModifiers::default(),
+                ..Default::default()
             }),
         );
         let hit_test = make_hit_test_with_node(2);
@@ -531,6 +536,8 @@ mod tests {
             right_down: false,
             middle_down: false,
             other_down: 0,
+            pointer_source: crate::events::PointerSource::Unknown,
+            pointer_device_id: 0,
         };
         assert!(!none.any_down());
     }
@@ -821,6 +828,7 @@ mod autotest_generated {
                 button,
                 buttons: 1,
                 modifiers: KeyModifiers::default(),
+                ..Default::default()
             }),
         )
     }
@@ -836,6 +844,7 @@ mod autotest_generated {
                 char_code: None,
                 modifiers,
                 repeat: false,
+                ..Default::default()
             }),
         )
     }
@@ -1911,6 +1920,7 @@ mod autotest_generated {
                 char_code: None,
                 modifiers: KeyModifiers::default(),
                 repeat: false,
+                ..Default::default()
             }),
             EventData::Touch(TouchEventData {
                 id: u64::MAX,
@@ -1932,6 +1942,7 @@ mod autotest_generated {
             button: MouseButton::Other(u8::MAX),
             buttons: u8::MAX,
             modifiers: KeyModifiers::default(),
+            ..Default::default()
         });
         assert!(check_mouse_button(&other_max, MouseButton::Other(u8::MAX)));
         assert!(!check_mouse_button(&other_max, MouseButton::Other(0)));
@@ -2116,6 +2127,7 @@ mod autotest_generated {
             button: MouseButton::Left,
             buttons: 1,
             modifiers: KeyModifiers::default(),
+            ..Default::default()
         });
 
         let cases: Vec<(EventType, EventData)> = vec![
@@ -2227,6 +2239,7 @@ mod autotest_generated {
             button: MouseButton::Other(u8::MAX),
             buttons: 0,
             modifiers: KeyModifiers::default(),
+            ..Default::default()
         });
         let down = event_type_to_filters(EventType::MouseDown, &data);
         assert_eq!(down, vec![
@@ -2401,6 +2414,7 @@ mod autotest_generated {
                 button: MouseButton::Left,
                 buttons: 1,
                 modifiers: KeyModifiers::default(),
+                ..Default::default()
             }),
         );
 
@@ -4323,6 +4337,7 @@ fn a_pointer_release_activates_a_click_listener_exactly_once() {
         button: MouseButton::Left,
         buttons: 0,
         modifiers: crate::events::KeyModifiers::new(),
+        ..Default::default()
     });
 
     let activation = EventFilter::Hover(HoverEventFilter::Click);
@@ -4418,6 +4433,7 @@ fn arrows_are_claimed_for_the_caret_only_while_editing() {
                 char_code: None,
                 modifiers: KeyModifiers::default(),
                 repeat: false,
+                ..Default::default()
             }),
         )
     };

@@ -73,3 +73,13 @@ api.json and unchanged — this arc gave them producers, it did not add them.
 - `azul_core::callbacks::FocusDirection` — new `#[repr(C)]` enum `{ Up, Down, Left, Right }`.
 - `azul_core::callbacks::FocusTarget` — one variant APPENDED: `Directional(FocusDirection)`.
   Already in api.json as `dom.FocusTarget`; variant addition at the end.
+
+## From step 9b (pointer source + device identity)
+
+- `azul_core::events::PointerSource` — new `#[repr(C)]` enum
+  `{ Unknown, Mouse, Touchpad, Trackball, Trackpoint, Touchscreen, Pen, Eraser }`.
+- `MouseState` — two fields appended: `pointer_source: PointerSource`, `pointer_device_id: u64`.
+- `MouseEventData` — two fields appended: `source: PointerSource`, `device_id: u64`.
+  `KeyboardEventData` — one appended: `device_id: u64`. Both are Rust-internal today; confirm.
+- `CallbackInfo::get_pointer_source()`, `CallbackInfo::get_pointer_device_id()`.
+- `MouseEventData` and `KeyboardEventData` gained `Default` impls.

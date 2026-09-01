@@ -479,6 +479,15 @@ pub struct MouseState {
     pub right_down: bool,
     /// Is the middle mouse button down? (READONLY)
     pub middle_down: bool,
+    /// What kind of device is currently driving the pointer. (READONLY)
+    ///
+    /// On `MouseState` rather than on the event because it is a property of
+    /// the DEVICE, not of one motion — an app can ask "is this a trackpad?"
+    /// from any callback, not only from inside a pointer handler.
+    pub pointer_source: crate::events::PointerSource,
+    /// Which physical pointing device is driving, or `0` when the platform
+    /// does not say. (READONLY)
+    pub pointer_device_id: u64,
     /// Bitmask of the thumb buttons currently held. (READONLY)
     ///
     /// A bitmask rather than two bools because the set is open-ended: a mouse
@@ -536,6 +545,8 @@ impl Default for MouseState {
             right_down: false,
             middle_down: false,
             other_down: 0,
+            pointer_source: crate::events::PointerSource::Unknown,
+            pointer_device_id: 0,
         }
     }
 }

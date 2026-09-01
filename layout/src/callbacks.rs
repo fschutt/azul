@@ -4861,6 +4861,27 @@ impl CallbackInfo {
         self.get_layout_window().text_edit_manager.preedit_text.is_some()
     }
 
+    /// What kind of device produced the pointer event being handled —
+    /// a mouse, a touchpad, a trackball, a pen. `Unknown` when the platform
+    /// does not classify, which is most of them today.
+    ///
+    /// Azul splits Mouse/Touch/Pen into separate FILTERS, so this is not how
+    /// you tell a finger from a mouse. What it answers is the distinction
+    /// WITHIN the pointer family that a filter cannot: whether a scroll came
+    /// from a wheel detent or a continuous trackpad drag, and therefore
+    /// whether a pinch gesture is even possible.
+    #[must_use]
+    pub fn get_pointer_source(&self) -> azul_core::events::PointerSource {
+        self.get_current_mouse_state().pointer_source
+    }
+
+    /// Which physical pointing device is driving, or `0` when the platform
+    /// does not say.
+    #[must_use]
+    pub fn get_pointer_device_id(&self) -> u64 {
+        self.get_current_mouse_state().pointer_device_id
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     #[must_use]

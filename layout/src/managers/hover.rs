@@ -474,6 +474,7 @@ mod autotest_generated {
                 button,
                 buttons: 0,
                 modifiers: KeyModifiers::default(),
+                ..Default::default()
             }),
         )
     }

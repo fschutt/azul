@@ -8119,6 +8119,7 @@ pub trait PlatformWindow {
                     button: MouseButton::Left,
                     buttons: 0,
                     modifiers: KeyModifiers::default(),
+                    ..Default::default()
                 })
             };
             for f in filters {

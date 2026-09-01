@@ -3698,6 +3698,15 @@ impl WaylandWindow {
         }
 
         // 2) The pointer bridge: position, hover hit-test, button edges.
+        //
+        // This bridge is exactly the case PointerSource exists for: the events
+        // it synthesizes are indistinguishable from a mouse, and without the
+        // tag an app has no way to know a stylus is driving.
+        self.common.mouse_state_mut().pointer_source = if p.is_eraser {
+            azul_core::events::PointerSource::Eraser
+        } else {
+            azul_core::events::PointerSource::Pen
+        };
         self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(p.position);
         self.common.mouse_state_mut().left_down = now_left;
         self.common.mouse_state_mut().right_down = now_right;
@@ -4118,6 +4127,15 @@ impl WaylandWindow {
         let (disc_x, disc_y) = std::mem::replace(&mut self.pending_axis_discrete, (0.0, 0.0));
 
         let is_trackpad = axis_source_is_trackpad(self.current_axis_source);
+        // `wl_pointer.axis_source` is the ONLY place Wayland says whether the
+        // pointer behind this scroll is a wheel or a finger — the motion
+        // events themselves are identical. Recording it here is what lets an
+        // app know a pinch is possible at all.
+        self.common.mouse_state_mut().pointer_source = if is_trackpad {
+            azul_core::events::PointerSource::Touchpad
+        } else {
+            azul_core::events::PointerSource::Mouse
+        };
         let (delta_x, delta_y) = axis_frame_delta(is_trackpad, (raw_x, raw_y), (disc_x, disc_y));
 
         if delta_x == 0.0 && delta_y == 0.0 {

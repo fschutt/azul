@@ -395,6 +395,42 @@ impl KeyModifiers {
 
 /// Type-specific event data for mouse events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What kind of device produced a pointer event.
+///
+/// The same discriminator the web calls `PointerEvent.pointerType`, GTK calls
+/// `GdkInputSource` and Qt calls `QInputDevice::DeviceType`. Azul splits Mouse,
+/// Touch and Pen into separate FILTERS, which is a stronger guarantee than a
+/// runtime tag — but it cannot express the distinctions WITHIN the pointer
+/// family, and those matter:
+///
+/// - A touchpad and a mouse both arrive as a synthesized pointer. Telling them
+///   apart is what lets an app know a pinch gesture is possible at all, and
+///   whether "scroll" means a wheel detent or a continuous drag.
+/// - A trackball and a trackpoint have their own acceleration and scroll
+///   semantics, which is why GTK and Android name them separately.
+/// - A pen reported through the pointer path (a stylus acting as a mouse, the
+///   Wayland tablet bridge) is not a finger and not a mouse.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum PointerSource {
+    /// The platform did not say.
+    Unknown,
+    /// A mouse.
+    Mouse,
+    /// An indirect touch surface — a laptop trackpad or a Magic Trackpad.
+    Touchpad,
+    /// A trackball.
+    Trackball,
+    /// A pointing stick (ThinkPad nub).
+    Trackpoint,
+    /// A direct touch surface reporting through the pointer path.
+    Touchscreen,
+    /// A stylus tip.
+    Pen,
+    /// The inverted end of a stylus.
+    Eraser,
+}
+
 pub struct MouseEventData {
     /// Position of the mouse cursor
     pub position: LogicalPosition,
@@ -404,6 +440,30 @@ pub struct MouseEventData {
     pub buttons: u8,
     /// Modifier keys state
     pub modifiers: KeyModifiers,
+    /// What produced this event. APPENDED for ABI stability.
+    pub source: PointerSource,
+    /// Which physical device produced it, or `0` when the platform does not
+    /// say. APPENDED for ABI stability.
+    ///
+    /// Only `PenState`, `GamepadState` and `WacomPadState` carried a device id
+    /// before, so a mouse event could not say WHICH of two mice moved — and
+    /// `MouseState` is a single global, which is why multi-seat (a kiosk, a
+    /// shared display, two people on one compositor) was not expressible at
+    /// all. This is the first half of fixing that; the state is still global.
+    pub device_id: u64,
+}
+
+impl Default for MouseEventData {
+    fn default() -> Self {
+        Self {
+            position: LogicalPosition { x: 0.0, y: 0.0 },
+            button: MouseButton::Left,
+            buttons: 0,
+            modifiers: KeyModifiers::default(),
+            source: PointerSource::Unknown,
+            device_id: 0,
+        }
+    }
 }
 
 /// Type-specific event data for keyboard events.
@@ -417,6 +477,25 @@ pub struct KeyboardEventData {
     pub modifiers: KeyModifiers,
     /// Whether this is a repeat event
     pub repeat: bool,
+    /// Which physical keyboard produced this event, or `0` when the platform
+    /// does not say. APPENDED for ABI stability.
+    ///
+    /// Same reasoning as `MouseEventData::device_id`: with two keyboards
+    /// attached — a laptop's built-in and an external, or a barcode scanner
+    /// presenting as a keyboard — nothing could tell their input apart.
+    pub device_id: u64,
+}
+
+impl Default for KeyboardEventData {
+    fn default() -> Self {
+        Self {
+            key_code: 0,
+            char_code: None,
+            modifiers: KeyModifiers::default(),
+            repeat: false,
+            device_id: 0,
+        }
+    }
 }
 
 /// Type-specific event data for scroll events.

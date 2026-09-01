@@ -94,6 +94,15 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 9b
+
+- [ ] 9b-i `pointer_source` is fed only on Wayland (from `axis_source` and the tablet bridge). Win32 can
+      answer it from `GetPointerType` / `WM_POINTERDEVICE`, X11 from the XI2 slave device name or its
+      valuator set, macOS from `NSEvent.subtype` + `hasPreciseScrollingDeltas`. All currently leave it
+      `Unknown`, which is honest but means item G2's "tell a touchpad from a mouse" only works on Wayland.
+- [ ] 9b-ii `MouseState` is still a single global, so multi-seat remains inexpressible — `device_id` now
+      travels on the EVENT but the state does not fan out per seat. That is a bigger change than this arc.
+
 ### Follow-ups opened by 9a
 
 - [ ] 9a-i Nothing DRIVES `FocusTarget::Directional` yet — it is reachable from the API
@@ -240,7 +249,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 - [x] 9a `FocusTarget += Directional(FocusDirection)`, `FocusDirection { Up, Down, Left, Right }`, geometric
       nearest-neighbour over the existing focusable set. No shell code.
-- [ ] 9b `PointerSource { Unknown, Mouse, Touchpad, Trackball, Trackpoint, Touchscreen, Pen, Eraser }` on pointer
+- [x] 9b (types + Wayland producers done; other backends leave it Unknown — see 9b-i) `PointerSource { Unknown, Mouse, Touchpad, Trackball, Trackpoint, Touchscreen, Pen, Eraser }` on pointer
       events; `device_id` on mouse and key events. NOTE: #450 already delivered the *tablet* half
       (`TabletDeviceInfo`, matching `device_id` on `PenState`/`WacomPadState`) — this item is now the
       mouse/keyboard half plus the per-event `PointerSource` discriminator. Model it on `TabletDeviceInfo`.
