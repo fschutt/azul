@@ -655,6 +655,13 @@ impl ScrollManager {
         input_point_id: &InputPointId,
         now: Instant,
     ) -> Option<(DomId, NodeId, bool)> {
+        // Fold the source into the gesture latch. Every backend funnels its
+        // scroll here with an already-classified `source`, so one call covers
+        // macOS, Wayland, X11 and Win32 — and they cannot drift apart on what
+        // counts as the start or end of a gesture, which is the whole reason
+        // the latch lives on the manager rather than in the shells.
+        self.note_scroll_phase(source);
+
         // Record the raw wheel delta for this pass unconditionally — even when the
         // cursor isn't over a scroll container — so a `Scroll` event can be aimed
         // at the hovered node (wheel-as-zoom widgets like the map rely on this).

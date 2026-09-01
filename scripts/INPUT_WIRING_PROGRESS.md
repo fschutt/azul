@@ -84,6 +84,12 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `SystemChange::{CopyToClipboard, CutToClipboard, PasteFromClipboard}`; the existing
       `post_callback_filter_system_changes(prevent_default, …)` gate then makes them interceptable.
 
+- [ ] 2c-iv `settle_scroll_gesture()` still has no caller. A discrete wheel has no end-of-gesture signal, so
+      a `WheelDiscrete` gesture never fires `ScrollEnd`. The right place is the terminate branch of
+      `scroll_physics_timer_callback` (`layout/src/scroll_timer.rs:1187`), but that callback only holds a
+      downcast `ScrollPhysicsState` and does not obviously reach the `ScrollManager` — find the seam rather
+      than guessing. Trackpad gestures are unaffected: `TrackpadEnd` closes those.
+
 ### Follow-ups opened by 4b/4c
 
 - [x] 4c-i Register `DeviceEventManager` on `LayoutWindow` (field + `new()` + the destructure at
@@ -101,7 +107,9 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 2c
 
-- [~] 2c-i PARTIAL — manager registered + drained; the per-shell `note_scroll_phase` / `settle_scroll_gesture` calls are still owed. Call `ScrollManager::note_scroll_phase(source)` from every platform scroll path
+- [x] 2c-i `note_scroll_phase` is called from `record_scroll_from_hit_test`, the single entry point every
+      backend already funnels through with an already-classified `source` — so macOS, Wayland, X11 and Win32
+      are all covered by one call and cannot drift on what starts a gesture. Original wording: call `ScrollManager::note_scroll_phase(source)` from every platform scroll path
       (macOS `scrollWheel:`, Wayland `pointer_axis*`, X11 scroll, Win32 `WM_MOUSEWHEEL`) and
       `settle_scroll_gesture()` from the physics timer when velocity reaches zero — a discrete wheel has no
       end-of-gesture signal, so without the settle call a `WheelDiscrete` gesture never closes.
