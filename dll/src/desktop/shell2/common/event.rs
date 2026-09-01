@@ -6525,6 +6525,17 @@ pub trait PlatformWindow {
                 let mut result = ProcessEventResult::ShouldReRenderCurrentWindow;
 
                 let timer_action = if let Some(layout_window) = self.get_layout_window_mut() {
+                    // `:focus-visible` DEFAULTS OFF for every focus change.
+                    // Only the KEYBOARD route opts back in (it sets the flag
+                    // right after applying its change). Doing it here rather
+                    // than per-route means a focus arriving by ANY other means
+                    // - a pointer click, `autofocus`, a programmatic
+                    // `set_focus` from a callback, a popup handing focus back
+                    // - is silently non-indicated, instead of inheriting
+                    // whatever the last keyboard move left behind. Clicking a
+                    // control after tabbing showed a ring for exactly that
+                    // reason (device report, 2026-09-01).
+                    layout_window.focus_manager.focus_is_visible = false;
                     layout_window.focus_manager.set_focused_node(*new_focus);
 
                     // Scroll newly focused node into view
@@ -8126,12 +8137,6 @@ pub trait PlatformWindow {
                         new_focus: Some(target),
                         old_focus: None,
                     });
-                    // AUTOFOCUS IS NOT RING-VISIBLE: a popup that opens with
-                    // its first control ringed looks like the user pressed
-                    // Tab. The ring appears on their first Tab.
-                    if let Some(lw) = self.get_layout_window_mut() {
-                        lw.focus_manager.focus_is_visible = false;
-                    }
                     let _ = r;
                 }
             }
@@ -9259,13 +9264,6 @@ pub trait PlatformWindow {
                             new_focus: Some(new_focus_target),
                             old_focus,
                         });
-                        // `:focus-visible`: a POINTER focus is not indicated.
-                        // The control is focused - it types, it activates, the
-                        // a11y tree reports it - it just does not get a ring,
-                        // exactly as in a browser.
-                        if let Some(lw) = self.get_layout_window_mut() {
-                            lw.focus_manager.focus_is_visible = false;
-                        }
                         result = result.max(r);
                         mouse_click_focus_changed = true;
                     }

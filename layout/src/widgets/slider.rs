@@ -381,6 +381,10 @@ impl Slider {
                 on_slider_pointer_up as usize,
             ),
             mk(
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                on_slider_key as usize,
+            ),
+            mk(
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
                 on_slider_pointer_leave as usize,
             ),
@@ -462,7 +466,17 @@ fn apply_cursor_value(slider: &mut SliderStateWrapper, info: &mut CallbackInfo) 
     let max = slider.inner.max;
     slider.inner.value = fraction.mul_add(max - min, min);
 
-    // Slide the thumb (first child of the track) to the new position.
+    commit_value(slider, info, fraction, width)
+}
+
+/// Move the thumb and tell the app - the ONE commit path, shared by the drag
+/// and the arrow keys so the two can never diverge.
+fn commit_value(
+    slider: &mut SliderStateWrapper,
+    info: &mut CallbackInfo,
+    fraction: f32,
+    width: f32,
+) -> Update {
     let track_id = info.get_hit_node();
     if let Some(thumb_id) = info.get_first_child(track_id) {
         let margin = (fraction * (width - THUMB_SIZE as f32)).round() as isize;
@@ -471,7 +485,6 @@ fn apply_cursor_value(slider: &mut SliderStateWrapper, info: &mut CallbackInfo) 
             CssProperty::const_margin_left(LayoutMarginLeft::const_px(margin)),
         );
     }
-
     let inner = slider.inner;
     match slider.on_value_change.as_mut() {
         Some(SliderOnValueChange { callback, refany }) => {
@@ -479,6 +492,53 @@ fn apply_cursor_value(slider: &mut SliderStateWrapper, info: &mut CallbackInfo) 
         }
         None => Update::DoNothing,
     }
+}
+
+/// Arrow-key control, so a slider is usable without a mouse: Left/Down step
+/// DOWN and Right/Up step UP, by 1% of the range - or 10% with Ctrl (Cmd on
+/// macOS), the same fine/coarse pair the colour picker uses.
+///
+/// Commits through `commit_value`, exactly like a drag.
+extern "C" fn on_slider_key(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    use azul_core::window::VirtualKeyCode as K;
+
+    let Some(mut slider) = data.downcast_mut::<SliderStateWrapper>() else {
+        return Update::DoNothing;
+    };
+    let ks = info.get_current_keyboard_state();
+    let Some(key) = ks.current_virtual_keycode.into_option() else {
+        return Update::DoNothing;
+    };
+    let dir = match key {
+        K::Left | K::Down => -1.0_f32,
+        K::Right | K::Up => 1.0,
+        // Everything else keeps its default (Tab moves on, Escape clears).
+        _ => return Update::DoNothing,
+    };
+    let step_fraction = if ks.ctrl_down() || ks.super_down() {
+        0.10
+    } else {
+        0.01
+    };
+
+    let (min, max) = (slider.inner.min, slider.inner.max);
+    let span = max - min;
+    if !span.is_finite() || span <= 0.0 {
+        return Update::DoNothing;
+    }
+    let next = dir.mul_add(step_fraction * span, slider.inner.value);
+    slider.inner.value = clamp_to_range(next, min, max);
+    let fraction = value_to_fraction(slider.inner.value, min, max);
+
+    let width = info
+        .get_hit_node_rect()
+        .map(|r| r.size.width)
+        .filter(|w| *w > 0.0)
+        .unwrap_or(TRACK_WIDTH as f32);
+
+    // The arrow must not also scroll the page under the slider.
+    info.prevent_default();
+    commit_value(&mut slider, &mut info, fraction, width)
 }
 
 /// Pointer down → begin a drag and set the value from the press position.
@@ -1915,9 +1975,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_registers_every_pointer_filter_exactly_once_in_order() {
+    fn dom_registers_every_input_filter_exactly_once_in_order() {
         let dom = Slider::create(0.0, 0.0, 100.0).dom();
-        let expected: [(EventFilter, usize); 7] = [
+        let expected: [(EventFilter, usize); 8] = [
             (
                 EventFilter::Hover(HoverEventFilter::MouseDown),
                 on_slider_pointer_down as usize,
@@ -1929,6 +1989,12 @@ mod autotest_generated {
             (
                 EventFilter::Hover(HoverEventFilter::MouseUp),
                 on_slider_pointer_up as usize,
+            ),
+            // A control you can DRAG must also be drivable from the keyboard
+            // (2026-09-01): arrows step 1% of the range, Ctrl/Cmd+arrows 10%.
+            (
+                EventFilter::Focus(azul_core::events::FocusEventFilter::VirtualKeyDown),
+                on_slider_key as usize,
             ),
             (
                 EventFilter::Hover(HoverEventFilter::MouseLeave),
@@ -1954,14 +2020,15 @@ mod autotest_generated {
             .iter()
             .map(|c| (c.event, c.callback.cb))
             .collect();
-        assert_eq!(got, expected.to_vec(), "the pointer wiring changed");
+        assert_eq!(got, expected.to_vec(), "the input wiring changed");
         // Touch must not be dropped: without TouchStart/Move/End the slider is
-        // dead on a touchscreen even though it looks fine under a mouse.
-        assert_eq!(got.len(), 7);
+        // dead on a touchscreen even though it looks fine under a mouse - and
+        // without VirtualKeyDown it is dead for a keyboard user.
+        assert_eq!(got.len(), 8);
     }
 
     #[test]
-    fn dom_shares_one_state_refany_across_all_seven_handlers() {
+    fn dom_shares_one_state_refany_across_every_handler() {
         // The transient `dragging` flag set by MouseDown must be visible to the
         // MouseOver/MouseUp handlers — a per-callback `RefAny::new` would give
         // each handler its own copy and the slider would never drag.
@@ -2719,4 +2786,29 @@ mod autotest_generated {
             }
         }
     }
+    /// KEYBOARD CONTROL (2026-09-01 request): the slider takes the same
+    /// arrow-key semantics as the colour picker - 1% of the range per arrow,
+    /// 10% with Ctrl/Cmd - and clamps at both ends.
+    #[test]
+    fn arrow_keys_step_one_percent_of_the_range_and_ctrl_steps_ten() {
+        let step = |value: f32, min: f32, max: f32, dir: f32, coarse: bool| -> f32 {
+            let span = max - min;
+            let f = if coarse { 0.10 } else { 0.01 };
+            clamp_to_range(dir.mul_add(f * span, value), min, max)
+        };
+
+        // A 0..100 range: 1% is one unit, 10% is ten.
+        assert!((step(50.0, 0.0, 100.0, 1.0, false) - 51.0).abs() < 1e-4);
+        assert!((step(50.0, 0.0, 100.0, -1.0, false) - 49.0).abs() < 1e-4);
+        assert!((step(50.0, 0.0, 100.0, 1.0, true) - 60.0).abs() < 1e-4);
+        assert!((step(50.0, 0.0, 100.0, -1.0, true) - 40.0).abs() < 1e-4);
+
+        // The step is a fraction of the RANGE, not an absolute unit.
+        assert!((step(0.5, 0.0, 1.0, 1.0, false) - 0.51).abs() < 1e-4);
+
+        // Clamped at both ends, so holding an arrow cannot leave the range.
+        assert!((step(100.0, 0.0, 100.0, 1.0, true) - 100.0).abs() < 1e-4);
+        assert!((step(0.0, 0.0, 100.0, -1.0, true) - 0.0).abs() < 1e-4);
+    }
+
 }
