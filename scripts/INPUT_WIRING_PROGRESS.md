@@ -108,7 +108,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 - [x] 4a `matches_filter_phase`: replace the `EventFilter::Application(_) => false` arm with a real
       `matches_application_filter(f, event, phase)`; write that fn.
-- [ ] 4b Producer: gilrs gamepad connect/disconnect → `EventType::DeviceConnected`/`DeviceDisconnected`
+- [x] 4b Producer: gilrs gamepad connect/disconnect → `EventType::DeviceConnected`/`DeviceDisconnected`
       (already pumped via `capability_pump`, all four desktops).
 - [ ] 4c Producer: Wayland — `wl_registry.global_remove` for `wl_output` → monitor events;
       `wl_seat.capabilities` + `zwp_tablet_seat_v2` add/remove → device events. All handlers already exist.

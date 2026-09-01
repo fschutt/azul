@@ -43,6 +43,11 @@ pub struct GamepadManager {
     /// pump polls gilrs/GCController only while this is set (MWA-A1 arming
     /// signal — no listeners, no polling, no ~16ms timer).
     has_listeners: bool,
+    /// Connect/disconnect transitions seen since the last drain — `true` for
+    /// an arrival, `false` for a departure. Drained by
+    /// [`take_pending_hotplug`](Self::take_pending_hotplug) into
+    /// `EventType::DeviceConnected` / `DeviceDisconnected`.
+    pending_hotplug: Vec<bool>,
 }
 
 impl GamepadManager {
@@ -76,9 +81,22 @@ impl GamepadManager {
     pub fn set_state(&mut self, state: GamepadState) -> bool {
         let changed = if let Some(slot) = self.pads.iter_mut().find(|p| p.id == state.id) {
             let changed = !state_bitwise_eq(slot, &state);
+            // Hotplug is a TRANSITION of `connected`, not its value: the slot
+            // is retained after an unplug so a callback can still observe it,
+            // so `connected == false` is the steady state of every pad ever
+            // seen this session and says nothing about whether one just left.
+            if slot.connected != state.connected {
+                self.pending_hotplug.push(state.connected);
+            }
             *slot = state;
             changed
         } else {
+            // First sighting of a pad. A pad that arrives already disconnected
+            // is not an arrival — the backends enumerate known-but-absent pads
+            // on some platforms — so only a live one announces itself.
+            if state.connected {
+                self.pending_hotplug.push(true);
+            }
             self.pads.push(state);
             true
         };
@@ -86,6 +104,16 @@ impl GamepadManager {
             self.pending_event = true;
         }
         changed
+    }
+
+    /// Drain the hotplug transitions recorded since the last call.
+    ///
+    /// `true` = a pad arrived, `false` = a pad left. Kept separate from
+    /// `pending_event` because that one coalesces: a pad can connect and have
+    /// its sticks move in the same pass, and the arrival must not be lost
+    /// behind the state change.
+    pub fn take_pending_hotplug(&mut self) -> Vec<bool> {
+        core::mem::take(&mut self.pending_hotplug)
     }
 
     /// Clear the pending-event flag. The dll calls this after the event pass
@@ -111,17 +139,34 @@ impl EventProvider for GamepadManager {
     /// since the last drain (target = root; read it via
     /// `CallbackInfo::get_primary_gamepad` / `get_gamepad_state`).
     fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
+        let mut events = Vec::new();
+
+        // Hotplug first: an app that reacts to a pad arriving wants to see the
+        // arrival before the first stick sample from that pad, not after.
+        for connected in &self.pending_hotplug {
+            events.push(SyntheticEvent::new(
+                if *connected {
+                    EventType::DeviceConnected
+                } else {
+                    EventType::DeviceDisconnected
+                },
+                CoreEventSource::User,
+                DomNodeId::ROOT,
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
+
         if self.pending_event {
-            alloc::vec![SyntheticEvent::new(
+            events.push(SyntheticEvent::new(
                 EventType::GamepadInput,
                 CoreEventSource::User,
                 DomNodeId::ROOT,
                 timestamp,
                 EventData::None,
-            )]
-        } else {
-            Vec::new()
+            ));
         }
+        events
     }
 }
 
