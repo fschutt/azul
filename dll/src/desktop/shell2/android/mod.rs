@@ -1528,14 +1528,26 @@ pub fn set_soft_keyboard_visible(visible: bool) {
         // Static helper on the Java side rather than open-coding the
         // InputMethodManager dance (getSystemService -> showSoftInput with the
         // right view and flags) through reflection from here.
-        env.call_static_method(
+        // Through the ACTIVITY's class loader: this thread has no Java frame,
+        // so a bare `find_class` would resolve against the system loader and
+        // never see an APK class. See `extra::find_app_class`.
+        let class = crate::desktop::extra::find_app_class(
+            &mut env,
+            &activity,
             "com/azul/text/NativeTextBridge",
+        )
+        .ok_or_else(|| "NativeTextBridge not in this APK".to_string())?;
+        env.call_static_method(
+            &class,
             if visible { "showKeyboard" } else { "hideKeyboard" },
             "(Landroid/app/Activity;)V",
             &[jni::objects::JValue::Object(&activity)],
         )
         .map(|_| ())
-        .map_err(|e| format!("call {}: {e:?}", if visible { "show" } else { "hide" }))
+        .map_err(|e| {
+            let _ = env.exception_clear();
+            format!("call {}: {e:?}", if visible { "show" } else { "hide" })
+        })
     })();
     if let Err(e) = result {
         log_debug!(LogCategory::Input, "[Android] soft keyboard: {e}");

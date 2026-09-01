@@ -105,3 +105,57 @@ pub fn find_class_optional<'local>(
         }
     }
 }
+
+/// Find an APP class from a thread that has no Java frame on its stack.
+///
+/// `JNIEnv::find_class` resolves through the class loader of the method on top
+/// of the stack. On a thread Rust created and attached — which is every thread
+/// azul calls Java from, `android_main` included — there is no such method, so
+/// JNI falls back to the SYSTEM class loader. That one knows `java.lang.*` and
+/// nothing about the APK, so every `com/azul/...` lookup throws
+/// ClassNotFoundException.
+///
+/// This is why the Java->Rust direction always worked (Java resolved the class
+/// before calling in) while Rust->Java never has: the file picker, biometric,
+/// keyring, sensors, geolocation and the soft keyboard are all on this path.
+///
+/// The fix is the documented one: go through the Activity's own class loader,
+/// which is the APK's. `activity.getClassLoader().loadClass("com.azul.…")`.
+/// Note the DOTTED name — `loadClass` takes a binary name, not the slashed
+/// internal form `find_class` wants.
+#[cfg(all(target_os = "android", feature = "jni"))]
+pub fn find_app_class<'local>(
+    env: &mut jni::JNIEnv<'local>,
+    activity: &jni::objects::JObject,
+    slashed_name: &str,
+) -> Option<jni::objects::JClass<'local>> {
+    // Fast path: on the rare thread that does have an app frame, this works
+    // and costs one lookup.
+    if let Ok(c) = env.find_class(slashed_name) {
+        return Some(c);
+    }
+    let _ = env.exception_clear();
+
+    let loader = env
+        .call_method(activity, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
+        .ok()
+        .and_then(|v| v.l().ok())?;
+    let dotted = slashed_name.replace('/', ".");
+    let jname = env.new_string(dotted).ok()?;
+    let class = env
+        .call_method(
+            &loader,
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+            &[jni::objects::JValue::Object(&jname)],
+        )
+        .ok()
+        .and_then(|v| v.l().ok());
+    if class.is_none() {
+        // loadClass throws ClassNotFoundException for a genuinely absent
+        // optional helper; leaving it pending would abort the process on the
+        // next JNI call.
+        let _ = env.exception_clear();
+    }
+    class.map(Into::into)
+}
