@@ -859,8 +859,14 @@ fn init_xinput2(
                 );
             }
         };
-        let (mut maj, mut min) = (2i32, 2i32);
+        // Ask for 2.4: touchpad gestures were added there, and the server
+        // will not send them to a client that negotiated a lower version.
+        // XIQueryVersion writes back what was actually agreed, so an older
+        // server simply leaves `min` below 4 and the gesture mask below is
+        // skipped rather than erroring.
+        let (mut maj, mut min) = (2i32, 4i32);
         (xi.XIQueryVersion)(display, &mut maj, &mut min);
+        let xi_has_gestures = maj > 2 || (maj == 2 && min >= 4);
 
         // Select Button/Motion/Touch for all master devices.
         let mut mask = [0u8; 3];
@@ -896,6 +902,29 @@ fn init_xinput2(
             mask: hmask.as_mut_ptr(),
         };
         (xi.XISelectEvents)(display, window, &mut hevmask, 1);
+
+        // Touchpad gestures, XI 2.4+. Selected on master devices like the
+        // pointer events they accompany — a gesture is delivered against the
+        // master pointer, not the slave touchpad.
+        if xi_has_gestures {
+            let mut gmask = [0u8; 5];
+            for e in [
+                defines::XI_GesturePinchBegin,
+                defines::XI_GesturePinchUpdate,
+                defines::XI_GesturePinchEnd,
+                defines::XI_GestureSwipeBegin,
+                defines::XI_GestureSwipeUpdate,
+                defines::XI_GestureSwipeEnd,
+            ] {
+                gmask[(e >> 3) as usize] |= 1 << (e & 7);
+            }
+            let mut gevmask = defines::XIEventMask {
+                deviceid: defines::XIAllMasterDevices,
+                mask_len: gmask.len() as c_int,
+                mask: gmask.as_mut_ptr(),
+            };
+            (xi.XISelectEvents)(display, window, &mut gevmask, 1);
+        }
 
         // Map deviceid -> (pressure#, tiltX#, tiltY#, pressure_max) via valuator labels.
         let p_atom = (xlib.XInternAtom)(display, b"Abs Pressure\0".as_ptr() as *const _, 0);
@@ -1443,6 +1472,23 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
             return;
         }
 
+        // Touchpad gestures, like the hierarchy event above, carry their own
+        // payload struct — XIGesturePinchEvent / XIGestureSwipeEvent, not
+        // XIDeviceEvent — so they must be split off before the cast below.
+        if matches!(
+            cookie.evtype,
+            defines::XI_GesturePinchBegin
+                | defines::XI_GesturePinchUpdate
+                | defines::XI_GesturePinchEnd
+                | defines::XI_GestureSwipeBegin
+                | defines::XI_GestureSwipeUpdate
+                | defines::XI_GestureSwipeEnd
+        ) {
+            handle_xi_gesture_event(win, cookie);
+            (free_event_data)(display, cookie);
+            return;
+        }
+
         let ev = &*(cookie.data as *const defines::XIDeviceEvent);
         // XI2 events name their target in `ev.event` (the event window) —
         // `xev.any.window` overlays the cookie's `extension` field and is NOT
@@ -1849,6 +1895,13 @@ impl XdndState {
 }
 
 pub struct X11Window {
+    /// Rotation accumulated across the current XI pinch. `delta_angle` is a
+    /// per-update delta in degrees, so an absolute angle only exists as a sum.
+    pub pinch_accumulated_rotation: f32,
+    /// Travel accumulated across the current XI swipe; the direction is only
+    /// decided at the end event.
+    pub swipe_accumulated: (f32, f32),
+
     pub xlib: Rc<Xlib>,
     pub egl: Rc<Egl>,
     pub xkb: Rc<Xkb>,
@@ -2648,6 +2701,8 @@ impl X11Window {
         let (
             xi,
             xi_opcode,
+            pinch_accumulated_rotation: 0.0,
+            swipe_accumulated: (0.0, 0.0),
             pen_valuators,
             scroll_valuators,
             eraser_devices,
@@ -3131,6 +3186,8 @@ impl X11Window {
             argb_colormap,
             xi,
             xi_opcode,
+            pinch_accumulated_rotation: 0.0,
+            swipe_accumulated: (0.0, 0.0),
             pen_valuators,
             scroll_valuators,
             eraser_devices,
@@ -7962,5 +8019,118 @@ mod x11_seam_tests {
     fn no_valuator_movement_is_no_scroll() {
         assert!(smooth_scroll_pixels(0.0, 0.0, false).is_none());
         assert!(smooth_scroll_pixels(0.0, 0.0, true).is_none());
+    }
+}
+
+/// Turn an XI 2.4 touchpad gesture into an injected native gesture.
+///
+/// Mirrors the Wayland pointer-gestures path and feeds the same seam
+/// (`inject_native_gesture`), because the two protocols report the same thing
+/// in the same shape: pinch carries an absolute `scale` plus a per-update
+/// angle DELTA in degrees, swipe carries only deltas and is never classified.
+unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGenericEventCookie) {
+    use azul_layout::managers::gesture::{
+        DetectedLongPress, DetectedPinch, DetectedRotation, GestureDirection, NativeGestureEvent,
+    };
+
+    /// Pinch distances are synthesized from `scale`: X11 reports the ratio,
+    /// not the finger separation, so the engine's `DetectedPinch` gets a
+    /// nominal base that makes `current / initial == scale`.
+    const PINCH_NOMINAL_DISTANCE: f32 = 100.0;
+    /// Minimum travel before an ended swipe counts, in logical px.
+    const SWIPE_MIN_TRAVEL: f32 = 40.0;
+
+    match cookie.evtype {
+        defines::XI_GesturePinchBegin => {
+            win.pinch_accumulated_rotation = 0.0;
+        }
+        defines::XI_GesturePinchUpdate => {
+            let ev = &*(cookie.data as *const defines::XIGesturePinchEvent);
+            let center = win.to_logical_pos(ev.event_x as f32, ev.event_y as f32);
+            let scale = ev.scale as f32;
+            win.pinch_accumulated_rotation += ev.delta_angle as f32;
+            let rotation = win.pinch_accumulated_rotation;
+            let Some(ref mut lw) = win.common.layout_window else {
+                return;
+            };
+            // Both are injected: two fingers can pinch and rotate at once, and
+            // the protocol reports both on the same event.
+            if (scale - 1.0).abs() > f32::EPSILON {
+                lw.gesture_drag_manager
+                    .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
+                        scale,
+                        center,
+                        initial_distance: PINCH_NOMINAL_DISTANCE,
+                        current_distance: PINCH_NOMINAL_DISTANCE * scale,
+                        duration_ms: 0,
+                    }));
+            }
+            if rotation.abs() > f32::EPSILON {
+                lw.gesture_drag_manager
+                    .inject_native_gesture(NativeGestureEvent::Rotation(DetectedRotation {
+                        angle_radians: rotation.to_radians(),
+                        center,
+                        duration_ms: 0,
+                    }));
+            }
+        }
+        defines::XI_GesturePinchEnd => {
+            let ev = &*(cookie.data as *const defines::XIGesturePinchEvent);
+            // A pinch that ends with no scale change and no rotation is a
+            // two-finger tap-and-hold, which is the touchpad long press —
+            // the same reading Wayland's hold gesture makes explicit.
+            let was_cancelled = ev.flags & defines::XIGesturePinchEventCancelled != 0;
+            let moved = (ev.scale as f32 - 1.0).abs() > f32::EPSILON
+                || win.pinch_accumulated_rotation.abs() > f32::EPSILON;
+            win.pinch_accumulated_rotation = 0.0;
+            if was_cancelled || moved {
+                return;
+            }
+            let position = win.to_logical_pos(ev.event_x as f32, ev.event_y as f32);
+            if let Some(ref mut lw) = win.common.layout_window {
+                lw.gesture_drag_manager
+                    .inject_native_gesture(NativeGestureEvent::LongPress(DetectedLongPress {
+                        position,
+                        duration_ms: 0,
+                    }));
+            }
+        }
+        defines::XI_GestureSwipeBegin => {
+            win.swipe_accumulated = (0.0, 0.0);
+        }
+        defines::XI_GestureSwipeUpdate => {
+            let ev = &*(cookie.data as *const defines::XIGestureSwipeEvent);
+            win.swipe_accumulated.0 += ev.delta_x as f32;
+            win.swipe_accumulated.1 += ev.delta_y as f32;
+        }
+        defines::XI_GestureSwipeEnd => {
+            let ev = &*(cookie.data as *const defines::XIGestureSwipeEvent);
+            let (dx, dy) = win.swipe_accumulated;
+            win.swipe_accumulated = (0.0, 0.0);
+            // Cancelled means the driver or WM claimed the gesture; acting on
+            // it too would double-handle a workspace switch.
+            if ev.flags & defines::XIGestureSwipeEventCancelled != 0 {
+                return;
+            }
+            if dx.abs().max(dy.abs()) < SWIPE_MIN_TRAVEL {
+                return;
+            }
+            let dir = if dx.abs() > dy.abs() {
+                if dx > 0.0 {
+                    GestureDirection::Right
+                } else {
+                    GestureDirection::Left
+                }
+            } else if dy > 0.0 {
+                GestureDirection::Down
+            } else {
+                GestureDirection::Up
+            };
+            if let Some(ref mut lw) = win.common.layout_window {
+                lw.gesture_drag_manager
+                    .inject_native_gesture(NativeGestureEvent::Swipe(dir));
+            }
+        }
+        _ => {}
     }
 }

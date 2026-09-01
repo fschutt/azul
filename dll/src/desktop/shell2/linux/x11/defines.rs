@@ -695,6 +695,23 @@ pub const GenericEvent: c_int = 35;
 /// `XIAllDevices` (a hierarchy change is not the property of any one device,
 /// so selecting it on `XIAllMasterDevices` would miss slave hotplug entirely).
 pub const XI_HierarchyChanged: c_int = 11;
+/// XInput 2.4 touchpad gesture events. The in-process detector recognises
+/// pinch and rotate from TOUCH POINTS, which an X11 touchpad never delivers —
+/// the driver synthesizes a pointer and keeps the finger geometry — so these
+/// are the only way an X11 client sees a touchpad gesture at all.
+pub const XI_GesturePinchBegin: c_int = 27;
+pub const XI_GesturePinchUpdate: c_int = 28;
+pub const XI_GesturePinchEnd: c_int = 29;
+pub const XI_GestureSwipeBegin: c_int = 30;
+pub const XI_GestureSwipeUpdate: c_int = 31;
+pub const XI_GestureSwipeEnd: c_int = 32;
+
+/// `XIGesturePinchEvent.flags` — the gesture was cancelled rather than
+/// completed (the compositor or driver took it over).
+pub const XIGesturePinchEventCancelled: c_int = 1 << 0;
+/// `XIGestureSwipeEvent.flags` — as above, for swipe.
+pub const XIGestureSwipeEventCancelled: c_int = 1 << 0;
+
 pub const XI_ButtonPress: c_int = 4;
 pub const XI_ButtonRelease: c_int = 5;
 pub const XI_Motion: c_int = 6;
@@ -1341,4 +1358,69 @@ pub struct XIHierarchyEvent {
     pub flags: c_int,
     pub num_info: c_int,
     pub info: *mut XIHierarchyInfo,
+}
+
+
+/// XI 2.4 pinch gesture event. `scale` is absolute (1.0 at begin), `delta_angle`
+/// is a per-update delta in DEGREES — the same shape Wayland's pinch uses.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct XIGesturePinchEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub extension: c_int,
+    pub evtype: c_int,
+    pub time: c_ulong,
+    pub deviceid: c_int,
+    pub sourceid: c_int,
+    pub detail: c_int,
+    pub root: c_ulong,
+    pub event: c_ulong,
+    pub child: c_ulong,
+    pub root_x: f64,
+    pub root_y: f64,
+    pub event_x: f64,
+    pub event_y: f64,
+    pub delta_x: f64,
+    pub delta_y: f64,
+    pub delta_unaccel_x: f64,
+    pub delta_unaccel_y: f64,
+    pub scale: f64,
+    pub delta_angle: f64,
+    pub flags: c_int,
+    pub mods: XIModifierState,
+    pub group: XIGroupState,
+}
+
+/// XI 2.4 swipe gesture event. Same layout as the pinch event minus `scale`
+/// and `delta_angle`.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct XIGestureSwipeEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub extension: c_int,
+    pub evtype: c_int,
+    pub time: c_ulong,
+    pub deviceid: c_int,
+    pub sourceid: c_int,
+    pub detail: c_int,
+    pub root: c_ulong,
+    pub event: c_ulong,
+    pub child: c_ulong,
+    pub root_x: f64,
+    pub root_y: f64,
+    pub event_x: f64,
+    pub event_y: f64,
+    pub delta_x: f64,
+    pub delta_y: f64,
+    pub delta_unaccel_x: f64,
+    pub delta_unaccel_y: f64,
+    pub flags: c_int,
+    pub mods: XIModifierState,
+    pub group: XIGroupState,
 }

@@ -167,7 +167,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 ## Step 7 — shell wiring, no API change
 
 - [x] 7a Wayland: bind `zwp_pointer_gestures_v1` (swipe, pinch, hold) → existing pinch/rotate/swipe filters.
-- [ ] 7b X11: XInput 2.4 `XI_GesturePinch*` / `XI_GestureSwipe*`.
+- [x] 7b X11: XInput 2.4 `XI_GesturePinch*` / `XI_GestureSwipe*`.
 - [ ] 7c Windows: touchpad pinch — handle `WM_GESTURE`, or recognise from the pointer stream.
 - [ ] 7d Wayland: raise `seat_version` cap from `min(7)` to 9; add `axis_value120` and `axis_relative_direction`
       listeners; keep `axis_discrete` as the v5–v7 fallback.
