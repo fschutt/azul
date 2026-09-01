@@ -9047,6 +9047,9 @@ pub trait PlatformWindow {
             let _ = w.device_event_manager.take_raw_motion();
             let _ = w.gamepad_manager.take_pending_hotplug();
             w.gesture_drag_manager.clear_pen_event_pending();
+            // Barrel gestures are one-shot: leaving them latched would
+            // re-fire PenSqueeze on every pass for the life of the window.
+            let _ = w.gesture_drag_manager.take_pen_barrel_gestures();
             // The injected native gesture (macOS magnify/rotate, debug-server
             // injection) is NOT cleared here: the PinchIn/PinchOut callbacks
             // this pass is about to dispatch read it live through

@@ -94,6 +94,13 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 10d
+
+- [ ] 10d-i The `UIPencilInteraction` object is not CREATED or attached to the view. The delegate methods
+      exist and are registered, but something has to `[[UIPencilInteraction alloc] init]`, set its
+      delegate to the view and call `addInteraction:` — and gate it on iOS 12.1+ / 17.5+ respectively,
+      since `didReceiveSqueeze:` does not exist on older SDKs.
+
 ### Follow-ups opened by 10c
 
 - [ ] 10c-i iOS does not fill `keyboard`: it needs `UIKeyboardWillChangeFrameNotification` observed and
@@ -234,7 +241,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 - [ ] 5b-i `PenState` has no `hover_distance` field yet (that is item 8c), so Wayland's `tool_distance` is
       captured into `TabletPenPending.distance` and stops there. Wire it through once 8c lands.
-- [ ] 5b-ii `PenSqueeze` / `PenDoubleTap` have no producer on any platform — they are `UIPencilInteraction`
+- [x] 5b-ii DONE by 10d — `PenSqueeze` / `PenDoubleTap` now have a producer. Original: they had no producer on any platform — they are `UIPencilInteraction`
       only, which is item 10d. The EventType, planning and matcher arms are in place waiting for it.
 
 ### Follow-ups opened by 4b/4c
@@ -353,7 +360,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [x] 10a (native side + JNI entry points + keyboard request; the Java class is 10a-i) Android `InputConnection` (JNI bridge) → text input + the composition events from 3d.
 - [x] 10b (UIKeyInput + UIPress done; full UITextInput is 10b-i) iOS `UITextInput` → text input; `UIPress`/`UIKeyCommand` for hardware keyboard.
 - [x] 10c (keyboard inset modelled + Android bridge; safe-area itself already existed on macOS/iOS. iOS keyboard notifications are 10c-i) Insets / safe area / keyboard avoidance as a layout input (Android `WindowInsets`, iOS safe area).
-- [ ] 10d iOS `UIPencilInteraction` → `PenSqueeze` + `PenDoubleTap`.
+- [x] 10d iOS `UIPencilInteraction` → `PenSqueeze` + `PenDoubleTap`.
 - [ ] 10e `coalescedTouches` / `predictedTouches` (iOS) and the equivalent elsewhere.
 - [ ] 10f Real gamepad backends to replace `gamepad/android.rs` (16 lines) and `gamepad/apple.rs` (17 lines).
 

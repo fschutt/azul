@@ -655,6 +655,10 @@ pub struct GestureAndDragManager {
     pub trackpad_pressure_stage: i32,
     /// Most recent rotary-control rotation. `None` until a dial reports.
     pub dial_state: Option<DialState>,
+    /// A pen barrel squeeze awaiting dispatch (Apple Pencil Pro).
+    pub pending_pen_squeeze: bool,
+    /// A pen barrel double-tap awaiting dispatch (Apple Pencil 2+).
+    pub pending_pen_double_tap: bool,
     /// Monotonic nanos of the previous pen sample (rate measurement);
     /// cleared on proximity-out so a gap never reads as a slow rate.
     pub last_pen_sample_nanos: Option<u64>,
@@ -754,6 +758,8 @@ impl GestureAndDragManager {
             pen_event_pending: false,
             trackpad_pressure_stage: 0,
             dial_state: None,
+            pending_pen_squeeze: false,
+            pending_pen_double_tap: false,
             last_pen_sample_nanos: None,
             pen_rate_ema_hz: 0.0,
             pad_state: None,
@@ -1249,6 +1255,38 @@ impl GestureAndDragManager {
     #[must_use]
     pub const fn get_dial_state(&self) -> Option<DialState> {
         self.dial_state
+    }
+
+    /// Record a pen barrel gesture — a squeeze or a double-tap.
+    ///
+    /// Latched rather than dispatched directly because these arrive on their
+    /// own UIKit channel, outside the touch stream, so there is no pen sample
+    /// to attach them to. The event-determination pass drains the latch and
+    /// emits `PenSqueeze` / `PenDoubleTap`.
+    pub fn note_pen_barrel_gesture(&mut self, is_squeeze: bool) {
+        if is_squeeze {
+            self.pending_pen_squeeze = true;
+        } else {
+            self.pending_pen_double_tap = true;
+        }
+        self.pen_event_pending = true;
+    }
+
+    /// Read the pen barrel gestures without consuming them — event
+    /// determination takes `&self`, so the drain happens in the shell's
+    /// clear-pending block alongside `clear_pen_event_pending`.
+    #[must_use]
+    pub const fn peek_pen_barrel_gestures(&self) -> (bool, bool) {
+        (self.pending_pen_squeeze, self.pending_pen_double_tap)
+    }
+
+    /// Drain the pen barrel gestures recorded since the last pass, as
+    /// `(squeeze, double_tap)`.
+    pub fn take_pen_barrel_gestures(&mut self) -> (bool, bool) {
+        (
+            core::mem::take(&mut self.pending_pen_squeeze),
+            core::mem::take(&mut self.pending_pen_double_tap),
+        )
     }
 
     /// Clear pen state (when pen leaves proximity)

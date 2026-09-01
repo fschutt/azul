@@ -1874,3 +1874,55 @@ unsafe fn forward_presses_to_super(
     };
     let _: () = objc::__send_super_message(&sup, sel, (presses, event)).unwrap_or(());
 }
+
+// ===== Apple Pencil interactions =====
+//
+// Squeeze and double-tap do NOT arrive through `touchesBegan:` — they are not
+// touches at all. The pencil reports them over its own Bluetooth channel and
+// UIKit surfaces them through `UIPencilInteraction`, an interaction object
+// attached to a view. Without one, `EventType::PenSqueeze` and `PenDoubleTap`
+// have no producer on any platform, which is the state 5b left them in.
+
+/// `UIPencilInteractionDelegate.pencilInteractionDidTap:` — Pencil 2 and
+/// later, a double-tap on the barrel.
+extern "C" fn pencil_did_tap(_this: &Object, _cmd: Sel, _interaction: *mut Object) {
+    inject_pen_gesture(false);
+}
+
+/// `UIPencilInteractionDelegate.pencilInteraction:didReceiveSqueeze:` —
+/// Pencil Pro only.
+///
+/// Fires for every phase of the squeeze (began / changed / ended), and only
+/// the END is a completed gesture — acting on `began` would fire the moment
+/// the user touched the barrel, before they had committed to anything.
+extern "C" fn pencil_did_squeeze(
+    _this: &Object,
+    _cmd: Sel,
+    _interaction: *mut Object,
+    squeeze: *mut Object,
+) {
+    // UIPencilInteraction.Squeeze.Phase: 0 = began, 1 = changed, 2 = ended,
+    // 3 = cancelled.
+    let phase: i64 = unsafe { msg_send![squeeze, phase] };
+    if phase != 2 {
+        return;
+    }
+    inject_pen_gesture(true);
+}
+
+/// Feed a pen barrel gesture into the engine.
+///
+/// Both go through the pen state rather than the gesture manager's native
+/// injection, because they belong to the PEN — an app reads them from the same
+/// place it reads pressure and tilt, and a squeeze while no pen is in
+/// proximity is not a thing that can happen.
+fn inject_pen_gesture(is_squeeze: bool) {
+    let Some(window) = (unsafe { azul_ios_window() }) else {
+        return;
+    };
+    if let Some(lw) = window.common.layout_window.as_mut() {
+        lw.gesture_drag_manager.note_pen_barrel_gesture(is_squeeze);
+    }
+    let result = window.process_window_events(0);
+    window.handle_process_event_result(result);
+}

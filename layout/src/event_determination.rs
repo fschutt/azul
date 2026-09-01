@@ -1005,6 +1005,35 @@ pub fn determine_all_events(
         }
     }
 
+    // Pen BARREL gestures — squeeze and double-tap.
+    //
+    // Outside the pen-state diff above, because they do not arrive as pen
+    // samples: the pencil reports them over its own channel and UIKit
+    // surfaces them through UIPencilInteraction, so there is no motion or
+    // pressure change to diff. They also fire while the pen is HOVERING, not
+    // only while it is in contact, which is the point of a barrel control.
+    if let Some(manager) = gesture_manager {
+        let (squeeze, double_tap) = manager.peek_pen_barrel_gestures();
+        if squeeze {
+            events.push(SyntheticEvent::new(
+                EventType::PenSqueeze,
+                EventSource::User,
+                mouse_target,
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
+        if double_tap {
+            events.push(SyntheticEvent::new(
+                EventType::PenDoubleTap,
+                EventSource::User,
+                mouse_target,
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
+    }
+
     // Gesture Events
 
     if let Some(manager) = gesture_manager {
