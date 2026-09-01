@@ -100,7 +100,13 @@ fn box_str(s: &BoxOrStaticString) -> &str {
 const DOC_CSS: &str = "
     body { font-family: 'Liberation Sans', sans-serif; font-size: 15px;
            color: #1a1a1a; line-height: 1.35; }
-    p    { margin-bottom: 11px; }
+    /* min-height is one line box. An EMPTY paragraph has no inline content,
+       so it lays out at zero height — invisible, and with no area to click,
+       which means the caret can never be placed in a blank document and the
+       soft keyboard can never be summoned. Every word processor gives an
+       empty paragraph a full line for exactly this reason. 15px * 1.35
+       line-height = 20px. */
+    p    { margin-bottom: 11px; min-height: 20px; }
     h1   { font-size: 28px; color: #2e74b5; margin-bottom: 12px; margin-top: 4px; }
     h2   { font-size: 21px; color: #2e74b5; margin-bottom: 10px; margin-top: 4px; }
     h3   { font-size: 17px; color: #1f4d78; margin-bottom: 9px;  margin-top: 4px; }
