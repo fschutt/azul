@@ -555,16 +555,34 @@ impl RenderContext {
     /// - `css_props[node]` with state=Hover → `#az_N:hover { ... }` (browser-interactive)
     /// - `css_props[node]` with state=Focus → `#az_N:focus { ... }` etc.
     fn emit_css_from_cache(&mut self, cache: &CssPropertyCache, node_idx: usize, az_id: usize) {
-        // Base computed styles (all conditions already resolved by Azul)
-        if let Some(computed) = cache.computed_values.get(node_idx) {
-            if !computed.is_empty() {
-                let decls: Vec<String> = computed
-                    .iter()
-                    .map(|(_ptype, pwith)| pwith.property.format_css())
-                    .collect();
-                self.css_rules
-                    .push(format!("#az_{} {{ {} }}", az_id, decls.join(" ")));
+        // Base computed styles (all conditions already resolved by Azul).
+        //
+        // TWO SOURCES, because no single one holds them all: `computed_values`
+        // is INHERITABLE-only by invariant (see `CssPropertyCache`), so the
+        // node's own non-inherited properties — display, margin, padding,
+        // position — come from the Normal-state entries of `cascaded_props`
+        // (which is also where `apply_ua_css` puts the UA defaults) and
+        // `css_props` (author rules), in that cascade order. Reading only
+        // `computed_values` here used to work because the cascade stored every
+        // property in it; it no longer does, and emitting a page with no
+        // `display` or `margin` would be silently wrong.
+        let mut decls: Vec<String> = Vec::new();
+        for slice in [
+            cache.cascaded_props.get_slice(node_idx),
+            cache.css_props.get_slice(node_idx),
+        ] {
+            for sp in slice {
+                if sp.state == azul_css::dynamic_selector::PseudoStateType::Normal {
+                    decls.push(sp.property.format_css());
+                }
             }
+        }
+        if let Some(computed) = cache.computed_values.get(node_idx) {
+            decls.extend(computed.iter().map(|(_t, p)| p.property.format_css()));
+        }
+        if !decls.is_empty() {
+            self.css_rules
+                .push(format!("#az_{} {{ {} }}", az_id, decls.join(" ")));
         }
 
         // Interactive pseudo-state rules from the css_props cache

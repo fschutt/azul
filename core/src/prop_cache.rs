@@ -755,7 +755,13 @@ pub struct CssPropertyCache {
     // unified across all pseudo-states.
     pub css_props: FlatVecVec<StatefulCssProperty>,
 
-    // Pre-resolved inherited properties (sorted Vec per node, keyed by CssPropertyType)
+    /// Pre-resolved INHERITABLE properties, sorted per node and keyed by
+    /// `CssPropertyType`.
+    ///
+    /// INVARIANT: every entry's `prop_type.is_inheritable()` is true — enforced
+    /// at the single write site, `store_if_changed`. Non-inherited properties
+    /// live in `cascaded_props` / `css_props` / the compact cache; storing them
+    /// here too made this 80% unreachable duplicate (see `store_if_changed`).
     pub computed_values: Vec<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
 
     // Compact layout cache: three-tier numeric encoding for O(1) layout lookups.
@@ -4828,13 +4834,40 @@ impl CssPropertyCache {
     }
 
     /// Store computed values if changed, returns true if values were updated
+    /// Store the node's resolved values — INHERITABLE ONLY.
+    ///
+    /// `computed_values` is documented as "pre-resolved INHERITED properties",
+    /// and every consumer treats it that way: `get_property_slow` consults it
+    /// only when `css_property_type.is_inheritable()`, `inherit_from_parent`
+    /// filters to inheritable before handing values down, and
+    /// `transient::extract_subtree_as_dom` filters again on the way out
+    /// ("non-inheritable entries must not travel"). But the cascade built the
+    /// FULL set here and stored it, so 80% of the store was entries no reader
+    /// could reach: on the 50k-node XHTML bench, 226 610 of 284 438 entries
+    /// were `display` (one per node), `margin-*`, `padding-*` and
+    /// `vertical-align` — none of them inheritable, none of them readable
+    /// through the `is_inheritable()` gate.
+    ///
+    /// Filtering here is safe for the cascade because the only parent value the
+    /// cascade reads back is `FontSize` (`process_property` →
+    /// `resolve_font_size_property`), which is itself inheritable. Non-inherited
+    /// properties are still answered by `cascaded_props` / `css_props` / the
+    /// compact cache, which is where the layout path reads them from anyway.
     fn store_if_changed(&mut self, ctx: &InheritanceContext) -> bool {
-        let values_changed =
-            self.computed_values.get(ctx.node_id.index()) != Some(&ctx.computed_values);
+        let slot = &mut self.computed_values[ctx.node_id.index()];
+        let inheritable = ctx
+            .computed_values
+            .iter()
+            .filter(|(pt, _)| pt.is_inheritable());
 
-        self.computed_values[ctx.node_id.index()].clone_from(&ctx.computed_values);
-
-        values_changed
+        // Compare without building the filtered vec first: the common case is
+        // "unchanged", and this runs once per node per cascade.
+        let changed = slot.len() != inheritable.clone().count()
+            || slot.iter().zip(inheritable.clone()).any(|(a, b)| a != b);
+        if changed {
+            *slot = inheritable.cloned().collect();
+        }
+        changed
     }
 }
 
