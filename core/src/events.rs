@@ -3372,6 +3372,18 @@ pub enum SystemChange {
     SetFocus {
         new_focus: Option<DomNodeId>,
         old_focus: Option<DomNodeId>,
+        /// Should this focus be INDICATED - the W3C `:focus-visible` question.
+        ///
+        /// It travels WITH the change because the handler restyles and
+        /// regenerates the display list, and the focus ring is emitted by that
+        /// regeneration. Setting the flag afterwards (which the shell used to
+        /// do for the keyboard route) means the frame that was just built did
+        /// not know focus was indicated, so the ring only appeared on whatever
+        /// repaint happened NEXT - a click, a resize. On the device that read
+        /// as "Tab does not ring anything until you click something", while the
+        /// E2E harness - which happened to set the flag first - showed a ring
+        /// and passed (device report, 2026-09-01).
+        visible: bool,
     },
     /// Clear all text selections.
     ClearAllSelections,
@@ -4530,6 +4542,10 @@ pub fn post_callback_filter_system_changes(
             changes.push(SystemChange::SetFocus {
                 new_focus,
                 old_focus,
+                // A focus move a callback made (or that survived
+                // preventDefault) is programmatic, not a keyboard walk: focused
+                // but not indicated, like `autofocus`.
+                visible: false,
             });
         }
         return changes;
@@ -4567,6 +4583,7 @@ pub fn post_callback_filter_system_changes(
         changes.push(SystemChange::SetFocus {
             new_focus,
             old_focus,
+            visible: false,
         });
     }
 

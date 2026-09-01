@@ -3389,7 +3389,8 @@ mod autotest_generated {
             out,
             vec![SystemChange::SetFocus {
                 new_focus: new,
-                old_focus: old
+                old_focus: old,
+                visible: false
             }]
         );
     }
@@ -3464,7 +3465,8 @@ mod autotest_generated {
                 out.last(),
                 Some(&SystemChange::SetFocus {
                     new_focus: new,
-                    old_focus: old
+                    old_focus: old,
+                    visible: false
                 })
             );
             assert_eq!(
@@ -3667,6 +3669,7 @@ mod autotest_generated {
             Some(&SystemChange::SetFocus {
                 new_focus: Some(dnid(0, 4)),
                 old_focus: None,
+                visible: false,
             }),
             "a `NONE` node id must decode to `None`, not to node 0"
         );

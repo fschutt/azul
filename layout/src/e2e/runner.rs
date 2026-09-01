@@ -1108,7 +1108,7 @@ impl Runner {
                 if old_focus.and_then(|f| f.node.into_crate_internal())
                     != new_focus_target.node.into_crate_internal()
                 {
-                    result = result.max(self.set_focus(Some(new_focus_target), old_focus));
+                    result = result.max(self.set_focus(Some(new_focus_target), old_focus, false));
                     mouse_click_focus_changed = true;
                 }
             } else if old_focus.is_some() {
@@ -1121,7 +1121,7 @@ impl Runner {
                         .any(|h| !h.scrollbar_hit_test_nodes.is_empty())
                 });
                 if !on_scrollbar {
-                    result = result.max(self.set_focus(None, old_focus));
+                    result = result.max(self.set_focus(None, old_focus, false));
                     mouse_click_focus_changed = true;
                 }
             }
@@ -1245,6 +1245,7 @@ impl Runner {
         &mut self,
         new_focus: Option<DomNodeId>,
         old_focus: Option<DomNodeId>,
+        visible: bool,
     ) -> ProcessEventResult {
         use azul_layout::managers::scroll_into_view::ScrollIntoViewOptions;
 
@@ -1254,7 +1255,10 @@ impl Runner {
         let now = self.now();
         let window_state = self.window_state.clone();
         let lw = &mut self.layout_window;
-        lw.focus_manager.set_focused_node(new_focus);
+        // BEFORE the restyle below, which is what rebuilds the display list the
+        // focus ring is emitted into - see the dll's `SystemChange::SetFocus`.
+        lw.focus_manager
+            .set_focused_node_with_visibility(new_focus, visible);
         if let Some(focus_node) = new_focus {
             lw.scroll_node_into_view(focus_node, ScrollIntoViewOptions::nearest(), now);
         }
@@ -3319,14 +3323,13 @@ impl Runner {
                 // it, and a modality set in only one of the two would make the
                 // harness disagree with the device about whether focus is
                 // indicated.
-                self.layout_window.focus_manager.focus_is_visible = true;
-                (self.set_focus(new_focus, focused), true)
+                (self.set_focus(new_focus, focused, true), true)
             }
             DefaultAction::ClearFocus => {
                 if focused.is_none() {
                     return (ProcessEventResult::DoNothing, false);
                 }
-                (self.set_focus(None, focused), true)
+                (self.set_focus(None, focused, false), true)
             }
             DefaultAction::InsertLineBreakAtCursor { target } => {
                 // Same as the DLL shells: plain-text Enter records a literal
