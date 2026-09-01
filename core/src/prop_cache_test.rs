@@ -1799,13 +1799,14 @@ mod autotest_generated {
         assert_eq!(c.computed_values.len(), 2);
         assert_eq!(changed.len(), 2, "both nodes gained a computed value");
 
-        let (t, v) = &c.computed_values[1][0];
+        let entries = c.computed_values.values_for(1);
+        let (t, v) = &entries[0];
         assert_eq!(*t, CssPropertyType::FontSize);
         assert_eq!(v.origin, CssPropertyOrigin::Inherited);
         assert!(close(font_size_parts(&v.property).unwrap().1, 20.0));
 
         // the parent's own value keeps the Own origin
-        assert_eq!(c.computed_values[0][0].1.origin, CssPropertyOrigin::Own);
+        assert_eq!(c.computed_values.values_for(0)[0].1.origin, CssPropertyOrigin::Own);
     }
 
     #[test]
@@ -1818,7 +1819,8 @@ mod autotest_generated {
         let mut c = CssPropertyCache::empty(2);
         c.compute_inherited_values(&hierarchy, &nodes);
 
-        let (t, v) = &c.computed_values[1][0];
+        let entries = c.computed_values.values_for(1);
+        let (t, v) = &entries[0];
         assert_eq!(*t, CssPropertyType::FontSize);
         assert_eq!(v.origin, CssPropertyOrigin::Own);
         let (metric, n) = font_size_parts(&v.property).unwrap();

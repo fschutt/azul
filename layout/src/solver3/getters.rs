@@ -149,9 +149,14 @@ fn compute_all_font_sizes_px(styled_dom: &StyledDom) -> Vec<f32> {
         let dom_id = NodeId::new(idx);
 
         // Step 1: computed_values short-circuit (matches original).
-        if let Some(vec) = cache.computed_values.get(idx) {
-            if let Ok(cv_idx) = vec.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k) {
-                if let CssProperty::FontSize(css_val) = &vec[cv_idx].1.property {
+        // Keyed lookup straight into the transposed store — no per-node vec to
+        // materialise, and the bucket scan is over a handful of entries.
+        if let Some(cv) = cache
+            .computed_values
+            .get(idx, CssPropertyType::FontSize)
+        {
+            {
+                if let CssProperty::FontSize(css_val) = &cv.property {
                     if let Some(fs) = css_val.get_property() {
                         if fs.inner.metric == SizeMetric::Px {
                             sizes[idx] = fs.inner.number.get();
@@ -331,13 +336,14 @@ fn resolve_font_size_one(
     let node_data = &styled_dom.node_data.as_container()[dom_id];
     let cache = &styled_dom.css_property_cache.ptr;
 
-    if let Some(vec) = cache.computed_values.get(dom_id.index()) {
-        if let Ok(idx) = vec.binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k) {
-            if let CssProperty::FontSize(css_val) = &vec[idx].1.property {
-                if let Some(fs) = css_val.get_property() {
-                    if fs.inner.metric == azul_css::props::basic::length::SizeMetric::Px {
-                        return fs.inner.number.get();
-                    }
+    if let Some(cv) = cache
+        .computed_values
+        .get(dom_id.index(), CssPropertyType::FontSize)
+    {
+        if let CssProperty::FontSize(css_val) = &cv.property {
+            if let Some(fs) = css_val.get_property() {
+                if fs.inner.metric == azul_css::props::basic::length::SizeMetric::Px {
+                    return fs.inner.number.get();
                 }
             }
         }

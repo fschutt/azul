@@ -711,6 +711,187 @@ impl<'a, T> Iterator for FlatVecVecIter<'a, T> {
 
 impl<T> ExactSizeIterator for FlatVecVecIter<'_, T> {}
 
+
+/// The slow path's inherited-value store, TRANSPOSED: one copy of each distinct
+/// value plus the nodes that resolve to it.
+///
+/// The per-node shape (`Vec<Vec<(CssPropertyType, CssPropertyWithOrigin)>>`)
+/// paid for the VALUE once per node, and `CssProperty` is a 136-byte enum held
+/// inline. Inherited values are shared down a subtree by definition, so that is
+/// the worst possible layout for them: on the 50k-node XHTML bench the store
+/// held 53 476 entries carrying just EIGHT distinct values — `cursor` alone was
+/// 29 391 entries of one value, re-paid in every descendant of the node that
+/// set it.
+///
+/// Transposed, the same content is 215 KB instead of 8.1 MB (38x). The lookup
+/// stays cheap because the bucket count is tiny: a linear scan over ~6 property
+/// types beats hashing, and the node list is sorted (nodes are cascaded in
+/// increasing index order, so it is built by `push`) for a binary search.
+///
+/// INVARIANT: every bucket's `prop_type.is_inheritable()` is true — this store
+/// is only ever written through [`CssPropertyCache::store_if_changed`], which
+/// filters. Non-inherited properties live in `cascaded_props` / `css_props` /
+/// the compact cache.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct InheritedValues {
+    buckets: Vec<InheritedBucket>,
+    /// Node count this store was sized for; `Vec<Vec<_>>::len()` used to answer
+    /// this and several callers (and tests) still ask.
+    node_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct InheritedBucket {
+    prop_type: CssPropertyType,
+    value: CssPropertyWithOrigin,
+    /// Node indices with this value, ascending.
+    nodes: Vec<u32>,
+}
+
+impl InheritedValues {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            buckets: Vec::new(),
+            node_count: 0,
+        }
+    }
+
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.node_count
+    }
+
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.node_count == 0
+    }
+
+    /// Number of distinct (type, value) buckets — the figure the scan cost is
+    /// linear in. Exposed for the memory/coverage tests.
+    #[must_use]
+    pub fn bucket_count(&self) -> usize {
+        self.buckets.len()
+    }
+
+    /// Total (node, property) pairs — what the old per-node vecs would have
+    /// stored one entry each for.
+    #[must_use]
+    pub fn entry_count(&self) -> usize {
+        self.buckets.iter().map(|b| b.nodes.len()).sum()
+    }
+
+    pub fn grow_to(&mut self, node_count: usize) {
+        self.node_count = self.node_count.max(node_count);
+    }
+
+    /// Drop every value, keeping the sizing. Called at the head of a cascade.
+    pub fn clear_values(&mut self) {
+        self.buckets.clear();
+    }
+
+    /// The resolved value of `prop_type` for `node`, if any.
+    ///
+    /// Linear over buckets (a handful) then binary over the node list.
+    #[must_use]
+    pub fn get(&self, node: usize, prop_type: CssPropertyType) -> Option<&CssPropertyWithOrigin> {
+        let n = u32::try_from(node).ok()?;
+        self.buckets
+            .iter()
+            .find(|b| b.prop_type == prop_type && b.nodes.binary_search(&n).is_ok())
+            .map(|b| &b.value)
+    }
+
+    /// Every (type, value) this node resolved to, ascending by type — the shape
+    /// the per-node `Vec` used to hand out.
+    #[must_use]
+    pub fn values_for(&self, node: usize) -> Vec<(CssPropertyType, CssPropertyWithOrigin)> {
+        let Ok(n) = u32::try_from(node) else {
+            return Vec::new();
+        };
+        let mut out: Vec<_> = self
+            .buckets
+            .iter()
+            .filter(|b| b.nodes.binary_search(&n).is_ok())
+            .map(|b| (b.prop_type, b.value.clone()))
+            .collect();
+        out.sort_by_key(|(t, _)| *t);
+        out
+    }
+
+    /// `values_for`, as an `Option` that is `None` when the node resolved to
+    /// nothing — the shape `Vec<Vec<_>>::get` had, so `if let Some(..)` call
+    /// sites keep their structure.
+    #[must_use]
+    pub fn values_for_opt(
+        &self,
+        node: usize,
+    ) -> Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> {
+        let v = self.values_for(node);
+        (!v.is_empty()).then_some(v)
+    }
+
+    /// Record `entries` as `node`'s resolved set.
+    ///
+    /// Nodes are cascaded in ascending index order, so each `nodes` list is
+    /// built by `push` and stays sorted without an insert.
+    pub fn set_node(&mut self, node: usize, entries: &[(CssPropertyType, CssPropertyWithOrigin)]) {
+        let Ok(n) = u32::try_from(node) else { return };
+        for (prop_type, value) in entries {
+            match self
+                .buckets
+                .iter_mut()
+                .find(|b| b.prop_type == *prop_type && b.value == *value)
+            {
+                Some(b) => {
+                    if b.nodes.last() != Some(&n) {
+                        b.nodes.push(n);
+                    }
+                }
+                None => self.buckets.push(InheritedBucket {
+                    prop_type: *prop_type,
+                    value: value.clone(),
+                    nodes: vec![n],
+                }),
+            }
+        }
+    }
+
+    /// Absorb another store whose nodes sit after this one's (subtree
+    /// composition), shifting its node indices by this store's node count.
+    pub fn append(&mut self, other: &mut Self) {
+        let shift = u32::try_from(self.node_count).unwrap_or(u32::MAX);
+        for mut ob in core::mem::take(&mut other.buckets) {
+            for n in &mut ob.nodes {
+                *n = n.saturating_add(shift);
+            }
+            match self
+                .buckets
+                .iter_mut()
+                .find(|b| b.prop_type == ob.prop_type && b.value == ob.value)
+            {
+                Some(b) => b.nodes.extend_from_slice(&ob.nodes),
+                None => self.buckets.push(ob),
+            }
+        }
+        self.node_count += other.node_count;
+        other.node_count = 0;
+    }
+
+    /// Approximate retained heap bytes: one value per bucket plus the node ids.
+    #[must_use]
+    pub fn heap_bytes(&self) -> usize {
+        let entry = size_of::<(CssPropertyType, CssPropertyWithOrigin)>();
+        self.buckets.capacity() * size_of::<InheritedBucket>()
+            + self.buckets.len() * entry
+            + self
+                .buckets
+                .iter()
+                .map(|b| b.nodes.capacity() * size_of::<u32>())
+                .sum::<usize>()
+    }
+}
+
 // NOTE: To avoid large memory allocations, this is a "cache" that stores all the CSS properties
 // found in the DOM. This cache exists on a per-DOM basis, so it scales independent of how many
 // nodes are in the DOM.
@@ -762,7 +943,7 @@ pub struct CssPropertyCache {
     /// at the single write site, `store_if_changed`. Non-inherited properties
     /// live in `cascaded_props` / `css_props` / the compact cache; storing them
     /// here too made this 80% unreachable duplicate (see `store_if_changed`).
-    pub computed_values: Vec<Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
+    pub computed_values: InheritedValues,
 
     // Compact layout cache: three-tier numeric encoding for O(1) layout lookups.
     // Built once after restyle + apply_ua_css + compute_inherited_values.
@@ -845,10 +1026,7 @@ impl CssPropertyCache {
         let cascaded_bytes = self.cascaded_props.heap_bytes(stateful_sz);
         let css_bytes = self.css_props.heap_bytes(stateful_sz);
 
-        let mut computed_bytes = self.computed_values.capacity() * outer_vec_sz;
-        for v in &self.computed_values {
-            computed_bytes += v.capacity() * computed_entry_sz;
-        }
+        let computed_bytes = self.computed_values.heap_bytes();
 
         let user_overridden_bytes = {
             let mut b = self.user_overridden_properties.capacity() * outer_vec_sz;
@@ -2061,7 +2239,7 @@ impl CssPropertyCache {
             cascaded_props: FlatVecVec::new(node_count),
             css_props: FlatVecVec::new(node_count),
 
-            computed_values: Vec::new(),
+            computed_values: InheritedValues::new(),
             compact_cache: None,
             global_css_props: Vec::new(),
             resolved_font_sizes_px: crate::sync::OnceLock::new(),
@@ -2691,10 +2869,8 @@ impl CssPropertyCache {
         // Check computed values cache for inherited properties
         // Sorted Vec with binary search
         if css_property_type.is_inheritable() {
-            if let Some(vec) = self.computed_values.get(node_id.index()) {
-                if let Ok(idx) = vec.binary_search_by_key(css_property_type, |(k, _)| *k) {
-                    return Some(&vec[idx].1.property);
-                }
+            if let Some(v) = self.computed_values.get(node_id.index(), *css_property_type) {
+                return Some(&v.property);
             }
         }
 
@@ -4573,18 +4749,24 @@ impl CssPropertyCache {
         node_hierarchy: &[NodeHierarchyItem],
         node_data: &[NodeData],
     ) -> Vec<NodeId> {
-        if self.computed_values.len() < node_hierarchy.len() {
-            self.computed_values
-                .resize(node_hierarchy.len(), Vec::new());
-        }
+        self.computed_values.grow_to(node_hierarchy.len());
+        // The cascade rewrites every node, and the transposed store appends to
+        // per-value node lists — so it starts empty or the previous pass's
+        // nodes would still be listed. Change detection compares against the
+        // snapshot taken below, not against the live store.
+        let previous = core::mem::replace(&mut self.computed_values, InheritedValues::new());
+        self.computed_values.grow_to(node_hierarchy.len());
         node_hierarchy
             .iter()
             .enumerate()
             .filter_map(|(node_index, hierarchy_item)| {
                 let node_id = NodeId::new(node_index);
                 let parent_id = hierarchy_item.parent_id();
+                // Materialised from the transposed store (a handful of bucket
+                // probes) instead of DEEP-CLONING the parent's vec of 136-byte
+                // enums once per node, which is what the per-node shape forced.
                 let parent_computed: Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
-                    parent_id.and_then(|pid| self.computed_values.get(pid.index()).cloned());
+                    parent_id.map(|pid| self.computed_values.values_for(pid.index()));
 
                 let mut ctx = InheritanceContext {
                     node_id,
@@ -4607,7 +4789,7 @@ impl CssPropertyCache {
                 );
 
                 // Check for changes and store
-                let changed = self.store_if_changed(&ctx);
+                let changed = self.store_if_changed(&ctx, &previous);
                 changed.then_some(node_id)
             })
             .collect()
@@ -4853,20 +5035,19 @@ impl CssPropertyCache {
     /// `resolve_font_size_property`), which is itself inheritable. Non-inherited
     /// properties are still answered by `cascaded_props` / `css_props` / the
     /// compact cache, which is where the layout path reads them from anyway.
-    fn store_if_changed(&mut self, ctx: &InheritanceContext) -> bool {
-        let slot = &mut self.computed_values[ctx.node_id.index()];
-        let inheritable = ctx
+    fn store_if_changed(
+        &mut self,
+        ctx: &InheritanceContext,
+        previous: &InheritedValues,
+    ) -> bool {
+        let inheritable: Vec<(CssPropertyType, CssPropertyWithOrigin)> = ctx
             .computed_values
             .iter()
-            .filter(|(pt, _)| pt.is_inheritable());
-
-        // Compare without building the filtered vec first: the common case is
-        // "unchanged", and this runs once per node per cascade.
-        let changed = slot.len() != inheritable.clone().count()
-            || slot.iter().zip(inheritable.clone()).any(|(a, b)| a != b);
-        if changed {
-            *slot = inheritable.cloned().collect();
-        }
+            .filter(|(pt, _)| pt.is_inheritable())
+            .cloned()
+            .collect();
+        let changed = previous.values_for(ctx.node_id.index()) != inheritable;
+        self.computed_values.set_node(ctx.node_id.index(), &inheritable);
         changed
     }
 }

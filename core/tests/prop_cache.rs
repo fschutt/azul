@@ -69,15 +69,15 @@ fn test_computed_values_exist_for_all_nodes() {
     let node_2 = azul_core::dom::NodeId::new(2);
 
     assert!(
-        cache.computed_values.get(node_0.index()).is_some(),
+        cache.computed_values.values_for_opt(node_0.index()).is_some(),
         "Node 0 should have computed values"
     );
     assert!(
-        cache.computed_values.get(node_1.index()).is_some(),
+        cache.computed_values.values_for_opt(node_1.index()).is_some(),
         "Node 1 should have computed values"
     );
     assert!(
-        cache.computed_values.get(node_2.index()).is_some(),
+        cache.computed_values.values_for_opt(node_2.index()).is_some(),
         "Node 2 should have computed values"
     );
 }
@@ -96,10 +96,10 @@ fn test_inline_css_takes_precedence() {
     let node_0 = azul_core::dom::NodeId::new(0);
     let computed = cache
         .computed_values
-        .get(node_0.index())
+        .values_for_opt(node_0.index())
         .expect("should have computed values");
     let font_size_prop =
-        find_prop(computed, &CssPropertyType::FontSize).expect("should have font-size");
+        find_prop(&computed, &CssPropertyType::FontSize).expect("should have font-size");
 
     assert_eq!(font_size_prop.origin, CssPropertyOrigin::Own);
 
@@ -126,10 +126,10 @@ fn test_css_stylesheet_applies() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(p_id.index())
+        .values_for_opt(p_id.index())
         .expect("p should have computed values");
 
-    if let Some(font_size_prop) = find_prop(computed, &CssPropertyType::FontSize) {
+    if let Some(font_size_prop) = find_prop(&computed, &CssPropertyType::FontSize) {
         if let CssProperty::FontSize(val) = &font_size_prop.property {
             if let Some(size) = val.get_property() {
                 assert!((size.inner.number.get() - 18.0).abs() < 0.001);
@@ -158,10 +158,10 @@ fn test_inherited_property_has_correct_origin() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(p_id.index())
+        .values_for_opt(p_id.index())
         .expect("p should have computed values");
     let font_size_prop =
-        find_prop(computed, &CssPropertyType::FontSize).expect("should have font-size");
+        find_prop(&computed, &CssPropertyType::FontSize).expect("should have font-size");
 
     // Check that P has the correct font-size value (inherited from div)
     if let CssProperty::FontSize(val) = &font_size_prop.property {
@@ -207,10 +207,10 @@ fn test_own_property_overrides_inherited() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(p_id.index())
+        .values_for_opt(p_id.index())
         .expect("p should have computed values");
     let font_size_prop =
-        find_prop(computed, &CssPropertyType::FontSize).expect("should have font-size");
+        find_prop(&computed, &CssPropertyType::FontSize).expect("should have font-size");
 
     assert_eq!(font_size_prop.origin, CssPropertyOrigin::Own);
 
@@ -253,10 +253,10 @@ fn test_em_resolved_to_px_in_computed() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(p_id.index())
+        .values_for_opt(p_id.index())
         .expect("p should have computed values");
     let font_size_prop =
-        find_prop(computed, &CssPropertyType::FontSize).expect("should have font-size");
+        find_prop(&computed, &CssPropertyType::FontSize).expect("should have font-size");
 
     if let CssProperty::FontSize(val) = &font_size_prop.property {
         if let Some(size) = val.get_property() {
@@ -299,10 +299,10 @@ fn test_deeply_nested_inheritance() {
     let deep_id = azul_core::dom::NodeId::new(3);
     let computed = cache
         .computed_values
-        .get(deep_id.index())
+        .values_for_opt(deep_id.index())
         .expect("deep node should have computed values");
     let font_size_prop =
-        find_prop(computed, &CssPropertyType::FontSize).expect("should have font-size");
+        find_prop(&computed, &CssPropertyType::FontSize).expect("should have font-size");
 
     if let CssProperty::FontSize(val) = &font_size_prop.property {
         if let Some(size) = val.get_property() {
@@ -323,10 +323,10 @@ fn test_ua_css_for_headings() {
     let h1_id = azul_core::dom::NodeId::new(0);
     let computed = cache
         .computed_values
-        .get(h1_id.index())
+        .values_for_opt(h1_id.index())
         .expect("h1 should have computed values");
 
-    if let Some(font_size_prop) = find_prop(computed, &CssPropertyType::FontSize) {
+    if let Some(font_size_prop) = find_prop(&computed, &CssPropertyType::FontSize) {
         if let CssProperty::FontSize(val) = &font_size_prop.property {
             if let Some(size) = val.get_property() {
                 // H1 UA CSS is 2em, resolved with 16px default = 32px
@@ -376,7 +376,7 @@ fn test_no_computed_values_for_nonexistent_node() {
 
     // Node 100 doesn't exist
     let nonexistent_id = azul_core::dom::NodeId::new(100);
-    assert!(cache.computed_values.get(nonexistent_id.index()).is_none());
+    assert!(cache.computed_values.values_for_opt(nonexistent_id.index()).is_none());
 }
 
 #[test]
@@ -401,10 +401,10 @@ fn test_font_weight_inheritance() {
     let span_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(span_id.index())
+        .values_for_opt(span_id.index())
         .expect("span should have computed values");
 
-    if let Some(font_weight_prop) = find_prop(computed, &CssPropertyType::FontWeight) {
+    if let Some(font_weight_prop) = find_prop(&computed, &CssPropertyType::FontWeight) {
         // Check that span has bold font-weight (value matters, origin may vary due to UA CSS)
         if let CssProperty::FontWeight(val) = &font_weight_prop.property {
             if let Some(weight) = val.get_property() {
@@ -445,10 +445,10 @@ fn test_color_inheritance() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(p_id.index())
+        .values_for_opt(p_id.index())
         .expect("p should have computed values");
 
-    if let Some(color_prop) = find_prop(computed, &CssPropertyType::TextColor) {
+    if let Some(color_prop) = find_prop(&computed, &CssPropertyType::TextColor) {
         // Check that P has red color (value matters, origin may vary)
         if let CssProperty::TextColor(val) = &color_prop.property {
             if let Some(color) = val.get_property() {
@@ -477,10 +477,10 @@ fn test_non_inheritable_property_not_inherited() {
     let p_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(p_id.index())
+        .values_for_opt(p_id.index())
         .expect("p should have computed values");
 
-    if let Some(display_prop) = find_prop(computed, &CssPropertyType::Display) {
+    if let Some(display_prop) = find_prop(&computed, &CssPropertyType::Display) {
         // If it exists, it should be the default (block for P), not inherited flex
         if let CssProperty::Display(val) = &display_prop.property {
             if let Some(display) = val.get_property() {
@@ -534,10 +534,10 @@ fn test_text_node_inherits_from_parent() {
     let text_id = azul_core::dom::NodeId::new(1);
     let computed = cache
         .computed_values
-        .get(text_id.index())
+        .values_for_opt(text_id.index())
         .expect("text should have computed values");
 
-    if let Some(font_size_prop) = find_prop(computed, &CssPropertyType::FontSize) {
+    if let Some(font_size_prop) = find_prop(&computed, &CssPropertyType::FontSize) {
         // Check the VALUE is correct (18px from parent)
         if let CssProperty::FontSize(val) = &font_size_prop.property {
             if let Some(size) = val.get_property() {
