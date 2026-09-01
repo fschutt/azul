@@ -1129,7 +1129,7 @@ mod tests {
     fn the_popup_window_is_a_sized_parent_relative_menu_window() {
         let parent = FullWindowState::default();
         let w = open_window(0);
-        let (opts, mailbox) = popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None);
+        let (opts, mailbox) = popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false);
         assert_eq!(opts.parent_window_id, 0xABCD);
         assert!(
             !opts.size_to_content,
@@ -1158,7 +1158,7 @@ mod tests {
             let mut w = open_window(0);
             w.placement.dismiss = dismiss;
             let (opts, _) =
-                popup_create_options(1, &FullWindowState::default(), &w, Dom::create_div(), None);
+                popup_create_options(1, &FullWindowState::default(), &w, Dom::create_div(), None, false);
             opts.window_state
         };
         let press_escape = |s: &mut FullWindowState| {
@@ -1220,7 +1220,7 @@ mod tests {
     fn the_mailbox_carries_both_directions() {
         let w = open_window(0);
         let (opts, mailbox) =
-            popup_create_options(1, &FullWindowState::default(), &w, Dom::create_div(), None);
+            popup_create_options(1, &FullWindowState::default(), &w, Dom::create_div(), None, false);
         assert_eq!(poll_popup(&opts.window_state), PopupAction::Nothing);
         assert!(post_dismissed(&opts.window_state));
         assert_eq!(read(&mailbox, |d| d.dismissed), Some(true));

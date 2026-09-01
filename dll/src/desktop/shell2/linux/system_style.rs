@@ -404,28 +404,51 @@ fn schema_family(gnome_schema: &str) -> Vec<String> {
     out
 }
 
-/// Which schema family answered last, so a Cinnamon session does not pay a
-/// failed GNOME spawn on every single key.
-static PREFERRED_SCHEMA_IDX: core::sync::atomic::AtomicUsize =
-    core::sync::atomic::AtomicUsize::new(0);
+/// Which schema family this desktop answers on, resolved ONCE.
+///
+/// 0 = not yet probed, 1 = GNOME, 2 = Cinnamon, 3 = MATE, 4 = none of them.
+///
+/// Resolved once and then obeyed, rather than "try each family per key":
+/// trying per key costs a spawn per family per MISS, and every key that is
+/// absent everywhere (the deprecated GNOME keys we still ask for) paid the
+/// full three. Probing once is one spawn for the whole run — startup spawned
+/// 136 `gsettings` processes before this.
+static SCHEMA_FAMILY: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// Probe key: present in every one of the three families, so it identifies
+/// which one this desktop actually answers on.
+const SCHEMA_PROBE_KEY: &str = "font-name";
+
+fn resolve_schema_family() -> usize {
+    use core::sync::atomic::Ordering;
+    let cached = SCHEMA_FAMILY.load(Ordering::Relaxed);
+    if cached != 0 {
+        return cached;
+    }
+    let probes = schema_family("org.gnome.desktop.interface");
+    let mut found = 4; // none
+    for (i, schema) in probes.iter().enumerate() {
+        if gsettings_get_raw(schema, SCHEMA_PROBE_KEY).is_some() {
+            found = i + 1;
+            break;
+        }
+    }
+    SCHEMA_FAMILY.store(found, Ordering::Relaxed);
+    found
+}
 
 /// Read a desktop setting by its GNOME schema name, transparently accepting
 /// the Cinnamon and MATE spellings of the same schema.
 fn gsettings_get(schema: &str, key: &str) -> Option<String> {
-    use core::sync::atomic::Ordering;
-
-    let candidates = schema_family(schema);
-    // Start with whichever family last answered — on Cinnamon that skips a
-    // guaranteed-failing GNOME spawn per key, and there are dozens of keys.
-    let start = PREFERRED_SCHEMA_IDX.load(Ordering::Relaxed);
-    for i in 0..candidates.len() {
-        let idx = (start + i) % candidates.len();
-        if let Some(v) = gsettings_get_raw(&candidates[idx], key) {
-            PREFERRED_SCHEMA_IDX.store(idx, Ordering::Relaxed);
-            return Some(v);
-        }
+    let family = resolve_schema_family();
+    if family == 4 {
+        // No GSettings desktop at all (a bare KDE/Wayland session): asking
+        // would be one failed spawn per key, forever.
+        return None;
     }
-    None
+    let candidates = schema_family(schema);
+    let idx = (family - 1).min(candidates.len() - 1);
+    gsettings_get_raw(&candidates[idx], key)
 }
 
 /// Populate additional Linux-specific fields in `style` via `gsettings` CLI
@@ -710,6 +733,25 @@ fn kde_color_sources() -> Vec<KdeIni> {
             }
         }
     }
+
+    // The SYSTEM-WIDE defaults, last (lowest precedence). This is the other
+    // half of what `kreadconfig` would have consulted, and reading it is what
+    // makes the per-key `kreadconfig` fallback unnecessary: a key absent from
+    // every file here is genuinely unset, and spawning a process to be told so
+    // cost 128 `kreadconfig5` spawns on the startup path.
+    for dir in std::env::var("XDG_CONFIG_DIRS")
+        .unwrap_or_else(|_| "/etc/xdg".to_string())
+        .split(':')
+        .map(String::from)
+        .collect::<Vec<_>>()
+    {
+        if dir.is_empty() {
+            continue;
+        }
+        if let Some(ini) = KdeIni::read(&alloc::format!("{dir}/kdeglobals")) {
+            out.push(ini);
+        }
+    }
     out
 }
 
@@ -878,80 +920,35 @@ fn discover_gnome_style() -> Result<SystemStyle, ()> {
 ///
 /// Queries kdeglobals for theme, fonts, and color scheme.
 fn discover_kde_style() -> Result<SystemStyle, ()> {
-    // Try kreadconfig6 first (Plasma 6), fall back to kreadconfig5. Its
-    // ABSENCE is no longer fatal: the palette, fonts and themes are read out
-    // of the config files directly (see `kde_color_sources`), and a session
-    // can run a KDE colour scheme without the Qt tooling installed. The
-    // binary is only consulted for keys the files did not carry.
-    let kread = if run_command_with_timeout("kreadconfig6", &["--help"], 500).is_ok() {
-        "kreadconfig6"
-    } else if run_command_with_timeout("kreadconfig5", &["--help"], 500).is_ok() {
-        "kreadconfig5"
-    } else if std::env::var("HOME")
-        .map(|h| std::path::Path::new(&alloc::format!("{h}/.config/kdeglobals")).exists())
-        .unwrap_or(false)
-    {
-        // Nothing to spawn — every `run_command_with_timeout` below fails and
-        // falls through to the parsed files, which is the whole point.
-        "kreadconfig5"
-    } else {
-        return Err(());
-    };
-
-    // The parsed config files, in precedence order: the user's kdeglobals,
-    // then the `.colors` file of the scheme it names. `kreadconfig` is the
-    // last resort for a key none of them carried.
+    // The parsed config files, in precedence order: kcminputrc, the user's
+    // kdeglobals, the `.colors` file of the scheme it names, and the
+    // system-wide defaults. NOTHING is spawned — `kreadconfig` reads these
+    // very files, so shelling out to it once per key only bought a process
+    // per key (128 of them) to be told what the file already said.
+    //
+    // No files at all means this is not a KDE session; the caller falls
+    // through to the GNOME/riced discoverers.
     let sources = kde_color_sources();
+    if sources.is_empty() {
+        return Err(());
+    }
 
     // One reader for every `r,g,b` value. Declared up here because dark/light
     // detection uses it too — the window background IS the answer, and reading
     // it is more reliable than any name.
     let read_kde_color = |group: &str, key: &str| -> Option<ColorU> {
-        for src in &sources {
-            if let Some(c) = src.color(group, key) {
-                return Some(c);
-            }
-        }
-        let v = run_command_with_timeout(kread, &["--group", group, "--key", key], 1000).ok()?;
-        let p: Vec<&str> = v.split(',').collect();
-        if p.len() < 3 {
-            return None;
-        }
-        Some(ColorU::new_rgb(
-            p[0].trim().parse::<u8>().ok()?,
-            p[1].trim().parse::<u8>().ok()?,
-            p[2].trim().parse::<u8>().ok()?,
-        ))
+        sources.iter().find_map(|src| src.color(group, key))
     };
 
     // Same shape for fonts and plain strings.
     let read_kde_font = |group: &str, key: &str| -> Option<(String, Option<f32>)> {
-        for src in &sources {
-            if let Some(f) = src.font(group, key) {
-                return Some(f);
-            }
-        }
-        let v = run_command_with_timeout(kread, &["--group", group, "--key", key], 1000).ok()?;
-        let mut parts = v.split(',');
-        let family = parts.next()?.trim().to_string();
-        if family.is_empty() {
-            return None;
-        }
-        Some((
-            family,
-            parts.next().and_then(|p| p.trim().parse::<f32>().ok()),
-        ))
+        sources.iter().find_map(|src| src.font(group, key))
     };
     let read_kde_str = |group: &str, key: &str| -> Option<String> {
-        for src in &sources {
-            if let Some(v) = src.get(group, key) {
-                return Some(v.to_string());
-            }
-        }
-        run_command_with_timeout(kread, &["--group", group, "--key", key], 1000)
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
+        sources
+            .iter()
+            .find_map(|src| src.get(group, key))
+            .map(String::from)
     };
 
     // Dark or light, decided by the WINDOW BACKGROUND's luminance rather than
@@ -1107,14 +1104,16 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
     // DEFAULT is `ButtonsOnLeft=M` — the application-menu button — with the
     // real controls (`IAX` = minimize/maximize/close) on the RIGHT. Every
     // stock KDE session would have been reported as buttons-on-left.
-    let deco = |key: &str| -> Option<String> {
-        run_command_with_timeout(
-            kread,
-            &["--file", "kwinrc", "--group", "org.kde.kdecoration2", "--key", key],
-            1000,
-        )
+    // kwinrc is the same INI shape as everything else here — read it, don't
+    // spawn a reader for it.
+    let kwinrc = std::env::var("HOME")
         .ok()
-        .filter(|v| !v.trim().is_empty())
+        .and_then(|h| KdeIni::read(&alloc::format!("{h}/.config/kwinrc")));
+    let deco = |key: &str| -> Option<String> {
+        kwinrc
+            .as_ref()
+            .and_then(|k| k.get("org.kde.kdecoration2", key))
+            .map(String::from)
     };
     let buttons_left = deco("ButtonsOnLeft").unwrap_or_default();
     let buttons_right = deco("ButtonsOnRight").unwrap_or_else(|| "IAX".to_string());

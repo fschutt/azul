@@ -1371,10 +1371,21 @@ impl HeadlessWindow {
         let wake_condvar = Arc::new(Condvar::new());
         let wake_mutex = Arc::new(Mutex::new(WakeState { woken: false }));
 
+        // The style comes from the CONFIG, which already carries one
+        // (`AppConfig::create()` discovers it once), exactly like
+        // `AppResources::new_with_font_manager` does.
+        //
+        // Re-discovering here read the DEVELOPER'S DESKTOP instead, which made
+        // every headless test non-hermetic: the layout-sensitive ones
+        // (ribbon tab geometry, caret pixels, display-list patch equality)
+        // silently depended on the ambient GTK/KDE font, so the same commit
+        // passed on one machine and failed on another. It also spawned ~20
+        // `gsettings`/`kreadconfig` processes per window construction, in a
+        // suite that builds thousands of them.
         let mut common = CommonWindowState::new(
             full_window_state,
             fc_cache,
-            Arc::new(crate::desktop::app::discover_system_style()),
+            Arc::new(config.system_style.clone()),
             app_data,
             undo_manager,
         );

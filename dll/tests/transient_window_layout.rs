@@ -973,6 +973,9 @@ fn mailbox(opts_state: &azul_layout::window_state::FullWindowState) -> Transient
         drag: d.drag,
         drop: d.drop,
         following: d.following,
+        // master's a11y work added this field without updating the test's
+        // field-by-field copy of the mailbox.
+        focus_visible: d.focus_visible,
     }
 }
 
