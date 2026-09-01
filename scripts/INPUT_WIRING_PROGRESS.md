@@ -1,0 +1,164 @@
+# Input wiring — work queue
+
+Branch `feat/input-event-wiring`, off `origin/master` @ fcef148b2.
+Spec: `scripts/INPUT_METHODS_AUDIT_2026_09_01.md`.
+
+## Rules for this arc
+
+- **NOTHING is removed from api.json.** Unemitted variants get wired, never deleted. (User ruling 2026-09-01.)
+- **DO NOT COMPILE while iterating.** No `cargo check`, no `cargo build`, no `cargo test`. We fix up at the END.
+- Commit after each item, even if it doesn't build. Message: `wip(input): <item id> <what>`.
+- api.json changes go via `azul-doc autofix` only — never hand-edited. If autofix can't run without a compile,
+  record the intended delta in `scripts/INPUT_WIRING_APIJSON_TODO.md` and move on.
+- Every wiring fix that adds a dispatchable event should also add a `HeadlessEvent` variant so it can be tested
+  at the end.
+- **Four layers must agree** for a filter to fire: (1) shell constructs `EventType`, (2) `event_type_to_filters`
+  returns the filter, (3) `matches_*_filter` accepts the pair, (4) `matches_filter_phase` passes the family.
+  Touch all four or the work is invisible.
+
+## Status legend
+
+`[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked (note why)
+
+---
+
+## Step 0 — ratchet
+
+- [ ] 0a `core/src/events_test.rs`: extend `event_type_to_filters_never_panics_and_stays_synced_with_the_hover_matcher`
+      from 2 layers × Hover to 4 layers × {Hover, Focus, Window}. Assert planning emits the filter, matcher accepts,
+      phase gate passes. Keep `KNOWN_DESYNC` as the subset allow-list; entries get deleted as items below land.
+- [ ] 0b Prune the 6 stale `KNOWN_DESYNC` entries (`MouseOut`, `FocusIn`, `FocusOut`, `Composition{Start,Update,End}`)
+      — their matcher arms exist at `events.rs:1438-1443`, so the entries protect nothing.
+
+## Step 1 — C1: planning omissions (14 variants, zero shell work)
+
+- [ ] 1a `event_type_to_filters_legacy_hint`: add `E::PenDown`, `E::PenMove`, `E::PenUp`, `E::PenEnter`, `E::PenLeave`
+      arms emitting Hover + Focus (Down/Move/Up only) + Window filters.
+- [ ] 1b Same fn: add `E::DocumentEdit => vec![EF::Focus(F::DocumentEdit)]`.
+
+## Step 2 — C2: planning de-sync
+
+- [ ] 2a Split `E::Scroll | E::ScrollStart | E::ScrollEnd => vec![EF::Hover(H::Scroll)]` into three arms, each
+      emitting its own Hover + Focus + Window variant.
+- [ ] 2b Matcher arms: `(RightMouseDown, EventType::ContextMenu)`, `(TextInput, EventType::KeyPress)`,
+      `(TextInput, EventType::Change)`.
+- [ ] 2c Emit `ScrollStart`/`ScrollEnd` from the `ScrollInputSource` transitions the physics timer already computes
+      (`layout/src/managers/scroll_state.rs` + callers).
+- [ ] 2d Emit `ContextMenu` from right-button-up, the Menu/Apps key, and Shift+F10 on all four desktop shells.
+
+## Step 3 — C3: missing producers
+
+- [ ] 3a Emit `EventType::MouseOut` alongside every `MouseLeave` site.
+- [ ] 3b Emit `EventType::FocusIn`/`FocusOut` alongside every `Focus`/`Blur` site.
+- [ ] 3c `CompositionEventData { data, cursor_begin, cursor_end }` + `EventData::Composition` variant +
+      `CallbackInfo::get_composition_*` accessors.
+- [ ] 3d Emit `Composition*` at the IME sites: Win32 `WM_IME_STARTCOMPOSITION`/`COMPOSITION`/`ENDCOMPOSITION`,
+      macOS `setMarkedText:`/`unmarkText`/`insertText:`, Wayland `preedit_string`/`commit_string`/`done`, X11 XIM.
+- [ ] 3e Dispatch `EventType::Copy`/`Cut`/`Paste` to the focused node BEFORE pushing
+      `SystemChange::{CopyToClipboard, CutToClipboard, PasteFromClipboard}`; the existing
+      `post_callback_filter_system_changes(prevent_default, …)` gate then makes them interceptable.
+
+## Step 4 — C4: open the Application phase
+
+- [ ] 4a `matches_filter_phase`: replace the `EventFilter::Application(_) => false` arm with a real
+      `matches_application_filter(f, event, phase)`; write that fn.
+- [ ] 4b Producer: gilrs gamepad connect/disconnect → `EventType::DeviceConnected`/`DeviceDisconnected`
+      (already pumped via `capability_pump`, all four desktops).
+- [ ] 4c Producer: Wayland — `wl_registry.global_remove` for `wl_output` → monitor events;
+      `wl_seat.capabilities` + `zwp_tablet_seat_v2` add/remove → device events. All handlers already exist.
+- [ ] 4d Producer: Win32 `WM_DISPLAYCHANGE` monitor-list diff; add `WM_DEVICECHANGE` handling.
+- [ ] 4e Producer: macOS `windowDidChangeScreen:` diff + observe `NSApplicationDidChangeScreenParameters`.
+- [ ] 4f Producer: X11 RandR `XRRSelectInput` + `XI_HierarchyChanged`.
+
+## Step 5 — C5: new EventTypes and missing match arms
+
+- [ ] 5a Append `EventType::PenSqueeze`, `PenDoubleTap`, `PenHover` at the END of the enum (ABI stability, same
+      convention `Copy`/`Cut`/`Paste`/`DocumentEdit` used). Add planning arms + Hover/Window matcher arms.
+- [ ] 5b `PenHover` producers: Wayland `proximity_in`/`distance`, Win32 `POINTER_FLAG_INRANGE`, Android
+      `ACTION_HOVER_MOVE` (already handled), macOS `NSEventSubtype::TabletProximity` on the existing mouse path.
+- [ ] 5c `matches_component_filter`: add the missing `DefaultAction` and `Selected` arms.
+
+## Step 6 — C7: accessibility actions
+
+- [ ] 6a Route the 12 unmapped `AccessibilityAction` variants in the accesskit adapters
+      (`{windows,linux/x11,macos,android,ios}/accessibility.rs`) to the engine fns that already exist:
+      `ScrollIntoView`→`scroll_node_into_view`, `ScrollToPoint`/`SetScrollOffset`→`scroll_to`/`scroll_to_unclamped`,
+      `SetTextSelection`→`TextOpSetSelection`, `ReplaceSelectedText`→text-edit manager,
+      `ShowContextMenu`→`open_menu_for_node`, `Show`/`HideTooltip`→`show`/`hide_tooltip_from_callback`,
+      `SetValue`/`SetNumericValue`→widget setters, `SetSequentialFocusNavigationStartingPoint`→focus engine,
+      `CustomAction`→callback passthrough.
+
+## Step 7 — shell wiring, no API change
+
+- [ ] 7a Wayland: bind `zwp_pointer_gestures_v1` (swipe, pinch, hold) → existing pinch/rotate/swipe filters.
+- [ ] 7b X11: XInput 2.4 `XI_GesturePinch*` / `XI_GestureSwipe*`.
+- [ ] 7c Windows: touchpad pinch — handle `WM_GESTURE`, or recognise from the pointer stream.
+- [ ] 7d Wayland: raise `seat_version` cap from `min(7)` to 9; add `axis_value120` and `axis_relative_direction`
+      listeners; keep `axis_discrete` as the v5–v7 fallback.
+- [ ] 7e macOS: read `isDirectionInvertedFromDevice` (natural-scroll flag).
+- [ ] 7f macOS: add `pressureChangeWithEvent:` (Force Touch `stage` / `stageTransition`).
+- [ ] 7g Wayland: fill the empty `touch_shape_handler` / `touch_orientation_handler` bodies (needs 8b first).
+- [ ] 7h Win32: keep the `WM_MOUSEWHEEL` fractional remainder instead of truncating.
+
+## Step 8 — api.json deltas (record intent; run `azul-doc autofix` at fix-up time)
+
+- [ ] 8a `MouseState.other_down: u8` + `Back`/`Forward` `MouseDown`/`MouseUp` on Hover/Focus/Window; extend the
+      `button_specific_down` helper. All four layers.
+- [ ] 8b `TouchPoint += { major, minor, orientation_rad, tool_type }` + `TouchToolType { Unknown, Finger, Stylus,
+      Eraser, Palm, Mouse }`.
+- [ ] 8c `PenToolType { Pen, Eraser, Brush, Pencil, Airbrush, Finger, Mouse, Lens }` + `PenState.hover_distance`;
+      fix the ragged tail (`tangential_pressure`, `barrel_button_pressed`, `tool_id`).
+- [ ] 8d `WacomPadState` → `TabletPadState` + `{ strip, strip_active, dial_delta, mode, mode_count }`.
+- [ ] 8e `SensorKind += RotationVector, Gravity, LinearAcceleration, AmbientLight, Proximity, Barometer,
+      StepCounter, HingeAngle`.
+- [ ] 8f `GamepadState += { battery, touchpad, imu }`; buttons `Misc1, Paddle1..4, Touchpad`; `GamepadRumble`.
+
+## Step 9 — new capability
+
+- [ ] 9a `FocusTarget += Directional(FocusDirection)`, `FocusDirection { Up, Down, Left, Right }`, geometric
+      nearest-neighbour over the existing focusable set. No shell code.
+- [ ] 9b `PointerSource { Unknown, Mouse, Touchpad, Trackball, Trackpoint, Touchscreen, Pen, Eraser }` on pointer
+      events; `device_id` on mouse and key events.
+- [ ] 9c `DialState { device_id, delta_rad, detent_count, pressed, contact_position }` + `DialRotate`/`DialClick`
+      filters; wire Wayland `zwp_tablet_pad_dial_v2` (already bound) as the first producer.
+- [ ] 9d `RawMouseMotion` window filter + pointer-lock request path; Win32 `WM_INPUT`,
+      Wayland `zwp_relative_pointer_v1` + `zwp_pointer_constraints_v1`, X11 `XI_RawMotion`.
+- [ ] 9e `PhysicalKey` positional enum + `ModifiersChanged` filter + `KeyboardState += { modifiers, locks,
+      is_repeat }`.
+- [ ] 9f `HidDevice { vendor_id, product_id, usage_page, usage, name }` + `HidReport { bytes }`.
+- [ ] 9g `Haptic::play(pattern)` — macOS `NSHapticFeedbackManager`, Win32 `SimpleHapticsController`,
+      Android `performHapticFeedback`.
+- [ ] 9h Win32 `WM_APPCOMMAND` → media/browser app-command channel.
+
+## Step 10 — mobile parity
+
+- [ ] 10a Android `InputConnection` (JNI bridge) → text input + the composition events from 3d.
+- [ ] 10b iOS `UITextInput` → text input; `UIPress`/`UIKeyCommand` for hardware keyboard.
+- [ ] 10c Insets / safe area / keyboard avoidance as a layout input (Android `WindowInsets`, iOS safe area).
+- [ ] 10d iOS `UIPencilInteraction` → `PenSqueeze` + `PenDoubleTap`.
+- [ ] 10e `coalescedTouches` / `predictedTouches` (iOS) and the equivalent elsewhere.
+- [ ] 10f Real gamepad backends to replace `gamepad/android.rs` (16 lines) and `gamepad/apple.rs` (17 lines).
+
+## Step 11 — C6: full-stack stragglers
+
+- [ ] 11a `Submit` off the existing `DefaultAction::SubmitForm`; `Change` as commit-on-blur off
+      `TextInputOnFocusLost`. Add the filter variants first (all four layers), then update the
+      `events_test.rs` unmapped pin.
+- [ ] 11b `Reset` / `Invalid` — needs a validation concept; design then wire.
+- [ ] 11c Media: `Play`/`Pause`/`Ended`/`TimeUpdate`/`VolumeChange`/`MediaError`. BLOCKED on a real playback state
+      machine — `dll/src/unified/audio.rs:62` is `pub fn play(&self, _frame: AudioFrame) {}`. Build the state
+      machine first, then emit.
+
+## Step 12 — headless/test surface
+
+- [ ] 12a `HeadlessEvent`: add scroll-phase, pen, gesture, gamepad, sensor and composition injection variants so
+      everything above is reachable from the e2e runner.
+
+## Step 13 — FIX-UP (only after everything above)
+
+- [ ] 13a `cargo check --workspace` — fix compile errors.
+- [ ] 13b `cargo run --release -p azul-doc codegen all` (target/codegen is wiped by `cargo clean`).
+- [ ] 13c `azul-doc autofix` for every api.json delta recorded in step 8.
+- [ ] 13d `cargo test --release --lib` per crate.
+- [ ] 13e Full e2e (`--test all`) ONCE.
+- [ ] 13f Drive the step-0 ratchet allow-list to empty; anything left is a real remaining gap.
