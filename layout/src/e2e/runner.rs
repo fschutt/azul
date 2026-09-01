@@ -4629,7 +4629,7 @@ mod tests {
 
         let filters: Vec<EventFilter> = affected.values().flat_map(|(f, _)| f.clone()).collect();
         assert!(
-            filters.contains(&EventFilter::Hover(HoverEventFilter::MouseUp)),
+            filters.contains(&EventFilter::Hover(HoverEventFilter::Click)),
             "the a11y default action must resolve to the same activation filter \
              keyboard activation reaches, got {filters:?}",
         );
@@ -4691,6 +4691,65 @@ mod tests {
             last_is_ring,
             "Tab must leave a focus ring appended to the display list; last item was {:?}",
             lr.display_list.items.last().map(std::mem::discriminant),
+        );
+    }
+
+    /// A focused Slider must respond to the arrow keys (1% of the range,
+    /// 10% with Ctrl) - device report 2026-09-01: "the arrow keys for
+    /// sliders do not work at all".
+    #[test]
+    fn tab_then_arrow_key_moves_a_slider() {
+        use azul_core::refany::RefAny;
+        use azul_layout::widgets::slider::{Slider, SliderOnValueChangeCallbackType, SliderState};
+
+        #[derive(Debug)]
+        struct Seen(Option<f32>);
+
+        extern "C" fn on_change(
+            mut data: RefAny,
+            _: azul_layout::callbacks::CallbackInfo,
+            state: SliderState,
+        ) -> azul_core::callbacks::Update {
+            if let Some(mut s) = data.downcast_mut::<Seen>() {
+                s.0 = Some(state.value);
+            }
+            azul_core::callbacks::Update::DoNothing
+        }
+
+        let mut seen = RefAny::new(Seen(None));
+        let mut dom = Dom::create_body().with_child(
+            Slider::create(50.0, 0.0, 100.0)
+                .with_on_value_change(seen.clone(), on_change as SliderOnValueChangeCallbackType)
+                .dom(),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "slider_arrow_keys",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "key_down", "key": "Tab" },
+                { "op": "wait_frame" },
+                { "op": "get_focus_state" },
+                { "op": "assert_response", "contains": "\"has_focus\":true" },
+                { "op": "key_down", "key": "Right" },
+                { "op": "key_up", "key": "Right" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "Tab must focus the slider: {:#?}", result.steps);
+        let got = seen.downcast_ref::<Seen>().and_then(|s| s.0);
+        assert_eq!(
+            got,
+            Some(51.0),
+            "Right arrow on a focused slider must step 1% of the range (50 -> 51)",
         );
     }
 

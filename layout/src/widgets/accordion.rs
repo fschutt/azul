@@ -446,7 +446,7 @@ impl Accordion {
                 })
                 .with_callbacks(
                     alloc::vec![CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        event: EventFilter::Hover(HoverEventFilter::Click),
                         callback: CoreCallback {
                             cb: on_accordion_header_click as usize,
                             ctx: OptionRefAny::None,
@@ -1016,7 +1016,7 @@ mod autotest_generated {
             assert_eq!(cbs.len(), 1);
             assert_eq!(
                 cbs.as_ref()[0].event,
-                EventFilter::Hover(HoverEventFilter::MouseUp)
+                EventFilter::Hover(HoverEventFilter::Click)
             );
             assert_eq!(
                 cbs.as_ref()[0].callback.cb,

@@ -3101,7 +3101,7 @@ static DEBUG_PORT: OnceLock<u16> = OnceLock::new();
 /// Global debug server handle (singleton — one per application).
 /// Started in `AppInternal::create()` when `AZ_DEBUG=<port>` is set.
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 static DEBUG_SERVER: OnceLock<Arc<DebugServerHandle>> = OnceLock::new();
 
 /// Per-window E2E scheduler slot: the half-finished scenario run that has to
@@ -3393,7 +3393,7 @@ struct E2eContinuation {
 
 /// Handle to the debug server for clean shutdown
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 pub struct DebugServerHandle {
     pub shutdown_tx: mpsc::Sender<()>,
     pub thread_handle: Mutex<Option<std::thread::JoinHandle<()>>>,
@@ -3496,7 +3496,7 @@ pub fn init_recording() {
 /// typically on a background thread that prints results and calls
 /// `std::process::exit`.
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 pub fn queue_e2e_tests(tests: Vec<E2eTest>) -> std::sync::mpsc::Receiver<DebugResponseData> {
     E2E_ACTIVE.store(true, Ordering::SeqCst);
 
@@ -3577,7 +3577,7 @@ pub fn init_debug_server_statics(port: u16) {
 /// Counterpart of [`get_debug_server`]; called by the DLL once its HTTP thread
 /// is up.
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 pub fn set_debug_server(handle: Arc<DebugServerHandle>) {
     let _ = DEBUG_SERVER.set(handle);
 }
@@ -3585,7 +3585,7 @@ pub fn set_debug_server(handle: Arc<DebugServerHandle>) {
 /// The port the debug server was started on (`0` if it was never started).
 /// Unlike [`get_debug_port`] this reads the ACTUAL bound port, not `AZ_DEBUG`.
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 #[must_use]
 pub fn debug_server_port() -> u16 {
     DEBUG_PORT.get().copied().unwrap_or(0)
@@ -3597,7 +3597,7 @@ pub fn debug_server_port() -> u16 {
 /// Creates the `spmc` channel, stores a minimal `DebugServerHandle` in
 /// `DEBUG_SERVER`, and returns the receiver for window timers.
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 pub fn create_debug_channel() -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
     SERVER_START_TIME.get_or_init(std::time::Instant::now);
     LOG_QUEUE.get_or_init(|| Mutex::new(Vec::new()));
@@ -3916,14 +3916,14 @@ pub fn send_err(request: &DebugRequest, message: impl Into<String>) {
 
 /// Helper function for serializing DebugHttpResponse
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 pub fn serialize_http_response(response: &DebugHttpResponse) -> String {
     serde_json::to_string_pretty(response)
         .unwrap_or_else(|_| r#"{"status":"error","message":"Serialization failed"}"#.to_string())
 }
 
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 pub fn handle_event_request(
     body: &str,
     request_tx: &Arc<Mutex<spmc::Sender<DebugRequest>>>,
@@ -9930,7 +9930,7 @@ pub fn e2e_pump_continuation(
 /// Timer callback that processes debug requests.
 /// Called every ~16ms when debug mode is enabled.
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 pub extern "C" fn debug_timer_callback(
     mut timer_data: azul_core::refany::RefAny,
     mut timer_info: azul_layout::timer::TimerCallbackInfo,
@@ -17921,7 +17921,7 @@ pub fn process_debug_event(
 /// * `component_map` - Shared component map (Arc-cloned per window)
 /// * `window_id` - This window's unique ID string
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 pub fn create_debug_timer(
     app_data: azul_core::refany::RefAny,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
@@ -17955,7 +17955,7 @@ pub fn create_debug_timer(
 /// Holds the application state, component map, spmc receiver, and window ID
 /// so that `debug_timer_callback` can process debug requests for this window.
 #[cfg(feature = "std")]
-#[cfg(feature = "e2e-server-http")]
+#[cfg(feature = "e2e-server")]
 struct DebugTimerData {
     /// The user's application state (`GetAppState` / `SetAppState`)
     app_data: azul_core::refany::RefAny,

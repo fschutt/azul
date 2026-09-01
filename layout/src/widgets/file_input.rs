@@ -1167,7 +1167,7 @@ mod autotest_generated {
         assert_eq!(callbacks.len(), 1, "a click must fire exactly one handler");
         assert_eq!(
             callbacks[0].event,
-            EventFilter::Hover(HoverEventFilter::MouseUp)
+            EventFilter::Hover(HoverEventFilter::Click)
         );
         assert_eq!(
             callbacks[0].callback.cb, fileinput_on_click as *const () as usize,

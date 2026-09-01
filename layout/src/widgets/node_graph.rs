@@ -2396,7 +2396,7 @@ fn render_node(
                .with_css_props(CSS_MATCH_7395766480280098891)
                .with_callbacks(vec![
                    CoreCallbackData {
-                       event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                       event: EventFilter::Hover(HoverEventFilter::Click),
                        refany: node_local_dataset.clone(),
                        callback: CoreCallback { cb: nodegraph_delete_node as usize, ctx: OptionRefAny::None },
                    },

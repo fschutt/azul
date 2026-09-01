@@ -714,10 +714,21 @@ mod tests {
         assert!(path.len() <= 2);
     }
 
+    /// `Click` is ACTIVATION and has its own filter. It must NOT also reach
+    /// `MouseUp` listeners: a real pointer release emits BOTH `MouseUp` and
+    /// `Click` (W3C, and `event_determination` does exactly that), so a Click
+    /// that also fired MouseUp handlers ran every activation TWICE - the
+    /// ColorInput opened its picker and instantly closed it again
+    /// (2026-09-01).
     #[test]
-    fn click_event_maps_to_left_mouse_up() {
+    fn click_maps_to_the_activation_filter_and_not_to_mouse_up() {
         let filters = event_type_to_filters(EventType::Click, &EventData::None);
-        assert!(filters.contains(&EventFilter::Hover(HoverEventFilter::LeftMouseUp)));
+        assert!(filters.contains(&EventFilter::Hover(HoverEventFilter::Click)));
+        assert!(
+            !filters.contains(&EventFilter::Hover(HoverEventFilter::MouseUp)),
+            "a Click must not double-fire MouseUp listeners: {filters:?}",
+        );
+        assert!(!filters.contains(&EventFilter::Hover(HoverEventFilter::LeftMouseUp)));
         assert!(!filters.contains(&EventFilter::Hover(HoverEventFilter::LeftMouseDown)));
     }
 }
@@ -1649,7 +1660,10 @@ mod autotest_generated {
             EventFilter::from(On::MouseOver),
             EventFilter::Hover(HoverEventFilter::MouseOver)
         );
-        // The a11y actions all collapse onto "click" (= MouseUp).
+        // The a11y actions all collapse onto the ACTIVATION filter. They used
+        // to map to `MouseUp`, which conflated "the user activated this" with
+        // a raw pointer release - and a raw release is not something a screen
+        // reader can produce.
         for on in [
             On::Default,
             On::Collapse,
@@ -1659,7 +1673,7 @@ mod autotest_generated {
         ] {
             assert_eq!(
                 EventFilter::from(on),
-                EventFilter::Hover(HoverEventFilter::MouseUp),
+                EventFilter::Hover(HoverEventFilter::Click),
                 "{on:?} must map to the click filter"
             );
         }
@@ -2205,9 +2219,24 @@ mod autotest_generated {
             modifiers: KeyModifiers::default(),
         });
         let down = event_type_to_filters(EventType::MouseDown, &data);
-        assert_eq!(down, vec![EventFilter::Hover(HoverEventFilter::MouseDown)]);
+        assert_eq!(down, vec![
+                // Planning is scope-complete now (it is derived from the
+                // matcher), so the generic MouseDown appears in all three
+                // scopes. The POINT of this test is unchanged: no
+                // button-SPECIFIC filter for an exotic button.
+                EventFilter::Hover(HoverEventFilter::MouseDown),
+                EventFilter::Focus(FocusEventFilter::MouseDown),
+                EventFilter::Window(WindowEventFilter::MouseDown),
+            ]);
         let up = event_type_to_filters(EventType::MouseUp, &data);
-        assert_eq!(up, vec![EventFilter::Hover(HoverEventFilter::MouseUp)]);
+        assert_eq!(
+            up,
+            vec![
+                EventFilter::Hover(HoverEventFilter::MouseUp),
+                EventFilter::Focus(FocusEventFilter::MouseUp),
+                EventFilter::Window(WindowEventFilter::MouseUp),
+            ]
+        );
 
         // Unmapped event types produce an empty filter list (never a panic).
         for ty in [
@@ -3658,7 +3687,7 @@ mod autotest_generated {
 /// Space silently did nothing on every focusable widget - the device report
 /// of 2026-08-31 ("space did nothing when the item was focused").
 #[test]
-fn a_synthetic_click_activates_a_mouse_up_listener() {
+fn a_synthetic_click_activates_a_click_listener_and_nothing_else() {
     use crate::{
         dom::{DomId, DomNodeId},
         events::{
@@ -3681,10 +3710,20 @@ fn a_synthetic_click_activates_a_mouse_up_listener() {
         EventData::None,
     );
 
+    assert!(
+        super::matches_filter_phase(
+            EventFilter::Hover(HoverEventFilter::Click),
+            &click,
+            EventPhase::Bubble
+        ),
+        "a keyboard-activation Click must reach a Click listener",
+    );
+    // ...and must NOT reach a raw-release listener, or every activation runs
+    // twice for a real pointer click (which emits MouseUp AND Click).
     for filter in [HoverEventFilter::MouseUp, HoverEventFilter::LeftMouseUp] {
         assert!(
-            super::matches_filter_phase(EventFilter::Hover(filter), &click, EventPhase::Bubble),
-            "a keyboard-activation Click must reach a {filter:?} listener",
+            !super::matches_filter_phase(EventFilter::Hover(filter), &click, EventPhase::Bubble),
+            "a Click must not also fire {filter:?}",
         );
     }
 
@@ -3780,4 +3819,454 @@ fn dispatch_planning_and_phase_matching_agree_on_every_hover_filter() {
             );
         }
     }
+}
+
+/// EXHAUSTIVE INVARIANT over the WHOLE event pipeline.
+///
+/// The engine keeps two tables that map an event onto listeners and nothing
+/// but discipline kept them in agreement:
+///
+///  * `event_type_to_filters` drives dispatch PLANNING - which callbacks get
+///    collected for an event.
+///  * `matches_filter_phase` drives phase MATCHING - whether a collected
+///    callback actually fires.
+///
+/// A de-sync is SILENT in both directions: a filter planned but not matched
+/// collects a callback and drops it; a filter matched but not planned can
+/// never fire at all. That is how Enter/Space died on every widget, and it is
+/// how a real pointer click briefly fired activation handlers TWICE (the
+/// ColorInput opened its picker and instantly closed it again).
+///
+/// The narrow version of this test covered pointer events only. This one
+/// covers EVERY unit event type against EVERY filter of all three kinds, so
+/// the next such bug fails here instead of on a device.
+#[test]
+fn planning_and_matching_agree_for_every_event_and_filter() {
+    use crate::{
+        dom::{DomId, DomNodeId, NodeId},
+        events::{
+            event_type_to_filters, EventData, EventFilter, EventPhase, EventSource, EventType,
+            FocusEventFilter, HoverEventFilter, SyntheticEvent, WindowEventFilter,
+        },
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+    };
+
+    const HOVER: &[HoverEventFilter] = &[
+        HoverEventFilter::MouseOver,
+        HoverEventFilter::MouseDown,
+        HoverEventFilter::LeftMouseDown,
+        HoverEventFilter::RightMouseDown,
+        HoverEventFilter::MiddleMouseDown,
+        HoverEventFilter::Click,
+        HoverEventFilter::MouseUp,
+        HoverEventFilter::LeftMouseUp,
+        HoverEventFilter::RightMouseUp,
+        HoverEventFilter::MiddleMouseUp,
+        HoverEventFilter::MouseEnter,
+        HoverEventFilter::MouseLeave,
+        HoverEventFilter::Scroll,
+        HoverEventFilter::ScrollStart,
+        HoverEventFilter::ScrollEnd,
+        HoverEventFilter::TextInput,
+        HoverEventFilter::VirtualKeyDown,
+        HoverEventFilter::VirtualKeyUp,
+        HoverEventFilter::HoveredFile,
+        HoverEventFilter::DroppedFile,
+        HoverEventFilter::HoveredFileCancelled,
+        HoverEventFilter::TouchStart,
+        HoverEventFilter::TouchMove,
+        HoverEventFilter::TouchEnd,
+        HoverEventFilter::TouchCancel,
+        HoverEventFilter::PenDown,
+        HoverEventFilter::PenMove,
+        HoverEventFilter::PenUp,
+        HoverEventFilter::PenEnter,
+        HoverEventFilter::PenLeave,
+        HoverEventFilter::PenSqueeze,
+        HoverEventFilter::PenDoubleTap,
+        HoverEventFilter::PenHover,
+        HoverEventFilter::GeolocationFix,
+        HoverEventFilter::GeolocationError,
+        HoverEventFilter::SensorChanged,
+        HoverEventFilter::GamepadInput,
+        HoverEventFilter::DragStart,
+        HoverEventFilter::Drag,
+        HoverEventFilter::DragEnd,
+        HoverEventFilter::DragEnter,
+        HoverEventFilter::DragOver,
+        HoverEventFilter::DragLeave,
+        HoverEventFilter::Drop,
+        HoverEventFilter::DoubleClick,
+        HoverEventFilter::LongPress,
+        HoverEventFilter::SwipeLeft,
+        HoverEventFilter::SwipeRight,
+        HoverEventFilter::SwipeUp,
+        HoverEventFilter::SwipeDown,
+        HoverEventFilter::PinchIn,
+        HoverEventFilter::PinchOut,
+        HoverEventFilter::RotateClockwise,
+        HoverEventFilter::RotateCounterClockwise,
+        HoverEventFilter::MouseOut,
+        HoverEventFilter::FocusIn,
+        HoverEventFilter::FocusOut,
+        HoverEventFilter::CompositionStart,
+        HoverEventFilter::CompositionUpdate,
+        HoverEventFilter::CompositionEnd,
+        HoverEventFilter::SystemTextSingleClick,
+        HoverEventFilter::SystemTextDoubleClick,
+        HoverEventFilter::SystemTextTripleClick,
+        HoverEventFilter::PermissionChanged,
+        HoverEventFilter::BiometricResult,
+        HoverEventFilter::ScreenColorPicked,
+        HoverEventFilter::KeyringResult,
+    ];
+    const FOCUS: &[FocusEventFilter] = &[
+        FocusEventFilter::MouseOver,
+        FocusEventFilter::MouseDown,
+        FocusEventFilter::LeftMouseDown,
+        FocusEventFilter::RightMouseDown,
+        FocusEventFilter::MiddleMouseDown,
+        FocusEventFilter::MouseUp,
+        FocusEventFilter::LeftMouseUp,
+        FocusEventFilter::RightMouseUp,
+        FocusEventFilter::MiddleMouseUp,
+        FocusEventFilter::MouseEnter,
+        FocusEventFilter::MouseLeave,
+        FocusEventFilter::Scroll,
+        FocusEventFilter::ScrollStart,
+        FocusEventFilter::ScrollEnd,
+        FocusEventFilter::TextInput,
+        FocusEventFilter::VirtualKeyDown,
+        FocusEventFilter::VirtualKeyUp,
+        FocusEventFilter::FocusReceived,
+        FocusEventFilter::FocusLost,
+        FocusEventFilter::PenDown,
+        FocusEventFilter::PenMove,
+        FocusEventFilter::PenUp,
+        FocusEventFilter::DragStart,
+        FocusEventFilter::Drag,
+        FocusEventFilter::DragEnd,
+        FocusEventFilter::DragEnter,
+        FocusEventFilter::DragOver,
+        FocusEventFilter::DragLeave,
+        FocusEventFilter::Drop,
+        FocusEventFilter::DoubleClick,
+        FocusEventFilter::LongPress,
+        FocusEventFilter::SwipeLeft,
+        FocusEventFilter::SwipeRight,
+        FocusEventFilter::SwipeUp,
+        FocusEventFilter::SwipeDown,
+        FocusEventFilter::PinchIn,
+        FocusEventFilter::PinchOut,
+        FocusEventFilter::RotateClockwise,
+        FocusEventFilter::RotateCounterClockwise,
+        FocusEventFilter::FocusIn,
+        FocusEventFilter::FocusOut,
+        FocusEventFilter::CompositionStart,
+        FocusEventFilter::CompositionUpdate,
+        FocusEventFilter::CompositionEnd,
+        FocusEventFilter::Copy,
+        FocusEventFilter::Cut,
+        FocusEventFilter::Paste,
+        FocusEventFilter::DocumentEdit,
+    ];
+    const WINDOW: &[WindowEventFilter] = &[
+        WindowEventFilter::MouseOver,
+        WindowEventFilter::MouseDown,
+        WindowEventFilter::LeftMouseDown,
+        WindowEventFilter::RightMouseDown,
+        WindowEventFilter::MiddleMouseDown,
+        WindowEventFilter::MouseUp,
+        WindowEventFilter::LeftMouseUp,
+        WindowEventFilter::RightMouseUp,
+        WindowEventFilter::MiddleMouseUp,
+        WindowEventFilter::MouseEnter,
+        WindowEventFilter::MouseLeave,
+        WindowEventFilter::Scroll,
+        WindowEventFilter::ScrollStart,
+        WindowEventFilter::ScrollEnd,
+        WindowEventFilter::TextInput,
+        WindowEventFilter::VirtualKeyDown,
+        WindowEventFilter::VirtualKeyUp,
+        WindowEventFilter::HoveredFile,
+        WindowEventFilter::DroppedFile,
+        WindowEventFilter::HoveredFileCancelled,
+        WindowEventFilter::Resized,
+        WindowEventFilter::Moved,
+        WindowEventFilter::FrameChanged,
+        WindowEventFilter::TouchStart,
+        WindowEventFilter::TouchMove,
+        WindowEventFilter::TouchEnd,
+        WindowEventFilter::TouchCancel,
+        WindowEventFilter::FocusReceived,
+        WindowEventFilter::FocusLost,
+        WindowEventFilter::CloseRequested,
+        WindowEventFilter::ThemeChanged,
+        WindowEventFilter::WindowFocusReceived,
+        WindowEventFilter::WindowFocusLost,
+        WindowEventFilter::PenDown,
+        WindowEventFilter::PenMove,
+        WindowEventFilter::PenUp,
+        WindowEventFilter::PenEnter,
+        WindowEventFilter::PenLeave,
+        WindowEventFilter::PenSqueeze,
+        WindowEventFilter::PenDoubleTap,
+        WindowEventFilter::PenHover,
+        WindowEventFilter::GeolocationFix,
+        WindowEventFilter::GeolocationError,
+        WindowEventFilter::SensorChanged,
+        WindowEventFilter::GamepadInput,
+        WindowEventFilter::DragStart,
+        WindowEventFilter::Drag,
+        WindowEventFilter::DragEnd,
+        WindowEventFilter::DragEnter,
+        WindowEventFilter::DragOver,
+        WindowEventFilter::DragLeave,
+        WindowEventFilter::Drop,
+        WindowEventFilter::DoubleClick,
+        WindowEventFilter::LongPress,
+        WindowEventFilter::SwipeLeft,
+        WindowEventFilter::SwipeRight,
+        WindowEventFilter::SwipeUp,
+        WindowEventFilter::SwipeDown,
+        WindowEventFilter::PinchIn,
+        WindowEventFilter::PinchOut,
+        WindowEventFilter::RotateClockwise,
+        WindowEventFilter::RotateCounterClockwise,
+        WindowEventFilter::DpiChanged,
+        WindowEventFilter::MonitorChanged,
+        WindowEventFilter::PermissionChanged,
+        WindowEventFilter::BiometricResult,
+        WindowEventFilter::ScreenColorPicked,
+        WindowEventFilter::KeyringResult,
+    ];
+    const EVENTS: &[EventType] = &[
+        EventType::MouseOver,
+        EventType::MouseEnter,
+        EventType::MouseLeave,
+        EventType::MouseOut,
+        EventType::MouseDown,
+        EventType::MouseUp,
+        EventType::Click,
+        EventType::DoubleClick,
+        EventType::ContextMenu,
+        EventType::KeyDown,
+        EventType::KeyUp,
+        EventType::KeyPress,
+        EventType::CompositionStart,
+        EventType::CompositionUpdate,
+        EventType::CompositionEnd,
+        EventType::Focus,
+        EventType::Blur,
+        EventType::FocusIn,
+        EventType::FocusOut,
+        EventType::Input,
+        EventType::Change,
+        EventType::Submit,
+        EventType::Reset,
+        EventType::Invalid,
+        EventType::Scroll,
+        EventType::ScrollStart,
+        EventType::ScrollEnd,
+        EventType::DragStart,
+        EventType::Drag,
+        EventType::DragEnd,
+        EventType::DragEnter,
+        EventType::DragOver,
+        EventType::DragLeave,
+        EventType::Drop,
+        EventType::TouchStart,
+        EventType::TouchMove,
+        EventType::TouchEnd,
+        EventType::TouchCancel,
+        EventType::PenDown,
+        EventType::PenMove,
+        EventType::PenUp,
+        EventType::PenEnter,
+        EventType::PenLeave,
+        EventType::LongPress,
+        EventType::SwipeLeft,
+        EventType::SwipeRight,
+        EventType::SwipeUp,
+        EventType::SwipeDown,
+        EventType::PinchIn,
+        EventType::PinchOut,
+        EventType::RotateClockwise,
+        EventType::RotateCounterClockwise,
+        EventType::Copy,
+        EventType::Cut,
+        EventType::Paste,
+        EventType::Play,
+        EventType::Pause,
+        EventType::Ended,
+        EventType::TimeUpdate,
+        EventType::VolumeChange,
+        EventType::MediaError,
+        EventType::Mount,
+        EventType::Unmount,
+        EventType::Update,
+        EventType::Resize,
+        EventType::Dismiss,
+        EventType::TearOff,
+        EventType::Dock,
+        EventType::WindowResize,
+        EventType::WindowMove,
+        EventType::WindowClose,
+        EventType::WindowFrameChanged,
+        EventType::WindowFocusIn,
+        EventType::WindowFocusOut,
+        EventType::ThemeChange,
+        EventType::WindowDpiChanged,
+        EventType::WindowMonitorChanged,
+        EventType::MonitorConnected,
+        EventType::MonitorDisconnected,
+        EventType::FileHover,
+        EventType::FileDrop,
+        EventType::FileHoverCancel,
+        EventType::SensorChanged,
+        EventType::GamepadInput,
+        EventType::GeolocationFix,
+        EventType::GeolocationError,
+        EventType::PermissionChanged,
+        EventType::BiometricResult,
+        EventType::ScreenColorPicked,
+        EventType::KeyringResult,
+        EventType::DocumentEdit,
+    ];
+
+    let target = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+    };
+
+    let mut desyncs: Vec<String> = Vec::new();
+    for &event_type in EVENTS {
+        let event = SyntheticEvent::new(
+            event_type,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick::new(0)),
+            EventData::None,
+        );
+        let planned = event_type_to_filters(event_type, &event.data);
+        let mut check = |filter: EventFilter| {
+            let is_planned = planned.contains(&filter);
+            let does_match = super::matches_filter_phase(filter, &event, EventPhase::Bubble);
+            if is_planned != does_match {
+                desyncs.push(format!(
+                    "{event_type:?} x {filter:?}: planned={is_planned} matched={does_match}"
+                ));
+            }
+        };
+        for &f in HOVER {
+            check(EventFilter::Hover(f));
+        }
+        for &f in FOCUS {
+            check(EventFilter::Focus(f));
+        }
+        for &f in WINDOW {
+            check(EventFilter::Window(f));
+        }
+    }
+
+    // ZERO de-syncs, permanently: planning is DERIVED from matching
+    // (`event_type_to_filters` probes `matches_filter_phase` over the whole
+    // filter universe), so the two cannot drift. Before that they were two
+    // hand-written tables and this cross-product found 61 disagreements - in
+    // both directions: filters the matcher accepted but planning never
+    // emitted (pen enter/leave, scroll start/end, every focus-scoped drag
+    // event - listeners that could never fire), and filters planned but not
+    // matched (IME composition, window double-click - collected, then
+    // dropped). If this ever fails again, the two tables have been split
+    // apart once more.
+    assert!(
+        desyncs.is_empty(),
+        "dispatch planning and phase matching disagree on {} pair(s):\n{}",
+        desyncs.len(),
+        desyncs.join("\n"),
+    );
+}
+
+/// A REAL POINTER CLICK must activate a control exactly ONCE.
+///
+/// `event_determination` emits BOTH `MouseUp` and `Click` for one release (as
+/// browsers do). While `Click` also mapped onto MouseUp listeners, every
+/// activation handler ran twice - the ColorInput's toggle opened its picker
+/// and immediately closed it, so clicking the swatch appeared to do nothing
+/// (device report, 2026-09-01).
+#[test]
+fn a_pointer_release_activates_a_click_listener_exactly_once() {
+    use crate::{
+        dom::{DomId, DomNodeId, NodeId},
+        events::{
+            event_type_to_filters, EventData, EventFilter, HoverEventFilter, MouseButton,
+            MouseEventData,
+        },
+        styled_dom::NodeHierarchyItemId,
+    };
+
+    let _target = DomNodeId {
+        dom: DomId::ROOT_ID,
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(1))),
+    };
+    let left = EventData::Mouse(MouseEventData {
+        position: crate::geom::LogicalPosition::zero(),
+        button: MouseButton::Left,
+        buttons: 0,
+        modifiers: crate::events::KeyModifiers::new(),
+    });
+
+    let activation = EventFilter::Hover(HoverEventFilter::Click);
+    let up_filters = event_type_to_filters(EventType::MouseUp, &left);
+    let click_filters = event_type_to_filters(EventType::Click, &left);
+
+    // The pair of events a single release produces must together reach the
+    // activation listener EXACTLY once.
+    let hits = usize::from(up_filters.contains(&activation))
+        + usize::from(click_filters.contains(&activation));
+    assert_eq!(
+        hits, 1,
+        "one release must activate once: MouseUp planned {up_filters:?}, Click planned \
+         {click_filters:?}",
+    );
+
+    // And symmetrically, a raw-release listener must fire once too.
+    let raw = EventFilter::Hover(HoverEventFilter::MouseUp);
+    let raw_hits =
+        usize::from(up_filters.contains(&raw)) + usize::from(click_filters.contains(&raw));
+    assert_eq!(raw_hits, 1, "a MouseUp listener must also fire exactly once");
+}
+
+/// Keyboard and assistive-technology activation reach the SAME listener a
+/// pointer click does - one activation concept, not three near-misses.
+#[test]
+fn keyboard_and_a11y_activation_reach_the_same_listener_as_a_click() {
+    use crate::{
+        dom::On,
+        events::{event_type_to_filters, EventData, EventFilter, HoverEventFilter},
+    };
+
+    let activation = EventFilter::Hover(HoverEventFilter::Click);
+
+    // Enter / Space dispatch a synthetic Click.
+    assert!(event_type_to_filters(EventType::Click, &EventData::None).contains(&activation));
+
+    // The a11y default action maps to the same filter.
+    assert_eq!(EventFilter::from(On::Default), activation);
+    // ...and so does the public `On::Click` sugar.
+    assert_eq!(EventFilter::from(On::Click), activation);
+}
+
+/// A press is NOT an activation: it must not reach a Click listener, or a
+/// control would fire before the user could release somewhere else.
+#[test]
+fn a_press_alone_never_activates() {
+    use crate::events::{event_type_to_filters, EventData, EventFilter, HoverEventFilter};
+
+    let planned = event_type_to_filters(EventType::MouseDown, &EventData::None);
+    assert!(
+        !planned.contains(&EventFilter::Hover(HoverEventFilter::Click)),
+        "MouseDown must not activate: {planned:?}",
+    );
 }

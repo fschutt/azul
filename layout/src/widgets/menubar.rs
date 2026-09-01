@@ -108,7 +108,7 @@ fn build_menubar_item(item: &StringMenuItem) -> Dom {
         .with_child(crate::widgets::widget_p_with_text(item.label.clone()))
         .with_callbacks(
             vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                event: EventFilter::Hover(HoverEventFilter::Click),
                 callback: CoreCallback {
                     cb: callbacks::menubar_item_click as usize,
                     ctx: OptionRefAny::None,
@@ -811,7 +811,7 @@ mod autotest_generated {
         let cbs = dom.root.callbacks.as_ref();
 
         assert_eq!(cbs.len(), 1);
-        assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::MouseUp));
+        assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Click));
         assert_eq!(
             cbs[0].callback.cb, menubar_item_click as usize,
             "the item must be wired to the menubar click handler",

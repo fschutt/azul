@@ -461,7 +461,7 @@ impl RadioGroup {
                     .with_css_props(row_style.clone())
                     .with_callbacks(
                         vec![CoreCallbackData {
-                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                            event: EventFilter::Hover(HoverEventFilter::Click),
                             callback: CoreCallback {
                                 cb: on_radio_row_click as usize,
                                 ctx: OptionRefAny::None,
@@ -1763,7 +1763,7 @@ mod autotest_generated {
             let cb = &cbs.as_ref()[0];
             assert_eq!(
                 cb.event,
-                EventFilter::Hover(HoverEventFilter::MouseUp),
+                EventFilter::Hover(HoverEventFilter::Click),
                 "row {i} listens for the wrong event",
             );
             assert_eq!(

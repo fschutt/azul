@@ -766,7 +766,7 @@ impl Backstage {
             if let Some(cb) = on_nav_select.as_ref() {
                 d = d.with_callbacks(
                     vec![CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        event: EventFilter::Hover(HoverEventFilter::Click),
                         callback: CoreCallback {
                             cb: on_backstage_nav_click as usize,
                             ctx: azul_core::refany::OptionRefAny::None,

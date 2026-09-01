@@ -1720,7 +1720,7 @@ impl ListView {
                                 match &on_column_click {
                                     OptionListViewOnColumnClick::Some(_) => col_dom.with_callbacks(
                                         vec![CoreCallbackData {
-                                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                                            event: EventFilter::Hover(HoverEventFilter::Click),
                                             refany: RefAny::new(ColumnClickData {
                                                 col_index,
                                                 state: state.clone(),
@@ -1775,7 +1775,7 @@ impl ListView {
                                 match &on_row_click {
                                     OptionListViewOnRowClick::Some(_) => row_dom.with_callbacks(
                                         vec![CoreCallbackData {
-                                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                                            event: EventFilter::Hover(HoverEventFilter::Click),
                                             refany: RefAny::new(RowClickData {
                                                 row_index,
                                                 state: state.clone(),
@@ -2507,7 +2507,7 @@ mod autotest_generated {
             assert_eq!(cbs.len(), 1);
             assert!(matches!(
                 cbs[0].event,
-                EventFilter::Hover(HoverEventFilter::MouseUp)
+                EventFilter::Hover(HoverEventFilter::Click)
             ));
             assert_eq!(cbs[0].callback.cb, on_list_view_column_click as usize);
             let mut any = cbs[0].refany.clone();
@@ -2527,7 +2527,7 @@ mod autotest_generated {
             assert_eq!(cbs.len(), 1);
             assert!(matches!(
                 cbs[0].event,
-                EventFilter::Hover(HoverEventFilter::MouseUp)
+                EventFilter::Hover(HoverEventFilter::Click)
             ));
             assert_eq!(cbs[0].callback.cb, on_list_view_row_click as usize);
             let mut any = cbs[0].refany.clone();

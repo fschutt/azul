@@ -286,7 +286,7 @@ impl Card {
                 refany: data,
                 callback,
             }) => vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                event: EventFilter::Hover(HoverEventFilter::Click),
                 callback: CoreCallback {
                     cb: callback.cb as *const () as usize,
                     ctx: callback.ctx,
@@ -917,7 +917,7 @@ mod autotest_generated {
         assert_eq!(callbacks.len(), 1, "exactly one click callback is expected");
         assert_eq!(
             callbacks[0].event,
-            EventFilter::Hover(HoverEventFilter::MouseUp),
+            EventFilter::Hover(HoverEventFilter::Click),
             "the card must fire on mouse-up, not on any other filter",
         );
         assert_eq!(

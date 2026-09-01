@@ -365,7 +365,7 @@ icons = ["std", "zip", "dep:material-icons", "dep:brotli-decompressor"]
 # path is host-agnostic (no networking, no OS coupling — those go through
 # `e2e::hooks`), so a headless library caller can run E2E JSON scenarios with
 # just this feature.
-e2e-server = ["std", "json", "cpurender", "zip", "widgets", "text_layout", "font_loading", "a11y", "xml"]
+e2e-server = ["std", "json", "cpurender", "zip", "widgets", "text_layout", "font_loading", "a11y", "xml", "dep:spmc"]
 
 # Request transport for the debug server: the spmc channel, the debug timer and
 # `handle_event_request`. Opt-in ON TOP of `e2e-server`; the core op-dispatch and
@@ -373,7 +373,7 @@ e2e-server = ["std", "json", "cpurender", "zip", "widgets", "text_layout", "font
 # plumbing off the library API path. The socket itself is the DLL's
 # (`debug_server::platform`), because the debugger UI it serves is built by the
 # DLL's build script.
-e2e-server-http = ["e2e-server", "dep:spmc"]
+e2e-server-http = ["e2e-server"]
 
 
 # Opt-in gates for intentionally-disabled test files (kept in the tree, off by

@@ -1349,7 +1349,7 @@ impl TabHeader {
                         crate::widgets::widget_p_with_text(tab.clone())
                             .with_callbacks(if on_click_is_some {
                                 vec![CoreCallbackData {
-                                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                                    event: EventFilter::Hover(HoverEventFilter::Click),
                                     callback: CoreCallback {
                                         cb: on_tab_click as usize,
                                         ctx: azul_core::refany::OptionRefAny::None,
@@ -2512,7 +2512,7 @@ mod autotest_generated {
             let data = &cbs.as_ref()[0];
             assert_eq!(
                 data.event,
-                EventFilter::Hover(HoverEventFilter::MouseUp),
+                EventFilter::Hover(HoverEventFilter::Click),
                 "tabs must react on mouse-up, not mouse-down"
             );
             assert_eq!(

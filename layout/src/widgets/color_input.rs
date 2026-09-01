@@ -282,7 +282,7 @@ impl ColorInput {
             ))
             .with_callbacks(
                 vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    event: EventFilter::Hover(HoverEventFilter::Click),
                     refany: data,
                     callback: CoreCallback {
                         cb: on_color_input_clicked as usize,
@@ -873,7 +873,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         .with_callbacks(
             vec![
                 CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    event: EventFilter::Hover(HoverEventFilter::Click),
                     refany: data.clone(),
                     callback: CoreCallback {
                         cb: on_eyedropper_clicked as usize,
@@ -2517,7 +2517,7 @@ mod autotest_generated {
     }
 
     #[test]
-    fn dom_registers_exactly_one_mouse_up_handler_and_it_is_the_widgets_own() {
+    fn dom_registers_exactly_one_activation_handler_and_it_is_the_widgets_own() {
         for c in SAMPLE_COLORS {
             let dom = ColorInput::create(c).dom();
             let callbacks = dom.root.callbacks.as_ref();
@@ -2525,8 +2525,11 @@ mod autotest_generated {
             assert_eq!(callbacks.len(), 1, "{c:?}: expected exactly one callback");
             assert_eq!(
                 callbacks[0].event,
-                EventFilter::Hover(HoverEventFilter::MouseUp),
-                "{c:?}: the color input must fire on mouse-up",
+                EventFilter::Hover(HoverEventFilter::Click),
+                "{c:?}: the swatch must fire on ACTIVATION (Click), not on a \
+                 raw MouseUp - a real pointer release emits BOTH, so a MouseUp \
+                 handler ran the open/close toggle twice and the picker opened \
+                 and instantly closed (2026-09-01)",
             );
             assert_eq!(
                 callbacks[0].callback.cb, on_color_input_clicked as usize,

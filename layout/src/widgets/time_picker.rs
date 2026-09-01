@@ -518,7 +518,7 @@ impl TimePicker {
                     .with_callbacks(
                         alloc::vec![CoreCallbackData {
                             event: azul_core::dom::EventFilter::Hover(
-                                azul_core::dom::HoverEventFilter::MouseUp,
+                                azul_core::dom::HoverEventFilter::Click,
                             ),
                             callback: CoreCallback {
                                 cb: on_ampm_toggle as usize,
@@ -568,7 +568,7 @@ fn build_spinner(
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(ARROW_STYLE))
             .with_callbacks(
                 alloc::vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    event: EventFilter::Hover(HoverEventFilter::Click),
                     callback: CoreCallback {
                         cb,
                         ctx: OptionRefAny::None,
@@ -2382,7 +2382,7 @@ mod autotest_generated {
                 assert!(
                     matches!(
                         cb.event,
-                        EventFilter::Hover(HoverEventFilter::MouseUp)
+                        EventFilter::Hover(HoverEventFilter::Click)
                             | EventFilter::Hover(HoverEventFilter::Scroll)
                     ),
                     "a time-picker cell fires on {:?}, not mouse-up or scroll",
@@ -2392,7 +2392,7 @@ mod autotest_generated {
                     matches!(cb.callback.ctx, OptionRefAny::None),
                     "a native handler carries an FFI context",
                 );
-                if cb.event == EventFilter::Hover(HoverEventFilter::MouseUp) {
+                if cb.event == EventFilter::Hover(HoverEventFilter::Click) {
                     interactive += 1;
                 }
             }
@@ -2404,7 +2404,7 @@ mod autotest_generated {
                 .callbacks
                 .as_ref()
                 .iter()
-                .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::MouseUp));
+                .any(|cb| cb.event == EventFilter::Hover(HoverEventFilter::Click));
             if has_click {
                 assert_eq!(
                     nd.flags.get_tab_index(),
@@ -2705,7 +2705,7 @@ mod autotest_generated {
                 1,
                 "{which}: an arrow registers exactly one handler"
             );
-            assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::MouseUp));
+            assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Click));
             assert_eq!(
                 cell.root.flags.get_tab_index(),
                 Some(TabIndex::Auto),

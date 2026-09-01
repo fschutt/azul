@@ -618,6 +618,13 @@ build-dll = [
     # Lazily gated at RUNTIME by AZ_PROFILE (probe.rs) - compiled in but not
     # recording, the spans are a branch and nothing else.
     "azul-layout/probe",
+    # AZ_E2E SCRIPTING, in every shipped dylib. The execution engine only:
+    # `debug-server` (the HTTP port + the bundled debugger JS) stays OUT, so
+    # there is no listening socket and no 2-4 MB of JS in the binary. A script
+    # handed over via `AZ_E2E=script.json` needs no server at all, and without
+    # this an app built the normal way silently ignored AZ_E2E - which is
+    # exactly what "the app did nothing" looked like (2026-09-01).
+    "e2e-scripting",
 ]
 
 # SQLite-backed `Db` API (P4.3). Pulls the bundled-SQLite `rusqlite`

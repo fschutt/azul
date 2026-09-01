@@ -2317,7 +2317,7 @@ impl Ribbon {
             if let Some(oc) = ab.on_click.into_option() {
                 d = d.with_callbacks(
                     vec![CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        event: EventFilter::Hover(HoverEventFilter::Click),
                         callback: CoreCallback {
                             cb: oc.callback.cb as *const () as usize,
                             ctx: oc.callback.ctx,
@@ -2360,7 +2360,7 @@ impl Ribbon {
             let mut cbs: Vec<CoreCallbackData> = Vec::with_capacity(4);
             if has_callback {
                 cbs.push(CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    event: EventFilter::Hover(HoverEventFilter::Click),
                     callback: CoreCallback {
                         cb: on_ribbon_tab_click as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
@@ -2464,7 +2464,7 @@ impl Ribbon {
         let mut mobile_cbs: Vec<CoreCallbackData> = Vec::with_capacity(2);
         if behavior.mobile_tab_overlay {
             mobile_cbs.push(CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                event: EventFilter::Hover(HoverEventFilter::Click),
                 callback: CoreCallback {
                     cb: on_ribbon_mobile_tab_click as usize,
                     ctx: azul_core::refany::OptionRefAny::None,
@@ -2503,7 +2503,7 @@ impl Ribbon {
                 if has_callback {
                     item = item.with_callbacks(
                         vec![CoreCallbackData {
-                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                            event: EventFilter::Hover(HoverEventFilter::Click),
                             callback: CoreCallback {
                                 cb: on_ribbon_tab_click as usize,
                                 ctx: azul_core::refany::OptionRefAny::None,
@@ -2549,7 +2549,7 @@ impl Ribbon {
                 if matches!(mode, RibbonChromeMode::Mobile) {
                     item = item.with_callbacks(
                         vec![CoreCallbackData {
-                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                            event: EventFilter::Hover(HoverEventFilter::Click),
                             callback: CoreCallback {
                                 cb: on_ribbon_mobile_group_click as usize,
                                 ctx: azul_core::refany::OptionRefAny::None,
@@ -2872,7 +2872,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
             if has_callback || b.auto_select_gallery {
                 d = d.with_callbacks(
                     vec![CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        event: EventFilter::Hover(HoverEventFilter::Click),
                         callback: CoreCallback {
                             cb: on_ribbon_gallery_cell_click as usize,
                             ctx: azul_core::refany::OptionRefAny::None,
@@ -2921,7 +2921,7 @@ fn gallery_dom(gallery: RibbonGallery, s: &RibbonStyle, b: RibbonBehavior) -> Do
                 btn = btn.with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_GALLERY_MORE));
                 btn = btn.with_callbacks(
                     vec![CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        event: EventFilter::Hover(HoverEventFilter::Click),
                         callback: CoreCallback {
                             cb: on_ribbon_gallery_more_click as usize,
                             ctx: azul_core::refany::OptionRefAny::None,
@@ -3812,7 +3812,7 @@ mod tests {
                     .get_callbacks()
                     .as_ref()
                     .iter()
-                    .any(|c| c.event == EventFilter::Hover(HoverEventFilter::MouseUp)),
+                    .any(|c| c.event == EventFilter::Hover(HoverEventFilter::Click)),
                 "no user callback -> no MouseUp handler (chrome handlers may still be present)"
             );
         }
@@ -3834,7 +3834,7 @@ mod tests {
             let click = cbs
                 .as_ref()
                 .iter()
-                .find(|c| c.event == EventFilter::Hover(HoverEventFilter::MouseUp))
+                .find(|c| c.event == EventFilter::Hover(HoverEventFilter::Click))
                 .expect("every tab has a MouseUp user handler");
             let mut payload = click.refany.clone();
             let data = payload
@@ -4472,7 +4472,7 @@ mod tests {
         assert_eq!(more.root.get_callbacks().as_ref().len(), 1);
         assert_eq!(
             more.root.get_callbacks().as_ref()[0].event,
-            EventFilter::Hover(HoverEventFilter::MouseUp)
+            EventFilter::Hover(HoverEventFilter::Click)
         );
     }
 

@@ -1238,8 +1238,11 @@ impl Default for FormattingContext {
 pub enum On {
     /// Mouse cursor is hovering over the element.
     MouseOver,
-    /// Mouse cursor has is over element and is pressed
-    /// (not good for "click" events - use `MouseUp` instead).
+    /// Mouse cursor is over the element and a button is pressed.
+    ///
+    /// NOT a click: a press is not an activation (the user can still release
+    /// elsewhere, and it never fires for keyboard or assistive-technology
+    /// activation). Use [`On::Click`] for "the user activated this".
     MouseDown,
     /// (Specialization of `MouseDown`). Fires only if the left mouse button
     /// has been pressed while cursor was over the element.
@@ -1250,6 +1253,16 @@ pub enum On {
     /// (Specialization of `MouseDown`). Fires only if the right mouse button
     /// has been pressed while cursor was over the element.
     RightMouseDown,
+    /// The element was ACTIVATED: pressed and released on the same node (W3C
+    /// `click`), or activated from the keyboard (Enter / Space on a focused
+    /// element) or by an assistive technology's default action.
+    ///
+    /// THIS is what a "click handler" wants. `MouseUp` is the raw pointer
+    /// release: it fires for any button, it fires when the press began
+    /// elsewhere, and it never fires for a keyboard or screen-reader
+    /// activation - which is why activation handlers written against it were
+    /// unreachable from the keyboard (2026-09-01).
+    Click,
     /// Mouse button has been released while cursor was over the element.
     MouseUp,
     /// (Specialization of `MouseUp`). Fires only if the left mouse button has
@@ -1660,7 +1673,7 @@ pub struct NodeData {
     pub node_type: NodeType,
     /// Callbacks attached to this node:
     ///
-    /// `On::MouseUp` -> `Callback(my_button_click_handler)`
+    /// `On::Click` -> `Callback(my_button_click_handler)`
     pub callbacks: CoreCallbackDataVec,
     /// Inline style: a `Css` value that applies only to this node (implicit `:scope`).
     /// Each rule carries conditions (@media/@os/:hover/...) and declarations; rules
@@ -3692,10 +3705,18 @@ impl NodeData {
 
         // Check for click callback (most common case for Azul)
         // In Azul, "click" is typically LeftMouseUp
+        // `Click` is the activation filter; MouseUp / LeftMouseUp stay
+        // recognised so a widget that still listens for a raw release (a
+        // drag-release, or code predating `On::Click`) is still activatable
+        // from the keyboard and from assistive technology.
         let has_click_callback = self.get_callbacks().iter().any(|cb| {
             matches!(
                 cb.event,
-                EventFilter::Hover(HoverEventFilter::MouseUp | HoverEventFilter::LeftMouseUp)
+                EventFilter::Hover(
+                    HoverEventFilter::Click
+                        | HoverEventFilter::MouseUp
+                        | HoverEventFilter::LeftMouseUp
+                )
             )
         });
 
