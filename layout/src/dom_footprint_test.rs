@@ -104,15 +104,18 @@ mod tests {
         );
     }
 
-    /// THE STYLE CACHE, NOT THE TREE, IS THE EXPENSIVE HALF — recorded so the
-    /// ratio is a fact rather than a surprise.
+    /// THE CACHE IS NOW SMALLER THAN THE TREE — the inversion, pinned.
     ///
-    /// `computed_values` alone is roughly four times the whole DOM. Anyone
-    /// reading "a DOM is about a megabyte" and sizing a budget from it will be
-    /// out by an order of magnitude unless they know this, and any future work
-    /// on rebuild cost should start here rather than on the tree.
+    /// It used to be 7x the tree, and `computed_values` alone was four times
+    /// the whole DOM. After dropping the unreachable entries, transposing the
+    /// inherited store and sharing identical runs in `css_props` /
+    /// `cascaded_props`, what is left is dominated by the COMPACT CACHE — the
+    /// irreducible bitfield form the hot layout loop reads, which is the one
+    /// part that should be big.
+    ///
+    /// If this ever fails the other way, a per-node duplicate has crept back in.
     #[test]
-    fn the_style_cache_dominates_the_tree_it_is_derived_from() {
+    fn the_style_cache_no_longer_dominates_the_tree_it_is_derived_from() {
         let Some(xml) = bench_document() else {
             eprintln!("[skip] doc/xhtml1/chapter-8.xht not present");
             return;
@@ -127,9 +130,10 @@ mod tests {
             cache as f64 / dom_only.max(1) as f64,
         );
         assert!(
-            cache > dom_only,
-            "the style cache used to dominate the DOM ({cache} vs {dom_only}); if that has \
-             changed, the module docs above and the guide's memory figures need updating",
+            cache < dom_only,
+            "the style cache ({cache} B) has grown past the tree it derives from ({dom_only} B) \
+             — a per-node duplicate has come back; see `FlatVecVec::dedup_runs` and \
+             `InheritedValues`",
         );
 
         // And the number the guide's claim projects to for a dense real UI.
