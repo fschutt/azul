@@ -62,7 +62,13 @@ fn word_logo(pal: &Palette) -> Dom {
 
 /// Title band: Word logo, quick-access save/undo/redo, customize chevron,
 /// centered "<name> - AzWriter", help + window buttons.
-pub fn title_band(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -> Dom {
+pub fn title_band(
+    state: &AppState,
+    data: &RefAny,
+    pal: &Palette,
+    sys: &SystemStyle,
+    compact: bool,
+) -> Dom {
     let title = format!("{} - AzWriter", state.document.display_name());
     let mut band =
         QuickAccessBar::office_2013(AzString::from(title)).with_leading(word_logo(pal));
@@ -87,6 +93,14 @@ pub fn title_band(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemSt
     ]
     .into();
     crate::fonts::push_ui_font(&mut band.style.bar_style);
+    if compact {
+        // A phone has no window to minimize, maximize or close — the OS owns
+        // that. Drawing them anyway spends a third of a 320 px band on controls
+        // that cannot work, directly under the status bar.
+        band.show_minimize = false;
+        band.show_maximize = false;
+        band.show_close = false;
+    }
     // The title band IS the window's drag handle — `-azul-app-region: drag`,
     // the same rule Electron spells `-webkit-app-region`. Dragging it hands the
     // gesture to the window manager, and double-clicking it toggles
@@ -424,6 +438,9 @@ pub fn editor_screen(
     max_monitor: Option<LayoutSize>,
     pal: &Palette,
     sys: &SystemStyle,
+    // `compact`: touch chrome — no window buttons, mobile ribbon band.
+    // See `crate::MOBILE_BREAKPOINT_PX`.
+    compact: bool,
 ) -> Dom {
     // Dynamic pagination: the engine cuts the cached content DOM at its
     // structural break paths; pages build LAZILY inside the canvas
@@ -446,11 +463,11 @@ pub fn editor_screen(
 
     let title = {
         let _p = crate::perf::Phase::start("title_band");
-        title_band(state, data, pal, sys)
+        title_band(state, data, pal, sys, compact)
     };
     let ribbon = {
         let _p = crate::perf::Phase::start("ribbon");
-        crate::ribbon_ui::build(state, data, pal, sys)
+        crate::ribbon_ui::build(state, data, pal, sys, compact)
     };
     let canvas_dom = {
         let _p = crate::perf::Phase::start("canvas");

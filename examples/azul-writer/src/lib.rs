@@ -1072,6 +1072,10 @@ pub extern "C" fn on_zoom_slider(mut data: RefAny, _: CallbackInfo, slider: Slid
 // Layout
 // ---------------------------------------------------------------------------
 
+/// Viewport width (logical px) at or below which AzWriter uses touch chrome:
+/// the ribbon's mobile band, and a title band with no window buttons.
+pub const MOBILE_BREAKPOINT_PX: f32 = 720.0;
+
 extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let _frame_timer = FrameTimer::start();
     // Clone the state out so `data` can be re-shared with the callbacks
@@ -1110,6 +1114,16 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
     let system_style = info.get_system_style_untracked();
     let pal = palette::Palette::from_system(&system_style, info.get_theme());
 
+    // Phone-sized viewport => touch chrome. The framework re-runs `layout()`
+    // on every resize, so crossing the breakpoint swaps the whole structure —
+    // this is the branch `Ribbon::dom_desktop` / `dom_mobile` document, and it
+    // is also what decides whether the title band draws window buttons.
+    //
+    // 720 logical px matches examples/rust/src/ribbon.rs, the widget demo that
+    // already exercises this path; below it a ribbon tab strip cannot show more
+    // than two tabs without truncating.
+    let compact = !info.viewport_bigger_than(MOBILE_BREAKPOINT_PX);
+
     let screen = match state.screen {
         Screen::Editor => editor_ui::editor_screen(
             &state,
@@ -1118,6 +1132,7 @@ extern "C" fn layout(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
             max_monitor,
             &pal,
             &system_style,
+            compact,
         ),
         Screen::Backstage => {
             backstage_ui::backstage_screen(&state, &data, &pal, &system_style)

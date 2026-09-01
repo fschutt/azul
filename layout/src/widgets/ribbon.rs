@@ -1357,6 +1357,11 @@ const MOBILE_TAB_BUTTON_CLASS: &str = "__azul-native-ribbon-mobile-tab";
 const RIBBON_CONTAINER_CLASS: &str = "__azul-native-ribbon";
 const MOBILE_GROUP_LIST_ITEM_CLASS: &str = "__azul-native-ribbon-mobile-group-list-item";
 const RIBBON_CONTENT_CLASS: &str = "__azul-native-ribbon-content";
+/// The mobile band: the group list AND the one visible group, side by side.
+/// Collapsing on mobile has to hide THIS, not just the content — hiding the
+/// content alone leaves the group list behind as a floating strip with nothing
+/// beside it.
+const MOBILE_BAND_CLASS: &str = "__azul-native-ribbon-mobile-band";
 static CLS_MOBILE_TAB_BUTTON: &[IdOrClass] =
     &[Class(AzString::from_const_str(MOBILE_TAB_BUTTON_CLASS))];
 static CLS_MOBILE_TAB_OVERLAY: &[IdOrClass] = &[Class(AzString::from_const_str(
@@ -2357,7 +2362,15 @@ impl Ribbon {
         // Private chrome state shared by every tab header: the collapse and
         // hover-peek behaviors are driven from here, so the application's own
         // data model never has to model ribbon chrome.
-        let chrome = RefAny::new(RibbonChromeState { collapsed: false });
+        // Mobile starts COLLAPSED. On a phone the content band eats most of the
+        // viewport and the document is what the user came for; the classic
+        // office suites do the same thing at this size. The seed has to agree
+        // with the initial DOM below — `set_content_visible` only ever runs
+        // from a callback, so a state that says "collapsed" over a band that
+        // renders expanded would make the first double-tap a no-op.
+        let chrome = RefAny::new(RibbonChromeState {
+            collapsed: matches!(mode, RibbonChromeMode::Mobile),
+        });
 
         for (idx, tab) in tabs.as_slice().iter().enumerate() {
             let (classes, part_style) = if idx == active_tab {
@@ -2643,6 +2656,11 @@ impl Ribbon {
                         cond_border_box(),
                     ]))
                     .with_children(DomVec::from_vec(vec![mobile_group_list, content]));
+                // Collapsed to start — the other half of the `chrome` seed
+                // above. Only the tab button shows; tapping it expands.
+                let mut band = band;
+                band.root
+                    .upsert_inline_css_property(P::const_display(LayoutDisplay::None));
                 vec![mobile_tab_button, mobile_tab_overlay, band]
             }
         };
@@ -3128,7 +3146,10 @@ fn content_node_of_tab(info: &CallbackInfo, hit: DomNodeId) -> Option<DomNodeId>
     let tab = ancestor_with_class(info, hit, RIBBON_TAB_CLASS)
         .or_else(|| ancestor_with_class(info, hit, MOBILE_TAB_BUTTON_CLASS))?;
     let ribbon = ancestor_with_class(info, tab, RIBBON_CONTAINER_CLASS)?;
-    descendant_with_class(info, ribbon, RIBBON_CONTENT_CLASS)
+    // Mobile first: the band is what "collapsed" means there. Desktop has no
+    // band, so it falls through to the content div as before.
+    descendant_with_class(info, ribbon, MOBILE_BAND_CLASS)
+        .or_else(|| descendant_with_class(info, ribbon, RIBBON_CONTENT_CLASS))
 }
 
 fn set_content_visible(info: &mut CallbackInfo, content: DomNodeId, visible: bool) {

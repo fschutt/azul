@@ -402,7 +402,13 @@ fn placeholder_tab(label: &str) -> RibbonTab {
 
 /// Builds the full ribbon (tab strip + active tab content) for the editor
 /// screen. The FILE button opens the backstage.
-pub fn build(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) -> Dom {
+pub fn build(
+    state: &AppState,
+    data: &RefAny,
+    pal: &Palette,
+    sys: &SystemStyle,
+    compact: bool,
+) -> Dom {
     let tabs: Vec<RibbonTab> = vec![
         home_tab(state, data, pal, sys),
         placeholder_tab("INSERT"),
@@ -425,5 +431,14 @@ pub fn build(state: &AppState, data: &RefAny, pal: &Palette, sys: &SystemStyle) 
     // WORKAROUND(engine): pin the static UI font on the ribbon container —
     // the font inherits into every tab / group / label (see crate::fonts).
     crate::fonts::push_ui_font(&mut ribbon.style.container_style);
-    ribbon.dom_desktop()
+    if compact {
+        // Touch chrome: a full-width active-tab button (tap opens the tab
+        // picker, double-tap collapses the band), the group list on the
+        // dominant-hand side, and ONE group visible at a time. Collapsed to
+        // start, because on a phone the content band eats most of the viewport
+        // and the document is what the user came for.
+        ribbon.dom_mobile()
+    } else {
+        ribbon.dom_desktop()
+    }
 }
