@@ -1,0 +1,37 @@
+{
+  "name": "op_dom_id_envelope",
+  "description": "The `dom_id` envelope field addresses a DOM by id for EVERY node-addressing op, defaulting to the root DOM (0). Before it, every op hardcoded DOM 0, so a VirtualView's document and a <transient-window>'s popup content were unreachable by selector and the only way in was guessing pixel coordinates. This scenario mounts a single DOM, so it pins the three properties that hold app-independently: omitted == 0, an explicit 0 is the same thing, and a DOM that does not exist resolves to NOTHING. The last one is the real gate — if `dom_id` is ignored and ROOT_DOM_ID is hardcoded again, the bogus-DOM assertions below start matching the root DOM and go red.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"root\"><p class=\"probe\">dom id probe</p></div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; width: 100%; height: 100%; }",
+        "#root { width: 100%; height: 100%; background: white; }",
+        ".probe { color: black; }"
+      ]
+    },
+    { "op": "wait_frame" },
+
+    { "op": "list_doms" },
+
+    { "op": "assert_exists", "selector": ".probe" },
+    { "op": "assert_exists", "selector": ".probe", "dom_id": 0 },
+    { "op": "assert_node_count", "selector": ".probe", "expected": 1, "dom_id": 0 },
+
+    { "op": "assert_not_exists", "selector": ".probe", "dom_id": 7 },
+    { "op": "assert_node_count", "selector": ".probe", "expected": 0, "dom_id": 7 },
+
+    { "op": "assert_text", "selector": ".probe", "expected": "dom id probe", "dom_id": 0 },
+
+    { "op": "click", "selector": ".probe", "dom_id": 0 },
+    { "op": "wait_frame" }
+  ]
+}
