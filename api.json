@@ -10072,26 +10072,6 @@
                                 },
                                 "fn_body": "object.get_scroll_delta(dom_id, node_id).into()"
                             },
-                            "had_scroll_activity": {
-                                "doc": [
-                                    "Check if a node had scroll activity this frame"
-                                ],
-                                "fn_args": [
-                                    {
-                                        "self": "ref"
-                                    },
-                                    {
-                                        "dom_id": "DomId"
-                                    },
-                                    {
-                                        "node_id": "NodeId"
-                                    }
-                                ],
-                                "returns": {
-                                    "type": "bool"
-                                },
-                                "fn_body": "object.had_scroll_activity(dom_id, node_id)"
-                            },
                             "get_scroll_state": {
                                 "doc": [
                                     "Get the scroll state (container rect, content rect, current offset) for a node"
@@ -21770,6 +21750,7 @@
                                     "type": "i32"
                                 },
                                 "Focusable": {},
+                                "Autofocus": {},
                                 "Lang": {
                                     "type": "String"
                                 },
@@ -38088,6 +38069,7 @@
                                 "LeftMouseDown": {},
                                 "RightMouseDown": {},
                                 "MiddleMouseDown": {},
+                                "Click": {},
                                 "MouseUp": {},
                                 "LeftMouseUp": {},
                                 "RightMouseUp": {},

@@ -5130,8 +5130,6 @@ impl CallbackInfo {
             .get_scroll_node_info(dom_id, node_id)
     }
 
-    /// Deprecated: Returns None. Scroll deltas are no longer tracked per-frame.
-    /// Kept for FFI backward compatibility.
     /// The raw wheel / trackpad delta that triggered the current `Scroll`
     /// callback, or `None` outside a scroll dispatch. The value is the per-pass
     /// delta recorded by the platform scroll handler (see
@@ -5147,13 +5145,6 @@ impl CallbackInfo {
         _node_id: NodeId,
     ) -> Option<LogicalPosition> {
         self.get_scroll_manager().pending_wheel_event
-    }
-
-    /// Deprecated: Returns false. Scroll activity flags were removed.
-    /// Kept for FFI backward compatibility.
-    #[must_use]
-    pub const fn had_scroll_activity(&self, _dom_id: DomId, _node_id: NodeId) -> bool {
-        false
     }
 
     /// The closest scrollable STRICT ancestor of a node - `node_id` itself is
