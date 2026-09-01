@@ -199,4 +199,9 @@ fi
 
 echo "==> adb install -r aligned.apk"
 adb install -r aligned.apk || { echo "no connected device — APK at $BUILD_DIR/aligned.apk" >&2; exit 0; }
-adb shell am start -n "$PACKAGE/android.app.NativeActivity"
+# The manifest declares com.azul.app.AzulActivity (a NativeActivity subclass
+# that constructs the gesture + a11y bridges in onCreate), so launching
+# android.app.NativeActivity fails with "Activity class does not exist" — this
+# line had drifted from the manifest and the script's own deploy path could
+# not start the app it had just installed.
+adb shell am start -n "$PACKAGE/com.azul.app.AzulActivity"

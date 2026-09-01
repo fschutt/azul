@@ -364,6 +364,22 @@ Start at the top — it is free and catches most of what actually breaks.
 | 3. Emulator / simulator | one-time SDK install | the app *boots and draws* |
 | 4. Real device | a cable | timing, sensors, the actual digitizer |
 
+Everything below is also available as a command that probes before it acts:
+
+```sh
+cargo run -p azul-doc -- mobile doctor            # what is installed, what is missing
+cargo run -p azul-doc -- mobile install android   # plan, confirm, install
+cargo run -p azul-doc -- mobile check             # rung 1, every target
+cargo run -p azul-doc -- mobile emulator          # rung 3, headless
+cargo run -p azul-doc -- mobile run android examples/azul-writer
+```
+
+`mobile install` prints a plan and waits for a `y` before running anything:
+each step reports whether it is already satisfied, exactly what would run, or
+why a human has to do it (`--yes` to skip the prompt in CI, `--dry-run` to only
+ever print). It is idempotent, so a re-run after a failed download resumes
+instead of starting over.
+
 ### 1. Cross-compiling is cheaper than it looks
 
 **`cargo check` does not link.** That is the whole trick: it needs the Rust
@@ -398,13 +414,24 @@ is real.
 
 ### 3a. Android emulator — no Android Studio
 
-Everything comes from Homebrew and the headless `sdkmanager`:
+Everything comes from Homebrew and the headless `sdkmanager` — no Android
+Studio, no Gradle:
+
+```sh
+cargo run -p azul-doc -- mobile install android
+cargo run -p azul-doc -- mobile emulator
+```
+
+That is the whole thing. What it does, if you would rather type it:
 
 ```sh
 brew install --cask android-commandlinetools android-platform-tools
 brew install openjdk@17                       # sdkmanager/avdmanager need a JDK
 
-export JAVA_HOME=/opt/homebrew/opt/openjdk@17
+# NB: the Homebrew shim at opt/openjdk@17 has bin/java but no lib/, so it is
+# not a valid JAVA_HOME — some tools limp along on it and others fail oddly.
+# The real home is inside the bundle:
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home
 export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 
 # The emulator + one system image. Match the ABI to your host: arm64-v8a on
@@ -413,15 +440,32 @@ export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 sdkmanager "emulator" "system-images;android-34;google_apis;arm64-v8a"
 avdmanager create avd -n azul -k "system-images;android-34;google_apis;arm64-v8a"
 
-"$ANDROID_HOME/emulator/emulator" -avd azul &
+# Run the emulator by its absolute path from inside its own directory: it
+# locates its bundled libraries relative to argv[0], so a PATH symlink breaks
+# it. -no-window still produces a framebuffer, so screencap and
+# `uiautomator dump` both keep working headlessly.
+cd "$ANDROID_HOME/emulator" && ./emulator -avd azul \
+    -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect &
+
 adb wait-for-device
-adb install -r target/azul-maps.apk
-adb logcat -s azul:V '*:S'
+# `device` in `adb devices` only means adbd answered — the framework can still
+# be a minute away. This is the property the platform itself waits on:
+until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; do sleep 1; done
+
+adb install -r target/android-bundle/AzWriter-arm64-v8a/aligned.apk
+adb shell am start -n com.azul.azwriter/com.azul.app.AzulActivity
+adb logcat -d | grep RustStdoutStderr
 ```
+
+Note the activity: the manifest declares `com.azul.app.AzulActivity`, a
+`NativeActivity` subclass that constructs the gesture and accessibility bridges
+in `onCreate`. Launching `android.app.NativeActivity` instead fails with
+*"Activity class does not exist"*.
 
 To *build* the APK you additionally need the NDK
 (`sdkmanager "ndk;27.0.12077973"`) — that is the one large download, and it is
-required for linking, not for checking.
+required for linking, not for checking. `mobile install android --no-ndk` skips
+it when you only want to run a prebuilt APK.
 
 > **What an emulator cannot tell you.** Azul's Android input bridges
 > (`NativeTextBridge` for soft-keyboard text/IME/insets, `AzulGamepad` for
@@ -439,6 +483,18 @@ itself, because `simctl` and the iOS SDK ship inside it. Command Line Tools
 alone are not enough: `xcode-select -p` pointing at
 `/Library/Developer/CommandLineTools` gives you `MacOSX.sdk` and no
 `iphonesimulator` sysroot, so iOS can be `cargo check`ed but **not linked**.
+
+```sh
+cargo run -p azul-doc -- mobile install ios   # checks the above, installs what it can
+cargo run -p azul-doc -- mobile simulator     # boots one and prints its UDID
+```
+
+`mobile install ios` cannot install Xcode for you — it is an App Store download
+tied to an Apple ID — so that step is reported as yours, with the exact commands
+(including `xcodes install --latest` if you want a pinned version). Everything
+around it, the Rust targets and the simulator runtime, it does install.
+
+By hand:
 
 ```sh
 xcode-select -p                                   # must NOT be CommandLineTools
@@ -506,6 +562,57 @@ For a scripted loop, `baguette serve --port 8421` exposes the same surface over
 HTTP + WebSocket (`POST /simulators/:udid/input`,
 `GET /simulators/:udid/describe-ui.json`, `WS …/stream`, `WS …/logs`), which is
 usually easier to drive from a test harness than shelling out per gesture.
+
+### 3d. One command: build, boot, install, launch, assert
+
+`mobile run` is rungs 3a/3b end to end. It resolves the crate, builds it,
+boots a device if one is not already up, installs, launches, waits for the
+first frame, screenshots, and reports whether the engine actually started:
+
+```sh
+cargo run -p azul-doc -- mobile run android examples/azul-writer
+cargo run -p azul-doc -- mobile run ios AzWriter --windowed
+```
+
+It exits non-zero when nothing in the device log came from the Rust side, or
+when the log contains a native crash — so it works as a CI gate, not just as a
+convenience.
+
+`--e2e <scenario.json>` additionally replays a scenario against the device,
+through `adb shell input` on Android and through baguette on iOS:
+
+```sh
+cargo run -p azul-doc -- mobile run android examples/azul-writer \
+    --e2e e2e/op-scroll-to-position.json
+```
+
+**This is deliberately a subset, and it tells you which subset.** The e2e op
+vocabulary is engine-internal: `mount` installs a DOM, `assert_response`
+inspects the debug dispatcher's last reply, `snapshot_frame` reaches into the
+frame cache. None of that is expressible from outside the process. What a host
+driver *can* replay is the input half — taps, swipes, keys, text, screenshots —
+plus structural assertions against the platform accessibility tree.
+
+So every op is classified, and the ones the driver cannot honour are counted
+and named:
+
+```
+==> host replay: bug_scroll_offsets_hit_test
+  11 of 19 ops executed on the device
+  7 op(s) a host driver cannot express:
+    - assert_node_count x1
+    - assert_response x2
+    - mount x1
+    …
+  verdict: INCOMPLETE
+```
+
+A replay that dropped ops is never reported green. That matters more than it
+looks: a passing test from a harness that silently did nothing is a false
+statement about the device, and it is exactly how a platform-glue bug survives
+a "green" suite. Run the engine-internal half with `azul-doc e2e`, which drives
+the same dispatcher in-process; run this half to prove the `touchesBegan:` /
+`GestureDetector` / `InputConnection` path that the in-process harness bypasses.
 
 ### 4. Real devices
 

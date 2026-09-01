@@ -20,6 +20,7 @@ pub mod gene2e;
 pub mod lint_examples;
 pub mod lint_links;
 pub mod lint_orphans;
+pub mod mobile;
 pub mod patch;
 pub mod print;
 pub mod reftest;
@@ -1808,6 +1809,11 @@ fn main() -> anyhow::Result<()> {
 
             return Ok(());
         }
+        ["mobile", rest @ ..] => {
+            // Install / inspect / drive the iOS + Android toolchains. Takes no
+            // api.json, so it works in a tree that has never been codegen'd.
+            return mobile::handle_mobile_command(&project_root, rest);
+        }
         ["codegen"] | ["codegen", "all"] => {
             let api_data = load_api_json(&api_path)?;
             println!("[CODEGEN] Generating all language bindings using v2...\n");
@@ -2419,6 +2425,21 @@ fn print_cli_help() -> anyhow::Result<()> {
     println!("  azul-doc <command> [options]");
     println!();
     println!("Commands:");
+    println!();
+    println!("  MOBILE (iOS + Android toolchains and devices):");
+    println!("    mobile doctor                 - What is installed / missing on both platforms");
+    println!("    mobile install android|ios|all");
+    println!("                                  - Plan, confirm, install (idempotent). --yes to");
+    println!("                                    run unattended, --dry-run to preview only");
+    println!("    mobile env                    - Print the SDK environment, eval-able");
+    println!("    mobile check                  - cargo check every mobile target (needs no SDK)");
+    println!("    mobile emulator | simulator   - Boot a device headlessly and wait for it");
+    println!("    mobile build <platform> <crate>");
+    println!("    mobile run   <platform> <crate> [--e2e <scenario.json>]");
+    println!("                                  - Build, install, launch, screenshot, report.");
+    println!("                                    --e2e replays a scenario's input ops through");
+    println!("                                    adb / baguette and names every op a host");
+    println!("                                    driver cannot express");
     println!();
     println!("  TESTING:");
     println!("    reftest                       - Run all reftests (open report in browser)");
