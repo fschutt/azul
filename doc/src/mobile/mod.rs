@@ -11,6 +11,7 @@
 //! * `check` — the compile gate across every mobile target, which needs no SDK
 //!   at all because `cargo check` does not link.
 
+pub mod assets;
 pub mod device;
 pub mod e2e;
 pub mod install;
@@ -194,6 +195,29 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
             print_env(&tc);
             Ok(())
         }
+        "assets" => {
+            // Where the build scripts and templates are coming from for this
+            // invocation: the checkout when we are in one, else the copy
+            // written out of the binary. Worth being able to ask, because
+            // "which build-android.sh actually ran" is otherwise invisible.
+            let dir = assets::ensure(Some(project_root))?;
+            let in_repo = dir == project_root;
+            println!(
+                "{}\n  {}",
+                if in_repo {
+                    "repo (live, edits take effect without rebuilding azul-doc)"
+                } else {
+                    "materialized from the binary"
+                },
+                dir.display()
+            );
+            for entry in ["scripts/build-android.sh", "scripts/build-ios.sh",
+                          "scripts/android/AndroidManifest.xml"] {
+                let p = dir.join(entry);
+                println!("  {} {}", if p.is_file() { "ok  " } else { "MISS" }, p.display());
+            }
+            Ok(())
+        }
         "install" => {
             let which = rest.first().copied().unwrap_or("all");
             let mut failed = Vec::new();
@@ -241,16 +265,22 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
             Ok(())
         }
         "check" => {
-            // Delegates to the script so there is exactly one definition of
-            // "the mobile compile gate", and CI and a laptop run the same one.
+            // One definition of "the mobile compile gate", so CI and a laptop
+            // run the same one. It checks azul-dll itself, so unlike
+            // build/run it genuinely needs the azul checkout.
+            let assets = assets::ensure(Some(project_root))?;
             toolchain::Cmd::new("bash")
                 .arg(
-                    project_root
+                    assets
                         .join("scripts")
                         .join("mobile-check-all.sh")
                         .display()
                         .to_string(),
                 )
+                .envs(vec![(
+                    "AZ_WORKSPACE_ROOT".to_string(),
+                    project_root.display().to_string(),
+                )])
                 .cwd(project_root)
                 .run()
         }
@@ -276,14 +306,19 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
                 target.bundle_id
             );
 
-            let artifact = run::build(project_root, &tc, platform, &target, &opts)?;
+            // The repo when we are in one, else the embedded copy written to
+            // a cache dir — which is what lets a DOWNLOADED azul-doc build a
+            // crate that lives nowhere near the azul tree.
+            let assets = assets::ensure(Some(project_root))?;
+            let artifact = run::build(&assets, &tc, platform, &target, &opts)?;
             println!("\n\x1b[32mbuilt:\x1b[0m {}", artifact.display());
             if verb == "build" {
                 return Ok(());
             }
 
             let dev = run::acquire_device(&tc, platform, &opts)?;
-            let report = run::deploy_and_run(project_root, &dev, &target, &artifact, &opts)?;
+            let report =
+                run::deploy_and_run(&target.workspace_root, &dev, &target, &artifact, &opts)?;
 
             println!("\n\x1b[1m==> result\x1b[0m");
             println!(
@@ -360,6 +395,7 @@ fn print_help() {
     println!();
     println!("  mobile doctor                  What is installed, what is missing, both platforms");
     println!("  mobile env                     Print the SDK environment (eval-able)");
+    println!("  mobile assets                  Show which build scripts this binary will run");
     println!("  mobile check                   cargo check every mobile target (no SDK needed)");
     println!();
     println!("  mobile install [android|ios|all]");

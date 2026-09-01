@@ -27,6 +27,40 @@ pub mod reftest;
 pub mod spec;
 pub mod utils;
 
+/// Locate the azul checkout.
+///
+/// `api.json` + `Cargo.toml` + `doc/` together identify it unambiguously; no
+/// other tree has that shape. Returns the compile-time path as a last resort so
+/// an in-tree `cargo run` from an odd working directory keeps behaving exactly
+/// as before, even though that path may not exist for a downloaded binary —
+/// commands that need the repo then fail on their own missing input, with a
+/// message about the file they wanted rather than a panic here.
+///
+/// `mobile` deliberately does not depend on this: its scripts and templates are
+/// compiled into the binary (see `mobile::assets`), which is what lets a
+/// downloaded azul-doc build an APK for a crate outside the azul tree.
+fn resolve_project_root() -> PathBuf {
+    if let Some(dir) = env::var_os("AZUL_ROOT") {
+        return PathBuf::from(dir);
+    }
+    let looks_like_azul = |p: &std::path::Path| {
+        p.join("api.json").is_file() && p.join("Cargo.toml").is_file() && p.join("doc").is_dir()
+    };
+    if let Ok(cwd) = env::current_dir() {
+        let mut dir = Some(cwd.as_path());
+        while let Some(d) = dir {
+            if looks_like_azul(d) {
+                return d.to_path_buf();
+            }
+            dir = d.parent();
+        }
+    }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
 /// Serialize to pretty JSON with 4-space indentation (matching the original api.json format).
 fn to_json_pretty_4space<T: serde::Serialize>(value: &T) -> serde_json::Result<String> {
     let mut buf = Vec::new();
@@ -38,12 +72,24 @@ fn to_json_pretty_4space<T: serde::Serialize>(value: &T) -> serde_json::Result<S
 }
 
 fn main() -> anyhow::Result<()> {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let manifest_path = PathBuf::from(manifest_dir);
-    let project_root = manifest_path.parent().unwrap().to_path_buf();
+    // The azul checkout we operate on, resolved AT RUNTIME.
+    //
+    // This used to be `env!("CARGO_MANIFEST_DIR")` alone — an absolute path
+    // baked in by whichever machine compiled the binary. Correct while azul-doc
+    // is only ever `cargo run` from the checkout, and nonsense the moment it is
+    // a downloaded CI artifact: it names a directory on somebody else's disk.
+    // Search order: an explicit override, then upward from the working
+    // directory, then the compile-time path IF it still exists.
+    let project_root = resolve_project_root();
+    let manifest_path = project_root.join("doc");
     let api_path = project_root.join("api.json");
 
-    let _ = std::env::set_current_dir(manifest_dir);
+    // Historically every command assumed cwd == doc/. Keep that, but only when
+    // the directory is real — chdir'ing into a stale compile-time path would
+    // silently leave us wherever we were, which is worse than not trying.
+    if manifest_path.is_dir() {
+        let _ = std::env::set_current_dir(&manifest_path);
+    }
 
     // Parse command line arguments
     let args: Vec<String> = env::args().collect();
@@ -1421,7 +1467,7 @@ fn main() -> anyhow::Result<()> {
             println!("Running headless reftest for: {}", test_name);
 
             let output_dir = PathBuf::from("target").join("reftest_headless");
-            let test_dir = PathBuf::from(manifest_dir).join("working");
+            let test_dir = manifest_path.clone().join("working");
 
             reftest::run_single_reftest_headless(test_name, &test_dir, &output_dir)?;
 
@@ -1481,7 +1527,7 @@ fn main() -> anyhow::Result<()> {
                 azul_root: project_root.clone(),
                 refs_file: None,
                 refs: vec![],
-                test_dir: PathBuf::from(manifest_dir).join("working"),
+                test_dir: manifest_path.clone().join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
             };
             reftest::regression::run_statistics(config)?;
@@ -1492,7 +1538,7 @@ fn main() -> anyhow::Result<()> {
                 azul_root: project_root.clone(),
                 refs_file: None,
                 refs: vec![],
-                test_dir: PathBuf::from(manifest_dir).join("working"),
+                test_dir: manifest_path.clone().join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
             };
             reftest::regression::run_visual_report(config)?;
@@ -1519,7 +1565,7 @@ fn main() -> anyhow::Result<()> {
                 azul_root: project_root.clone(),
                 refs_file: None,
                 refs: vec![],
-                test_dir: PathBuf::from(manifest_dir).join("working"),
+                test_dir: manifest_path.clone().join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
             };
             reftest::regression::run_statistics_prompt(config)?;
@@ -1530,7 +1576,7 @@ fn main() -> anyhow::Result<()> {
                 azul_root: project_root.clone(),
                 refs_file: None,
                 refs: vec![],
-                test_dir: PathBuf::from(manifest_dir).join("working"),
+                test_dir: manifest_path.clone().join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
             };
             reftest::regression::run_statistics_send(config, None)?;
@@ -1541,7 +1587,7 @@ fn main() -> anyhow::Result<()> {
                 azul_root: project_root.clone(),
                 refs_file: None,
                 refs: vec![],
-                test_dir: PathBuf::from(manifest_dir).join("working"),
+                test_dir: manifest_path.clone().join("working"),
                 output_dir: PathBuf::from("target").join("reftest"),
             };
             reftest::regression::run_statistics_send(config, Some(PathBuf::from(output_path)))?;
@@ -1555,7 +1601,7 @@ fn main() -> anyhow::Result<()> {
                     azul_root: project_root.clone(),
                     refs_file: Some(path),
                     refs: vec![],
-                    test_dir: PathBuf::from(manifest_dir).join("working"),
+                    test_dir: manifest_path.clone().join("working"),
                     output_dir: PathBuf::from("target").join("reftest"),
                 };
                 reftest::regression::run_regression_analysis(config)?;
@@ -1566,7 +1612,7 @@ fn main() -> anyhow::Result<()> {
                     azul_root: project_root.clone(),
                     refs_file: None,
                     refs: vec![file_path.to_string()],
-                    test_dir: PathBuf::from(manifest_dir).join("working"),
+                    test_dir: manifest_path.clone().join("working"),
                     output_dir: PathBuf::from("target").join("reftest"),
                 };
                 reftest::regression::run_regression_analysis(config)?;
@@ -1608,7 +1654,7 @@ fn main() -> anyhow::Result<()> {
 
             let output_dir = PathBuf::from("target").join("reftest");
             let config = RunRefTestsConfig {
-                test_dir: PathBuf::from(manifest_dir).join("working"),
+                test_dir: manifest_path.clone().join("working"),
                 output_dir: output_dir.clone(),
                 output_filename: "index.html",
             };
@@ -1709,7 +1755,7 @@ fn main() -> anyhow::Result<()> {
             let output_dir = PathBuf::from("target").join("reftest");
             let config = RunRefTestsConfig {
                 // The test files are in `doc/working`
-                test_dir: PathBuf::from(manifest_dir).join("working"),
+                test_dir: manifest_path.clone().join("working"),
                 output_dir: output_dir.clone(),
                 output_filename: "index.html",
             };
@@ -2020,7 +2066,7 @@ fn main() -> anyhow::Result<()> {
                 fs::create_dir_all(&reftest_output_dir)?;
 
                 let reftest_config = RunRefTestsConfig {
-                    test_dir: PathBuf::from(manifest_dir).join("working"),
+                    test_dir: manifest_path.clone().join("working"),
                     output_dir: reftest_output_dir.clone(),
                     output_filename: "index.html",
                 };
@@ -2054,7 +2100,7 @@ fn main() -> anyhow::Result<()> {
                 }
             } else {
                 println!("Generating reftest page (placeholder, no live tests)...");
-                let test_dir = PathBuf::from(manifest_dir).join("working");
+                let test_dir = manifest_path.clone().join("working");
                 match reftest::generate_reftest_page(&reftest_output_dir, Some(&test_dir)) {
                     Ok(_) => {
                         if reftest_output_dir.join("index.html").exists() {

@@ -34,6 +34,11 @@ pub struct Target {
     /// `com.azul.azwriter`.
     pub bundle_id: String,
     pub manifest_dir: PathBuf,
+    /// The cargo workspace the crate belongs to — what the build scripts run
+    /// `cargo build` from and write `target/` into. Walks up for a manifest
+    /// containing `[workspace]`, falling back to the crate's own directory for
+    /// a standalone crate.
+    pub workspace_root: PathBuf,
 }
 
 impl Target {
@@ -90,13 +95,37 @@ impl Target {
             .clone()
             .unwrap_or_else(|| format!("com.azul.{}", crate_name.to_lowercase().replace('-', "_")));
 
+        let manifest_dir = manifest.parent().unwrap_or(Path::new(".")).to_path_buf();
+        let workspace_root = find_workspace_root(&manifest_dir);
+
         Ok(Self {
             crate_name,
             app_name,
             bundle_id,
-            manifest_dir: manifest.parent().unwrap_or(Path::new(".")).to_path_buf(),
+            manifest_dir,
+            workspace_root,
         })
     }
+}
+
+/// Walk up for the `Cargo.toml` that declares `[workspace]`.
+///
+/// `cargo build -p <crate>` has to run from the workspace, and `target/` — where
+/// the build scripts look for the `.so` — lives there too. A standalone crate is
+/// its own workspace.
+fn find_workspace_root(from: &Path) -> PathBuf {
+    let mut dir = Some(from);
+    let mut best = from.to_path_buf();
+    while let Some(d) = dir {
+        let manifest = d.join("Cargo.toml");
+        if let Ok(text) = std::fs::read_to_string(&manifest) {
+            if text.lines().any(|l| l.trim_start().starts_with("[workspace]")) {
+                best = d.to_path_buf();
+            }
+        }
+        dir = d.parent();
+    }
+    best
 }
 
 /// Android component to start. The manifest template declares this subclass of
@@ -123,9 +152,11 @@ fn android_abi_of(triple: &str) -> &'static str {
     }
 }
 
-/// Build the deployable artifact and return its path.
+/// Build the deployable artifact. `assets` is the directory holding `scripts/`
+/// — the repo when we are running in one, else the materialized copy of the
+/// embedded assets.
 pub fn build(
-    project_root: &Path,
+    assets: &Path,
     tc: &Toolchain,
     platform: Platform,
     target: &Target,
@@ -156,9 +187,13 @@ pub fn build(
                 ));
             }
             println!("\n\x1b[1m==> building {} for {triple}\x1b[0m", target.crate_name);
+            env.push((
+                "AZ_WORKSPACE_ROOT".into(),
+                target.workspace_root.display().to_string(),
+            ));
             Cmd::new("bash")
                 .arg(
-                    project_root
+                    assets
                         .join("scripts")
                         .join("build-android.sh")
                         .display()
@@ -169,9 +204,10 @@ pub fn build(
                 .arg(&target.bundle_id)
                 .arg(&target.crate_name)
                 .envs(env)
-                .cwd(project_root)
+                .cwd(&target.workspace_root)
                 .run()?;
-            let apk = project_root
+            let apk = target
+                .workspace_root
                 .join("target")
                 .join("android-bundle")
                 .join(format!("{}-{}", target.app_name, android_abi_of(triple)))
@@ -193,7 +229,7 @@ pub fn build(
             println!("\n\x1b[1m==> building {} for {triple}\x1b[0m", target.crate_name);
             Cmd::new("bash")
                 .arg(
-                    project_root
+                    assets
                         .join("scripts")
                         .join("build-ios.sh")
                         .display()
@@ -205,10 +241,15 @@ pub fn build(
                     ("AZ_IOS_DRYRUN".into(), "1".into()),
                     ("APP_NAME".into(), target.app_name.clone()),
                     ("BUNDLE_ID".into(), target.bundle_id.clone()),
+                    (
+                        "AZ_WORKSPACE_ROOT".into(),
+                        target.workspace_root.display().to_string(),
+                    ),
                 ])
-                .cwd(project_root)
+                .cwd(&target.workspace_root)
                 .run()?;
-            let app = project_root
+            let app = target
+                .workspace_root
                 .join("target")
                 .join("ios-bundle")
                 .join(format!("{}-{triple}.app", target.app_name));

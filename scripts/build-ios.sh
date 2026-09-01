@@ -81,7 +81,14 @@ if ! xcrun --sdk "$SDK_SHORT" --show-sdk-path >/dev/null 2>&1; then
     exit 3
 fi
 
-WORKSPACE_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# The workspace to BUILD. Normally this script's own parent (running from a
+# checkout), but azul-doc embeds this file and materializes it into a cache
+# directory — from there `dirname $0/..` is the cache, not a crate. So the
+# caller may name the workspace explicitly.
+WORKSPACE_ROOT="${AZ_WORKSPACE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Where the templates + helper scripts live (android/*.java, cargo_bin_path.py).
+# Same directory as this script when in-tree; the cache dir when materialized.
+ASSET_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # azul-dll takes its features explicitly; a demo/example crate already pins its
 # own azul features (link-static) in its Cargo.toml, so build it with defaults.
@@ -110,7 +117,7 @@ mkdir -p "$WORKSPACE_ROOT/target"
 # the azul-dll fallback below — i.e. it would have bundled the LIBRARY as if it
 # were the app. If CRATE really is the library (azul-dll) there is no bin and
 # the dylib/.a fallback is correct.
-ARTIFACT="$(python3 "$WORKSPACE_ROOT/scripts/cargo_bin_path.py" "$CARGO_LOG" "$CRATE" 2>/dev/null || true)"
+ARTIFACT="$(python3 "$ASSET_ROOT/scripts/cargo_bin_path.py" "$CARGO_LOG" "$CRATE" 2>/dev/null || true)"
 if [[ -z "$ARTIFACT" || ! -f "$ARTIFACT" ]]; then
     ARTIFACT="$WORKSPACE_ROOT/target/$TARGET/release/$CRATE"
 fi
@@ -128,7 +135,7 @@ cp "$ARTIFACT" "$BUNDLE_DIR/$APP_NAME"
 chmod +x "$BUNDLE_DIR/$APP_NAME" || true
 
 # Render Info.plist from the template.
-PLIST_TEMPLATE="$WORKSPACE_ROOT/scripts/ios/Info.plist"
+PLIST_TEMPLATE="$ASSET_ROOT/scripts/ios/Info.plist"
 sed \
     -e "s|@EXECUTABLE@|$APP_NAME|g" \
     -e "s|@BUNDLE_ID@|$BUNDLE_ID|g" \
@@ -165,7 +172,7 @@ else
         echo "==> codesign with '$IOS_SIGNING_IDENTITY'"
         codesign --force --timestamp=none \
             --sign "$IOS_SIGNING_IDENTITY" \
-            --entitlements "$WORKSPACE_ROOT/scripts/ios/entitlements.xcent" \
+            --entitlements "$ASSET_ROOT/scripts/ios/entitlements.xcent" \
             "$BUNDLE_DIR"
     else
         echo "IOS_SIGNING_IDENTITY not set — bundle unsigned at $BUNDLE_DIR"

@@ -52,7 +52,14 @@ for need in "$BT/aapt2" "$BT/zipalign" "$BT/apksigner" "$PLATFORM/android.jar"; 
     [[ -e "$need" ]] || { echo "missing $need — run sdkmanager 'build-tools;34.0.0' 'platforms;android-34'" >&2; exit 3; }
 done
 
-WORKSPACE_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# The workspace to BUILD. Normally this script's own parent (running from a
+# checkout), but azul-doc embeds this file and materializes it into a cache
+# directory — from there `dirname $0/..` is the cache, not a crate. So the
+# caller may name the workspace explicitly.
+WORKSPACE_ROOT="${AZ_WORKSPACE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Where the templates + helper scripts live (android/*.java, cargo_bin_path.py).
+# Same directory as this script when in-tree; the cache dir when materialized.
+ASSET_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$WORKSPACE_ROOT/target/android-bundle/${APP_NAME}-${ABI}"
 mkdir -p "$BUILD_DIR/lib/$ABI"
 
@@ -96,7 +103,7 @@ echo "==> cargo build --lib --target $TARGET --release -p $CRATE ${FEATURE_ARGS[
 # and broke the moment the packages were renamed to AzXxx — the script hunted
 # libAzMaps.so while cargo had written libazul_maps.so. Same failure as the
 # desktop binaries, same fix.
-SRC_SO="$(python3 "$WORKSPACE_ROOT/scripts/cargo_bin_path.py" "$CARGO_LOG" "$CRATE" cdylib || true)"
+SRC_SO="$(python3 "$ASSET_ROOT/scripts/cargo_bin_path.py" "$CARGO_LOG" "$CRATE" cdylib || true)"
 [[ -f "$SRC_SO" ]] || { echo "missing $SRC_SO — '$CRATE' produced no cdylib (.so). A demo must declare crate-type=cdylib + android_main to ship as an APK; skipping." >&2; exit 4; }
 cp "$SRC_SO" "$BUILD_DIR/lib/$ABI/lib${LIB_NAME}.so"
 
@@ -104,7 +111,7 @@ cp "$SRC_SO" "$BUILD_DIR/lib/$ABI/lib${LIB_NAME}.so"
 # compile them with javac, dex with d8, and ship classes.dex inside the
 # APK (which forces android:hasCode="true" in the manifest below).
 # AZ_ANDROID_NO_JAVA=1 skips the dex even when sources exist.
-JAVA_SRC_DIR="$WORKSPACE_ROOT/scripts/android"
+JAVA_SRC_DIR="$ASSET_ROOT/scripts/android"
 JAVA_SOURCES=()
 HAS_JAVA=0
 if [[ "${AZ_ANDROID_NO_JAVA:-}" != "1" ]]; then
@@ -137,7 +144,7 @@ fi
 
 # Manifest: substitute placeholders into the template, and flip
 # android:hasCode="true" when we're shipping a .dex.
-MANIFEST_TEMPLATE="$WORKSPACE_ROOT/scripts/android/AndroidManifest.xml"
+MANIFEST_TEMPLATE="$ASSET_ROOT/scripts/android/AndroidManifest.xml"
 MANIFEST_OUT="$BUILD_DIR/AndroidManifest.xml"
 HAS_CODE_VALUE="false"
 if (( HAS_JAVA == 1 )); then
@@ -177,7 +184,7 @@ echo "==> zipalign"
 "$BT/zipalign" -f 4 base.apk aligned.apk
 
 # Debug keystore — generate once if absent. apksigner is happy with it.
-KS="$WORKSPACE_ROOT/scripts/android/debug.keystore"
+KS="$ASSET_ROOT/scripts/android/debug.keystore"
 if [[ ! -f "$KS" ]]; then
     echo "==> creating debug keystore at $KS"
     keytool -genkeypair \
