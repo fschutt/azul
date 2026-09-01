@@ -126,7 +126,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       (already pumped via `capability_pump`, all four desktops).
 - [x] 4c Producer: Wayland — `wl_registry.global_remove` for `wl_output` → monitor events;
       `wl_seat.capabilities` + `zwp_tablet_seat_v2` add/remove → device events. All handlers already exist.
-- [ ] 4d Producer: Win32 `WM_DISPLAYCHANGE` monitor-list diff; add `WM_DEVICECHANGE` handling.
+- [x] 4d Producer: Win32 `WM_DISPLAYCHANGE` monitor-list diff; add `WM_DEVICECHANGE` handling.
 - [ ] 4e Producer: macOS `windowDidChangeScreen:` diff + observe `NSApplicationDidChangeScreenParameters`.
 - [ ] 4f Producer: X11 RandR `XRRSelectInput` + `XI_HierarchyChanged`.
 

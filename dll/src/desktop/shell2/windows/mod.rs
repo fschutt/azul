@@ -3698,6 +3698,7 @@ unsafe extern "system" fn window_proc(
     const WM_RBUTTONUP: u32 = 0x0205;
     const WM_MBUTTONDOWN: u32 = 0x0207;
     const WM_MBUTTONUP: u32 = 0x0208;
+    const WM_DEVICECHANGE: u32 = 0x0219;
     const WM_XBUTTONDOWN: u32 = 0x020B;
     const WM_XBUTTONUP: u32 = 0x020C;
     const WM_ENTERSIZEMOVE: u32 = 0x0231;
@@ -5965,10 +5966,48 @@ unsafe extern "system" fn window_proc(
         // keeping both would double-fire the drop.
         WM_DISPLAYCHANGE => {
             // Monitor topology changed (monitor added/removed/resolution changed)
-            // Refresh the cached monitor list
-            if let Some(ref lw) = window.common.layout_window {
-                if let Ok(mut guard) = lw.monitors.lock() {
-                    *guard = crate::desktop::display::refresh_monitors();
+            // Refresh the cached monitor list, and turn the before/after count
+            // into MonitorConnected / MonitorDisconnected.
+            //
+            // WM_DISPLAYCHANGE does not say WHAT changed — it fires for a
+            // resolution or colour-depth change just as readily as for a
+            // monitor being unplugged — so the count is the only signal that
+            // separates a hotplug from a mode change. Equal counts emit
+            // nothing, which is what keeps dragging a window between displays
+            // from looking like an unplug.
+            if let Some(ref mut lw) = window.common.layout_window {
+                let before = lw.monitors.lock().map(|g| g.len()).unwrap_or(0);
+                let after = {
+                    let refreshed = crate::desktop::display::refresh_monitors();
+                    let n = refreshed.len();
+                    if let Ok(mut guard) = lw.monitors.lock() {
+                        *guard = refreshed;
+                    }
+                    n
+                };
+                lw.device_event_manager
+                    .note_monitor_count_change(before, after);
+            }
+            0
+        }
+
+        WM_DEVICECHANGE => {
+            // DBT_DEVNODES_CHANGED (0x0007) is the broadcast every top-level
+            // window receives with no RegisterDeviceNotification call at all —
+            // which is why it is worth handling: the richer per-interface
+            // notifications need a registration and a filter, and this one
+            // covers the case an app actually cares about (something was
+            // plugged in or pulled out).
+            //
+            // It does not say which direction, so it cannot be turned into a
+            // connect/disconnect pair honestly. Gamepads are already covered
+            // by gilrs (4b) with real edges; this is the catch-all for
+            // everything else, reported as an arrival because that is the
+            // transition an app reacts to by re-enumerating.
+            const DBT_DEVNODES_CHANGED: usize = 0x0007;
+            if wparam == DBT_DEVNODES_CHANGED {
+                if let Some(ref mut lw) = window.common.layout_window {
+                    lw.device_event_manager.note_device(true);
                 }
             }
             0
