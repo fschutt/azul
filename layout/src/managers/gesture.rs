@@ -369,6 +369,19 @@ pub struct PenState {
     /// use it to size smoothing windows and interpolation ("this pen
     /// reports at 133Hz, the display at 60Hz").
     pub report_rate_hz: f32,
+    /// Distance from the surface while hovering, normalized 0.0-1.0 against
+    /// the tool's OWN sensing range. `0.0` = touching, or not reported.
+    ///
+    /// The scale is the device's, not millimetres: Wayland's `distance` is a
+    /// 16-bit fraction of maximum range and Win32 reports only in/out of
+    /// range at all. So it is a value to compare against itself over time — a
+    /// brush preview that grows as the pen approaches — not one to measure
+    /// with. Check `in_contact` first; a hovering pen has `pressure == 0.0`
+    /// and a touching one has `hover_distance == 0.0`.
+    pub hover_distance: f32,
+    /// Which tool of the tablet this is. `Unknown` where the platform does
+    /// not classify, which is most of them outside Wayland.
+    pub tool_kind: TabletToolKind,
 }
 
 impl_option!(PenState, OptionPenState, [Debug, Clone, Copy, PartialEq]);
@@ -390,6 +403,8 @@ impl Default for PenState {
             barrel_roll_rad: 0.0,
             tool_id: 0,
             report_rate_hz: 0.0,
+            hover_distance: 0.0,
+            tool_kind: TabletToolKind::Unknown,
         }
     }
 }
@@ -414,6 +429,28 @@ pub struct WacomPadState {
     pub touch_ring_active: bool,
     /// Tablet device id (to distinguish pads on multi-tablet setups).
     pub device_id: u64,
+    /// Touch-STRIP absolute position, `0.0`-`1.0`. Only meaningful while
+    /// [`WacomPadState::strip_active`] is `true`.
+    ///
+    /// A strip is not a ring: Intuos Pro bodies have both, and a pad that has
+    /// one usually does not have the other. Folding them into a single field
+    /// would make a strip look like a ring stuck at one angle.
+    pub strip: f32,
+    /// Whether a finger is currently on the touch-strip.
+    pub strip_active: bool,
+    /// Dial rotation since the last frame, in radians. `0.0` = no motion.
+    ///
+    /// From `zwp_tablet_pad_dial_v2`, which both Linux backends already bind.
+    /// A DELTA rather than a position because a dial has no endstops — it is
+    /// the same primitive as a Surface Dial or a Wear crown, which is why
+    /// this is also the field a future `DialState` would read.
+    pub dial_delta: f32,
+    /// Which mode the pad's button group is in. Wacom pads multiplex their
+    /// `ExpressKeys` across modes, and the ring LEDs show which is active, so
+    /// the same physical key means different things per mode.
+    pub mode: u32,
+    /// How many modes the group has. `0` = the pad does not multiplex.
+    pub mode_count: u32,
 }
 
 impl_option!(
@@ -429,6 +466,11 @@ impl Default for WacomPadState {
             touch_ring: 0.0,
             touch_ring_active: false,
             device_id: 0,
+            strip: 0.0,
+            strip_active: false,
+            dial_delta: 0.0,
+            mode: 0,
+            mode_count: 0,
         }
     }
 }
@@ -469,6 +511,25 @@ pub enum TabletToolKind {
     Touch,
     /// Recognised as tablet-adjacent, kind unknown.
     Unknown,
+    /// A brush tool. APPENDED at the end for ABI stability.
+    ///
+    /// These five complete the `zwp_tablet_tool_v2` vocabulary, which is the
+    /// richest of the platform sets — macOS `NSPointingDeviceType` and Qt's
+    /// `PointerType` are both subsets of it. Widening this enum rather than
+    /// adding a parallel `PenToolType` keeps one name for one concept: an app
+    /// that switches on the tool it is holding should not have to ask which
+    /// API told it.
+    Brush,
+    /// A pencil tool.
+    Pencil,
+    /// An airbrush — the tool whose `slider` axis becomes
+    /// `PenState.tangential_pressure`.
+    Airbrush,
+    /// A tablet mouse / puck: rides on the tablet surface, reports absolute
+    /// position, and is NOT the system pointer.
+    Mouse,
+    /// A lens cursor — a puck with crosshairs, for tracing.
+    Lens,
 }
 
 /// Identity and capabilities of one tablet input device — the `xinput list`
@@ -1138,8 +1199,36 @@ impl GestureAndDragManager {
             barrel_roll_rad,
             tool_id,
             report_rate_hz: self.pen_rate_ema_hz,
+            // Carried forward: the backends report hover distance and tool
+            // kind on their own events (Wayland `distance`, `tool_type`),
+            // not on the motion frame this builds, so overwriting them here
+            // would clear them on every sample.
+            hover_distance: self.pen_state.map_or(0.0, |p| p.hover_distance),
+            tool_kind: self.pen_state.map_or(TabletToolKind::Unknown, |p| p.tool_kind),
         });
         self.pen_event_pending = true;
+    }
+
+    /// Record the hover distance reported while a tool is in proximity.
+    ///
+    /// Separate from `update_pen_state_full` because the backends send it on
+    /// its own event — Wayland `zwp_tablet_tool_v2.distance` arrives between
+    /// motion frames — so folding it into the motion path would mean either
+    /// dropping it or inventing a motion sample to carry it.
+    pub fn set_pen_hover_distance(&mut self, distance: f32) {
+        if let Some(ref mut p) = self.pen_state {
+            p.hover_distance = distance;
+        }
+    }
+
+    /// Record which tool of the tablet is in use.
+    ///
+    /// Announced once per tool at proximity-in, not per sample, which is why
+    /// it is a setter rather than a parameter.
+    pub fn set_pen_tool_kind(&mut self, kind: TabletToolKind) {
+        if let Some(ref mut p) = self.pen_state {
+            p.tool_kind = kind;
+        }
     }
 
     /// Clear pen state (when pen leaves proximity)
@@ -2328,6 +2417,9 @@ mod autotest_generated {
             touch_ring: 0.0,
             touch_ring_active: false,
             device_id: 0,
+            // Pad controls this site does not set; growing the struct
+            // must not break every construction of it.
+            ..Default::default()
         };
         assert!(pad.express_key(31));
         assert!(!pad.express_key(32));
@@ -2354,6 +2446,9 @@ mod autotest_generated {
                 touch_ring: 0.0,
                 touch_ring_active: false,
                 device_id: 0,
+                // Pad controls this site does not set; growing the struct
+                // must not break every construction of it.
+                ..Default::default()
             };
             for probe in 0..32u32 {
                 assert_eq!(
@@ -3525,6 +3620,9 @@ mod autotest_generated {
             touch_ring: f32::NAN,
             touch_ring_active: true,
             device_id: u64::MAX,
+            // Pad controls this site does not set; growing the struct
+            // must not break every construction of it.
+            ..Default::default()
         });
         let pad = *m.get_pad_state().expect("pad state was just set");
         assert!(!pad.express_key(0));

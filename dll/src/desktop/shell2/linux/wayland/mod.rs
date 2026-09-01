@@ -3617,6 +3617,9 @@ impl WaylandWindow {
                     touch_ring: pad.touch_ring,
                     touch_ring_active: pad.touch_ring_active,
                     device_id,
+                    // Pad controls this site does not set; growing the struct
+                    // must not break every construction of it.
+                    ..Default::default()
                 },
             );
         }
@@ -3683,6 +3686,15 @@ impl WaylandWindow {
                 p.rotation,
                 p.tool_id as u32,
             );
+            // Distance and tool kind arrive on their own tablet-tool events,
+            // between motion frames, so they are applied after the sample
+            // rather than passed into it — see set_pen_hover_distance.
+            lw.gesture_drag_manager.set_pen_hover_distance(p.distance);
+            lw.gesture_drag_manager.set_pen_tool_kind(if p.is_eraser {
+                azul_layout::managers::gesture::TabletToolKind::Eraser
+            } else {
+                azul_layout::managers::gesture::TabletToolKind::Stylus
+            });
         }
 
         // 2) The pointer bridge: position, hover hit-test, button edges.

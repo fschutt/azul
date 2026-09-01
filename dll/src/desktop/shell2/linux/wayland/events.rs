@@ -1223,15 +1223,32 @@ extern "C" fn pad_group_strip(
     };
     window.track_listener(id);
 }
-extern "C" fn pad_group_modes(_d: *mut c_void, _g: *mut zwp_tablet_pad_group_v2, _m: u32) {}
+/// `zwp_tablet_pad_group_v2.modes` — how many modes this group has.
+///
+/// Announced once during pad setup, before `done`. An app needs it to render
+/// a mode indicator at all: knowing the pad is in mode 2 is useless without
+/// knowing whether there are 2 modes or 4.
+extern "C" fn pad_group_modes(d: *mut c_void, _g: *mut zwp_tablet_pad_group_v2, modes: u32) {
+    let window = unsafe { &mut *(d as *mut WaylandWindow) };
+    window.tablet_pad.mode_count = modes;
+}
 extern "C" fn pad_group_done(_d: *mut c_void, _g: *mut zwp_tablet_pad_group_v2) {}
+/// `zwp_tablet_pad_group_v2.mode_switch` — the pad's button group changed mode.
+///
+/// Wacom pads multiplex their `ExpressKeys` across modes and light a ring LED
+/// to show which is active, so the SAME physical key means different things
+/// per mode. Without this, an app binding pad buttons would run the mode-1
+/// action no matter which mode the user had selected.
 extern "C" fn pad_group_mode_switch(
-    _d: *mut c_void,
+    d: *mut c_void,
     _g: *mut zwp_tablet_pad_group_v2,
     _time: u32,
     _serial: u32,
-    _mode: u32,
+    mode: u32,
 ) {
+    let window = unsafe { &mut *(d as *mut WaylandWindow) };
+    window.tablet_pad.mode = mode;
+    window.handle_tablet_pad_frame();
 }
 static ZWP_TABLET_PAD_GROUP_LISTENER: zwp_tablet_pad_group_v2_listener =
     zwp_tablet_pad_group_v2_listener {
@@ -1275,12 +1292,17 @@ extern "C" fn pad_strip_position(
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
     // Plain integer 0..=65535 here, NOT wl_fixed like the ring above.
-    window.tablet_pad.touch_ring = (position as f32 / 65535.0).clamp(0.0, 1.0);
-    window.tablet_pad.touch_ring_active = true;
+    //
+    // This wrote into `touch_ring` because there was no `strip` field to
+    // write into. An Intuos Pro body has BOTH a ring and a strip, so the two
+    // controls were overwriting each other's position and each other's
+    // active flag — moving a finger on the strip made the ring jump.
+    window.tablet_pad.strip = (position as f32 / 65535.0).clamp(0.0, 1.0);
+    window.tablet_pad.strip_active = true;
 }
 extern "C" fn pad_strip_stop(data: *mut c_void, _s: *mut zwp_tablet_pad_strip_v2) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
-    window.tablet_pad.touch_ring_active = false;
+    window.tablet_pad.strip_active = false;
 }
 extern "C" fn pad_strip_frame(data: *mut c_void, _s: *mut zwp_tablet_pad_strip_v2, _time: u32) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };

@@ -46,3 +46,14 @@ api.json and unchanged — this arc gave them producers, it did not add them.
   (`css.*` and `window.WindowEventFilter`), so these are variant additions at the end.
 - `azul_core::events::{MOUSE_BUTTON_BACK, MOUSE_BUTTON_FORWARD, MOUSE_OTHER_MASK_BACK,
   MOUSE_OTHER_MASK_FORWARD}` — consts; expose only if the C API needs to construct the mask itself.
+
+## From step 8c/8d (pen + pad)
+
+- `TabletToolKind` — five variants APPENDED after `Unknown`: `Brush`, `Pencil`, `Airbrush`, `Mouse`, `Lens`.
+  Already in api.json from #450 (`gesture.TabletToolKind`); variant addition only.
+- `PenState` — two fields appended: `hover_distance: f32`, `tool_kind: TabletToolKind`.
+- `WacomPadState` — five fields appended: `strip: f32`, `strip_active: bool`, `dial_delta: f32`,
+  `mode: u32`, `mode_count: u32`.
+- `CallbackInfo::get_pen_hover_distance() -> OptionF32`, `CallbackInfo::get_pen_tool_kind() ->
+  OptionTabletToolKind` (the Option wrapper may need generating).
+- RENAME owed, not done: `WacomPadState` -> `TabletPadState`, with an alias for the old name. Needs autofix.

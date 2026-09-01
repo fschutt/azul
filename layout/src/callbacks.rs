@@ -4868,6 +4868,32 @@ impl CallbackInfo {
         self.get_pen_state().map(|pen| pen.pressure)
     }
 
+    /// How far the pen is from the surface while hovering, normalized
+    /// 0.0-1.0 against the tool's own sensing range. `None` when no pen is
+    /// active.
+    ///
+    /// The scale is the DEVICE's, not millimetres — Wayland reports a 16-bit
+    /// fraction of maximum range and Win32 only reports in/out of range — so
+    /// compare it against itself over time (a brush preview that grows as the
+    /// pen approaches) rather than measuring with it. A touching pen reads
+    /// `0.0`, so check [`Self::is_pen_in_contact`] to tell "on the surface"
+    /// from "not reported".
+    #[must_use]
+    pub fn get_pen_hover_distance(&self) -> Option<f32> {
+        self.get_pen_state().map(|pen| pen.hover_distance)
+    }
+
+    /// Which tool of the tablet is in use — stylus, eraser, airbrush, lens
+    /// and the rest of the `zwp_tablet_tool_v2` vocabulary. `None` when no pen
+    /// is active; `Unknown` when the platform does not classify, which is
+    /// every backend except Wayland today.
+    #[must_use]
+    pub fn get_pen_tool_kind(
+        &self,
+    ) -> Option<crate::managers::gesture::TabletToolKind> {
+        self.get_pen_state().map(|pen| pen.tool_kind)
+    }
+
     /// Get current pen tilt angles (`x_tilt`, `y_tilt`) in degrees
     /// Returns None if no pen is active
     #[must_use]

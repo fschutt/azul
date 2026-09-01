@@ -94,6 +94,18 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 8c/8d
+
+- [ ] 8d-i `WacomPadState.dial_delta` is modelled but has NO producer: `get_tablet_pad_dial_v2_interface()`
+      exists (from #450) yet no `zwp_tablet_pad_dial_v2` listener is ever registered, and the pad-group
+      listener has no `dial` member. Bind it the way ring/strip are bound. This is also the field a future
+      `DialState` (item 9c) should read, so do 8d-i first.
+- [ ] 8d-ii The rename `WacomPadState` -> `TabletPadState` is NOT done — the protocol is not Wacom-specific
+      and the type is in api.json, so the rename needs `azul-doc autofix` and a deprecation alias rather
+      than a sed. Deferred to fix-up.
+- [ ] 8c-i `PenState.tool_kind` is fed only on Wayland. Win32 can distinguish pen vs eraser from
+      `PEN_FLAG_ERASER` and X11 from the device name; both currently leave it `Unknown`.
+
 ### Follow-ups opened by 7c
 
 - [ ] 7c-i Windows TOUCHPAD pinch is not reachable through `WM_GESTURE`. A precision touchpad reports pan
@@ -193,11 +205,11 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `button_specific_down` helper. All four layers.
 - [x] 8b `TouchPoint += { major, minor, orientation_rad, tool_type }` + `TouchToolType { Unknown, Finger, Stylus,
       Eraser, Palm, Mouse }`.
-- [ ] 8c `PenState.hover_distance` (proximity Z). The ragged tail is DONE on Wayland/X11 via #450 — what remains
+- [x] 8c `PenState.hover_distance` (proximity Z). The ragged tail is DONE on Wayland/X11 via #450 — what remains
       is macOS + Win32 parity. Do NOT invent `PenToolType`: #450 shipped `TabletToolKind { Unknown, Stylus,
       Eraser, Pad, Touch }`; either widen that toward the 8-value `zwp_tablet_tool_v2` set (Brush, Pencil,
       Airbrush, Lens) or leave it — but reuse it, don't duplicate it.
-- [ ] 8d `WacomPadState` → `TabletPadState` + `{ strip, strip_active, dial_delta, mode, mode_count }`.
+- [x] 8d (struct grown + strip/mode wired; dial has no producer yet — see 8d-i) `WacomPadState` → `TabletPadState` + `{ strip, strip_active, dial_delta, mode, mode_count }`.
       #450 left this struct at 2 of 5 pad controls, so it is still fully open. `TabletToolKind::Pad` and
       `TabletDeviceInfo.button_count` now exist to hang it off.
 - [ ] 8e `SensorKind += RotationVector, Gravity, LinearAcceleration, AmbientLight, Proximity, Barometer,
