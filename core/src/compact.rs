@@ -493,14 +493,22 @@ impl CssPropertyCache {
         debug_messages: &mut Option<Vec<azul_css::LayoutDebugMessage>>,
     ) -> CompactLayoutCache {
         // Inheritable tier1 CSS fields (font-weight/style, text-align, visibility,
-        // white-space, direction, border-collapse). Copied from parent in Step 1.
+        // white-space, direction, border-collapse, cursor). Copied from parent
+        // in Step 1.
+        //
+        // `cursor` is inheritable per spec — a `cursor: pointer` on a button
+        // reaches the text inside it — so it MUST be in this mask or a
+        // descendant silently falls back to the initial value. (`writing-mode`
+        // is also inheritable and is absent here; that predates this change and
+        // is left alone rather than fixed blind.)
         const INHERITABLE_TIER1_MASK: u64 = (FONT_WEIGHT_MASK << FONT_WEIGHT_SHIFT)
             | (FONT_STYLE_MASK << FONT_STYLE_SHIFT)
             | (TEXT_ALIGN_MASK << TEXT_ALIGN_SHIFT)
             | (VISIBILITY_MASK << VISIBILITY_SHIFT)
             | (WHITE_SPACE_MASK << WHITE_SPACE_SHIFT)
             | (DIRECTION_MASK << DIRECTION_SHIFT)
-            | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT);
+            | (BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT)
+            | (CURSOR_MASK << CURSOR_SHIFT);
 
         let node_count = self.node_count;
         let default_state = StyledNodeState::default();
@@ -1429,6 +1437,9 @@ fn apply_css_property_to_compact(
             VERTICAL_ALIGN_MASK,
             style_vertical_align_to_u8
         ),
+        // `cursor` is INHERITABLE and is resolved on every mouse move to pick
+        // the pointer shape; a tier-1 read is the right cost for that.
+        CssProperty::Cursor(v) => set_tier1!(v, CURSOR_SHIFT, CURSOR_MASK, cursor_to_u8),
         CssProperty::BorderCollapse(v) => set_tier1!(
             v,
             BORDER_COLLAPSE_SHIFT,

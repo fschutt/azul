@@ -42,6 +42,7 @@ use crate::props::layout::{
 };
 use crate::props::property::{CssProperty, CssPropertyType};
 use crate::props::style::border::BorderStyle;
+use crate::props::style::effects::StyleCursor;
 use crate::props::style::{
     StyleDirection, StyleTextAlign, StyleVerticalAlign, StyleVisibility, StyleWhiteSpace,
 };
@@ -126,6 +127,15 @@ pub const WHITE_SPACE_SHIFT: u32 = 45;
 pub const DIRECTION_SHIFT: u32 = 48;
 pub const VERTICAL_ALIGN_SHIFT: u32 = 49;
 pub const BORDER_COLLAPSE_SHIFT: u32 = 52;
+/// `cursor`, 5 bits for 30 variants, in the first free slot above
+/// `BORDER_COLLAPSE` (bit 52). Bits 58..=62 remain free; bit 63 is
+/// `TIER1_POPULATED_BIT`.
+///
+/// Cursor is INHERITABLE per spec, so a `cursor: pointer` on a container
+/// resolves for every descendant, and it is resolved on EVERY MOUSE MOVE to
+/// decide the pointer shape. A tier-1 bitfield read is the right cost for
+/// that; the slow path's bucket scan was not.
+pub const CURSOR_SHIFT: u32 = 53;
 
 // Bit masks
 pub const DISPLAY_MASK: u64 = 0x1F; // 5 bits
@@ -147,6 +157,7 @@ pub const WHITE_SPACE_MASK: u64 = 0x07; // 3 bits
 pub const DIRECTION_MASK: u64 = 0x01; // 1 bit
 pub const VERTICAL_ALIGN_MASK: u64 = 0x07; // 3 bits
 pub const BORDER_COLLAPSE_MASK: u64 = 0x01; // 1 bit
+pub const CURSOR_MASK: u64 = 0x1F; // 5 bits (30 variants)
 
 pub const ALIGN_SELF_SHIFT: u32 = 53;
 pub const JUSTIFY_SELF_SHIFT: u32 = 56;
@@ -797,6 +808,89 @@ pub const fn style_vertical_align_to_u8(v: StyleVerticalAlign) -> u8 {
         // for vertical-align values with length/percentage units.
         StyleVerticalAlign::Percentage(_) | StyleVerticalAlign::Length(_) => 0,
     }
+}
+
+/// `StyleCursor` <-> 5-bit code. `Default` (the CSS initial value) is 0 so an
+/// unset node decodes to it for free, and an out-of-range code falls back to it
+/// rather than panicking.
+#[inline]
+#[must_use]
+pub const fn cursor_to_u8(v: StyleCursor) -> u8 {
+    match v {
+        StyleCursor::Default => 0,
+        StyleCursor::Alias => 1,
+        StyleCursor::AllScroll => 2,
+        StyleCursor::Cell => 3,
+        StyleCursor::ColResize => 4,
+        StyleCursor::ContextMenu => 5,
+        StyleCursor::Copy => 6,
+        StyleCursor::Crosshair => 7,
+        StyleCursor::EResize => 8,
+        StyleCursor::EwResize => 9,
+        StyleCursor::Grab => 10,
+        StyleCursor::Grabbing => 11,
+        StyleCursor::Help => 12,
+        StyleCursor::Move => 13,
+        StyleCursor::NResize => 14,
+        StyleCursor::NsResize => 15,
+        StyleCursor::NeswResize => 16,
+        StyleCursor::NwseResize => 17,
+        StyleCursor::Pointer => 18,
+        StyleCursor::Progress => 19,
+        StyleCursor::RowResize => 20,
+        StyleCursor::SResize => 21,
+        StyleCursor::SeResize => 22,
+        StyleCursor::Text => 23,
+        StyleCursor::Unset => 24,
+        StyleCursor::VerticalText => 25,
+        StyleCursor::WResize => 26,
+        StyleCursor::Wait => 27,
+        StyleCursor::ZoomIn => 28,
+        StyleCursor::ZoomOut => 29,
+    }
+}
+
+#[inline]
+#[must_use]
+pub const fn cursor_from_u8(v: u8) -> StyleCursor {
+    match v {
+        1 => StyleCursor::Alias,
+        2 => StyleCursor::AllScroll,
+        3 => StyleCursor::Cell,
+        4 => StyleCursor::ColResize,
+        5 => StyleCursor::ContextMenu,
+        6 => StyleCursor::Copy,
+        7 => StyleCursor::Crosshair,
+        8 => StyleCursor::EResize,
+        9 => StyleCursor::EwResize,
+        10 => StyleCursor::Grab,
+        11 => StyleCursor::Grabbing,
+        12 => StyleCursor::Help,
+        13 => StyleCursor::Move,
+        14 => StyleCursor::NResize,
+        15 => StyleCursor::NsResize,
+        16 => StyleCursor::NeswResize,
+        17 => StyleCursor::NwseResize,
+        18 => StyleCursor::Pointer,
+        19 => StyleCursor::Progress,
+        20 => StyleCursor::RowResize,
+        21 => StyleCursor::SResize,
+        22 => StyleCursor::SeResize,
+        23 => StyleCursor::Text,
+        24 => StyleCursor::Unset,
+        25 => StyleCursor::VerticalText,
+        26 => StyleCursor::WResize,
+        27 => StyleCursor::Wait,
+        28 => StyleCursor::ZoomIn,
+        29 => StyleCursor::ZoomOut,
+        _ => StyleCursor::Default,
+    }
+}
+
+#[inline]
+#[must_use]
+pub const fn decode_cursor(t1: u64) -> StyleCursor {
+    cursor_from_u8(((t1 >> CURSOR_SHIFT) & CURSOR_MASK) as u8)
 }
 
 #[inline]
@@ -1781,6 +1875,13 @@ impl CompactLayoutCache {
     #[must_use]
     pub fn get_border_collapse(&self, node_idx: usize) -> StyleBorderCollapse {
         decode_border_collapse(self.tier1_enums[node_idx])
+    }
+
+    /// The resolved `cursor` for a node — one shifted mask read.
+    #[inline]
+    #[must_use]
+    pub fn get_cursor(&self, node_idx: usize) -> StyleCursor {
+        decode_cursor(self.tier1_enums[node_idx])
     }
 
     // -- Tier 2 getters (numeric dimensions) --
@@ -4814,5 +4915,55 @@ mod autotest_generated {
         assert_eq!(align_of::<CompactNodeProps>(), 4);
         assert_eq!(align_of::<CompactNodePropsCold>(), 4);
         assert_eq!(align_of::<CompactTextProps>(), 8);
+    }
+
+    /// Every `StyleCursor` variant survives the 5-bit round trip, and the codes
+    /// stay inside `CURSOR_MASK`.
+    ///
+    /// 30 variants need 5 bits; the slot sits at bit 53, above
+    /// `BORDER_COLLAPSE` (52) and below `TIER1_POPULATED_BIT` (63). A 31st
+    /// variant still fits, a 33rd would silently alias onto another property's
+    /// bits — which is what this test is here to prevent.
+    #[test]
+    fn every_cursor_variant_survives_the_tier1_round_trip() {
+        use crate::props::style::effects::StyleCursor::{
+            Alias, AllScroll, Cell, ColResize, ContextMenu, Copy, Crosshair, Default as Def,
+            EResize, EwResize, Grab, Grabbing, Help, Move, NResize, NeswResize, NsResize,
+            NwseResize, Pointer, Progress, RowResize, SResize, SeResize, Text, Unset,
+            VerticalText, WResize, Wait, ZoomIn, ZoomOut,
+        };
+        let all = [
+            Def, Alias, AllScroll, Cell, ColResize, ContextMenu, Copy, Crosshair, EResize,
+            EwResize, Grab, Grabbing, Help, Move, NResize, NsResize, NeswResize, NwseResize,
+            Pointer, Progress, RowResize, SResize, SeResize, Text, Unset, VerticalText, WResize,
+            Wait, ZoomIn, ZoomOut,
+        ];
+        let mut seen = alloc::collections::BTreeSet::new();
+        for c in all {
+            let code = cursor_to_u8(c);
+            assert!(
+                u64::from(code) <= CURSOR_MASK,
+                "{c:?} encodes to {code}, past CURSOR_MASK — it would alias another property",
+            );
+            assert!(seen.insert(code), "{c:?} shares code {code} with another variant");
+            assert_eq!(cursor_from_u8(code), c, "{c:?} did not survive the round trip");
+
+            // And through the packed word, where the shift could collide.
+            let t1 = (u64::from(code) & CURSOR_MASK) << CURSOR_SHIFT;
+            assert_eq!(decode_cursor(t1), c);
+        }
+        assert_eq!(seen.len(), all.len(), "every variant needs its own code");
+    }
+
+    /// The cursor slot must not overlap its neighbours in the tier-1 word.
+    #[test]
+    fn the_cursor_slot_does_not_collide() {
+        let cursor_bits = CURSOR_MASK << CURSOR_SHIFT;
+        let border_collapse_bits = BORDER_COLLAPSE_MASK << BORDER_COLLAPSE_SHIFT;
+        assert_eq!(cursor_bits & border_collapse_bits, 0, "cursor overlaps border-collapse");
+        assert_eq!(cursor_bits & TIER1_POPULATED_BIT, 0, "cursor overlaps the populated bit");
+        // Writing the maximum code must not disturb anything else.
+        let full = u64::MAX & !cursor_bits;
+        assert_eq!(decode_cursor(full | cursor_bits), cursor_from_u8(CURSOR_MASK as u8));
     }
 }
