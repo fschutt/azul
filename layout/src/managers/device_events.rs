@@ -40,11 +40,24 @@ pub struct Hotplug {
     pub connected: bool,
 }
 
+/// Raw pointer motion awaiting dispatch, in device units.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct PendingRawMotion {
+    pub dx: f64,
+    pub dy: f64,
+    pub device_id: u64,
+}
+
 /// Collects hotplug transitions from the platform backends and yields them as
 /// `ApplicationEventFilter` events.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeviceEventManager {
     pending: Vec<Hotplug>,
+    /// Raw motion accumulated since the last drain. Coalesced rather than
+    /// queued: a gaming mouse reports up to 1000 times a second, and one
+    /// callback per report would swamp an app that only wants to know how far
+    /// the pointer moved this frame.
+    pending_raw_motion: Option<PendingRawMotion>,
 }
 
 impl DeviceEventManager {
@@ -92,6 +105,31 @@ impl DeviceEventManager {
         }
     }
 
+    /// Accumulate raw pointer motion. Called by the backends while the
+    /// pointer is locked.
+    pub fn note_raw_motion(&mut self, dx: f64, dy: f64, device_id: u64) {
+        let e = self.pending_raw_motion.get_or_insert(PendingRawMotion {
+            dx: 0.0,
+            dy: 0.0,
+            device_id,
+        });
+        e.dx += dx;
+        e.dy += dy;
+        e.device_id = device_id;
+    }
+
+    /// Read the accumulated raw motion without consuming it — what a
+    /// callback does while the event is being dispatched.
+    #[must_use]
+    pub const fn peek_raw_motion(&self) -> Option<PendingRawMotion> {
+        self.pending_raw_motion
+    }
+
+    /// Drain the accumulated raw motion.
+    pub fn take_raw_motion(&mut self) -> Option<PendingRawMotion> {
+        self.pending_raw_motion.take()
+    }
+
     /// Whether anything is queued (lets a backend skip the drain entirely).
     #[must_use]
     pub fn has_pending(&self) -> bool {
@@ -108,7 +146,22 @@ impl EventProvider for DeviceEventManager {
     /// Yield `DeviceConnected` / `DeviceDisconnected` / `MonitorConnected` /
     /// `MonitorDisconnected` at the root for each queued transition.
     fn get_pending_events(&self, timestamp: Instant) -> Vec<SyntheticEvent> {
-        self.pending
+        let mut events: Vec<SyntheticEvent> = Vec::new();
+        if let Some(m) = self.pending_raw_motion {
+            events.push(SyntheticEvent::new(
+                EventType::RawMouseMotion,
+                EventSource::User,
+                DomNodeId::ROOT,
+                timestamp.clone(),
+                EventData::RawMotion(azul_core::events::RawMotionEventData {
+                    dx: m.dx,
+                    dy: m.dy,
+                    device_id: m.device_id,
+                }),
+            ));
+        }
+        events.extend(
+            self.pending
             .iter()
             .map(|h| {
                 let event_type = match (h.kind, h.connected) {
@@ -124,7 +177,8 @@ impl EventProvider for DeviceEventManager {
                     timestamp.clone(),
                     EventData::None,
                 )
-            })
-            .collect()
+            }),
+        );
+        events
     }
 }

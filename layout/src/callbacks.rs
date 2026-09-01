@@ -4893,6 +4893,27 @@ impl CallbackInfo {
         self.get_gesture_drag_manager().get_dial_state()
     }
 
+    /// Raw pointer motion since the last frame, in DEVICE units, or `None`
+    /// when the pointer is not locked or nothing moved.
+    ///
+    /// This is not the difference between two cursor positions: those have
+    /// already had the OS acceleration curve applied and are clamped to the
+    /// screen, so differencing them gives accelerated motion that stops dead
+    /// at the display edge. Raw deltas are pre-acceleration and unbounded,
+    /// which is what a 3D orbit, a first-person camera or an infinite-drag
+    /// scrubber needs.
+    ///
+    /// Units are the device's own counts, whose size depends on its DPI —
+    /// which is exactly why applications expose a sensitivity setting rather
+    /// than treating them as pixels.
+    #[must_use]
+    pub fn get_raw_mouse_motion(&self) -> Option<(f64, f64)> {
+        self.get_layout_window()
+            .device_event_manager
+            .peek_raw_motion()
+            .map(|m| (m.dx, m.dy))
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     #[must_use]

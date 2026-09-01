@@ -712,6 +712,11 @@ pub const XIGesturePinchEventCancelled: c_int = 1 << 0;
 /// `XIGestureSwipeEvent.flags` — as above, for swipe.
 pub const XIGestureSwipeEventCancelled: c_int = 1 << 0;
 
+/// `XI_RawMotion` — pointer motion BEFORE the pointer-acceleration curve and
+/// before clamping to the screen. Delivered against `XIAllMasterDevices` but
+/// carrying the slave's `sourceid`.
+pub const XI_RawMotion: c_int = 17;
+
 pub const XI_ButtonPress: c_int = 4;
 pub const XI_ButtonRelease: c_int = 5;
 pub const XI_Motion: c_int = 6;
@@ -1423,4 +1428,26 @@ pub struct XIGestureSwipeEvent {
     pub flags: c_int,
     pub mods: XIModifierState,
     pub group: XIGroupState,
+}
+
+
+/// XI2 raw event. `valuators` is a sparse axis set exactly like a normal
+/// device event's, and `raw_values` carries the UNACCELERATED figures — which
+/// is the entire reason to use this event rather than differencing positions.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct XIRawEvent {
+    pub type_: c_int,
+    pub serial: c_ulong,
+    pub send_event: c_int,
+    pub display: *mut Display,
+    pub extension: c_int,
+    pub evtype: c_int,
+    pub time: c_ulong,
+    pub deviceid: c_int,
+    pub sourceid: c_int,
+    pub detail: c_int,
+    pub flags: c_int,
+    pub valuators: XIValuatorState,
+    pub raw_values: *mut f64,
 }

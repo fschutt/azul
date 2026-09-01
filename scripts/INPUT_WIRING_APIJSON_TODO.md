@@ -83,3 +83,12 @@ api.json and unchanged — this arc gave them producers, it did not add them.
   `KeyboardEventData` — one appended: `device_id: u64`. Both are Rust-internal today; confirm.
 - `CallbackInfo::get_pointer_source()`, `CallbackInfo::get_pointer_device_id()`.
 - `MouseEventData` and `KeyboardEventData` gained `Default` impls.
+
+## From step 9d (raw pointer motion)
+
+- `azul_core::events::RawMotionEventData` — new struct `{ dx: f64, dy: f64, device_id: u64 }`.
+- `EventData::RawMotion(RawMotionEventData)` — appended at the END.
+- `EventType::RawMouseMotion` — appended at the END.
+- `WindowEventFilter::RawMouseMotion` — appended at the END. In api.json as `window.WindowEventFilter`.
+- `CallbackInfo::get_raw_mouse_motion() -> Option<(f64, f64)>` — the tuple needs a named struct for the
+  C ABI; propose reusing `RawMotionEventData` as the return type instead.

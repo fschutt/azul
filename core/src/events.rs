@@ -547,6 +547,26 @@ pub struct WindowEventData {
 
 /// Type-specific event data for text-input (editing) events.
 ///
+/// Data carried by `EventType::RawMouseMotion`.
+///
+/// Raw motion is what a 3D viewport, a map orbit, an infinite-drag number
+/// scrubber and a first-person camera all need, and it is NOT the difference
+/// between two cursor positions. Absolute positions have already had the OS
+/// pointer-acceleration curve applied and are clamped to the screen, so
+/// differencing them gives accelerated motion that stops dead at the edge of
+/// the display. These deltas are pre-acceleration and unbounded.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RawMotionEventData {
+    /// Horizontal motion in the device's own units. NOT logical pixels: a
+    /// mouse reports counts, whose size depends on its DPI, which is exactly
+    /// why a sensitivity setting exists.
+    pub dx: f64,
+    /// Vertical motion, same units.
+    pub dy: f64,
+    /// Which device moved, or `0` when the platform does not say.
+    pub device_id: u64,
+}
+
 /// Data carried by the three IME composition events.
 ///
 /// Every desktop shell already runs a real IME client — Win32 `WM_IME_*` with
@@ -628,6 +648,8 @@ pub enum EventData {
     /// `#[repr(C, u8)]`-adjacent, so a variant inserted in the middle would
     /// renumber every discriminant after it.
     Composition(CompositionEventData),
+    /// Raw, pre-acceleration pointer motion. APPENDED at the end.
+    RawMotion(RawMotionEventData),
 }
 
 /// High-level event type classification.
@@ -939,6 +961,14 @@ pub enum EventType {
     /// A component's selection changed. `ComponentEventFilter::Selected` has
     /// existed with no `EventType` and no match arm.
     Selected,
+    /// Raw pointer motion, pre-acceleration and unclamped. APPENDED at the
+    /// end for ABI stability.
+    ///
+    /// `MouseState.is_cursor_locked` has existed since the beginning,
+    /// documented as "important for applications like games", with no event
+    /// carrying a delta behind it — so pointer lock was a flag that did
+    /// nothing. This is the event it was waiting for.
+    RawMouseMotion,
 }
 
 /// Unified event wrapper (similar to React's `SyntheticEvent`).
@@ -1791,7 +1821,7 @@ fn matches_window_filter(
         GeolocationFix, HoveredFile, HoveredFileCancelled, KeyringResult, LeftMouseDown,
         LeftMouseUp, MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver,
         MouseUp, Moved, PenDoubleTap, PenDown, PenEnter, PenHover, PenLeave, PenMove, PenSqueeze,
-        PenUp, PermissionChanged, Resized,
+        PenUp, PermissionChanged, RawMouseMotion, Resized,
         RightMouseDown, RightMouseUp, ScreenColorPicked, Scroll, ScrollEnd, ScrollStart,
         SensorChanged, TextInput, ThemeChanged, TouchCancel, TouchEnd, TouchMove, TouchStart,
         VirtualKeyDown, VirtualKeyUp, WindowFocusLost, WindowFocusReceived,
@@ -1898,6 +1928,7 @@ fn matches_window_filter(
         (WindowEventFilter::ForwardMouseUp, EventType::MouseUp) => {
             check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_FORWARD))
         }
+        (RawMouseMotion, EventType::RawMouseMotion) => true,
         _ => false,
     }
 }
@@ -2798,6 +2829,13 @@ pub enum WindowEventFilter {
     ForwardMouseDown,
     /// The thumb "forward" button was released.
     ForwardMouseUp,
+    /// Raw, pre-acceleration pointer motion. APPENDED at the end for ABI
+    /// stability.
+    ///
+    /// Window-scoped rather than hover-scoped because raw motion has no
+    /// position: there is no node under it to hit-test, and a locked pointer
+    /// is a window-wide mode.
+    RawMouseMotion,
 }
 
 impl WindowEventFilter {
@@ -3655,6 +3693,10 @@ fn event_type_to_filters_legacy_hint(
         E::WindowMonitorChanged => vec![EF::Window(W::MonitorChanged)],
 
         // Application events
+        // Window-only: raw motion has no position, so it cannot be hit-tested
+        // and there is no node it belongs to. A locked pointer is a
+        // window-wide mode by definition.
+        E::RawMouseMotion => vec![EF::Window(W::RawMouseMotion)],
         E::PenSqueeze => vec![EF::Hover(H::PenSqueeze), EF::Window(W::PenSqueeze)],
         E::PenDoubleTap => vec![EF::Hover(H::PenDoubleTap), EF::Window(W::PenDoubleTap)],
         E::PenHover => vec![EF::Hover(H::PenHover), EF::Window(W::PenHover)],

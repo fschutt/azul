@@ -903,6 +903,19 @@ fn init_xinput2(
         };
         (xi.XISelectEvents)(display, window, &mut hevmask, 1);
 
+        // Raw motion. Selected on the ROOT window, not ours: raw events have
+        // no target window — they are pre-hit-test by definition — and the X
+        // server only delivers them to a client that asked for them there.
+        let mut rmask = [0u8; 3];
+        rmask[(defines::XI_RawMotion >> 3) as usize] |= 1 << (defines::XI_RawMotion & 7);
+        let mut revmask = defines::XIEventMask {
+            deviceid: defines::XIAllMasterDevices,
+            mask_len: rmask.len() as c_int,
+            mask: rmask.as_mut_ptr(),
+        };
+        let root = (xlib.XDefaultRootWindow)(display);
+        (xi.XISelectEvents)(display, root, &mut revmask, 1);
+
         // Touchpad gestures, XI 2.4+. Selected on master devices like the
         // pointer events they accompany — a gesture is delivered against the
         // master pointer, not the slave touchpad.
@@ -1472,6 +1485,13 @@ fn handle_xi_event(win: &mut X11Window, xev: &mut defines::XEvent) {
             return;
         }
 
+        // Raw motion: an XIRawEvent, and again not an XIDeviceEvent.
+        if cookie.evtype == defines::XI_RawMotion {
+            handle_xi_raw_motion(win, cookie);
+            (free_event_data)(display, cookie);
+            return;
+        }
+
         // Touchpad gestures, like the hierarchy event above, carry their own
         // payload struct — XIGesturePinchEvent / XIGestureSwipeEvent, not
         // XIDeviceEvent — so they must be split off before the cast below.
@@ -1900,6 +1920,13 @@ impl XdndState {
 }
 
 pub struct X11Window {
+    /// Raw pointer motion accumulated since the last event pass, in device
+    /// units. Accumulated rather than dispatched per event because the X
+    /// server sends one raw event per hardware report — up to 1000/s on a
+    /// gaming mouse — and one callback each would swamp the app.
+    pub pending_raw_motion: (f64, f64),
+    /// Slave device that produced the accumulated motion.
+    pub pending_raw_motion_device: u64,
     /// Rotation accumulated across the current XI pinch. `delta_angle` is a
     /// per-update delta in degrees, so an absolute angle only exists as a sum.
     pub pinch_accumulated_rotation: f32,
@@ -2706,6 +2733,8 @@ impl X11Window {
         let (
             xi,
             xi_opcode,
+            pending_raw_motion: (0.0, 0.0),
+            pending_raw_motion_device: 0,
             pinch_accumulated_rotation: 0.0,
             swipe_accumulated: (0.0, 0.0),
             pen_valuators,
@@ -3191,6 +3220,8 @@ impl X11Window {
             argb_colormap,
             xi,
             xi_opcode,
+            pending_raw_motion: (0.0, 0.0),
+            pending_raw_motion_device: 0,
             pinch_accumulated_rotation: 0.0,
             swipe_accumulated: (0.0, 0.0),
             pen_valuators,
@@ -8137,5 +8168,66 @@ unsafe fn handle_xi_gesture_event(win: &mut X11Window, cookie: &defines::XGeneri
             }
         }
         _ => {}
+    }
+}
+
+/// Turn an `XI_RawMotion` into `EventType::RawMouseMotion`.
+///
+/// Raw events are delivered to every client that selected them on the root,
+/// regardless of focus, so this drops them unless the pointer is actually
+/// locked — otherwise a background window would keep receiving motion while
+/// the user worked in another app, which is both wrong and a privacy leak.
+unsafe fn handle_xi_raw_motion(win: &mut X11Window, cookie: &defines::XGenericEventCookie) {
+    if !win.common.current_window_state().mouse_state.is_cursor_locked {
+        return;
+    }
+    let ev = &*(cookie.data as *const defines::XIRawEvent);
+    if ev.raw_values.is_null() {
+        return;
+    }
+
+    // The valuator set is SPARSE: `mask` says which axes are present and
+    // `raw_values` is packed to match, so axis N is not at index N. Reading
+    // raw_values[0] and [1] blindly gives the Y delta as X the moment a
+    // device reports only one axis, which a mouse moving purely vertically
+    // does constantly.
+    let mask = core::slice::from_raw_parts(
+        ev.valuators.mask,
+        ev.valuators.mask_len.max(0) as usize,
+    );
+    let is_set = |axis: usize| -> bool {
+        mask.get(axis >> 3).is_some_and(|b| b & (1 << (axis & 7)) != 0)
+    };
+
+    let mut packed = 0usize;
+    let mut dx = 0.0f64;
+    let mut dy = 0.0f64;
+    for axis in 0..2usize {
+        if is_set(axis) {
+            let v = *ev.raw_values.add(packed);
+            if axis == 0 {
+                dx = v;
+            } else {
+                dy = v;
+            }
+            packed += 1;
+        }
+    }
+    if dx == 0.0 && dy == 0.0 {
+        return;
+    }
+
+    win.pending_raw_motion.0 += dx;
+    win.pending_raw_motion.1 += dy;
+    // sourceid is the SLAVE — the physical mouse — where deviceid would be the
+    // master pointer and identify nothing.
+    win.pending_raw_motion_device = ev.sourceid as u64;
+
+    // Hand it to the manager that turns it into an event. Kept on the window
+    // too so a backend that batches across several raw events before running
+    // an event pass does not lose any.
+    if let Some(ref mut lw) = win.common.layout_window {
+        lw.device_event_manager
+            .note_raw_motion(dx, dy, ev.sourceid as u64);
     }
 }

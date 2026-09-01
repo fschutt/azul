@@ -9001,6 +9001,7 @@ pub trait PlatformWindow {
             w.scroll_manager.pending_scroll_phase.clear();
             let _ = w.text_edit_manager.take_pending_composition();
             let _ = w.device_event_manager.take_pending();
+            let _ = w.device_event_manager.take_raw_motion();
             let _ = w.gamepad_manager.take_pending_hotplug();
             w.gesture_drag_manager.clear_pen_event_pending();
             // The injected native gesture (macOS magnify/rotate, debug-server

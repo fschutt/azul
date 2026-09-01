@@ -94,6 +94,17 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 9d
+
+- [ ] 9d-i Raw-motion producers for the other backends: Win32 `WM_INPUT` + `RegisterRawInputDevices`
+      (`RIDEV_INPUTSINK` decides whether it arrives unfocused), Wayland `zwp_relative_pointer_v1` (a new
+      protocol binding, same shape as the pointer-gestures work in 7a), web `movementX`/`movementY`.
+- [ ] 9d-ii Nothing SETS `is_cursor_locked` — there is no request path. The flag gates raw delivery
+      correctly, but an app cannot turn it on, so raw motion cannot actually be reached yet. Needs
+      `CallbackInfo::set_pointer_lock(bool)` plus the per-platform grab: Win32 `ClipCursor` + hide,
+      Wayland `zwp_pointer_constraints_v1.lock_pointer`, X11 `XGrabPointer`, web `requestPointerLock`.
+      **9d-ii is the item that makes 9d usable — do it before the other producers.**
+
 ### Follow-ups opened by 9c
 
 - [ ] 9c-i Other dial backends: Win32 `RadialController` (needs WinRT interop, and is the only one that
@@ -264,7 +275,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       mouse/keyboard half plus the per-event `PointerSource` discriminator. Model it on `TabletDeviceInfo`.
 - [x] 9c (type + Wayland producer done; Surface Dial / crown backends are 9c-i) `DialState { device_id, delta_rad, detent_count, pressed, contact_position }` + `DialRotate`/`DialClick`
       filters; wire Wayland `zwp_tablet_pad_dial_v2` (already bound) as the first producer.
-- [ ] 9d `RawMouseMotion` window filter + pointer-lock request path; Win32 `WM_INPUT`,
+- [x] 9d (types + X11 producer done; Win32/Wayland/web are 9d-i, and locking itself is 9d-ii) `RawMouseMotion` window filter + pointer-lock request path; Win32 `WM_INPUT`,
       Wayland `zwp_relative_pointer_v1` + `zwp_pointer_constraints_v1`, X11 `XI_RawMotion`.
 - [ ] 9e `PhysicalKey` positional enum + `ModifiersChanged` filter + `KeyboardState += { modifiers, locks,
       is_repeat }`.
