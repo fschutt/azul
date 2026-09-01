@@ -128,7 +128,16 @@ impl AndroidWindow {
         let mut common = CommonWindowState::new(
             full_window_state,
             fc_cache,
-            Arc::new(azul_css::system::SystemStyle::default()),
+            // The style AppConfig detected at startup, not `SystemStyle::default()`.
+            // `default()` carries `Platform::Unknown`, which
+            // `OsCondition::from_system_platform` maps to `Any` — and `Any`
+            // matches no `@os(...)` arm at all, so EVERY OS-conditional UA rule
+            // silently took the fallback branch: classic always-visible
+            // scrollbars instead of overlay, `scrollbar-width: auto` instead of
+            // thin, the wrong fade timings, and the Material palette replaced by
+            // generic defaults. AppConfig's doc comment already promised this is
+            // "passed to all windows"; the desktop backends did, mobile did not.
+            Arc::new(config.system_style.clone()),
             Arc::new(RefCell::new(app_data)),
             undo_manager,
         );
@@ -266,6 +275,16 @@ impl AndroidWindow {
                 .hit_tester
                 .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
+
+        // Also rebuild the SHARED hit-tester that the common event-dispatch path
+        // reads (perform_hit_test -> update_hit_test_at). The rebuild above only
+        // feeds the render path; POINTER EVENTS resolve their target node
+        // through `common.cpu_hit_tester`, which was constructed empty and never
+        // repopulated here — so every tap hit-tested to nothing and no widget
+        // callback ever fired. The UI rendered perfectly and was completely
+        // inert. `headless/mod.rs` already carries this exact fix and the same
+        // explanation; both mobile backends were missing the one line.
+        self.common.rebuild_cpu_hit_tester();
 
         // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
         // layout's reconciliation — the SAME step headless + X11 run. Without it,
@@ -787,7 +806,14 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
     let mut iter = match app.input_events_iter() {
         Ok(it) => it,
         Err(e) => {
-            log_debug!(LogCategory::Input, "[Android] input_events_iter: {:?}", e);
+            // Promoted from debug: "no input queue" is the difference between
+            // a live UI and a picture of one, and it was invisible at the
+            // default log level.
+            log_info!(
+                LogCategory::Input,
+                "[Android] input_events_iter FAILED: {:?} — no touch will ever arrive",
+                e
+            );
             return;
         }
     };
@@ -929,6 +955,14 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         InputStatus::Unhandled
     }) {}
 
+    log_debug!(
+        LogCategory::Input,
+        "[Android] drain_input: {} motion, {} key, {} pen",
+        motion_updates.len(),
+        key_updates.len(),
+        pen_updates.len(),
+    );
+
     for update in motion_updates {
         // Snapshot previous state — required by the state-diffing event system.
         window.snapshot_window_state_baseline("android.drain_input.motion");
@@ -973,6 +1007,13 @@ fn drain_input(app: &AndroidApp, window: &mut AndroidWindow) {
         // Update CPU hit-tester at the new cursor; dispatch callbacks.
         window.update_hit_test_at(update.mouse_pos);
         let r = window.process_window_events(0);
+        log_debug!(
+            LogCategory::Input,
+            "[Android] motion {:?} at {:?} -> {:?}",
+            update.action,
+            update.mouse_pos,
+            r,
+        );
         if !matches!(r, azul_core::events::ProcessEventResult::DoNothing) {
             window
                 .common

@@ -1435,7 +1435,16 @@ impl IOSWindow {
         let mut common = CommonWindowState::new(
             full_window_state,
             fc_cache,
-            Arc::new(azul_css::system::SystemStyle::default()),
+            // The style AppConfig detected at startup, not `SystemStyle::default()`.
+            // `default()` carries `Platform::Unknown`, which
+            // `OsCondition::from_system_platform` maps to `Any` — and `Any`
+            // matches no `@os(...)` arm at all, so EVERY OS-conditional UA rule
+            // silently took the fallback branch: classic always-visible
+            // scrollbars instead of overlay, `scrollbar-width: auto` instead of
+            // thin, the wrong fade timings, and the Material palette replaced by
+            // generic defaults. AppConfig's doc comment already promised this is
+            // "passed to all windows"; the desktop backends did, mobile did not.
+            Arc::new(config.system_style.clone()),
             Arc::new(RefCell::new(app_data)),
             undo_manager,
         );
@@ -1585,6 +1594,16 @@ impl IOSWindow {
                 .hit_tester
                 .rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
         }
+
+        // Also rebuild the SHARED hit-tester that the common event-dispatch path
+        // reads (perform_hit_test -> update_hit_test_at). The rebuild above only
+        // feeds the render path; POINTER EVENTS resolve their target node
+        // through `common.cpu_hit_tester`, which was constructed empty and never
+        // repopulated here — so every tap hit-tested to nothing and no widget
+        // callback ever fired. The UI rendered perfectly and was completely
+        // inert. `headless/mod.rs` already carries this exact fix and the same
+        // explanation; both mobile backends were missing the one line.
+        self.common.rebuild_cpu_hit_tester();
 
         // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
         // layout's reconciliation — the SAME step headless + X11 run. Without it,
