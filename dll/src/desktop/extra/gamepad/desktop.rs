@@ -17,6 +17,7 @@
 //! `LeftBumper`/`RightBumper` + `LeftTrigger`/`RightTrigger`.
 
 use std::cell::RefCell;
+use super::{apply_axial_deadzone, apply_radial_deadzone};
 
 use gilrs::{Axis, Button, EventType, Gilrs};
 
@@ -134,30 +135,5 @@ pub fn poll() {
     });
 }
 
-/// Stick deadzone radius (Xbox/DualShock resting jitter stays well below
-/// 0.15; SDL and XInput use comparable defaults).
-const STICK_DEADZONE: f32 = 0.15;
-/// Trigger deadzone (triggers rest at exactly 0.0 on most drivers; small
-/// guard for worn hardware).
-const TRIGGER_DEADZONE: f32 = 0.05;
-
-/// MWA-C-gamepad: radial deadzone with rescaling — inside the radius maps to
-/// exactly (0,0); outside, magnitude rescales to [0,1] so there is no jump
-/// at the deadzone edge and full deflection still reaches 1.0.
-fn apply_radial_deadzone(x: f32, y: f32) -> (f32, f32) {
-    let mag = (x * x + y * y).sqrt();
-    if mag <= STICK_DEADZONE {
-        return (0.0, 0.0);
-    }
-    let scale = ((mag - STICK_DEADZONE) / (1.0 - STICK_DEADZONE)).min(1.0) / mag;
-    (x * scale, y * scale)
-}
-
-/// Axial deadzone for triggers (1-D), with the same edge rescaling.
-fn apply_axial_deadzone(v: f32) -> f32 {
-    if v.abs() <= TRIGGER_DEADZONE {
-        return 0.0;
-    }
-    let sign = v.signum();
-    sign * ((v.abs() - TRIGGER_DEADZONE) / (1.0 - TRIGGER_DEADZONE)).min(1.0)
-}
+// Deadzone helpers live in `mod.rs`: every backend needs the same
+// treatment and three copies would drift.

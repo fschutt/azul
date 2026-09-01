@@ -94,6 +94,16 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 10f
+
+- [ ] 10f-i `com.azul.gamepad.AzulGamepad` does not exist. It owns the `InputManager.InputDeviceListener`
+      and the source filtering — `InputDevice.getSources() & SOURCE_GAMEPAD/SOURCE_JOYSTICK` is Java-side
+      API with no NDK equivalent — and calls the three `native*` entry points. Same class family as
+      10a-i's `NativeTextBridge`.
+- [ ] 10f-ii iOS `GCMotion` (pad gyro/accel) and `GCDeviceBattery` are readable but not read, because no
+      platform fills those `GamepadState` fields yet (8f-i). Do them together so iOS is not the only
+      backend reporting them.
+
 ### Follow-ups opened by 10e
 
 - [ ] 10e-i Web equivalents: `PointerEvent.getCoalescedEvents()` and `getPredictedEvents()`. The wasm
@@ -369,7 +379,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [x] 10c (keyboard inset modelled + Android bridge; safe-area itself already existed on macOS/iOS. iOS keyboard notifications are 10c-i) Insets / safe area / keyboard avoidance as a layout input (Android `WindowInsets`, iOS safe area).
 - [x] 10d iOS `UIPencilInteraction` → `PenSqueeze` + `PenDoubleTap`.
 - [x] 10e (iOS done; the web equivalent is 10e-i) `coalescedTouches` / `predictedTouches` (iOS) and the equivalent elsewhere.
-- [ ] 10f Real gamepad backends to replace `gamepad/android.rs` (16 lines) and `gamepad/apple.rs` (17 lines).
+- [x] 10f (both written; the Java half is 10f-i) Real gamepad backends to replace `gamepad/android.rs` (16 lines) and `gamepad/apple.rs` (17 lines).
 
 ## Step 11 — C6: full-stack stragglers
 
