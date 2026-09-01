@@ -1611,7 +1611,12 @@ define_class!(
                     // text, so it has to be un-shaped or the commit lands next
                     // to a composition that is still on screen (typing "か" and
                     // committing rendered "かか").
-                    lw.text_edit_manager.clear_preedit();
+                    //
+                    // Commit rather than a bare clear, so `CompositionEnd`
+                    // carries the committed string. macOS is the one backend
+                    // that hands it to us directly, on `insertText:`.
+                    lw.text_edit_manager
+                        .commit_composition(committed_text.clone());
                     lw.end_preedit_shaping();
                 }
                 macos_window.handle_text_input(&committed_text);
@@ -2566,7 +2571,12 @@ define_class!(
                     // text, so it has to be un-shaped or the commit lands next
                     // to a composition that is still on screen (typing "か" and
                     // committing rendered "かか").
-                    lw.text_edit_manager.clear_preedit();
+                    //
+                    // Commit rather than a bare clear, so `CompositionEnd`
+                    // carries the committed string. macOS is the one backend
+                    // that hands it to us directly, on `insertText:`.
+                    lw.text_edit_manager
+                        .commit_composition(committed_text.clone());
                     lw.end_preedit_shaping();
                 }
                 macos_window.handle_text_input(&committed_text);

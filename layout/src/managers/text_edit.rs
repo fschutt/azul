@@ -661,6 +661,18 @@ impl TextEditManager {
         if !changed {
             return false;
         }
+        // A cancelled composition still ENDS. Recording the phase here rather
+        // than at each call site means every shell's cancel path — macOS
+        // `unmarkText`, Wayland's empty preedit, Win32 `WM_IME_ENDCOMPOSITION`,
+        // focus loss — fires `CompositionEnd` without four separate edits, and
+        // an app that opened a composition overlay always gets told to close
+        // it. `commit_composition` runs first and has already set the phase
+        // plus the committed text, so it is not clobbered here; a cancel
+        // carries no text, which is the difference an app reads.
+        if self.preedit_text.is_some() && self.pending_composition.is_none() {
+            self.pending_composition = Some(CompositionPhase::End);
+            self.composition_text = String::new();
+        }
         self.preedit_text = None;
         self.preedit_cursor_begin = -1;
         self.preedit_cursor_end = -1;

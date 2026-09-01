@@ -78,11 +78,20 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [x] 3b Emit `EventType::FocusIn`/`FocusOut` alongside every `Focus`/`Blur` site.
 - [x] 3c `CompositionEventData { data, cursor_begin, cursor_end }` + `EventData::Composition` variant +
       `CallbackInfo::get_composition_*` accessors.
-- [ ] 3d Emit `Composition*` at the IME sites: Win32 `WM_IME_STARTCOMPOSITION`/`COMPOSITION`/`ENDCOMPOSITION`,
+- [x] 3d Emit `Composition*` at the IME sites: Win32 `WM_IME_STARTCOMPOSITION`/`COMPOSITION`/`ENDCOMPOSITION`,
       macOS `setMarkedText:`/`unmarkText`/`insertText:`, Wayland `preedit_string`/`commit_string`/`done`, X11 XIM.
 - [ ] 3e Dispatch `EventType::Copy`/`Cut`/`Paste` to the focused node BEFORE pushing
       `SystemChange::{CopyToClipboard, CutToClipboard, PasteFromClipboard}`; the existing
       `post_callback_filter_system_changes(prevent_default, …)` gate then makes them interceptable.
+
+### Follow-ups opened by 3c/3d
+
+- [ ] 3d-i Register `TextEditManager` in the `&[&dyn EventProvider]` slice, and clear
+      `pending_composition` after the drain (same shape as 2c-ii/iii).
+- [ ] 3d-ii X11 has no separate commit path — `Xutf8LookupString` returns committed text directly and the
+      preedit is only ever set from the XIM callback, so `CompositionEnd` there currently comes from the
+      cancel path with empty text. Confirm whether XIM preedit callbacks are installed at all
+      (`XIMPreeditNothing` means the IM server draws its own window and the client sees no preedit).
 
 ### Follow-ups opened by 2c
 

@@ -5365,7 +5365,18 @@ unsafe extern "system" fn window_proc(
                 window.ime_composition = None;
                 // Clear preedit in cursor manager
                 if let Some(ref mut lw) = window.common.layout_window {
-                    lw.text_edit_manager.clear_preedit();
+                    // Commit rather than a bare clear, so `CompositionEnd`
+                    // can report what was committed.
+                    //
+                    // Win32 does not hand us the result string here — it lets
+                    // DefWindowProc turn it into WM_IME_CHAR messages, which
+                    // arrive after this branch returns. The preedit as it
+                    // stands at GCS_RESULTSTR is what the user was looking at
+                    // when they accepted the candidate, so that is what the
+                    // event reports; the actual insertion still happens via
+                    // WM_IME_CHAR -> record_text_input as before.
+                    let committed = lw.text_edit_manager.preedit_text.clone().unwrap_or_default();
+                    lw.text_edit_manager.commit_composition(committed);
                     // MWA-C-text_input: restore the pre-preedit text cache
                     // (apply with empty preedit = restore + re-shape).
                     if let Some((dom_id, node_id)) = lw

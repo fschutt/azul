@@ -3237,7 +3237,11 @@ pub(super) extern "C" fn text_input_done_handler(
     if let Some(text) = commit_text {
         if !text.is_empty() {
             if let Some(ref mut lw) = window.common.layout_window {
-                lw.text_edit_manager.clear_preedit();
+                // Commit, not a bare clear: this carries the committed string
+                // so `CompositionEnd` can report it. W3C defines
+                // `compositionend.data` as what was committed, and the preedit
+                // is gone by the time anyone could read it.
+                lw.text_edit_manager.commit_composition(text.clone());
                 let _ = lw.record_text_input(&text);
             }
             needs_process = true;
