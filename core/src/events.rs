@@ -1523,6 +1523,14 @@ fn matches_focus_filter(
         (FocusEventFilter::PinchOut, EventType::PinchOut) => true,
         (FocusEventFilter::RotateClockwise, EventType::RotateClockwise) => true,
         (FocusEventFilter::RotateCounterClockwise, EventType::RotateCounterClockwise) => true,
+        // Pen — `FocusEventFilter` has carried Down/Move/Up since the filter
+        // was introduced, but this table had no arm for any of them, so a
+        // focused node could never receive a pen event even once dispatch
+        // planning named the filter. (Enter/Leave have no Focus twin: a pen
+        // crossing a node's bounds is not a focus change.)
+        (FocusEventFilter::PenDown, EventType::PenDown) => true,
+        (FocusEventFilter::PenMove, EventType::PenMove) => true,
+        (FocusEventFilter::PenUp, EventType::PenUp) => true,
         _ => false,
     }
 }
@@ -3059,6 +3067,306 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
         if matches_filter_phase(EventFilter::Component(*f), &probe, EventPhase::Bubble) {
             out.push(EventFilter::Component(*f));
         }
+    };
+
+    let button_specific_up = || -> Option<EventFilter> {
+        match event_data {
+            EventData::Mouse(m) => match m.button {
+                MouseButton::Left => Some(EF::Hover(H::LeftMouseUp)),
+                MouseButton::Right => Some(EF::Hover(H::RightMouseUp)),
+                MouseButton::Middle => Some(EF::Hover(H::MiddleMouseUp)),
+                MouseButton::Other(_) => None, // no specific filter for other buttons
+            },
+            // See the MouseDown arm: a payloadless event plans no
+            // button-specific filter, because matching would drop it.
+            _ => None,
+        }
+    };
+
+    match event_type {
+        // Mouse button events - return BOTH generic and button-specific
+        E::MouseDown => {
+            let mut v = vec![EF::Hover(H::MouseDown)];
+            if let Some(f) = button_specific_down() {
+                v.push(f);
+            }
+            v
+        }
+        E::MouseUp => {
+            let mut v = vec![EF::Hover(H::MouseUp)];
+            if let Some(f) = button_specific_up() {
+                v.push(f);
+            }
+            v
+        }
+
+        // Click completes on button *release* over the target, per W3C, so it
+        // maps to the RELEASE filters - never to LeftMouseDown, which would
+        // fire a synthesized click as a duplicate press.
+        //
+        // It must list the GENERIC `MouseUp` as well as the button-specific
+        // `LeftMouseUp`, exactly like the `E::MouseUp` arm above. Click is the
+        // ACTIVATION event: it is what Enter/Space on a focused element and
+        // what an assistive technology's default action both dispatch. Every
+        // widget in this toolkit registers the generic `Hover(MouseUp)`, so
+        // while this arm listed only `LeftMouseUp` no keyboard or screen-reader
+        // activation ever reached a widget - Space and Enter did nothing at
+        // all on a focused control (device report, 2026-08-31).
+        //
+        // `event_type_to_filters` is what DISPATCH PLANNING uses; the
+        // `matches_hover_filter` table is what phase matching uses. Both
+        // must agree, which is what the note on `matches_component_filter`
+        // means by "de-sync dispatch".
+        E::Click => vec![EF::Hover(H::Click)],
+
+        // Other mouse events
+        E::MouseOver => vec![EF::Hover(H::MouseOver)],
+        E::MouseEnter => vec![EF::Hover(H::MouseEnter)],
+        E::MouseLeave => vec![EF::Hover(H::MouseLeave)],
+        E::MouseOut => vec![EF::Hover(H::MouseOut)],
+
+        E::DoubleClick => vec![EF::Hover(H::DoubleClick), EF::Window(W::DoubleClick)],
+        // Gestures: the detectors emitted these for years and this table sent
+        // them to `vec![]` — no filter, no callback, whatever the widget
+        // registered. Every gesture reaches its hover / focus / window filters.
+        E::LongPress => vec![
+            EF::Hover(H::LongPress),
+            EF::Focus(F::LongPress),
+            EF::Window(W::LongPress),
+        ],
+        E::SwipeLeft => vec![
+            EF::Hover(H::SwipeLeft),
+            EF::Focus(F::SwipeLeft),
+            EF::Window(W::SwipeLeft),
+        ],
+        E::SwipeRight => vec![
+            EF::Hover(H::SwipeRight),
+            EF::Focus(F::SwipeRight),
+            EF::Window(W::SwipeRight),
+        ],
+        E::SwipeUp => vec![
+            EF::Hover(H::SwipeUp),
+            EF::Focus(F::SwipeUp),
+            EF::Window(W::SwipeUp),
+        ],
+        E::SwipeDown => vec![
+            EF::Hover(H::SwipeDown),
+            EF::Focus(F::SwipeDown),
+            EF::Window(W::SwipeDown),
+        ],
+        E::PinchIn => vec![
+            EF::Hover(H::PinchIn),
+            EF::Focus(F::PinchIn),
+            EF::Window(W::PinchIn),
+        ],
+        E::PinchOut => vec![
+            EF::Hover(H::PinchOut),
+            EF::Focus(F::PinchOut),
+            EF::Window(W::PinchOut),
+        ],
+        E::RotateClockwise => vec![
+            EF::Hover(H::RotateClockwise),
+            EF::Focus(F::RotateClockwise),
+            EF::Window(W::RotateClockwise),
+        ],
+        E::RotateCounterClockwise => vec![
+            EF::Hover(H::RotateCounterClockwise),
+            EF::Focus(F::RotateCounterClockwise),
+            EF::Window(W::RotateCounterClockwise),
+        ],
+        E::ContextMenu => vec![EF::Hover(H::RightMouseDown)],
+
+        // Keyboard events
+        E::KeyDown => vec![EF::Focus(F::VirtualKeyDown)],
+        E::KeyUp => vec![EF::Focus(F::VirtualKeyUp)],
+        E::KeyPress => vec![EF::Focus(F::TextInput)],
+
+        // IME Composition events
+        E::CompositionStart => vec![
+            EF::Hover(H::CompositionStart),
+            EF::Focus(F::CompositionStart),
+        ],
+        E::CompositionUpdate => vec![
+            EF::Hover(H::CompositionUpdate),
+            EF::Focus(F::CompositionUpdate),
+        ],
+        E::CompositionEnd => vec![EF::Hover(H::CompositionEnd), EF::Focus(F::CompositionEnd)],
+
+        // Focus events
+        E::Focus => vec![EF::Focus(F::FocusReceived)],
+        E::Blur => vec![EF::Focus(F::FocusLost)],
+        E::FocusIn => vec![EF::Hover(H::FocusIn), EF::Focus(F::FocusIn)],
+        E::FocusOut => vec![EF::Hover(H::FocusOut), EF::Focus(F::FocusOut)],
+
+        // Input events
+        E::Input | E::Change => vec![EF::Focus(F::TextInput)],
+
+        // Scroll events.
+        //
+        // These were collapsed onto a single `Hover(Scroll)`, which is dead
+        // from both directions for the phase events: a node registered on
+        // `Hover(ScrollStart)` was never looked up (planning never named that
+        // filter), and a node on `Hover(Scroll)` WAS looked up and then
+        // rejected, because `matches_hover_filter`'s only scroll arms are
+        // same-name pairs. The Focus and Window families own the same three
+        // variants with the same same-name arms, and planning named none of
+        // them.
+        E::Scroll => vec![
+            EF::Hover(H::Scroll),
+            EF::Focus(F::Scroll),
+            EF::Window(W::Scroll),
+        ],
+        E::ScrollStart => vec![
+            EF::Hover(H::ScrollStart),
+            EF::Focus(F::ScrollStart),
+            EF::Window(W::ScrollStart),
+        ],
+        E::ScrollEnd => vec![
+            EF::Hover(H::ScrollEnd),
+            EF::Focus(F::ScrollEnd),
+            EF::Window(W::ScrollEnd),
+        ],
+
+        // Drag events
+        E::DragStart => vec![EF::Hover(H::DragStart), EF::Window(W::DragStart)],
+        E::Drag => vec![EF::Hover(H::Drag), EF::Window(W::Drag)],
+        E::DragEnd => vec![EF::Hover(H::DragEnd), EF::Window(W::DragEnd)],
+        E::DragEnter => vec![EF::Hover(H::DragEnter), EF::Window(W::DragEnter)],
+        E::DragOver => vec![EF::Hover(H::DragOver), EF::Window(W::DragOver)],
+        E::DragLeave => vec![EF::Hover(H::DragLeave), EF::Window(W::DragLeave)],
+        E::Drop => vec![EF::Hover(H::Drop), EF::Window(W::Drop)],
+
+        // Touch events. `WindowEventFilter` carries all four with matching
+        // same-name arms in `matches_window_filter`; planning named only the
+        // Hover half, so a window-level touch listener never fired.
+        E::TouchStart => vec![EF::Hover(H::TouchStart), EF::Window(W::TouchStart)],
+        E::TouchMove => vec![EF::Hover(H::TouchMove), EF::Window(W::TouchMove)],
+        E::TouchEnd => vec![EF::Hover(H::TouchEnd), EF::Window(W::TouchEnd)],
+        E::TouchCancel => vec![EF::Hover(H::TouchCancel), EF::Window(W::TouchCancel)],
+
+        // Pen / stylus events.
+        //
+        // These had NO arm at all: they fell through to `_ => vec![]`, so
+        // dispatch planning returned an empty filter list and no node was ever
+        // looked up. Both the producer (`event_determination.rs` constructs
+        // `EventType::PenDown`) and the matcher tables (`matches_hover_filter`,
+        // `matches_window_filter`) were already complete, and pen pressure,
+        // tilt, twist and eraser state are fed on all six shells — so every
+        // pen event dispatched to nothing and only `get_pen_state()` polling
+        // could observe the data.
+        //
+        // This is also why the Wayland backend bridges a tool in proximity
+        // onto the pointer pipeline (see `handle_tablet_frame`): with no
+        // reachable `Pen*` event, synthesizing `Mouse*` was the only way to
+        // make anything on screen react.
+        E::PenDown => vec![
+            EF::Hover(H::PenDown),
+            EF::Focus(F::PenDown),
+            EF::Window(W::PenDown),
+        ],
+        E::PenMove => vec![
+            EF::Hover(H::PenMove),
+            EF::Focus(F::PenMove),
+            EF::Window(W::PenMove),
+        ],
+        E::PenUp => vec![
+            EF::Hover(H::PenUp),
+            EF::Focus(F::PenUp),
+            EF::Window(W::PenUp),
+        ],
+        // Enter/Leave have no Focus twin on purpose: a pen crossing a node's
+        // bounds is not a focus change, which is why `FocusEventFilter`
+        // carries only Down/Move/Up.
+        E::PenEnter => vec![EF::Hover(H::PenEnter), EF::Window(W::PenEnter)],
+        E::PenLeave => vec![EF::Hover(H::PenLeave), EF::Window(W::PenLeave)],
+
+        // A structural document edit is delivered to the focused subtree.
+        // Same omission as the pen block: five producer sites, a matcher arm
+        // in `matches_focus_filter`, and a public `On::DocumentEdit`
+        // convenience variant — but no planning arm, so none of it connected.
+        E::DocumentEdit => vec![EF::Focus(F::DocumentEdit)],
+
+        // Window events
+        E::WindowResize => vec![EF::Window(W::Resized)],
+        E::WindowFrameChanged => vec![EF::Window(W::FrameChanged)],
+        E::WindowMove => vec![EF::Window(W::Moved)],
+        E::WindowClose => vec![EF::Window(W::CloseRequested)],
+        E::WindowFocusIn => vec![EF::Window(W::WindowFocusReceived)],
+        E::WindowFocusOut => vec![EF::Window(W::WindowFocusLost)],
+        E::ThemeChange => vec![EF::Window(W::ThemeChanged)],
+        E::WindowDpiChanged => vec![EF::Window(W::DpiChanged)],
+        E::WindowMonitorChanged => vec![EF::Window(W::MonitorChanged)],
+
+        // Application events
+        E::MonitorConnected => vec![EF::Application(ApplicationEventFilter::MonitorConnected)],
+        E::MonitorDisconnected => {
+            vec![EF::Application(ApplicationEventFilter::MonitorDisconnected)]
+        }
+
+        // File events
+        // MWA-B7: node-level Hover mirror + the window-level filter. Without
+        // the Window mirrors, even WindowEventFilter::DroppedFile
+        // registrations were unreachable (file events dispatched to Hover
+        // filters only).
+        E::FileHover => vec![EF::Hover(H::HoveredFile), EF::Window(W::HoveredFile)],
+        E::FileDrop => vec![EF::Hover(H::DroppedFile), EF::Window(W::DroppedFile)],
+        E::FileHoverCancel => vec![
+            EF::Hover(H::HoveredFileCancelled),
+            EF::Window(W::HoveredFileCancelled),
+        ],
+
+        // Lifecycle events — dispatched on the target node via EventFilter::Component.
+        // Both Mount and Unmount map to their respective Component filters so that
+        // `.add_callback(EventFilter::Component(ComponentEventFilter::AfterMount))`
+        // actually fires after reconcile_dom emits a SyntheticEvent{EventType::Mount,..}.
+        E::Mount => vec![EF::Component(ComponentEventFilter::AfterMount)],
+        E::Unmount => vec![EF::Component(ComponentEventFilter::BeforeUnmount)],
+        E::Update => vec![EF::Component(ComponentEventFilter::Updated)],
+        E::Resize => vec![EF::Component(ComponentEventFilter::NodeResized)],
+        E::Dismiss => vec![EF::Component(ComponentEventFilter::Dismissed)],
+        E::TearOff => vec![EF::Component(ComponentEventFilter::TornOff)],
+        E::Dock => vec![EF::Component(ComponentEventFilter::Docked)],
+
+        // Hardware input-device events (P6) — node-level Hover mirror + the
+        // window-level filter (the device isn't bound to a node).
+        E::SensorChanged => vec![EF::Hover(H::SensorChanged), EF::Window(W::SensorChanged)],
+        E::GamepadInput => vec![EF::Hover(H::GamepadInput), EF::Window(W::GamepadInput)],
+
+        // Geolocation (MWA-A1): node-level Hover mirror + the window-level
+        // filter (a fix isn't bound to a node). The fix itself is read via
+        // CallbackInfo::get_geolocation_fix.
+        E::GeolocationFix => vec![EF::Hover(H::GeolocationFix), EF::Window(W::GeolocationFix)],
+        E::GeolocationError => vec![
+            EF::Hover(H::GeolocationError),
+            EF::Window(W::GeolocationError),
+        ],
+
+        // Async capability outcomes (MWA-A1b): node-level Hover mirror (the
+        // permission event targets the capability's subscriber node) + the
+        // window-level filter.
+        E::PermissionChanged => vec![
+            EF::Hover(H::PermissionChanged),
+            EF::Window(W::PermissionChanged),
+        ],
+        E::BiometricResult => vec![
+            EF::Hover(H::BiometricResult),
+            EF::Window(W::BiometricResult),
+        ],
+        E::ScreenColorPicked => vec![
+            EF::Hover(H::ScreenColorPicked),
+            EF::Window(W::ScreenColorPicked),
+        ],
+        E::KeyringResult => vec![EF::Hover(H::KeyringResult), EF::Window(W::KeyringResult)],
+
+        // MWA-C-clipboard: W3C clipboard events — fire on the focused
+        // element before the OS default action (preventDefault suppresses
+        // the default copy/cut/paste).
+        E::Copy => vec![EF::Focus(F::Copy)],
+        E::Cut => vec![EF::Focus(F::Cut)],
+        E::Paste => vec![EF::Focus(F::Paste)],
+
+        // Unsupported events
+        _ => vec![],
     }
     out
 }

@@ -51,13 +51,20 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ## Step 1 — C1: planning omissions (14 variants, zero shell work)
 
-- [ ] 1a `event_type_to_filters_legacy_hint`: add `E::PenDown`, `E::PenMove`, `E::PenUp`, `E::PenEnter`, `E::PenLeave`
+- [x] 1a `event_type_to_filters_legacy_hint`: add `E::PenDown`, `E::PenMove`, `E::PenUp`, `E::PenEnter`, `E::PenLeave`
       arms emitting Hover + Focus (Down/Move/Up only) + Window filters.
-- [ ] 1b Same fn: add `E::DocumentEdit => vec![EF::Focus(F::DocumentEdit)]`.
+- [x] 1b Same fn: add `E::DocumentEdit => vec![EF::Focus(F::DocumentEdit)]`.
+
+### Found while doing 1a (same bug class, not originally listed)
+
+- [x] 1c `matches_focus_filter` had **no Pen arms at all**, though `FocusEventFilter` has carried
+      `PenDown`/`PenMove`/`PenUp` since it was introduced. Planning naming the filter would not have been enough.
+- [x] 1d `E::TouchStart/Move/End/Cancel` planned only the Hover half, though `WindowEventFilter` owns all four
+      with matching same-name arms in `matches_window_filter`. A window-level touch listener never fired.
 
 ## Step 2 — C2: planning de-sync
 
-- [ ] 2a Split `E::Scroll | E::ScrollStart | E::ScrollEnd => vec![EF::Hover(H::Scroll)]` into three arms, each
+- [x] 2a Split `E::Scroll | E::ScrollStart | E::ScrollEnd => vec![EF::Hover(H::Scroll)]` into three arms, each
       emitting its own Hover + Focus + Window variant.
 - [ ] 2b Matcher arms: `(RightMouseDown, EventType::ContextMenu)`, `(TextInput, EventType::KeyPress)`,
       `(TextInput, EventType::Change)`.
