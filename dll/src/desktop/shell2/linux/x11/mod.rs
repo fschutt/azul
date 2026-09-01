@@ -3173,11 +3173,11 @@ impl X11Window {
         common.renderer = renderer;
         common.render_api = render_api;
         common.hit_tester = hit_tester;
-        common.cpu_hit_tester = if is_cpu_mode {
-            Some(azul_layout::headless::CpuHitTester::new())
-        } else {
-            None
-        };
+        // Always allocated, GPU mode included. The CPU tester is now the ONLY
+        // hit tester (`perform_hit_test` no longer consults WebRender's), so
+        // gating it on the render backend left GPU windows with `None` and no
+        // way to resolve a pointer event at all.
+        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
         common.document_id = document_id;
         common.id_namespace = id_namespace;
         common.gl_context_ptr = gl_context_ptr;

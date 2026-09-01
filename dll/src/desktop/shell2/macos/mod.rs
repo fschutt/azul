@@ -5286,11 +5286,11 @@ impl MacOSWindow {
         common.render_api = wr_render_api;
         common.renderer = wr_renderer;
         common.hit_tester = wr_hit_tester;
-        common.cpu_hit_tester = if backend == RenderBackend::CPU {
-            Some(azul_layout::headless::CpuHitTester::new())
-        } else {
-            None
-        };
+        // Always allocated, GPU mode included. The CPU tester is now the ONLY
+        // hit tester (`perform_hit_test` no longer consults WebRender's), so
+        // gating it on the render backend left GPU windows with `None` and no
+        // way to resolve a pointer event at all.
+        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
         common.document_id = wr_document_id;
         common.id_namespace = wr_id_namespace;
         common.gl_context_ptr = gl_context_ptr;
@@ -5616,10 +5616,10 @@ impl MacOSWindow {
         // The caller (render_and_present_in_draw_rect) manages this flag.
         // Setting it to true here would cause unnecessary re-layouts.
 
-        // Rebuild CPU hit tester from new layout results (CPU mode only)
-        if self.backend == RenderBackend::CPU {
-            self.common.rebuild_cpu_hit_tester();
-        }
+        // Rebuild the hit tester from the new layout results. Unconditional:
+        // it is the only hit tester now, so a GPU window needs it exactly as
+        // much as a CPU one.
+        self.common.rebuild_cpu_hit_tester();
 
         // Mark accessibility tree for update after layout
         #[cfg(feature = "a11y")]

@@ -2773,24 +2773,19 @@ impl CommonWindowState {
             None => return azul_core::hit_test::FullHitTest::empty(focused_node),
         };
 
-        // GPU path: WebRender hit tester
-        if let Some(ref mut ht) = self.hit_tester {
-            if let (Some(doc_id), Some(_)) = (self.document_id, self.id_namespace) {
-                let resolved = ht.resolve();
-                let hidpi = self.current_window_state.size.get_hidpi_factor();
-                // SAFETY: layout_results is not modified by hit testing
-                let layout_results = unsafe { &(*layout_results_ptr).layout_results };
-                return crate::desktop::wr_translate2::fullhittest_new_webrender(
-                    &*resolved,
-                    doc_id,
-                    focused_node,
-                    layout_results,
-                    &CursorPosition::InWindow(position),
-                    hidpi,
-                );
-            }
-        }
-
+        // ONE hit tester. WebRender's used to answer here whenever a GPU
+        // backend had one, and the two producers DISAGREED: they resolve
+        // different coordinate spaces (the WR path is off by padding + border)
+        // and neither adds the box's own scroll offset — so a click and a
+        // caret placement could land on different nodes depending only on the
+        // render backend, which is not a thing an app can reason about.
+        //
+        // The layout-based tester is the one the engine already trusts
+        // everywhere it has no choice: headless, Android, iOS, and every CPU
+        // window. Making it the only one removes the disagreement rather than
+        // arbitrating it, and hit testing stops depending on the renderer at
+        // all. `cpu_hit_tester` is therefore allocated and rebuilt on EVERY
+        // backend now, GPU included — it used to be `None` there.
         // CPU path: layout-based hit tester
         if let Some(ref cpu_ht) = self.cpu_hit_tester {
             // SAFETY: neither layout_results nor the managers are modified by
@@ -2881,17 +2876,8 @@ macro_rules! impl_platform_window_getters {
         fn set_scrollbar_drag_state(&mut self, state: Option<ScrollbarDragState>) {
             self.$field.scrollbar_drag_state = state;
         }
-        fn get_hit_tester(&self) -> Option<&AsyncHitTester> {
-            self.$field.hit_tester.as_ref()
-        }
         fn get_cpu_hit_tester(&self) -> Option<&azul_layout::headless::CpuHitTester> {
             self.$field.cpu_hit_tester.as_ref()
-        }
-        fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester {
-            self.$field
-                .hit_tester
-                .as_mut()
-                .expect("hit_tester not initialized")
         }
         fn get_last_hovered_node(&self) -> Option<&HitTestNode> {
             self.$field.last_hovered_node.as_ref()
@@ -3116,14 +3102,10 @@ pub trait PlatformWindow {
 
     // Hit Testing
 
-    /// Get the async hit tester (None in CPU mode)
-    fn get_hit_tester(&self) -> Option<&AsyncHitTester>;
-
-    /// Get CPU-based hit tester (None in GPU mode)
+    /// The hit tester. Always present now — it is the only one, on every
+    /// backend and render mode (it used to be `None` in GPU mode, where
+    /// WebRender's answered instead).
     fn get_cpu_hit_tester(&self) -> Option<&azul_layout::headless::CpuHitTester>;
-
-    /// Get mutable access to hit tester
-    fn get_hit_tester_mut(&mut self) -> &mut AsyncHitTester;
 
     /// Get the last hovered node
     fn get_last_hovered_node(&self) -> Option<&HitTestNode>;

@@ -725,11 +725,11 @@ impl Win32Window {
         common.renderer = renderer;
         common.render_api = render_api;
         common.hit_tester = hit_tester;
-        common.cpu_hit_tester = if is_cpu_mode {
-            Some(azul_layout::headless::CpuHitTester::new())
-        } else {
-            None
-        };
+        // Always allocated, GPU mode included. The CPU tester is now the ONLY
+        // hit tester (`perform_hit_test` no longer consults WebRender's), so
+        // gating it on the render backend left GPU windows with `None` and no
+        // way to resolve a pointer event at all.
+        common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
         common.document_id = document_id;
         common.id_namespace = id_namespace;
 
@@ -1809,9 +1809,9 @@ impl Win32Window {
         // hit-tester (common.hit_tester) instead. Mirrors macOS/headless; without
         // this, clicks in the CPU-render fallback hit nothing and widget callbacks
         // (e.g. a button's on_click) never fire.
-        if !matches!(self.render_mode, RenderMode::Gpu { .. }) {
-            self.common.rebuild_cpu_hit_tester();
-        }
+        // Unconditional: the CPU tester is the only hit tester now, so a GPU
+        // window needs it rebuilt exactly as much as a CPU one.
+        self.common.rebuild_cpu_hit_tester();
 
         // Drain lifecycle events (Mount / AfterMount / Unmount) produced by this
         // layout's reconciliation — the SAME step headless + X11 run. Without it,
@@ -1877,9 +1877,9 @@ impl Win32Window {
         // CPU mode: rebuild the shared hit-tester from the new layout so pointer
         // events resolve to the correct node after a restyle changes node rects.
         // GPU mode uses WebRender's async hit-tester instead.
-        if !matches!(self.render_mode, RenderMode::Gpu { .. }) {
-            self.common.rebuild_cpu_hit_tester();
-        }
+        // Unconditional: the CPU tester is the only hit tester now, so a GPU
+        // window needs it rebuilt exactly as much as a CPU one.
+        self.common.rebuild_cpu_hit_tester();
     }
 
     /// Route a `ProcessEventResult` produced by a MAIN-WINDOW input handler
@@ -4384,26 +4384,16 @@ unsafe extern "system" fn window_proc(
             // events dispatched against a stale/empty hover state — hover CSS,
             // clicks, wheel targeting and MouseEnter/Leave were all dead in the
             // Windows CPU fallback (the GPU-gated block below has no CPU arm).
-            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
-                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
-            }
+            // One hit tester for every render mode. This used to run only as a
+            // CPU fallback, with a parallel WebRender path below for GPU mode;
+            // the two disagreed on coordinate space, so which node a click
+            // resolved to depended on the renderer.
+            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                if let (Some(hit_tester), Some(doc_id)) =
-                    (window.common.hit_tester.as_mut(), window.common.document_id)
                 {
-                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
-
-                    let hit_tester = hit_tester.resolve();
-                    let hit_test = fullhittest_new_webrender(
-                        &*hit_tester,
-                        doc_id,
-                        layout_window.focus_manager.get_focused_node().copied(),
-                        &layout_window.layout_results,
-                        &CursorPosition::InWindow(logical_pos),
-                        hidpi_factor,
-                    );
 
                     layout_window
                         .hover_manager
@@ -4625,26 +4615,16 @@ unsafe extern "system" fn window_proc(
             // events dispatched against a stale/empty hover state — hover CSS,
             // clicks, wheel targeting and MouseEnter/Leave were all dead in the
             // Windows CPU fallback (the GPU-gated block below has no CPU arm).
-            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
-                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
-            }
+            // One hit tester for every render mode. This used to run only as a
+            // CPU fallback, with a parallel WebRender path below for GPU mode;
+            // the two disagreed on coordinate space, so which node a click
+            // resolved to depended on the renderer.
+            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                if let (Some(hit_tester), Some(doc_id)) =
-                    (window.common.hit_tester.as_mut(), window.common.document_id)
                 {
-                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
-
-                    let hit_tester = hit_tester.resolve();
-                    let hit_test = fullhittest_new_webrender(
-                        &*hit_tester,
-                        doc_id,
-                        layout_window.focus_manager.get_focused_node().copied(),
-                        &layout_window.layout_results,
-                        &CursorPosition::InWindow(logical_pos),
-                        hidpi_factor,
-                    );
 
                     layout_window
                         .hover_manager
@@ -4728,26 +4708,16 @@ unsafe extern "system" fn window_proc(
             // events dispatched against a stale/empty hover state — hover CSS,
             // clicks, wheel targeting and MouseEnter/Leave were all dead in the
             // Windows CPU fallback (the GPU-gated block below has no CPU arm).
-            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
-                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
-            }
+            // One hit tester for every render mode. This used to run only as a
+            // CPU fallback, with a parallel WebRender path below for GPU mode;
+            // the two disagreed on coordinate space, so which node a click
+            // resolved to depended on the renderer.
+            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                if let (Some(hit_tester), Some(doc_id)) =
-                    (window.common.hit_tester.as_mut(), window.common.document_id)
                 {
-                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
-
-                    let hit_tester = hit_tester.resolve();
-                    let hit_test = fullhittest_new_webrender(
-                        &*hit_tester,
-                        doc_id,
-                        layout_window.focus_manager.get_focused_node().copied(),
-                        &layout_window.layout_results,
-                        &CursorPosition::InWindow(logical_pos),
-                        hidpi_factor,
-                    );
 
                     layout_window
                         .hover_manager
@@ -4796,26 +4766,16 @@ unsafe extern "system" fn window_proc(
             // events dispatched against a stale/empty hover state — hover CSS,
             // clicks, wheel targeting and MouseEnter/Leave were all dead in the
             // Windows CPU fallback (the GPU-gated block below has no CPU arm).
-            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
-                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
-            }
+            // One hit tester for every render mode. This used to run only as a
+            // CPU fallback, with a parallel WebRender path below for GPU mode;
+            // the two disagreed on coordinate space, so which node a click
+            // resolved to depended on the renderer.
+            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                if let (Some(hit_tester), Some(doc_id)) =
-                    (window.common.hit_tester.as_mut(), window.common.document_id)
                 {
-                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
-
-                    let hit_tester = hit_tester.resolve();
-                    let hit_test = fullhittest_new_webrender(
-                        &*hit_tester,
-                        doc_id,
-                        layout_window.focus_manager.get_focused_node().copied(),
-                        &layout_window.layout_results,
-                        &CursorPosition::InWindow(logical_pos),
-                        hidpi_factor,
-                    );
 
                     layout_window
                         .hover_manager
@@ -4857,26 +4817,16 @@ unsafe extern "system" fn window_proc(
             // events dispatched against a stale/empty hover state — hover CSS,
             // clicks, wheel targeting and MouseEnter/Leave were all dead in the
             // Windows CPU fallback (the GPU-gated block below has no CPU arm).
-            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
-                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
-            }
+            // One hit tester for every render mode. This used to run only as a
+            // CPU fallback, with a parallel WebRender path below for GPU mode;
+            // the two disagreed on coordinate space, so which node a click
+            // resolved to depended on the renderer.
+            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
             if let Some(ref mut layout_window) = window.common.layout_window {
-                if let (Some(hit_tester), Some(doc_id)) =
-                    (window.common.hit_tester.as_mut(), window.common.document_id)
                 {
-                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
-
-                    let hit_tester = hit_tester.resolve();
-                    let hit_test = fullhittest_new_webrender(
-                        &*hit_tester,
-                        doc_id,
-                        layout_window.focus_manager.get_focused_node().copied(),
-                        &layout_window.layout_results,
-                        &CursorPosition::InWindow(logical_pos),
-                        hidpi_factor,
-                    );
 
                     layout_window
                         .hover_manager
@@ -5111,24 +5061,14 @@ unsafe extern "system" fn window_proc(
             // wrong container right after a layout change or fast move.
             // CPU mode (no WR hit_tester/document_id) uses the shared
             // perform_hit_test → cpu_hit_tester path.
-            if window.common.hit_tester.is_none() || window.common.document_id.is_none() {
-                PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
-            }
+            // One hit tester for every render mode. This used to run only as a
+            // CPU fallback, with a parallel WebRender path below for GPU mode;
+            // the two disagreed on coordinate space, so which node a click
+            // resolved to depended on the renderer.
+            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            let hit_test = window.common.perform_hit_test(logical_pos);
             if let Some(ref mut layout_window) = window.common.layout_window {
-                if let (Some(hit_tester), Some(doc_id)) =
-                    (window.common.hit_tester.as_mut(), window.common.document_id)
                 {
-                    use crate::desktop::wr_translate2::fullhittest_new_webrender;
-
-                    let hit_tester = hit_tester.resolve();
-                    let hit_test = fullhittest_new_webrender(
-                        &*hit_tester,
-                        doc_id,
-                        layout_window.focus_manager.get_focused_node().copied(),
-                        &layout_window.layout_results,
-                        &CursorPosition::InWindow(logical_pos),
-                        hidpi_factor,
-                    );
 
                     layout_window
                         .hover_manager

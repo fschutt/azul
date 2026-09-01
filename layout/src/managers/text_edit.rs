@@ -476,7 +476,6 @@ impl TextEditManager {
     /// `None` when there is no selection at all. An IME distinguishes that from
     /// an EMPTY selection — the latter means "a range exists and is empty" and
     /// changes how it offers replacements — so the two must not collapse.
-    #[must_use]
     pub fn selected_text_for_ime(&self) -> Option<String> {
         // The preedit is the composing text, which is the closest thing to a
         // live selection the IME itself put there; a real document selection
