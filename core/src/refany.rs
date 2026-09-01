@@ -300,6 +300,34 @@ pub(crate) struct RefCountInnerDebug {
     pub(crate) deserialize_fn: usize,
 }
 
+/// Say ONCE, on stderr, that something borrowed a released `RefAny`.
+///
+/// Returning `None` keeps the process alive, but a callback whose data has been
+/// released silently does nothing, which is its own kind of bug — so the first
+/// occurrence is announced rather than swallowed. Once per process: this can
+/// fire from a hot path (every callback dispatch downcasts), and a per-frame
+/// warning would be its own denial of service. `RUST_BACKTRACE=1` on the run
+/// that prints it names the caller.
+#[cfg(feature = "std")]
+fn report_released_downcast() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static SAID: AtomicBool = AtomicBool::new(false);
+    if !SAID.swap(true, Ordering::Relaxed) {
+        eprintln!(
+            "[azul][refany] a RELEASED RefAny was downcast: its RefCount is already freed, so \
+             the borrow returned None and whatever wanted the data did nothing. This is a \
+             use-after-release in the CALLER, not here. Re-run with RUST_BACKTRACE=1 to name \
+             it. (said once per process)"
+        );
+        if std::env::var("RUST_BACKTRACE").is_ok() {
+            eprintln!("{}", std::backtrace::Backtrace::force_capture());
+        }
+    }
+}
+
+#[cfg(not(feature = "std"))]
+const fn report_released_downcast() {}
+
 impl RefCount {
     /// Creates a new `RefCount` by boxing the metadata on the heap.
     ///
@@ -312,6 +340,19 @@ impl RefCount {
             ptr: Box::into_raw(Box::new(ref_count)),
             run_destructor: true,
         }
+    }
+
+    /// Has this `RefCount`'s metadata already been released?
+    ///
+    /// A null `ptr` is a REAL state, not corruption: [`Drop`] nulls the field
+    /// after freeing the `RefCountInner`, deliberately mirroring the `ptr = 0`
+    /// convention the `AZ_REFLECT` C macros use, so that a second
+    /// `AzRefCount_delete` of the same C-owned struct is a no-op instead of a
+    /// double free. Anything reachable from SAFE Rust must therefore treat a
+    /// released `RefCount` as "no data", not as a reason to abort — see
+    /// [`RefAny::get_type_id`].
+    pub(crate) const fn is_released(&self) -> bool {
+        self.ptr.is_null()
     }
 
     /// Dereferences the raw pointer to access the metadata.
@@ -1024,6 +1065,13 @@ impl RefAny {
     // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     #[inline]
     pub fn downcast_ref<U: 'static>(&mut self) -> Option<Ref<'_, U>> {
+        // A RELEASED `RefAny` holds nothing to borrow. Checked explicitly
+        // rather than relying on `get_type_id`'s `0` never colliding with a
+        // real `TypeId` hash.
+        if self.sharing_info.is_released() {
+            report_released_downcast();
+            return None;
+        }
         // Runtime type check: prevent downcasting to wrong type
         let stored_type_id = self.get_type_id();
         let target_type_id = Self::get_type_id_static::<U>();
@@ -1123,6 +1171,10 @@ impl RefAny {
     // `_`-prefixed fields are an intentional FFI/api.json naming convention; internal access is required
     #[inline]
     pub fn downcast_mut<U: 'static>(&mut self) -> Option<RefMut<'_, U>> {
+        if self.sharing_info.is_released() {
+            report_released_downcast();
+            return None;
+        }
         // Runtime type check
         let is_same_type = self.get_type_id() == Self::get_type_id_static::<U>();
         if !is_same_type {
@@ -1258,12 +1310,26 @@ impl RefAny {
     /// Returns the stored type ID.
     #[must_use]
     pub fn get_type_id(&self) -> u64 {
+        // A RELEASED `RefAny` has no type, and saying so beats aborting. This
+        // is the gate every `downcast_ref` / `downcast_mut` passes through
+        // first, so one check here makes the whole safe surface null-tolerant.
+        // It used to reach `RefCount::downcast`'s assertion instead, which in a
+        // `panic = "abort"` release build takes the process down — a
+        // widget callback whose data had been released killed the app on an
+        // ordinary focus change (device report, 2026-09-01). `0` is not a
+        // `TypeId` any real `U` hashes to, so no downcast can match it.
+        if self.sharing_info.is_released() {
+            return 0;
+        }
         self.sharing_info.downcast().type_id
     }
 
     /// Returns the human-readable type name for debugging.
     #[must_use]
     pub fn get_type_name(&self) -> AzString {
+        if self.sharing_info.is_released() {
+            return AzString::from_const_str("<released>");
+        }
         self.sharing_info.downcast().type_name.clone()
     }
 

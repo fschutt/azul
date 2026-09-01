@@ -418,6 +418,51 @@ pub struct DisplayList {
 }
 
 impl DisplayList {
+    /// Insert one item at `at`, keeping EVERY parallel array and index range
+    /// consistent.
+    ///
+    /// `items` has four vectors parallel to it (`node_mapping`,
+    /// `uniform_text_bgs`, `layout_node_mapping`) plus
+    /// `fixed_position_item_ranges`, which stores INDEX RANGES into `items`.
+    /// A bare `items.insert(at, x)` therefore misaligns the per-item side
+    /// tables from `at` onwards — the raster then reads another item's proven
+    /// background, and the patch key attributes an item to the wrong layout
+    /// node — and silently moves every fixed-position range off its items.
+    /// Appending at the END is the only insertion that gets away with it, which
+    /// is why this was not needed until the focus ring had to go INSIDE a
+    /// scroll frame.
+    ///
+    /// `at` is clamped to the end, so an index computed from a stale view of
+    /// the list cannot panic here.
+    pub fn insert_item(&mut self, at: usize, item: DisplayListItem, node: Option<NodeId>) {
+        let at = at.min(self.items.len());
+        self.items.insert(at, item);
+        // The side tables are allowed to be SHORTER than `items` (older code
+        // appended without extending them), so grow before indexing.
+        Self::insert_parallel(&mut self.node_mapping, at, node);
+        Self::insert_parallel(&mut self.uniform_text_bgs, at, None);
+        Self::insert_parallel(&mut self.layout_node_mapping, at, None);
+        for (start, end) in &mut self.fixed_position_item_ranges {
+            // A range that CONTAINS the insertion point grows; one entirely
+            // after it slides. `end` is exclusive, so `at == *end` is "after".
+            if *start >= at {
+                *start += 1;
+            }
+            if *end > at {
+                *end += 1;
+            }
+        }
+    }
+
+    /// Insert into a side table that may be shorter than `items`, padding with
+    /// the default first so the entry lands at the right index.
+    fn insert_parallel<T: Clone + Default>(v: &mut Vec<T>, at: usize, value: T) {
+        if v.len() < at {
+            v.resize(at, T::default());
+        }
+        v.insert(at, value);
+    }
+
     /// Approximate heap bytes retained by this display list — the
     /// item vec + parallel vecs + every item's owned heap. The memory
     /// report used to charge a FLAT 2 KiB for a cached display list;
@@ -13510,5 +13555,70 @@ mod dense_scroll_extent_tests {
             .fold(0.0f32, f32::max);
         assert!((sx - dx).abs() < 0.01, "width: sparse {sx} vs dense {dx}");
         assert!((sy - dy).abs() < 0.01, "height: sparse {sy} vs dense {dy}");
+    }
+}
+
+/// The display list's INSERTION contract: `items` has three arrays parallel to
+/// it plus index ranges pointing into it, and only an append can ignore them.
+#[cfg(test)]
+mod insert_item_tests {
+    use super::*;
+
+    /// A MID-LIST insert must keep every array parallel to `items` aligned and
+    /// slide the index ranges that point into it.
+    ///
+    /// The focus ring is the first item the engine inserts anywhere but the
+    /// end: it has to go INSIDE the focused node's scroll frame so it travels
+    /// with the page. The first version used a bare `items.insert`, which left
+    /// `uniform_text_bgs` and `layout_node_mapping` reading one item to the
+    /// left of where they belong from the insertion point onwards, and every
+    /// `fixed_position_item_ranges` entry pointing one item short.
+    #[test]
+    fn inserting_an_item_keeps_the_parallel_arrays_aligned() {
+        let mut dl = DisplayList::default();
+        for i in 0..4 {
+            dl.items.push(DisplayListItem::PopClip);
+            dl.node_mapping.push(Some(NodeId::new(i)));
+            dl.uniform_text_bgs.push(None);
+            dl.layout_node_mapping.push(Some((i, EmitPhase::Content)));
+        }
+        // A fixed-position range over items 2..4, i.e. the two after the
+        // insertion point.
+        dl.fixed_position_item_ranges.push((2, 4));
+
+        dl.insert_item(1, DisplayListItem::PopClip, None);
+
+        assert_eq!(dl.items.len(), 5);
+        for len in [
+            dl.node_mapping.len(),
+            dl.uniform_text_bgs.len(),
+            dl.layout_node_mapping.len(),
+        ] {
+            assert_eq!(len, dl.items.len(), "a side table fell out of step");
+        }
+        // The item that WAS at index 1 is now at 2, and its side entries moved
+        // with it.
+        assert_eq!(dl.node_mapping[2], Some(NodeId::new(1)));
+        assert_eq!(dl.layout_node_mapping[2], Some((1, EmitPhase::Content)));
+        // The inserted item owns index 1 and belongs to no node.
+        assert_eq!(dl.node_mapping[1], None);
+        assert_eq!(dl.layout_node_mapping[1], None);
+        // The fixed-position range still covers the same two ITEMS.
+        assert_eq!(dl.fixed_position_item_ranges[0], (3, 5));
+    }
+
+    /// A side table shorter than `items` (older code appended without growing
+    /// them) must not make the insert panic or misplace the new entry.
+    #[test]
+    fn inserting_into_a_short_side_table_pads_it_first() {
+        let mut dl = DisplayList::default();
+        for _ in 0..3 {
+            dl.items.push(DisplayListItem::PopClip);
+        }
+        // node_mapping is deliberately left empty.
+        dl.insert_item(3, DisplayListItem::PopClip, None);
+        assert_eq!(dl.items.len(), 4);
+        assert_eq!(dl.node_mapping.len(), 4, "the table was padded to fit");
+        assert!(dl.node_mapping.iter().all(Option::is_none));
     }
 }

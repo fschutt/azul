@@ -7733,8 +7733,10 @@ impl LayoutWindow {
                 let at = focus_ring_scroll_id
                     .and_then(|id| Self::end_of_scroll_frame(&dl_mut.items, id))
                     .unwrap_or(dl_mut.items.len());
-                dl_mut.items.insert(at, ring);
-                dl_mut.node_mapping.insert(at, None);
+                // `insert_item`, never `items.insert`: the list has four arrays
+                // parallel to `items` plus index ranges into it, and only a
+                // push at the very end can ignore them.
+                dl_mut.insert_item(at, ring, None);
             }
         }
     }
