@@ -2442,6 +2442,23 @@ impl CommonWindowState {
         app_data: Arc<RefCell<RefAny>>,
         undo_manager: SharedUndoManager,
     ) -> Self {
+        // A window built from `SystemStyle::default()` carries
+        // `Platform::Unknown`, which `OsCondition::from_system_platform` maps to
+        // `Any` — matching NO `@os(...)` arm, so every OS-conditional UA rule
+        // quietly takes its fallback. That is invisible at runtime: the app
+        // renders, just with the wrong platform's scrollbars, metrics and
+        // palette. Android and iOS both shipped that way. Nothing structural
+        // stops a seventh backend from doing it again, so say so loudly here —
+        // the one place every backend goes through.
+        debug_assert!(
+            !(system_style.platform == azul_css::system::Platform::Unknown
+                && azul_css::system::Platform::current()
+                    != azul_css::system::Platform::Unknown),
+            "CommonWindowState::new got SystemStyle::default() (Platform::Unknown) on a \
+             platform that knows what it is ({:?}). Pass `config.system_style` — the style \
+             AppConfig detected at startup — or every @os(...) UA rule silently misses.",
+            azul_css::system::Platform::current(),
+        );
         Self {
             layout_window: None,
             current_window_state,

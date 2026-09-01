@@ -29,6 +29,7 @@ use super::debug_server::{self, LogCategory};
 use crate::{
     desktop::{csd, wr_translate2},
     log_debug,
+    log_info,
 };
 use azul_css::LayoutDebugMessage;
 
@@ -791,7 +792,20 @@ pub fn regenerate_layout(
         )
     } else if current_window_state.flags.decorations
         == azul_core::window::WindowDecorations::NoTitleAutoInject
-        && !cfg!(any(target_os = "windows", target_os = "linux"))
+        && !cfg!(any(
+            target_os = "windows",
+            target_os = "linux",
+            // Mobile has no window to title, move or maximize: the surface is
+            // fullscreen and the OS owns the chrome above it. A software
+            // titlebar here lands UNDER the status bar and steals a strip of
+            // an already-small viewport. `csd::should_inject_csd` has excluded
+            // ios/android since MWA-C-csd; this branch is the same decision for
+            // the title-only mode and was simply never updated — its comment
+            // reasons about macOS vs Windows/Linux and stops there, so mobile
+            // fell into the macOS case by default.
+            target_os = "android",
+            target_os = "ios"
+        ))
     {
         // Auto-inject a Titlebar at the top of the user's DOM.
         // The titlebar is a regular layout widget with DragStart/Drag/DoubleClick

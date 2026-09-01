@@ -5833,6 +5833,28 @@ pub fn get_scrollbar_style(
         azul_css::dynamic_selector::DynamicSelectorContext::default,
         azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
     );
+    // AZ_DUMP_SCROLLBAR_OS=1 prints, once, which OS the UA cascade actually
+    // resolved against. `DynamicSelectorContext::default()` carries
+    // `OsCondition::Any`, which matches NO `@os(...)` arm — so a window built
+    // from `SystemStyle::default()` silently takes every fallback branch and
+    // there is no way to tell from the rendering alone whether you are looking
+    // at "the platform's scrollbars" or "the fallback that happens to render".
+    #[cfg(feature = "std")]
+    {
+        use core::sync::atomic::{AtomicBool, Ordering};
+        static DUMPED: AtomicBool = AtomicBool::new(false);
+        if !DUMPED.swap(true, Ordering::Relaxed)
+            && std::env::var_os("AZ_DUMP_SCROLLBAR_OS").is_some()
+        {
+            std::eprintln!(
+                "[azul][scrollbar] system_style={} os={:?} visibility={:?} width={:?}",
+                if system_style.is_some() { "Some" } else { "NONE" },
+                ctx.os,
+                azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx).visibility,
+                azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx).width,
+            );
+        }
+    }
     let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx);
     let mut result = ComputedScrollbarStyle::from_ua_resolved(&ua);
 
