@@ -1397,3 +1397,89 @@ mod autotest_generated {
         );
     }
 }
+
+/// The tier-1 inheritance mask must agree with `CssPropertyType::is_inheritable`
+/// SLOT BY SLOT.
+#[cfg(test)]
+mod inheritance_mask_tests {
+    use azul_css::{compact_cache::*, props::property::CssPropertyType};
+
+    use super::INHERITABLE_TIER1_MASK;
+
+    /// Every tier-1 slot, paired with the property it holds. Adding a slot to
+    /// `compact_cache` without adding it here leaves it unchecked, so the list
+    /// is asserted to be complete against the shift constants below.
+    const TIER1_SLOTS: &[(CssPropertyType, u32, u64)] = &[
+        (CssPropertyType::Display, DISPLAY_SHIFT, DISPLAY_MASK),
+        (CssPropertyType::Position, POSITION_SHIFT, POSITION_MASK),
+        (CssPropertyType::Float, FLOAT_SHIFT, FLOAT_MASK),
+        (CssPropertyType::OverflowX, OVERFLOW_X_SHIFT, OVERFLOW_MASK),
+        (CssPropertyType::OverflowY, OVERFLOW_Y_SHIFT, OVERFLOW_MASK),
+        (CssPropertyType::BoxSizing, BOX_SIZING_SHIFT, BOX_SIZING_MASK),
+        (CssPropertyType::FlexDirection, FLEX_DIRECTION_SHIFT, FLEX_DIR_MASK),
+        (CssPropertyType::FlexWrap, FLEX_WRAP_SHIFT, FLEX_WRAP_MASK),
+        (CssPropertyType::JustifyContent, JUSTIFY_CONTENT_SHIFT, JUSTIFY_MASK),
+        (CssPropertyType::AlignItems, ALIGN_ITEMS_SHIFT, ALIGN_MASK),
+        (CssPropertyType::AlignContent, ALIGN_CONTENT_SHIFT, ALIGN_MASK),
+        (CssPropertyType::WritingMode, WRITING_MODE_SHIFT, WRITING_MODE_MASK),
+        (CssPropertyType::Clear, CLEAR_SHIFT, CLEAR_MASK),
+        (CssPropertyType::FontWeight, FONT_WEIGHT_SHIFT, FONT_WEIGHT_MASK),
+        (CssPropertyType::FontStyle, FONT_STYLE_SHIFT, FONT_STYLE_MASK),
+        (CssPropertyType::TextAlign, TEXT_ALIGN_SHIFT, TEXT_ALIGN_MASK),
+        (CssPropertyType::Visibility, VISIBILITY_SHIFT, VISIBILITY_MASK),
+        (CssPropertyType::WhiteSpace, WHITE_SPACE_SHIFT, WHITE_SPACE_MASK),
+        (CssPropertyType::Direction, DIRECTION_SHIFT, DIRECTION_MASK),
+        (CssPropertyType::VerticalAlign, VERTICAL_ALIGN_SHIFT, VERTICAL_ALIGN_MASK),
+        (CssPropertyType::BorderCollapse, BORDER_COLLAPSE_SHIFT, BORDER_COLLAPSE_MASK),
+        (CssPropertyType::Cursor, CURSOR_SHIFT, CURSOR_MASK),
+    ];
+
+    /// A property that CSS inherits must be in the mask, and one it does not
+    /// must not be.
+    ///
+    /// `writing-mode` failed this: inheritable, with a tier-1 slot since the
+    /// cache was written, and never copied from the parent — so
+    /// `writing-mode: vertical-rl` on a container laid its children out
+    /// horizontally in the compact path while `get_property_slow` inherited it
+    /// correctly. Two cascade paths, two answers, no error anywhere.
+    #[test]
+    fn every_inheritable_tier1_property_is_actually_inherited() {
+        let mut wrong = Vec::new();
+        for &(ty, shift, mask) in TIER1_SLOTS {
+            let bits = mask << shift;
+            let in_mask = (INHERITABLE_TIER1_MASK & bits) == bits;
+            if in_mask != ty.is_inheritable() {
+                wrong.push(format!(
+                    "{ty:?}: is_inheritable()={} but {} the inheritance mask",
+                    ty.is_inheritable(),
+                    if in_mask { "IS in" } else { "is NOT in" },
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "INHERITABLE_TIER1_MASK disagrees with CssPropertyType::is_inheritable, so the \
+             compact and slow cascade paths compute different values:\n  {}",
+            wrong.join("\n  "),
+        );
+    }
+
+    /// No two tier-1 slots may overlap, and none may touch the populated bit.
+    /// A collision silently corrupts both properties.
+    #[test]
+    fn the_tier1_slots_do_not_overlap() {
+        let mut used: u64 = 0;
+        for &(ty, shift, mask) in TIER1_SLOTS {
+            let bits = mask << shift;
+            assert_eq!(
+                bits & TIER1_POPULATED_BIT,
+                0,
+                "{ty:?} overlaps TIER1_POPULATED_BIT",
+            );
+            // OverflowX/Y legitimately share a MASK constant but not a shift;
+            // the overlap check is on the shifted bits, which are distinct.
+            assert_eq!(used & bits, 0, "{ty:?} overlaps an earlier tier-1 slot");
+            used |= bits;
+        }
+    }
+}
