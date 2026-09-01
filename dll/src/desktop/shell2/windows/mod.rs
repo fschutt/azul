@@ -6052,10 +6052,25 @@ unsafe extern "system" fn window_proc(
 
             // ptsLocation is in SCREEN coordinates; every other gesture path
             // reports a client-space centre.
-            let center = window.screen_to_logical_client(
-                i32::from(gi.ptsLocation_x),
-                i32::from(gi.ptsLocation_y),
-            );
+            // ptsLocation is in SCREEN coordinates, like WM_MOUSEWHEEL's
+            // lParam and unlike the client-relative WM_MOUSE* messages — so
+            // it needs the same ScreenToClient + hidpi conversion the wheel
+            // path does, or a gesture on a window away from the desktop
+            // origin lands at an offset.
+            let center = {
+                let mut pt = dlopen::POINT {
+                    x: i32::from(gi.ptsLocation_x),
+                    y: i32::from(gi.ptsLocation_y),
+                };
+                unsafe {
+                    (window.win32.user32.ScreenToClient)(hwnd, &mut pt);
+                }
+                let hidpi = window.common.current_window_state().size.get_hidpi_factor();
+                azul_core::geom::LogicalPosition::new(
+                    pt.x as f32 / hidpi.inner.get(),
+                    pt.y as f32 / hidpi.inner.get(),
+                )
+            };
 
             use azul_layout::managers::gesture::{
                 DetectedLongPress, DetectedPinch, DetectedRotation, NativeGestureEvent,
@@ -6110,6 +6125,8 @@ unsafe extern "system" fn window_proc(
                             NativeGestureEvent::LongPress(DetectedLongPress {
                                 position: center,
                                 duration_ms: 0,
+                                callback_invoked: false,
+                                session_id: 0,
                             }),
                         );
                     }
@@ -7003,7 +7020,12 @@ impl Win32Window {
     ) {
         let mut hmenu = unsafe { (self.win32.user32.CreatePopupMenu)() };
         if hmenu.is_null() {
-            self.show_fallback_menu(menu, position);
+            // PRE-EXISTING: `show_fallback_menu` gained an `anchor` in
+            // 35de92bbe (drop-down width follows its control) and this call
+            // site was missed, because nothing has compiled this target since.
+            // `None` is the correct value here: this is the fallback path,
+            // which has no control to anchor to.
+            self.show_fallback_menu(menu, position, None);
             return;
         }
 
