@@ -3366,7 +3366,13 @@ define_class!(
 
         #[unsafe(method(windowDidChangeScreen:))]
         fn window_did_change_screen(&self, _notification: &NSNotification) {
-            // Window moved to a different screen — refresh cached monitor list
+            // Window moved to a different screen — refresh cached monitor list.
+            //
+            // This is NOT a hotplug: the window moved, the displays did not
+            // change. Emitting a monitor event here would fire one every time
+            // somebody dragged a window across a bezel. The count diff lives
+            // in `windowDidChangeScreenProfile:`, which is what AppKit sends
+            // when the screen CONFIGURATION changes.
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
@@ -3382,15 +3388,23 @@ define_class!(
 
         #[unsafe(method(windowDidChangeScreenProfile:))]
         fn window_did_change_screen_profile(&self, _notification: &NSNotification) {
-            // Screen configuration changed (resolution, color profile, monitor added/removed)
-            // Refresh cached monitor list
+            // Screen CONFIGURATION changed (resolution, colour profile, monitor
+            // added/removed). Like WM_DISPLAYCHANGE on Win32 this does not say
+            // which of those happened, so the before/after monitor count is
+            // the only thing that separates a hotplug from a mode change —
+            // equal counts emit nothing.
             if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
-                    if let Some(ref lw) = window.common.layout_window {
+                    if let Some(ref mut lw) = window.common.layout_window {
+                        let before = lw.monitors.lock().map(|g| g.len()).unwrap_or(0);
+                        let refreshed = crate::desktop::display::refresh_monitors();
+                        let after = refreshed.len();
                         if let Ok(mut guard) = lw.monitors.lock() {
-                            *guard = crate::desktop::display::refresh_monitors();
+                            *guard = refreshed;
                         }
+                        lw.device_event_manager
+                            .note_monitor_count_change(before, after);
                     }
                 }
             }

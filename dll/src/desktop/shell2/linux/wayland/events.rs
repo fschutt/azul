@@ -599,6 +599,18 @@ pub(super) extern "C" fn registry_global_handler(
                 model: String::new(),
             });
 
+            // A wl_output global appearing IS a monitor arriving — same
+            // precision as the removal path, no count diff needed.
+            //
+            // The globals advertised during the initial roundtrip come through
+            // here too, so the first frame reports every monitor as connected.
+            // That is the correct reading: an app subscribing to
+            // MonitorConnected wants to learn the displays it starts with, not
+            // only the ones plugged in later.
+            if let Some(ref mut lw) = window.common.layout_window {
+                lw.device_event_manager.note_monitor(true);
+            }
+
             unsafe { (window.wayland.wl_output_add_listener)(output, &WL_OUTPUT_LISTENER, data) };
             // Same defect class as `xdg_wm_base` above: outputs bound during the
             // initial roundtrip carry the stack pointer, and the old rebind array
@@ -879,10 +891,16 @@ pub(super) extern "C" fn registry_global_remove_handler(
     );
 
     // The topology changed, so the memoised display list is now wrong.
-    if let Some(ref lw) = window.common.layout_window {
+    //
+    // Wayland is the one backend that says exactly what happened: this handler
+    // runs because a `wl_output` global went away, not because a mode changed.
+    // No count diff is needed and none would be as accurate — two simultaneous
+    // changes that happen to preserve the count would cancel out.
+    if let Some(ref mut lw) = window.common.layout_window {
         if let Ok(mut guard) = lw.monitors.lock() {
             *guard = crate::desktop::display::refresh_monitors();
         }
+        lw.device_event_manager.note_monitor(false);
     }
 
     // Losing the output the window was on changes its effective scale — same
@@ -986,6 +1004,13 @@ extern "C" fn tablet_seat_tablet_added(
     id: *mut zwp_tablet_v2,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // A tablet appearing on the seat is a device arriving. Tools (pen, eraser)
+    // are announced separately by `tool_added` but are NOT counted again: they
+    // are ends of a stylus belonging to a tablet that already reported, and
+    // #450's `TabletDeviceInfo` is where an app reads the per-tool detail.
+    if let Some(ref mut lw) = window.common.layout_window {
+        lw.device_event_manager.note_device(true);
+    }
     unsafe { (window.wayland.zwp_tablet_v2_add_listener)(id, &ZWP_TABLET_V2_LISTENER, data) };
     window.track_listener(id);
 }
@@ -1006,6 +1031,11 @@ extern "C" fn tablet_seat_pad_added(
     id: *mut zwp_tablet_pad_v2,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    // A pad is its own device — a separate button/ring/strip cluster, not part
+    // of the tablet's pointer surface — so it counts.
+    if let Some(ref mut lw) = window.common.layout_window {
+        lw.device_event_manager.note_device(true);
+    }
     unsafe { (window.wayland.zwp_tablet_pad_v2_add_listener)(id, &ZWP_TABLET_PAD_LISTENER, data) };
     window.track_listener(id);
 }
@@ -2428,6 +2458,29 @@ pub(super) extern "C" fn seat_capabilities_handler(
     capabilities: u32,
 ) {
     let window = unsafe { &mut *(data as *mut WaylandWindow) };
+
+    // Seat capabilities are a LEVEL, not an edge: the compositor re-sends the
+    // whole bitmask whenever anything about the seat changes. The already-bound
+    // proxies are the previous state, so comparing against them is what turns
+    // "the seat now has a pointer" into "a pointer arrived".
+    //
+    // This is per-capability, not per-device: Wayland deliberately does not
+    // tell a client how many mice are plugged in, only whether the seat has
+    // pointer capability at all. So two mice arriving is one event, and
+    // unplugging one of them is none — which is the honest reading of what the
+    // protocol says, not a limitation to work around.
+    for (bit, was_bound) in [
+        (WL_SEAT_CAPABILITY_POINTER, !window.pointer_state.pointer.is_null()),
+        (WL_SEAT_CAPABILITY_KEYBOARD, !window.keyboard.is_null()),
+        (WL_SEAT_CAPABILITY_TOUCH, !window.touch.is_null()),
+    ] {
+        let has_now = capabilities & bit != 0;
+        if has_now != was_bound {
+            if let Some(ref mut lw) = window.common.layout_window {
+                lw.device_event_manager.note_device(has_now);
+            }
+        }
+    }
 
     if capabilities & WL_SEAT_CAPABILITY_POINTER != 0 {
         let pointer = unsafe { (window.wayland.wl_seat_get_pointer)(seat) };
