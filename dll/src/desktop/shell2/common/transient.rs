@@ -101,6 +101,17 @@ pub struct TransientWindowData {
     pub origin: LogicalPosition,
     /// This window is a torn-off toplevel, not a popup on its anchor.
     pub torn: bool,
+    /// MODALITY INHERITANCE. `true` when the parent opened this window from a
+    /// KEYBOARD-indicated focus (Tab to a swatch, then Enter/Space), so the
+    /// control the popup autofocuses must show a focus ring; `false` when a
+    /// pointer opened it, where a ring would look like the user had tabbed.
+    ///
+    /// This is the `:focus-visible` bit of the ELEMENT THAT OPENED THE POPUP,
+    /// carried across the window boundary - a popup is a separate OS window
+    /// with its own `FocusManager`, so it cannot see the parent's modality any
+    /// other way, and without it a keyboard-opened picker autofocused its
+    /// colour plane INVISIBLY (device report, 2026-09-01).
+    pub focus_visible: bool,
     /// Popup → popup: a tear-off drag in progress (see [`TearDrag`]).
     pub drag: Option<TearDrag>,
     /// Popup → parent: the tear-off drag ended; decide what it meant.
@@ -167,6 +178,17 @@ pub fn mailbox_of(state: &FullWindowState) -> Option<RefAny> {
     TransientWindowData::from_ctx(&state.layout_callback.ctx)
 }
 
+/// Did the parent open this window from a KEYBOARD-indicated focus?
+///
+/// Reads [`TransientWindowData::focus_visible`] out of the popup's own
+/// mailbox; `false` for a window that is not a transient at all.
+#[must_use]
+pub fn opened_with_visible_focus(state: &FullWindowState) -> bool {
+    mailbox_of(state)
+        .and_then(|m| read(&m, |d| d.focus_visible))
+        .unwrap_or(false)
+}
+
 /// Read a field off a mailbox without holding the borrow.
 fn read<T>(mailbox: &RefAny, f: impl FnOnce(&TransientWindowData) -> T) -> Option<T> {
     let mut m = mailbox.clone();
@@ -201,6 +223,7 @@ pub fn popup_create_options(
     open: &OpenTransientWindow,
     content: Dom,
     cursor: Option<LogicalPosition>,
+    focus_visible: bool,
 ) -> (WindowCreateOptions, RefAny) {
     let size = open.content_size;
     let origin = open
@@ -218,6 +241,7 @@ pub fn popup_create_options(
         dismissed: false,
         origin,
         torn: false,
+        focus_visible,
         drag: None,
         drop: None,
         following: false,
@@ -262,6 +286,7 @@ pub fn toplevel_create_options(
     open: &OpenTransientWindow,
     content: Dom,
     title: &str,
+    focus_visible: bool,
 ) -> (WindowCreateOptions, RefAny) {
     let size = open.content_size;
     let origin = open
@@ -279,6 +304,7 @@ pub fn toplevel_create_options(
         dismissed: false,
         origin,
         torn: true,
+        focus_visible,
         drag: None,
         drop: None,
         // Set true by the parent's drag handler on the first move after an
@@ -521,11 +547,29 @@ pub fn sync_parent(
             OptionRefAny::None => {
                 // Just opened (or a surface never attached): create the
                 // window - a popup on its anchor, or a toplevel if torn off.
+                // Inherit the OPENER's `:focus-visible` modality: a picker
+                // reached by Tab+Space rings the control it autofocuses, one
+                // opened by a click does not.
+                let focus_visible = lw.focus_manager.focus_is_visible;
                 let (options, mailbox) = if w.torn.is_some() {
                     let title = transient_title(styled, w.source_node);
-                    toplevel_create_options(parent_window_id, parent_state, &w, content, &title)
+                    toplevel_create_options(
+                        parent_window_id,
+                        parent_state,
+                        &w,
+                        content,
+                        &title,
+                        focus_visible,
+                    )
                 } else {
-                    popup_create_options(parent_window_id, parent_state, &w, content, cursor)
+                    popup_create_options(
+                        parent_window_id,
+                        parent_state,
+                        &w,
+                        content,
+                        cursor,
+                        focus_visible,
+                    )
                 };
                 // If this torn window is the panel of a live inline tear, it is
                 // born FOLLOWING — mouse-transparent from its first frame — so
@@ -536,6 +580,13 @@ pub fn sync_parent(
                 }
                 if let Some(slot) = lw.transient_windows.get_mut(w.content_dom) {
                     slot.surface = OptionRefAny::Some(mailbox);
+                }
+                if super::event::focus_trace_enabled() {
+                    eprintln!(
+                        "[focus] transient window created: node={:?} dom={:?} size={:?} \
+                         opener_ring={focus_visible}",
+                        w.source_node, w.content_dom, w.content_size
+                    );
                 }
                 log_debug!(
                     LogCategory::Window,

@@ -531,6 +531,17 @@ pub enum CallbackChange {
         menu: Menu,
         /// Optional position override (if None, uses menu.position)
         position: Option<LogicalPosition>,
+        /// The rect of the node the menu was opened FOR, in the parent
+        /// window's logical coordinates - `None` for a menu opened at a bare
+        /// position (a context menu at the cursor).
+        ///
+        /// It is what makes a drop-down look native: a `<select>`'s list is at
+        /// least as wide as the control it drops out of, and it edge-flips
+        /// against the CONTROL, not against a point. Every backend that can
+        /// express a minimum width uses it (2026-09-01 request: "the native
+        /// menu should ideally have the width of the rect that it was called
+        /// on").
+        anchor: Option<LogicalRect>,
     },
 
     /// Hold a `<transient-window>` node open (or let it close) regardless of
@@ -2320,6 +2331,7 @@ impl CallbackInfo {
         self.push_change(CallbackChange::OpenMenu {
             menu,
             position: None,
+            anchor: None,
         });
     }
 
@@ -2424,6 +2436,7 @@ impl CallbackInfo {
         self.push_change(CallbackChange::OpenMenu {
             menu,
             position: Some(position),
+            anchor: None,
         });
     }
 
@@ -2630,6 +2643,9 @@ impl CallbackInfo {
             self.push_change(CallbackChange::OpenMenu {
                 menu,
                 position: Some(position),
+                // The anchor travels with the request: a menu opened FOR a node
+                // is at least as wide as that node.
+                anchor: Some(rect),
             });
             true
         })

@@ -1380,6 +1380,7 @@ impl PlatformWindow for WaylandWindow {
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         // Check if native menus are enabled
         if self
@@ -1395,10 +1396,10 @@ impl PlatformWindow for WaylandWindow {
                 position.x,
                 position.y
             );
-            self.show_fallback_menu(menu, position);
+            self.show_fallback_menu(menu, position, anchor);
         } else {
             // Show fallback DOM-based menu
-            self.show_fallback_menu(menu, position);
+            self.show_fallback_menu(menu, position, anchor);
         }
     }
 
@@ -1449,9 +1450,14 @@ impl WaylandWindow {
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
-        let trigger_rect =
-            azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero());
+        // A real anchor rect is what an xdg_popup positioner wants: the
+        // compositor flips and slides against the CONTROL, not against a
+        // zero-sized point, and the menu can be sized to match it.
+        let trigger_rect = anchor.unwrap_or_else(|| {
+            azul_core::geom::LogicalRect::new(position, azul_core::geom::LogicalSize::zero())
+        });
         let menu_size = self::menu::calculate_menu_size(menu, &self.common.system_style);
 
         let menu_options = self::menu::create_menu_popup_options(
@@ -8212,14 +8218,19 @@ impl PlatformWindow for WaylandPopup {
         }
     }
 
-    fn show_menu_from_callback(&mut self, menu: &azul_core::menu::Menu, position: LogicalPosition) {
+    fn show_menu_from_callback(
+        &mut self,
+        menu: &azul_core::menu::Menu,
+        position: LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
+    ) {
         // A context menu opened from inside a popup: build the menu window
         // like the parent does and let the parent drain it.
         let options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.resources.system_style.clone(),
             LogicalPosition::zero(),
-            None,
+            anchor,
             Some(position),
             None,
         );

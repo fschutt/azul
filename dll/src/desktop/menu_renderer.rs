@@ -213,6 +213,36 @@ fn create_menu_dom(menu: &Menu, menu_window_data: &RefAny) -> Dom {
             "menu-container".into(),
         )]));
 
+    // A menu opened FOR A NODE is at least as wide as that node - the
+    // `<select>` rule, and what the drop-down widget needs to stop looking
+    // like a stray context menu (2026-09-01 request). Inline, so it beats the
+    // stylesheet's `min-width: 160px` floor; a longer item still widens the
+    // menu past it, because this is a MINIMUM.
+    let anchor_width = {
+        let mut d = menu_window_data.clone();
+        d.downcast_ref::<MenuWindowData>()
+            .and_then(|d| d.trigger_rect)
+            .map(|r| r.size.width)
+            .filter(|w| *w > 0.0)
+    };
+    if let Some(width) = anchor_width {
+        use azul_css::{
+            dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+            props::{
+                basic::pixel::PixelValue,
+                layout::LayoutMinWidth,
+                property::{CssProperty, LayoutMinWidthValue},
+            },
+        };
+        container = container.with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+            CssPropertyWithConditions::simple(CssProperty::MinWidth(LayoutMinWidthValue::Exact(
+                LayoutMinWidth {
+                    inner: PixelValue::px(width),
+                },
+            ))),
+        ]));
+    }
+
     // Render each menu item with its index for identification
     for (idx, item) in menu.items.as_slice().iter().enumerate() {
         let item_dom = create_menu_item_dom(item, idx, menu_window_data);

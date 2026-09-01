@@ -3429,6 +3429,16 @@ pub struct InputInterpreterState {
     pub click_count: u8,
     pub drag_start_position: Option<LogicalPosition>,
     pub has_selection: bool,
+    /// Whether focus sits in a TEXT-EDITING context (a contenteditable host,
+    /// a text input) - the only place arrow keys mean "move the caret".
+    ///
+    /// Without this the interpreter claimed every arrow key for a caret op
+    /// and returned `AddAndSkip`, which SWALLOWS the event: it never reached
+    /// user callbacks at all. A focused Slider or colour picker therefore
+    /// could not implement arrow keys - the handler was never called (device
+    /// report, 2026-09-01: "the arrow keys for sliders do not work at all,
+    /// nor the four arrow keys for navigating the color gradient").
+    pub focus_is_editable: bool,
 }
 
 /// All context needed by the input interpreter to map events to system changes.
@@ -4117,6 +4127,7 @@ pub fn default_input_interpreter(info: &InputInterpreterInfo<'_>) -> PreCallback
         click_count: info.state.click_count,
         focused_node: info.state.focused_node,
         drag_start_position: info.state.drag_start_position,
+        focus_is_editable: info.state.focus_is_editable,
     };
 
     let (system_changes, user_events) = info.events.iter().fold(
@@ -4152,6 +4163,9 @@ pub fn pre_callback_filter_internal_events<SM, FM>(
     mouse_state: &crate::window::MouseState,
     selection_manager: &SM,
     focus_manager: &FM,
+    // See `InputInterpreterState::focus_is_editable` - only a text-editing
+    // focus owns the arrow keys.
+    focus_is_editable: bool,
 ) -> PreCallbackFilterResult
 where
     SM: SelectionManagerQuery,
@@ -4167,6 +4181,7 @@ where
             click_count: selection_manager.get_click_count(),
             drag_start_position: selection_manager.get_drag_start_position(),
             has_selection: selection_manager.has_selection(),
+            focus_is_editable,
         },
     };
     default_input_interpreter(&info)
@@ -4180,6 +4195,8 @@ struct FilterContext<'a> {
     click_count: u8,
     focused_node: Option<DomNodeId>,
     drag_start_position: Option<LogicalPosition>,
+    /// See `InputInterpreterState::focus_is_editable`.
+    focus_is_editable: bool,
 }
 
 /// Process a single event and determine if it generates an internal event
@@ -4201,7 +4218,9 @@ fn process_event_for_internal(
             ctx.mouse_state,
             ctx.drag_start_position,
         ),
-        EventType::KeyDown => handle_key_down(event, ctx.keyboard_state, ctx.focused_node),
+        EventType::KeyDown => {
+            handle_key_down(event, ctx.keyboard_state, ctx.focused_node, ctx.focus_is_editable)
+        }
         EventType::MouseUp => Some(handle_mouse_up()),
         _ => None,
     }
@@ -4347,6 +4366,7 @@ fn handle_key_down(
     event: &SyntheticEvent,
     keyboard_state: &crate::window::KeyboardState,
     focused_node: Option<DomNodeId>,
+    focus_is_editable: bool,
 ) -> Option<InternalEventAction> {
     use crate::window::VirtualKeyCode;
 
@@ -4409,6 +4429,14 @@ fn handle_key_down(
         SelectionMode::Move
     };
     let selection_op = if let Some(arrow) = ArrowDirection::from_key(*vk, word_mod) {
+        // ONLY a text-editing context owns the arrows. Anywhere else they
+        // belong to the focused widget (a slider steps its value, a colour
+        // plane moves its marker) and, failing that, to the scroll default
+        // action. Claiming them here returned `AddAndSkip`, which swallowed
+        // the key before any callback could see it.
+        if !focus_is_editable {
+            return None;
+        }
         let (direction, step) = arrow.to_selection(word_mod);
         SelectionOp::new(direction, step, mode_for_shift)
     } else {

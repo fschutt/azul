@@ -890,6 +890,21 @@ impl Runner {
                     mouse_state: &self.window_state.mouse_state,
                     state: InputInterpreterState {
                         focused_node: lw.focus_manager.get_focused_node().copied(),
+                        // Mirrors the dll shell: only a text-editing focus
+                        // claims the arrow keys; every other focused widget
+                        // gets to see them.
+                        focus_is_editable: lw
+                            .focus_manager
+                            .get_focused_node()
+                            .and_then(|f| {
+                                let node = f.node.into_crate_internal()?;
+                                let lr = lw.layout_results.get(&f.dom)?;
+                                Some(crate::solver3::getters::is_node_contenteditable_inherited(
+                                    &lr.styled_dom,
+                                    node,
+                                ))
+                            })
+                            .unwrap_or(false),
                         click_count: 1,
                         drag_start_position: if self.window_state.mouse_state.left_down
                             && lw.text_edit_manager.has_active_editing()

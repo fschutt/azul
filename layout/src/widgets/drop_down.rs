@@ -1560,11 +1560,28 @@ mod autotest_generated {
 
         with_anchored_env(styled_dom, NodeId::new(0), rect, |env| {
             on_dropdown_click(refany.clone(), env.info());
-            let CallbackChange::OpenMenu { menu, position } = env.take_one() else {
+            let CallbackChange::OpenMenu {
+                menu,
+                position,
+                anchor,
+            } = env.take_one()
+            else {
                 panic!("expected an OpenMenu change");
             };
             let p = position.expect("the popup must be pinned to the trigger");
             assert_eq!((p.x, p.y), (10.0, 50.0), "bottom-left of the trigger rect");
+            // THE WHOLE TRIGGER RECT travels with the request, not just its
+            // bottom-left corner: a backend needs the WIDTH to make the menu at
+            // least as wide as the control, the way a `<select>` does, and the
+            // rect to edge-flip against (2026-09-01 request). Dropping it here
+            // is what left every drop-down menu item-width and looking like a
+            // stray context menu.
+            let a = anchor.expect("a menu opened FOR a node carries that node's rect");
+            assert_eq!(
+                (a.origin.x, a.origin.y, a.size.width, a.size.height),
+                (10.0, 20.0, 100.0, 30.0),
+                "the anchor is the trigger rect itself",
+            );
             assert!(matches!(menu.position, MenuPopupPosition::BottomOfHitRect));
             assert!(matches!(
                 menu.context_mouse_btn,

@@ -78,7 +78,7 @@ mod tests {
         };
         let focus = MockFocusManager(Some(target));
 
-        let result = pre_callback_filter_internal_events(&events, None, &kb, &mouse, &sel, &focus);
+        let result = pre_callback_filter_internal_events(&events, None, &kb, &mouse, &sel, &focus, true);
 
         let ops: Vec<_> = result
             .system_changes
@@ -118,7 +118,7 @@ mod tests {
             has_sel: false,
         };
         let focus = MockFocusManager(Some(target));
-        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus);
+        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
         let ops: Vec<_> = result
             .system_changes
             .iter()
@@ -157,7 +157,7 @@ mod tests {
             has_sel: false,
         };
         let focus = MockFocusManager(Some(target));
-        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus);
+        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
         let ops: Vec<_> = result
             .system_changes
             .iter()
@@ -186,7 +186,7 @@ mod tests {
         };
         let focus = MockFocusManager(None); // No focus!
 
-        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus);
+        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
 
         assert!(
             result.system_changes.is_empty(),
@@ -212,7 +212,7 @@ mod tests {
         };
         let focus = MockFocusManager(Some(target));
 
-        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus);
+        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
 
         // This test documents the bug we just fixed: EventData::None causes
         // the handle_key_down function to return None (early exit at line 2737)
@@ -262,7 +262,7 @@ mod tests {
         };
         let focus = MockFocusManager(Some(target));
 
-        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus);
+        let result = pre_callback_filter_internal_events(&[event], None, &kb, &mouse, &sel, &focus, true);
 
         let copy_changes = result
             .system_changes
@@ -342,6 +342,7 @@ mod tests {
             &mouse,
             &sel,
             &focus,
+            true,
         );
 
         let click_changes = result
@@ -3136,7 +3137,7 @@ mod autotest_generated {
         let kb = KeyboardState::default();
         let ev = key_event(VirtualKeyCode::Back as u32, KeyModifiers::default());
         assert!(
-            handle_key_down(&ev, &kb, None).is_none(),
+            handle_key_down(&ev, &kb, None, true).is_none(),
             "no focus => no keyboard system change"
         );
 
@@ -3148,7 +3149,7 @@ mod autotest_generated {
             tick(0),
             EventData::None,
         );
-        assert!(handle_key_down(&payloadless, &kb, Some(dnid(0, 1))).is_none());
+        assert!(handle_key_down(&payloadless, &kb, Some(dnid(0, 1)), true).is_none());
     }
 
     #[test]
@@ -3160,7 +3161,7 @@ mod autotest_generated {
         for code in [u32::MAX, u32::MAX - 1, 100_000, 9_999] {
             let ev = key_event(code, KeyModifiers::default());
             assert!(
-                handle_key_down(&ev, &kb, target).is_none(),
+                handle_key_down(&ev, &kb, target, true).is_none(),
                 "key_code {code} must decode to None"
             );
         }
@@ -3174,7 +3175,7 @@ mod autotest_generated {
         let kb = KeyboardState::default();
         let target = dnid(0, 1);
         let ev = key_event(VirtualKeyCode::C as u32, primary_modifiers());
-        match handle_key_down(&ev, &kb, Some(target)) {
+        match handle_key_down(&ev, &kb, Some(target), true) {
             Some(InternalEventAction::AddAndSkip(SystemChange::CopyToClipboard)) => {}
             _ => panic!("primary+C in the payload must copy, regardless of the live state"),
         }
@@ -3183,7 +3184,7 @@ mod autotest_generated {
         let live = keyboard_with_primary_held();
         let plain = key_event(VirtualKeyCode::C as u32, KeyModifiers::default());
         assert!(
-            handle_key_down(&plain, &live, Some(target)).is_none(),
+            handle_key_down(&plain, &live, Some(target), true).is_none(),
             "an unmodified C is plain text input, not a copy"
         );
     }
@@ -3194,7 +3195,7 @@ mod autotest_generated {
         let target = dnid(0, 1);
 
         let expect_op = |ev: &SyntheticEvent| -> SelectionOp {
-            match handle_key_down(ev, &kb, Some(target)) {
+            match handle_key_down(ev, &kb, Some(target), true) {
                 Some(InternalEventAction::AddAndSkip(SystemChange::ApplySelectionOp {
                     target: t,
                     op,
@@ -3254,7 +3255,7 @@ mod autotest_generated {
         ] {
             let ev = key_event(vk as u32, KeyModifiers::default());
             assert!(
-                handle_key_down(&ev, &kb, target).is_none(),
+                handle_key_down(&ev, &kb, target, true).is_none(),
                 "{vk:?} must not generate a system change"
             );
         }
@@ -3276,6 +3277,7 @@ mod autotest_generated {
                 click_count: 0,
                 drag_start_position: None,
                 has_selection: false,
+                focus_is_editable: true,
             },
         };
         let r = default_input_interpreter(&info);
@@ -3319,6 +3321,7 @@ mod autotest_generated {
                 click_count: 1,
                 drag_start_position: None,
                 has_selection: false,
+                focus_is_editable: true,
             },
         };
         let r = default_input_interpreter(&info);
@@ -4268,5 +4271,67 @@ fn a_press_alone_never_activates() {
     assert!(
         !planned.contains(&EventFilter::Hover(HoverEventFilter::Click)),
         "MouseDown must not activate: {planned:?}",
+    );
+}
+
+/// ARROW KEYS BELONG TO THE FOCUSED WIDGET unless a TEXT EDITOR has focus.
+///
+/// The input interpreter used to claim every arrow for a caret op and return
+/// `AddAndSkip`, which SWALLOWS the event - it never reached user callbacks.
+/// A focused Slider or colour-picker plane therefore could not implement
+/// arrow keys at all: the handler was never called (device report,
+/// 2026-09-01, "the arrow keys for sliders do not work at all, nor the four
+/// arrow keys for navigating the color gradient"). F1 and letter keys worked,
+/// which is what pointed at the interpreter rather than at dispatch.
+#[test]
+fn arrows_are_claimed_for_the_caret_only_while_editing() {
+    use crate::{
+        dom::{DomId, DomNodeId},
+        events::{
+            EventData, EventSource, EventType, KeyModifiers, KeyboardEventData, SyntheticEvent,
+        },
+        id::NodeId,
+        styled_dom::NodeHierarchyItemId,
+        task::{Instant, SystemTick},
+        window::{
+            KeyboardState, OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec,
+        },
+    };
+
+    let target = DomNodeId {
+        dom: DomId { inner: 0 },
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2))),
+    };
+    let arrow = || {
+        SyntheticEvent::new(
+            EventType::KeyDown,
+            EventSource::User,
+            target,
+            Instant::Tick(SystemTick::new(0)),
+            EventData::Keyboard(KeyboardEventData {
+                key_code: VirtualKeyCode::Left as u32,
+                char_code: None,
+                modifiers: KeyModifiers::default(),
+                repeat: false,
+            }),
+        )
+    };
+    let kb = KeyboardState {
+        current_virtual_keycode: OptionVirtualKeyCode::Some(VirtualKeyCode::Left),
+        pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![VirtualKeyCode::Left]),
+        ..KeyboardState::default()
+    };
+
+    // EDITING: the caret owns the arrow.
+    assert!(
+        super::handle_key_down(&arrow(), &kb, Some(target), true).is_some(),
+        "a text-editing focus must still take the arrow for caret movement",
+    );
+
+    // NOT EDITING: the interpreter must keep its hands off, so the event
+    // reaches the focused widget (and, failing that, the scroll default).
+    assert!(
+        super::handle_key_down(&arrow(), &kb, Some(target), false).is_none(),
+        "outside a text editor the arrow must pass through to the widget",
     );
 }
