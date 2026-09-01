@@ -419,6 +419,20 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [x] 13a `cargo check --workspace` — fix compile errors.
 - [x] 13b `cargo run --release -p azul-doc codegen all` (target/codegen is wiped by `cargo clean`).
 - [x] 13c (ran to convergence: 0 add / 0 remove / 0 modify / 0 pathfix / 0 FFI errors) `azul-doc autofix` for every api.json delta recorded in step 8.
+- [x] 13d-cross CROSS-COMPILE (added at the user's request, ahead of tests):
+      - `aarch64-apple-ios` — was **680 errors before this arc**, now 0. Required a real
+        `UIPasteboard` transport (`ios/clipboard.rs`) and moving `rich-clipboard`/`rclip-core` out of
+        `cfg(not(any(android, ios)))` into the shared table, plus fixing two `run_headless` call sites
+        that omitted `tray`/`font_manager`/`app_icon`.
+      - `aarch64-apple-ios-sim` — 0 errors.
+      - ⚠ The iOS SIMULATOR cannot be run on this machine: `xcode-select -p` is
+        `/Library/Developer/CommandLineTools`, there is no `Xcode.app`, `simctl` is absent and there are
+        no CoreSimulator runtimes. Compiling for the simulator ABI is as far as verification goes here.
+- [ ] 13d-android `aarch64-linux-android` — needs `rustup target add aarch64-linux-android` (std not
+      installed); the 9 errors seen were all "can't find crate for core/std", i.e. the toolchain, not the code.
+- [ ] 13d-linux `x86_64-unknown-linux-gnu` — needs the homebrew cross toolchain wired via CC/CXX/AR/LINKER,
+      see the crosscompile-vkmem note.
+- [ ] 13d-windows `x86_64-pc-windows-msvc` — needs the MSVC libs; `-gnu` may be the reachable variant.
 - [ ] 13d `cargo test --release --lib` per crate.
 - [ ] 13e Full e2e (`--test all`) ONCE.
 - [ ] 13f Drive the step-0 ratchet allow-list to empty; anything left is a real remaining gap.
