@@ -23,6 +23,21 @@ use std::path::{Path, PathBuf};
 use device::Platform;
 use toolchain::{HostOs, Toolchain};
 
+/// Which transport carries an `--e2e` scenario to the app.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum E2eDriver {
+    /// Try the on-device runner; fall back to the host replay if this APK has
+    /// no op dispatcher compiled in. The common case, and the only one that
+    /// works without knowing how the APK was built.
+    #[default]
+    Auto,
+    /// Require the on-device runner. Full op fidelity, or an error.
+    Device,
+    /// Force the host replay even if the device could have run it — this is
+    /// what proves the real UIKit / GestureDetector input path.
+    Host,
+}
+
 #[derive(Default)]
 pub struct Opts {
     pub yes: bool,
@@ -38,7 +53,12 @@ pub struct Opts {
     pub device: Option<String>,
     pub package: Option<String>,
     pub e2e: Option<PathBuf>,
+    /// Which transport drives an `--e2e` scenario.
+    pub driver: E2eDriver,
     pub boot_timeout: u64,
+    /// How long to wait for the on-device runner to finish before concluding
+    /// this APK has no op dispatcher.
+    pub e2e_timeout: u64,
     /// How long to let the app draw before screenshotting it.
     pub settle_ms: u64,
     pub positional: Vec<String>,
@@ -48,6 +68,7 @@ impl Opts {
     fn parse(args: &[&str]) -> anyhow::Result<Self> {
         let mut o = Opts {
             boot_timeout: 300,
+            e2e_timeout: 120,
             settle_ms: 4000,
             verbose: true,
             ..Default::default()
@@ -92,6 +113,21 @@ impl Opts {
                 "--device" => o.device = Some(take(&mut i, "--device")?),
                 "--package" | "--bundle-id" => o.package = Some(take(&mut i, "--package")?),
                 "--e2e" => o.e2e = Some(PathBuf::from(take(&mut i, "--e2e")?)),
+                "--driver" => {
+                    o.driver = match take(&mut i, "--driver")?.as_str() {
+                        "auto" => E2eDriver::Auto,
+                        "device" => E2eDriver::Device,
+                        "host" => E2eDriver::Host,
+                        other => anyhow::bail!(
+                            "--driver expects auto | device | host, got '{other}'"
+                        ),
+                    };
+                }
+                "--e2e-timeout" => {
+                    o.e2e_timeout = take(&mut i, "--e2e-timeout")?
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("--e2e-timeout expects seconds"))?;
+                }
                 "--boot-timeout" => {
                     o.boot_timeout = take(&mut i, "--boot-timeout")?
                         .parse()
@@ -262,6 +298,9 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
                 println!("  screenshot:     {}", shot.display());
             }
             println!("  log:            {}", report.log_path.display());
+            if let Some(v) = &report.device_verdict {
+                v.print();
+            }
             if let Some(e2e) = &report.e2e {
                 e2e.print();
             }
@@ -272,11 +311,8 @@ pub fn handle_mobile_command(project_root: &Path, args: &[&str]) -> anyhow::Resu
                 }
             }
 
-            let e2e_bad = report
-                .e2e
-                .as_ref()
-                .map(|r| !r.complete())
-                .unwrap_or(false);
+            let e2e_bad = report.e2e.as_ref().map(|r| !r.complete()).unwrap_or(false)
+                || report.device_verdict.as_ref().map(|v| !v.ok()).unwrap_or(false);
             if !report.launched || !report.errors.is_empty() || e2e_bad {
                 anyhow::bail!("run did not come up clean — see above");
             }
@@ -341,9 +377,18 @@ fn print_help() {
     println!("                                 <crate> is a Cargo.toml, a directory, or a name");
     println!("                                 under examples/. `run` boots a device, installs,");
     println!("                                 launches, screenshots and reports the log.");
-    println!("                                 --e2e replays a scenario's INPUT ops through adb");
-    println!("                                 or baguette and reports every op a host driver");
-    println!("                                 cannot express, rather than passing vacuously.");
+    println!("                                 --e2e runs a scenario. Two transports:");
+    println!("                                   device — the engine's OWN runner, inside the");
+    println!("                                            app. Full op vocabulary. Needs the");
+    println!("                                            dispatcher in the APK, which --e2e");
+    println!("                                            arranges for you.");
+    println!("                                   host   — replays the INPUT ops through adb /");
+    println!("                                            baguette, proving the real UIKit /");
+    println!("                                            GestureDetector path. Names every op");
+    println!("                                            it cannot express instead of passing");
+    println!("                                            vacuously.");
+    println!("                                 --driver auto|device|host (default auto: device");
+    println!("                                 if the APK can, else host). --e2e-timeout SECS.");
     println!();
     println!("Examples:");
     println!("  azul-doc mobile install android --yes");

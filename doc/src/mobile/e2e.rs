@@ -281,3 +281,109 @@ pub fn replay_scenario(
     let _ = opts;
     Ok(report)
 }
+
+// ---------------------------------------------------------------------------
+// The device transport: the engine's own runner, on the device
+// ---------------------------------------------------------------------------
+
+/// What the in-process runner reported, scraped back out of the device log.
+///
+/// This is the FULL op vocabulary — it is the same dispatcher `azul-doc e2e`
+/// drives, running inside the app on the device. The host replay above exists
+/// for the half this cannot see (real UIKit / GestureDetector input); this
+/// exists for the half the host replay cannot express.
+pub struct DeviceVerdict {
+    pub passed: usize,
+    pub failed: usize,
+    pub xfail: usize,
+    pub xpass: usize,
+    /// The `test result: …` line, ANSI stripped.
+    pub summary: String,
+    /// `---- name (FAIL) ----` blocks and the step lines under them.
+    pub failures: Vec<String>,
+}
+
+impl DeviceVerdict {
+    pub fn ok(&self) -> bool {
+        self.failed == 0 && self.xpass == 0
+    }
+
+    pub fn print(&self) {
+        println!("\n\x1b[1m==> on-device e2e (the engine's own runner)\x1b[0m");
+        for line in &self.failures {
+            println!("  {line}");
+        }
+        let colour = if self.ok() { "\x1b[32m" } else { "\x1b[31m" };
+        println!("  {colour}{}\x1b[0m", self.summary);
+    }
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Skip up to and including the final byte of a CSI sequence.
+            for c2 in chars.by_ref() {
+                if c2.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn field(line: &str, name: &str) -> usize {
+    // "test result: ok. 3 passed; 1 failed; 0 xfailed; 0 xpassed; …"
+    line.split(';')
+        .find_map(|part| {
+            let part = part.trim().trim_start_matches("test result:").trim();
+            let (n, rest) = part.split_once(' ')?;
+            rest.trim().starts_with(name).then(|| n.parse().ok())?
+        })
+        .unwrap_or(0)
+}
+
+/// Parse the runner's report out of a device log, or `None` if it never ran.
+///
+/// Absence is the normal case for an APK built without `azul/debug-server`:
+/// the property is set, nothing reads it, and the app just starts. That is why
+/// this returns an Option rather than failing — the caller falls back to the
+/// host replay and says which transport actually drove the app.
+pub fn parse_device_verdict(log: &str) -> Option<DeviceVerdict> {
+    let clean: Vec<String> = log.lines().map(strip_ansi).collect();
+    let summary_idx = clean
+        .iter()
+        .rposition(|l| l.contains("test result:") && l.contains("passed;"))?;
+    let summary = clean[summary_idx]
+        .split_once("test result:")
+        .map(|(_, tail)| format!("test result:{tail}"))
+        .unwrap_or_else(|| clean[summary_idx].clone())
+        .trim()
+        .to_string();
+
+    let failures: Vec<String> = clean
+        .iter()
+        .filter(|l| {
+            l.contains("... FAIL")
+                || l.contains("... XPASS")
+                || (l.contains("step ") && l.contains("FAILED:"))
+        })
+        .map(|l| {
+            // logcat prefixes every line with "I/RustStdoutStderr(pid): ".
+            l.split_once("): ").map(|(_, t)| t).unwrap_or(l).trim().to_string()
+        })
+        .collect();
+
+    Some(DeviceVerdict {
+        passed: field(&summary, "passed"),
+        failed: field(&summary, "failed"),
+        xfail: field(&summary, "xfailed"),
+        xpass: field(&summary, "xpassed"),
+        summary,
+        failures,
+    })
+}

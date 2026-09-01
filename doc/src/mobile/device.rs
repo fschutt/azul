@@ -413,6 +413,54 @@ impl Device {
         }
     }
 
+    /// Set the system property the engine reads its scenario path from.
+    ///
+    /// An activity cannot be handed an env var — `am start` builds an Intent
+    /// and the process inherits the zygote's environment, not the shell's.
+    /// `debug.*` properties are writable from `adb shell` without root and
+    /// readable by `appdomain`, which makes this the one channel that needs no
+    /// JNI and no hard-coded file path.
+    pub fn set_e2e_scenario(&self, remote_path: &str) -> anyhow::Result<()> {
+        match self.platform {
+            Platform::Android => self
+                .adb_cmd(&["shell", "setprop", "debug.az.e2e"])
+                .arg(remote_path)
+                .run(),
+            // A simulator process DOES inherit SIMCTL_CHILD_* as environment,
+            // so iOS uses the portable AZ_E2E spelling and needs nothing here.
+            Platform::Ios => Ok(()),
+        }
+    }
+
+    /// Clear it again. A leftover property would silently turn the next
+    /// ordinary launch into a test run.
+    pub fn clear_e2e_scenario(&self) -> anyhow::Result<()> {
+        match self.platform {
+            Platform::Android => self
+                .adb_cmd(&["shell", "setprop", "debug.az.e2e", "\"\""])
+                .run(),
+            Platform::Ios => Ok(()),
+        }
+    }
+
+    /// Is the app's process still alive?
+    pub fn is_running(&self, bundle_id: &str) -> bool {
+        match self.platform {
+            Platform::Android => self
+                .adb_cmd(&["shell", "pidof"])
+                .arg(bundle_id)
+                .output()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false),
+            Platform::Ios => super::toolchain::capture(
+                "xcrun",
+                &["simctl", "spawn", &self.id, "launchctl", "list"],
+            )
+            .map(|s| s.contains(bundle_id))
+            .unwrap_or(false),
+        }
+    }
+
     pub fn clear_log(&self) -> anyhow::Result<()> {
         match self.platform {
             Platform::Android => self.adb_cmd(&["logcat", "-c"]).run(),

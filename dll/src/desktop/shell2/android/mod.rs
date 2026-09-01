@@ -484,6 +484,27 @@ pub fn android_main(app: AndroidApp) {
         core::sync::atomic::Ordering::SeqCst,
     );
 
+    // Register the debug/E2E timer. `run()` stashed the receiver; the loop
+    // below already calls `process_timers_and_threads()`, which is what drives
+    // it — so this one registration is the whole difference between "AZ_E2E
+    // queued some tests" and "the ops actually dispatch".
+    //
+    // Set the scenario with `adb shell setprop debug.az.e2e <path>` (an
+    // activity cannot be given an env var). The runner writes its cargo-test
+    // style verdict to stderr, which on Android is logcat, and exits the
+    // process — so the harness watches for the process to die and reads the
+    // result out of the log.
+    #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+    unsafe {
+        if let Some((rx, cm)) = crate::desktop::shell2::run::ANDROID_DEBUG_CHANNEL.take() {
+            crate::desktop::shell2::common::debug_server::register_debug_timer(
+                &mut window,
+                rx,
+                cm,
+            );
+        }
+    }
+
     // Publish the JavaVM + Activity pointers so dll::extra::file_picker
     // (and future native-call paths — permission, soft keyboard) can
     // reach into Java without re-receiving them per call.

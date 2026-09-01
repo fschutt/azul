@@ -473,3 +473,49 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 - [ ] 13d `cargo test --release --lib` per crate.
 - [ ] 13e Full e2e (`--test all`) ONCE.
 - [ ] 13f Drive the step-0 ratchet allow-list to empty; anything left is a real remaining gap.
+
+---
+
+## 14 — on-device E2E (2026-09-02)
+
+**14a DONE** — `AZ_E2E` now works on Android. `run()` always called
+`setup_debug_and_e2e`, but bound the request receiver to `_debug_request_rx` and
+forwarded it only on the headless path, so nothing drained the channel on a real
+window: tests queued, no op dispatched, the result printer sat until its 600 s
+timeout. Fixed with `ANDROID_DEBUG_CHANNEL` + one `register_debug_timer` call in
+`android_main` (the loop's existing `process_timers_and_threads()` drives it).
+Scenario path arrives via the `debug.az.e2e` system property, because an
+activity cannot be given an env var. Driven by `azul-doc mobile run --e2e`.
+
+**14b OPEN — `record_frame` is called by NO real backend.**
+
+`LayoutWindow::record_frame` (layout/src/window.rs:1699 →
+`record_frame_at_generation`:655) is what advances `frames_since_reset` and
+accumulates paint/present damage. It has exactly **two** call sites in the
+tree, both in `dll/src/desktop/shell2/headless/mod.rs` (:1653, :1798).
+
+macOS, Windows, X11, Wayland and Android never call it. So on every real window
+`frames_since_reset` stays 0 and the damage accumulators stay empty, which makes
+these ops vacuous or wrong outside the headless harness:
+
+    assert_work_bounded            (fails outright: "NO FRAME was rendered")
+    assert_damage
+    assert_damage_covers_changes
+    assert_damage_sound
+    assert_damage_incremental
+    reset_frame_counters
+    get_frame_report
+
+Found by running `e2e/op-focus-blur.json` on an Android emulator through the new
+transport: PASS in-process (25 ms), FAIL on device at step 17. Same scenario,
+same dispatcher — so the difference is the backend, not the platform code under
+test. This is the same shape as the input-filter defects this branch is about:
+implemented once, wired in one place, silently dead everywhere else.
+
+Fix = a `record_frame(paint, present)` call on each backend's present path with
+the damage rects it actually submitted. Five backends, and the damage values
+have to be real or the assertions become confidently wrong instead of vacuous —
+so it wants its own change, not a tail-end commit here.
+
+Until then: treat a device/desktop e2e run's frame and damage assertions as
+untrustworthy, and keep those scenarios on `azul-doc e2e`.

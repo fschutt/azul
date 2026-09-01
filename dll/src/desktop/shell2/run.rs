@@ -76,12 +76,48 @@ fn resolve_backend(options: &WindowCreateOptions) -> super::AzBackend {
     super::AzBackend::resolve(hw_accel)
 }
 
-/// Check if E2E test runner mode is requested via environment variable.
-/// Returns `Some(path)` if `AZ_E2E` is set. Only meaningful in `debug-server`
-/// builds; the lean build has no E2E runner.
+/// Check if E2E test runner mode is requested.
+///
+/// `AZ_E2E=<path>` is the portable spelling and the only one on desktop. Only
+/// meaningful in `debug-server` builds; the lean build has no E2E runner.
+///
+/// **Android also reads the `debug.az.e2e` system property**, because there is
+/// no way to hand an env var to an activity: `am start` builds an Intent, and
+/// the app inherits the zygote's environment, not the shell's. The alternatives
+/// were an Intent extra (needs a JNI round-trip through the Activity before the
+/// window exists) or a hard-coded file path (a stale file would silently turn a
+/// normal launch into a test run). A property is explicit, set per-run by the
+/// harness, and cleared afterwards:
+///
+/// ```sh
+/// adb shell setprop debug.az.e2e /data/local/tmp/az_e2e.json
+/// ```
+///
+/// `getprop` rather than `__system_property_get` so this needs no new FFI
+/// dependency; it runs exactly once, at startup.
 #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 fn e2e_test_file() -> Option<String> {
-    std::env::var("AZ_E2E").ok().filter(|s| !s.is_empty())
+    if let Some(v) = std::env::var("AZ_E2E").ok().filter(|s| !s.is_empty()) {
+        return Some(v);
+    }
+    #[cfg(target_os = "android")]
+    {
+        if let Ok(out) = std::process::Command::new("getprop")
+            .arg("debug.az.e2e")
+            .output()
+        {
+            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !path.is_empty() {
+                log_info!(
+                    LogCategory::DebugServer,
+                    "[Android] E2E scenario from debug.az.e2e: {}",
+                    path
+                );
+                return Some(path);
+            }
+        }
+    }
+    None
 }
 
 /// Report `AZ_*` knobs that this binary cannot honour.
@@ -1296,6 +1332,29 @@ pub(super) static mut ANDROID_INITIAL_OPTIONS: Option<(
     WindowCreateOptions,
 )> = None;
 
+/// The debug/E2E request channel, stashed the same way and for the same reason.
+///
+/// Kept SEPARATE from `ANDROID_INITIAL_OPTIONS` rather than widening that tuple
+/// because its types only exist under the debug features — folding them in
+/// would put a `#[cfg]` on every field of a six-way destructure in
+/// `android_main`.
+///
+/// This is the piece that was missing. Android's `run()` has always called
+/// `setup_debug_and_e2e`, so `AZ_E2E` already queued the tests and spawned the
+/// result printer — but the receiver was dropped on the floor (bound to
+/// `_debug_request_rx` and only forwarded on the headless path). Nothing
+/// drained it, so no op ever dispatched and the printer sat until its 600 s
+/// timeout. `android_main` now takes this and registers the debug timer, which
+/// the existing `process_timers_and_threads()` call in the loop already drives.
+#[cfg(all(
+    target_os = "android",
+    any(feature = "debug-server", feature = "e2e-scripting")
+))]
+pub(super) static mut ANDROID_DEBUG_CHANNEL: Option<(
+    spmc::Receiver<debug_server::DebugRequest>,
+    Arc<Mutex<azul_core::xml::ComponentMap>>,
+)> = None;
+
 #[cfg(target_os = "android")]
 pub fn run(
     app_data: RefAny,
@@ -1335,6 +1394,15 @@ pub fn run(
             _debug_request_rx,
             _component_map,
         );
+    }
+    // Hand the debug channel to `android_main` instead of dropping it here.
+    // Without this the E2E runner queues its tests and then waits forever on a
+    // receiver nobody reads.
+    #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+    unsafe {
+        if let (Some(rx), Some(cm)) = (_debug_request_rx, _component_map) {
+            ANDROID_DEBUG_CHANNEL = Some((rx, cm));
+        }
     }
     unsafe {
         ANDROID_INITIAL_OPTIONS = Some((

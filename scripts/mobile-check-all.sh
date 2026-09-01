@@ -76,6 +76,29 @@ do
     check_target "$triple"
 done
 
+# The E2E-on-device path (shell2/run.rs ANDROID_DEBUG_CHANNEL + the
+# register_debug_timer call in android_main) is behind
+# `any(debug-server, e2e-scripting)`, which the feature set above does NOT
+# include — so the loop over targets compiles right past it. One extra check so
+# that code cannot rot unnoticed; it is the configuration
+# `azul-doc mobile run --e2e` actually builds.
+echo
+printf '==> android + debug-server (the on-device E2E configuration)\n'
+started=$(date +%s)
+log=$(mktemp)
+if cargo check --target aarch64-linux-android -p azul-dll --release \
+       --no-default-features --features "$FEATURES,debug-server" >"$log" 2>&1; then
+    elapsed=$(( $(date +%s) - started ))
+    printf '  %s   %s  (%ss)\n' "$(green '[ok]')" "aarch64-linux-android+debug-server" "$elapsed"
+    SUMMARY="$SUMMARY"$'\n'"  aarch64-linux-android+debug-server   ok (${elapsed}s)"
+else
+    printf '  %s   %s\n' "$(red '[fail]')" "aarch64-linux-android+debug-server"
+    tail -25 "$log"
+    SUMMARY="$SUMMARY"$'\n'"  aarch64-linux-android+debug-server   FAIL"
+    ANY_FAIL=1
+fi
+rm -f "$log"
+
 echo
 echo "==> Summary"
 printf '%s\n' "$SUMMARY"

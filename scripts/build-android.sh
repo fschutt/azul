@@ -65,6 +65,14 @@ if [[ "$CRATE" == "azul-dll" ]]; then
 else
     FEATURE_ARGS=()
 fi
+# Extra features layered on top, for BOTH cases. A demo pins its own azul
+# features in Cargo.toml, so the only way to add one from the outside is
+# cargo's `--features <dep>/<feature>` spelling — e.g.
+# AZ_ANDROID_EXTRA_FEATURES=azul/debug-server to get the E2E op dispatcher
+# into an APK that would otherwise ship without it.
+if [[ -n "${AZ_ANDROID_EXTRA_FEATURES:-}" ]]; then
+    FEATURE_ARGS+=(--features "$AZ_ANDROID_EXTRA_FEATURES")
+fi
 CARGO_LOG="$WORKSPACE_ROOT/target/android-build-${CRATE}-${TARGET}.json"
 mkdir -p "$WORKSPACE_ROOT/target"
 

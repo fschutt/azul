@@ -19,7 +19,8 @@ use std::{
 
 use super::{
     device::{boot_emulator, boot_simulator, Device, Driver, Platform},
-    e2e::{replay_scenario, HostReplayReport},
+    e2e::{replay_scenario, DeviceVerdict, HostReplayReport},
+    E2eDriver,
     toolchain::{Cmd, Toolchain},
     Opts,
 };
@@ -136,6 +137,24 @@ pub fn build(
             let triple = android_triple(abi);
             let mut env = tc.android_env();
             env.push(("AZ_ANDROID_NO_DEPLOY".into(), "1".into()));
+            // An `--e2e` run needs the op dispatcher IN the APK, and a demo
+            // crate pins its own azul features in Cargo.toml — so the only way
+            // in is cargo's `--features <dep>/<feature>` spelling. Adding it
+            // here means nobody has to know that: asking for a scenario is
+            // enough. An explicit AZ_ANDROID_EXTRA_FEATURES still wins.
+            if opts.e2e.is_some()
+                && opts.driver != E2eDriver::Host
+                && std::env::var_os("AZ_ANDROID_EXTRA_FEATURES").is_none()
+            {
+                println!(
+                    "  \x1b[90m--e2e: adding azul/debug-server so the APK carries the \
+                     op dispatcher\x1b[0m"
+                );
+                env.push((
+                    "AZ_ANDROID_EXTRA_FEATURES".into(),
+                    "azul/debug-server".into(),
+                ));
+            }
             println!("\n\x1b[1m==> building {} for {triple}\x1b[0m", target.crate_name);
             Cmd::new("bash")
                 .arg(
@@ -230,6 +249,9 @@ pub struct RunReport {
     pub launched: bool,
     pub screenshot: Option<PathBuf>,
     pub log_path: PathBuf,
+    /// The engine's own runner, if the APK had it compiled in.
+    pub device_verdict: Option<DeviceVerdict>,
+    /// The host-side replay, used only when the device did not run it.
     pub e2e: Option<HostReplayReport>,
     /// Lines the engine logged that look like errors.
     pub errors: Vec<String>,
@@ -258,25 +280,25 @@ pub fn deploy_and_run(
 
     // Push the scenario and hand its path to the app as AZ_E2E.
     //
-    // NOTHING READS THIS ON ANDROID YET. `AZ_E2E` is honoured in
-    // `dll/src/desktop/shell2/run.rs`, which is the desktop entry point;
-    // `android_main` has its own driver loop and no equivalent hook, so the
-    // extra arrives and is ignored. It is set anyway because it costs nothing,
-    // it is the right name for the eventual hook, and iOS reaches the shared
-    // path through SIMCTL_CHILD_AZ_E2E. Until that hook exists, the ONLY thing
-    // driving the device is the host replay below — which is why the replay
-    // reports the ops it cannot express instead of assuming the app ran them.
+    // Read by `e2e_test_file()` in shell2/run.rs, which now consults the
+    // `debug.az.e2e` system property on Android as well as AZ_E2E. Whether
+    // anything acts on it depends on the APK: only a build with
+    // `azul/debug-server` (or `e2e-scripting`) has the op dispatcher compiled
+    // in. The wait below detects which case we are in rather than assuming.
     let mut extras: Vec<(String, String)> = Vec::new();
     if let Some(scenario) = &opts.e2e {
         let remote = device.push(scenario, "az_e2e.json")?;
         println!("  scenario at {remote}");
-        if device.platform == Platform::Android {
-            println!(
-                "  \x1b[90mnote: android_main has no AZ_E2E hook, so only the host replay \
-                 below actually drives the app\x1b[0m"
-            );
+        // Android: a property, because an activity cannot be given an env
+        // var. iOS: SIMCTL_CHILD_AZ_E2E, which the simulator turns back into
+        // a real environment variable, so the portable AZ_E2E path applies.
+        // NOT under --driver host: setting it would make the app run the
+        // scenario itself and exit, and the host replay would then be tapping
+        // a dead process. One transport per run, always.
+        if opts.driver != E2eDriver::Host {
+            device.set_e2e_scenario(&remote)?;
+            extras.push(("AZ_E2E".to_string(), remote));
         }
-        extras.push(("AZ_E2E".to_string(), remote));
     }
 
     println!("\n\x1b[1m==> launching {}\x1b[0m", target.bundle_id);
@@ -285,10 +307,62 @@ pub fn deploy_and_run(
     // Give the app a moment to mount its first frame before we look at it.
     sleep(Duration::from_millis(opts.settle_ms));
 
-    let e2e = match &opts.e2e {
-        Some(scenario) => Some(replay_scenario(device, scenario, &out_dir, opts)?),
-        None => None,
+    // --- which transport actually drove the app? --------------------------
+    //
+    // The waiting problem on mobile is that "launched" is not "finished": an
+    // install takes a second, a cold start several more, and a scenario runs
+    // for however long it runs. Polling for a RESULT would mean guessing when
+    // to stop. So we poll for the thing that is unambiguous — the runner calls
+    // exit() when it is done, so PROCESS DEATH is the completion signal, and
+    // the verdict is already in the log by then.
+    //
+    // If the process is still alive after the deadline, the APK was built
+    // without `azul/debug-server`: nothing read the property and the app just
+    // started normally. That is not an error, it is the common case, so we say
+    // which transport ran and fall back to the host replay.
+    let mut device_verdict = None;
+    if opts.e2e.is_some() && opts.driver != E2eDriver::Host {
+        let deadline = Duration::from_secs(opts.e2e_timeout);
+        let started = std::time::Instant::now();
+        while started.elapsed() < deadline {
+            if !device.is_running(&target.bundle_id) {
+                let log = device.read_log(&target.bundle_id).unwrap_or_default();
+                device_verdict = crate::mobile::e2e::parse_device_verdict(&log);
+                if device_verdict.is_some() {
+                    println!(
+                        "  on-device runner finished in {:.1}s",
+                        started.elapsed().as_secs_f32()
+                    );
+                }
+                break;
+            }
+            sleep(Duration::from_millis(500));
+        }
+        if device_verdict.is_none() {
+            if opts.driver == E2eDriver::Device {
+                anyhow::bail!(
+                    "--driver device, but the app never ran the scenario. Build the APK \
+                     with the op dispatcher compiled in:\n  \
+                     AZ_ANDROID_EXTRA_FEATURES=azul/debug-server"
+                );
+            }
+            println!(
+                "  \x1b[90mno on-device verdict — this APK has no op dispatcher \
+                 (AZ_ANDROID_EXTRA_FEATURES=azul/debug-server); using the host replay\x1b[0m"
+            );
+        }
+    }
+
+    // Only replay from the host when the device did NOT run the scenario —
+    // otherwise both would drive the same app and neither report would mean
+    // anything.
+    let e2e = match (&opts.e2e, device_verdict.is_some(), opts.driver) {
+        (Some(_), true, _) | (Some(_), _, E2eDriver::Device) | (None, _, _) => None,
+        (Some(scenario), false, _) => {
+            Some(replay_scenario(device, scenario, &out_dir, opts)?)
+        }
     };
+    let _ = device.clear_e2e_scenario();
 
     let shot = out_dir.join(format!("{}.png", target.app_name));
     let screenshot = match device.screenshot(&shot) {
@@ -323,6 +397,7 @@ pub fn deploy_and_run(
     let launched = log.contains("RustStdoutStderr") || log.contains("regenerate_layout");
 
     Ok(RunReport {
+        device_verdict,
         launched,
         screenshot,
         log_path,
