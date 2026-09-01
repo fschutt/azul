@@ -524,6 +524,12 @@ pub mod window_state;
 #[allow(unused_assignments)]
 pub mod xml;
 
+/// What a whole UI costs in memory — the measurement `architecture.md`'s
+/// re-derivation argument rests on, as a checked fact.
+#[cfg(test)]
+#[path = "dom_footprint_test.rs"]
+mod dom_footprint_test;
+
 /// Debug / E2E server op-dispatch, ported verbatim from the DLL. Gated behind
 /// the `e2e-server` feature (NOT in `default`), so the lean crate is unaffected.
 #[cfg(feature = "e2e-server")]
