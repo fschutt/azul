@@ -11,6 +11,7 @@ mod accelerator_contract {
             current_virtual_keycode: Some(pressed).into(),
             ..KeyboardState::default()
         }
+        ..Default::default()
     }
     fn combo(keys: &[K]) -> VirtualKeyCodeCombo {
         VirtualKeyCodeCombo {

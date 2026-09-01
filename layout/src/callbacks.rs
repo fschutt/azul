@@ -3481,6 +3481,7 @@ impl CallbackInfo {
     #[must_use]
     pub fn get_current_keyboard_state(&self) -> KeyboardState {
         self.get_current_window_state().keyboard_state.clone()
+        ..Default::default()
     }
 
     /// Get current mouse state
@@ -4912,6 +4913,43 @@ impl CallbackInfo {
             .device_event_manager
             .peek_raw_motion()
             .map(|m| (m.dx, m.dy))
+    }
+
+    /// Which modifier keys are held right now.
+    #[must_use]
+    pub fn get_key_modifiers(&self) -> azul_core::events::KeyModifiers {
+        self.get_current_keyboard_state().modifiers
+    }
+
+    /// Which lock keys are engaged — Caps, Num, Scroll.
+    ///
+    /// Not derivable from the pressed-key set: a lock is a TOGGLE, so it
+    /// stays on after the key is released and no key event describes it. This
+    /// is what a password field reads to warn that Caps Lock is on.
+    #[must_use]
+    pub fn get_key_locks(&self) -> azul_core::window::KeyLocks {
+        self.get_current_keyboard_state().locks
+    }
+
+    /// The physical position of the currently pressed key, independent of
+    /// layout — `KeyW` is the key where W sits on US ANSI even when the
+    /// user's layout produces Z there.
+    ///
+    /// Use this for anything positional (game movement bindings); use
+    /// `get_current_keyboard_state().current_virtual_keycode` for anything
+    /// the user reads as a letter.
+    #[must_use]
+    pub fn get_physical_key(&self) -> Option<azul_core::window::PhysicalKey> {
+        self.get_current_keyboard_state()
+            .current_physical_key
+            .into_option()
+    }
+
+    /// Whether the key event being handled is an auto-repeat rather than a
+    /// fresh press. A text field wants repeats; a jump button does not.
+    #[must_use]
+    pub fn is_key_repeat(&self) -> bool {
+        self.get_current_keyboard_state().is_repeat
     }
 
     /// Get current pen pressure (0.0 to 1.0)

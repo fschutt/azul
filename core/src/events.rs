@@ -961,6 +961,14 @@ pub enum EventType {
     /// A component's selection changed. `ComponentEventFilter::Selected` has
     /// existed with no `EventType` and no match arm.
     Selected,
+    /// A modifier or lock key changed state. APPENDED at the end.
+    ///
+    /// Modifiers arrive today only as ordinary key events, so an app tracking
+    /// "is Shift down" has to watch every KeyDown and KeyUp and reconstruct
+    /// it — and gets it wrong across a focus loss, because the KeyUp for a
+    /// modifier released while another window had focus never arrives. This
+    /// event carries the resolved state instead.
+    ModifiersChanged,
     /// Raw pointer motion, pre-acceleration and unclamped. APPENDED at the
     /// end for ABI stability.
     ///
@@ -1821,7 +1829,7 @@ fn matches_window_filter(
         GeolocationFix, HoveredFile, HoveredFileCancelled, KeyringResult, LeftMouseDown,
         LeftMouseUp, MiddleMouseDown, MiddleMouseUp, MouseDown, MouseEnter, MouseLeave, MouseOver,
         MouseUp, Moved, PenDoubleTap, PenDown, PenEnter, PenHover, PenLeave, PenMove, PenSqueeze,
-        PenUp, PermissionChanged, RawMouseMotion, Resized,
+        ModifiersChanged, PenUp, PermissionChanged, RawMouseMotion, Resized,
         RightMouseDown, RightMouseUp, ScreenColorPicked, Scroll, ScrollEnd, ScrollStart,
         SensorChanged, TextInput, ThemeChanged, TouchCancel, TouchEnd, TouchMove, TouchStart,
         VirtualKeyDown, VirtualKeyUp, WindowFocusLost, WindowFocusReceived,
@@ -1929,6 +1937,7 @@ fn matches_window_filter(
             check_mouse_button(&event.data, MouseButton::Other(MOUSE_BUTTON_FORWARD))
         }
         (RawMouseMotion, EventType::RawMouseMotion) => true,
+        (ModifiersChanged, EventType::ModifiersChanged) => true,
         _ => false,
     }
 }
@@ -2836,6 +2845,8 @@ pub enum WindowEventFilter {
     /// position: there is no node under it to hit-test, and a locked pointer
     /// is a window-wide mode.
     RawMouseMotion,
+    /// A modifier or lock key changed state. APPENDED at the end.
+    ModifiersChanged,
 }
 
 impl WindowEventFilter {
@@ -3693,6 +3704,9 @@ fn event_type_to_filters_legacy_hint(
         E::WindowMonitorChanged => vec![EF::Window(W::MonitorChanged)],
 
         // Application events
+        // Window-scoped: a modifier belongs to the keyboard, not to whatever
+        // node happens to be hovered.
+        E::ModifiersChanged => vec![EF::Window(W::ModifiersChanged)],
         // Window-only: raw motion has no position, so it cannot be hit-tested
         // and there is no node it belongs to. A locked pointer is a
         // window-wide mode by definition.

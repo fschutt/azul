@@ -2587,6 +2587,7 @@ impl CommonWindowState {
     /// The live keyboard state — see [`Self::mouse_state_mut`].
     pub fn keyboard_state_mut(&mut self) -> &mut azul_core::window::KeyboardState {
         &mut self.current_window_state.keyboard_state
+        ..Default::default()
     }
 
     /// The live touch state — see [`Self::mouse_state_mut`].

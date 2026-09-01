@@ -29,6 +29,7 @@ pub(super) struct WaylandKeyboardState {
     /// file or libxkbcommon predates the compose API; the key path then falls
     /// back to the raw keysym, which is what it did everywhere before.
     pub(super) compose: Option<ComposeSequencer>,
+    ..Default::default()
 }
 
 impl WaylandKeyboardState {

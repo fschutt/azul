@@ -92,3 +92,15 @@ api.json and unchanged — this arc gave them producers, it did not add them.
 - `WindowEventFilter::RawMouseMotion` — appended at the END. In api.json as `window.WindowEventFilter`.
 - `CallbackInfo::get_raw_mouse_motion() -> Option<(f64, f64)>` — the tuple needs a named struct for the
   C ABI; propose reusing `RawMotionEventData` as the return type instead.
+
+## From step 9e (keyboard)
+
+- `azul_core::window::PhysicalKey` — new `#[repr(C)]` enum, ~130 positional variants (W3C `code` names)
+  plus `Unidentified`. Needs `OptionPhysicalKey` generating.
+- `azul_core::window::KeyLocks` — new `#[repr(C)]` struct `{ caps_lock, num_lock, scroll_lock }`.
+- `KeyboardState` — four fields appended: `modifiers: KeyModifiers`, `locks: KeyLocks`,
+  `is_repeat: bool`, `current_physical_key: OptionPhysicalKey`. In api.json as `dom.KeyboardState`.
+- `EventType::ModifiersChanged` and `WindowEventFilter::ModifiersChanged` — appended at the END.
+- `CallbackInfo::{get_key_modifiers, get_key_locks, get_physical_key, is_key_repeat}`.
+- ⚠ `KeyModifiers` is currently Rust-internal (`azul_core::events`); exposing `get_key_modifiers` means
+  it needs an api.json entry too.

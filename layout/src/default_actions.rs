@@ -720,6 +720,7 @@ mod autotest_generated {
         pressed.push(key);
         ks.pressed_virtual_keycodes = pressed.into();
         ks
+        ..Default::default()
     }
 
     const ALL_KEYS: &[VirtualKeyCode] = &[

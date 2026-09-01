@@ -49,6 +49,7 @@ mod tests {
             pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![vk]),
             ..KeyboardState::default()
         }
+        ..Default::default()
     }
 
     fn make_keydown_event(target: DomNodeId) -> SyntheticEvent {
@@ -883,6 +884,7 @@ mod autotest_generated {
             pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![key]),
             ..KeyboardState::default()
         }
+        ..Default::default()
     }
 
     // ============================================================ numeric edge
@@ -4441,6 +4443,7 @@ fn arrows_are_claimed_for_the_caret_only_while_editing() {
         current_virtual_keycode: OptionVirtualKeyCode::Some(VirtualKeyCode::Left),
         pressed_virtual_keycodes: VirtualKeyCodeVec::from_vec(vec![VirtualKeyCode::Left]),
         ..KeyboardState::default()
+        ..Default::default()
     };
 
     // EDITING: the caret owns the arrow.

@@ -94,6 +94,17 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 9e
+
+- [ ] 9e-i No shell fills `KeyboardState.modifiers`, `.locks`, `.is_repeat` or `.current_physical_key`, so
+      `ModifiersChanged` cannot fire yet and the accessors read defaults. Each backend has the data:
+      Win32 `GetKeyboardState` (already called on focus gain) plus `VK_CAPITAL`/`VK_NUMLOCK` toggle bits and
+      the `lParam` bit 30 repeat flag; macOS `NSEvent.modifierFlags` including `NSEventModifierFlagCapsLock`,
+      and `isARepeat`; Wayland `wl_keyboard.modifiers` carries `mods_locked` and `repeat_info` gives the
+      rate; X11 `XkbStateNotify` plus the `XKeyEvent.state` lock bits.
+- [ ] 9e-ii `PhysicalKey` needs a per-platform scancode -> position map. The `ScanCode` is already captured
+      on every backend, so this is a table per platform, not new plumbing.
+
 ### Follow-ups opened by 9d
 
 - [ ] 9d-i Raw-motion producers for the other backends: Win32 `WM_INPUT` + `RegisterRawInputDevices`
@@ -277,7 +288,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       filters; wire Wayland `zwp_tablet_pad_dial_v2` (already bound) as the first producer.
 - [x] 9d (types + X11 producer done; Win32/Wayland/web are 9d-i, and locking itself is 9d-ii) `RawMouseMotion` window filter + pointer-lock request path; Win32 `WM_INPUT`,
       Wayland `zwp_relative_pointer_v1` + `zwp_pointer_constraints_v1`, X11 `XI_RawMotion`.
-- [ ] 9e `PhysicalKey` positional enum + `ModifiersChanged` filter + `KeyboardState += { modifiers, locks,
+- [x] 9e (types + ModifiersChanged + accessors done; the shells do not fill the new state yet — see 9e-i) `PhysicalKey` positional enum + `ModifiersChanged` filter + `KeyboardState += { modifiers, locks,
       is_repeat }`.
 - [ ] 9f `HidDevice { vendor_id, product_id, usage_page, usage, name }` + `HidReport { bytes }`.
 - [ ] 9g `Haptic::play(pattern)` — macOS `NSHapticFeedbackManager`, Win32 `SimpleHapticsController`,

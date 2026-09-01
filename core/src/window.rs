@@ -325,6 +325,77 @@ pub enum MouseCursorType {
 /// Hardware-dependent keyboard scan code.
 pub type ScanCode = u32;
 
+/// Which lock keys are currently engaged.
+///
+/// Not modifiers: a modifier is held, a lock is toggled, and an app that wants
+/// to warn "Caps Lock is on" in a password field needs the toggle state, which
+/// no key event carries.
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub struct KeyLocks {
+    pub caps_lock: bool,
+    pub num_lock: bool,
+    pub scroll_lock: bool,
+}
+
+/// A key identified by its PHYSICAL POSITION, independent of layout.
+///
+/// The companion to [`VirtualKeyCode`], which is the LOGICAL key — what the
+/// user's layout says that position produces. Every modern stack splits these
+/// because they answer different questions: `KeyboardEvent.code` vs `.key` on
+/// the web, `PhysicalKey` vs `Key` in winit.
+///
+/// `ScanCode` already carried the physical key as a raw `u32`, but a raw
+/// scancode is platform-specific and unnameable — an app cannot write
+/// `if scancode == 17` and mean anything portable. This is the same
+/// information in a form that can be matched on.
+///
+/// Names follow the W3C UI Events `code` values, which name each position by
+/// what it produces on US ANSI. `KeyW` is "the key where W sits on a US
+/// board" — on AZERTY the user sees Z there, and a game binding "forward"
+/// wants that position regardless.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(C)]
+pub enum PhysicalKey {
+    /// The platform reported a position this enum does not name.
+    Unidentified,
+    // Letters — POSITIONAL. `KeyW` is the key where W sits on US ANSI,
+    // wherever the user's layout maps it: on AZERTY that key produces Z, and
+    // a first-person game binding "forward" wants the position, not the
+    // letter, which is the whole reason this enum exists alongside
+    // `VirtualKeyCode`.
+    KeyA, KeyB, KeyC, KeyD, KeyE, KeyF, KeyG, KeyH, KeyI, KeyJ, KeyK, KeyL, KeyM,
+    KeyN, KeyO, KeyP, KeyQ, KeyR, KeyS, KeyT, KeyU, KeyV, KeyW, KeyX, KeyY, KeyZ,
+    // Number row.
+    Digit0, Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9,
+    // Punctuation, by position on the US ANSI board.
+    Backquote, Minus, Equal, BracketLeft, BracketRight, Backslash,
+    Semicolon, Quote, Comma, Period, Slash,
+    // Whitespace and editing.
+    Enter, Tab, Space, Backspace, Escape, CapsLock,
+    // Modifiers, LEFT and RIGHT distinguished — which `VirtualKeyCode` can do
+    // but `KeyModifiers` deliberately cannot, since a shortcut cares that
+    // Shift is down and a game may care which one.
+    ShiftLeft, ShiftRight, ControlLeft, ControlRight,
+    AltLeft, AltRight, MetaLeft, MetaRight, ContextMenu,
+    // Navigation.
+    Insert, Delete, Home, End, PageUp, PageDown,
+    ArrowUp, ArrowDown, ArrowLeft, ArrowRight,
+    // Function row.
+    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+    F13, F14, F15, F16, F17, F18, F19, F20, F21, F22, F23, F24,
+    // System.
+    PrintScreen, ScrollLock, Pause,
+    // Numpad — always positional, and distinct from the number row even when
+    // both produce the same character.
+    NumLock, NumpadDivide, NumpadMultiply, NumpadSubtract, NumpadAdd,
+    NumpadEnter, NumpadDecimal, NumpadComma, NumpadEqual,
+    Numpad0, Numpad1, Numpad2, Numpad3, Numpad4,
+    Numpad5, Numpad6, Numpad7, Numpad8, Numpad9,
+    // ISO/JIS keys that ANSI boards do not have.
+    IntlBackslash, IntlRo, IntlYen, Lang1, Lang2, Convert, NonConvert, KanaMode,
+}
+
 /// Determines which keys are pressed currently (modifiers, etc.)
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 #[repr(C)]
@@ -352,6 +423,27 @@ pub struct KeyboardState {
     /// the key's host GUI semantics, such as for movement controls in a first-person game
     /// (German keyboard: Z key, UK keyboard: Y key, etc.)
     pub pressed_scancodes: ScanCodeVec,
+    /// Which modifiers are held right now. (READONLY)
+    ///
+    /// Derivable from `pressed_virtual_keycodes` by scanning for the six
+    /// modifier keycodes, which is what every caller was doing. Carrying it
+    /// directly makes the common check cheap and makes `ModifiersChanged`
+    /// possible to emit at all.
+    pub modifiers: crate::events::KeyModifiers,
+    /// Which lock keys are engaged. (READONLY)
+    ///
+    /// NOT derivable from the pressed set: a lock is a toggle, so it stays on
+    /// after the key is released and no key event describes it. It has to be
+    /// read from the OS.
+    pub locks: KeyLocks,
+    /// Whether the current key event is an auto-repeat rather than a fresh
+    /// press. (READONLY)
+    ///
+    /// A text field wants repeats; a jump button does not, and without this
+    /// the two are indistinguishable.
+    pub is_repeat: bool,
+    /// Physical position of the currently pressed key. (READONLY)
+    pub current_physical_key: OptionPhysicalKey,
 }
 
 impl KeyboardState {
@@ -416,6 +508,11 @@ impl_option!(
 impl_option!(
     VirtualKeyCode,
     OptionVirtualKeyCode,
+    [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
+);
+impl_option!(
+    PhysicalKey,
+    OptionPhysicalKey,
     [Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash]
 );
 

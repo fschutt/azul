@@ -687,6 +687,29 @@ pub fn determine_all_events(
         .current_virtual_keycode
         .into_option();
 
+    // ModifiersChanged: the resolved modifier + lock state, whenever either
+    // moves. Diffed against the previous frame rather than derived from the
+    // key events, because the key events cannot answer it: a modifier
+    // released while another window had focus produces no KeyUp here, and a
+    // lock is a toggle that no key event describes at all.
+    if current.keyboard_state.modifiers != previous.keyboard_state.modifiers
+        || current.keyboard_state.locks != previous.keyboard_state.locks
+    {
+        events.push(SyntheticEvent::new(
+            EventType::ModifiersChanged,
+            EventSource::User,
+            root_node,
+            timestamp.clone(),
+            EventData::Keyboard(KeyboardEventData {
+                key_code: 0,
+                char_code: None,
+                modifiers: current.keyboard_state.modifiers,
+                repeat: false,
+                ..Default::default()
+            }),
+        ));
+    }
+
     // KeyDown: Fires when a new key is pressed
     // Case 1: New key pressed (current != previous)
     // Case 2: Same key pressed again after release (current.is_some() && previous.is_none())
