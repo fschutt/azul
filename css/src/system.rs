@@ -2043,6 +2043,10 @@ pub mod defaults {
     fn scrollbar_info_to_computed(info: &ScrollbarInfo) -> ComputedScrollbarStyle {
         ComputedScrollbarStyle {
             width: Some(info.width.clone()),
+            // A platform preset states its own handle geometry below; the
+            // generic converter keeps the renderer's derived defaults.
+            handle_width: None,
+            handle_radius: None,
             thumb_color: match info.thumb {
                 StyleBackgroundContent::Color(c) => Some(c),
                 _ => None,

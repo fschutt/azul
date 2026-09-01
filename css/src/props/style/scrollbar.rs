@@ -577,7 +577,7 @@ impl crate::codegen::format::FormatAsRustCode for ScrollbarFadeDuration {
 
 /// The final, resolved style for a scrollbar, after considering both
 /// standard and -webkit- properties. This struct is intended for use by the layout engine.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ComputedScrollbarStyle {
     /// The width of the scrollbar. `None` signifies `scrollbar-width: none`.
     pub width: Option<LayoutWidth>,
@@ -585,6 +585,20 @@ pub struct ComputedScrollbarStyle {
     pub thumb_color: Option<ColorU>,
     /// The color of the scrollbar track. `None` means use UA default.
     pub track_color: Option<ColorU>,
+    /// How wide the HANDLE is, in logical px — which is not the same thing as
+    /// how wide the scrollbar is.
+    ///
+    /// Breeze draws a 6px handle centred in a 21px groove; Adwaita and macOS
+    /// also inset theirs. Deriving the handle from the groove instead produced
+    /// a handle that fills the whole track, which is why an azul scrollbar
+    /// read as a fat pill next to a native one. `None` = fill the groove
+    /// (the previous behaviour).
+    pub handle_width: Option<f32>,
+    /// The handle's corner radius in logical px. `None` = half the handle
+    /// width (a capsule), which is right for Breeze and Adwaita but wrong for
+    /// the square handles of older/classic styles — so it is a value the
+    /// platform gets to state rather than one the renderer assumes.
+    pub handle_radius: Option<f32>,
 }
 
 impl Default for ComputedScrollbarStyle {
@@ -592,6 +606,8 @@ impl Default for ComputedScrollbarStyle {
         let default_info = ScrollbarInfo::default();
         Self {
             width: Some(default_info.width), // Default width from UA/platform
+            handle_width: None,
+            handle_radius: None,
             thumb_color: match default_info.thumb {
                 StyleBackgroundContent::Color(c) => Some(c),
                 _ => None,

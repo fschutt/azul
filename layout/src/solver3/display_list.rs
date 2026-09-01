@@ -6609,8 +6609,22 @@ where
                 |pos| pos.children_rect.size,
             );
 
-        // Calculate thumb border-radius (half the scrollbar width for pill-shaped thumb)
-        let thumb_radius = scrollbar_style.visual_width_px / 2.0;
+        // The HANDLE's own width, which is not the groove's: Breeze centres a
+        // 6px handle in a 21px groove, and Adwaita/macOS inset theirs too.
+        // Filling the groove made every azul scrollbar read as a fat pill next
+        // to a native one. `None` keeps the old fill-the-groove behaviour.
+        let handle_width = scrollbar_style
+            .handle_width_px
+            .unwrap_or(scrollbar_style.visual_width_px)
+            .min(scrollbar_style.visual_width_px)
+            .max(1.0);
+        // How far in from each side the handle sits, so it stays centred.
+        let handle_inset = ((scrollbar_style.visual_width_px - handle_width) / 2.0).max(0.0);
+        // Radius comes from the platform; a capsule is the fallback, not a law.
+        let thumb_radius = scrollbar_style
+            .handle_radius_px
+            .unwrap_or(handle_width / 2.0)
+            .max(0.0);
         let thumb_border_radius = BorderRadius {
             top_left: thumb_radius,
             top_right: thumb_radius,
@@ -6653,12 +6667,17 @@ where
             );
 
             // Position thumb after the top button; GPU transform moves it within usable track
+            // Inset horizontally so the handle is CENTRED in the groove
+            // rather than filling it (Breeze: 6px handle, 21px groove).
             let thumb_bounds = LogicalRect {
                 origin: LogicalPosition::new(
-                    v_geom.track_rect.origin.x,
+                    v_geom.track_rect.origin.x + handle_inset,
                     v_geom.track_rect.origin.y + v_geom.button_size,
                 ),
-                size: LogicalSize::new(v_geom.width_px, v_geom.thumb_length),
+                size: LogicalSize::new(
+                    (v_geom.width_px - 2.0 * handle_inset).max(1.0),
+                    v_geom.thumb_length,
+                ),
             };
 
             // Look up transform key from GPU cache for GPU-animated thumb positioning.
@@ -6755,12 +6774,16 @@ where
             );
 
             // Position thumb after the left button; GPU transform moves it within usable track
+            // Same inset on the other axis: the handle is centred in the groove.
             let thumb_bounds = LogicalRect {
                 origin: LogicalPosition::new(
                     h_geom.track_rect.origin.x + h_geom.button_size,
-                    h_geom.track_rect.origin.y,
+                    h_geom.track_rect.origin.y + handle_inset,
                 ),
-                size: LogicalSize::new(h_geom.thumb_length, h_geom.width_px),
+                size: LogicalSize::new(
+                    h_geom.thumb_length,
+                    (h_geom.width_px - 2.0 * handle_inset).max(1.0),
+                ),
             };
 
             // Look up horizontal transform key from GPU cache for GPU-animated thumb positioning.

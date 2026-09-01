@@ -5619,6 +5619,13 @@ pub struct ComputedScrollbarStyle {
     /// Size of each arrow button in px (square: width = height).
     /// Only used when `show_scroll_buttons == true`.
     pub scroll_button_size_px: f32,
+    /// How wide the HANDLE is, in logical px. `None` = fill the groove.
+    /// Breeze centres a 6px handle in a 21px groove; deriving the handle from
+    /// the groove made every azul scrollbar a fat pill next to a native one.
+    pub handle_width_px: Option<f32>,
+    /// The handle's corner radius in logical px. `None` = half the handle
+    /// width (a capsule).
+    pub handle_radius_px: Option<f32>,
     /// Whether to show the corner rect where V and H scrollbars meet.
     pub show_corner_rect: bool,
     /// Thumb color when hovered (None = use `thumb_color`)
@@ -5696,6 +5703,10 @@ impl ComputedScrollbarStyle {
         let active_width = visual_width_px + SCROLLBAR_HOVER_EXPAND_PX;
 
         Self {
+            // The UA sheet has no handle geometry to state; the platform fills
+            // these in below, and `None` keeps the renderer's derived default.
+            handle_width_px: None,
+            handle_radius_px: None,
             width_mode,
             visual_width_px,
             reserve_width_px,
@@ -5778,6 +5789,14 @@ pub fn get_scrollbar_style(
                 // The buttons and the corner are part of the track furniture.
                 result.button_color = track;
                 result.corner_color = track;
+            }
+            // The platform's HANDLE geometry — a Breeze handle is 6px in a
+            // 21px groove, not a pill filling the track.
+            if sys.handle_width.is_some() {
+                result.handle_width_px = sys.handle_width;
+            }
+            if sys.handle_radius.is_some() {
+                result.handle_radius_px = sys.handle_radius;
             }
         }
     }

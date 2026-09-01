@@ -1183,6 +1183,13 @@ fn discover_kde_style() -> Result<SystemStyle, ()> {
                 width,
                 thumb_color: handle,
                 track_color: groove,
+                // Breeze's own metrics (breezemetrics.h): the groove is
+                // `ScrollBar_Extend = 21` and the HANDLE inside it is
+                // `ScrollBar_SliderWidth = 6`, with a radius of half that.
+                // A handle that fills the groove is what made an azul
+                // scrollbar read as a fat pill beside a Qt one.
+                handle_width: Some(6.0),
+                handle_radius: Some(3.0),
             }));
         }
     }
