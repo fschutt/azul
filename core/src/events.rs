@@ -1275,6 +1275,7 @@ fn matches_filter_phase(
     event: &SyntheticEvent,
     current_phase: EventPhase,
 ) -> bool {
+
     // azul has no capture-phase listeners (no `addEventListener(…, capture=true)`
     // equivalent): every `EventFilter` is a bubble-phase listener, which by the W3C
     // model fires only in the Target and Bubble phases — never Capture. Without this
@@ -1382,7 +1383,7 @@ fn matches_hover_filter(
         // A keyboard activation counts as a LEFT activation - it carries no
         // button data, so `check_mouse_button` cannot answer for it - which
         // is the W3C activation behaviour Enter and Space implement.
-        (MouseUp | LeftMouseUp, EventType::Click) => true,
+        (HoverEventFilter::Click, EventType::Click) => true,
         (LeftMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Left),
         (RightMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Right),
         (MiddleMouseUp, EventType::MouseUp) => check_mouse_button(&event.data, MouseButton::Middle),
@@ -1925,6 +1926,12 @@ pub enum HoverEventFilter {
     RightMouseDown,
     /// Middle mouse button pressed on the hovered element
     MiddleMouseDown,
+    /// A completed ACTIVATION on this element: press and release on the same
+    /// node, per W3C `click`. This - not `MouseUp` - is what "the user
+    /// activated this control" means, and it is what Enter/Space on a focused
+    /// element and an assistive technology's default action also dispatch.
+    /// `MouseUp` stays the raw pointer-release event.
+    Click,
     /// Any mouse button released on the hovered element
     MouseUp,
     /// Left mouse button released on the hovered element
@@ -2097,6 +2104,10 @@ impl HoverEventFilter {
             Self::LeftMouseDown => Some(FocusEventFilter::LeftMouseDown),
             Self::RightMouseDown => Some(FocusEventFilter::RightMouseDown),
             Self::MiddleMouseDown => Some(FocusEventFilter::MiddleMouseDown),
+            // Activation is HOVER-scoped: it targets the node that was
+            // activated, and dispatch already walks that node's ancestors, so
+            // there is no separate focus-scoped spelling to map onto.
+            Self::Click => None,
             Self::MouseUp => Some(FocusEventFilter::MouseUp),
             Self::LeftMouseUp => Some(FocusEventFilter::LeftMouseUp),
             Self::RightMouseUp => Some(FocusEventFilter::RightMouseUp),
@@ -2655,6 +2666,7 @@ impl From<On> for EventFilter {
             LeftMouseDown => Self::Hover(HoverEventFilter::LeftMouseDown),
             MiddleMouseDown => Self::Hover(HoverEventFilter::MiddleMouseDown),
             RightMouseDown => Self::Hover(HoverEventFilter::RightMouseDown),
+            On::Click => Self::Hover(HoverEventFilter::Click),
             MouseUp => Self::Hover(HoverEventFilter::MouseUp),
             LeftMouseUp => Self::Hover(HoverEventFilter::LeftMouseUp),
             MiddleMouseUp => Self::Hover(HoverEventFilter::MiddleMouseUp),
@@ -2673,12 +2685,15 @@ impl From<On> for EventFilter {
             FocusReceived => Self::Focus(FocusEventFilter::FocusReceived), // focus!
             FocusLost => Self::Focus(FocusEventFilter::FocusLost),         // focus!
 
-            // Accessibility events - treat as hover events (element-specific)
-            Default => Self::Hover(HoverEventFilter::MouseUp), // Default action = click
-            Collapse => Self::Hover(HoverEventFilter::MouseUp), // Collapse = click
-            Expand => Self::Hover(HoverEventFilter::MouseUp),  // Expand = click
-            Increment => Self::Hover(HoverEventFilter::MouseUp), // Increment = click
-            Decrement => Self::Hover(HoverEventFilter::MouseUp), // Decrement = click
+            // Accessibility events are ACTIVATIONS, so they map to `Click` -
+            // the same filter a pointer click and a keyboard Enter/Space
+            // reach. They used to map to `MouseUp`, which conflated
+            // activation with a raw pointer release.
+            Default => Self::Hover(HoverEventFilter::Click),
+            Collapse => Self::Hover(HoverEventFilter::Click),
+            Expand => Self::Hover(HoverEventFilter::Click),
+            Increment => Self::Hover(HoverEventFilter::Click),
+            Decrement => Self::Hover(HoverEventFilter::Click),
         }
     }
 }
@@ -2752,7 +2767,258 @@ pub fn deduplicate_synthetic_events(mut events: Vec<SyntheticEvent>) -> Vec<Synt
 #[allow(clippy::match_same_arms)]
 #[allow(clippy::too_many_lines)] // exhaustive EventType -> EventFilter mapping table
 #[must_use]
+/// Every `HoverEventFilter` variant, so planning can be derived from matching.
+static ALL_HOVER: &[HoverEventFilter] = &[
+    HoverEventFilter::MouseOver,
+    HoverEventFilter::MouseDown,
+    HoverEventFilter::LeftMouseDown,
+    HoverEventFilter::RightMouseDown,
+    HoverEventFilter::MiddleMouseDown,
+    HoverEventFilter::Click,
+    HoverEventFilter::MouseUp,
+    HoverEventFilter::LeftMouseUp,
+    HoverEventFilter::RightMouseUp,
+    HoverEventFilter::MiddleMouseUp,
+    HoverEventFilter::MouseEnter,
+    HoverEventFilter::MouseLeave,
+    HoverEventFilter::Scroll,
+    HoverEventFilter::ScrollStart,
+    HoverEventFilter::ScrollEnd,
+    HoverEventFilter::TextInput,
+    HoverEventFilter::VirtualKeyDown,
+    HoverEventFilter::VirtualKeyUp,
+    HoverEventFilter::HoveredFile,
+    HoverEventFilter::DroppedFile,
+    HoverEventFilter::HoveredFileCancelled,
+    HoverEventFilter::TouchStart,
+    HoverEventFilter::TouchMove,
+    HoverEventFilter::TouchEnd,
+    HoverEventFilter::TouchCancel,
+    HoverEventFilter::PenDown,
+    HoverEventFilter::PenMove,
+    HoverEventFilter::PenUp,
+    HoverEventFilter::PenEnter,
+    HoverEventFilter::PenLeave,
+    HoverEventFilter::PenSqueeze,
+    HoverEventFilter::PenDoubleTap,
+    HoverEventFilter::PenHover,
+    HoverEventFilter::GeolocationFix,
+    HoverEventFilter::GeolocationError,
+    HoverEventFilter::SensorChanged,
+    HoverEventFilter::GamepadInput,
+    HoverEventFilter::DragStart,
+    HoverEventFilter::Drag,
+    HoverEventFilter::DragEnd,
+    HoverEventFilter::DragEnter,
+    HoverEventFilter::DragOver,
+    HoverEventFilter::DragLeave,
+    HoverEventFilter::Drop,
+    HoverEventFilter::DoubleClick,
+    HoverEventFilter::LongPress,
+    HoverEventFilter::SwipeLeft,
+    HoverEventFilter::SwipeRight,
+    HoverEventFilter::SwipeUp,
+    HoverEventFilter::SwipeDown,
+    HoverEventFilter::PinchIn,
+    HoverEventFilter::PinchOut,
+    HoverEventFilter::RotateClockwise,
+    HoverEventFilter::RotateCounterClockwise,
+    HoverEventFilter::MouseOut,
+    HoverEventFilter::FocusIn,
+    HoverEventFilter::FocusOut,
+    HoverEventFilter::CompositionStart,
+    HoverEventFilter::CompositionUpdate,
+    HoverEventFilter::CompositionEnd,
+    HoverEventFilter::SystemTextSingleClick,
+    HoverEventFilter::SystemTextDoubleClick,
+    HoverEventFilter::SystemTextTripleClick,
+    HoverEventFilter::PermissionChanged,
+    HoverEventFilter::BiometricResult,
+    HoverEventFilter::ScreenColorPicked,
+    HoverEventFilter::KeyringResult,
+];
+
+/// Every `FocusEventFilter` variant, so planning can be derived from matching.
+static ALL_FOCUS: &[FocusEventFilter] = &[
+    FocusEventFilter::MouseOver,
+    FocusEventFilter::MouseDown,
+    FocusEventFilter::LeftMouseDown,
+    FocusEventFilter::RightMouseDown,
+    FocusEventFilter::MiddleMouseDown,
+    FocusEventFilter::MouseUp,
+    FocusEventFilter::LeftMouseUp,
+    FocusEventFilter::RightMouseUp,
+    FocusEventFilter::MiddleMouseUp,
+    FocusEventFilter::MouseEnter,
+    FocusEventFilter::MouseLeave,
+    FocusEventFilter::Scroll,
+    FocusEventFilter::ScrollStart,
+    FocusEventFilter::ScrollEnd,
+    FocusEventFilter::TextInput,
+    FocusEventFilter::VirtualKeyDown,
+    FocusEventFilter::VirtualKeyUp,
+    FocusEventFilter::FocusReceived,
+    FocusEventFilter::FocusLost,
+    FocusEventFilter::PenDown,
+    FocusEventFilter::PenMove,
+    FocusEventFilter::PenUp,
+    FocusEventFilter::DragStart,
+    FocusEventFilter::Drag,
+    FocusEventFilter::DragEnd,
+    FocusEventFilter::DragEnter,
+    FocusEventFilter::DragOver,
+    FocusEventFilter::DragLeave,
+    FocusEventFilter::Drop,
+    FocusEventFilter::DoubleClick,
+    FocusEventFilter::LongPress,
+    FocusEventFilter::SwipeLeft,
+    FocusEventFilter::SwipeRight,
+    FocusEventFilter::SwipeUp,
+    FocusEventFilter::SwipeDown,
+    FocusEventFilter::PinchIn,
+    FocusEventFilter::PinchOut,
+    FocusEventFilter::RotateClockwise,
+    FocusEventFilter::RotateCounterClockwise,
+    FocusEventFilter::FocusIn,
+    FocusEventFilter::FocusOut,
+    FocusEventFilter::CompositionStart,
+    FocusEventFilter::CompositionUpdate,
+    FocusEventFilter::CompositionEnd,
+    FocusEventFilter::Copy,
+    FocusEventFilter::Cut,
+    FocusEventFilter::Paste,
+    FocusEventFilter::DocumentEdit,
+];
+
+/// Every `WindowEventFilter` variant, so planning can be derived from matching.
+static ALL_WINDOW: &[WindowEventFilter] = &[
+    WindowEventFilter::MouseOver,
+    WindowEventFilter::MouseDown,
+    WindowEventFilter::LeftMouseDown,
+    WindowEventFilter::RightMouseDown,
+    WindowEventFilter::MiddleMouseDown,
+    WindowEventFilter::MouseUp,
+    WindowEventFilter::LeftMouseUp,
+    WindowEventFilter::RightMouseUp,
+    WindowEventFilter::MiddleMouseUp,
+    WindowEventFilter::MouseEnter,
+    WindowEventFilter::MouseLeave,
+    WindowEventFilter::Scroll,
+    WindowEventFilter::ScrollStart,
+    WindowEventFilter::ScrollEnd,
+    WindowEventFilter::TextInput,
+    WindowEventFilter::VirtualKeyDown,
+    WindowEventFilter::VirtualKeyUp,
+    WindowEventFilter::HoveredFile,
+    WindowEventFilter::DroppedFile,
+    WindowEventFilter::HoveredFileCancelled,
+    WindowEventFilter::Resized,
+    WindowEventFilter::Moved,
+    WindowEventFilter::FrameChanged,
+    WindowEventFilter::TouchStart,
+    WindowEventFilter::TouchMove,
+    WindowEventFilter::TouchEnd,
+    WindowEventFilter::TouchCancel,
+    WindowEventFilter::FocusReceived,
+    WindowEventFilter::FocusLost,
+    WindowEventFilter::CloseRequested,
+    WindowEventFilter::ThemeChanged,
+    WindowEventFilter::WindowFocusReceived,
+    WindowEventFilter::WindowFocusLost,
+    WindowEventFilter::PenDown,
+    WindowEventFilter::PenMove,
+    WindowEventFilter::PenUp,
+    WindowEventFilter::PenEnter,
+    WindowEventFilter::PenLeave,
+    WindowEventFilter::PenSqueeze,
+    WindowEventFilter::PenDoubleTap,
+    WindowEventFilter::PenHover,
+    WindowEventFilter::GeolocationFix,
+    WindowEventFilter::GeolocationError,
+    WindowEventFilter::SensorChanged,
+    WindowEventFilter::GamepadInput,
+    WindowEventFilter::DragStart,
+    WindowEventFilter::Drag,
+    WindowEventFilter::DragEnd,
+    WindowEventFilter::DragEnter,
+    WindowEventFilter::DragOver,
+    WindowEventFilter::DragLeave,
+    WindowEventFilter::Drop,
+    WindowEventFilter::DoubleClick,
+    WindowEventFilter::LongPress,
+    WindowEventFilter::SwipeLeft,
+    WindowEventFilter::SwipeRight,
+    WindowEventFilter::SwipeUp,
+    WindowEventFilter::SwipeDown,
+    WindowEventFilter::PinchIn,
+    WindowEventFilter::PinchOut,
+    WindowEventFilter::RotateClockwise,
+    WindowEventFilter::RotateCounterClockwise,
+    WindowEventFilter::DpiChanged,
+    WindowEventFilter::MonitorChanged,
+    WindowEventFilter::PermissionChanged,
+    WindowEventFilter::BiometricResult,
+    WindowEventFilter::ScreenColorPicked,
+    WindowEventFilter::KeyringResult,
+];
+
+/// Which listeners an event should reach.
+///
+/// DERIVED from `matches_filter_phase`, the phase-matching table, so the two
+/// can no longer disagree. They used to be two hand-written tables that had
+/// to be kept in step by discipline, and an exhaustive cross-product found 61
+/// pairs where they had drifted - in BOTH directions. A filter the matcher
+/// accepts but planning never emitted produced a listener that could never
+/// fire (pen enter/leave, scroll start/end, every focus-scoped drag event);
+/// a filter planned but not matched collected a callback and dropped it. The
+/// visible symptoms were Enter/Space activating nothing and, briefly, a
+/// pointer click activating a control TWICE.
+///
+/// Dispatch sites use this to decide which callbacks to COLLECT and then ask
+/// the matcher again per callback, so "collected" and "fired" now answer to
+/// one table.
+///
+/// Cost: one pass over the filter universe per EVENT (not per node, not per
+/// callback) - a few hundred `match` arms, nanoseconds, and it happens once
+/// where the old table was also built once.
+#[must_use]
 pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> Vec<EventFilter> {
+    // Built through the public constructor so a new field on `SyntheticEvent`
+    // cannot silently change what planning probes with.
+    let probe = SyntheticEvent::new(
+        event_type,
+        EventSource::User,
+        DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: crate::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(0))),
+        },
+        crate::task::Instant::Tick(crate::task::SystemTick::new(0)),
+        event_data.clone(),
+    );
+
+    let mut out = Vec::new();
+    for f in ALL_HOVER {
+        if matches_filter_phase(EventFilter::Hover(*f), &probe, EventPhase::Bubble) {
+            out.push(EventFilter::Hover(*f));
+        }
+    }
+    for f in ALL_FOCUS {
+        if matches_filter_phase(EventFilter::Focus(*f), &probe, EventPhase::Bubble) {
+            out.push(EventFilter::Focus(*f));
+        }
+    }
+    for f in ALL_WINDOW {
+        if matches_filter_phase(EventFilter::Window(*f), &probe, EventPhase::Bubble) {
+            out.push(EventFilter::Window(*f));
+        }
+    }
+    out
+}
+
+fn event_type_to_filters_legacy_hint(
+    event_type: EventType,
+    event_data: &EventData,
+) -> Vec<EventFilter> {
     use EventFilter as EF;
     use EventType as E;
     use FocusEventFilter as F;
@@ -2826,7 +3092,7 @@ pub fn event_type_to_filters(event_type: EventType, event_data: &EventData) -> V
         // `matches_hover_filter` table is what phase matching uses. Both
         // must agree, which is what the note on `matches_component_filter`
         // means by "de-sync dispatch".
-        E::Click => vec![EF::Hover(H::MouseUp), EF::Hover(H::LeftMouseUp)],
+        E::Click => vec![EF::Hover(H::Click)],
 
         // Other mouse events
         E::MouseOver => vec![EF::Hover(H::MouseOver)],

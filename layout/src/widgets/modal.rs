@@ -487,7 +487,7 @@ impl Modal {
                 .with_callbacks(
                     alloc::vec![CoreCallbackData {
                         event: azul_core::dom::EventFilter::Hover(
-                            azul_core::dom::HoverEventFilter::MouseUp,
+                            azul_core::dom::HoverEventFilter::Click,
                         ),
                         callback: CoreCallback {
                             cb: on_modal_close as usize,
@@ -1542,7 +1542,7 @@ mod autotest_generated {
         let entry = &cbs.as_ref()[0];
         assert_eq!(
             entry.event,
-            EventFilter::Hover(HoverEventFilter::MouseUp),
+            EventFilter::Hover(HoverEventFilter::Click),
             "the modal closes on mouse-up, not mouse-down"
         );
         assert_eq!(entry.callback.cb, on_modal_close as usize);

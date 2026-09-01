@@ -26,18 +26,30 @@
 //! warnings); `is_debug_enabled()` is a compile-time-constant `false` there, so
 //! the branch is dead and the logging machinery is never reached.
 
-#[cfg(feature = "debug-server")]
+// THE E2E EXECUTION ENGINE (op dispatch, `E2eTest`, the response types) is
+// available whenever EITHER feature is on. `e2e-scripting` exists precisely to
+// get this WITHOUT the HTTP server: a script handed over via `AZ_E2E=...`
+// needs no socket, and a shipped binary should not carry one. Gating these
+// re-exports on `debug-server` alone meant `e2e-scripting` compiled the engine
+// into azul-layout and then hid it, so AZ_E2E silently did nothing.
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 pub use azul_layout::e2e::*;
 
-#[cfg(feature = "debug-server")]
+// `platform` carries BOTH the HTTP server and the dll-side pieces the script
+// runner needs (the request-pump timer, and the host hooks that give the
+// `screenshot` op a real native screenshot). It compiles under either feature;
+// the socket itself is gated INSIDE, so `e2e-scripting` links no server.
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 mod platform;
-#[cfg(feature = "debug-server")]
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 pub use platform::*;
 
-#[cfg(not(feature = "debug-server"))]
+// The no-server, no-engine build keeps the stubs.
+#[cfg(not(any(feature = "debug-server", feature = "e2e-scripting")))]
 mod stub;
-#[cfg(not(feature = "debug-server"))]
+#[cfg(not(any(feature = "debug-server", feature = "e2e-scripting")))]
 pub use stub::*;
+
 
 // ==================== Logging Macros ====================
 

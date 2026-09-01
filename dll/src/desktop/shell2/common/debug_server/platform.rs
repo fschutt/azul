@@ -24,7 +24,7 @@ use alloc::vec::Vec;
 use std::sync::{mpsc, Arc, Mutex};
 
 use azul_layout::e2e::{
-    create_debug_timer, debug_server_port, handle_event_request, init_debug_server_statics,
+    create_debug_timer, debug_server_port, handle_event_request,
     is_debug_enabled, log, serialize_http_response, set_debug_server, take_logs, DebugHttpResponse,
     DebugHttpResponseError, DebugHttpResponseOk, DebugRequest, DebugServerHandle, HealthResponse,
     LogCategory, LogLevel, LogMessageJson, ResponseData,
@@ -43,7 +43,10 @@ use azul_layout::e2e::{
 /// Called once from `run()` when `AZ_DEBUG=<port>` is set.
 /// Subsequent calls return the existing handle (without a new receiver).
 #[cfg(feature = "std")]
+#[cfg(feature = "debug-server")]
 pub fn start_debug_server(port: u16) -> (Arc<DebugServerHandle>, spmc::Receiver<DebugRequest>) {
+    // HTTP-only: registering the served port has no meaning for a script run.
+    use azul_layout::e2e::init_debug_server_statics;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::thread;

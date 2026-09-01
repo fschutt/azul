@@ -381,7 +381,7 @@ impl Segmented {
                     .with_css_props(seg_style)
                     .with_callbacks(
                         vec![CoreCallbackData {
-                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                            event: EventFilter::Hover(HoverEventFilter::Click),
                             callback: CoreCallback {
                                 cb: on_segment_click as usize,
                                 ctx: OptionRefAny::None,
@@ -1956,7 +1956,7 @@ mod autotest_generated {
             assert_eq!(cbs.as_ref().len(), 1, "segment {i}: exactly one handler");
             assert_eq!(
                 cbs.as_ref()[0].event,
-                EventFilter::Hover(HoverEventFilter::MouseUp)
+                EventFilter::Hover(HoverEventFilter::Click)
             );
             assert_eq!(cbs.as_ref()[0].callback.cb, on_segment_click as usize);
             assert!(matches!(cbs.as_ref()[0].callback.ctx, OptionRefAny::None));

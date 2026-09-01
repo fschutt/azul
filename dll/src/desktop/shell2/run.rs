@@ -79,7 +79,7 @@ fn resolve_backend(options: &WindowCreateOptions) -> super::AzBackend {
 /// Check if E2E test runner mode is requested via environment variable.
 /// Returns `Some(path)` if `AZ_E2E` is set. Only meaningful in `debug-server`
 /// builds; the lean build has no E2E runner.
-#[cfg(feature = "debug-server")]
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 fn e2e_test_file() -> Option<String> {
     std::env::var("AZ_E2E").ok().filter(|s| !s.is_empty())
 }
@@ -105,13 +105,13 @@ pub(crate) fn warn_about_inert_env_knobs() {
     let gated: &[(&str, bool, &str, &str)] = &[
         (
             "AZ_E2E",
-            cfg!(feature = "debug-server"),
+            cfg!(any(feature = "debug-server", feature = "e2e-scripting")),
             "debug-server",
             "cargo build -p azul-dll --features build-dll,debug-server",
         ),
         (
             "AZ_DEBUG",
-            cfg!(feature = "debug-server"),
+            cfg!(any(feature = "debug-server", feature = "e2e-scripting")),
             "debug-server",
             "cargo build -p azul-dll --features build-dll,debug-server",
         ),
@@ -178,7 +178,7 @@ pub(crate) fn warn_about_inert_env_knobs() {
 /// Parse one E2E JSON file's contents — accept either a single test object
 /// or an array of them — appending into `out`. Exits the process on a parse
 /// error (a broken test file must be loud, never silently skipped).
-#[cfg(feature = "debug-server")]
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 fn load_e2e_json(path: &str, contents: &str, out: &mut Vec<debug_server::E2eTest>) {
     match serde_json::from_str::<Vec<debug_server::E2eTest>>(contents) {
         Ok(v) => out.extend(v),
@@ -195,7 +195,7 @@ fn load_e2e_json(path: &str, contents: &str, out: &mut Vec<debug_server::E2eTest
 /// Load all tests referenced by `AZ_E2E`. If it points at a DIRECTORY, every
 /// `*.json` inside it is loaded in sorted (deterministic) order and run as one
 /// batch in the single process/warmup; a single FILE keeps its old behavior.
-#[cfg(feature = "debug-server")]
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 fn load_e2e_tests(path: &str) -> Vec<debug_server::E2eTest> {
     let meta = match std::fs::metadata(path) {
         Ok(m) => m,
@@ -252,7 +252,7 @@ fn load_e2e_tests(path: &str) -> Vec<debug_server::E2eTest> {
     tests
 }
 
-#[cfg(feature = "debug-server")]
+#[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
 fn setup_e2e_runner(test_file: &str) {
     let tests = load_e2e_tests(test_file);
     if tests.is_empty() {
@@ -472,13 +472,13 @@ fn setup_debug_and_e2e(
     Option<Arc<Mutex<azul_core::xml::ComponentMap>>>,
 ) {
     // Lean build: no debug server, no E2E runner — AZ_DEBUG/AZ_E2E are no-ops.
-    #[cfg(not(feature = "debug-server"))]
+    #[cfg(not(any(feature = "debug-server", feature = "e2e-scripting")))]
     {
         let _ = config;
         (None, None)
     }
 
-    #[cfg(feature = "debug-server")]
+    #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
     {
         // The op dispatcher lives in `azul_layout::e2e` and reaches back into
         // this crate for the native screenshot + the DOM mount override. Install
@@ -493,10 +493,21 @@ fn setup_debug_and_e2e(
             let cm = Arc::new(Mutex::new(azul_core::xml::ComponentMap::from_libraries(
                 &config.component_libraries,
             )));
+            // The HTTP transport only exists in a `debug-server` build. A
+            // scripting build (`AZ_E2E=...`, no port) uses the same in-process
+            // channel the server would have fed, so the op pipeline below is
+            // identical either way.
+            #[cfg(feature = "debug-server")]
             let rx = if let Some(port) = debug_port {
                 let (_handle, rx) = debug_server::start_debug_server(port);
                 rx
             } else {
+                let (_handle, rx) = debug_server::create_debug_channel();
+                rx
+            };
+            #[cfg(not(feature = "debug-server"))]
+            let rx = {
+                let _ = debug_port;
                 let (_handle, rx) = debug_server::create_debug_channel();
                 rx
             };

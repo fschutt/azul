@@ -278,7 +278,7 @@ impl CheckBox {
             .with_css_props(self.container_style)
             .with_callbacks(
                 vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    event: EventFilter::Hover(HoverEventFilter::Click),
                     callback: CoreCallback {
                         cb: input::default_on_checkbox_clicked as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
@@ -1216,7 +1216,7 @@ mod autotest_generated {
             );
             assert_eq!(
                 callbacks[0].event,
-                EventFilter::Hover(HoverEventFilter::MouseUp),
+                EventFilter::Hover(HoverEventFilter::Click),
                 "checked={checked}: the checkbox must toggle on mouse-up",
             );
             assert_eq!(

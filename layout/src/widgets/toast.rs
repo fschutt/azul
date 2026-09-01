@@ -511,7 +511,7 @@ impl Toast {
             })
                 .with_callbacks(
                     alloc::vec![CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        event: EventFilter::Hover(HoverEventFilter::Click),
                         callback: CoreCallback {
                             cb: default_on_toast_dismiss as usize,
                             ctx: OptionRefAny::None,
@@ -1750,7 +1750,7 @@ mod autotest_generated {
         let cb = &callbacks.as_ref()[0];
         assert!(matches!(
             &cb.event,
-            EventFilter::Hover(HoverEventFilter::MouseUp)
+            EventFilter::Hover(HoverEventFilter::Click)
         ));
         assert_eq!(cb.callback.cb, default_on_toast_dismiss as usize);
         assert!(matches!(&cb.callback.ctx, OptionRefAny::None));

@@ -13083,8 +13083,11 @@ impl LayoutWindow {
                     node: hierarchy_id,
                 };
 
-                // Default action maps to a synthetic MouseUp (click) event
-                let event_filter = EventFilter::Hover(HoverEventFilter::MouseUp);
+                // The default action IS an activation, so it resolves to the
+                // `Click` filter - the same one a pointer click and a
+                // keyboard Enter/Space reach. It used to resolve to MouseUp,
+                // conflating activation with a raw pointer release.
+                let event_filter = EventFilter::Hover(HoverEventFilter::Click);
 
                 affected_nodes.insert(dom_node_id, (vec![event_filter], false));
             }

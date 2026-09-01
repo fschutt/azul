@@ -723,7 +723,7 @@ impl DatePicker {
             })
             .with_callbacks(
                 alloc::vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    event: EventFilter::Hover(HoverEventFilter::Click),
                     refany: shared,
                     callback: CoreCallback {
                         cb: on_date_field_toggle as usize,
@@ -766,7 +766,7 @@ fn build_header(year: u32, month: u32, shared: RefAny) -> Dom {
             .with_css_props(CssPropertyWithConditionsVec::from_const_slice(NAV_BTN_STYLE))
             .with_callbacks(
                 alloc::vec![CoreCallbackData {
-                    event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                    event: EventFilter::Hover(HoverEventFilter::Click),
                     callback: CoreCallback {
                         cb,
                         ctx: OptionRefAny::None,
@@ -869,7 +869,7 @@ fn build_day_cell(day: u32, selected: bool, shared: RefAny) -> Dom {
         .with_css_props(build_day_cell_style(selected))
         .with_callbacks(
             alloc::vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                event: EventFilter::Hover(HoverEventFilter::Click),
                 callback: CoreCallback {
                     cb: on_day_click as usize,
                     ctx: OptionRefAny::None,
@@ -2682,7 +2682,7 @@ mod autotest_generated {
             let cbs = cell.root.callbacks.as_ref();
             if text_of(cell).is_some() {
                 assert_eq!(cbs.len(), 1, "a day cell must register exactly one handler");
-                assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::MouseUp));
+                assert_eq!(cbs[0].event, EventFilter::Hover(HoverEventFilter::Click));
                 assert_eq!(cbs[0].callback.cb, on_day_click as usize);
                 assert_eq!(
                     cell.root.flags.get_tab_index(),

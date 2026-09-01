@@ -418,7 +418,7 @@ fn render_node(
         };
         row = row.with_callbacks(
             vec![CoreCallbackData {
-                event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                event: EventFilter::Hover(HoverEventFilter::Click),
                 refany: RefAny::new(cb_data),
                 callback: CoreCallback {
                     cb: on_tree_node_click as usize,
@@ -1582,7 +1582,7 @@ mod autotest_generated {
             assert_eq!(cbs.as_ref().len(), 1, "exactly one click callback per row");
             assert_eq!(
                 cbs.as_ref()[0].event,
-                EventFilter::Hover(HoverEventFilter::MouseUp),
+                EventFilter::Hover(HoverEventFilter::Click),
                 "rows fire on mouse-up"
             );
         }

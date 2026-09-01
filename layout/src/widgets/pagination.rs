@@ -414,7 +414,7 @@ impl Pagination {
                     .with_css_props(style)
                     .with_callbacks(
                         vec![CoreCallbackData {
-                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                            event: EventFilter::Hover(HoverEventFilter::Click),
                             callback: CoreCallback {
                                 cb: on_page_click as usize,
                                 ctx: OptionRefAny::None,
@@ -1608,7 +1608,7 @@ mod autotest_generated {
             );
             assert_eq!(
                 cbs.as_ref()[0].event,
-                EventFilter::Hover(HoverEventFilter::MouseUp)
+                EventFilter::Hover(HoverEventFilter::Click)
             );
             assert_eq!(cbs.as_ref()[0].callback.cb, on_page_click as usize);
             assert_eq!(

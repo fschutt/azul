@@ -648,7 +648,7 @@ impl ComboBox {
             .with_callbacks(
                 alloc::vec![
                     CoreCallbackData {
-                        event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                        event: EventFilter::Hover(HoverEventFilter::Click),
                         callback: CoreCallback {
                             cb: on_combobox_toggle as usize,
                             ctx: OptionRefAny::None,
@@ -692,7 +692,7 @@ impl ComboBox {
                     })
                     .with_callbacks(
                         alloc::vec![CoreCallbackData {
-                            event: EventFilter::Hover(HoverEventFilter::MouseUp),
+                            event: EventFilter::Hover(HoverEventFilter::Click),
                             callback: CoreCallback {
                                 cb: on_combobox_option_click as usize,
                                 ctx: OptionRefAny::None,
@@ -1766,7 +1766,7 @@ mod autotest_generated {
         assert_eq!(cbs.len(), 3);
         assert_eq!(
             cbs.as_ref()[0].event,
-            EventFilter::Hover(HoverEventFilter::MouseUp)
+            EventFilter::Hover(HoverEventFilter::Click)
         );
         assert_eq!(cbs.as_ref()[0].callback.cb, on_combobox_toggle as usize);
         assert_eq!(
@@ -1789,7 +1789,7 @@ mod autotest_generated {
             assert_eq!(cbs.len(), 1);
             assert_eq!(
                 cbs.as_ref()[0].event,
-                EventFilter::Hover(HoverEventFilter::MouseUp)
+                EventFilter::Hover(HoverEventFilter::Click)
             );
             assert_eq!(
                 cbs.as_ref()[0].callback.cb,
