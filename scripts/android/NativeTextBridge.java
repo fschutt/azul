@@ -33,6 +33,7 @@ import android.os.Build;
 import android.text.Editable;
 import android.text.SpannableStringBuilder;
 import android.view.View;
+import android.util.Log;
 import android.view.WindowInsets;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
@@ -55,12 +56,23 @@ public final class NativeTextBridge {
             // does anything for a view that is focused AND is a text editor,
             // and it is the focused view the IME asks for an InputConnection.
             View view = inputView != null ? inputView : activity.getWindow().getDecorView();
-            view.requestFocus();
+            boolean focused = view.requestFocus();
             InputMethodManager imm =
                     (InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE);
+            boolean shown = false;
             if (imm != null) {
-                imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT);
+                // SHOW_IMPLICIT is the polite flag and can be ignored — most
+                // visibly when the view was not actually focused. Retry
+                // unconditionally in that case rather than silently doing
+                // nothing.
+                shown = imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT);
+                if (!shown) {
+                    shown = imm.showSoftInput(view, 0);
+                }
             }
+            Log.i("azul", "NativeTextBridge.showKeyboard: view=" + (inputView != null ? "input" : "decor")
+                    + " focused=" + focused + " shown=" + shown
+                    + " isTextEditor=" + view.onCheckIsTextEditor());
         });
     }
 
@@ -189,8 +201,13 @@ public final class NativeTextBridge {
                 return;
             }
             inputView = new AzulInputView(activity, nativePtr);
+            // 1x1, NOT 0x0. A zero-size view is not focusable — the framework
+            // skips it in focus search and `showSoftInput` then has no served
+            // view to attach the IME to, so the keyboard silently never
+            // appears even though every call returns success.
             activity.addContentView(inputView,
-                    new android.view.ViewGroup.LayoutParams(0, 0));
+                    new android.view.ViewGroup.LayoutParams(1, 1));
+            Log.i("azul", "NativeTextBridge: input view installed");
         });
     }
 
