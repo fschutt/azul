@@ -443,8 +443,6 @@ impl WacomPadState {
 /// The manager now uses `DragContext` to unify all drag types:
 /// - `active_drag`: The unified drag context (replaces individual drag states)
 ///
-/// For backwards compatibility, the old `node_drag`, `window_drag`, `file_drop`
-/// fields are still accessible but deprecated.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GestureAndDragManager {
     /// Configuration for gesture detection

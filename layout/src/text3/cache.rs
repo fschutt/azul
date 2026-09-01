@@ -5312,8 +5312,7 @@ impl UnifiedLayout {
     /// untyped for the text-layout unit tests, which construct layouts
     /// directly and have no boxes, padding or scrolling to speak of.
     ///
-    /// This is the unified hit-testing implementation. The old `hit_test_to_cursor`
-    /// method is deprecated in favor of this one.
+    /// This is the unified hit-testing implementation.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
     #[must_use]
     pub fn hittest_cursor(&self, point: LogicalPosition) -> Option<TextCursor> {
