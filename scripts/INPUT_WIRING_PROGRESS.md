@@ -94,6 +94,15 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 9c
+
+- [ ] 9c-i Other dial backends: Win32 `RadialController` (needs WinRT interop, and is the only one that
+      reports `contact_position`), Android `SOURCE_ROTARY_ENCODER` for a Wear crown, Apple Digital Crown.
+      The type and the accessor are in place; each is a backend, not a design question.
+- [ ] 9c-ii No `DialRotate` / `DialClick` FILTERS yet — the dial is readable via
+      `CallbackInfo::get_dial_state()` but not subscribable. Adding them means the full four layers plus
+      two `EventType` variants appended at the end.
+
 ### Follow-ups opened by 9b
 
 - [ ] 9b-i `pointer_source` is fed only on Wayland (from `axis_source` and the tablet bridge). Win32 can
@@ -125,7 +134,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ### Follow-ups opened by 8c/8d
 
-- [ ] 8d-i `WacomPadState.dial_delta` is modelled but has NO producer: `get_tablet_pad_dial_v2_interface()`
+- [x] 8d-i `WacomPadState.dial_delta` is modelled but has NO producer: `get_tablet_pad_dial_v2_interface()`
       exists (from #450) yet no `zwp_tablet_pad_dial_v2` listener is ever registered, and the pad-group
       listener has no `dial` member. Bind it the way ring/strip are bound. This is also the field a future
       `DialState` (item 9c) should read, so do 8d-i first.
@@ -253,7 +262,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       events; `device_id` on mouse and key events. NOTE: #450 already delivered the *tablet* half
       (`TabletDeviceInfo`, matching `device_id` on `PenState`/`WacomPadState`) — this item is now the
       mouse/keyboard half plus the per-event `PointerSource` discriminator. Model it on `TabletDeviceInfo`.
-- [ ] 9c `DialState { device_id, delta_rad, detent_count, pressed, contact_position }` + `DialRotate`/`DialClick`
+- [x] 9c (type + Wayland producer done; Surface Dial / crown backends are 9c-i) `DialState { device_id, delta_rad, detent_count, pressed, contact_position }` + `DialRotate`/`DialClick`
       filters; wire Wayland `zwp_tablet_pad_dial_v2` (already bound) as the first producer.
 - [ ] 9d `RawMouseMotion` window filter + pointer-lock request path; Win32 `WM_INPUT`,
       Wayland `zwp_relative_pointer_v1` + `zwp_pointer_constraints_v1`, X11 `XI_RawMotion`.

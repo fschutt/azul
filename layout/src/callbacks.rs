@@ -4882,6 +4882,17 @@ impl CallbackInfo {
         self.get_current_mouse_state().pointer_device_id
     }
 
+    /// The most recent rotary-control rotation — a tablet pad dial, a Surface
+    /// Dial, a Wear crown. `None` until one reports.
+    ///
+    /// `delta_rad` is rotation SINCE THE LAST FRAME, not an angle: a dial has
+    /// no endstops, so there is no absolute position to read. Integrate it
+    /// into whatever value the dial controls.
+    #[must_use]
+    pub fn get_dial_state(&self) -> Option<crate::managers::gesture::DialState> {
+        self.get_gesture_drag_manager().get_dial_state()
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     #[must_use]

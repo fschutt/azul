@@ -1250,6 +1250,23 @@ extern "C" fn pad_group_mode_switch(
     window.tablet_pad.mode = mode;
     window.handle_tablet_pad_frame();
 }
+/// `zwp_tablet_pad_group_v2.dial` — a dial was announced on this group.
+extern "C" fn pad_group_dial(
+    data: *mut c_void,
+    _g: *mut zwp_tablet_pad_group_v2,
+    id: *mut zwp_tablet_pad_dial_v2,
+) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    unsafe {
+        (window.wayland.zwp_tablet_pad_dial_v2_add_listener)(
+            id,
+            &ZWP_TABLET_PAD_DIAL_LISTENER,
+            data,
+        )
+    };
+    window.track_listener(id);
+}
+
 static ZWP_TABLET_PAD_GROUP_LISTENER: zwp_tablet_pad_group_v2_listener =
     zwp_tablet_pad_group_v2_listener {
         buttons: pad_group_buttons,
@@ -1258,6 +1275,35 @@ static ZWP_TABLET_PAD_GROUP_LISTENER: zwp_tablet_pad_group_v2_listener =
         modes: pad_group_modes,
         done: pad_group_done,
         mode_switch: pad_group_mode_switch,
+        dial: pad_group_dial,
+    };
+
+/// `zwp_tablet_pad_dial_v2.delta` — rotation since the last frame.
+///
+/// Sent in 1/120ths of a degree, the same unit as `axis_value120`: 120 is one
+/// detent and a high-resolution dial reports fractions of one. Converted to
+/// radians here so callers never have to know that.
+extern "C" fn pad_dial_delta(data: *mut c_void, _d: *mut zwp_tablet_pad_dial_v2, delta120: i32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    let degrees = delta120 as f32 / 120.0;
+    // Accumulated, not assigned: several delta events can arrive before the
+    // frame that publishes them, and taking only the last would silently drop
+    // rotation during a fast spin.
+    window.tablet_pad.dial_delta += degrees.to_radians();
+}
+
+extern "C" fn pad_dial_frame(data: *mut c_void, _d: *mut zwp_tablet_pad_dial_v2, _time: u32) {
+    let window = unsafe { &mut *(data as *mut WaylandWindow) };
+    window.handle_tablet_pad_frame();
+    // A delta is consumed by the frame that reports it — leaving it would make
+    // the next frame re-report rotation that already happened.
+    window.tablet_pad.dial_delta = 0.0;
+}
+
+static ZWP_TABLET_PAD_DIAL_LISTENER: zwp_tablet_pad_dial_v2_listener =
+    zwp_tablet_pad_dial_v2_listener {
+        delta: pad_dial_delta,
+        frame: pad_dial_frame,
     };
 
 extern "C" fn pad_ring_source(_d: *mut c_void, _r: *mut zwp_tablet_pad_ring_v2, _s: u32) {}

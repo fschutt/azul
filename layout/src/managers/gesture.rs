@@ -653,6 +653,8 @@ pub struct GestureAndDragManager {
     /// Force Touch stage from the last `pressureChangeWithEvent:`. 0 none,
     /// 1 a normal click, 2 a force click. macOS-only; 0 elsewhere.
     pub trackpad_pressure_stage: i32,
+    /// Most recent rotary-control rotation. `None` until a dial reports.
+    pub dial_state: Option<DialState>,
     /// Monotonic nanos of the previous pen sample (rate measurement);
     /// cleared on proximity-out so a gap never reads as a slow rate.
     pub last_pen_sample_nanos: Option<u64>,
@@ -751,6 +753,7 @@ impl GestureAndDragManager {
             previous_pen_state: None,
             pen_event_pending: false,
             trackpad_pressure_stage: 0,
+            dial_state: None,
             last_pen_sample_nanos: None,
             pen_rate_ema_hz: 0.0,
             pad_state: None,
@@ -1229,6 +1232,23 @@ impl GestureAndDragManager {
         if let Some(ref mut p) = self.pen_state {
             p.tool_kind = kind;
         }
+    }
+
+    /// Record a dial rotation.
+    ///
+    /// Called by whichever backend owns the dial — the Wayland tablet pad
+    /// today, a `RadialController` or a crown later. The manager keeps the
+    /// most recent frame rather than accumulating: a delta belongs to the
+    /// frame that reported it, and an app that misses a frame wants the next
+    /// rotation, not a stale sum.
+    pub fn update_dial_state(&mut self, state: DialState) {
+        self.dial_state = Some(state);
+    }
+
+    /// The most recent dial rotation, if any dial has reported.
+    #[must_use]
+    pub const fn get_dial_state(&self) -> Option<DialState> {
+        self.dial_state
     }
 
     /// Clear pen state (when pen leaves proximity)
@@ -3961,4 +3981,38 @@ mod autotest_generated {
         assert_ne!(s.samples[0].event_id, s.samples[1].event_id);
         assert!(s.samples[0].event_id < s.samples[1].event_id);
     }
+}
+
+/// One rotary control — a dial, wheel or crown.
+///
+/// Four platforms converged on the same primitive independently: Microsoft's
+/// `RadialController` (the Surface Dial), Wayland's `zwp_tablet_pad_dial_v2`,
+/// Android's `SOURCE_ROTARY_ENCODER` (a Wear crown) and the Apple Digital
+/// Crown. One type covers all four because they agree on what a dial is.
+///
+/// Rotation is a DELTA, not a position, and that is the defining property: a
+/// dial has no endstops, so there is no absolute angle to report and no
+/// meaningful zero to return to. An app integrates the deltas into whatever
+/// value it is controlling.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(C)]
+pub struct DialState {
+    /// Which dial, when a device has more than one. `0` = unidentified.
+    pub device_id: u64,
+    /// Rotation since the last frame, in radians. Positive is clockwise.
+    pub delta_rad: f32,
+    /// Detents crossed since the last frame, for a dial with physical
+    /// clicks. `0.0` on a smooth dial. Fractional on a high-resolution one,
+    /// for the same reason `axis_value120` is.
+    pub detent_count: f32,
+    /// Whether the dial is currently pressed. Surface Dial and most crowns
+    /// click; a tablet pad dial usually does not.
+    pub pressed: bool,
+    /// Where the dial sits on screen, when it is ON the screen.
+    ///
+    /// Only the Surface Dial on a Surface Studio reports this — the device is
+    /// physically placed on the display and the OS gives its contact point, so
+    /// an app can draw a radial menu around it. `None` everywhere else,
+    /// including for the same Dial used off-screen.
+    pub contact_position: azul_core::window::OptionLogicalPosition,
 }

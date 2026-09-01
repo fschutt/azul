@@ -3625,7 +3625,26 @@ impl WaylandWindow {
         }
         let result = self.process_window_events(0);
         self.handle_process_event_result(result);
-    }
+    
+        // Publish the dial alongside the pad. It rides the pad frame because
+        // that is the frame the protocol delivers it in — a dial belongs to a
+        // pad group, not to a device of its own.
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            if self.tablet_pad.dial_delta != 0.0 {
+                lw.gesture_drag_manager
+                    .update_dial_state(azul_layout::managers::gesture::DialState {
+                        device_id: self.tablet_pad.device_id,
+                        delta_rad: self.tablet_pad.dial_delta,
+                        // A tablet-pad dial is smooth: the protocol reports
+                        // rotation, never clicks.
+                        detent_count: 0.0,
+                        pressed: false,
+                        // Never on-screen — that is a Surface Studio property.
+                        contact_position: azul_core::window::OptionLogicalPosition::None,
+                    });
+            }
+        }
+}
 
     /// Feed the accumulated tablet pen state on the tool's `frame` event —
     /// and drive the POINTER pipeline from it.

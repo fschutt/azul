@@ -239,6 +239,11 @@ pub struct Wayland {
         *const zwp_tablet_seat_v2_listener,
         *mut c_void,
     ) -> i32,
+    pub zwp_tablet_pad_dial_v2_add_listener: unsafe extern "C" fn(
+        *mut zwp_tablet_pad_dial_v2,
+        *const zwp_tablet_pad_dial_v2_listener,
+        *mut c_void,
+    ) -> i32,
     pub zwp_tablet_v2_add_listener:
         unsafe extern "C" fn(*mut zwp_tablet_v2, *const zwp_tablet_v2_listener, *mut c_void) -> i32,
     pub zwp_tablet_tool_v2_add_listener: unsafe extern "C" fn(
@@ -566,6 +571,9 @@ impl Wayland {
                 std::mem::transmute(wl_proxy_add_listener_ptr)
             },
             zwp_tablet_seat_v2_add_listener: unsafe {
+                std::mem::transmute(wl_proxy_add_listener_ptr)
+            },
+            zwp_tablet_pad_dial_v2_add_listener: unsafe {
                 std::mem::transmute(wl_proxy_add_listener_ptr)
             },
             zwp_tablet_v2_add_listener: unsafe { std::mem::transmute(wl_proxy_add_listener_ptr) },

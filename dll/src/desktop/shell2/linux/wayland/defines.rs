@@ -1801,6 +1801,34 @@ pub struct zwp_tablet_pad_group_v2_listener {
         serial: u32,
         mode: u32,
     ),
+    /// `dial` — announces a `zwp_tablet_pad_dial_v2`, since protocol v2.
+    ///
+    /// ⚠ This member is not optional. `wl_proxy_add_listener` dispatches by
+    /// EVENT INDEX into this struct, and the interface descriptor below
+    /// declares `event_count: 7` with `dial` as the seventh. While the struct
+    /// had six members, a v2 compositor announcing a dial would have read a
+    /// function pointer one slot past the end of it and called whatever was
+    /// there. Any listener struct must match its descriptor's event count
+    /// exactly.
+    pub dial: extern "C" fn(
+        data: *mut c_void,
+        group: *mut zwp_tablet_pad_group_v2,
+        id: *mut zwp_tablet_pad_dial_v2,
+    ),
+}
+
+/// `zwp_tablet_pad_dial_v2` — a rotary control on a tablet pad.
+///
+/// The same primitive as a Surface Dial, a Wear crown or an Apple Digital
+/// Crown: rotation with no endstops, reported as a DELTA rather than a
+/// position, because there is no absolute angle to report.
+#[repr(C)]
+pub struct zwp_tablet_pad_dial_v2_listener {
+    /// `delta` — rotation since the last frame, in 1/120ths of a degree.
+    /// The 120 is the same unit `axis_value120` uses, for the same reason:
+    /// a detent is 120 and a high-resolution dial reports fractions of one.
+    pub delta: extern "C" fn(data: *mut c_void, dial: *mut zwp_tablet_pad_dial_v2, delta120: i32),
+    pub frame: extern "C" fn(data: *mut c_void, dial: *mut zwp_tablet_pad_dial_v2, time: u32),
 }
 
 /// Listener for `zwp_tablet_pad_ring_v2`. `angle` is wl_fixed DEGREES (0..360),
