@@ -43,10 +43,10 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ## Step 0 — ratchet
 
-- [ ] 0a `core/src/events_test.rs`: extend `event_type_to_filters_never_panics_and_stays_synced_with_the_hover_matcher`
+- [x] 0a `core/src/events_test.rs`: extend `event_type_to_filters_never_panics_and_stays_synced_with_the_hover_matcher`
       from 2 layers × Hover to 4 layers × {Hover, Focus, Window}. Assert planning emits the filter, matcher accepts,
       phase gate passes. Keep `KNOWN_DESYNC` as the subset allow-list; entries get deleted as items below land.
-- [ ] 0b Prune the 6 stale `KNOWN_DESYNC` entries (`MouseOut`, `FocusIn`, `FocusOut`, `Composition{Start,Update,End}`)
+- [x] 0b Prune the 6 stale `KNOWN_DESYNC` entries (`MouseOut`, `FocusIn`, `FocusOut`, `Composition{Start,Update,End}`)
       — their matcher arms exist at `events.rs:1438-1443`, so the entries protect nothing.
 
 ## Step 1 — C1: planning omissions (14 variants, zero shell work)
@@ -66,7 +66,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 - [x] 2a Split `E::Scroll | E::ScrollStart | E::ScrollEnd => vec![EF::Hover(H::Scroll)]` into three arms, each
       emitting its own Hover + Focus + Window variant.
-- [ ] 2b Matcher arms: `(RightMouseDown, EventType::ContextMenu)`, `(TextInput, EventType::KeyPress)`,
+- [x] 2b Matcher arms: `(RightMouseDown, EventType::ContextMenu)`, `(TextInput, EventType::KeyPress)`,
       `(TextInput, EventType::Change)`.
 - [ ] 2c Emit `ScrollStart`/`ScrollEnd` from the `ScrollInputSource` transitions the physics timer already computes
       (`layout/src/managers/scroll_state.rs` + callers).

@@ -1407,6 +1407,20 @@ fn matches_hover_filter(
         (ScrollStart, EventType::ScrollStart) => true,
         (ScrollEnd, EventType::ScrollEnd) => true,
         (TextInput, EventType::Input) => true,
+        // `KeyPress` (a key that produced a character) and `Change` (a value
+        // committed on blur) both plan onto the `TextInput` filter, which is
+        // what an app registers for "text arrived here". Planning named that
+        // filter and this table then rejected it, so both dispatched to
+        // nothing.
+        (TextInput, EventType::KeyPress) => true,
+        (TextInput, EventType::Change) => true,
+        // A context-menu request is not a `MouseDown`, so the button-payload
+        // check on the `RightMouseDown` arm cannot answer for it. Routing it
+        // to the same filter means the Menu/Apps key, Shift+F10 and the
+        // accessibility `ShowContextMenu` action all reach the handler an app
+        // already registered for right-click, without inventing a new filter
+        // variant for each spelling of "open the context menu".
+        (RightMouseDown, EventType::ContextMenu) => true,
         (VirtualKeyDown, EventType::KeyDown) => true,
         (VirtualKeyUp, EventType::KeyUp) => true,
         (HoveredFile, EventType::FileHover) => true,
@@ -1574,6 +1588,20 @@ fn matches_window_filter(
         (ScrollStart, EventType::ScrollStart) => true,
         (ScrollEnd, EventType::ScrollEnd) => true,
         (TextInput, EventType::Input) => true,
+        // `KeyPress` (a key that produced a character) and `Change` (a value
+        // committed on blur) both plan onto the `TextInput` filter, which is
+        // what an app registers for "text arrived here". Planning named that
+        // filter and this table then rejected it, so both dispatched to
+        // nothing.
+        (TextInput, EventType::KeyPress) => true,
+        (TextInput, EventType::Change) => true,
+        // A context-menu request is not a `MouseDown`, so the button-payload
+        // check on the `RightMouseDown` arm cannot answer for it. Routing it
+        // to the same filter means the Menu/Apps key, Shift+F10 and the
+        // accessibility `ShowContextMenu` action all reach the handler an app
+        // already registered for right-click, without inventing a new filter
+        // variant for each spelling of "open the context menu".
+        (RightMouseDown, EventType::ContextMenu) => true,
         (VirtualKeyDown, EventType::KeyDown) => true,
         (VirtualKeyUp, EventType::KeyUp) => true,
         (HoveredFile, EventType::FileHover) => true,
@@ -1582,6 +1610,10 @@ fn matches_window_filter(
         (Resized, EventType::WindowResize) => true,
         (FrameChanged, EventType::WindowFrameChanged) => true,
         (Moved, EventType::WindowMove) => true,
+        // Same context-menu routing as the Hover and Focus tables: a
+        // window-level right-click handler should also see the Menu/Apps
+        // key and Shift+F10.
+        (RightMouseDown, EventType::ContextMenu) => true,
         (TouchStart, EventType::TouchStart) => true,
         (TouchMove, EventType::TouchMove) => true,
         (TouchEnd, EventType::TouchEnd) => true,

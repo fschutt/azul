@@ -2098,18 +2098,17 @@ mod autotest_generated {
         // KNOWN_DESYNC records the pairs that are ALREADY broken today (reported
         // separately). The assertion is a *subset* check, so fixing one of them
         // keeps this test green while any NEW desync fails it.
-        const KNOWN_DESYNC: &[EventType] = &[
-            EventType::Click,       // -> Hover(LeftMouseUp), matcher wants EventType::MouseUp
-            EventType::ContextMenu, // -> Hover(RightMouseDown), matcher wants MouseDown
-            EventType::MouseOut,    // -> Hover(MouseOut), matcher has no MouseOut arm
-            EventType::ScrollStart, // -> Hover(Scroll), matcher wants EventType::Scroll
-            EventType::ScrollEnd,   // -> Hover(Scroll), matcher wants EventType::Scroll
-            EventType::FocusIn,     // -> Hover(FocusIn), matcher has no FocusIn arm
-            EventType::FocusOut,    // -> Hover(FocusOut), matcher has no FocusOut arm
-            EventType::CompositionStart, // -> Hover(CompositionStart), no arm
-            EventType::CompositionUpdate, // -> Hover(CompositionUpdate), no arm
-            EventType::CompositionEnd, // -> Hover(CompositionEnd), no arm
-        ];
+        // Entries here are pairs that are ALREADY broken (reported
+        // separately). The assertion is a *subset* check, so fixing one keeps
+        // this test green while any NEW desync fails it.
+        //
+        // Six entries were stale when this list was audited on 2026-09-01 —
+        // `MouseOut`, `FocusIn`, `FocusOut` and the three `Composition*`
+        // types name arms that DO exist. A stale entry is worse than no
+        // entry: it silences the ratchet for a pair that currently works, so
+        // a later regression lands green. Delete an entry the moment its pair
+        // syncs, and never add one without a linked report.
+        const KNOWN_DESYNC: &[EventType] = &[];
 
         let mouse_data = EventData::Mouse(MouseEventData {
             position: LogicalPosition::new(1.0, 1.0),
@@ -2181,6 +2180,12 @@ mod autotest_generated {
             (EventType::KeyringResult, EventData::None),
             (EventType::LongPress, EventData::None),
             (EventType::Play, EventData::None),
+            (EventType::PenDown, EventData::None),
+            (EventType::PenMove, EventData::None),
+            (EventType::PenUp, EventData::None),
+            (EventType::PenEnter, EventData::None),
+            (EventType::PenLeave, EventData::None),
+            (EventType::DocumentEdit, EventData::None),
         ];
 
         for (ty, data) in cases {
@@ -2193,10 +2198,13 @@ mod autotest_generated {
                 assert!(seen.insert(*f), "{ty:?} emitted {f:?} twice");
             }
 
+            // Every family, not just Hover. `propagate_event` re-checks each
+            // planned filter through `matches_filter_phase` regardless of
+            // which family it belongs to, so a Focus or Window desync drops
+            // the callback exactly as silently as a Hover one — and both
+            // existed: `matches_focus_filter` had no Pen arm at all, and
+            // planning named only the Hover half of Touch.
             for f in &filters {
-                if !matches!(f, EventFilter::Hover(_)) {
-                    continue; // only Hover filters are re-checked by propagate_event
-                }
                 if matches_filter_phase(*f, &ev, EventPhase::Target) {
                     continue;
                 }
@@ -2258,10 +2266,30 @@ mod autotest_generated {
         }
         // Gestures ARE mapped (they were not, which is why a Pinch callback
         // never fired) — see every_gesture_event_matches_its_same_named_filter.
+        //
+        // The pen block and `DocumentEdit` are here for the same reason, found
+        // 2026-09-01: they had a producer and a matcher arm but NO planning
+        // arm, so they fell through `_ => vec![]` and planned an empty filter
+        // list. An empty list is the silent failure this loop exists to catch
+        // — nothing is looked up, nothing is rejected, nothing is logged.
+        // Touch and the scroll phases were the same shape, one family deep:
+        // planning named only the Hover half.
         for ty in [
             EventType::PinchIn,
             EventType::RotateClockwise,
             EventType::SwipeLeft,
+            EventType::PenDown,
+            EventType::PenMove,
+            EventType::PenUp,
+            EventType::PenEnter,
+            EventType::PenLeave,
+            EventType::DocumentEdit,
+            EventType::ScrollStart,
+            EventType::ScrollEnd,
+            EventType::TouchStart,
+            EventType::TouchMove,
+            EventType::TouchEnd,
+            EventType::TouchCancel,
         ] {
             assert!(
                 !event_type_to_filters(ty, &EventData::None).is_empty(),
