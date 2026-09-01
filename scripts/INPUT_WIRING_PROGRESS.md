@@ -94,6 +94,19 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       same shape as Win32/macOS. libXrandr is not currently dlopened at all, so this needs a loader entry
       first — unlike XI2, which was already loaded.
 
+### Follow-ups opened by 10a
+
+- [ ] 10a-i The Java side does not exist. `com.azul.text.NativeTextBridge` must own a
+      `BaseInputConnection` on the activity's view, override `onCreateInputConnection` to return it, and
+      forward `commitText` / `setComposingText` / `finishComposingText` / `deleteSurroundingText` to the
+      five `native*` entry points added here. It also has to call `InputMethodManager.showSoftInput` /
+      `hideSoftInputFromWindow` for the keyboard request. Mirror `NativeGestureBridge.java`.
+- [ ] 10a-ii Nothing drains `take_soft_keyboard_request()` yet — the Android shell has to poll it each
+      pass and call across to `NativeTextBridge`.
+- [ ] 10a-iii `EditorInfo` hints (`inputType`, `imeOptions`) are how Android decides to show a numeric pad
+      or a "Go" key instead of Enter. Needs an input-purpose attribute on the DOM node first, which is a
+      design question, not plumbing.
+
 ### Follow-ups opened by 9h
 
 - [ ] 9h-i macOS and Linux equivalents. macOS routes media keys as
@@ -314,7 +327,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
 
 ## Step 10 — mobile parity
 
-- [ ] 10a Android `InputConnection` (JNI bridge) → text input + the composition events from 3d.
+- [x] 10a (native side + JNI entry points + keyboard request; the Java class is 10a-i) Android `InputConnection` (JNI bridge) → text input + the composition events from 3d.
 - [ ] 10b iOS `UITextInput` → text input; `UIPress`/`UIKeyCommand` for hardware keyboard.
 - [ ] 10c Insets / safe area / keyboard avoidance as a layout input (Android `WindowInsets`, iOS safe area).
 - [ ] 10d iOS `UIPencilInteraction` → `PenSqueeze` + `PenDoubleTap`.

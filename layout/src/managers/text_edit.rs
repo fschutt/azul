@@ -380,6 +380,9 @@ pub struct TextEditManager {
     /// Text that goes with `pending_composition`: the preedit for Start and
     /// Update, the COMMITTED string for End.
     pub composition_text: String,
+    /// Pending on-screen-keyboard request: `Some(true)` = show, `Some(false)`
+    /// = hide, `None` = nothing asked this pass.
+    pub pending_soft_keyboard: Option<bool>,
     /// Set to true by any mutation that changes visual output.
     pub display_list_dirty: bool,
     /// Caret / selection tween bookkeeping (see [`TextTweenState`]).
@@ -429,6 +432,7 @@ impl TextEditManager {
             preedit_cursor_end: -1,
             pending_composition: None,
             composition_text: String::new(),
+            pending_soft_keyboard: None,
             display_list_dirty: false,
             tween: TextTweenState::default(),
             pending_edit_notifications: Vec::new(),
@@ -637,6 +641,21 @@ impl TextEditManager {
         self.pending_composition = Some(CompositionPhase::End);
         self.composition_text = committed;
         self.clear_preedit();
+    }
+
+    /// Request that the on-screen keyboard be shown or hidden.
+    ///
+    /// A REQUEST, not a state: only the OS knows whether a keyboard is
+    /// actually up (a hardware keyboard suppresses it, the user can dismiss
+    /// it), so this records intent and the shell reconciles. Desktop shells
+    /// ignore it entirely.
+    pub fn request_soft_keyboard(&mut self, visible: bool) {
+        self.pending_soft_keyboard = Some(visible);
+    }
+
+    /// Drain the on-screen keyboard request, if one was made this pass.
+    pub fn take_soft_keyboard_request(&mut self) -> Option<bool> {
+        self.pending_soft_keyboard.take()
     }
 
     /// Take the pending composition phase, if any. Drained once per pass by

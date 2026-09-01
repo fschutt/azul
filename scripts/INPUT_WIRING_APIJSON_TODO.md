@@ -112,3 +112,8 @@ api.json and unchanged — this arc gave them producers, it did not add them.
 - `EventType::HidReport` + `WindowEventFilter::HidReport` — appended at the END.
 - `CallbackInfo::{get_hid_reports, get_hid_devices, play_haptic}`. The two slice returns need Vec
   wrappers for the C ABI (`HidReportVec`, `HidDeviceVec`).
+
+## From step 10a (mobile text input)
+
+- `CallbackInfo::request_soft_keyboard(visible: bool)`.
+- `TextEditManager.pending_soft_keyboard: Option<bool>` — internal, likely no api.json entry.

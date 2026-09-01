@@ -4988,6 +4988,22 @@ impl CallbackInfo {
             .play(pattern, target);
     }
 
+    /// Ask the platform to show or hide the on-screen keyboard.
+    ///
+    /// A REQUEST, not a setting: only the OS knows whether a keyboard is
+    /// actually up — a hardware keyboard suppresses it, and the user can
+    /// dismiss it at any time — so this records intent and the shell
+    /// reconciles. Desktop shells ignore it.
+    ///
+    /// Focusing a text field does NOT do this implicitly, because a field can
+    /// be focused for reasons that should not raise a keyboard: restoring
+    /// focus after a dialog closes, or a programmatic focus during startup.
+    pub fn request_soft_keyboard(&mut self, visible: bool) {
+        self.get_layout_window_mut()
+            .text_edit_manager
+            .request_soft_keyboard(visible);
+    }
+
     /// Get current pen pressure (0.0 to 1.0)
     /// Returns None if no pen is active, Some(0.5) for mouse
     #[must_use]

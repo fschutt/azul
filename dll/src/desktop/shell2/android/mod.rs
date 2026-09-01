@@ -1465,3 +1465,148 @@ mod jni_bridge {
         });
     }
 }
+
+/// JNI entry points for Android text input.
+///
+/// Android does not hand a NativeActivity keystrokes for text: the soft
+/// keyboard talks to an `InputConnection`, a Java object, and there is no way
+/// to reach one from native code. So the Java side owns a `BaseInputConnection`
+/// on the activity's view and forwards each edit down here — the same shape the
+/// gesture bridge already uses, for the same reason.
+///
+/// This is why `shell2/android` had NO text input at all despite having a full
+/// key path: `KeyEvent` carries navigation and modifier keys, but a soft
+/// keyboard sends `commitText` and `setComposingText` and never synthesizes
+/// key events for them. An IME typing Japanese produces no `KeyEvent` whatsoever.
+#[cfg(target_os = "android")]
+pub mod text_bridge {
+    use super::{with_window, RelayoutReason};
+
+    /// Decode a Java string handed over as UTF-8 bytes.
+    ///
+    /// Bytes rather than a `jstring` because the alternative is calling
+    /// `GetStringUTFChars` through a raw `JNIEnv` vtable, and the Java side has
+    /// to touch the string either way — doing the conversion there keeps the
+    /// unsafe surface here down to a slice.
+    unsafe fn utf8(ptr: *const u8, len: i32) -> String {
+        if ptr.is_null() || len <= 0 {
+            return String::new();
+        }
+        let slice = core::slice::from_raw_parts(ptr, len as usize);
+        String::from_utf8_lossy(slice).into_owned()
+    }
+
+    /// `InputConnection.commitText` — the IME finished composing and this is
+    /// the result.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeCommitText(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        bytes: *const u8,
+        len: i32,
+    ) {
+        let text = utf8(bytes, len);
+        with_window(native_ptr, |w| {
+            if let Some(lw) = w.common.layout_window.as_mut() {
+                // Commit, not clear: this carries the committed string so
+                // CompositionEnd can report it, exactly as the desktop shells
+                // do.
+                lw.text_edit_manager.commit_composition(text.clone());
+                let _ = lw.record_text_input(&text);
+            }
+            w.common.request_regeneration(RelayoutReason::RefreshDom);
+        });
+    }
+
+    /// `InputConnection.setComposingText` — the IME's in-progress preedit.
+    ///
+    /// `cursor_pos` is Android's own convention: > 0 counts from the END of the
+    /// composing text, <= 0 from its start. Normalised to a byte offset here so
+    /// the engine sees the same shape Wayland and Win32 produce.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeSetComposingText(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        bytes: *const u8,
+        len: i32,
+        cursor_pos: i32,
+    ) {
+        let text = utf8(bytes, len);
+        let byte_len = text.len() as i32;
+        let caret = if cursor_pos > 0 {
+            byte_len
+        } else {
+            0
+        };
+        with_window(native_ptr, |w| {
+            if let Some(lw) = w.common.layout_window.as_mut() {
+                lw.text_edit_manager.set_preedit(text.clone(), caret, caret);
+            }
+            w.common.request_regeneration(RelayoutReason::RefreshDom);
+        });
+    }
+
+    /// `InputConnection.finishComposingText` — composition ended without a
+    /// separate commit (the user tapped away, or the IME gave up).
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeFinishComposing(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+    ) {
+        with_window(native_ptr, |w| {
+            if let Some(lw) = w.common.layout_window.as_mut() {
+                // clear_preedit records CompositionEnd on its own, so a
+                // cancelled composition still tells the app to close its
+                // overlay.
+                lw.text_edit_manager.clear_preedit();
+            }
+            w.common.request_regeneration(RelayoutReason::RefreshDom);
+        });
+    }
+
+    /// `InputConnection.deleteSurroundingText` — the IME asking for a
+    /// backspace it did not express as a key.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeDeleteSurrounding(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+        before: i32,
+        after: i32,
+    ) {
+        with_window(native_ptr, |w| {
+            if let Some(lw) = w.common.layout_window.as_mut() {
+                let Some(focused) = lw.focus_manager.get_focused_node().copied() else {
+                    return;
+                };
+                for _ in 0..before.max(0) {
+                    lw.delete_selection(focused, true);
+                }
+                for _ in 0..after.max(0) {
+                    lw.delete_selection(focused, false);
+                }
+            }
+            w.common.request_regeneration(RelayoutReason::RefreshDom);
+        });
+    }
+
+    /// Whether a composition is currently open — the Java side asks so it can
+    /// answer `InputConnection.getComposingText` without duplicating state.
+    #[no_mangle]
+    pub unsafe extern "system" fn Java_com_azul_text_NativeTextBridge_nativeIsComposing(
+        _env: *mut core::ffi::c_void,
+        _class: *mut core::ffi::c_void,
+        native_ptr: i64,
+    ) -> i32 {
+        let mut composing = 0;
+        with_window(native_ptr, |w| {
+            if let Some(lw) = w.common.layout_window.as_ref() {
+                composing = i32::from(lw.text_edit_manager.preedit_text.is_some());
+            }
+        });
+        composing
+    }
+}
