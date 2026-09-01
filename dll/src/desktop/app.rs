@@ -135,6 +135,18 @@ impl App {
         // Discover the real system style (replaces the hard-coded default from AppConfig::create)
         app_config.system_style = discover_system_style();
 
+        // The desktop's OWN icons, into the "system" pack: a submenu arrow, a
+        // drop-down chevron and a tree expander are shapes the platform already
+        // ships as SVG, and drawing our own glyph instead is the difference
+        // between "looks native" and "looks close". Best-effort — a session
+        // with no icon theme registers nothing and every caller keeps its
+        // existing glyph fallback.
+        #[cfg(all(not(miri), target_os = "linux"))]
+        crate::desktop::shell2::linux::system_icons::register_system_icons(
+            &mut app_config.icon_provider,
+            &app_config.system_style,
+        );
+
         // Apply the AppConfig system-animation overrides ON TOP of discovery:
         // the user's scroll physics (momentum / overscroll / wheel-vs-trackpad
         // curves) must survive the discovery overwrite above, and the tween

@@ -351,13 +351,26 @@ fn create_string_menu_item_dom(
         item_dom = item_dom.with_child(shortcut_dom);
     }
 
-    // Submenu arrow (if has children)
+    // Submenu arrow (if has children).
+    //
+    // The DESKTOP's own arrow when it has one (`system:arrow-right`, loaded
+    // from the session's icon theme at startup — see
+    // `linux::system_icons`), because a submenu indicator is a shape every
+    // platform already ships and the hardcoded "▶" is a different weight,
+    // size and baseline from all of them. `create_icon` resolves through the
+    // icon provider, so a session that registered no system pack falls back
+    // to the glyph below and nothing regresses.
     if has_children {
+        // A fallback CHAIN, which is what icon specs are for: the desktop's own
+        // arrow if the session registered one, then the Material glyph that
+        // ships with the engine. An unresolved icon renders as an empty div,
+        // so the chain is what keeps the indicator visible off-KDE.
+        let indicator = Dom::create_icon("system:arrow-right,chevron_right");
         let arrow_dom = Dom::create_div()
             .with_ids_and_classes(IdOrClassVec::from_vec(vec![IdOrClass::Class(
                 "menu-item-arrow".into(),
             )]))
-            .with_child(Dom::create_p_with_text("▶"));
+            .with_child(indicator);
         item_dom = item_dom.with_child(arrow_dom);
     }
 
