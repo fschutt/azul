@@ -451,7 +451,12 @@ fn create_icon_dom(icon: &OptionMenuItemIcon) -> Dom {
                 ]));
                 // Add checkmark if checked
                 if *checked {
-                    icon_dom = icon_dom.with_child(Dom::create_p_with_text("✓"));
+                    // The desktop's own tick where the session has one, the
+                    // engine's Material glyph otherwise (an icon spec is a
+                    // fallback chain; an unresolved icon renders as an empty
+                    // div, so the tail is what keeps the mark visible).
+                    icon_dom =
+                        icon_dom.with_child(Dom::create_icon("system:checkmark,check"));
                 }
             }
             MenuItemIcon::Image(image_ref) => {

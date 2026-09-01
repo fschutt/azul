@@ -96,7 +96,9 @@ const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU {
 ///    that calls `CallbackInfo::modify_window_state()` - exactly the same
 ///    mechanism used for window dragging.  No special event-system hooks.
 ///
-/// Window-control buttons use `Dom::create_icon("close")` etc. so that
+/// Window-control buttons use `Dom::create_icon("system:window-close,close")` — an
+/// icon spec is a fallback chain, so the DESKTOP's own control icons win where
+/// the session registered them and the engine's glyphs cover everywhere else — so that
 /// icons are resolved through the icon provider system (Material Icons
 /// by default) and can be swapped out by registering a different icon pack.
 ///
@@ -514,7 +516,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
-                .with_child(Dom::create_icon("minimize"))
+                .with_child(Dom::create_icon("system:window-minimize,minimize"))
                 .with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -538,7 +540,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
-                .with_child(Dom::create_icon("maximize"))
+                .with_child(Dom::create_icon("system:window-maximize,maximize"))
                 .with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -562,7 +564,7 @@ fn build_button_container(buttons: &TitlebarButtons) -> Dom {
         children.push(
             Dom::create_div()
                 .with_ids_and_classes(classes)
-                .with_child(Dom::create_icon("close"))
+                .with_child(Dom::create_icon("system:window-close,close"))
                 .with_callbacks(
                     vec![CoreCallbackData {
                         event: EventFilter::Hover(HoverEventFilter::MouseDown),
@@ -2265,25 +2267,37 @@ mod autotest_generated {
 
     #[test]
     fn every_button_carries_one_mousedown_callback_and_the_matching_icon() {
-        let expected: [(&str, &str, usize); 3] = [
+        // The icon SPEC is a fallback chain (`system:<freedesktop>,<material>`):
+        // the desktop's own control icon where the session registered one, the
+        // engine's glyph everywhere else. Asserted as a chain rather than as a
+        // literal so the platform half can grow, while still pinning that each
+        // button carries ITS icon and ends in the portable fallback.
+        let expected: [(&str, &str, &str, usize); 3] = [
             (
                 "csd-button-minimize",
+                "system:window-minimize",
                 "minimize",
                 callbacks::csd_minimize as usize,
             ),
             (
                 "csd-button-maximize",
+                "system:window-maximize",
                 "maximize",
                 callbacks::csd_maximize as usize,
             ),
-            ("csd-button-close", "close", callbacks::csd_close as usize),
+            (
+                "csd-button-close",
+                "system:window-close",
+                "close",
+                callbacks::csd_close as usize,
+            ),
         ];
 
         let container = build_button_container(&TitlebarButtons::default());
         let kids = container.children.as_ref();
         assert_eq!(kids.len(), 3);
 
-        for (node, (id, icon, cb)) in kids.iter().zip(expected) {
+        for (node, (id, native, fallback, cb)) in kids.iter().zip(expected) {
             assert_eq!(ids(node), vec![id]);
             assert_eq!(
                 callbacks_of(node),
@@ -2291,9 +2305,11 @@ mod autotest_generated {
                 "{id} must carry exactly one MouseDown callback",
             );
             assert_eq!(node.children.as_ref().len(), 1);
+            let spec = icon_of(&node.children.as_ref()[0])
+                .unwrap_or_else(|| panic!("{id} rendered no icon at all"));
             assert_eq!(
-                icon_of(&node.children.as_ref()[0]),
-                Some(icon),
+                spec,
+                alloc::format!("{native},{fallback}"),
                 "{id} rendered the wrong icon",
             );
         }

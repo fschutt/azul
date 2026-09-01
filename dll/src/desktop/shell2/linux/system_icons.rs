@@ -28,10 +28,31 @@ use azul_css::system::SystemStyle;
 /// Kept small on purpose — this runs on the startup path, and each entry is a
 /// file probe plus an SVG rasterisation.
 const WANTED: &[&str] = &[
+    // Indicators: submenu arrows, drop-down chevrons, tree expanders,
+    // spinner steppers. Four shapes cover all of them.
     "arrow-up",
     "arrow-down",
     "arrow-left",
     "arrow-right",
+    // A menu's checked mark and a checkbox's tick.
+    "checkmark",
+    "dialog-ok",
+    // Close affordances: a toast's dismiss, an alert's ✕, a CSD close button.
+    "window-close",
+    "dialog-close",
+    // Navigation, for back/forward affordances.
+    "go-previous",
+    "go-next",
+    // Steppers on a number input.
+    "list-add",
+    "list-remove",
+    // A search field's magnifier and a hamburger.
+    "edit-find",
+    "application-menu",
+    // CSD window controls — the most-looked-at icons in the whole window.
+    "window-minimize",
+    "window-maximize",
+    "window-restore",
 ];
 
 /// Where freedesktop themes live, most specific first.
