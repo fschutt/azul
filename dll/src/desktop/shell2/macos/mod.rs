@@ -3950,6 +3950,7 @@ impl event::PlatformWindow for MacOSWindow {
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         // Check if native menus are enabled
         if self
@@ -3967,12 +3968,12 @@ impl event::PlatformWindow for MacOSWindow {
             // window — aliased `&mut` on top of plain re-entrancy. Same
             // conversion the right-click path already got; `presentPendingMenu:`
             // does the pop-up on a later run-loop turn, with no borrow live.
-            self.queue_native_context_menu_at_position(menu, position);
+            self.queue_native_context_menu_at_position(menu, position, anchor);
             self.schedule_pending_menu_presentation();
         } else {
             // Show fallback DOM-based menu
             // Make show_window_based_context_menu public or inline its logic
-            self.show_fallback_menu(menu, position);
+            self.show_fallback_menu(menu, position, anchor);
         }
     }
 
@@ -6935,6 +6936,7 @@ impl MacOSWindow {
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         // Get parent window position
         let parent_pos = match self.common.current_window_state().position {
@@ -6949,7 +6951,7 @@ impl MacOSWindow {
             menu.clone(),
             self.common.system_style.clone(),
             parent_pos,
-            None,           // No trigger rect for callback menus
+            anchor,         // The node the menu was opened for (drives min-width)
             Some(position), // Position for menu
             None,           // No parent menu
         );

@@ -1952,12 +1952,34 @@ pub(crate) fn reconcile_transient_windows(
         // manager out, reconciling, and putting it back.
         let mut manager = core::mem::take(&mut layout_window.transient_windows);
         let diff = manager.reconcile(&wanted, |content_dom, placement| {
-            layout_window.layout_transient_content(
+            let measured = layout_window.layout_transient_content(
                 placement.node,
                 content_dom,
                 placement.size,
                 current_window_state,
-            )
+            )?;
+            // A DROP-DOWN IS AT LEAST AS WIDE AS THE CONTROL IT DROPS OUT OF.
+            // A popup on the top or bottom edge is the `<select>` shape - a
+            // combo box's option list, a date field's calendar - and one
+            // narrower than its own field reads as a stray context menu
+            // (2026-09-01 request, alongside the same rule for native menus).
+            // A MINIMUM only: wider content still wins, and an app that gave
+            // an explicit `size` has already been handed it back above, so
+            // this cannot override it. Left/right anchors are side panels,
+            // where the anchor's width means nothing.
+            let widened = if matches!(
+                placement.anchor,
+                azul_core::transient::TransientAnchor::Bottom
+                    | azul_core::transient::TransientAnchor::Top
+            ) {
+                azul_core::geom::LogicalSize::new(
+                    measured.width.max(placement.anchor_rect.size.width),
+                    measured.height,
+                )
+            } else {
+                measured
+            };
+            Some(widened)
         });
         layout_window.transient_windows = manager;
         diff

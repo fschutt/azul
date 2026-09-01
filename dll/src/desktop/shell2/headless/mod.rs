@@ -2779,7 +2779,8 @@ impl PlatformWindow for HeadlessWindow {
     fn show_menu_from_callback(
         &mut self,
         _menu: &azul_core::menu::Menu,
-        _position: LogicalPosition,
+        _position: azul_core::geom::LogicalPosition,
+        _anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         // TODO: could create a sub-HeadlessWindow with the menu content
     }

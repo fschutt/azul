@@ -960,7 +960,12 @@ mod autotest_generated {
                 Update::DoNothing
             );
 
-            let CallbackChange::OpenMenu { menu, position } = env.take_one() else {
+            let CallbackChange::OpenMenu {
+                menu,
+                position,
+                anchor: _,
+            } = env.take_one()
+            else {
                 panic!("expected exactly one OpenMenu change");
             };
             assert_eq!(

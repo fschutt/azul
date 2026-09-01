@@ -169,6 +169,26 @@ use rust_fontconfig::FcFontCache;
 use crate::desktop::wr_translate2::{self, AsyncHitTester, WrRenderApi};
 use crate::{log_debug, log_error, log_trace, log_warn};
 
+/// `AZ_FOCUS_TRACE=1`: one line per focus / popup decision, on stderr.
+///
+/// The popup path crosses TWO windows and three managers, and its `log_debug!`
+/// lines only exist in a `debug-server` build - which is not the build a device
+/// report comes from. This is the one dial that makes "did the popup open, did
+/// it autofocus, with which modality" answerable from a normal run.
+pub(crate) fn focus_trace_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_FOCUS_TRACE").is_ok())
+}
+
+macro_rules! focus_trace {
+    ($($t:tt)*) => {
+        if crate::desktop::shell2::common::event::focus_trace_enabled() {
+            eprintln!("[focus] {}", format_args!($($t)*));
+        }
+    };
+}
+
 const AUTO_SCROLL_EDGE_THRESHOLD: f32 = 30.0;
 const AUTO_SCROLL_MAX_SPEED: f32 = 15.0;
 /// One wheel detent / one scroll "line", in logical pixels — the engine's
@@ -3571,10 +3591,16 @@ pub trait PlatformWindow {
     /// ## Parameters
     /// * `menu` - The menu structure to display
     /// * `position` - The position where the menu should appear (logical coordinates)
+    /// `anchor` is the rect of the node the menu was opened for (parent-window
+    /// logical coordinates), when there is one. A backend that can express a
+    /// minimum width should make the menu AT LEAST that wide - that is what
+    /// makes a drop-down read as native - and flip it against that rect rather
+    /// than against a bare point.
     fn show_menu_from_callback(
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     );
 
     // REQUIRED: Tooltip Display (Platform-Specific Implementation)
@@ -4614,9 +4640,13 @@ pub trait PlatformWindow {
             }
 
             // === Menu / Tooltip ===
-            CallbackChange::OpenMenu { menu, position } => {
+            CallbackChange::OpenMenu {
+                menu,
+                position,
+                anchor,
+            } => {
                 let pos = position.unwrap_or(LogicalPosition::new(0.0, 0.0));
-                self.show_menu_from_callback(menu, pos);
+                self.show_menu_from_callback(menu, pos, *anchor);
                 ProcessEventResult::ShouldReRenderCurrentWindow
             }
 
@@ -4712,7 +4742,9 @@ pub trait PlatformWindow {
                     self.get_layout_window_mut().and_then(|lw| {
                         if opening {
                             if let Some(f) = focus_now {
-                                lw.transient_windows.remember_focus_before_open(node_id, f);
+                                let visible = lw.focus_manager.focus_is_visible;
+                                lw.transient_windows
+                                    .remember_focus_before_open(node_id, f, visible);
                             }
                             None
                         } else {
@@ -4723,12 +4755,25 @@ pub trait PlatformWindow {
                 let changed = self
                     .get_layout_window_mut()
                     .is_some_and(|lw| lw.transient_windows.set_forced_open(node_id, *open));
-                if let Some(target) = restore_to.filter(|_| changed) {
+                focus_trace!(
+                    "set_transient_window_open node={node_id:?} open={open} changed={changed} \
+                     focus_now={focus_now:?}"
+                );
+                if let Some((target, was_visible)) = restore_to.filter(|_| changed) {
                     let old_focus = focus_now;
                     let r = self.apply_system_change(&SystemChange::SetFocus {
                         new_focus: Some(target),
                         old_focus,
                     });
+                    // Hand the RING back too, not just the focus: a picker
+                    // opened with Enter/Space and dismissed with Esc must land
+                    // on a visibly-focused swatch, or the keyboard user loses
+                    // their place (device report, 2026-09-01).
+                    if was_visible {
+                        if let Some(lw) = self.get_layout_window_mut() {
+                            lw.focus_manager.focus_is_visible = true;
+                        }
+                    }
                     log_debug!(
                         super::debug_server::LogCategory::Window,
                         "[transient] popup closed - focus returned to {:?}",
@@ -8087,6 +8132,39 @@ pub trait PlatformWindow {
             r.relayout_iterations = r.relayout_iterations.max(depth_u32 + 1);
         }
 
+        // FOCUS OWED BACK BY A DISMISSAL. Escape, an outside press, or a
+        // popup closing itself never reach the explicit
+        // `SetTransientWindowOpen{open:false}` seam - the widget only hears
+        // `Dismissed` - so the engine records the debt at dismissal time and
+        // pays it here, on the parent's next pass. Without it, dismissing a
+        // colour picker with Escape left focus (and the ring) NOWHERE, and the
+        // next Tab restarted from the top of the document.
+        if let Some((target, was_visible)) = self
+            .get_layout_window_mut()
+            .and_then(|lw| lw.transient_windows.take_pending_focus_restore())
+        {
+            let old_focus = self
+                .get_layout_window()
+                .and_then(|lw| lw.focus_manager.get_focused_node().copied());
+            let r = self.apply_system_change(&SystemChange::SetFocus {
+                new_focus: Some(target),
+                old_focus,
+            });
+            let _ = r;
+            if was_visible {
+                if let Some(lw) = self.get_layout_window_mut() {
+                    lw.focus_manager.focus_is_visible = true;
+                }
+            }
+            focus_trace!("dismissal returned focus to {target:?} (ring={was_visible})");
+            log_debug!(
+                super::debug_server::LogCategory::Window,
+                "[transient] dismissal returned focus to {:?} (ring={})",
+                target,
+                was_visible
+            );
+        }
+
         // AUTOFOCUS A POPUP. A transient window is a separate OS window, so
         // Tab cannot walk into it from the parent (its content DOM is out of
         // the parent's focus scope, by design). That makes it keyboard-dead
@@ -8132,12 +8210,29 @@ pub trait PlatformWindow {
                         }
                     })
                 });
+                focus_trace!("popup autofocus: target={target:?}");
                 if let Some(target) = target {
                     let r = self.apply_system_change(&SystemChange::SetFocus {
                         new_focus: Some(target),
                         old_focus: None,
                     });
                     let _ = r;
+                    // MODALITY INHERITANCE. `SetFocus` clears `:focus-visible`
+                    // for every route (see its comment), which is right for a
+                    // popup the user CLICKED open - and wrong for one opened
+                    // with Enter/Space, where the keyboard is driving and the
+                    // autofocused control must be ringed or the popup looks
+                    // dead. The opener's modality rides across the window
+                    // boundary in the mailbox.
+                    let inherit = super::transient::opened_with_visible_focus(
+                        self.get_current_window_state(),
+                    );
+                    focus_trace!("popup autofocus: ring inherited={inherit}");
+                    if inherit {
+                        if let Some(lw) = self.get_layout_window_mut() {
+                            lw.focus_manager.focus_is_visible = true;
+                        }
+                    }
                 }
             }
         }
@@ -8789,6 +8884,26 @@ pub trait PlatformWindow {
                 mouse_state: &current_window_state.mouse_state,
                 state: InputInterpreterState {
                     focused_node: layout_window.focus_manager.get_focused_node().copied(),
+                    // Only a TEXT-EDITING focus owns the arrow keys. Anywhere
+                    // else they belong to the focused widget (slider, colour
+                    // plane) and then to the scroll default action. The
+                    // interpreter used to claim them unconditionally with
+                    // `AddAndSkip`, which swallowed the key before any
+                    // callback ran.
+                    focus_is_editable: layout_window
+                        .focus_manager
+                        .get_focused_node()
+                        .and_then(|f| {
+                            let node = f.node.into_crate_internal()?;
+                            let lr = layout_window.layout_results.get(&f.dom)?;
+                            Some(
+                                azul_layout::solver3::getters::is_node_contenteditable_inherited(
+                                    &lr.styled_dom,
+                                    node,
+                                ),
+                            )
+                        })
+                        .unwrap_or(false),
                     click_count: 1,
                     // Where the press that began this drag landed — latched
                     // above, and only when it was on an editable.

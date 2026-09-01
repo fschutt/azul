@@ -1330,7 +1330,9 @@ impl MacOSWindow {
             .flags
             .use_native_context_menus
         {
-            self.queue_native_context_menu_at_position(&context_menu, position);
+            // A right-click context menu has no anchor control: it opens at
+            // the cursor and sizes itself to its items.
+            self.queue_native_context_menu_at_position(&context_menu, position, None);
         } else {
             self.show_window_based_context_menu(&context_menu, position);
         }
@@ -1348,6 +1350,7 @@ impl MacOSWindow {
         &mut self,
         menu: &azul_core::menu::Menu,
         position: LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         use objc2_app_kit::NSMenu;
         use objc2_foundation::{MainThreadMarker, NSPoint};
@@ -1364,6 +1367,17 @@ impl MacOSWindow {
         };
 
         let ns_menu = NSMenu::new(mtm);
+
+        // A drop-down is AT LEAST as wide as the control it drops out of -
+        // that is what an NSPopUpButton does, and a menu narrower than its
+        // swatch/button reads as a stray context menu (2026-09-01 request).
+        // `minimumWidth` is a floor, so a long item still widens the menu.
+        if let Some(width) = anchor
+            .map(|a| a.size.width)
+            .filter(|w| *w > 0.0)
+        {
+            ns_menu.setMinimumWidth(f64::from(width));
+        }
 
         // Build menu items recursively from Azul menu structure
         Self::recursive_build_nsmenu(&ns_menu, menu.items.as_slice(), &mtm, &mut self.menu_state);

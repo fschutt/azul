@@ -6697,6 +6697,7 @@ impl PlatformWindow for Win32Window {
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         // Check if native menus are enabled
         if self
@@ -6705,11 +6706,13 @@ impl PlatformWindow for Win32Window {
             .flags
             .use_native_context_menus
         {
-            // Show native Win32 menu
+            // Show native Win32 menu. Win32's TrackPopupMenu sizes itself
+            // to its items and offers no minimum width short of owner-draw,
+            // so `anchor` only reaches the fallback path here.
             self.show_native_menu_at_position(menu, position);
         } else {
             // Show fallback DOM-based menu
-            self.show_fallback_menu(menu, position);
+            self.show_fallback_menu(menu, position, anchor);
         }
     }
 
@@ -6796,6 +6799,7 @@ impl Win32Window {
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         // Get parent window position
         let parent_pos = match self.common.current_window_state().position {
@@ -6810,7 +6814,7 @@ impl Win32Window {
             menu.clone(),
             self.common.system_style.clone(),
             parent_pos,
-            None,           // No trigger rect
+            anchor,         // The node the menu was opened for (drives min-width)
             Some(position), // Position for menu
             None,           // No parent menu
         );

@@ -594,7 +594,18 @@ pub struct TransientWindowManager {
     /// left focus nowhere, so the next Tab restarted from the top of the
     /// document. Kept HERE, at the one seam every popup opens through, so no
     /// widget has to remember it (and none can forget).
-    focus_before_open: Vec<(NodeId, azul_core::dom::DomNodeId)>,
+    /// The bool is the opener's `:focus-visible` MODALITY, so a popup opened
+    /// with Enter/Space hands the ring back too - not a bare, unringed focus.
+    focus_before_open: Vec<(NodeId, azul_core::dom::DomNodeId, bool)>,
+    /// A popup the ENGINE closed (Escape, an outside press, the popup
+    /// dismissing itself) left this focus owed back to the parent.
+    ///
+    /// The explicit `set_transient_window_open(node, false)` route hands focus
+    /// back at its own seam, but a DISMISSAL never reaches it - the widget only
+    /// hears `Dismissed` and updates its own state - so an Escape used to leave
+    /// focus (and the ring) nowhere (device report, 2026-09-01). Drained once,
+    /// by the shell, on the next pass.
+    pending_focus_restore: Option<(azul_core::dom::DomNodeId, bool)>,
     /// Nodes a callback opened with `set_transient_window_open(node, true)`.
     /// Held here, node-keyed, so a self-contained widget (the colour picker's
     /// swatch) can open its popup without the app threading an `open` flag
@@ -680,6 +691,7 @@ impl TransientWindowManager {
             closed_surfaces: Vec::new(),
             forced_open: Vec::new(),
             focus_before_open: Vec::new(),
+            pending_focus_restore: None,
             dock_generation: 0,
         }
     }
@@ -711,6 +723,13 @@ impl TransientWindowManager {
     pub fn dismiss(&mut self, source_node: NodeId) -> Option<OpenTransientWindow> {
         // The user closed it: a callback's "keep open" is over too.
         self.forced_open.retain(|n| *n != source_node);
+        // A dismissal is a close like any other: it owes focus back to
+        // whatever opened the popup. Taken HERE so all three dismissal routes
+        // (Escape in the parent, an outside press, the popup dismissing
+        // itself) inherit it without each having to remember.
+        if let Some(restore) = self.take_focus_before_open(source_node) {
+            self.pending_focus_restore = Some(restore);
+        }
         if !self.dismissed.contains(&source_node) {
             self.dismissed.push(source_node);
         }
@@ -755,16 +774,37 @@ impl TransientWindowManager {
     /// Remember where focus was as `node`'s popup opens. Overwrites any
     /// earlier record for the same node: the latest opening is the one whose
     /// focus we owe the user back.
-    pub fn remember_focus_before_open(&mut self, node: NodeId, focused: azul_core::dom::DomNodeId) {
-        self.focus_before_open.retain(|(n, _)| *n != node);
-        self.focus_before_open.push((node, focused));
+    /// `visible` is the opener's `:focus-visible` state, handed back on close.
+    pub fn remember_focus_before_open(
+        &mut self,
+        node: NodeId,
+        focused: azul_core::dom::DomNodeId,
+        visible: bool,
+    ) {
+        self.focus_before_open.retain(|(n, _, _)| *n != node);
+        self.focus_before_open.push((node, focused, visible));
     }
 
     /// Take back the focus recorded for `node` (one-shot, so a second close
-    /// cannot steal focus from wherever the user has since moved it).
-    pub fn take_focus_before_open(&mut self, node: NodeId) -> Option<azul_core::dom::DomNodeId> {
-        let i = self.focus_before_open.iter().position(|(n, _)| *n == node)?;
-        Some(self.focus_before_open.remove(i).1)
+    /// cannot steal focus from wherever the user has since moved it), together
+    /// with whether it was INDICATED when the popup opened.
+    pub fn take_focus_before_open(
+        &mut self,
+        node: NodeId,
+    ) -> Option<(azul_core::dom::DomNodeId, bool)> {
+        let i = self
+            .focus_before_open
+            .iter()
+            .position(|(n, _, _)| *n == node)?;
+        let (_, focused, visible) = self.focus_before_open.remove(i);
+        Some((focused, visible))
+    }
+
+    /// Focus a dismissal owes back to the parent, if any. One-shot.
+    pub fn take_pending_focus_restore(
+        &mut self,
+    ) -> Option<(azul_core::dom::DomNodeId, bool)> {
+        self.pending_focus_restore.take()
     }
 
     /// Nodes currently held open by a callback.
@@ -1059,6 +1099,28 @@ impl crate::managers::NodeIdRemap for TransientWindowManager {
             .iter()
             .filter_map(|n| map.resolve(*n))
             .collect();
+        // Focus owed back follows its nodes too - both the popup that
+        // remembered it and the node the focus goes to (which lives in this
+        // same root dom).
+        let remap_target = |t: &azul_core::dom::DomNodeId| {
+            if t.dom != DomId::ROOT_ID {
+                return Some(*t);
+            }
+            let old = t.node.into_crate_internal()?;
+            let new = map.resolve(old)?;
+            Some(azul_core::dom::DomNodeId {
+                dom: t.dom,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(new)),
+            })
+        };
+        self.focus_before_open = self
+            .focus_before_open
+            .iter()
+            .filter_map(|(n, t, v)| Some((map.resolve(*n)?, remap_target(t)?, *v)))
+            .collect();
+        self.pending_focus_restore = self
+            .pending_focus_restore
+            .and_then(|(t, v)| Some((remap_target(&t)?, v)));
     }
 }
 
@@ -1321,10 +1383,10 @@ mod focus_return_tests {
         let mut m = TransientWindowManager::new();
         let popup = NodeId::new(7);
 
-        m.remember_focus_before_open(popup, dnid(3));
+        m.remember_focus_before_open(popup, dnid(3), true);
         assert_eq!(
             m.take_focus_before_open(popup),
-            Some(dnid(3)),
+            Some((dnid(3), true)),
             "closing must hand back the node focus came from",
         );
 
@@ -1338,18 +1400,18 @@ mod focus_return_tests {
     fn reopening_a_popup_overwrites_the_remembered_origin() {
         let mut m = TransientWindowManager::new();
         let popup = NodeId::new(7);
-        m.remember_focus_before_open(popup, dnid(3));
-        m.remember_focus_before_open(popup, dnid(9));
-        assert_eq!(m.take_focus_before_open(popup), Some(dnid(9)));
+        m.remember_focus_before_open(popup, dnid(3), false);
+        m.remember_focus_before_open(popup, dnid(9), true);
+        assert_eq!(m.take_focus_before_open(popup), Some((dnid(9), true)));
     }
 
     /// Two popups do not cross their records.
     #[test]
     fn each_popup_remembers_its_own_origin() {
         let mut m = TransientWindowManager::new();
-        m.remember_focus_before_open(NodeId::new(1), dnid(10));
-        m.remember_focus_before_open(NodeId::new(2), dnid(20));
-        assert_eq!(m.take_focus_before_open(NodeId::new(2)), Some(dnid(20)));
-        assert_eq!(m.take_focus_before_open(NodeId::new(1)), Some(dnid(10)));
+        m.remember_focus_before_open(NodeId::new(1), dnid(10), true);
+        m.remember_focus_before_open(NodeId::new(2), dnid(20), false);
+        assert_eq!(m.take_focus_before_open(NodeId::new(2)), Some((dnid(20), false)));
+        assert_eq!(m.take_focus_before_open(NodeId::new(1)), Some((dnid(10), true)));
     }
 }

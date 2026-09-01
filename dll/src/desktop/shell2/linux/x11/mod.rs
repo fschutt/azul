@@ -6303,6 +6303,7 @@ impl PlatformWindow for X11Window {
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         // Check if native menus are enabled (GNOME menus on Linux)
         if self
@@ -6318,10 +6319,10 @@ impl PlatformWindow for X11Window {
                 position.x,
                 position.y
             );
-            self.show_fallback_menu(menu, position);
+            self.show_fallback_menu(menu, position, anchor);
         } else {
             // Show fallback DOM-based menu
-            self.show_fallback_menu(menu, position);
+            self.show_fallback_menu(menu, position, anchor);
         }
     }
 
@@ -6362,6 +6363,7 @@ impl X11Window {
         &mut self,
         menu: &azul_core::menu::Menu,
         position: azul_core::geom::LogicalPosition,
+        anchor: Option<azul_core::geom::LogicalRect>,
     ) {
         // Get parent window position
         let parent_pos = match self.common.current_window_state().position {
@@ -6380,12 +6382,21 @@ impl X11Window {
         let physical_cursor =
             azul_core::geom::LogicalPosition::new(position.x * scale, position.y * scale);
 
+        // The anchor is logical like `position`; scale it into the same
+        // physical space the rest of this call works in.
+        let physical_anchor = anchor.map(|a| {
+            azul_core::geom::LogicalRect::new(
+                azul_core::geom::LogicalPosition::new(a.origin.x * scale, a.origin.y * scale),
+                azul_core::geom::LogicalSize::new(a.size.width * scale, a.size.height * scale),
+            )
+        });
+
         // Create menu window options
         let mut menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
             parent_pos,
-            None,                  // No trigger rect
+            physical_anchor,       // The node the menu was opened for (drives min-width)
             Some(physical_cursor), // Position for menu (physical px)
             None,                  // No parent menu
         );
