@@ -4539,6 +4539,60 @@ mod tests {
     /// activation dispatches a synthetic `EventType::Click`, which matched
     /// no `HoverEventFilter::MouseUp` listener, so every widget ignored
     /// Enter and Space.
+    /// A POINTER CLICK must activate a button, exactly once.
+    ///
+    /// The keyboard half is covered by
+    /// `tab_then_space_activates_a_button_through_its_callback`; this is the
+    /// mouse half, and it is the one that broke when widgets moved from
+    /// `MouseUp` to `Click` (device: clicking a widget set focus but ran no
+    /// handler).
+    #[test]
+    fn a_pointer_click_activates_a_button_exactly_once() {
+        use azul_core::refany::RefAny;
+        use azul_layout::widgets::button::{Button, ButtonOnClickCallbackType};
+
+        #[derive(Debug)]
+        struct Count(u32);
+
+        extern "C" fn on_click(
+            mut data: RefAny,
+            _: azul_layout::callbacks::CallbackInfo,
+        ) -> azul_core::callbacks::Update {
+            if let Some(mut c) = data.downcast_mut::<Count>() {
+                c.0 += 1;
+            }
+            azul_core::callbacks::Update::DoNothing
+        }
+
+        let mut count = RefAny::new(Count(0));
+        let mut dom = Dom::create_body().with_child(
+            Button::create("Press me".into())
+                .with_on_click(count.clone(), on_click as ButtonOnClickCallbackType)
+                .dom(),
+        );
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } body { font-size: 16px; width: 400px; height: 200px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+
+        let test: super::E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "pointer_click_activates",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [
+                { "op": "wait_frame" },
+                { "op": "click", "selector": ".__azul-native-button" },
+                { "op": "wait_frame" },
+                { "op": "wait_frame" }
+            ]
+        }))
+        .expect("scenario json");
+
+        let (result, _runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+        assert_eq!(result.status, "pass", "{:#?}", result.steps);
+        let n = count.downcast_ref::<Count>().map_or(0, |c| c.0);
+        assert_eq!(n, 1, "a click must run the handler exactly once, ran {n}x");
+    }
+
     #[test]
     fn tab_then_space_activates_a_button_through_its_callback() {
         use azul_core::refany::RefAny;
