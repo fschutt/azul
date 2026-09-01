@@ -15,7 +15,7 @@ use azul_core::{
     id::NodeId,
     styled_dom::NodeHierarchyItemId,
     task::{Instant, SystemTick},
-    window::{CursorPosition, WindowPosition},
+    window::{CursorPosition, VirtualKeyCode, WindowPosition},
 };
 
 use std::collections::BTreeSet;
@@ -401,6 +401,25 @@ pub fn determine_all_events(
                 timestamp.clone(),
                 make_mouse_data(button),
             ));
+            // A right-button release is also a context-menu request. Emitting
+            // it here rather than in each shell means the three spellings of
+            // "open the context menu" — this, the Menu/Apps key and Shift+F10
+            // below, and the accessibility `ShowContextMenu` action — converge
+            // on one event type instead of three per-platform paths.
+            //
+            // `event_type_to_filters` routes `ContextMenu` to the
+            // `RightMouseDown` filter, so this reaches the handler an app
+            // already registered for right-click without needing a filter
+            // variant of its own.
+            if button == MouseButton::Right {
+                events.push(SyntheticEvent::new(
+                    EventType::ContextMenu,
+                    EventSource::User,
+                    mouse_target,
+                    timestamp.clone(),
+                    make_mouse_data(button),
+                ));
+            }
         }
     }
 
@@ -672,6 +691,23 @@ pub fn determine_all_events(
             timestamp.clone(),
             keyboard_data,
         ));
+
+        // The keyboard spellings of "open the context menu": the dedicated
+        // Menu/Apps key, and Shift+F10 for keyboards without one. Both target
+        // the FOCUSED node, not the hovered one — that is the whole point of
+        // the keyboard path, and it is what a screen-reader or keyboard-only
+        // user relies on to reach a context menu at all.
+        let is_menu_key = current_key == Some(VirtualKeyCode::Apps);
+        let is_shift_f10 = current_key == Some(VirtualKeyCode::F10) && modifiers.shift;
+        if is_menu_key || is_shift_f10 {
+            events.push(SyntheticEvent::new(
+                EventType::ContextMenu,
+                EventSource::User,
+                focus_target,
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
     }
     let key_up_data = EventData::Keyboard(KeyboardEventData {
         key_code: previous_key.map_or(0, |k| k as u32),

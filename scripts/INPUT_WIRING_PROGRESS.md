@@ -70,7 +70,7 @@ whether the bridge should suppress its synthetic mouse events when a `Pen*` subs
       `(TextInput, EventType::Change)`.
 - [x] 2c Emit `ScrollStart`/`ScrollEnd` from the `ScrollInputSource` transitions the physics timer already computes
       (`layout/src/managers/scroll_state.rs` + callers).
-- [ ] 2d Emit `ContextMenu` from right-button-up, the Menu/Apps key, and Shift+F10 on all four desktop shells.
+- [x] 2d Emit `ContextMenu` from right-button-up, the Menu/Apps key, and Shift+F10 on all four desktop shells.
 
 ## Step 3 — C3: missing producers
 
