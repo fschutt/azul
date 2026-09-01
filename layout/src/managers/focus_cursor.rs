@@ -378,13 +378,50 @@ fn collect_tab_order(
         if out_of_scope.contains(dom_id) {
             continue;
         }
+        // A `<transient-window>`'s SUBTREE is not rendered by this window: it
+        // is the template the popup's own window shows, extracted into its own
+        // DOM when the popup opens. The parent's copy is never on screen, so
+        // it can hold no tab stops - Tab landed on it anyway (a ColorInput has
+        // ONE real stop, the swatch, and EIGHT under its transient node), and
+        // then arrow keys did nothing because the focused node was the
+        // parent's dead copy rather than the live control the popup displays
+        // (device report, 2026-09-01).
         let node_data = layout.styled_dom.node_data.as_container();
+        let hierarchy = layout.styled_dom.node_hierarchy.as_container();
+        let transient_roots: Vec<NodeId> = (0..node_data.len())
+            .map(NodeId::new)
+            .filter(|n| {
+                node_data.get(*n).is_some_and(|nd| {
+                    matches!(nd.get_node_type(), azul_core::dom::NodeType::TransientWindow(_))
+                })
+            })
+            .collect();
+        let under_transient = |mut n: NodeId| -> bool {
+            if transient_roots.is_empty() {
+                return false;
+            }
+            let mut guard = 0usize;
+            while let Some(parent) = hierarchy.get(n).and_then(|h| h.parent_id()) {
+                guard += 1;
+                if guard > 65_536 {
+                    break;
+                }
+                if transient_roots.contains(&parent) {
+                    return true;
+                }
+                n = parent;
+            }
+            false
+        };
         for index in 0..node_data.len() {
             let node_id = NodeId::new(index);
             let Some(nd) = node_data.get(node_id) else {
                 continue;
             };
             if !nd.is_focusable() {
+                continue;
+            }
+            if under_transient(node_id) {
                 continue;
             }
             let dom_node = FocusSearchContext::make_dom_node_id(*dom_id, node_id);
@@ -1425,6 +1462,44 @@ mod autotest_generated {
     /// working entirely (device report, 2026-09-01). Inside the popup's own
     /// window that same content is the ROOT dom and hosts no popups, so its
     /// scope is empty and it stays fully tabbable there.
+    /// A `<transient-window>`'s SUBTREE holds no tab stops in the parent.
+    ///
+    /// The popup's controls live in the PARENT's DOM as children of the
+    /// transient node - a ColorInput has ONE real stop (the swatch) and EIGHT
+    /// under its transient node - and that copy is never rendered by the
+    /// parent window. Tab landed on it anyway, and arrow keys then did
+    /// nothing, because the focused node was the parent's dead copy rather
+    /// than the live control the popup window shows (device report,
+    /// 2026-09-01).
+    #[test]
+    fn collect_tab_order_skips_everything_under_a_transient_window() {
+        use azul_core::dom::{Dom, NodeType, TabIndex};
+
+        let stop = || {
+            let mut d = Dom::create_div();
+            d.set_tab_index(TabIndex::Auto);
+            d
+        };
+        // body > [ real stop, transient-window > [ hidden stop, hidden stop ] ]
+        let sd = StyledDom::create_from_dom(
+            Dom::create_body().with_child(stop()).with_child(
+                Dom::create_node(NodeType::TransientWindow(Default::default()))
+                    .with_child(stop())
+                    .with_child(stop()),
+            ),
+        );
+
+        let order = collect_tab_order(
+            &window(vec![(dom(0), sd)]),
+            &BTreeSet::new(),
+        );
+        assert_eq!(
+            order,
+            vec![nid(0, 1)],
+            "only the node OUTSIDE the transient subtree is a tab stop, got {order:?}",
+        );
+    }
+
     #[test]
     fn collect_tab_order_skips_doms_outside_this_windows_focus_scope() {
         let results = window(vec![(dom(0), tab_fixture()), (dom(1), tab_fixture())]);
