@@ -1026,6 +1026,8 @@ fn theme_gallery_panel(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
     let mut v = vec![
         Cond::simple(P::const_display(LayoutDisplay::None)),
         Cond::simple(P::const_position(LayoutPosition::Absolute)),
+        // Same reason as the mobile overlay: absolute is not "on top".
+        Cond::simple(P::const_z_index(LayoutZIndex::Integer(100))),
         Cond::simple(P::const_top(LayoutTop::const_px(68))),
         Cond::simple(P::const_left(LayoutLeft::const_px(0))),
         Cond::simple(P::const_width(LayoutWidth::const_px(612))),
@@ -1186,6 +1188,12 @@ fn theme_mobile_tab_overlay(t: &RibbonTheme) -> CssPropertyWithConditionsVec {
         Cond::simple(P::const_display(LayoutDisplay::None)),
         cond_border_box(),
         Cond::simple(P::const_position(LayoutPosition::Absolute)),
+        // ABOVE its siblings. `position: absolute` only takes a node out of
+        // flow — it does not lift it in paint order, so with no z-index the
+        // overlay was painted and then covered by the mobile band, which is a
+        // LATER sibling in the same container. Nothing in the widget set
+        // rendered above anything, because no widget set z-index at all.
+        Cond::simple(P::const_z_index(LayoutZIndex::Integer(100))),
         Cond::simple(P::const_top(LayoutTop::const_px(0))),
         Cond::simple(P::const_left(LayoutLeft::const_px(0))),
         Cond::simple(P::const_width(LayoutWidth::Px(PixelValue::const_percent(

@@ -7433,6 +7433,10 @@ impl CssProperty {
         Self::Position(LayoutPositionValue::Exact(input))
     }
     #[must_use]
+    pub const fn const_z_index(input: LayoutZIndex) -> Self {
+        Self::ZIndex(LayoutZIndexValue::Exact(input))
+    }
+    #[must_use]
     pub const fn const_top(input: LayoutTop) -> Self {
         Self::Top(LayoutTopValue::Exact(input))
     }
