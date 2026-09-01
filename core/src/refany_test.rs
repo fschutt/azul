@@ -1251,4 +1251,31 @@ mod autotest_generated {
 
         assert_eq!(shared.get_ref_count(), 1);
     }
+
+    /// A RELEASED `RefAny` — one whose `RefCount` has been dropped, which nulls
+    /// the pointer on purpose so a second C-side delete is a no-op — must be
+    /// safe to INTERROGATE from Rust. It used to abort the process instead:
+    /// `get_type_id` walked straight into `RefCount::downcast`'s assertion, and
+    /// the release build is `panic = "abort"`, so a stale callback data pointer
+    /// took the whole app down on an ordinary focus change (device report,
+    /// 2026-09-01). The answer is "nothing here", not death.
+    #[test]
+    fn a_released_refany_answers_instead_of_aborting() {
+        let mut released = RefAny::new(7u32);
+        // Exactly what `RefCount::drop` leaves behind.
+        released.sharing_info.ptr = core::ptr::null();
+
+        assert_eq!(released.get_type_id(), 0, "a released RefAny has no type");
+        assert_eq!(released.get_type_name().as_str(), "<released>");
+        assert!(
+            released.downcast_ref::<u32>().is_none(),
+            "there is nothing to borrow",
+        );
+        assert!(
+            released.downcast_mut::<u32>().is_none(),
+            "there is nothing to borrow mutably",
+        );
+        // And the type it really held must not be reachable either.
+        assert!(released.downcast_ref::<u8>().is_none());
+    }
 }
